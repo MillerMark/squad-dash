@@ -141,14 +141,16 @@ internal sealed class SquadSdkProcessTests {
 
     [Test]
     public async Task RunPromptAsync_TimesOutAfterConfiguredInactivityWindow() {
+        // Use a script that sleeps for much longer than the timeout and never emits a done
+        // event, so the inactivity timeout fires deterministically regardless of how long
+        // powershell.exe takes to start on the host (which can exceed 1 second on CI).
+        // The 500 ms poll/restart wait in SendBridgeRequestWithRestartAsync must not be able
+        // to let a stale done event sneak through before WaitForPromptOutcomeAsync runs.
         await using var sut = new SquadSdkProcess(
-            () => BuildPowerShellScriptStartInfo("""
-                Start-Sleep -Milliseconds 250
-                Write-Output '{"type":"done","message":""}'
-                """),
+            () => BuildPowerShellScriptStartInfo("Start-Sleep -Seconds 60"),
             new SquadSdkProcessOptions {
-                PromptInactivityTimeout = TimeSpan.FromMilliseconds(80),
-                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(20)
+                PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50)
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
