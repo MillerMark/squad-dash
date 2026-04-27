@@ -1,3 +1,9 @@
+---
+title: Contributing
+nav_order: 6
+has_children: true
+---
+
 # Contributing
 
 How to contribute to SquadDash — adding agents, writing docs, and extending functionality.

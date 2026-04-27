@@ -1,3 +1,9 @@
+---
+title: Concepts
+nav_order: 4
+has_children: true
+---
+
 # Concepts
 
 This section explains the core concepts behind SquadDash and the Squad AI team model.

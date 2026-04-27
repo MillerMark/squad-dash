@@ -1,3 +1,9 @@
+---
+title: Reference
+nav_order: 5
+has_children: true
+---
+
 # Reference
 
 This section provides technical reference material for SquadDash configuration, routing, and keyboard shortcuts.

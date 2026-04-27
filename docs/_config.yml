@@ -1,0 +1,15 @@
+title: SquadDash
+description: A native Windows dashboard for managing AI coding agent teams powered by the Squad CLI.
+baseurl: "/squad-dash"
+url: "https://millermark.github.io"
+
+remote_theme: just-the-docs/just-the-docs
+
+# just-the-docs settings
+color_scheme: light
+search_enabled: true
+
+# Exclude GitBook-style files that aren't Jekyll pages
+exclude:
+  - SUMMARY.md
+  - screenshots/

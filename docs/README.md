@@ -1,3 +1,9 @@
+---
+title: Home
+nav_order: 1
+permalink: /
+---
+
 # SquadDash
 
 **A native Windows dashboard for managing AI coding agent teams powered by the Squad CLI.**

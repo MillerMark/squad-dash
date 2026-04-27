@@ -1,3 +1,9 @@
+---
+title: Features
+nav_order: 3
+has_children: true
+---
+
 # Features
 
 In-depth guides for SquadDash's view modes and UI features.
