@@ -13,6 +13,7 @@ TypeScript and SDK expert responsible for the Squad.SDK layer that bridges the C
 - Own event type definitions: `session_ready`, `thinking`, `subagent_started`, `subagent_message`, `tool_start`, `tool_progress`, `tool_complete`, `response_delta`, `done`
 - Own the TypeScript build pipeline (`tsconfig.json`, `eslint.config.js`, `package.json`)
 - Own npm dependency management (`@bradygaster/squad-sdk`, `tsx`, `typescript`, `eslint`)
+- Own `@bradygaster/squad-cli` version management — with each Squad CLI release, analyze the release notes and SDK diff, identify new commands and events relevant to SquadDash, and propose SDK bridge changes
 - Maintain session lifecycle management (start, prompt, background tasks, shutdown)
 - Ensure backward compatibility of the event protocol with `SquadSdkEvent.cs` in SquadDash
 
