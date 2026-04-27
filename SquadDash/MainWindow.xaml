@@ -1004,6 +1004,7 @@
                                   Foreground="{DynamicResource LabelText}"
                                   PreviewMouseLeftButtonDown="DocTopicsTreeView_PreviewMouseLeftButtonDown"
                                   PreviewMouseMove="DocTopicsTreeView_PreviewMouseMove"
+                                  MouseRightButtonUp="DocTopicsTreeView_MouseRightButtonUp"
                                   DragOver="DocTopicsTreeView_DragOver"
                                   DragLeave="DocTopicsTreeView_DragLeave"
                                   Drop="DocTopicsTreeView_Drop">

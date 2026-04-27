@@ -1229,19 +1229,45 @@ internal sealed class HireAgentWindow : Window {
             agents);
     }
 
+    private static bool ContainsUniverseHeadings(string[] lines) =>
+        lines.Any(line => {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("### ", StringComparison.Ordinal))
+                return false;
+            var heading = trimmed[4..].Trim();
+            return heading.LastIndexOf(" (", StringComparison.Ordinal) > 0;
+        });
+
     private static IReadOnlyList<HireUniverseDefinition> LoadReferenceUniverses(
         string? workspaceFolderPath,
         ApplicationSettingsSnapshot settingsSnapshot,
         string agentImageAssetsDirectory,
         IReadOnlySet<string> existingTeamNames) {
-        if (string.IsNullOrWhiteSpace(workspaceFolderPath))
+        string[]? workspaceLines = null;
+
+        // Try workspace-local casting-reference.md first.
+        if (!string.IsNullOrWhiteSpace(workspaceFolderPath)) {
+            var referencePath = Path.Combine(workspaceFolderPath, ".squad", "templates", "casting-reference.md");
+            if (File.Exists(referencePath))
+                workspaceLines = File.ReadAllLines(referencePath);
+        }
+
+        // Load the embedded resource (contains the canonical character pools in ### heading format).
+        string[]? embeddedLines = null;
+        var embedded = SquadInstallerService.LoadEmbeddedCastingReferenceMdPublic();
+        if (!string.IsNullOrEmpty(embedded))
+            embeddedLines = embedded.Split('\n');
+
+        // Prefer workspace lines, but fall back to embedded if the workspace file either doesn't
+        // exist or doesn't contain parseable universe headings (e.g. new table-only format).
+        string[] lines;
+        if (workspaceLines is not null && ContainsUniverseHeadings(workspaceLines))
+            lines = workspaceLines;
+        else if (embeddedLines is not null)
+            lines = embeddedLines;
+        else
             return Array.Empty<HireUniverseDefinition>();
 
-        var referencePath = Path.Combine(workspaceFolderPath, ".squad", "templates", "casting-reference.md");
-        if (!File.Exists(referencePath))
-            return Array.Empty<HireUniverseDefinition>();
-
-        var lines = File.ReadAllLines(referencePath);
         var universes = new List<HireUniverseDefinition>();
 
         for (var i = 0; i < lines.Length; i++) {

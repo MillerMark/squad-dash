@@ -39,3 +39,4 @@ Node.js is **not** required to build SquadDash — only to run it with Squad wor
 
 - **[Installation](installation.md)** — Clone the repo and build SquadDash
 - **[First Run](first-run.md)** — Launch the app and connect to a workspace
+- **[Visual Studio - External Tool](visual-studio-external-tool.md)** Setting up an External Tool menu item in  Visual Studio

@@ -4633,9 +4633,11 @@ public partial class MainWindow : Window
         if (selLen > 0)
         {
             var selected = box.SelectedText;
-            box.SelectedText = $"**{selected}**";
+            var trimmed = selected.TrimEnd(' ');
+            var trailingSpaces = selected.Substring(trimmed.Length);
+            box.SelectedText = $"**{trimmed}**{trailingSpaces}";
             box.SelectionStart  = selStart;
-            box.SelectionLength = selLen + 4;
+            box.SelectionLength = trimmed.Length + 4;
         }
         else
         {
@@ -11422,6 +11424,58 @@ public partial class MainWindow : Window
     }
 
     // ── Docs TreeView drag-and-drop ───────────────────────────────────────────────
+
+    private void DocTopicsTreeView_MouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try
+        {
+            var item = FindAncestorTreeViewItem(e.OriginalSource as DependencyObject);
+            if (item is null) return;
+
+            var filePath = item.Tag as string;
+            if (string.IsNullOrEmpty(filePath)) return;
+
+            item.IsSelected = true;
+
+            var copyLinkItem = new MenuItem { Header = "Copy markdown link" };
+            copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
+
+            var menu = new ContextMenu();
+            menu.Items.Add(copyLinkItem);
+            menu.PlacementTarget = DocTopicsTreeView;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(DocTopicsTreeView_MouseRightButtonUp), ex);
+        }
+    }
+
+    private void DocTopicsTreeView_CopyMarkdownLink(TreeViewItem item)
+    {
+        var filePath = item.Tag as string;
+        if (string.IsNullOrEmpty(filePath)) return;
+
+        var title = item.Header?.ToString() ?? Path.GetFileNameWithoutExtension(filePath);
+        var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
+
+        string relativePath;
+        if (!string.IsNullOrEmpty(docsRoot) &&
+            filePath.StartsWith(docsRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            relativePath = filePath.Substring(docsRoot.Length)
+                .TrimStart('\\', '/')
+                .Replace('\\', '/');
+        }
+        else
+        {
+            relativePath = Path.GetFileName(filePath);
+        }
+
+        Clipboard.SetText($"[{title}]({relativePath})");
+    }
 
     private void DocTopicsTreeView_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {

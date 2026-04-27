@@ -10,6 +10,8 @@ permalink: /
 
 SquadDash transforms the Squad AI team system into a visual, interactive experience. Work with multiple specialized agents in parallel, see their activity in real-time, and manage your entire AI development team from one native WPF application.
 
+Note: This documentation is largely AI generated at this point and has not been reviewed.
+
 ---
 
 ## What is SquadDash?
@@ -59,7 +61,7 @@ Each agent appears as a card showing:
 - This very documentation displays inside SquadDash
 
 ### Voice Input (PTT)
-- Double-tap Ctrl to activate push-to-talk
+- Double-tap **Ctrl** (and hold down) to activate push-to-talk. Release when finished speaking.
 - Powered by Azure Cognitive Services Speech
 - Hands-free prompt entry
 

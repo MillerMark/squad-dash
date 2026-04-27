@@ -67,6 +67,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\squaddash.md" />
     <EmbeddedResource Include="Assets\squaddash-profiles.md" />
+    <EmbeddedResource Include="Assets\casting-reference.md" />
   </ItemGroup>
 
   <ItemGroup>
