@@ -120,4 +120,3 @@ See `.squad/routing.md` in the SquadDash repo for a full example:
 ## Next
 
 - **[Squad Team](../concepts/squad-team.md)** — How team.md and routing.md work together
-- **[Adding an Agent](../contributing/adding-an-agent.md)** — How to add a new agent

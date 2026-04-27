@@ -129,4 +129,3 @@ Each agent handles a distinct domain, reducing conflicts and enabling parallel w
 ## Next
 
 - **[Routing](../reference/routing.md)** — Full routing syntax reference
-- **[Adding an Agent](../contributing/adding-an-agent.md)** — How to create a new agent

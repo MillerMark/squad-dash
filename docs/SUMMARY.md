@@ -31,8 +31,3 @@
   * [Keyboard Shortcuts](reference/keyboard-shortcuts.md)
   * [Slash Commands](reference/slash-commands.md)
 
-## Contributing
-
-* [Contributing](contributing/README.md)
-  * [Adding an Agent](contributing/adding-an-agent.md)
-  * [Writing Documentation](contributing/writing-docs.md)

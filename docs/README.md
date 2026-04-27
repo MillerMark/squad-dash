@@ -74,11 +74,13 @@ Each agent appears as a card showing:
 
 ## Quick Links
 
-📚 **[Getting Started](getting-started/README.md)** — Installation and first run  
-✨ **[Features](features/README.md)** — View modes, fullscreen, font size  
-🧠 **[Concepts](concepts/README.md)** — How agents, transcripts, and routing work  
-📖 **[Reference](reference/README.md)** — Configuration, routing tables, keyboard shortcuts  
-🛠️ **[Contributing](contributing/README.md)** — Add agents, write docs, extend SquadDash
+📚 **[Getting Started](getting-started/README.md)** — Installation and first run
+
+✨ **[Features](features/README.md)** — View modes, fullscreen, font size
+
+🧠 **[Concepts](concepts/README.md)** — How agents, transcripts, and routing work
+
+📖 **[Reference](reference/README.md)** — Configuration, routing tables, keyboard shortcuts
 
 ---
 

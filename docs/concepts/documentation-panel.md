@@ -123,11 +123,8 @@ The documentation panel serves two purposes:
 3. (Optional) Create `SUMMARY.md` for structured navigation
 4. Open SquadDash — your docs appear in the panel
 
-See **[Writing Documentation](../contributing/writing-docs.md)** for best practices.
-
 ---
 
 ## Next
 
-- **[Writing Documentation](../contributing/writing-docs.md)** — How to write docs for SquadDash
 - **[Configuration](../reference/configuration.md)** — Workspace and app settings
