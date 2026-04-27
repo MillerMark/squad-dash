@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -24,11 +25,12 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     private void RefreshTheme() {
         foreach (var document in _documents)
-            RenderPreview(document);
+            RenderPreview(document, preserveScroll: true);
     }
 
     private readonly string _baseTitle;
     private readonly List<MarkdownDocumentTabState> _documents;
+    private readonly List<MarkdownDocumentTabState> _allTrackedDocuments = [];
     private readonly DockPanel _rootPanel;
     private readonly Button _saveButton;
     private readonly Button _showSourceButton;
@@ -179,6 +181,12 @@ internal sealed class MarkdownDocumentWindow : Window {
         foreach (var document in _documents)
             SetupWebBrowser(document.WebBrowser);
 
+        _allTrackedDocuments.AddRange(_documents);
+        foreach (var document in _documents)
+            SetupFileWatcher(document);
+
+        Closed += (_, _) => DisposeAllFileWatchers();
+
         PreviewMouseDown += MarkdownDocumentWindow_PreviewMouseDown;
 
         ActivateDocument(_documents[0], preserveCurrentState: false);
@@ -326,7 +334,11 @@ internal sealed class MarkdownDocumentWindow : Window {
         UpdateChrome($"Saved {document.FileName} at {DateTime.Now:t}");
     }
 
-    private void RenderPreview(MarkdownDocumentTabState document) {
+    private void RenderPreview(MarkdownDocumentTabState document, bool preserveScroll = false) {
+        document.PendingScrollFraction = preserveScroll
+            ? CaptureWebBrowserScroll(document.WebBrowser)
+            : null;
+
         document.FallbackViewer.Document = MarkdownFlowDocumentBuilder.Build(document.WorkingText);
 
         try {
@@ -345,6 +357,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     private void SetupWebBrowser(WebBrowser browser) {
         browser.ObjectForScripting = new MarkdownLinkHandler(HandleLinkNavigation);
         browser.Navigating += WebBrowser_Navigating;
+        browser.LoadCompleted += WebBrowser_LoadCompleted;
     }
 
     private void HandleLinkNavigation(string href) {
@@ -392,6 +405,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         newDoc.EditorTextBox.TextChanged += EditorTextBox_TextChanged;
         _sourceEditorHost.Children.Add(newDoc.EditorTextBox);
 
+        _allTrackedDocuments.Add(newDoc);
+        SetupFileWatcher(newDoc);
         ApplyNavDocument(newDoc);
     }
 
@@ -412,6 +427,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         prevDoc.EditorTextBox.Tag = prevDoc;
         prevDoc.EditorTextBox.TextChanged += EditorTextBox_TextChanged;
         _sourceEditorHost.Children.Add(prevDoc.EditorTextBox);
+        _allTrackedDocuments.Add(prevDoc);
+        SetupFileWatcher(prevDoc);
         ApplyNavDocument(prevDoc);
     }
 
@@ -428,6 +445,101 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
         finally {
             _isSwitchingDocument = false;
+        }
+    }
+
+    private void WebBrowser_LoadCompleted(object sender, System.Windows.Navigation.NavigationEventArgs e) {
+        if (sender is not WebBrowser browser || browser.Tag is not MarkdownDocumentTabState doc)
+            return;
+        if (doc.PendingScrollFraction is not double fraction || fraction < 0.001)
+            return;
+        doc.PendingScrollFraction = null;
+        RestoreWebBrowserScroll(browser, fraction);
+    }
+
+    private static void RestoreWebBrowserScroll(WebBrowser browser, double fraction) {
+        try {
+            var f = fraction.ToString("G17", CultureInfo.InvariantCulture);
+            browser.InvokeScript("eval", new object[] {
+                $"(function(){{var h=Math.max(0,(document.documentElement.scrollHeight||document.body.scrollHeight||0)-(document.documentElement.clientHeight||document.body.clientHeight||0));var t=Math.round(h*{f});document.documentElement.scrollTop=t;document.body.scrollTop=t;}})();"
+            });
+        }
+        catch { }
+    }
+
+    private static double CaptureWebBrowserScroll(WebBrowser browser) {
+        try {
+            if (browser.Document == null)
+                return 0.0;
+            var scrollTopObj = browser.InvokeScript("eval",
+                new object[] { "document.documentElement.scrollTop || document.body.scrollTop || 0" });
+            var scrollableHeightObj = browser.InvokeScript("eval",
+                new object[] { "Math.max(0,(document.documentElement.scrollHeight||document.body.scrollHeight||0)-(document.documentElement.clientHeight||document.body.clientHeight||0))" });
+            var scrollTop = ToDouble(scrollTopObj);
+            var scrollableHeight = ToDouble(scrollableHeightObj);
+            return scrollableHeight > 0 ? Math.Clamp(scrollTop / scrollableHeight, 0.0, 1.0) : 0.0;
+        }
+        catch {
+            return 0.0;
+        }
+    }
+
+    private static double ToDouble(object? val) =>
+        val switch {
+            int i => (double)i,
+            double d => d,
+            string s when double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var r) => r,
+            _ => 0.0
+        };
+
+    private void SetupFileWatcher(MarkdownDocumentTabState doc) {
+        var dir = Path.GetDirectoryName(doc.FilePath);
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+            return;
+        try {
+            var watcher = new FileSystemWatcher(dir, Path.GetFileName(doc.FilePath)) {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+                EnableRaisingEvents = true
+            };
+            watcher.Changed += (_, _) => {
+                if (doc.IsReloadPending)
+                    return;
+                doc.IsReloadPending = true;
+                Dispatcher.BeginInvoke(new Action(() => ReloadDocumentFromDisk(doc)),
+                    System.Windows.Threading.DispatcherPriority.Background);
+            };
+            doc.FileWatcher = watcher;
+        }
+        catch { }
+    }
+
+    private void ReloadDocumentFromDisk(MarkdownDocumentTabState doc) {
+        doc.IsReloadPending = false;
+        if (doc.IsDirty || !File.Exists(doc.FilePath))
+            return;
+        string newText;
+        try {
+            newText = File.ReadAllText(doc.FilePath);
+        }
+        catch {
+            return;
+        }
+        if (string.Equals(newText, doc.SavedText, StringComparison.Ordinal))
+            return;
+        doc.SavedText = newText;
+        doc.WorkingText = newText;
+        doc.EditorTextBox.Text = newText;
+        RenderPreview(doc, preserveScroll: true);
+        UpdateChrome();
+    }
+
+    private void DisposeAllFileWatchers() {
+        foreach (var doc in _allTrackedDocuments) {
+            if (doc.FileWatcher is { } watcher) {
+                watcher.EnableRaisingEvents = false;
+                watcher.Dispose();
+                doc.FileWatcher = null;
+            }
         }
     }
 
@@ -455,6 +567,7 @@ internal sealed class MarkdownDocumentTabState {
         WorkingText = text;
 
         WebBrowser = new WebBrowser();
+        WebBrowser.Tag = this;
         FallbackViewer = new FlowDocumentScrollViewer {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
@@ -490,6 +603,9 @@ internal sealed class MarkdownDocumentTabState {
     public TextBox EditorTextBox { get; }
     public Grid PreviewHost { get; }
     public TabItem? TabItem { get; set; }
+    internal double? PendingScrollFraction { get; set; }
+    internal bool IsReloadPending { get; set; }
+    internal FileSystemWatcher? FileWatcher { get; set; }
 
     public static MarkdownDocumentTabState Load(string tabTitle, string filePath) {
         var text = File.Exists(filePath) ? File.ReadAllText(filePath) : string.Empty;
