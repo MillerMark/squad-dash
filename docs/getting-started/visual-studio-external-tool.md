@@ -33,20 +33,24 @@ Fill in the fields as follows:
 | Field | Value | Notes |
 |---|---|---|
 | **Title** | `SquadDash` | This is the name that appears in the Tools menu |
-| **Command** | `C:\...\SquadDash.App.exe` | Full path to the SquadDash executable (see below) |
+| **Command** | `C:\...\SquadDash.exe` | Full path to the SquadDash **launcher** executable (see below) |
 | **Arguments** | "`$(SolutionDir)`" | Passes the solution folder as the workspace path |
 | **Initial directory** | `$(SolutionDir)` | Sets the working directory to the solution folder |
 
-#### Finding SquadDash.App.exe
+#### Finding SquadDash.exe
 
-After building from source, the executable is at:
+> **Important:** Always launch `SquadDash.exe` — the **launcher** — not `SquadDash.App.exe`.
+> `SquadDash.App.exe` is the underlying WPF process managed by the launcher's A/B slot system; launching it directly bypasses update management and slot coordination.
 
+After building from source (Debug), the launcher is at:
 
 ```
-SquadDash\bin\Debug\net10.0-windows\SquadDash.App.exe
+<solution-root>\SquadDash\bin\Debug\net10.0-windows\SquadDash.exe
 ```
 
-For a published/installed build, use the install location (e.g., `C:\Program Files\SquadDash\SquadDash.App.exe`).
+The launcher (`SquadDashLauncher` project, assembly name `SquadDash`) outputs into the same `SquadDash\bin\` folder as the app because its project sets `OutputPath` to that directory. Both `SquadDash.exe` (launcher) and `SquadDash.App.exe` (app) live side-by-side there — use `SquadDash.exe`.
+
+For a published/installed build, use the install location (e.g., `C:\Program Files\SquadDash\SquadDash.exe`) — still `SquadDash.exe`, not `SquadDash.App.exe`.
 
 ---
 
@@ -75,10 +79,10 @@ No workspace selection step — SquadDash opens straight to your project's agent
 You can also launch SquadDash directly from a terminal, passing the workspace path as an argument:
 
 ```cmd
-SquadDash.App.exe "C:\path\to\your\solution"
+SquadDash.exe "C:\path\to\your\solution"
 ```
 
-This is the same mechanism the VS External Tool uses — passing the solution directory directly to SquadDash.
+Use `SquadDash.exe` (the launcher), not `SquadDash.App.exe`. This is the same mechanism the VS External Tool uses — passing the solution directory directly to the launcher.
 
 ---
 
@@ -86,7 +90,7 @@ This is the same mechanism the VS External Tool uses — passing the solution di
 
 | Problem | Fix |
 |---|---|
-| SquadDash doesn't open | Verify the **Command** path points to a valid `SquadDash.App.exe` |
+| SquadDash doesn't open | Verify the **Command** path points to a valid `SquadDash.exe` (the launcher, not `SquadDash.App.exe`) |
 | Wrong workspace loaded | Check the **Arguments** field — it should be `"$(SolutionDir)"` (with quotes) |
 | Node.js error on launch | Ensure `node`, `npm`, and `npx` are on your `PATH` — see [Installation](installation.md) |
 
