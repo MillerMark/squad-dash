@@ -204,6 +204,11 @@ internal sealed class TranscriptSelectionController
         thread.IsSecondaryPanelOpen = false;
         card.IsTranscriptTargetSelected = _openPanels.Any(p => p.Agent == card);
         ClosePanelRequested?.Invoke(card, thread);
+
+        // Remove placeholder threads from the card when their panel closes so they don't
+        // accumulate in card.Threads across repeated shift-clicks.
+        if (thread.IsPlaceholderThread)
+            card.Threads.Remove(thread);
     }
 
     private void DoShowMain()
@@ -227,7 +232,10 @@ internal sealed class TranscriptSelectionController
 
     private static TranscriptThreadState CreateEmptyThread(AgentStatusCard card)
     {
-        // Create a minimal placeholder thread for agents with no transcript history
+        // Create a minimal placeholder thread for agents with no transcript history.
+        // IsPlaceholderThread = true ensures this thread is excluded from sort-key
+        // computations (GetAgentCardBucketSortKey filters !IsPlaceholderThread), so
+        // merely opening an empty panel does NOT push the agent to the front of the roster.
         var thread = new TranscriptThreadState(
             threadId: $"{card.Name}-empty-{Guid.NewGuid():N}",
             kind: TranscriptThreadKind.Agent,
@@ -236,6 +244,7 @@ internal sealed class TranscriptSelectionController
         thread.AgentName = card.Name;
         thread.SequenceNumber = 1;
         thread.LastObservedActivityAt = DateTimeOffset.UtcNow;
+        thread.IsPlaceholderThread = true;
         return thread;
     }
 
