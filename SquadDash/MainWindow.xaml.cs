@@ -2463,6 +2463,14 @@ public partial class MainWindow : Window
                 {
                     ShowDocSourceFindBar();
                     e.Handled = true;
+                    return;
+                }
+                // Ctrl+B: wrap selection (or insert empty pair) in markdown bold
+                if (e.Key == Key.B && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                {
+                    DocSourceTextBox_ApplyBold();
+                    e.Handled = true;
+                    return;
                 }
                 return;
             }
@@ -4613,6 +4621,117 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write("DocSource", $"Failed to save doc source: {ex.Message}");
         }
+    }
+
+    private void DocSourceTextBox_ApplyBold()
+    {
+        if (DocSourceTextBox is null) return;
+        var box = DocSourceTextBox;
+        var selStart = box.SelectionStart;
+        var selLen   = box.SelectionLength;
+
+        if (selLen > 0)
+        {
+            var selected = box.SelectedText;
+            box.SelectedText = $"**{selected}**";
+            box.SelectionStart  = selStart;
+            box.SelectionLength = selLen + 4;
+        }
+        else
+        {
+            var caret = box.CaretIndex;
+            box.Text = box.Text.Insert(caret, "****");
+            box.CaretIndex = caret + 2;
+        }
+    }
+
+    private void DocSourceTextBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        try
+        {
+            var menu = new ContextMenu();
+
+            var cutItem = new MenuItem
+            {
+                Header = "Cu_t",
+                Style = (Style)FindResource("ThemedMenuItemStyle"),
+                Command = ApplicationCommands.Cut,
+                CommandTarget = DocSourceTextBox
+            };
+            var copyItem = new MenuItem
+            {
+                Header = "_Copy",
+                Style = (Style)FindResource("ThemedMenuItemStyle"),
+                Command = ApplicationCommands.Copy,
+                CommandTarget = DocSourceTextBox
+            };
+            var pasteItem = new MenuItem
+            {
+                Header = "_Paste",
+                Style = (Style)FindResource("ThemedMenuItemStyle"),
+                Command = ApplicationCommands.Paste,
+                CommandTarget = DocSourceTextBox
+            };
+
+            cutItem.IsEnabled   = DocSourceTextBox.SelectionLength > 0;
+            copyItem.IsEnabled  = DocSourceTextBox.SelectionLength > 0;
+            pasteItem.IsEnabled = Clipboard.ContainsText();
+
+            menu.Items.Add(cutItem);
+            menu.Items.Add(copyItem);
+            menu.Items.Add(pasteItem);
+
+            if (Clipboard.ContainsImage())
+            {
+                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
+                var imgItem = new MenuItem
+                {
+                    Header = "Paste image from clipboard",
+                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                imgItem.Click += (_, _) => DocSourceTextBox_PasteImageFromClipboard();
+                menu.Items.Add(imgItem);
+            }
+
+            menu.PlacementTarget = DocSourceTextBox;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(DocSourceTextBox_PreviewMouseRightButtonDown), ex);
+        }
+    }
+
+    private void DocSourceTextBox_PasteImageFromClipboard()
+    {
+        if (DocSourceTextBox is null || !Clipboard.ContainsImage()) return;
+        if (string.IsNullOrEmpty(_currentDocPath)) return;
+
+        var clipImg = Clipboard.GetImage()!;
+        var editor = new ClipboardImageEditorWindow(this, clipImg);
+        editor.ShowDialog();
+        if (editor.Result is not { } image) return;
+
+        var docName   = Path.GetFileNameWithoutExtension(_currentDocPath);
+        var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+        var fileName  = $"{docName}-{timestamp}.png";
+        var docDir    = Path.GetDirectoryName(_currentDocPath)!;
+        var imagesDir = Path.Combine(docDir, "images");
+        Directory.CreateDirectory(imagesDir);
+        var fullImagePath = Path.Combine(imagesDir, fileName);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        using (var stream = File.OpenWrite(fullImagePath))
+            encoder.Save(stream);
+
+        var caretIndex = DocSourceTextBox.CaretIndex;
+        var markdown   = $"![{docName} screenshot](images/{fileName})";
+        DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caretIndex, markdown);
+        DocSourceTextBox.CaretIndex = caretIndex + markdown.Length;
     }
 
     // ── Feature 2: Find-in-source bar ───────────────────────────────────────────

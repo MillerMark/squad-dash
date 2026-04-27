@@ -1104,6 +1104,8 @@
                              BorderThickness="0"
                              Background="{DynamicResource TextBoxBackground}"
                              Foreground="{DynamicResource LabelText}"
+                             ContextMenu="{x:Null}"
+                             PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
                              PreviewMouseWheel="DocSourceTextBox_PreviewMouseWheel"
                              TextChanged="DocSourceTextBox_TextChanged" />
                 </DockPanel>
