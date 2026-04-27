@@ -9830,6 +9830,7 @@ public partial class MainWindow : Window
         ConfigureTeamFileWatcher();
 
         foreach (var relativePath in new[] {
+                     "ceremonies.md",
                      "decisions.md",
                      "history.md",
                      Path.Combine("identity", "now.md"),
