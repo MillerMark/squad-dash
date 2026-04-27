@@ -1,8 +1,8 @@
 # SquadDash
 
-[![CI](https://github.com/MillerMark/SquadUI/actions/workflows/ci.yml/badge.svg)](https://github.com/MillerMark/SquadUI/actions/workflows/ci.yml)
+[![CI](https://github.com/MillerMark/SquadDash/actions/workflows/ci.yml/badge.svg)](https://github.com/MillerMark/SquadDash/actions/workflows/ci.yml)
 
-A Windows WPF dashboardfor managing AI coding agents powered by the [Squad CLI](https://www.npmjs.com/package/@bradygaster/squad-cli). SquadUI lets you open any workspace, install Squad into it, run agents, and interact with your AI team — all from a native desktop application.
+A Windows WPF dashboard for managing AI coding agents powered by the [Squad CLI](https://www.npmjs.com/package/@bradygaster/squad-cli). SquadDash lets you open any workspace, install Squad into it, run agents, and interact with your AI team — all from a native desktop application.
 
 ---
 
@@ -14,7 +14,7 @@ A Windows WPF dashboardfor managing AI coding agents powered by the [Squad CLI](
 | **.NET 10 SDK** | `net10.0-windows` target |
 | **Node.js LTS** | `node`, `npm`, and `npx` must be on `PATH` — required at runtime |
 
-> **Why Node.js?** SquadUI shells out to `node`/`npm`/`npx` at runtime to install and run the Squad CLI inside each workspace. The app checks for all three on startup and shows an error if any are missing.
+> **Why Node.js?** SquadDash shells out to `node`/`npm`/`npx` at runtime to install and run the Squad CLI inside each workspace. The app checks for all three on startup and shows an error if any are missing.
 
 ---
 
@@ -23,19 +23,19 @@ A Windows WPF dashboardfor managing AI coding agents powered by the [Squad CLI](
 ```bash
 # 1. Clone the repo
 git clone <repo-url>
-cd SquadUI
+cd SquadDash
 
 # 2. Install root-level npm dependencies (Squad CLI dev tooling)
 npm install
 
 # 3. Build
-dotnet build SquadUI.slnx
+dotnet build squad-dash.slnx
 
 # 4. Run
 dotnet run --project SquadDash
 ```
 
-Or open `SquadUI.slnx` in **Visual Studio 2022+** and press **F5**.
+Or open `squad-dash.slnx` in **Visual Studio 2022+** and press **F5**.
 
 ---
 
@@ -98,7 +98,7 @@ Paths are made relative to the open workspace root before display so labels stay
 ## Running Tests
 
 ```bash
-dotnet test SquadUI.slnx
+dotnet test squad-dash.slnx
 ```
 
 Tests use NUnit 4.4+. Test files live in `SquadDash.Tests/`.
@@ -107,7 +107,7 @@ Tests use NUnit 4.4+. Test files live in `SquadDash.Tests/`.
 
 ## How Squad Installation Works
 
-When you point SquadUI at a workspace folder, it:
+When you point SquadDash at a workspace folder, it:
 
 1. Verifies `node`, `npm`, and `npx` are on `PATH`
 2. Ensures a `package.json` exists in the workspace (creates one if not)
