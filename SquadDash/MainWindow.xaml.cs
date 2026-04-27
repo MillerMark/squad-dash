@@ -3955,6 +3955,21 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ViewTasksMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var workspace = _currentWorkspace;
+            if (workspace is null) return;
+            var tasksPath = Path.Combine(workspace.SquadFolderPath, "tasks.md");
+            OpenMarkdownFile(tasksPath, "Tasks");
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(ViewTasksMenuItem_Click), ex);
+        }
+    }
+
     private void SetDocumentationMode(bool enabled, bool persistChange = true)
     {
         if (_documentationModeEnabled == enabled)
@@ -3974,8 +3989,11 @@ public partial class MainWindow : Window
             if (persistChange)
             {
                 var workspaceFolder = _currentWorkspace?.FolderPath;
-                _docsPanelState = new WorkspaceDocsPanelState { Open = true };
-                _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
+                var existingState = _docsPanelState ?? _settingsStore.GetDocsPanelState(workspaceFolder);
+                _docsPanelState = existingState is not null
+                    ? existingState with { Open = true }
+                    : new WorkspaceDocsPanelState { Open = true };
+                _settingsSnapshot = _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
             }
         }
         else if (persistChange)
@@ -4008,7 +4026,7 @@ public partial class MainWindow : Window
                 SourceOpen = docsSourceOpen,
                 SourceWidth = docsSourceWidth,
             };
-            _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
+            _settingsSnapshot = _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
         }
     }
 
@@ -4442,24 +4460,7 @@ public partial class MainWindow : Window
         SaveDocSourceToDisk();
     }
 
-    private static readonly string HoverInjectionScript = @"
-(function() {
-    if (window.__hoverListenersAttached) return;
-    window.__hoverListenersAttached = true;
-    var elements = document.querySelectorAll('[data-source-line]');
-    for (var i = 0; i < elements.length; i++) {
-        (function(el) {
-            el.addEventListener('mouseover', function(ev) {
-                ev.stopPropagation();
-                var lineHint = el.getAttribute('data-source-line');
-                if (lineHint) {
-                    try { window.external.HoverElement(lineHint); } catch(ex) {}
-                }
-            });
-        })(elements[i]);
-    }
-})();
-";
+    private static string HoverInjectionScript => MarkdownDocumentScripts.HoverInjectionScript;
 
     private void DocMarkdownViewer_LoadCompleted_InjectHover(object sender, NavigationEventArgs e)
     {
@@ -5169,7 +5170,7 @@ public partial class MainWindow : Window
             if (docsVisible)
             {
                 // Restore saved width or default to 600
-                var width = _settingsSnapshot.DocsPanelWidth ?? 600;
+                var width = _docsPanelState?.PanelWidth ?? _settingsSnapshot.DocsPanelWidth ?? 600;
                 DocsPanelColumn.Width = new GridLength(width);
             }
             else
@@ -10109,6 +10110,14 @@ public partial class MainWindow : Window
             var loopEntry = new SidebarEntry("🔁 loop.md", string.Empty, loopMdPath, true, SidebarEntryKind.File);
             AddWorkspaceEntryMenuItem(loopEntry);
         }
+
+        var tasksMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        if (File.Exists(tasksMdPath))
+        {
+            var tasksEntry = new SidebarEntry("📋 tasks.md", string.Empty, tasksMdPath, true, SidebarEntryKind.File);
+            AddWorkspaceEntryMenuItem(tasksEntry);
+        }
+        _pec.TasksFilePath = File.Exists(tasksMdPath) ? tasksMdPath : null;
 
         AddWorkspaceMenuSeparator();
 

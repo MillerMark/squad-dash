@@ -70,6 +70,7 @@
     <Compile Include="..\SquadDash\SquadInstallerService.cs" Link="Source\SquadInstallerService.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
     <Compile Include="..\SquadDash\SquadBridgePromptBuilder.cs" Link="Source\SquadBridgePromptBuilder.cs" />
+    <Compile Include="..\SquadDash\TasksContextBuilder.cs" Link="Source\TasksContextBuilder.cs" />
     <Compile Include="..\SquadDash\SquadRuntimeCompatibility.cs" Link="Source\SquadRuntimeCompatibility.cs" />
     <Compile Include="..\SquadDash\SquadRoutingDocumentService.cs" Link="Source\SquadRoutingDocumentService.cs" />
     <Compile Include="..\SquadDash\RoutingIssueWorkflow.cs" Link="Source\RoutingIssueWorkflow.cs" />

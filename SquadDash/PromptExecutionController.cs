@@ -35,6 +35,26 @@ internal sealed class PromptExecutionController {
     /// </summary>
     internal string? DocsRootFolder { get; set; }
 
+    /// <summary>
+    /// Full path to .squad/tasks.md for the current workspace.
+    /// When set and the file exists, open (unchecked) task items are summarised and
+    /// injected into every prompt so agents stay aware of outstanding work.
+    /// </summary>
+    internal string? TasksFilePath { get; set; }
+
+    private string? BuildTasksContextInstruction() {
+        if (string.IsNullOrEmpty(TasksFilePath) || !File.Exists(TasksFilePath))
+            return null;
+        string[] lines;
+        try {
+            lines = File.ReadAllLines(TasksFilePath);
+        }
+        catch {
+            return null;
+        }
+        return TasksContextBuilder.Build(lines);
+    }
+
     private string BuildDocumentationContextInstruction() {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(
@@ -1602,14 +1622,11 @@ internal sealed class PromptExecutionController {
     }
 
     private string BuildBridgePrompt(string prompt) {
-        var pending  = _getPendingSupplementalInstruction();
-        var docsCtx  = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
-        var supplemental = (pending, docsCtx) switch {
-            (null, null)         => null,
-            (not null, null)     => pending,
-            (null, not null)     => docsCtx,
-            _                    => pending + "\n\n" + docsCtx
-        };
+        var pending   = _getPendingSupplementalInstruction();
+        var docsCtx   = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
+        var tasksCtx  = BuildTasksContextInstruction();
+        var parts = new[] { pending, docsCtx, tasksCtx }.Where(p => p is not null).ToArray();
+        var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = SquadBridgePromptBuilder.Build(
             prompt,
             QuickReplyInstruction,

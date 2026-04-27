@@ -8,6 +8,8 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
@@ -47,6 +49,10 @@ internal sealed class MarkdownDocumentWindow : Window {
     private MarkdownDocumentTabState? _activeDocument;
     private Button? _backButton;
     private readonly Stack<string> _navigationHistory = new();
+    private Border _reloadFlashBorder = null!;
+    private Canvas? _sourceOverlayCanvas;
+    private System.Windows.Shapes.Rectangle? _sourceHoverHighlight;
+    private DispatcherTimer? _sourceHoverTimer;
 
     private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents) {
         if (documents.Count == 0)
@@ -130,6 +136,15 @@ internal sealed class MarkdownDocumentWindow : Window {
         _singlePreviewHost = new ContentControl();
         Grid.SetColumn(_singlePreviewHost, 0);
         _contentGrid.Children.Add(_singlePreviewHost);
+
+        _reloadFlashBorder = new Border {
+            BorderThickness = new Thickness(0),
+            IsHitTestVisible = false,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        Grid.SetColumn(_reloadFlashBorder, 0);
+        _contentGrid.Children.Add(_reloadFlashBorder);
 
         _tabControl = new TabControl {
             Visibility = _documents.Count > 1 ? Visibility.Visible : Visibility.Collapsed
@@ -220,6 +235,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         _showSource = !_showSource;
         UpdateSourcePaneVisibility();
         UpdateEditorFromActiveDocument();
+        if (_showSource && _activeDocument is not null)
+            TryInjectHoverScript(_activeDocument.WebBrowser);
     }
 
     private void SaveButton_Click(object sender, RoutedEventArgs e) {
@@ -271,6 +288,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void ActivateDocument(MarkdownDocumentTabState document, bool preserveCurrentState) {
+        ClearSourceHoverHighlight();
         _activeDocument = document;
 
         _isSwitchingDocument = true;
@@ -355,7 +373,9 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void SetupWebBrowser(WebBrowser browser) {
-        browser.ObjectForScripting = new MarkdownLinkHandler(HandleLinkNavigation);
+        browser.ObjectForScripting = new MarkdownDocumentScriptingBridge(
+            HandleLinkNavigation,
+            lineHint => Dispatcher.BeginInvoke(new Action(() => HighlightSourceFromHover(lineHint))));
         browser.Navigating += WebBrowser_Navigating;
         browser.LoadCompleted += WebBrowser_LoadCompleted;
     }
@@ -433,6 +453,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void ApplyNavDocument(MarkdownDocumentTabState document) {
+        ClearSourceHoverHighlight();
         _activeDocument = document;
         _isSwitchingDocument = true;
         try {
@@ -451,10 +472,90 @@ internal sealed class MarkdownDocumentWindow : Window {
     private void WebBrowser_LoadCompleted(object sender, System.Windows.Navigation.NavigationEventArgs e) {
         if (sender is not WebBrowser browser || browser.Tag is not MarkdownDocumentTabState doc)
             return;
-        if (doc.PendingScrollFraction is not double fraction || fraction < 0.001)
-            return;
-        doc.PendingScrollFraction = null;
-        RestoreWebBrowserScroll(browser, fraction);
+        if (doc.PendingScrollFraction is double fraction && fraction >= 0.001) {
+            doc.PendingScrollFraction = null;
+            RestoreWebBrowserScroll(browser, fraction);
+        }
+        if (_showSource)
+            TryInjectHoverScript(browser);
+    }
+
+    private void TryInjectHoverScript(WebBrowser browser) {
+        try {
+            browser.InvokeScript("eval", new object[] { MarkdownDocumentScripts.HoverInjectionScript });
+        }
+        catch { }
+    }
+
+    private void HighlightSourceFromHover(string lineHint) {
+        if (_activeDocument is null || string.IsNullOrEmpty(lineHint)) return;
+        if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
+        var textBox = _activeDocument.EditorTextBox;
+        if (textBox.Visibility != Visibility.Visible) return;
+
+        var lines = textBox.Text.Split('\n');
+        if (lineNum > lines.Length) return;
+
+        int startPos = 0;
+        for (int i = 0; i < lineNum - 1; i++)
+            startPos += lines[i].Length + 1;
+        var lineLength = lines[lineNum - 1].Length;
+
+        HighlightSourceRange(textBox, startPos, lineLength);
+    }
+
+    private Canvas EnsureSourceOverlayCanvas() {
+        if (_sourceOverlayCanvas is not null) return _sourceOverlayCanvas;
+        _sourceOverlayCanvas = new Canvas {
+            IsHitTestVisible = false,
+            Background = Brushes.Transparent
+        };
+        _sourceEditorHost.Children.Add(_sourceOverlayCanvas);
+        return _sourceOverlayCanvas;
+    }
+
+    private void ClearSourceHoverHighlight() {
+        _sourceHoverTimer?.Stop();
+        if (_sourceHoverHighlight is not null) {
+            (_sourceHoverHighlight.Parent as Canvas)?.Children.Remove(_sourceHoverHighlight);
+            _sourceHoverHighlight = null;
+        }
+    }
+
+    private void HighlightSourceRange(TextBox textBox, int start, int length) {
+        ClearSourceHoverHighlight();
+        if (length <= 0) return;
+
+        var rect = textBox.GetRectFromCharacterIndex(start);
+        if (rect == Rect.Empty) return;
+
+        var overlayCanvas = EnsureSourceOverlayCanvas();
+        var origin = textBox.TranslatePoint(new Point(0, 0), overlayCanvas);
+        var charTopLeft = textBox.TranslatePoint(rect.TopLeft, overlayCanvas);
+
+        var isDark = AgentStatusCard.IsDarkTheme;
+        var highlightColor = isDark
+            ? Color.FromArgb(60, 255, 220, 80)
+            : Color.FromArgb(50, 100, 180, 255);
+
+        double highlightWidth = Math.Max(textBox.ActualWidth - (charTopLeft.X - origin.X), 0);
+
+        _sourceHoverHighlight = new System.Windows.Shapes.Rectangle {
+            Width = highlightWidth,
+            Height = Math.Max(rect.Height, 14),
+            Fill = new SolidColorBrush(highlightColor),
+            IsHitTestVisible = false
+        };
+        Canvas.SetLeft(_sourceHoverHighlight, charTopLeft.X);
+        Canvas.SetTop(_sourceHoverHighlight, charTopLeft.Y);
+        overlayCanvas.Children.Add(_sourceHoverHighlight);
+
+        _sourceHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _sourceHoverTimer.Tick += (s, e) => {
+            _sourceHoverTimer?.Stop();
+            ClearSourceHoverHighlight();
+        };
+        _sourceHoverTimer.Start();
     }
 
     private static void RestoreWebBrowserScroll(WebBrowser browser, double fraction) {
@@ -531,6 +632,21 @@ internal sealed class MarkdownDocumentWindow : Window {
         doc.EditorTextBox.Text = newText;
         RenderPreview(doc, preserveScroll: true);
         UpdateChrome();
+        if (doc == _activeDocument)
+            FlashReloadBorder();
+    }
+
+    private void FlashReloadBorder() {
+        _reloadFlashBorder.BorderThickness = new Thickness(2);
+        var brush = new SolidColorBrush(Color.FromArgb(200, 255, 140, 0));
+        _reloadFlashBorder.BorderBrush = brush;
+        var anim = new ColorAnimation {
+            From = Color.FromArgb(200, 255, 140, 0),
+            To = Color.FromArgb(0, 255, 140, 0),
+            Duration = new Duration(TimeSpan.FromSeconds(1.2)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
     }
 
     private void DisposeAllFileWatchers() {
@@ -1350,12 +1466,41 @@ internal static class MarkdownFlowDocumentBuilder {
 }
 
 [System.Runtime.InteropServices.ComVisible(true)]
-public sealed class MarkdownLinkHandler {
+public sealed class MarkdownDocumentScriptingBridge {
     private readonly Action<string> _navigate;
+    private readonly Action<string>? _hoverElement;
 
-    public MarkdownLinkHandler(Action<string> navigate) {
+    public MarkdownDocumentScriptingBridge(Action<string> navigate, Action<string>? hoverElement = null) {
         _navigate = navigate;
+        _hoverElement = hoverElement;
     }
 
     public void Navigate(string href) => _navigate(href);
+
+    public void HoverElement(string lineHint) => _hoverElement?.Invoke(lineHint);
+}
+
+internal static class MarkdownDocumentScripts {
+    /// <summary>
+    /// Injects mouseover listeners on [data-source-line] elements so the host
+    /// can call window.external.HoverElement(lineHint) to highlight source lines.
+    /// </summary>
+    internal static readonly string HoverInjectionScript = @"
+(function() {
+    if (window.__hoverListenersAttached) return;
+    window.__hoverListenersAttached = true;
+    var elements = document.querySelectorAll('[data-source-line]');
+    for (var i = 0; i < elements.length; i++) {
+        (function(el) {
+            el.addEventListener('mouseover', function(ev) {
+                ev.stopPropagation();
+                var lineHint = el.getAttribute('data-source-line');
+                if (lineHint) {
+                    try { window.external.HoverElement(lineHint); } catch(ex) {}
+                }
+            });
+        })(elements[i]);
+    }
+})();
+";
 }

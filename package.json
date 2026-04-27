@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "devDependencies": {
-    "@bradygaster/squad-cli": "^0.9.4"
+    "@bradygaster/squad-cli": "^0.9.5-insider.1"
   },
   "dependencies": {
     "isomorphic-git": "^1.37.5"
@@ -12,3 +12,4 @@
     "protobufjs": "^7.5.5"
   }
 }
+

@@ -361,6 +361,10 @@
                               Header="_Documentation"
                               IsCheckable="True"
                               Click="ViewDocumentationMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem x:Name="ViewTasksMenuItem"
+                              Header="Tasks"
+                              Click="ViewTasksMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"
@@ -1103,7 +1107,7 @@
             <!-- Source editor panel (right side, shown when View Source is active) -->
             <Border x:Name="DocSourcePanel"
                     Grid.Column="3"
-                    Background="{DynamicResource PanelSurface}"
+                    Background="{DynamicResource InputSurface}"
                     BorderBrush="{DynamicResource PanelBorder}"
                     BorderThickness="1"
                     CornerRadius="18"
@@ -1126,7 +1130,7 @@
                              FontSize="12"
                              Padding="10"
                              BorderThickness="0"
-                             Background="{DynamicResource TextBoxBackground}"
+                             Background="{DynamicResource InputSurface}"
                              Foreground="{DynamicResource LabelText}"
                              ContextMenu="{x:Null}"
                              PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
