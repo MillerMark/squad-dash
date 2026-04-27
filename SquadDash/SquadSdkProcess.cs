@@ -196,7 +196,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
 
         try {
-            await SendBridgeRequestWithRestartAsync(request).ConfigureAwait(false);
+            await SendBridgeRequestWithRestartAsync(request, pendingRequest).ConfigureAwait(false);
             pendingRequest.MarkActivity();
             var outcome = await WaitForPromptOutcomeAsync(pendingRequest).ConfigureAwait(false);
             if (outcome == BridgeRequestOutcome.Aborted)
@@ -214,12 +214,30 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
-    private async Task SendBridgeRequestWithRestartAsync<TRequest>(TRequest request) {
+    private async Task SendBridgeRequestWithRestartAsync<TRequest>(TRequest request, PendingBridgeRequest? pendingRequest = null) {
+        Task? outputReaderTask = null;
         try {
             EnsureProcessStarted();
+            lock (_stateLock) {
+                outputReaderTask = _outputReaderTask;
+            }
             await SendBridgeRequestAsync(request).ConfigureAwait(false);
         }
         catch (Exception ex) when (IsRecoverableWriteFailure(ex)) {
+            // If the process exited before we could write (race condition with a fast-exiting
+            // process), wait briefly for the output reader to flush any in-flight events before
+            // deciding whether to restart. If the pending request is already resolved the process
+            // handled it — no restart needed.
+            if (outputReaderTask is not null) {
+                try { await Task.WhenAny(outputReaderTask, Task.Delay(500)).ConfigureAwait(false); }
+                catch { }
+            }
+
+            if (pendingRequest?.Completion.Task.IsCompleted == true) {
+                SquadDashTrace.Write("Bridge", $"Prompt write failed but request already resolved; not restarting: {ex.Message}");
+                return;
+            }
+
             SquadDashTrace.Write("Bridge", $"Prompt write failed. Restarting bridge and retrying once: {ex.Message}");
             ResetProcess();
             EnsureProcessStarted();
