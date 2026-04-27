@@ -1,0 +1,29 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "SquadDash Universe",
+      "character": "Orion Vale",
+      "role": "Lead Architect",
+      "project": "SquadUI",
+      "hired_at": "2026-04-15"
+    },
+    {
+      "universe": "SquadDash Universe",
+      "character": "Sorin Pyre",
+      "role": "Performance Engineer",
+      "project": "SquadUI",
+      "hired_at": "2026-04-23"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "2026-04-15": {
+      "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill"]
+    },
+    "2026-04-20": {
+      "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill"]
+    },
+    "2026-04-23": {
+      "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill", "Sorin Pyre"]
+    }
+  }
+}

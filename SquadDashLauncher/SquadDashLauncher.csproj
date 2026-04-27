@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SquadDash</AssemblyName>
+    <OutputPath>..\SquadDash\bin\$(Configuration)\$(TargetFramework)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SquadDash\MutexLease.cs" Link="Shared\MutexLease.cs" />
+    <Compile Include="..\SquadDash\JsonFileStorage.cs" Link="Shared\JsonFileStorage.cs" />
+    <Compile Include="..\SquadDash\StartupFolderParser.cs" Link="Shared\StartupFolderParser.cs" />
+    <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Shared\IWorkspacePaths.cs" />
+    <Compile Include="..\SquadDash\WorkspacePathsProvider.cs" Link="Shared\WorkspacePathsProvider.cs" />
+    <Compile Include="..\SquadDash\RuntimeSlotStateStore.cs" Link="Shared\RuntimeSlotStateStore.cs" />
+    <Compile Include="..\SquadDash\RunningInstanceRegistry.cs" Link="Shared\RunningInstanceRegistry.cs" />
+    <Compile Include="..\SquadDash\RestartCoordinatorStateStore.cs" Link="Shared\RestartCoordinatorStateStore.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+{
+  "fixtureId": "agent-card-lyra-selected",
+  "data": {
+    "agentName": "Lyra Morn",
+    "agentStatus": "active",
+    "transcriptChipCount": 3,
+    "isSelected": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "fixtureId": "background-task-running",
+  "data": {
+    "tasks": [
+      {
+        "title": "Vesper Knox: Writing tests",
+        "status": "running",
+        "elapsedSeconds": 47
+      }
+    ]
+  }
+}

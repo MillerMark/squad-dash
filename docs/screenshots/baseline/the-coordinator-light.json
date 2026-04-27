@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "the-coordinator",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-04-25T10:27:45.4461431Z",
+  "bounds": {
+    "x": 28,
+    "y": 71,
+    "width": 199,
+    "height": 274,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "ActivePanelTitleTextBlock"
+    ],
+    "needsName": false,
+    "elementLeft": 43,
+    "elementTop": 77,
+    "elementWidth": 184,
+    "elementHeight": 19.950000000000003,
+    "distanceToEdge": 6
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "ActivePanelTitleTextBlock",
+      "ActivePanelSubtitleTextBlock",
+      "ActiveAgentsScrollViewer",
+      "ActiveAgentItemsControl"
+    ],
+    "needsName": false,
+    "elementLeft": 43,
+    "elementTop": 77,
+    "elementWidth": 184,
+    "elementHeight": 19.950000000000003,
+    "distanceToEdge": 0
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "Squad"
+    ],
+    "needsName": false,
+    "elementLeft": 43,
+    "elementTop": 126.91,
+    "elementWidth": 170,
+    "elementHeight": 206.92000000000002,
+    "distanceToEdge": 11.169999999999959
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "StatusAgentPanelsGrid",
+      "ActiveAgentsPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 30,
+    "elementTop": 64,
+    "elementWidth": 1713,
+    "elementHeight": 348.42,
+    "distanceToEdge": 2
+  },
+  "replayActionId": null,
+  "fixturePath": null
+}

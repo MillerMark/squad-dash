@@ -1,0 +1,3 @@
+[2026-04-25 11:38:56.782Z] [screenshot] Starting: the-coordinator
+[2026-04-25 11:38:57.350Z] [screenshot] Comparison: 99.99% match (5 of 54526 pixels differ) — diff: D:\Drive\Source\SquadUI\docs\screenshots\diff\the-coordinator-light.png
+[2026-04-25 11:38:57.350Z] [screenshot] Saved: D:\Drive\Source\SquadUI\docs\screenshots\the-coordinator-light.png

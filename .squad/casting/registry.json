@@ -1,0 +1,20 @@
+{
+  "agents": {
+    "orion-vale": {
+      "display_name": "Orion Vale",
+      "universe": "SquadDash Universe",
+      "role": "Lead Architect",
+      "charter": "agents/orion-vale/charter.md",
+      "status": "active",
+      "hired_at": "2026-04-15"
+    },
+    "sorin-pyre": {
+      "display_name": "Sorin Pyre",
+      "universe": "SquadDash Universe",
+      "role": "Performance Engineer",
+      "charter": "agents/sorin-pyre/charter.md",
+      "status": "active",
+      "hired_at": "2026-04-23"
+    }
+  }
+}

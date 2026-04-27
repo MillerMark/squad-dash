@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "name": "prompt-border-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-04-24T21:13:42.1710136Z",
+  "bounds": {
+    "x": 8,
+    "y": 896,
+    "width": 1891,
+    "height": 169,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementName": "PromptBorder",
+    "needsName": false,
+    "elementLeft": 15,
+    "elementTop": 902.04,
+    "elementWidth": 1873,
+    "elementHeight": 151.96,
+    "distanceToEdge": 6.039999999999964
+  },
+  "right": {
+    "edge": "Right",
+    "elementName": null,
+    "needsName": true,
+    "elementLeft": 15,
+    "elementTop": 15,
+    "elementWidth": 1873,
+    "elementHeight": 1039,
+    "distanceToEdge": 11
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementName": null,
+    "needsName": true,
+    "elementLeft": 15,
+    "elementTop": 15,
+    "elementWidth": 1873,
+    "elementHeight": 1039,
+    "distanceToEdge": 11
+  },
+  "left": {
+    "edge": "Left",
+    "elementName": null,
+    "needsName": true,
+    "elementLeft": 15,
+    "elementTop": 15,
+    "elementWidth": 1873,
+    "elementHeight": 1039,
+    "distanceToEdge": 7
+  },
+  "replayActionId": null,
+  "fixturePath": null
+}

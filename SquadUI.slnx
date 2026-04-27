@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="Squad.SDK/Squad.SDK.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="SquadDash.Tests/SquadDash.Tests.csproj" />
+  <Project Path="SquadDash/SquadDash.csproj" />
+</Solution>

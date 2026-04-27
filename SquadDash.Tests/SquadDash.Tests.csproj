@@ -1,0 +1,119 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="bin\**\*.cs" />
+    <Compile Remove="obj\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="NUnit" Version="4.4.0" />
+    <PackageReference Include="NUnit.Analyzers" Version="4.10.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="NUnit3TestAdapter" Version="5.2.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SquadDash\Screenshots\IFixtureLoader.cs" Link="Source\IFixtureLoader.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ScreenshotFixture.cs" Link="Source\ScreenshotFixture.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ScreenshotRefreshMode.cs" Link="Source\ScreenshotRefreshMode.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ScreenshotRefreshOptions.cs" Link="Source\ScreenshotRefreshOptions.cs" />
+    <Compile Include="..\SquadDash\Screenshots\Fixtures\BackgroundTaskFixtureLoader.cs" Link="Source\BackgroundTaskFixtureLoader.cs" />
+    <Compile Include="..\SquadDash\Screenshots\Fixtures\QuickReplyFixtureLoader.cs" Link="Source\QuickReplyFixtureLoader.cs" />
+    <Compile Include="..\SquadDash\Screenshots\Fixtures\ScrollPositionFixtureLoader.cs" Link="Source\ScrollPositionFixtureLoader.cs" />
+    <Compile Include="..\SquadDash\Screenshots\Fixtures\PromptTextFixtureLoader.cs" Link="Source\PromptTextFixtureLoader.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SquadDash\JsonFileStorage.cs" Link="Source\JsonFileStorage.cs" />
+    <Compile Include="..\SquadDash\MutexLease.cs" Link="Source\MutexLease.cs" />
+    <Compile Include="..\SquadDash\SquadCliCommands.cs" Link="Source\SquadCliCommands.cs" />
+    <Compile Include="..\SquadDash\TraceCategory.cs" Link="Source\TraceCategory.cs" />
+    <Compile Include="..\SquadDash\TranscriptViewMode.cs" Link="Source\TranscriptViewMode.cs" />
+    <Compile Include="..\SquadDash\ILiveTraceTarget.cs" Link="Source\ILiveTraceTarget.cs" />
+    <Compile Include="..\SquadDash\TraceWindow.cs" Link="Source\TraceWindow.cs" />
+    <Compile Include="..\SquadDash\SquadDashTrace.cs" Link="Source\SquadDashTrace.cs" />
+    <Compile Include="..\SquadDash\SquadDashRuntimeStamp.cs" Link="Source\SquadDashRuntimeStamp.cs" />
+    <Compile Include="..\SquadDash\BackgroundAgentLaunchInfoResolver.cs" Link="Source\BackgroundAgentLaunchInfoResolver.cs" />
+    <Compile Include="..\SquadDash\BackgroundAgentReportAnnouncementBuilder.cs" Link="Source\BackgroundAgentReportAnnouncementBuilder.cs" />
+    <Compile Include="..\SquadDash\BackgroundTaskStateResolver.cs" Link="Source\BackgroundTaskStateResolver.cs" />
+    <Compile Include="..\SquadDash\BackgroundWorkClassifier.cs" Link="Source\BackgroundWorkClassifier.cs" />
+    <Compile Include="..\SquadDash\CurrentTurnStatusPresentation.cs" Link="Source\CurrentTurnStatusPresentation.cs" />
+    <Compile Include="..\SquadDash\PromptContextDiagnostics.cs" Link="Source\PromptContextDiagnostics.cs" />
+    <Compile Include="..\SquadDash\SessionResumeDiagnosticsPresentation.cs" Link="Source\SessionResumeDiagnosticsPresentation.cs" />
+    <Compile Include="..\SquadDash\SilentBackgroundAgentPolicy.cs" Link="Source\SilentBackgroundAgentPolicy.cs" />
+    <Compile Include="..\SquadDash\StatusTimingPresentation.cs" Link="Source\StatusTimingPresentation.cs" />
+    <Compile Include="..\SquadDash\PromptTraceMetrics.cs" Link="Source\PromptTraceMetrics.cs" />
+    <Compile Include="..\SquadDash\QuickReplyRoutePresentation.cs" Link="Source\QuickReplyRoutePresentation.cs" />
+    <Compile Include="..\SquadDash\QuickReplyAgentLaunchPolicy.cs" Link="Source\QuickReplyAgentLaunchPolicy.cs" />
+    <Compile Include="..\SquadDash\WorkspaceIssuePanelState.cs" Link="Source\WorkspaceIssuePanelState.cs" />
+    <Compile Include="..\SquadDash\LocalCommandTurnExecutionPolicy.cs" Link="Source\LocalCommandTurnExecutionPolicy.cs" />
+    <Compile Include="..\SquadDash\AgentThreadIdentityPolicy.cs" Link="Source\AgentThreadIdentityPolicy.cs" />
+    <Compile Include="..\SquadDash\QuickReplyOptionParser.cs" Link="Source\QuickReplyOptionParser.cs" />
+    <Compile Include="..\SquadDash\ApplicationSettingsStore.cs" Link="Source\ApplicationSettingsStore.cs" />
+    <Compile Include="..\SquadDash\PromptInteractionLogic.cs" Link="Source\PromptInteractionLogic.cs" />
+    <Compile Include="..\SquadDash\IntelliSenseController.cs" Link="Source\IntelliSenseController.cs" />
+    <Compile Include="..\SquadDash\SquadInstallationStateService.cs" Link="Source\SquadInstallationStateService.cs" />
+    <Compile Include="..\SquadDash\SquadInstallerService.cs" Link="Source\SquadInstallerService.cs" />
+    <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
+    <Compile Include="..\SquadDash\SquadBridgePromptBuilder.cs" Link="Source\SquadBridgePromptBuilder.cs" />
+    <Compile Include="..\SquadDash\SquadRuntimeCompatibility.cs" Link="Source\SquadRuntimeCompatibility.cs" />
+    <Compile Include="..\SquadDash\SquadRoutingDocumentService.cs" Link="Source\SquadRoutingDocumentService.cs" />
+    <Compile Include="..\SquadDash\RoutingIssueWorkflow.cs" Link="Source\RoutingIssueWorkflow.cs" />
+    <Compile Include="..\SquadDash\RoutingIssueWatchPathPolicy.cs" Link="Source\RoutingIssueWatchPathPolicy.cs" />
+    <Compile Include="..\SquadDash\SquadSdkEvent.cs" Link="Source\SquadSdkEvent.cs" />
+    <Compile Include="..\SquadDash\SquadSdkProcess.cs" Link="Source\SquadSdkProcess.cs" />
+    <Compile Include="..\SquadDash\SquadTeamRosterLoader.cs" Link="Source\SquadTeamRosterLoader.cs" />
+    <Compile Include="..\SquadDash\NativeMethods.cs" Link="Source\NativeMethods.cs" />
+    <Compile Include="..\SquadDash\StartupWorkspaceResolver.cs" Link="Source\StartupWorkspaceResolver.cs" />
+    <Compile Include="..\SquadDash\StartupFolderParser.cs" Link="Source\StartupFolderParser.cs" />
+    <Compile Include="..\SquadDash\ToolTranscriptFormatter.cs" Link="Source\ToolTranscriptFormatter.cs" />
+    <Compile Include="..\SquadDash\ToolTranscriptData.cs" Link="Source\ToolTranscriptData.cs" />
+    <Compile Include="..\SquadDash\RuntimeSlotStateStore.cs" Link="Source\RuntimeSlotStateStore.cs" />
+    <Compile Include="..\SquadDash\RunningInstanceRegistry.cs" Link="Source\RunningInstanceRegistry.cs" />
+    <Compile Include="..\SquadDash\RestartCoordinatorStateStore.cs" Link="Source\RestartCoordinatorStateStore.cs" />
+    <Compile Include="..\SquadDash\InstanceActivationChannel.cs" Link="Source\InstanceActivationChannel.cs" />
+    <Compile Include="..\SquadDash\WorkspaceOwnershipLease.cs" Link="Source\WorkspaceOwnershipLease.cs" />
+    <Compile Include="..\SquadDash\WorkspaceOpenCoordinator.cs" Link="Source\WorkspaceOpenCoordinator.cs" />
+    <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
+    <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Source\IWorkspacePaths.cs" />
+    <Compile Include="..\SquadDash\WorkspacePathsProvider.cs" Link="Source\WorkspacePathsProvider.cs" />
+    <Compile Include="..\SquadDash\WorkspaceStartupRoutingPolicy.cs" Link="Source\WorkspaceStartupRoutingPolicy.cs" />
+    <Compile Include="..\SquadDash\PromptHistoryStore.cs" Link="Source\PromptHistoryStore.cs" />
+    <Compile Include="..\SquadDash\SessionWorkspace.cs" Link="Source\SessionWorkspace.cs" />
+    <Compile Include="..\SquadDash\AgentCardSorting.cs" Link="Source\AgentCardSorting.cs" />
+    <Compile Include="..\SquadDash\AgentRosterVisibilityPolicy.cs" Link="Source\AgentRosterVisibilityPolicy.cs" />
+    <Compile Include="..\SquadDash\AgentNameHumanizer.cs" Link="Source\AgentNameHumanizer.cs" />
+    <Compile Include="..\SquadDash\WorkspaceIssuePresentation.cs" Link="Source\WorkspaceIssuePresentation.cs" />
+    <Compile Include="..\SquadDash\ProcessIdentity.cs" Link="Source\ProcessIdentity.cs" />
+    <Compile Include="..\SquadDash\ColorUtilities.cs" Link="Source\ColorUtilities.cs" />
+    <Compile Include="..\SquadDash\CtrlDoubleTapGestureTracker.cs" Link="Source\CtrlDoubleTapGestureTracker.cs" />
+    <Compile Include="..\SquadDash\VisualTreeEdgeAnalyzer.cs" Link="Source\VisualTreeEdgeAnalyzer.cs" />
+    <Compile Include="..\SquadDash\ICopyable.cs" Link="Source\ICopyable.cs" />
+    <Compile Include="..\SquadDash\IHaveUniqueName.cs" Link="Source\IHaveUniqueName.cs" />
+    <Compile Include="..\SquadDash\TranscriptCopyService.cs" Link="Source\TranscriptCopyService.cs" />
+    <Compile Include="..\SquadDash\TranscriptThreadState.cs" Link="Source\TranscriptThreadState.cs" />
+    <Compile Include="..\SquadDash\ToolTranscriptEntry.cs" Link="Source\ToolTranscriptEntry.cs" />
+    <Compile Include="..\SquadDash\PostedUiActionTracker.cs" Link="Source\PostedUiActionTracker.cs" />
+    <Compile Include="..\SquadDash\AgentStatusCard.cs" Link="Source\AgentStatusCard.cs" />
+    <Compile Include="..\SquadDash\TranscriptSelectionController.cs" Link="Source\TranscriptSelectionController.cs" />
+    <Compile Include="..\SquadDash\AgentThreadRegistry.cs" Link="Source\AgentThreadRegistry.cs" />
+    <Compile Include="..\SquadDash\BackgroundTaskPresenter.cs" Link="Source\BackgroundTaskPresenter.cs" />
+    <Compile Include="..\SquadDash\TranscriptConversationManager.cs" Link="Source\TranscriptConversationManager.cs" />
+    <Compile Include="..\SquadDash\MarkdownDocumentRenderer.cs" Link="Source\MarkdownDocumentRenderer.cs" />
+  </ItemGroup>
+
+</Project>

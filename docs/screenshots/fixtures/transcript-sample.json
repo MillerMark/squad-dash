@@ -1,0 +1,10 @@
+{
+  "fixtureId": "transcript-sample",
+  "data": {
+    "messages": [
+      { "role": "user",      "text": "Show me the agent roster." },
+      { "role": "assistant", "text": "Here are the currently active agents..." }
+    ],
+    "scrollToBottom": true
+  }
+}

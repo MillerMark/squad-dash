@@ -1,0 +1,1257 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <DrawingImage x:Key="ToolIcon_grep">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H512 V512 H0 Z">
+                <DrawingGroup.Transform>
+                    <ScaleTransform ScaleX="4" ScaleY="4" />
+                </DrawingGroup.Transform>
+
+                <GeometryDrawing Brush="#9981D4FA"
+                             Geometry="M80.37,12.67C60.52,12.67 45.57,27.62 45.57,47.47 C45.57,67.32 61.72,83.48 81.58,83.48 C101.43,83.48 116.38,68.53 116.38,48.68 C116.38,28.83 100.22,12.67 80.37,12.67 Z" />
+
+                <GeometryDrawing Brush="#FF616161"
+                             Geometry="M80.37,12.67C100.22,12.67 116.38,28.82 116.38,48.68 C116.38,68.53 101.43,83.48 81.58,83.48 C61.72,83.48 45.56,67.33 45.56,47.47 C45.56,27.62 60.51,12.67 80.37,12.67 Z
+                                       M52.75,19.85C39.77,34.14 33.15,57.51 51.58,75.94 C71.48,95.84 98.09,87.58 112.31,73.06 C120,65.21 129.66,36.45 109.98,16.78 C90.31,-2.89 61.37,10.36 52.75,19.85 Z" />
+
+                <GeometryDrawing Brush="#FFBDBDBD"
+                             Geometry="M28.22,90.86L36.55,99.24L56.17,79.44C56.17,79.44 57.83,76.25 54.55,72.97 C51.27,69.69 47.84,71.06 47.84,71.06 Z" />
+
+                <GeometryDrawing Brush="#FF616161"
+                             Geometry="M39.5,76.96C40.63,76.06 44.55,73.96 48.86,78.24 C53.16,82.52 51.41,85.9 50.56,87.15 C50.56,87.15 20.03,121.02 18.64,122.42 C16.59,124.47 12.38,122.72 8.48,118.82 C4.58,114.92 2.7,111.15 4.9,108.95 C6.69,107.16 38.37,77.86 39.5,76.96 Z" />
+
+                <GeometryDrawing Brush="#FFBDBDBD"
+                             Geometry="M84.08,8.64C103.93,8.64 120.08,24.79 120.08,44.64 C120.08,64.49 103.93,80.64 84.08,80.64 C64.23,80.64 48.08,64.49 48.08,44.64 C48.08,24.8 64.24,8.64 84.08,8.64 Z
+                                       M84.08,4.68C62.02,4.68 44.13,22.57 44.13,44.63 C44.13,66.69 62.02,84.58 84.08,84.58 C106.14,84.58 124.03,66.69 124.03,44.63 C124.03,22.57 106.15,4.68 84.08,4.68 Z" />
+
+                <GeometryDrawing Brush="#FF424242">
+                    <GeometryDrawing.Geometry>
+                        <EllipseGeometry Center="10.99,116.31" RadiusX="3.56" RadiusY="9.25">
+                            <EllipseGeometry.Transform>
+                                <MatrixTransform Matrix="0.7071,-0.7071,0.7071,0.7071,-79.0224,41.8406" />
+                            </EllipseGeometry.Transform>
+                        </EllipseGeometry>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush StartPoint="20.75,15.2321" EndPoint="37.1458,41.8236" MappingMode="Absolute">
+                            <LinearGradientBrush.RelativeTransform>
+                                <MatrixTransform Matrix="0.9276,0.3736,-0.3736,0.9276,55.3577,-12.4161" />
+                            </LinearGradientBrush.RelativeTransform>
+                            <GradientStop Color="#FFFFFFFF" Offset="0.2853" />
+                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M72.52,16.93C63.92,20.83 58.73,26.89 55.53,34.65 C54.35,37.51 53.53,40.7 54.4,43.67 C55.27,46.63 58.35,49.11 61.34,48.37 C63.32,47.88 64.75,46.2 66.2,44.76 C68.43,42.56 71.03,40.74 73.86,39.4 C77.4,37.72 81.28,36.81 84.76,34.99 C88.23,33.17 91.42,30.11 91.88,26.22 C92.33,22.41 89.92,18.61 86.54,16.78 C83.16,14.95 77.48,14.68 72.52,16.93 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#96FFFFFF"
+                             Geometry="M52.24,25.22C52.7,25.21 53.12,24.99 53.37,24.61 C54.72,22.63 57.86,17.31 66.4,12.6 C71.38,9.85 75.56,8.76 77.05,8.45 C81.27,7.57 79.81,5.38 77.07,5.75 C73.96,6.17 60.29,9.18 51.05,22.99 C50.41,23.96 51.08,25.25 52.24,25.22 Z" />
+
+                <GeometryDrawing Brush="#96FFFFFF"
+                             Geometry="M117.06,61.69C115.77,61.85 114.58,64.09 114.34,64.48 C113.09,66.52 110.64,71.58 102.12,76.33 C98.15,78.54 94.06,80.16 92.02,80.72 C88.69,81.64 89.41,83.92 92.12,83.42 C95.21,82.85 108.73,79.22 117.32,65 C117.92,64 118.78,61.48 117.06,61.69 Z" />
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush StartPoint="58.2236,96.4024" EndPoint="62.3575,53.6854" MappingMode="Absolute">
+                            <LinearGradientBrush.RelativeTransform>
+                                <MatrixTransform Matrix="0.9775,0.2108,-0.2108,0.9775,47.8363,-8.5468" />
+                            </LinearGradientBrush.RelativeTransform>
+                            <GradientStop Color="#FFFFFFFF" Offset="0.2853" />
+                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M86.02,76.23C81.49,76.09 80.61,73.99 81.54,72.3 C82.28,70.96 84.01,70.69 85.54,70.57 C93.69,69.93 101.54,64.98 107.6,59.7 C106.53,65.19 104.41,68.05 101.08,70.72 C97.82,73.32 92.96,76.45 86.02,76.23 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_view">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H512 V512 H0 Z">
+                <DrawingGroup.Transform>
+                    <ScaleTransform ScaleX="4" ScaleY="4" />
+                </DrawingGroup.Transform>
+
+                <GeometryDrawing Brush="#FFFAFAFA"
+                             Geometry="M34.16,106.51C18.73,106.51 6.19,87.44 6.19,64 C6.19,40.56 18.74,21.49 34.16,21.49 C49.58,21.49 62.13,40.56 62.13,64 C62.13,87.44 49.58,106.51 34.16,106.51 Z" />
+
+                <GeometryDrawing Brush="#FFB0BEC5"
+                             Geometry="M34.16,23.49C40.79,23.49 47.14,27.49 52.03,34.76 C57.25,42.51 60.13,52.9 60.13,64 C60.13,75.1 57.25,85.49 52.03,93.24 C47.14,100.51 40.79,104.51 34.16,104.51 C27.53,104.51 21.18,100.51 16.29,93.24 C11.07,85.49 8.19,75.1 8.19,64 C8.19,52.9 11.07,42.51 16.29,34.76 C21.18,27.49 27.52,23.49 34.16,23.49 Z
+                                       M34.16,19.49C17.61,19.49 4.19,39.42 4.19,64 C4.19,88.58 17.61,108.51 34.16,108.51 C50.71,108.51 64.13,88.58 64.13,64 C64.13,39.42 50.71,19.49 34.16,19.49 Z" />
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush StartPoint="22.5233,46.6759" EndPoint="22.5233,82.0828" MappingMode="Absolute">
+                            <GradientStop Color="#FF424242" Offset="0" />
+                            <GradientStop Color="#FF212121" Offset="1" />
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M25.63,59.84C22.93,57.3 23.53,52.26 26.99,48.58 C27.17,48.39 27.35,48.21 27.54,48.04 C26,47.17 24.31,46.68 22.53,46.68 C15.34,46.68 9.51,54.61 9.51,64.38 C9.51,74.15 15.34,82.08 22.53,82.08 C29.72,82.08 35.55,74.15 35.55,64.38 C35.55,62.63 35.36,60.93 35.01,59.33 C31.77,61.66 27.9,61.97 25.63,59.84 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#FFEEEEEE"
+                             Geometry="M63.87,64 A29.97,44.51 0 1 1 123.81,64 A29.97,44.51 0 1 1 63.87,64 Z" />
+
+                <GeometryDrawing Brush="#FFFAFAFA"
+                             Geometry="M93.84,106.51C78.42,106.51 65.87,87.44 65.87,64 C65.87,40.56 78.42,21.49 93.84,21.49 C109.26,21.49 121.81,40.56 121.81,64 C121.81,87.44 109.27,106.51 93.84,106.51 Z" />
+
+                <GeometryDrawing Brush="#FFB0BEC5"
+                             Geometry="M93.84,23.49C100.47,23.49 106.82,27.49 111.71,34.76 C116.93,42.51 119.81,52.9 119.81,64 C119.81,75.1 116.93,85.49 111.71,93.24 C106.82,100.51 100.47,104.51 93.84,104.51 C87.21,104.51 80.86,100.51 75.97,93.24 C70.75,85.49 67.87,75.1 67.87,64 C67.87,52.9 70.75,42.51 75.97,34.76 C80.86,27.49 87.21,23.49 93.84,23.49 Z
+                                       M93.84,19.49C77.29,19.49 63.87,39.42 63.87,64 C63.87,88.58 77.29,108.51 93.84,108.51 C110.39,108.51 123.81,88.58 123.81,64 C123.81,39.42 110.39,19.49 93.84,19.49 Z" />
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush StartPoint="82.2093,46.6759" EndPoint="82.2093,82.0828" MappingMode="Absolute">
+                            <GradientStop Color="#FF424242" Offset="0" />
+                            <GradientStop Color="#FF212121" Offset="1" />
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M85.31,59.84C82.61,57.3 83.21,52.26 86.67,48.58 C86.85,48.39 87.03,48.21 87.22,48.04 C85.68,47.17 83.99,46.68 82.21,46.68 C75.02,46.68 69.19,54.61 69.19,64.38 C69.19,74.15 75.02,82.08 82.21,82.08 C89.4,82.08 95.23,74.15 95.23,64.38 C95.23,62.63 95.04,60.93 94.69,59.33 C91.46,61.66 87.58,61.97 85.31,59.84 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_edit">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H512 V512 H0 Z">
+                <DrawingGroup.Transform>
+                    <ScaleTransform ScaleX="4" ScaleY="4" />
+                </DrawingGroup.Transform>
+
+                <GeometryDrawing Brush="#FFFFECB3"
+                             Geometry="M123.87,118.8L117.69,102.31L113.44,90.96C112.48,88.03 112.3,86.82 110.67,85.19L98.85,73.37L73.39,98.83L85.22,110.66C86.19,111.63 88.05,112.46 90.98,113.42L102.33,117.67L118.82,123.85C121.93,124.86 124.88,121.91 123.87,118.8 Z" />
+
+                <GeometryDrawing Brush="#FF616161"
+                             Geometry="M118.82,123.85L105.16,118.73C105.16,118.73 110.8,118.41 114.61,114.6 C118.42,110.79 118.75,105.14 118.75,105.14L123.87,118.8C124.88,121.91 121.93,124.86 118.82,123.85 Z" />
+
+                <GeometryDrawing Brush="#FFEF5350"
+                             Geometry="M43.18,17.71L37.77,37L17.73,43.16L6.41,31.85C3.29,28.73 1.81,22.51 10.08,14.24L15.07,9.25C22.22,2.1 28.75,3.27 31.87,6.39L43.18,17.71 Z" />
+
+                <GeometryDrawing Brush="#FFFFC107"
+                             Geometry="M34.27,44.64L44.64,34.27L104.87,94.5C104.87,94.5 106.1,99.62 102.97,102.75 C99.84,105.88 94.5,104.87 94.5,104.87 Z" />
+
+                <GeometryDrawing Brush="#FFFFA000"
+                             Geometry="M26.73,52.18L85.31,110.76C94.77,112.82 94.36,104.73 94.36,104.73L34.27,44.64 Z" />
+
+                <GeometryDrawing Brush="#FFFDD835"
+                             Geometry="M44.65,34.26L104.74,94.35C104.74,94.35 115.56,94.35 110.61,85.14L52.19,26.72 Z" />
+
+                <GeometryDrawing Brush="#FFD1762C"
+                             Geometry="M94.27,106.04L33.66,45.43L35.07,44.02L96.07,105.02L94.5,104.86 Z" />
+
+                <GeometryDrawing Brush="#FFF19534"
+                             Geometry="M105.11,96.15L40.15,31.19L41.57,29.78L106.04,94.25L104.87,94.49 Z" />
+
+                <GeometryDrawing Brush="#334E342E"
+                             Geometry="M52.19,26.72C52.19,26.72 46.72,34.81 42.19,39.39 C33.52,48.13 26.73,52.18 26.73,52.18L28.48,53.93C30.97,52.96 37.34,50.05 43.7,43.7 C50.1,37.3 53.12,31.05 54.13,28.66 Z" />
+
+                <GeometryDrawing Brush="#FF94D1E0"
+                             Geometry="M23.49,51.9C24.05,52.46 24.84,52.71 25.62,52.58 C25.62,52.58 33.81,50.08 41.95,41.94 C50.09,33.8 52.78,25.87 52.78,25.87 C52.91,25.09 52.66,24.29 52.1,23.73L43.52,15.15C43.16,14.79 42.66,14.6 42.16,14.66 C41.99,14.68 41.82,14.7 41.64,14.73 C40.96,14.83 40.42,15.33 40.23,15.99 C40.23,15.99 36.31,23.59 29.85,30.04 C23.39,36.49 15.51,40.25 15.51,40.25 C14.85,40.43 14.34,40.96 14.24,41.64 C14.24,41.65 14.24,41.65 14.24,41.66 C14.16,42.2 14.34,42.74 14.72,43.12 Z" />
+
+                <GeometryDrawing Brush="#FFFF8383">
+                    <GeometryDrawing.Geometry>
+                        <EllipseGeometry Center="15.05,15.04" RadiusX="15.03" RadiusY="4.45">
+                            <EllipseGeometry.Transform>
+                                <MatrixTransform Matrix="0.7071,-0.7071,0.7071,0.7071,-6.2293,15.0504" />
+                            </EllipseGeometry.Transform>
+                        </EllipseGeometry>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#FFB9E4EA"
+                             Geometry="M41.61,21.74C38.32,28.04 32.91,33.21 26.47,36.2 C26.05,36.39 25.46,36.53 25.21,36.15 C25.02,35.85 25.19,35.47 25.38,35.17 C26.22,33.87 27.38,32.82 28.5,31.75 C31.42,28.95 34.1,25.91 36.51,22.67 C37.74,21.02 38.89,19.32 39.97,17.57 C40.57,16.61 41.64,14.58 43.01,16.01 C44.2,17.24 42.24,20.53 41.61,21.74 Z" />
+
+                <GeometryDrawing Brush="#FFB9E4EA"
+                             Geometry="M37.88,33.47C37.62,33.74 37.35,34.01 37.22,34.36 C37.09,34.71 37.14,35.16 37.44,35.38 C37.69,35.57 38.03,35.55 38.34,35.5 C40.07,35.23 41.6,34.25 42.95,33.15 C45.9,30.76 48.4,27.44 48.64,23.65 C48.67,23.2 48.66,22.73 48.46,22.33 C47.19,19.82 44.5,25.43 43.97,26.22 C42.2,28.85 40.09,31.21 37.88,33.47 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_web_fetch">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H512 V512 H0 Z">
+                <DrawingGroup.Transform>
+                    <ScaleTransform ScaleX="4" ScaleY="4" />
+                </DrawingGroup.Transform>
+
+                <!-- Globe -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <RadialGradientBrush Center="43.9718,29.0657"
+                                         GradientOrigin="43.9718,29.0657"
+                                         RadiusX="90.9511"
+                                         RadiusY="90.9511"
+                                         MappingMode="Absolute">
+                            <RadialGradientBrush.Transform>
+                                <MatrixTransform Matrix="0.6257,0.78,-0.5815,0.4665,33.3587,-18.7923" />
+                            </RadialGradientBrush.Transform>
+                            <GradientStop Color="#FF17A1F3" Offset="0.506" />
+                            <GradientStop Color="#FF1B7FFA" Offset="0.7668" />
+                            <GradientStop Color="#FF1366F0" Offset="0.9624" />
+                            <GradientStop Color="#FF1160EE" Offset="1" />
+                        </RadialGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M3.14,64.68
+                                           C3.82,89.08 20.13,124.23 64.59,123.78
+                                           C107.91,123.34 125.35,87.48 123.99,61.72
+                                           C122.62,35.96 102.33,4.26 62.2,4.49
+                                           C22.06,4.71 2.4,38.45 3.14,64.68 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- Africa / Europe / Asia mass -->
+                <GeometryDrawing Brush="#FF7ADD8A">
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M69.22,8.02
+                                           C68.84,7.61 69.11,7.11 69.75,6.79
+                                           C70.38,6.47 71.94,5.4 71.94,5.4
+                                           C71.94,5.4 84.43,5.22 98.97,15.55
+                                           C113,25.52 117.63,38.2 117.63,38.2
+                                           C117.63,38.2 118.04,39.8 117.75,40.33
+                                           C117.46,40.87 117.79,43.65 116.97,48.29
+                                           C116.15,52.93 115.79,54.35 115.84,56.45
+                                           C115.84,56.45 116.63,62.59 115.05,62.9
+                                           C113.47,63.21 113.06,60.75 112.22,58.91
+                                           C111.38,57.07 109.91,54.77 109.54,53.98
+                                           C109.17,53.19 108.91,52.14 108.91,52.14
+                                           C108.91,52.14 107.97,52.4 107.23,51.93
+                                           C106.5,51.46 102.77,47.16 102.3,46.79
+                                           C101.83,46.42 100.62,46.63 99.62,46.95
+                                           C98.62,47.27 98.26,47.89 96,47.68
+                                           C93.74,47.47 94.58,46.63 93.38,45.79
+                                           C92.18,44.95 91.12,46.89 89.97,46.89
+                                           C88.82,46.89 88.08,46.31 87.29,45.53
+                                           C86.5,44.75 85.56,43.85 85.09,43.69
+                                           C84.62,43.53 83.46,43.85 83.94,45
+                                           C84.42,46.15 85.3,46.26 86.09,47.05
+                                           C86.88,47.84 86.77,48.31 87.19,48.94
+                                           C87.61,49.57 89.71,50.99 90.18,50.88
+                                           C90.65,50.78 91.54,50.25 91.91,49.67
+                                           C92.28,49.09 92.17,48.46 92.85,48.36
+                                           C93.53,48.26 94.11,49.25 95.05,49.99
+                                           C95.99,50.73 97.04,50.72 97.31,52.04
+                                           C97.57,53.35 96.52,57.39 95.58,58.44
+                                           C94.64,59.49 93.69,59.59 93.69,59.59
+                                           L91.59,61.37
+                                           C91.59,61.37 91.59,62.31 89.86,63.31
+                                           C88.13,64.31 87.71,64.25 86.55,64.83
+                                           C85.39,65.41 84.77,66.09 83.87,65.88
+                                           C82.97,65.67 82.35,64.31 81.93,62.94
+                                           C81.51,61.58 80.57,60.42 79.88,59.74
+                                           C79.19,59.06 78.67,59.01 77.99,58.17
+                                           C77.31,57.33 75.89,55.49 75.79,55.13
+                                           C75.69,54.77 75.69,54.29 75.32,53.77
+                                           C74.95,53.25 74.22,52.88 73.8,52.56
+                                           C73.38,52.25 73.07,51.83 72.96,51.14
+                                           C72.85,50.45 71.81,49.62 71.28,48.99
+                                           C70.75,48.36 70.13,47.21 69.55,47.63
+                                           C68.97,48.05 69.65,48.94 70.34,50.1
+                                           C71.03,51.26 71.34,52.04 71.49,52.83
+                                           C71.65,53.62 71.44,54.14 72.01,54.51
+                                           C72.58,54.88 73.22,54.46 73.9,56.08
+                                           C74.58,57.7 74.32,59.23 75.05,59.86
+                                           C75.78,60.49 75.94,60.12 76.57,60.91
+                                           C77.2,61.7 77.09,62.85 77.83,63.38
+                                           C78.57,63.91 80.77,64.85 81.61,66.16
+                                           C82.45,67.47 82.03,67.94 82.82,68.41
+                                           C83.61,68.88 85.13,68.46 86.7,67.94
+                                           C88.27,67.42 90.43,65.74 91.32,66
+                                           C92.21,66.26 92,69.57 91.11,72.09
+                                           C90.22,74.61 89.54,75.4 88.91,76.18
+                                           C88.28,76.96 87.39,78.59 85.55,80.17
+                                           C83.71,81.75 81.25,84.21 80.62,87.41
+                                           C79.99,90.61 80.72,95.96 80.62,97.33
+                                           C80.52,98.7 80.67,99.53 79.94,100.27
+                                           C79.21,101.01 76.21,103.63 75.69,104.57
+                                           C75.17,105.51 75.53,106.67 75.17,107.98
+                                           C74.81,109.29 72.49,111.39 71.71,111.81
+                                           C70.93,112.23 71.13,113.02 69.3,114.59
+                                           C67.47,116.16 66.89,116.69 66.1,116.79
+                                           C65.31,116.89 61.01,117.1 59.38,116.48
+                                           C57.75,115.85 56.65,114.85 56.18,114.33
+                                           C55.71,113.81 55.24,113.23 54.5,112.81
+                                           C53.77,112.39 52.93,111.5 52.35,110.71
+                                           C51.77,109.92 50.2,107.82 48.68,106.15
+                                           C47.16,104.48 46.37,103.68 46.27,101.85
+                                           C46.17,100.02 47.84,98.12 47.84,98.12
+                                           C47.84,98.12 47.37,94.87 46,92.45
+                                           C44.63,90.03 42.8,89.62 41.7,87.15
+                                           C40.6,84.68 41.12,82.74 41.23,81.96
+                                           C41.34,81.18 41.02,79.86 39.81,79.44
+                                           C38.6,79.02 37.66,79.54 36.98,79.18
+                                           C36.3,78.82 35.41,76.92 33.88,76.82
+                                           C32.35,76.72 30.42,78.81 28.74,78.76
+                                           C27.06,78.71 27.01,77.55 25.8,77.19
+                                           C24.59,76.83 24.17,78.08 23.18,77.87
+                                           C22.18,77.66 20.77,76.24 19.98,74.98
+                                           C19.19,73.72 18.25,72.99 17.78,72.25
+                                           C17.31,71.51 17.15,70.99 17.15,70.99
+                                           C17.15,70.99 15.47,70.94 15,68.31
+                                           C14.53,65.68 14.9,64.43 15.31,63.06
+                                           C15.73,61.7 16.88,58.02 16.99,56.76
+                                           C17.1,55.5 16.83,54.61 17.09,53.93
+                                           C17.35,53.25 18.66,52.2 19.24,51.2
+                                           C19.82,50.2 20.34,49.15 20.87,48.42
+                                           C21.4,47.69 22.34,48.32 23.6,46.69
+                                           C24.86,45.06 24.65,44.8 24.65,44.8
+                                           C24.65,44.8 24.96,43.07 25.91,41.91
+                                           C26.86,40.75 27.85,40.18 28.53,40.07
+                                           C29.21,39.96 30.16,40.28 30.84,40.28
+                                           C31.52,40.28 32.36,40.44 32.94,40.33
+                                           C33.52,40.22 35.25,38.86 36.51,38.55
+                                           C37.77,38.24 38.87,38.39 39.87,38.18
+                                           C40.87,37.97 42.6,37.76 43.7,38.55
+                                           C44.8,39.34 44.8,39.91 44.7,40.28
+                                           C44.6,40.65 43.91,41.54 44.18,41.91
+                                           C44.45,42.28 45.28,42.59 45.75,42.75
+                                           C46.22,42.91 46.96,42.96 47.22,43.12
+                                           C47.48,43.28 48.11,44.01 49.16,44.54
+                                           C50.21,45.07 51.89,45.96 52.47,45.64
+                                           C53.05,45.32 52.99,43.91 53.99,43.59
+                                           C54.99,43.28 56.4,43.64 57.93,43.9
+                                           C59.46,44.16 65.75,45.63 66.43,45.42
+                                           C67.11,45.21 66.9,44.63 67.69,44.42
+                                           C68.48,44.21 69.26,44.26 69.58,43.69
+                                           C69.9,43.12 70.1,40.33 70.05,39.39
+                                           C70,38.45 70,37.29 69.58,37.08
+                                           C69.16,36.87 68.01,38.13 66.96,38.34" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- Small green island -->
+                <GeometryDrawing Brush="#FF7ADD8A">
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M90.52,93.68
+                                           C89.89,93.44 89.42,94.03 88.77,95.13
+                                           C88.12,96.23 87.42,97.13 86.97,97.48
+                                           C86.52,97.83 83.87,99.43 83.67,100.33
+                                           C83.47,101.23 83.67,102.13 83.67,102.98
+                                           C83.67,103.83 83.52,105.08 83.52,105.63
+                                           C83.52,106.18 82.92,106.68 83.72,107.48
+                                           C84.52,108.28 85.12,107.78 85.67,107.03
+                                           C86.22,106.28 87.52,103.88 87.82,102.83
+                                           C88.02,102.12 88.42,101.08 88.62,100.53
+                                           C88.82,99.98 90.47,97.33 90.72,96.33
+                                           C90.98,95.33 91.33,93.98 90.52,93.68 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- Minor land details -->
+                <GeometryDrawing Brush="#FFBEDC9D"
+                             Geometry="M66.38,40.12
+                                       C66.38,40.48 66.64,40.85 67.31,40.85
+                                       C67.98,40.85 68.26,40.43 68.21,39.88
+                                       C68.17,39.37 67.65,39.21 67.2,39.25
+                                       C66.84,39.28 66.38,39.55 66.38,40.12 Z" />
+
+                <GeometryDrawing Brush="#FF95DA93"
+                             Geometry="M44.54,32.36
+                                       C44.08,32.34 43.34,32.77 43.29,33.18
+                                       C43.18,34.16 42.87,36.02 43.61,36.13
+                                       C44.29,36.23 44.64,35.04 44.75,34.59
+                                       C44.86,34.14 45.25,32.39 44.54,32.36 Z" />
+
+                <GeometryDrawing Brush="#FF7ADD8A"
+                             Geometry="M41.06,16.97
+                                       C40.17,16.97 39.58,17.73 39.44,18.19
+                                       C39.29,18.69 39.39,20.06 38.97,20.24
+                                       C38.4,20.48 37.49,20.3 36.89,20.49
+                                       C36.11,20.74 34.49,22.22 34.53,22.57
+                                       C34.56,22.89 34.95,23.59 35.84,23.73
+                                       C36.14,23.78 36.45,23.68 36.53,23.49
+                                       C36.57,23.39 36.78,23.24 36.95,23.3
+                                       C37.19,23.38 37.16,23.86 37.35,23.91
+                                       C37.54,23.96 39.55,23.99 39.79,23.91
+                                       C40.03,23.83 41.28,23.09 41.46,22.32
+                                       C41.65,21.55 41.72,19.91 41.79,18.57
+                                       C41.86,17.42 41.43,16.97 41.06,16.97 Z" />
+
+                <!-- White polar/shore highlight -->
+                <GeometryDrawing Brush="#FFFFFFFF">
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M38.28,9.2
+                                           C38.28,9.2 36.74,11.11 35.78,12.01
+                                           C34.82,12.91 33.15,14.21 33.31,14.85
+                                           C33.36,15.06 33.92,15.59 34.64,15.41
+                                           C35.36,15.22 36.66,14.4 38.14,13.87
+                                           C39.63,13.34 40.63,13.29 40.93,13.15
+                                           C41.22,13.02 44.49,11.4 45.76,10.84
+                                           C47.03,10.28 51.89,8.88 53.03,8.48
+                                           C54.17,8.08 55.02,7.71 54.83,6.97
+                                           C54.64,6.23 52.39,6.33 51.04,6.33
+                                           C49.69,6.33 48.48,5.93 48.48,5.93
+                                           C48.48,5.93 45.19,6.69 42.79,7.5
+                                           C40.41,8.31 38.28,9.2 38.28,9.2 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+
+    <DrawingImage x:Key="ToolIcon_create">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H512 V512 H0 Z">
+                <DrawingGroup.Transform>
+                    <ScaleTransform ScaleX="4" ScaleY="4" />
+                </DrawingGroup.Transform>
+
+                <!-- main page -->
+                <GeometryDrawing Brush="#FFE3F2FD"
+                             Geometry="M31,14
+                                       L72,14
+                                       L98,40
+                                       L98,108
+                                       C98,112.42 94.42,116 90,116
+                                       L31,116
+                                       C26.58,116 23,112.42 23,108
+                                       L23,22
+                                       C23,17.58 26.58,14 31,14 Z" />
+
+                <!-- page border (adds contrast on white backgrounds) -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M31,14
+                                           L72,14
+                                           L98,40
+                                           L98,108
+                                           C98,112.42 94.42,116 90,116
+                                           L31,116
+                                           C26.58,116 23,112.42 23,108
+                                           L23,22
+                                           C23,17.58 26.58,14 31,14 Z" />
+                    </GeometryDrawing.Geometry>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#FF90A4AE" Thickness="1.2"
+                         LineJoin="Round"/>
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+
+                <!-- folded corner base -->
+                <GeometryDrawing Brush="#FFBBDEFB"
+                             Geometry="M72,14
+                                       L98,40
+                                       L79,40
+                                       C75.13,40 72,36.87 72,33 Z" />
+
+                <!-- folded corner highlight -->
+                <GeometryDrawing Brush="#FF90bde2"
+                             Geometry="M72,14
+                                       L92.8,34.8
+                                       L79,34.8
+                                       C75.13,34.8 72,31.67 72,27.8 Z" />
+
+                <!-- writing lines (thicker + higher contrast) -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#7395b1" Thickness="4.2"
+                         StartLineCap="Round" EndLineCap="Round"/>
+                    </GeometryDrawing.Pen>
+                    <GeometryDrawing.Geometry>
+                        <GeometryGroup>
+                            <LineGeometry StartPoint="35,54" EndPoint="83,54" />
+                            <LineGeometry StartPoint="35,68" EndPoint="83,68" />
+                            <LineGeometry StartPoint="35,82" EndPoint="83,82" />
+                            <LineGeometry StartPoint="35,96" EndPoint="77,96" />
+                        </GeometryGroup>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- subtle highlight on first line -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#40FFFFFF" Thickness="1.6"
+                         StartLineCap="Round" EndLineCap="Round"/>
+                    </GeometryDrawing.Pen>
+                    <GeometryDrawing.Geometry>
+                        <LineGeometry StartPoint="35,53" EndPoint="83,53" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_task">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+
+                <!-- robot -->
+                <GeometryDrawing Brush="#FFC62828"
+                             Geometry="M12.53,53.05 C7.96,53.06 4.25,56.77 4.25,61.34 L4.25,99.72 C4.26,104.29 7.96,107.99 12.53,108 L18.08,108 L18.08,53 Z"/>
+
+                <GeometryDrawing Brush="#FFC62828"
+                             Geometry="M115.72,53.05 C120.29,53.06 124,56.77 124,61.34 L124,99.72 C123.99,104.29 120.29,108 115.72,108.01 L110.17,108.01 L110.17,53.01 Z"/>
+
+                <GeometryDrawing Brush="#FF90A4AE"
+                             Geometry="M113.17,54.41 L113.05,44.41 C113.02,40.11 109.52,36.64 105.22,36.66 L67.05,36.66 L67.05,23.25 C72.16,21.56 74.94,16.05 73.25,10.94 C71.56,5.83 66.05,3.05 60.94,4.74 C55.83,6.43 53.05,11.94 54.74,17.05 C55.71,19.98 58.01,22.29 60.94,23.25 L60.94,36.71 L22.78,36.71 C18.5,36.72 15.03,40.18 15,44.46 L15,116.24 C15.03,120.52 18.5,123.98 22.78,124 L105.22,124 C109.52,124.01 113.02,120.54 113.05,116.24 L113.05,108.87 L113.17,108.87 Z"/>
+
+                <GeometryDrawing Brush="#FFC62828"
+                             Geometry="M64,18 C61.79,18 60,16.21 60,14 C60,11.79 61.79,10 64,10 C66.21,10 68,11.79 68,14 C68,16.21 66.21,18 64,18 Z"/>
+
+                <!-- mouth -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush MappingMode="Absolute"
+                                         StartPoint="64.005,107.56"
+                                         EndPoint="64.005,94.45">
+                            <GradientStop Color="#FFE0E0E0" Offset="0.12"/>
+                            <GradientStop Color="#FFFFFFFF" Offset="0.52"/>
+                            <GradientStop Color="#FFEAEAEA" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="37.88,94.45,52.25,13.11" RadiusX="6.27" RadiusY="6.27"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush MappingMode="Absolute"
+                                         StartPoint="54.85,107.56"
+                                         EndPoint="54.85,94.47">
+                            <GradientStop Color="#FF333333" Offset="0"/>
+                            <GradientStop Color="#FF666666" Offset="0.55"/>
+                            <GradientStop Color="#FF333333" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="53.67,94.47,2.36,13.09"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush MappingMode="Absolute"
+                                         StartPoint="64.06,107.56"
+                                         EndPoint="64.06,94.47">
+                            <GradientStop Color="#FF333333" Offset="0"/>
+                            <GradientStop Color="#FF666666" Offset="0.55"/>
+                            <GradientStop Color="#FF333333" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="62.88,94.47,2.36,13.09"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush MappingMode="Absolute"
+                                         StartPoint="73.15,107.56"
+                                         EndPoint="73.15,94.47">
+                            <GradientStop Color="#FF333333" Offset="0"/>
+                            <GradientStop Color="#FF666666" Offset="0.55"/>
+                            <GradientStop Color="#FF333333" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="71.97,94.47,2.36,13.09"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush MappingMode="Absolute"
+                                         StartPoint="82.8,107.56"
+                                         EndPoint="82.8,94.47">
+                            <GradientStop Color="#FF333333" Offset="0"/>
+                            <GradientStop Color="#FF666666" Offset="0.55"/>
+                            <GradientStop Color="#FF333333" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="81.62,94.47,2.36,13.09"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush MappingMode="Absolute"
+                                         StartPoint="45.2,107.54"
+                                         EndPoint="45.2,94.45">
+                            <GradientStop Color="#FF333333" Offset="0"/>
+                            <GradientStop Color="#FF666666" Offset="0.55"/>
+                            <GradientStop Color="#FF333333" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="44.02,94.45,2.36,13.09"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- nose -->
+                <GeometryDrawing Brush="#FFC62828"
+                             Geometry="M64,85.33 L58.67,85.33 C58.12,85.33 57.67,84.88 57.67,84.33 C57.67,84.17 57.71,84.02 57.78,83.88 L60.52,78.47 L63.11,73.69 C63.37,73.2 63.98,73.02 64.46,73.28 C64.63,73.37 64.77,73.51 64.87,73.69 L67.48,78.69 L70.19,83.88 C70.44,84.37 70.25,84.97 69.76,85.23 C69.62,85.3 69.47,85.34 69.31,85.34 L64,85.33 Z"/>
+
+                <!-- left eye fill -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <RadialGradientBrush MappingMode="Absolute"
+                                         Center="42.64,66.81"
+                                         GradientOrigin="42.64,66.81"
+                                         RadiusX="11.5"
+                                         RadiusY="11.5">
+                            <GradientStop Color="#FFFFFFFF" Offset="0.48"/>
+                            <GradientStop Color="#FFFDFDFD" Offset="0.77"/>
+                            <GradientStop Color="#FFF6F6F6" Offset="0.88"/>
+                            <GradientStop Color="#FFEBEBEB" Offset="0.96"/>
+                            <GradientStop Color="#FFE0E0E0" Offset="1"/>
+                        </RadialGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <EllipseGeometry Center="42.64,66.81" RadiusX="11.5" RadiusY="11.5"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- left eye stroke -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Geometry>
+                        <EllipseGeometry Center="42.64,66.81" RadiusX="11.5" RadiusY="11.5"/>
+                    </GeometryDrawing.Geometry>
+                    <GeometryDrawing.Pen>
+                        <Pen Thickness="2" LineJoin="Miter">
+                            <Pen.Brush>
+                                <LinearGradientBrush MappingMode="Absolute"
+                                                 StartPoint="30.14,66.81"
+                                                 EndPoint="55.14,66.81">
+                                    <GradientStop Color="#FF333333" Offset="0"/>
+                                    <GradientStop Color="#FF666666" Offset="0.55"/>
+                                    <GradientStop Color="#FF333333" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Pen.Brush>
+                        </Pen>
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+
+                <!-- right eye fill -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <RadialGradientBrush MappingMode="Absolute"
+                                         Center="84.95,66.78"
+                                         GradientOrigin="84.95,66.78"
+                                         RadiusX="11.5"
+                                         RadiusY="11.5">
+                            <GradientStop Color="#FFFFFFFF" Offset="0.48"/>
+                            <GradientStop Color="#FFFDFDFD" Offset="0.77"/>
+                            <GradientStop Color="#FFF6F6F6" Offset="0.88"/>
+                            <GradientStop Color="#FFEBEBEB" Offset="0.96"/>
+                            <GradientStop Color="#FFE0E0E0" Offset="1"/>
+                        </RadialGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M85,55.28 C78.65,55.28 73.5,60.43 73.5,66.78 C73.5,73.13 78.65,78.28 85,78.28 C91.35,78.28 96.5,73.13 96.5,66.78 L96.5,66.78 C96.49,60.43 91.35,55.29 85,55.28 Z"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- right eye stroke -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M85,55.28 C78.65,55.28 73.5,60.43 73.5,66.78 C73.5,73.13 78.65,78.28 85,78.28 C91.35,78.28 96.5,73.13 96.5,66.78 L96.5,66.78 C96.49,60.43 91.35,55.29 85,55.28 Z"/>
+                    </GeometryDrawing.Geometry>
+                    <GeometryDrawing.Pen>
+                        <Pen Thickness="2" LineJoin="Miter">
+                            <Pen.Brush>
+                                <LinearGradientBrush MappingMode="Absolute"
+                                                 StartPoint="72.45,66.78"
+                                                 EndPoint="97.45,66.78">
+                                    <GradientStop Color="#FF333333" Offset="0"/>
+                                    <GradientStop Color="#FF666666" Offset="0.55"/>
+                                    <GradientStop Color="#FF333333" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Pen.Brush>
+                        </Pen>
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_skill">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+
+                <GeometryDrawing Brush="#FFFEB804"
+                             Geometry="M69.68,54.04
+                                       C69.68,54.04 98.65,7.63 99.31,6.47
+                                       C99.97,5.31 100.11,3.18 98.29,3.18
+                                       C96.47,3.18 51.34,49.25 51.34,49.25
+                                       L19.29,68.25
+                                       C19.29,68.25 17.14,69.57 17.47,71.22
+                                       C17.80,72.87 19.24,72.94 19.90,72.94
+                                       C20.56,72.94 54.75,72.76 56.74,72.70
+                                       C59.21,72.63 58.60,76.14 58.60,76.14
+                                       L36.96,110.16
+                                       C36.96,110.16 27.51,123.24 27.51,124.13
+                                       C27.51,125.44 29.09,126.09 30.56,125.21
+                                       C31.70,124.53 105.40,62.08 108.65,57.79
+                                       C109.53,56.62 109.98,53.54 106.35,53.54
+                                       C102.72,53.54 73.81,61.96 73.81,61.96
+                                       L69.68,54.04 Z" />
+
+                <GeometryDrawing Brush="#FFFFC927"
+                             Geometry="M64.61,50.35
+                                       C63.72,51.57 63.48,53.61 65.40,53.73
+                                       C67.31,53.84 106.35,53.55 106.35,53.55
+                                       C106.35,53.55 78.46,79.18 70.02,86.83
+                                       C61.58,94.48 33.63,119.26 31.75,121.01
+                                       C29.91,122.73 28.24,124.31 27.56,124.09
+                                       C27.45,124.06 27.31,123.47 29.94,119.14
+                                       C32.34,115.19 55.38,76.58 56.28,75.12
+                                       C57.18,73.66 57.97,72.42 58.42,71.74
+                                       C58.87,71.06 60.33,67.35 57.29,67.35
+                                       C54.25,67.35 19.29,68.25 19.29,68.25
+                                       C19.29,68.25 43.44,47.76 50.42,42.25
+                                       C57.40,36.74 96.96,3.18 98.29,3.18
+                                       C99.62,3.18 65.51,49.12 64.61,50.35 Z" />
+
+                <GeometryDrawing Brush="#FFFFE567"
+                             Geometry="M63.45,70.75
+                                       C65.25,68.16 67.02,67.97 68.09,68.61
+                                       C69.47,69.44 69.61,71.35 67.87,73.66
+                                       C65.13,77.32 44.99,104.27 44.22,105.22
+                                       C42.76,107.02 40.61,106.23 42.01,103.62
+                                       C43.18,101.46 61.59,73.43 63.45,70.75 Z" />
+
+                <GeometryDrawing Brush="#FFFFE567"
+                             Geometry="M34.83,65.49
+                                       C31.38,67.80 28.17,64.35 30.48,61.82
+                                       C32.79,59.29 47.95,46.67 51.02,44.06
+                                       C54.09,41.45 72.01,25.86 73.40,24.74
+                                       C75.24,23.26 76.38,24.76 75.22,26.30
+                                       C74.07,27.84 61.40,40.50 55.81,45.64
+                                       C51.49,49.62 38.11,63.29 34.83,65.49 Z" />
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_store_memory">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+
+                <GeometryDrawing Brush="#FF616161"
+                             Geometry="M124.17,27.95
+                                       L124.17,115.44
+                                       C124.17,120.26 120.26,124.17 115.44,124.17
+                                       L12.56,124.17
+                                       C7.74,124.17 3.83,120.26 3.83,115.44
+                                       L3.83,12.56
+                                       C3.83,7.74 7.74,3.83 12.56,3.83
+                                       L102.2,3.83
+                                       C105.76,3.83 109.14,5.42 111.41,8.17
+                                       L121.45,20.36
+                                       C123.21,22.5 124.17,25.18 124.17,27.95 Z" />
+
+                <GeometryDrawing Brush="#FFFFFFFF"
+                             Geometry="M103.94,124.17
+                                       L24,124.17
+                                       L24,71.25
+                                       C24,69.44 25.47,67.97 27.28,67.97
+                                       L100.67,67.97
+                                       C102.48,67.97 103.95,69.44 103.95,71.25
+                                       L103.94,124.17 Z" />
+
+                <GeometryDrawing Brush="#FF039BE5"
+                             Geometry="M24,111.92 H103.94 V124.17 H24 Z" />
+
+                <GeometryDrawing Brush="#FF424242"
+                             Geometry="M16.75,3.83
+                                       L16.75,51.58
+                                       C16.75,53.36 18.32,54.75 20.4,54.75
+                                       L97.05,54.75
+                                       C99.13,54.75 100.74,53.37 100.74,51.58
+                                       L100.74,3.83 Z" />
+
+                <GeometryDrawing Brush="#FFE0E0E0"
+                             Geometry="M35,3.83
+                                       L35,48.85
+                                       C35,50.53 36.18,51.83 37.74,51.83
+                                       L95.2,51.83
+                                       C96.76,51.83 97.97,50.53 97.97,48.85
+                                       L97.97,3.83
+                                       Z
+
+                                       M85.97,46.52
+                                       C85.97,47.24 85.38,47.83 84.66,47.83
+                                       L67.28,47.83
+                                       C66.56,47.83 65.97,47.24 65.97,46.52
+                                       L65.97,9.14
+                                       C65.97,8.42 66.56,7.83 67.28,7.83
+                                       L84.66,7.83
+                                       C85.38,7.83 85.97,8.42 85.97,9.14
+                                       L85.97,46.52 Z"/>
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_report_intent">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+
+                <GeometryDrawing Brush="#FFFF2A23"
+                             Geometry="M63.04,7.57
+                                       C36.72,6.97 7.69,28.8 8.25,64.16
+                                       C8.74,95.25 32.1,118.78 62.37,119.27
+                                       C92.64,119.76 119.46,99.75 119.62,64
+                                       C119.79,27.97 91.99,8.23 63.04,7.57 Z" />
+
+                <GeometryDrawing Brush="#FFFFFDFE"
+                             Geometry="M63.12,20.19
+                                       C42.24,20.9 21.17,36.48 20.68,63.95
+                                       C20.19,91.42 44.2,106.72 63.12,106.72
+                                       C87.14,106.72 107.21,87.8 106.71,62.63
+                                       C106.22,37.47 87.3,19.37 63.12,20.19 Z" />
+
+                <GeometryDrawing Brush="#FFFF2A23"
+                             Geometry="M63.61,30.89
+                                       C44.69,30.46 30.71,47.18 30.54,63.13
+                                       C30.38,79.42 40.57,96.03 63.28,96.85
+                                       C85.99,97.67 96.67,79.58 97,64.28
+                                       C97.34,48.98 85.16,31.38 63.61,30.89 Z" />
+
+                <GeometryDrawing Brush="#FFFFFFFF"
+                             Geometry="M41.98,63.73
+                                       C41.82,78.04 52.01,86.27 64.35,86.27
+                                       C75.56,86.27 86.56,79.2 86.56,64.23
+                                       C86.56,50.74 76.36,42.68 65.01,42.19
+                                       C53.66,41.69 42.14,49.92 41.98,63.73 Z" />
+
+                <GeometryDrawing Brush="#FFFB2B22"
+                             Geometry="M52.1,63.62
+                                       C51.49,72.15 58.43,76.23 64.68,76.23
+                                       C70.6,76.23 76.44,72.34 76.61,64.44
+                                       C76.76,57.02 70.94,52.49 64.68,52.27
+                                       C58.22,52.05 52.59,56.69 52.1,63.62 Z" />
+
+                <GeometryDrawing Brush="#FFCC1935"
+                             Geometry="M66.74,64.29
+                                       L63.39,66.15
+                                       L69.78,75.24
+                                       C69.78,75.24 74.72,75.62 75.86,74.33
+                                       C77,73.04 75.71,69.24 75.71,69.24
+                                       L66.74,64.29 Z" />
+
+                <GeometryDrawing Brush="#FFACB1B5"
+                             Geometry="M87.42,54.41
+                                       C86.52,52.55 85.6,51.06 83.16,51.52
+                                       C80.73,51.98 76.24,54.56 75.4,55.78
+                                       C74.63,56.9 73.88,58.29 73.88,58.29
+                                       C73.88,58.29 65.28,62.99 63.92,63.76
+                                       C61.79,64.98 63.26,67.46 64.76,67.18
+                                       C66.81,66.8 75.97,63.07 75.97,63.07
+                                       C75.97,63.07 77.91,63.53 79.05,63.53
+                                       C80.19,63.53 86.69,60.32 87.57,59.73
+                                       C89.02,58.74 88.33,56.31 87.42,54.41 Z" />
+
+                <GeometryDrawing Brush="#FFC8C8C8"
+                             Geometry="M75.68,69.22
+                                       C75.68,69.22 75.2,70.92 73.45,72.68
+                                       C71.63,74.5 69.76,75.22 69.76,75.22
+                                       L75.53,83.68
+                                       C75.53,83.68 79.82,83.99 82.94,80.95
+                                       C86.06,77.91 84.7,73.93 84.7,73.93
+                                       L75.68,69.22 Z" />
+
+                <GeometryDrawing Brush="#FFCC1935"
+                             Geometry="M81.4,92.57
+                                       L75.52,83.67
+                                       C75.52,83.67 76.5,83.15 77.79,82.27
+                                       C80.16,80.65 81.48,79.36 83.17,76.72
+                                       C84.09,75.3 84.68,73.92 84.68,73.92
+                                       L93.77,78.41
+                                       C93.77,78.41 93.57,85.43 90.6,88.85
+                                       C87.63,92.27 81.4,92.57 81.4,92.57 Z" />
+
+                <GeometryDrawing Brush="#FFC8C8C8"
+                             Geometry="M81.4,92.57
+                                       L86.45,100.14
+                                       C86.45,100.14 93.04,100.79 98.44,94.32
+                                       C103.84,87.85 102.4,82.53 102.4,82.53
+                                       L93.77,78.4
+                                       C93.77,78.4 92.09,82.44 88.75,86.32
+                                       C85.41,90.2 81.4,92.57 81.4,92.57 Z" />
+
+                <GeometryDrawing Brush="#FFCC1935"
+                             Geometry="M93.93,111.33
+                                       L86.46,100.15
+                                       C86.46,100.15 92.09,96.86 96.09,92.13
+                                       C100.24,87.22 102.41,82.55 102.41,82.55
+                                       L114.5,88.56
+                                       C114.5,88.56 111.78,95.59 105.75,101.94
+                                       C99.85,108.13 93.93,111.33 93.93,111.33 Z" />
+
+                <GeometryDrawing Brush="#FF006CA9"
+                             Geometry="M81.61,57.37
+                                       C82.74,59.48 84.61,59.5 86.59,58.66
+                                       C88.57,57.82 97.92,51.21 97.92,51.21
+                                       C97.92,51.21 110.62,57.6 118.83,54.4
+                                       C127.04,51.21 126.81,42.54 126.81,42.54
+                                       L121.95,39.46
+                                       C121.95,39.46 125.49,37.62 126.63,36.94
+                                       C127.19,36.6 128.02,35.34 127.56,34.21
+                                       C127.2,33.33 125.82,33.03 124.68,33.49
+                                       C123.54,33.95 120.25,34.98 120.25,34.98
+                                       C120.25,34.98 121.56,29.53 121.33,29.23
+                                       C121.1,28.93 118.74,27.71 118.74,27.71
+                                       C118.74,27.71 111.06,27.71 110.07,28.09
+                                       C109.08,28.47 101.48,36 101.48,36
+                                       L97.83,43.45
+                                       L96.27,46.77
+                                       C96.27,46.77 85.62,51.54 84.02,52.22
+                                       C82.43,52.91 80.22,54.8 81.61,57.37 Z" />
+
+                <GeometryDrawing Brush="#FF1F87FD"
+                             Geometry="M98.54,45.85
+                                       C98.54,45.85 103.02,42.61 106.21,41.01
+                                       C109.4,39.41 115.32,37.46 117.07,37.25
+                                       C118.82,37.04 119.54,37.51 119.85,38.33
+                                       C120.16,39.15 119.13,40.18 118.25,40.65
+                                       C117.38,41.11 112.74,43.22 107.6,45.95
+                                       C102.46,48.68 100.02,50.68 97.94,51.15
+                                       C96.89,51.39 95.54,50.45 95.46,48.88
+                                       C95.4,47.66 95.64,46.64 96.44,44.3
+                                       C97.42,41.42 99.57,37.09 101.38,34.27
+                                       C104.06,30.1 107.92,27.27 112.19,26.5
+                                       C116.46,25.73 119.96,26.81 120.84,27.53
+                                       C121.71,28.25 121.66,28.99 121.35,29.24
+                                       C121.04,29.49 120.58,29.69 118.26,28.87
+                                       C116.65,28.3 111.52,28.3 107.92,30.98
+                                       C104.28,33.68 103.39,35.35 101.8,38.29
+                                       C100.21,41.24 98.54,45.85 98.54,45.85 Z" />
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_sql">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+
+                <GeometryDrawing Brush="#FF6E608B"
+                             Geometry="M14.45,4
+                                       C12.54,4 10.99,5.55 10.99,7.46
+                                       L10.99,59.34
+                                       L10.99,68.65
+                                       L10.99,120.53
+                                       C10.99,122.44 12.54,123.99 14.45,123.99
+                                       L113.55,123.99
+                                       C115.46,123.99 117.01,122.44 117.01,120.53
+                                       L117.01,68.66
+                                       L117.01,59.35
+                                       L117.01,7.46
+                                       C117.01,5.55 115.46,4 113.55,4
+                                       Z" />
+
+                <GeometryDrawing Brush="#FF70638A"
+                             Geometry="M105.71,62.35
+                                       L22.29,62.35
+                                       C19.67,62.35 17.55,60.23 17.55,57.61
+                                       L17.55,14.93
+                                       C17.55,12.31 19.67,10.19 22.29,10.19
+                                       L105.72,10.19
+                                       C108.34,10.19 110.46,12.31 110.46,14.93
+                                       L110.46,57.6
+                                       C110.46,60.23 108.33,62.35 105.71,62.35
+                                       Z" />
+
+                <GeometryDrawing Brush="#FF70638A"
+                             Geometry="M105.71,117.81
+                                       L22.29,117.81
+                                       C19.67,117.81 17.55,115.69 17.55,113.07
+                                       L17.55,70.39
+                                       C17.55,67.77 19.67,65.65 22.29,65.65
+                                       L105.72,65.65
+                                       C108.34,65.65 110.46,67.77 110.46,70.39
+                                       L110.46,113.06
+                                       C110.46,115.69 108.33,117.81 105.71,117.81
+                                       Z" />
+
+                <GeometryDrawing Brush="#FFFAFAFA">
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="51.9,76.33,24.21,13.81" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#FF2C2638"
+                             Geometry="M74.76,78.87
+                                       C74.76,78.87 73.75,80.87 73.72,83.97
+                                       C73.69,86.78 75.19,89.83 75.19,89.83
+                                       L52.79,89.83
+                                       C52.79,89.83 54.18,86.98 54.2,84.35
+                                       C54.22,81.32 53.13,78.87 53.13,78.87
+                                       Z
+
+                                       M76.12,75.72
+                                       L51.88,75.72
+                                       C50.5,75.72 49.38,76.84 49.38,78.22
+                                       L49.38,90.49
+                                       C49.38,91.87 50.5,92.99 51.88,92.99
+                                       L76.13,92.99
+                                       C77.5,92.99 78.62,91.87 78.62,90.49
+                                       L78.62,78.21
+                                       C78.62,76.83 77.5,75.72 76.12,75.72
+                                       Z"/>
+
+                <GeometryDrawing Brush="#FF9E9E9E"
+                             Geometry="M75.47,77.43
+                                       C75.47,77.43 74,79.72 74,82.53
+                                       C74,85.34 75.47,88.39 75.47,88.39
+                                       L52.53,88.39
+                                       C52.53,88.39 53.94,85.54 53.94,82.91
+                                       C53.94,80.28 52.53,77.43 52.53,77.43
+                                       Z
+
+                                       M76.12,74.28
+                                       L51.88,74.28
+                                       C50.5,74.28 49.38,75.4 49.38,76.78
+                                       L49.38,89.05
+                                       C49.38,90.43 50.5,91.55 51.88,91.55
+                                       L76.13,91.55
+                                       C77.5,91.55 78.62,90.43 78.62,89.05
+                                       L78.62,76.77
+                                       C78.62,75.4 77.5,74.28 76.12,74.28
+                                       Z"/>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Geometry>
+                        <LineGeometry StartPoint="52.32,75.72" EndPoint="60.51,75.72" />
+                    </GeometryDrawing.Geometry>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#FFC9E3E6"
+                         Thickness="1.5756"
+                         StartLineCap="Round"
+                         EndLineCap="Round"
+                         LineJoin="Miter" />
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#FF2C2638"
+                             Geometry="M71.37,109.18
+                                       C70.83,109.18 57.98,109.18 57.98,109.18
+                                       C53.61,109.18 50.06,105.64 50.06,101.26
+                                       L50.06,100.54
+                                       C50.06,99.48 50.9,97.04 51.96,97.04
+                                       C55.56,97.04 77.98,97.14 78.23,97.52
+                                       C81.59,102.55 77,109.17 71.37,109.18
+                                       Z" />
+
+                <GeometryDrawing Brush="#FF6E608B"
+                             Geometry="M70.51,106.65
+                                       L57.49,106.65
+                                       C53.01,106.65 49.38,103.02 49.38,98.54
+                                       L49.38,98.06
+                                       C49.38,96.97 50.26,96.09 51.35,96.09
+                                       L76.66,96.09
+                                       C77.75,96.09 78.63,96.97 78.63,98.06
+                                       L78.63,98.54
+                                       C78.62,103.02 74.99,106.65 70.51,106.65
+                                       Z" />
+
+                <GeometryDrawing Brush="#FFD3C9E6"
+                             Geometry="M58.59,99.93
+                                       C56.62,100.11 54.64,100.19 52.66,100.16
+                                       C52.21,100.15 50.66,99.96 50.96,98.32
+                                       C51.25,96.72 55.46,97.08 57.08,97.07
+                                       C62.38,97.04 63,97.6 63,98.25
+                                       C63,98.93 62.47,99.59 58.59,99.93
+                                       Z" />
+
+                <GeometryDrawing Brush="#FFFAFAFA">
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="51.9,20.87,24.21,13.81" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#FF2C2638"
+                             Geometry="M74.76,23.41
+                                       C74.76,23.41 73.75,25.41 73.72,28.51
+                                       C73.69,31.32 75.19,34.37 75.19,34.37
+                                       L52.79,34.37
+                                       C52.79,34.37 54.18,31.52 54.2,28.89
+                                       C54.22,25.86 53.13,23.41 53.13,23.41
+                                       Z
+
+                                       M76.12,20.26
+                                       L51.88,20.26
+                                       C50.5,20.26 49.38,21.38 49.38,22.76
+                                       L49.38,35.03
+                                       C49.38,36.41 50.5,37.53 51.88,37.53
+                                       L76.13,37.53
+                                       C77.5,37.53 78.62,36.41 78.62,35.03
+                                       L78.62,22.75
+                                       C78.62,21.37 77.5,20.26 76.12,20.26
+                                       Z"/>
+
+                <GeometryDrawing Brush="#FF9E9E9E"
+                             Geometry="M75.47,21.97
+                                       C75.47,21.97 74,24.26 74,27.07
+                                       C74,29.88 75.47,32.93 75.47,32.93
+                                       L52.53,32.93
+                                       C52.53,32.93 53.94,30.08 53.94,27.45
+                                       C53.94,24.82 52.53,21.97 52.53,21.97
+                                       Z
+
+                                       M76.12,18.82
+                                       L51.88,18.82
+                                       C50.5,18.82 49.38,19.94 49.38,21.32
+                                       L49.38,33.59
+                                       C49.38,34.97 50.5,36.09 51.88,36.09
+                                       L76.13,36.09
+                                       C77.5,36.09 78.62,34.97 78.62,33.59
+                                       L78.62,21.31
+                                       C78.62,19.94 77.5,18.82 76.12,18.82
+                                       Z"/>
+
+                <GeometryDrawing>
+                    <GeometryDrawing.Geometry>
+                        <LineGeometry StartPoint="52.32,20.26" EndPoint="60.51,20.26" />
+                    </GeometryDrawing.Geometry>
+                    <GeometryDrawing.Pen>
+                        <Pen Brush="#FFD4CBE7"
+                         Thickness="1.5756"
+                         StartLineCap="Round"
+                         EndLineCap="Round"
+                         LineJoin="Miter" />
+                    </GeometryDrawing.Pen>
+                </GeometryDrawing>
+
+                <GeometryDrawing Brush="#FF2B2537"
+                             Geometry="M71.37,53.72
+                                       C70.83,53.72 57.98,53.72 57.98,53.72
+                                       C53.61,53.72 50.06,50.18 50.06,45.8
+                                       L50.06,45.08
+                                       C50.06,44.02 50.9,41.58 51.96,41.58
+                                       C55.56,41.58 77.98,41.68 78.23,42.06
+                                       C81.59,47.09 77,53.71 71.37,53.72
+                                       Z" />
+
+                <GeometryDrawing Brush="#FF6F618C"
+                             Geometry="M70.51,51.19
+                                       L57.49,51.19
+                                       C53.01,51.19 49.38,47.56 49.38,43.08
+                                       L49.38,42.6
+                                       C49.38,41.51 50.26,40.63 51.35,40.63
+                                       L76.66,40.63
+                                       C77.75,40.63 78.63,41.51 78.63,42.6
+                                       L78.63,43.08
+                                       C78.62,47.56 74.99,51.19 70.51,51.19
+                                       Z" />
+
+                <GeometryDrawing Brush="#FFD4CBE7"
+                             Geometry="M58.59,44.47
+                                       C56.62,44.65 54.64,44.73 52.66,44.7
+                                       C52.21,44.69 50.66,44.5 50.96,42.86
+                                       C51.25,41.26 55.46,41.62 57.08,41.61
+                                       C62.38,41.58 63,42.14 63,42.79
+                                       C63,43.47 62.47,44.13 58.59,44.47
+                                       Z" />
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <!-- powershell — dark monitor with a ">" prompt mark -->
+    <DrawingImage x:Key="ToolIcon_powershell">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+
+                <!-- laptop base -->
+                <GeometryDrawing Brush="#FF90A4AE"
+                             Geometry="M8,92
+                                       L120,92
+                                       L112,112
+                                       L16,112 Z"/>
+
+                <!-- screen outer -->
+                <GeometryDrawing Brush="#FF607D8B"
+                             Geometry="M16,16
+                                       L112,16
+                                       C114.21,16 116,17.79 116,20
+                                       L116,88
+                                       L12,88
+                                       L12,20
+                                       C12,17.79 13.79,16 16,16 Z"/>
+
+                <!-- screen inner -->
+                <GeometryDrawing Brush="#FF263238"
+                             Geometry="M18,20 L110,20 L110,84 L18,84 Z"/>
+
+                <!-- screen gradient overlay -->
+                <GeometryDrawing>
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush StartPoint="18,20" EndPoint="110,84" MappingMode="Absolute">
+                            <GradientStop Color="#3300E5FF" Offset="0"/>
+                            <GradientStop Color="#0000E5FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="18,20,92,64"/>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <!-- terminal prompt arrow -->
+                <GeometryDrawing Brush="#FF4FC3F7"
+                             Geometry="M34,38
+                                       L54,52
+                                       L34,66
+                                       C32.9,66.8 31.5,66 31.5,64.7
+                                       L31.5,39.3
+                                       C31.5,38 32.9,37.2 34,38 Z"/>
+
+                <!-- command line -->
+                <GeometryDrawing Brush="#FF81D4FA"
+                             Geometry="M60,66
+                                       L90,66
+                                       C91.66,66 93,67.34 93,69
+                                       C93,70.66 91.66,72 90,72
+                                       L60,72
+                                       C58.34,72 57,70.66 57,69
+                                       C57,67.34 58.34,66 60,66 Z"/>
+
+                <!-- base shadow -->
+                <GeometryDrawing Brush="#33000000"
+                             Geometry="M16,112
+                                       L112,112
+                                       L108,118
+                                       L20,118 Z"/>
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+    <DrawingImage x:Key="ToolIcon_default">
+        <DrawingImage.Drawing>
+            <DrawingGroup ClipGeometry="M0,0 H128 V128 H0 Z">
+                <GeometryDrawing Brush="#FF4D8387">
+                    <GeometryDrawing.Geometry>
+                        <PathGeometry Figures="M64,10
+                                           C50,30 30,50 10,64
+                                           C30,78 50,98 64,118
+                                           C78,98 98,78 118,64
+                                           C98,50 78,30 64,10 Z" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+</ResourceDictionary>

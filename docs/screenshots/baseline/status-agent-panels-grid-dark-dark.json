@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "name": "status-agent-panels-grid-dark",
+  "description": "",
+  "theme": "Dark",
+  "region": "custom",
+  "capturedAt": "2026-04-25T23:47:31.6003088Z",
+  "bounds": {
+    "x": 20,
+    "y": 58,
+    "width": 590,
+    "height": 422,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "StatusAgentPanelsGrid",
+      "ActiveAgentsPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 30,
+    "elementTop": 64,
+    "elementWidth": 2200,
+    "elementHeight": 407.38000000000005,
+    "distanceToEdge": 6
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "ActiveAgentsPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 30,
+    "elementTop": 64,
+    "elementWidth": 572,
+    "elementHeight": 407.38000000000005,
+    "distanceToEdge": 8
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "ExpanderToggle",
+      "Triangle"
+    ],
+    "needsName": false,
+    "elementLeft": 35,
+    "elementTop": 465.45000000000107,
+    "elementWidth": 10.8,
+    "elementHeight": 14.16,
+    "distanceToEdge": 0.38999999999890633
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "StatusAgentPanelsGrid",
+      "ActiveAgentsPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 30,
+    "elementTop": 64,
+    "elementWidth": 2200,
+    "elementHeight": 407.38000000000005,
+    "distanceToEdge": 10
+  },
+  "replayActionId": null,
+  "fixturePath": null
+}

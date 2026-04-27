@@ -1,0 +1,136 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Surface Tokens -->
+    <SolidColorBrush x:Key="AppSurface" Color="#F4EFE7"/>
+    <SolidColorBrush x:Key="ChromeSurface" Color="#F4EAD8"/>
+    <SolidColorBrush x:Key="PanelSurface" Color="#F8F2E7"/>
+    <SolidColorBrush x:Key="ActivePanelSurface" Color="#EAF4FF"/>
+    <SolidColorBrush x:Key="RosterPanelSurface" Color="#FFFBF5"/>
+    <SolidColorBrush x:Key="WorkspaceSurface" Color="#F7F4EE"/>
+    <SolidColorBrush x:Key="CardSurface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="HoverSurface" Color="#E8E0D4"/>
+    <SolidColorBrush x:Key="TranscriptSurface" Color="#FFFCF8"/>
+    <SolidColorBrush x:Key="TextBoxBackground" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="InputSurface" Color="#F8F2E8"/>
+    <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
+    <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
+    <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>
+    <SolidColorBrush x:Key="PopupSurface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ToastSurface" Color="#FFF4D9"/>
+    <SolidColorBrush x:Key="ChipSurface" Color="#F3F6FB"/>
+    <SolidColorBrush x:Key="CodeSurface" Color="#F6F1E9"/>
+    <SolidColorBrush x:Key="QuoteSurface" Color="#F7F2E9"/>
+    <SolidColorBrush x:Key="TrackSurface" Color="#E0D5C8"/>
+    <!-- Window Chrome Tokens -->
+    <SolidColorBrush x:Key="WindowBorder" Color="#C4B8A4"/>
+    <SolidColorBrush x:Key="CaptionButtonHover" Color="#DDD5C8"/>
+    <SolidColorBrush x:Key="CaptionCloseHover" Color="#C42B1C"/>
+    <SolidColorBrush x:Key="CaptionCloseHoverText" Color="#FFFFFF"/>
+    <!-- Border / Line Tokens -->
+    <SolidColorBrush x:Key="PanelBorder" Color="#D6C8B4"/>
+    <SolidColorBrush x:Key="ActivePanelBorder" Color="#C4D8F5"/>
+    <SolidColorBrush x:Key="RosterPanelBorder" Color="#E2D5C3"/>
+    <SolidColorBrush x:Key="WorkspaceBorder" Color="#D8D0C1"/>
+    <SolidColorBrush x:Key="LineColor" Color="#E2D9CA"/>
+    <SolidColorBrush x:Key="TranscriptBorder" Color="#D9D0C1"/>
+    <SolidColorBrush x:Key="InputBorder" Color="#D8CCBA"/>
+    <SolidColorBrush x:Key="AlertBorder" Color="#E4C48A"/>
+    <SolidColorBrush x:Key="BadgeBorder" Color="#E4D4BF"/>
+    <SolidColorBrush x:Key="HireAgentImageBorder" Color="#E4DDD3"/>
+    <SolidColorBrush x:Key="ThreadBadgeBorder" Color="#E2D4BE"/>
+    <SolidColorBrush x:Key="PopupBorder" Color="#CCCCCC"/>
+    <SolidColorBrush x:Key="ToastBorder" Color="#E7C75F"/>
+    <SolidColorBrush x:Key="ChipBorder" Color="#A9BDDB"/>
+    <SolidColorBrush x:Key="QuoteBorder" Color="#C0A070"/>
+    <SolidColorBrush x:Key="AvatarImageBorder" Color="#444444"/>
+    <SolidColorBrush x:Key="TableRule" Color="#D8D0C4"/>
+    <SolidColorBrush x:Key="TableHeaderSurface" Color="#EDE8E0"/>
+    <!-- Text Tokens -->
+    <SolidColorBrush x:Key="ImportantText" Color="#53371E"/>
+    <SolidColorBrush x:Key="LabelText" Color="#3C2B1E"/>
+    <SolidColorBrush x:Key="BodyText" Color="#7C6653"/>
+    <SolidColorBrush x:Key="CodeText" Color="#2A1E12"/>
+    <SolidColorBrush x:Key="SubtleText" Color="#7D6853"/>
+    <SolidColorBrush x:Key="AgentRoleText" Color="#6E5035"/>
+    <SolidColorBrush x:Key="AgentStatusText" Color="#6B4A28"/>
+    <SolidColorBrush x:Key="AgentDetailText" Color="#876C53"/>
+    <SolidColorBrush x:Key="ActivePanelTitle" Color="#32506E"/>
+    <SolidColorBrush x:Key="ActivePanelSubtitle" Color="#5B7895"/>
+    <SolidColorBrush x:Key="RosterPanelTitle" Color="#5A4129"/>
+    <SolidColorBrush x:Key="ActionLinkText" Color="#365C9B"/>
+    <SolidColorBrush x:Key="AlertBodyText" Color="#6A4A2C"/>
+    <SolidColorBrush x:Key="ThreadBadgeText" Color="#6E5035"/>
+    <SolidColorBrush x:Key="ToastText" Color="#6F5520"/>
+    <SolidColorBrush x:Key="ChipText" Color="#4682B4"/>
+    <!-- Document Part Tokens -->
+    <SolidColorBrush x:Key="TurnDividerText" Color="#A0522D"/>
+    <SolidColorBrush x:Key="AgentTaskStartText" Color="#B8860B"/>
+    <SolidColorBrush x:Key="UserPromptText" Color="#483D8B"/>
+    <SolidColorBrush x:Key="UserPromptPrefixText" Color="#7672A8"/>
+    <SolidColorBrush x:Key="VoiceAnnotationText" Color="#A09AB8"/>
+    <SolidColorBrush x:Key="SystemErrorText" Color="#CC2222"/>
+    <SolidColorBrush x:Key="SystemInfoText" Color="#B8860B"/>
+    <SolidColorBrush x:Key="TaskSuccessText" Color="#226B22"/>
+    <SolidColorBrush x:Key="TaskFailureText" Color="#B22222"/>
+    <SolidColorBrush x:Key="DocumentLinkText" Color="#2E70B4"/>
+    <SolidColorBrush x:Key="ListMarkerText" Color="#708090"/>
+    <SolidColorBrush x:Key="BlockquoteBodyText" Color="#708090"/>
+    <SolidColorBrush x:Key="TableCellText" Color="#2F4F4F"/>
+    <SolidColorBrush x:Key="ThinkingText" Color="#C68C2B"/>
+    <SolidColorBrush x:Key="ThinkingMetaText" Color="#C68C2B" Opacity="0.6"/>
+    <SolidColorBrush x:Key="KeyboardHintText" Color="#999999"/>
+    <SolidColorBrush x:Key="AgentIconTextColor" Color="#FFFFFF"/>
+    <!-- Tool Entry Tokens -->
+    <SolidColorBrush x:Key="ToolRunningIcon" Color="#4682B4"/>
+    <SolidColorBrush x:Key="ToolSuccessIcon" Color="#228B22"/>
+    <SolidColorBrush x:Key="ToolFailureIcon" Color="#B22222"/>
+    <SolidColorBrush x:Key="ToolBodyText" Color="#2F4F4F"/>
+    <SolidColorBrush x:Key="ToolFailureText" Color="#B22222"/>
+    <SolidColorBrush x:Key="ToolActionLink" Color="#4682B4"/>
+    <SolidColorBrush x:Key="ToolActionLinkBorder" Color="#B0C8E0"/>
+    <SolidColorBrush x:Key="DiffAddedText" Color="#4682B4"/>
+    <SolidColorBrush x:Key="DiffRemovedText" Color="#CD5C5C"/>
+    <SolidColorBrush x:Key="DiffDeletedFileText" Color="#A77575"/>
+    <!-- Chip State Tokens -->
+    <SolidColorBrush x:Key="ChipSelectedSurface" Color="#E5F0FF"/>
+    <SolidColorBrush x:Key="ChipSelectedBorder" Color="#5B88D8"/>
+    <SolidColorBrush x:Key="ChipSelectedText" Color="#191970"/>
+    <SolidColorBrush x:Key="ChipCompletedSurface" Color="#EBF8EE"/>
+    <SolidColorBrush x:Key="ChipCompletedBorder" Color="#7CB98A"/>
+    <SolidColorBrush x:Key="ChipCompletedText" Color="#226B22"/>
+    <SolidColorBrush x:Key="ChipFailedSurface" Color="#FDEEEE"/>
+    <SolidColorBrush x:Key="ChipFailedBorder" Color="#C68A8A"/>
+    <SolidColorBrush x:Key="ChipFailedText" Color="#B22222"/>
+    <!-- Quick Reply Tokens -->
+    <SolidColorBrush x:Key="QuickReplySurface" Color="#EFF6FF"/>
+    <SolidColorBrush x:Key="QuickReplyBorder" Color="#83A9D8"/>
+    <SolidColorBrush x:Key="QuickReplyText" Color="#1E3A5F"/>
+    <SolidColorBrush x:Key="QuickReplyHoverSurface" Color="#D6E8F8"/>
+    <!-- Recording Tokens -->
+    <SolidColorBrush x:Key="RecordingLevelFill" Color="#2478CF"/>
+    <SolidColorBrush x:Key="RecordingIconFill" Color="#CC2222"/>
+    <!-- ScrollBar Tokens -->
+    <SolidColorBrush x:Key="ScrollBarTrackBrush" Color="#E0D8CC"/>
+    <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="#B8A898"/>
+    <SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="#9A8878"/>
+    <SolidColorBrush x:Key="ScrollBarThumbPressedBrush" Color="#7A6858"/>
+    <!-- IntelliSense Popup Tokens -->
+    <SolidColorBrush x:Key="IntelliSenseSelectedSurface" Color="#C8DAEF"/>
+    <SolidColorBrush x:Key="IntelliSenseSelectedText" Color="#1E3A5F"/>
+    <SolidColorBrush x:Key="IntelliSenseHoverSurface" Color="#EDE5D8"/>
+    <!-- Effect Token -->
+    <DropShadowEffect x:Key="PopupShadow" BlurRadius="8" Opacity="0.20" ShadowDepth="2" Color="#000000"/>
+    <!-- Search Highlight Tokens -->
+    <SolidColorBrush x:Key="SearchHighlight"        Color="#FFE082"/>
+    <SolidColorBrush x:Key="SearchHighlightCurrent"     Color="#FFF2C53F"/>
+    <SolidColorBrush x:Key="SearchHighlightText"        Color="#3D2B00"/>
+    <SolidColorBrush x:Key="SearchHighlightTextCurrent" Color="#FF0F0B00"/>
+    <!-- Screenshot Overlay Tokens -->
+    <SolidColorBrush x:Key="OverlayDimFill"             Color="#60000000"/>
+    <SolidColorBrush x:Key="ScreenshotAnchorNamed"       Color="#388E3C"/>
+    <SolidColorBrush x:Key="ScreenshotAnchorUnnamed"     Color="#F57F17"/>
+    <SolidColorBrush x:Key="ScreenshotAnchorMissing"     Color="#C62828"/>
+    <!-- TreeView unfocused-selection override (keeps selection visible in light theme) -->
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#C8DAEF"/>
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#1E3A5F"/>
+</ResourceDictionary>

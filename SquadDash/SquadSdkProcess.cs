@@ -1,0 +1,699 @@
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace SquadDash;
+
+public sealed class SquadSdkProcess : IAsyncDisposable {
+    private static readonly TimeSpan DefaultPromptInactivityTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
+    private const string SessionResetEventType = "session_reset";
+
+    public event EventHandler<SquadSdkEvent>? EventReceived;
+    public event EventHandler<string>? ErrorReceived;
+
+    private readonly SemaphoreSlim _promptLock = new(1, 1);
+    private readonly SemaphoreSlim _stdinWriteLock = new(1, 1);
+    private readonly Func<ProcessStartInfo>? _processStartInfoFactory;
+    private readonly object _stateLock = new();
+    private readonly Queue<string> _recentErrorLines = new();
+    private readonly Dictionary<string, PendingBridgeRequest> _pendingRequests = new(StringComparer.Ordinal);
+    private readonly TimeSpan _promptInactivityTimeout;
+    private readonly TimeSpan _promptTimeoutPollInterval;
+    private readonly IWorkspacePaths? _workspacePaths;
+
+    private Process? _activeProcess;
+    private StreamWriter? _activeProcessInput;
+    private Task? _outputReaderTask;
+    private string? _activePromptRequestId;
+
+    internal SquadSdkProcess(IWorkspacePaths workspacePaths)
+        : this(processStartInfoFactory: null, options: null, workspacePaths: workspacePaths) {
+    }
+
+    internal SquadSdkProcess(Func<ProcessStartInfo> processStartInfoFactory) {
+        _processStartInfoFactory = processStartInfoFactory;
+        _promptInactivityTimeout = DefaultPromptInactivityTimeout;
+        _promptTimeoutPollInterval = DefaultPromptTimeoutPollInterval;
+    }
+
+    internal SquadSdkProcess(
+        Func<ProcessStartInfo>? processStartInfoFactory,
+        SquadSdkProcessOptions? options,
+        IWorkspacePaths? workspacePaths = null) {
+        _processStartInfoFactory = processStartInfoFactory;
+        _workspacePaths = workspacePaths;
+        _promptInactivityTimeout = options?.PromptInactivityTimeout > TimeSpan.Zero
+            ? options.PromptInactivityTimeout
+            : DefaultPromptInactivityTimeout;
+        _promptTimeoutPollInterval = options?.PromptTimeoutPollInterval > TimeSpan.Zero
+            ? options.PromptTimeoutPollInterval
+            : DefaultPromptTimeoutPollInterval;
+    }
+
+    public async Task RunPromptAsync(
+        string prompt,
+        string workingDirectory,
+        string? sessionId = null,
+        string? configDirectory = null) {
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new ArgumentException("Prompt cannot be empty.", nameof(prompt));
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            throw new ArgumentException("Working directory cannot be empty.", nameof(workingDirectory));
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"RunPromptAsync requested prompt={prompt} cwd={workingDirectory} sessionId={sessionId ?? "(new)"}");
+
+        await _promptLock.WaitAsync().ConfigureAwait(false);
+        try {
+            await RunPromptWithSessionRecoveryAsync(
+                prompt,
+                workingDirectory,
+                sessionId,
+                configDirectory).ConfigureAwait(false);
+        }
+        finally {
+            _promptLock.Release();
+        }
+    }
+
+    public async Task RunNamedAgentDelegationAsync(
+        string selectedOption,
+        string targetAgentHandle,
+        string workingDirectory,
+        string? sessionId,
+        string? configDirectory = null) {
+        if (string.IsNullOrWhiteSpace(selectedOption))
+            throw new ArgumentException("Selected option cannot be empty.", nameof(selectedOption));
+        if (string.IsNullOrWhiteSpace(targetAgentHandle))
+            throw new ArgumentException("Target agent handle cannot be empty.", nameof(targetAgentHandle));
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            throw new ArgumentException("Working directory cannot be empty.", nameof(workingDirectory));
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("Named-agent delegation requires an active Squad session.", nameof(sessionId));
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"RunNamedAgentDelegationAsync requested option={selectedOption} targetAgent={targetAgentHandle} cwd={workingDirectory} sessionId={sessionId}");
+
+        await _promptLock.WaitAsync().ConfigureAwait(false);
+        try {
+            var requestId = Guid.NewGuid().ToString("N");
+            var request = new SquadSdkDelegateRequest(
+                selectedOption,
+                targetAgentHandle,
+                workingDirectory,
+                sessionId,
+                configDirectory,
+                requestId);
+            await RunBridgeRequestOnceAsync(
+                request,
+                requestId,
+                sessionId,
+                allowRecoverableSessionReset: false).ConfigureAwait(false);
+        }
+        finally {
+            _promptLock.Release();
+        }
+    }
+
+    private async Task RunPromptWithSessionRecoveryAsync(
+        string prompt,
+        string workingDirectory,
+        string? sessionId,
+        string? configDirectory) {
+        try {
+            await RunPromptOnceAsync(
+                prompt,
+                workingDirectory,
+                sessionId,
+                configDirectory,
+                allowRecoverableSessionReset: !string.IsNullOrWhiteSpace(sessionId)).ConfigureAwait(false);
+        }
+        catch (RecoverableSessionResetException ex) when (!string.IsNullOrWhiteSpace(sessionId)) {
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Resetting resumed session {sessionId} after recoverable provider error: {ex.Message}");
+            ResetProcess();
+
+            EventReceived?.Invoke(this, new SquadSdkEvent {
+                Type = SessionResetEventType,
+                Message = "Squad reset the previous session after the provider rejected its saved context. Retrying this prompt in a fresh session, so you may need to restate earlier context."
+            });
+
+            await RunPromptOnceAsync(
+                prompt,
+                workingDirectory,
+                sessionId: null,
+                configDirectory,
+                allowRecoverableSessionReset: false).ConfigureAwait(false);
+        }
+    }
+
+    private async Task RunPromptOnceAsync(
+        string prompt,
+        string workingDirectory,
+        string? sessionId,
+        string? configDirectory,
+        bool allowRecoverableSessionReset) {
+        var requestId = Guid.NewGuid().ToString("N");
+        var request = new SquadSdkPromptRequest(
+            prompt,
+            workingDirectory,
+            sessionId,
+            configDirectory,
+            requestId);
+        await RunBridgeRequestOnceAsync(
+            request,
+            requestId,
+            sessionId,
+            allowRecoverableSessionReset).ConfigureAwait(false);
+    }
+
+    private async Task RunBridgeRequestOnceAsync<TRequest>(
+        TRequest request,
+        string requestId,
+        string? sessionId,
+        bool allowRecoverableSessionReset) {
+        ClearRecentErrors();
+
+        var completion = new TaskCompletionSource<BridgeRequestOutcome>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var pendingRequest = new PendingBridgeRequest(
+            completion,
+            sessionId,
+            allowRecoverableSessionReset);
+
+        lock (_stateLock) {
+            _pendingRequests[requestId] = pendingRequest;
+            _activePromptRequestId = requestId;
+        }
+
+        try {
+            await SendBridgeRequestWithRestartAsync(request).ConfigureAwait(false);
+            pendingRequest.MarkActivity();
+            var outcome = await WaitForPromptOutcomeAsync(pendingRequest).ConfigureAwait(false);
+            if (outcome == BridgeRequestOutcome.Aborted)
+                throw new OperationCanceledException("Prompt aborted by user.");
+
+            SquadDashTrace.Write("Bridge", "Prompt completed.");
+            await WaitForInjectedBridgeToSettleAsync().ConfigureAwait(false);
+        }
+        finally {
+            lock (_stateLock) {
+                _pendingRequests.Remove(requestId);
+                if (string.Equals(_activePromptRequestId, requestId, StringComparison.Ordinal))
+                    _activePromptRequestId = null;
+            }
+        }
+    }
+
+    private async Task SendBridgeRequestWithRestartAsync<TRequest>(TRequest request) {
+        try {
+            EnsureProcessStarted();
+            await SendBridgeRequestAsync(request).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsRecoverableWriteFailure(ex)) {
+            SquadDashTrace.Write("Bridge", $"Prompt write failed. Restarting bridge and retrying once: {ex.Message}");
+            ResetProcess();
+            EnsureProcessStarted();
+            await SendBridgeRequestAsync(request).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<BridgeRequestOutcome> WaitForPromptOutcomeAsync(PendingBridgeRequest pendingRequest) {
+        while (true) {
+            var completedTask = await Task
+                .WhenAny(pendingRequest.Completion.Task, Task.Delay(_promptTimeoutPollInterval))
+                .ConfigureAwait(false);
+            if (completedTask == pendingRequest.Completion.Task)
+                return await pendingRequest.Completion.Task.ConfigureAwait(false);
+
+            var idleFor = pendingRequest.GetInactivityDuration(DateTimeOffset.UtcNow);
+            if (idleFor < _promptInactivityTimeout)
+                continue;
+
+            var lastActivityAt = pendingRequest.GetLastActivityAt();
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Prompt inactivity timeout reached after {idleFor.TotalSeconds:0}s. lastActivityAt={lastActivityAt:O}. Restarting bridge process.");
+            ResetProcess();
+            throw new TimeoutException(BuildFailureMessage(
+                $"Timed out waiting for Squad to finish responding after {_promptInactivityTimeout.TotalSeconds:0} seconds without bridge activity."));
+        }
+    }
+
+    private void EnsureProcessStarted() {
+        Process? staleProcess = null;
+
+        lock (_stateLock) {
+            if (_activeProcess is not null) {
+                try {
+                    if (!_activeProcess.HasExited && _activeProcessInput is not null)
+                        return;
+                }
+                catch {
+                }
+
+                staleProcess = _activeProcess;
+                _activeProcess = null;
+                _activeProcessInput = null;
+                _outputReaderTask = null;
+                if (_activePromptRequestId is null)
+                    _pendingRequests.Clear();
+            }
+        }
+
+        if (staleProcess is not null)
+            TryKill(staleProcess);
+
+        if (_processStartInfoFactory is null) {
+            var compatibilityResult = SquadRuntimeCompatibility.Repair(
+                _workspacePaths?.SquadSdkDirectory ?? throw new InvalidOperationException("WorkspacePaths not configured"),
+                "Bundled Squad SDK");
+            if (!compatibilityResult.Success)
+                throw new InvalidOperationException(compatibilityResult.ToDisplayText());
+        }
+
+        var startInfo = _processStartInfoFactory?.Invoke() ?? BuildDefaultStartInfo();
+        var process = new Process {
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
+
+        process.ErrorDataReceived += (_, e) => {
+            if (string.IsNullOrWhiteSpace(e.Data))
+                return;
+
+            EnqueueError(e.Data);
+            SquadDashTrace.Write("Bridge", $"stderr: {e.Data}");
+            ErrorReceived?.Invoke(this, e.Data);
+        };
+
+        process.Exited += (_, _) => HandleProcessExited(process);
+
+        if (!process.Start())
+            throw new InvalidOperationException("Failed to start Squad SDK process.");
+
+        process.BeginErrorReadLine();
+        var readerTask = Task.Run(() => ReadOutputLoopAsync(process));
+
+        lock (_stateLock) {
+            _activeProcess = process;
+            _activeProcessInput = process.StandardInput;
+            _outputReaderTask = readerTask;
+        }
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"Started persistent bridge process pid={process.Id}. {SquadDashRuntimeStamp.BuildBridgeStamp()}");
+    }
+
+    private ProcessStartInfo BuildDefaultStartInfo() {
+        return new ProcessStartInfo {
+            FileName = "node",
+            Arguments = "runPrompt.js",
+            WorkingDirectory = _workspacePaths?.SquadSdkDirectory ?? throw new InvalidOperationException("WorkspacePaths not configured"),
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+    }
+
+    private async Task SendBridgeRequestAsync<TRequest>(TRequest request) {
+        var payload = JsonSerializer.Serialize(request);
+
+        await _stdinWriteLock.WaitAsync().ConfigureAwait(false);
+        try {
+            StreamWriter? input;
+            lock (_stateLock) {
+                input = _activeProcessInput;
+            }
+
+            if (input is null)
+                throw new InvalidOperationException("The Squad bridge is not running.");
+
+            await input.WriteLineAsync(payload).ConfigureAwait(false);
+            await input.FlushAsync().ConfigureAwait(false);
+            SquadDashTrace.Write("Bridge", $"Sent request: {payload}");
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
+            throw new InvalidOperationException("Failed to write to the Squad bridge.", ex);
+        }
+        finally {
+            _stdinWriteLock.Release();
+        }
+    }
+
+    private async Task ReadOutputLoopAsync(Process process) {
+        try {
+            while (true) {
+                string? line = await process.StandardOutput.ReadLineAsync().ConfigureAwait(false);
+                if (line is null)
+                    break;
+
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                try {
+                    var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+                        line,
+                        new JsonSerializerOptions {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                    if (evt is null)
+                        continue;
+
+                    SquadDashTrace.Write(
+                        "Bridge",
+                        $"Received event type={evt.Type ?? "(null)"} requestId={evt.RequestId ?? "(none)"}");
+                    HandleBridgeEvent(evt);
+                }
+                catch {
+                    SquadDashTrace.Write("Bridge", $"Received non-json stdout line: {line}");
+                    ErrorReceived?.Invoke(this, "[non-json] " + line);
+                }
+            }
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"stdout reader failed: {ex}");
+            ErrorReceived?.Invoke(this, ex.Message);
+            TryKill(process);
+        }
+    }
+
+    private void HandleBridgeEvent(SquadSdkEvent evt) {
+        var pendingRequest = ResolvePendingRequest(evt);
+        var isRecoverableSessionReset =
+            pendingRequest is not null &&
+            string.Equals(evt.Type, "error", StringComparison.Ordinal) &&
+            pendingRequest.AllowRecoverableSessionReset &&
+            ShouldResetSessionAndRetry(pendingRequest.SessionId, evt.Message);
+
+        if (!isRecoverableSessionReset && !string.Equals(evt.Type, "aborted", StringComparison.Ordinal))
+            EventReceived?.Invoke(this, evt);
+
+        if (pendingRequest is null)
+            return;
+
+        pendingRequest.MarkActivity();
+
+        switch (evt.Type) {
+            case "done":
+                pendingRequest.Completion.TrySetResult(BridgeRequestOutcome.Completed);
+                break;
+
+            case "aborted":
+                pendingRequest.Completion.TrySetResult(BridgeRequestOutcome.Aborted);
+                break;
+
+            case "error":
+                if (isRecoverableSessionReset) {
+                    pendingRequest.Completion.TrySetException(
+                        new RecoverableSessionResetException(evt.Message ?? "Unknown error"));
+                }
+                else {
+                    pendingRequest.Completion.TrySetException(
+                        new InvalidOperationException(evt.Message ?? "Unknown error"));
+                }
+                break;
+        }
+    }
+
+    private PendingBridgeRequest? ResolvePendingRequest(SquadSdkEvent evt) {
+        lock (_stateLock) {
+            if (!string.IsNullOrWhiteSpace(evt.RequestId) &&
+                _pendingRequests.TryGetValue(evt.RequestId, out var matched))
+                return matched;
+
+            if (_pendingRequests.Count == 1)
+                return _pendingRequests.Values.Single();
+
+            return null;
+        }
+    }
+
+    private void HandleProcessExited(Process process) {
+        string[] pendingRequestIds;
+        PendingBridgeRequest[] pendingRequests;
+        Task? outputReaderTask;
+
+        lock (_stateLock) {
+            if (!ReferenceEquals(_activeProcess, process))
+                return;
+
+            pendingRequestIds = _pendingRequests.Keys.ToArray();
+            pendingRequests = _pendingRequests.Values.ToArray();
+            outputReaderTask = _outputReaderTask;
+            _activeProcess = null;
+            _activeProcessInput = null;
+            _outputReaderTask = null;
+            _activePromptRequestId = null;
+        }
+
+        if (pendingRequests.Length == 0)
+            return;
+
+        _ = CompleteExitedProcessRequestsAsync(pendingRequestIds, pendingRequests, outputReaderTask);
+    }
+
+    private async Task CompleteExitedProcessRequestsAsync(
+        string[] pendingRequestIds,
+        PendingBridgeRequest[] pendingRequests,
+        Task? outputReaderTask) {
+        if (outputReaderTask is not null) {
+            try {
+                await outputReaderTask.ConfigureAwait(false);
+            }
+            catch {
+            }
+        }
+
+        lock (_stateLock) {
+            foreach (var requestId in pendingRequestIds)
+                _pendingRequests.Remove(requestId);
+        }
+
+        var message = BuildFailureMessage("The Squad SDK process exited before the prompt completed.");
+        foreach (var pendingRequest in pendingRequests.Where(request => !request.Completion.Task.IsCompleted))
+            pendingRequest.Completion.TrySetException(new InvalidOperationException(message));
+    }
+
+    private void EnqueueError(string text) {
+        lock (_recentErrorLines) {
+            if (_recentErrorLines.Count >= 12)
+                _recentErrorLines.Dequeue();
+
+            _recentErrorLines.Enqueue(text);
+        }
+    }
+
+    private void ClearRecentErrors() {
+        lock (_recentErrorLines) {
+            _recentErrorLines.Clear();
+        }
+    }
+
+    private string BuildFailureMessage(string fallbackMessage) {
+        string[] recentErrors;
+        lock (_recentErrorLines) {
+            recentErrors = _recentErrorLines.ToArray();
+        }
+
+        if (recentErrors.Length == 0)
+            return fallbackMessage;
+
+        return $"{fallbackMessage}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, recentErrors)}";
+    }
+
+    private static bool ShouldResetSessionAndRetry(string? sessionId, string? message) {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.Contains("CAPIError: 400", StringComparison.OrdinalIgnoreCase) ||
+               (message.Contains("CAPIError", StringComparison.OrdinalIgnoreCase) &&
+                message.Contains("Bad Request", StringComparison.OrdinalIgnoreCase)) ||
+               message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("session.send failed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsRecoverableWriteFailure(Exception ex) {
+        if (ex is IOException or ObjectDisposedException)
+            return true;
+
+        return ex is InvalidOperationException;
+    }
+
+    private async Task WaitForInjectedBridgeToSettleAsync() {
+        if (_processStartInfoFactory is null)
+            return;
+
+        Process? process;
+        lock (_stateLock) {
+            process = _activeProcess;
+        }
+
+        if (process is null)
+            return;
+
+        try {
+            await Task.WhenAny(process.WaitForExitAsync(), Task.Delay(75)).ConfigureAwait(false);
+        }
+        catch {
+        }
+    }
+
+    private void ResetProcess() {
+        Process? processToKill;
+
+        lock (_stateLock) {
+            processToKill = _activeProcess;
+            _activeProcess = null;
+            _activeProcessInput = null;
+            _outputReaderTask = null;
+            _activePromptRequestId = null;
+        }
+
+        if (processToKill is not null)
+            TryKill(processToKill);
+    }
+
+    private static void TryKill(Process process) {
+        try {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch {
+        }
+    }
+
+    public async ValueTask DisposeAsync() {
+        ResetProcess();
+        _stdinWriteLock.Dispose();
+        _promptLock.Dispose();
+        await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    public void AbortPrompt() {
+        SquadDashTrace.Write("Bridge", "AbortPrompt requested.");
+
+        string? requestId;
+        lock (_stateLock) {
+            requestId = _activePromptRequestId;
+        }
+
+        if (string.IsNullOrWhiteSpace(requestId))
+            return;
+
+        _ = SendAbortRequestAsync(requestId);
+    }
+
+    public async Task CancelBackgroundTaskAsync(string taskId, string? sessionId = null) {
+        if (string.IsNullOrWhiteSpace(taskId))
+            throw new ArgumentException("Background task id cannot be empty.", nameof(taskId));
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"CancelBackgroundTaskAsync requested taskId={taskId} sessionId={sessionId ?? "(auto)"}");
+
+        try {
+            await SendBridgeRequestAsync(new SquadSdkCancelBackgroundTaskRequest(taskId.Trim(), sessionId?.Trim()))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send background task cancel request for {taskId}: {ex.Message}");
+            ErrorReceived?.Invoke(this, ex.Message);
+            throw;
+        }
+    }
+
+    private async Task SendAbortRequestAsync(string requestId) {
+        try {
+            await SendBridgeRequestAsync(new SquadSdkAbortRequest(requestId)).ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send abort request for {requestId}: {ex.Message}");
+            ErrorReceived?.Invoke(this, ex.Message);
+        }
+    }
+}
+
+internal enum BridgeRequestOutcome {
+    Completed,
+    Aborted
+}
+
+internal sealed class PendingBridgeRequest {
+    private long _lastActivityAtUtcTicks;
+
+    public PendingBridgeRequest(
+        TaskCompletionSource<BridgeRequestOutcome> completion,
+        string? sessionId,
+        bool allowRecoverableSessionReset) {
+        Completion = completion;
+        SessionId = sessionId;
+        AllowRecoverableSessionReset = allowRecoverableSessionReset;
+        MarkActivity();
+    }
+
+    public TaskCompletionSource<BridgeRequestOutcome> Completion { get; }
+    public string? SessionId { get; }
+    public bool AllowRecoverableSessionReset { get; }
+
+    public void MarkActivity() =>
+        Interlocked.Exchange(ref _lastActivityAtUtcTicks, DateTimeOffset.UtcNow.Ticks);
+
+    public DateTimeOffset GetLastActivityAt() =>
+        new(Interlocked.Read(ref _lastActivityAtUtcTicks), TimeSpan.Zero);
+
+    public TimeSpan GetInactivityDuration(DateTimeOffset now) =>
+        now - GetLastActivityAt();
+}
+
+internal sealed class SquadSdkProcessOptions {
+    public TimeSpan PromptInactivityTimeout { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan PromptTimeoutPollInterval { get; init; } = TimeSpan.FromMilliseconds(250);
+}
+
+internal sealed record SquadSdkPromptRequest(
+    [property: JsonPropertyName("prompt")] string Prompt,
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("sessionId")] string? SessionId = null,
+    [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
+    [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
+    [property: JsonPropertyName("type")] string Type = "prompt");
+
+internal sealed record SquadSdkDelegateRequest(
+    [property: JsonPropertyName("selectedOption")] string SelectedOption,
+    [property: JsonPropertyName("targetAgent")] string TargetAgent,
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("sessionId")] string SessionId,
+    [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
+    [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
+    [property: JsonPropertyName("type")] string Type = "delegate");
+
+internal sealed record SquadSdkAbortRequest(
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "abort");
+
+internal sealed record SquadSdkCancelBackgroundTaskRequest(
+    [property: JsonPropertyName("taskId")] string TaskId,
+    [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId = null,
+    [property: JsonPropertyName("type")] string Type = "cancel_background_task");
+
+internal sealed class RecoverableSessionResetException : InvalidOperationException {
+    public RecoverableSessionResetException(string message)
+        : base(message) {
+    }
+}

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "name": "menu-test",
+  "description": "",
+  "theme": "Dark",
+  "region": "custom",
+  "capturedAt": "2026-04-25T11:27:39.2234937Z",
+  "bounds": {
+    "x": 0,
+    "y": 0,
+    "width": 293,
+    "height": 192,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "TitlebarGrid"
+    ],
+    "needsName": false,
+    "elementLeft": 1,
+    "elementTop": 1,
+    "elementWidth": 1771,
+    "elementHeight": 48,
+    "distanceToEdge": 1
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "ActiveAgentsPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 30,
+    "elementTop": 64,
+    "elementWidth": 210,
+    "elementHeight": 348.42,
+    "distanceToEdge": 53
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "ActivePanelSubtitleTextBlock",
+      "RosterPanelSubtitleTextBlock"
+    ],
+    "needsName": false,
+    "elementLeft": 43,
+    "elementTop": 100.95,
+    "elementWidth": 184,
+    "elementHeight": 15.96,
+    "distanceToEdge": 75.09
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "TitlebarGrid"
+    ],
+    "needsName": false,
+    "elementLeft": 1,
+    "elementTop": 1,
+    "elementWidth": 1771,
+    "elementHeight": 48,
+    "distanceToEdge": 1
+  },
+  "replayActionId": null,
+  "fixturePath": null
+}

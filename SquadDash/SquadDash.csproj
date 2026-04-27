@@ -1,0 +1,121 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>SquadDash.App</AssemblyName>
+    <ApplicationIcon>Assets\SquadDash.ico</ApplicationIcon>
+    <EnableRunSlotDeployment Condition="'$(EnableRunSlotDeployment)' == '' and '$(Configuration)' == 'Debug'">true</EnableRunSlotDeployment>
+    <EnableRunSlotDeployment Condition="'$(EnableRunSlotDeployment)' == ''">false</EnableRunSlotDeployment>
+    <SquadDashLauncherProject>$(MSBuildProjectDirectory)\..\SquadDashLauncher\SquadDashLauncher.csproj</SquadDashLauncherProject>
+    <SquadDashLauncherPath>$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)\SquadDash.exe</SquadDashLauncherPath>
+    <!-- Base version — major.minor.patch; build number is appended automatically -->
+    <VersionPrefix>1.0.0</VersionPrefix>
+  </PropertyGroup>
+
+  <!--
+    Derives the build number from git commit count (git rev-list -count HEAD).
+    Writes a generated AppVersion.g.cs into the intermediate output folder so
+    it is always fresh regardless of incremental build caching.
+    Falls back to 0 if git is unavailable.
+    Skip during design-time evaluations so IntelliSense does not shell out.
+  -->
+  <Target Name="WriteAppVersionFile"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(BuildingProject)' != 'false'">
+    <Exec Command="git rev-list --count HEAD"
+          ConsoleToMsBuild="true"
+          IgnoreExitCode="true"
+          WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitCommitCount"/>
+      <Output TaskParameter="ExitCode" PropertyName="_GitExitCode"/>
+    </Exec>
+    <PropertyGroup>
+      <_GitCommitCount Condition="'$(_GitExitCode)' != '0' or '$(_GitCommitCount)' == ''">0</_GitCommitCount>
+      <_GitCommitCount>$(_GitCommitCount.Trim())</_GitCommitCount>
+      <_AppVersionFull>$(VersionPrefix).$(_GitCommitCount)</_AppVersionFull>
+    </PropertyGroup>
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)AppVersion.g.cs"
+      Lines="// &lt;auto-generated/&gt;"
+      Overwrite="true" />
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)AppVersion.g.cs"
+      Lines="internal static class AppVersion {" />
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)AppVersion.g.cs"
+      Lines="    public const string Full = &quot;$(_AppVersionFull)&quot;%3B" />
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)AppVersion.g.cs"
+      Lines="    public const string Commit = &quot;$(_GitCommitCount)&quot;%3B" />
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)AppVersion.g.cs"
+      Lines="}" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)AppVersion.g.cs" />
+    </ItemGroup>
+    <Message Text="SquadDash build — $(_AppVersionFull) (commit #$(_GitCommitCount))" Importance="high"/>
+  </Target>
+
+  <ItemGroup>
+    <Resource Include="Assets\SquadDash.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\squaddash.md" />
+    <EmbeddedResource Include="Assets\squaddash-profiles.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\agents\**\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Roles\**\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.0" />
+    <PackageReference Include="NAudio" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="bin\**\*.cs" />
+    <Compile Remove="obj\**\*.cs" />
+    <Compile Remove="artifacts\**\*.cs" />
+    <EmbeddedResource Remove="bin\**\*" />
+    <EmbeddedResource Remove="obj\**\*" />
+    <EmbeddedResource Remove="artifacts\**\*" />
+    <None Remove="bin\**\*" />
+    <None Remove="obj\**\*" />
+    <None Remove="artifacts\**\*" />
+    <Page Remove="bin\**\*.xaml" />
+    <Page Remove="obj\**\*.xaml" />
+    <Page Remove="artifacts\**\*.xaml" />
+    <ApplicationDefinition Remove="bin\**\*.xaml" />
+    <ApplicationDefinition Remove="obj\**\*.xaml" />
+    <ApplicationDefinition Remove="artifacts\**\*.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Assets\Agents\" />
+  </ItemGroup>
+
+  <!-- Flatten Speech SDK native DLL to output root so P/Invoke can find it -->
+  <Target Name="CopySpeechNativeDll" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Copy SourceFiles="$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll"
+          DestinationFolder="$(OutputPath)"
+          Condition="Exists('$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll')"
+          OverwriteReadOnlyFiles="true" />
+  </Target>
+
+  <Target Name="BuildStableLauncherAndDeploy" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true' and '$(EnableRunSlotDeployment)' == 'true'">
+    <MSBuild Projects="$(SquadDashLauncherProject)" Targets="Restore;Build" Properties="Configuration=$(Configuration)" />
+    <Exec Command="&quot;$(SquadDashLauncherPath)&quot; --deploy-build-output &quot;$(TargetDir)&quot;" />
+  </Target>
+
+</Project>

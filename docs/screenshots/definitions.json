@@ -1,0 +1,254 @@
+[
+  {
+    "name": "prompt-border-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": null,
+      "needsName": false,
+      "elementLeft": 15,
+      "elementTop": 902.04,
+      "elementWidth": 1873,
+      "elementHeight": 151.96,
+      "distanceToEdge": 6.039999999999964
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": null,
+      "needsName": true,
+      "elementLeft": 15,
+      "elementTop": 15,
+      "elementWidth": 1873,
+      "elementHeight": 1039,
+      "distanceToEdge": 11
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": null,
+      "needsName": true,
+      "elementLeft": 15,
+      "elementTop": 15,
+      "elementWidth": 1873,
+      "elementHeight": 1039,
+      "distanceToEdge": 11
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": null,
+      "needsName": true,
+      "elementLeft": 15,
+      "elementTop": 15,
+      "elementWidth": 1873,
+      "elementHeight": 1039,
+      "distanceToEdge": 7
+    },
+    "bounds": {
+      "x": 8,
+      "y": 896,
+      "width": 1891,
+      "height": 169,
+      "dpiX": 1,
+      "dpiY": 1
+    }
+  },
+  {
+    "name": "the-coordinator",
+    "description": "The coordinator is always in the active section.",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "ActivePanelTitleTextBlock"
+      ],
+      "needsName": false,
+      "elementLeft": 43,
+      "elementTop": 77,
+      "elementWidth": 184,
+      "elementHeight": 19.950000000000003,
+      "distanceToEdge": 6
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "ActivePanelTitleTextBlock",
+        "ActivePanelSubtitleTextBlock",
+        "ActiveAgentsScrollViewer",
+        "ActiveAgentItemsControl"
+      ],
+      "needsName": false,
+      "elementLeft": 43,
+      "elementTop": 77,
+      "elementWidth": 184,
+      "elementHeight": 19.950000000000003,
+      "distanceToEdge": 0
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "Squad"
+      ],
+      "needsName": false,
+      "elementLeft": 43,
+      "elementTop": 126.91,
+      "elementWidth": 170,
+      "elementHeight": 206.92000000000002,
+      "distanceToEdge": 11.169999999999959
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "StatusAgentPanelsGrid",
+        "ActiveAgentsPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 30,
+      "elementTop": 64,
+      "elementWidth": 1713,
+      "elementHeight": 348.42,
+      "distanceToEdge": 2
+    },
+    "bounds": {
+      "x": 28,
+      "y": 71,
+      "width": 199,
+      "height": 274,
+      "dpiX": 1,
+      "dpiY": 1
+    }
+  },
+  {
+    "name": "menu-test",
+    "description": "",
+    "theme": "Dark",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "TitlebarGrid"
+      ],
+      "needsName": false,
+      "elementLeft": 1,
+      "elementTop": 1,
+      "elementWidth": 1771,
+      "elementHeight": 48,
+      "distanceToEdge": 1
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "ActiveAgentsPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 30,
+      "elementTop": 64,
+      "elementWidth": 210,
+      "elementHeight": 348.42,
+      "distanceToEdge": 53
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "ActivePanelSubtitleTextBlock",
+        "RosterPanelSubtitleTextBlock"
+      ],
+      "needsName": false,
+      "elementLeft": 43,
+      "elementTop": 100.95,
+      "elementWidth": 184,
+      "elementHeight": 15.96,
+      "distanceToEdge": 75.09
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "TitlebarGrid"
+      ],
+      "needsName": false,
+      "elementLeft": 1,
+      "elementTop": 1,
+      "elementWidth": 1771,
+      "elementHeight": 48,
+      "distanceToEdge": 1
+    },
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 293,
+      "height": 192,
+      "dpiX": 1,
+      "dpiY": 1
+    }
+  },
+  {
+    "name": "status-agent-panels-grid-dark",
+    "description": "",
+    "theme": "Dark",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "StatusAgentPanelsGrid",
+        "ActiveAgentsPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 30,
+      "elementTop": 64,
+      "elementWidth": 2200,
+      "elementHeight": 407.38000000000005,
+      "distanceToEdge": 6
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "ActiveAgentsPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 30,
+      "elementTop": 64,
+      "elementWidth": 572,
+      "elementHeight": 407.38000000000005,
+      "distanceToEdge": 8
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "ExpanderToggle",
+        "Triangle"
+      ],
+      "needsName": false,
+      "elementLeft": 35,
+      "elementTop": 465.45000000000107,
+      "elementWidth": 10.8,
+      "elementHeight": 14.16,
+      "distanceToEdge": 0.38999999999890633
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "StatusAgentPanelsGrid",
+        "ActiveAgentsPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 30,
+      "elementTop": 64,
+      "elementWidth": 2200,
+      "elementHeight": 407.38000000000005,
+      "distanceToEdge": 10
+    },
+    "bounds": {
+      "x": 20,
+      "y": 58,
+      "width": 590,
+      "height": 422,
+      "dpiX": 1,
+      "dpiY": 1
+    }
+  }
+]

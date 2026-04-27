@@ -1,0 +1,10 @@
+{
+  "fixtureId": "quick-replies-sample",
+  "data": {
+    "options": [
+      "Tell me more",
+      "Show me the code",
+      "What's next?"
+    ]
+  }
+}
