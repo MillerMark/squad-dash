@@ -506,7 +506,11 @@
                        VerticalAlignment="Center"
                        Margin="0,0,20,0"
                        FontSize="12"
-                       Foreground="{DynamicResource BodyText}" />
+                       Cursor="Hand"
+                       ToolTip="Right-click to copy system info"
+                       Foreground="{DynamicResource BodyText}"
+                       MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                       shell:WindowChrome.IsHitTestVisibleInChrome="True" />
 
             <!-- Squad version -->
             <TextBlock x:Name="SquadVersionTextBlock"
@@ -514,7 +518,11 @@
                        VerticalAlignment="Center"
                        Margin="0,0,8,0"
                        FontSize="12"
-                       Foreground="{DynamicResource BodyText}" />
+                       Cursor="Hand"
+                       ToolTip="Right-click to copy system info"
+                       Foreground="{DynamicResource BodyText}"
+                       MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                       shell:WindowChrome.IsHitTestVisibleInChrome="True" />
 
             <!-- Right-of-search: workspace title (click to reveal in Explorer) -->
             <TextBlock x:Name="WorkspaceTitleText"
@@ -527,6 +535,7 @@
                        Cursor="Hand"
                        ToolTip="Click to reveal in Explorer"
                        MouseLeftButtonUp="WorkspaceTitleText_MouseLeftButtonUp"
+                       MouseRightButtonUp="WorkspaceTitleText_MouseRightButtonUp"
                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
                        Text="{Binding WorkspaceTitleDisplay, RelativeSource={RelativeSource AncestorType=Window}}" />
 

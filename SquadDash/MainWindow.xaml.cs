@@ -9392,6 +9392,48 @@ public partial class MainWindow : Window
         }
     }
 
+    private void WorkspaceTitleText_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var menu = new ContextMenu();
+        var showItem = new MenuItem { Header = "Show in Explorer" };
+        showItem.Click += (_, _) => WorkspaceTitleText_MouseLeftButtonUp(sender, e);
+        menu.Items.Add(showItem);
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void VersionTextBlock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var menu = new ContextMenu();
+        var copyItem = new MenuItem { Header = "Copy Squad system info" };
+        copyItem.Click += (_, _) => CopySquadSystemInfoToClipboard();
+        menu.Items.Add(copyItem);
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void CopySquadSystemInfoToClipboard()
+    {
+        try
+        {
+            var squadVersion = _squadCliAdapter.SquadVersion;
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"SquadDash version: {AppVersion.Full}");
+            sb.AppendLine($"Squad version:     {(string.IsNullOrWhiteSpace(squadVersion) ? "(unknown)" : squadVersion)}");
+            sb.AppendLine($"Workspace folder:  {_currentWorkspace?.FolderPath ?? "(none)"}");
+            if (!string.IsNullOrWhiteSpace(_currentSolutionPath))
+                sb.AppendLine($"Solution file:     {_currentSolutionPath}");
+            sb.AppendLine($"OS:                {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+            sb.AppendLine($".NET runtime:      {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
+            sb.AppendLine($"Architecture:      {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}");
+            Clipboard.SetText(sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(CopySquadSystemInfoToClipboard), ex);
+        }
+    }
+
     private void MinimizeButton_Click(object sender, RoutedEventArgs e)
     {
         try
