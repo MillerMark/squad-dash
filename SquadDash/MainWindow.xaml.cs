@@ -911,6 +911,7 @@ public partial class MainWindow : Window
             RestoreUtilityWindowVisibility();
             await _squadCliAdapter.ResolveSquadVersionAsync();
             UpdateStatusTitle();
+            _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
             SquadDashTrace.Write("Startup", "Deferred startup initialization completed.");
 
             // Screenshot refresh mode: run the automated pass then shut down.
@@ -9402,14 +9403,93 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void VersionTextBlock_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        ShowVersionContextMenu();
+        e.Handled = true;
+    }
+
     private void VersionTextBlock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        ShowVersionContextMenu();
+        e.Handled = true;
+    }
+
+    private void SquadUpdateBadge_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        ShowVersionContextMenu();
+        e.Handled = true;
+    }
+
+    private void ShowVersionContextMenu()
     {
         var menu = new ContextMenu();
         var copyItem = new MenuItem { Header = "Copy Squad system info" };
         copyItem.Click += (_, _) => CopySquadSystemInfoToClipboard();
         menu.Items.Add(copyItem);
+
+        var latestVersion = _squadCliAdapter.LatestSquadVersion;
+        if (!string.IsNullOrWhiteSpace(latestVersion) && IsNewerSquadVersion(latestVersion, _squadCliAdapter.SquadVersion))
+        {
+            menu.Items.Add(new Separator());
+            var updateItem = new MenuItem { Header = $"Update Squad CLI to v{latestVersion}" };
+            updateItem.Click += (_, _) => RunSquadCliUpdate(latestVersion);
+            menu.Items.Add(updateItem);
+        }
+
         menu.IsOpen = true;
-        e.Handled = true;
+    }
+
+    private void UpdateSquadUpdateBadge()
+    {
+        if (SquadUpdateBadge is null)
+            return;
+        var latestVersion = _squadCliAdapter.LatestSquadVersion;
+        var installedVersion = _squadCliAdapter.SquadVersion;
+        var hasUpdate = !string.IsNullOrWhiteSpace(latestVersion) && IsNewerSquadVersion(latestVersion, installedVersion);
+        SquadUpdateBadge.Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
+        if (hasUpdate)
+            SquadUpdateBadge.ToolTip = $"Squad CLI v{latestVersion} available — click to update";
+    }
+
+    private void RunSquadCliUpdate(string targetVersion)
+    {
+        var action = new WorkspaceIssueAction(
+            "Update Squad CLI",
+            WorkspaceIssueActionKind.LaunchPowerShellCommand,
+            $"npm install @bradygaster/squad-cli@{targetVersion}");
+        _squadCliAdapter.LaunchPowerShellCommandWindow(action);
+    }
+
+    private static bool IsNewerSquadVersion(string candidate, string? current)
+    {
+        if (string.IsNullOrWhiteSpace(current))
+            return false;
+        var a = ParseSimpleVersion(candidate);
+        var b = ParseSimpleVersion(current);
+        if (a is null || b is null)
+            return false;
+        for (var i = 0; i < 3; i++)
+        {
+            if (a[i] > b[i]) return true;
+            if (a[i] < b[i]) return false;
+        }
+        return false;
+    }
+
+    private static int[]? ParseSimpleVersion(string v)
+    {
+        var parts = v.TrimStart('v').Split('.');
+        if (parts.Length < 3)
+            return null;
+        var result = new int[3];
+        for (var i = 0; i < 3; i++)
+        {
+            var numPart = parts[i].Split('-')[0];
+            if (!int.TryParse(numPart, out result[i]))
+                return null;
+        }
+        return result;
     }
 
     private void CopySquadSystemInfoToClipboard()
@@ -10019,6 +10099,14 @@ public partial class MainWindow : Window
         WorkspaceMenuItem.Items.Add(OpenSquadFolderMenuItem);
 
         AddWorkspaceFolderMenuItem(Path.Combine("decisions", "inbox"));
+
+        var loopMdPath = Path.Combine(_currentWorkspace.FolderPath, "loop.md");
+        if (File.Exists(loopMdPath))
+        {
+            var loopEntry = new SidebarEntry("🔁 loop.md", string.Empty, loopMdPath, true, SidebarEntryKind.File);
+            AddWorkspaceEntryMenuItem(loopEntry);
+        }
+
         AddWorkspaceMenuSeparator();
 
         var squadCliMenuItem = new MenuItem

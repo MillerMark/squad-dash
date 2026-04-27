@@ -507,22 +507,36 @@
                        Margin="0,0,20,0"
                        FontSize="12"
                        Cursor="Hand"
-                       ToolTip="Right-click to copy system info"
+                       ToolTip="Click or right-click for system info"
                        Foreground="{DynamicResource BodyText}"
+                       MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
                        MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
 
-            <!-- Squad version -->
-            <TextBlock x:Name="SquadVersionTextBlock"
-                       Grid.Column="4"
-                       VerticalAlignment="Center"
-                       Margin="0,0,8,0"
-                       FontSize="12"
-                       Cursor="Hand"
-                       ToolTip="Right-click to copy system info"
-                       Foreground="{DynamicResource BodyText}"
-                       MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
-                       shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+            <!-- Squad version + update badge -->
+            <StackPanel Grid.Column="4"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        Margin="0,0,8,0"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <TextBlock x:Name="SquadVersionTextBlock"
+                           FontSize="12"
+                           Cursor="Hand"
+                           ToolTip="Click or right-click for system info"
+                           Foreground="{DynamicResource BodyText}"
+                           MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
+                           MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                           shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+                <TextBlock x:Name="SquadUpdateBadge"
+                           Margin="5,0,0,0"
+                           FontSize="12"
+                           Cursor="Hand"
+                           Visibility="Collapsed"
+                           Foreground="{DynamicResource AgentTaskStartText}"
+                           MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
+                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                           Text="↑" />
+            </StackPanel>
 
             <!-- Right-of-search: workspace title (click to reveal in Explorer) -->
             <TextBlock x:Name="WorkspaceTitleText"

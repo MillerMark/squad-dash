@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -11,8 +13,10 @@ internal sealed class SquadCliAdapter {
     private readonly Action<string, Exception> _onError;
     private string? _squadVersion;
     private string? _lastObservedModel;
+    private string? _latestSquadVersion;
 
     public string? SquadVersion => _squadVersion;
+    public string? LatestSquadVersion => _latestSquadVersion;
 
     public string? LastObservedModel {
         get => _lastObservedModel;
@@ -26,6 +30,10 @@ internal sealed class SquadCliAdapter {
 
     public async Task ResolveSquadVersionAsync() {
         _squadVersion = await Task.Run(TryResolveSquadVersion);
+    }
+
+    public async Task CheckForSquadUpdateAsync() {
+        _latestSquadVersion = await Task.Run(TryFetchLatestSquadVersion);
     }
 
     public void LaunchPowerShellCommandWindow(WorkspaceIssueAction action) {
@@ -88,6 +96,20 @@ internal sealed class SquadCliAdapter {
         catch (Exception ex) {
             _onError("Open Link", ex);
         }
+    }
+
+    private static string? TryFetchLatestSquadVersion() {
+        try {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var json = client.GetStringAsync(
+                "https://registry.npmjs.org/@bradygaster/squad-cli/latest").GetAwaiter().GetResult();
+            var match = Regex.Match(json, @"""version""\s*:\s*""([^""]+)""");
+            if (match.Success)
+                return match.Groups[1].Value;
+        }
+        catch {
+        }
+        return null;
     }
 
     private string? TryResolveSquadVersion() {
