@@ -50,7 +50,7 @@ This creates:
 - `.squad/team.md` — Your AI team roster
 - `.squad/routing.md` — Routing rules for work assignment
 - `.squad/config.json` — Squad configuration
-
+![first-run screenshot](images/first-run-20260427143754.png)
 ---
 
 ### 4. Main Window Appears
