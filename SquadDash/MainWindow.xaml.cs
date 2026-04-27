@@ -3399,7 +3399,10 @@ public partial class MainWindow : Window
             Tag = agentCard
         };
         openCharterItem.Click += AgentOpenCharterMenuItem_Click;
-        menu.Items.Add(openCharterItem);
+        var hasCharter = (!string.IsNullOrWhiteSpace(agentCard.CharterPath) && File.Exists(agentCard.CharterPath))
+                      || (!string.IsNullOrWhiteSpace(agentCard.HistoryPath) && File.Exists(agentCard.HistoryPath));
+        if (hasCharter)
+            menu.Items.Add(openCharterItem);
 
         if (primaryThread is not null && _backgroundTaskPresenter.IsThreadStalledForDisplay(primaryThread, now))
         {
