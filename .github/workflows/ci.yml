@@ -28,10 +28,10 @@ jobs:
           cache-dependency-path: Squad.SDK/package-lock.json
 
       - name: Restore dependencies
-        run: dotnet restore SquadUI.slnx
+        run: dotnet restore squad-dash.slnx
 
       - name: Build
-        run: dotnet build SquadUI.slnx --no-incremental --no-restore
+        run: dotnet build squad-dash.slnx --no-incremental --no-restore
 
       - name: Test
         run: dotnet test SquadDash.Tests/SquadDash.Tests.csproj --no-build --verbosity normal
