@@ -1,4 +1,4 @@
-# SquadUI
+# SquadDash
 
 [![CI](https://github.com/MillerMark/SquadUI/actions/workflows/ci.yml/badge.svg)](https://github.com/MillerMark/SquadUI/actions/workflows/ci.yml)
 
