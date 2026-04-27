@@ -278,7 +278,7 @@ internal static class ToolTranscriptFormatter {
     }
 
     private static string FormatTimestamp(DateTimeOffset value) {
-        return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
+        return value.ToString("yyyy-MM-dd HH:mm:ss zzz");
     }
 
     private static string TitleCaseWords(string value) {
