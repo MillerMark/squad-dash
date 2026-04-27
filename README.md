@@ -1,6 +1,6 @@
 # SquadDash
 
-[![CI](https://github.com/MillerMark/SquadDash/actions/workflows/ci.yml/badge.svg)](https://github.com/MillerMark/SquadDash/actions/workflows/ci.yml)
+[![CI](https://github.com/MillerMark/squad-dash/actions/workflows/ci.yml/badge.svg)](https://github.com/MillerMark/squad-dash/actions/workflows/ci.yml)
 
 A Windows WPF dashboard for managing AI coding agents powered by the [Squad CLI](https://www.npmjs.com/package/@bradygaster/squad-cli). SquadDash lets you open any workspace, install Squad into it, run agents, and interact with your AI team — all from a native desktop application.
 
