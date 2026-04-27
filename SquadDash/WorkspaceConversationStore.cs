@@ -246,6 +246,15 @@ internal sealed class WorkspaceConversationStore {
                     inferredCompletion = true;
                 }
 
+                // Any tool still marked incomplete at load time was abandoned (the session
+                // ended without a tool_complete event).  Mark it failed so it never shows
+                // "Status: Running" on a past turn.
+                if (!isCompleted) {
+                    isCompleted = true;
+                    success = false;
+                    inferredCompletion = true;
+                }
+
                 if (inferredCompletion) {
                     // Build the persisted detail-content string via the data-layer helper,
                     // not via ToolTranscriptFormatter, so the persistence layer stays free
