@@ -1042,6 +1042,16 @@
                                 Click="AddDocumentButton_Click">
                             Add Document
                         </Button>
+                        <Button x:Name="ViewPagesButton"
+                                DockPanel.Dock="Left"
+                                Height="28"
+                                Margin="6,0,0,0"
+                                Padding="12,0,12,0"
+                                Visibility="Collapsed"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Click="ViewPagesButton_Click">
+                            Pages
+                        </Button>
                         <Button x:Name="ViewSourceButton"
                                 DockPanel.Dock="Right"
                                 Height="28"

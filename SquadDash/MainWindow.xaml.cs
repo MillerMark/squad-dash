@@ -4314,6 +4314,20 @@ public partial class MainWindow : Window
         // Placeholder — Add Document functionality not yet implemented
     }
 
+    private void ViewPagesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_workspaceGitHubUrl is null) return;
+        try
+        {
+            var uri = new Uri(_workspaceGitHubUrl);
+            var segments = uri.AbsolutePath.Trim('/').Split('/');
+            if (segments.Length < 2) return;
+            var pagesUrl = $"https://{segments[0]}.github.io/{segments[1]}/";
+            Process.Start(new ProcessStartInfo(pagesUrl) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
     // ── Source editor (View Source panel) ────────────────────────────────────
 
     private bool _suppressDocSourceTextChanged;
@@ -5192,6 +5206,7 @@ public partial class MainWindow : Window
         _currentSolutionPath = _currentWorkspace.SolutionPath;
         _currentSolutionName = _currentWorkspace.SolutionName;
         _workspaceGitHubUrl = TryResolveGitHubUrl(_currentWorkspace.FolderPath);
+        ViewPagesButton.Visibility = _workspaceGitHubUrl is not null ? Visibility.Visible : Visibility.Collapsed;
         ClearRuntimeIssue();
 
         var repairSw = Stopwatch.StartNew();

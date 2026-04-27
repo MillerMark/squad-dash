@@ -28,7 +28,7 @@ SquadDash verifies that `node`, `npm`, and `npx` are accessible on your `PATH`. 
 
 ### 2. Workspace Selection
 
-You'll be prompted to select a workspace folder. This is any directory where you want Squad to run — typically a Git repository.
+You can specify a workspace folder via command line (in quotes) or you can open a workspace folder from the File menu. This is any directory where you want Squad to run — typically a Git repository.
 
 **What SquadDash Does:**
 1. Checks if `package.json` exists (creates one if not)
