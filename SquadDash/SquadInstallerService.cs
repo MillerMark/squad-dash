@@ -179,8 +179,15 @@ internal sealed class SquadInstallerService {
             var universesDir = Path.Combine(activeDirectory, ".squad", "universes");
             Directory.CreateDirectory(universesDir);
 
-            EnsureUniverseMarkdown(universesDir, "squaddash.md", LoadEmbeddedSquadDashMd());
+            var squadDashMd = LoadEmbeddedSquadDashMd();
+            EnsureUniverseMarkdown(universesDir, "squaddash.md", squadDashMd);
             EnsureUniverseMarkdown(universesDir, "squaddash-profiles.md", LoadEmbeddedSquadDashProfilesMd());
+
+            // Also write to .squad/templates/universes/ so the agent init flow can
+            // find the file at the standard templates path without a ⚠ warning.
+            var templateUniversesDir = Path.Combine(activeDirectory, ".squad", "templates", "universes");
+            Directory.CreateDirectory(templateUniversesDir);
+            EnsureUniverseMarkdown(templateUniversesDir, "squaddash.md", squadDashMd);
 
             EnsureCastingStateFiles(activeDirectory);
             PatchCastingPolicy(activeDirectory);

@@ -122,6 +122,37 @@ internal sealed class SquadInstallerServiceTests {
     }
 
     [Test]
+    public void EnsureSquadDashUniverseFiles_WritesSquadDashMdToBothUniversesAndTemplatesUniverses() {
+        using var workspace = new TestWorkspace();
+        Directory.CreateDirectory(workspace.GetPath(".squad"));
+
+        SquadInstallerService.EnsureSquadDashUniverseFiles(workspace.RootPath);
+
+        // The templates/universes/ directory must always be created so the agent init
+        // flow has a stable path to explore, even when no file is written yet.
+        Assert.That(Directory.Exists(workspace.GetPath(".squad", "templates", "universes")), Is.True,
+            ".squad/templates/universes/ directory must be created during install");
+
+        // When the embedded squaddash.md resource is available (production), the file must land
+        // in BOTH locations with identical content. In this test context the resource is compiled
+        // into the test assembly and not embedded, so use Assume to skip the file-content assertions
+        // rather than fail.
+        var content = SquadInstallerService.LoadEmbeddedSquadDashMdPublic();
+        Assume.That(content, Is.Not.Null,
+            "Embedded squaddash.md is not available in this test context — directory-creation assertion above already verified the key behavior.");
+
+        Assert.Multiple(() => {
+            Assert.That(File.Exists(workspace.GetPath(".squad", "universes", "squaddash.md")), Is.True,
+                "squaddash.md must exist in .squad/universes/ (runtime path)");
+            Assert.That(File.Exists(workspace.GetPath(".squad", "templates", "universes", "squaddash.md")), Is.True,
+                "squaddash.md must also exist in .squad/templates/universes/ to suppress the ⚠ warning during agent init");
+            var templateContent = File.ReadAllText(workspace.GetPath(".squad", "templates", "universes", "squaddash.md"));
+            Assert.That(templateContent, Is.EqualTo(content),
+                "Both copies of squaddash.md must have identical content");
+        });
+    }
+
+    [Test]
     public void EnsureSquadDashUniverseFiles_CreatesCastingStateWhenMissing() {
         using var workspace = new TestWorkspace();
         Directory.CreateDirectory(workspace.GetPath(".squad"));
