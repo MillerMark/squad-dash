@@ -1,12 +1,12 @@
 # Documentation Panel
 
-How SquadUI reads and renders documentation from the `docs/` folder in your workspace.
+How SquadDash reads and renders documentation from the `docs/` folder in your workspace.
 
 ---
 
 ## What is the Documentation Panel?
 
-The **documentation panel** is a built-in docs browser inside SquadUI. It shows:
+The **documentation panel** is a built-in docs browser inside SquadDash. It shows:
 - A **tree view** on the left (folder and file structure)
 - A **markdown viewer** on the right (rendered content)
 
@@ -16,7 +16,7 @@ This panel displays the very documentation you're reading right now.
 
 ## How It Works
 
-SquadUI reads from:
+SquadDash reads from:
 
 ```
 docs/
@@ -42,7 +42,7 @@ Click any `.md` file to render it in the right panel.
 
 ## SUMMARY.md — GitBook Format
 
-If `docs/SUMMARY.md` exists, SquadUI uses it to build the tree view:
+If `docs/SUMMARY.md` exists, SquadDash uses it to build the tree view:
 
 ```markdown
 # Summary
@@ -61,7 +61,7 @@ This creates a structured navigation tree.
 
 ## Markdown Rendering
 
-SquadUI renders markdown with:
+SquadDash renders markdown with:
 - **Headings** (H1-H6)
 - **Paragraphs**
 - **Bold**, *italic*, `code`
@@ -91,7 +91,7 @@ Reference in markdown:
 ![Screenshot](images/screenshot.png)
 ```
 
-SquadUI resolves paths relative to the markdown file's directory.
+SquadDash resolves paths relative to the markdown file's directory.
 
 ---
 
@@ -103,7 +103,7 @@ Use relative links to navigate between docs:
 See [Agents](../concepts/agents.md) for more.
 ```
 
-SquadUI resolves these and makes them clickable.
+SquadDash resolves these and makes them clickable.
 
 ---
 
@@ -111,8 +111,8 @@ SquadUI resolves these and makes them clickable.
 
 The documentation panel serves two purposes:
 
-1. **Real documentation** — SquadUI's own docs live in `docs/` and render inside the app
-2. **Living template** — Other repos using SquadUI can add a `docs/` folder and get instant browsable documentation
+1. **Real documentation** — SquadDash's own docs live in `docs/` and render inside the app
+2. **Living template** — Other repos using SquadDash can add a `docs/` folder and get instant browsable documentation
 
 ---
 
@@ -121,7 +121,7 @@ The documentation panel serves two purposes:
 1. Create a `docs/` folder in your workspace
 2. Add markdown files
 3. (Optional) Create `SUMMARY.md` for structured navigation
-4. Open SquadUI — your docs appear in the panel
+4. Open SquadDash — your docs appear in the panel
 
 See **[Writing Documentation](../contributing/writing-docs.md)** for best practices.
 
@@ -129,5 +129,5 @@ See **[Writing Documentation](../contributing/writing-docs.md)** for best practi
 
 ## Next
 
-- **[Writing Documentation](../contributing/writing-docs.md)** — How to write docs for SquadUI
+- **[Writing Documentation](../contributing/writing-docs.md)** — How to write docs for SquadDash
 - **[Configuration](../reference/configuration.md)** — Workspace and app settings

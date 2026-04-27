@@ -4,7 +4,7 @@ Deployment and infrastructure expert responsible for the launcher, A/B slot syst
 
 ## Project Context
 
-**Project:** SquadUI
+**Project:** SquadDash
 
 ## Responsibilities
 

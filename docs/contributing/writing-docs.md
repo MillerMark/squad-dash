@@ -1,12 +1,12 @@
 # Writing Documentation
 
-How to use SquadUI's documentation panel to write and organize docs.
+How to use SquadDash's documentation panel to write and organize docs.
 
 ---
 
 ## Overview
 
-SquadUI includes a built-in documentation browser that reads from the `docs/` folder in your workspace. This guide covers how to structure and write effective documentation.
+SquadDash includes a built-in documentation browser that reads from the `docs/` folder in your workspace. This guide covers how to structure and write effective documentation.
 
 ---
 
@@ -56,7 +56,7 @@ The `SUMMARY.md` file defines the tree structure in the docs panel:
 * [Agents](concepts/agents.md)
 ```
 
-SquadUI uses this to build the left-side tree view.
+SquadDash uses this to build the left-side tree view.
 
 ---
 
@@ -147,7 +147,7 @@ Reference in markdown:
 ![Screenshot](images/screenshot.png)
 ```
 
-SquadUI resolves paths relative to the markdown file's directory.
+SquadDash resolves paths relative to the markdown file's directory.
 
 ---
 
@@ -167,7 +167,7 @@ This section covers installation and first run.
 ## What You'll Learn
 
 - How to install prerequisites
-- How to build SquadUI
+- How to build SquadDash
 - What happens on first launch
 
 ---
@@ -196,7 +196,7 @@ Avoid:
 
 ## Meta: This Very Documentation
 
-The docs you're reading right now live in `docs/` and follow this exact structure. Use SquadUI's own docs as a reference template.
+The docs you're reading right now live in `docs/` and follow this exact structure. Use SquadDash's own docs as a reference template.
 
 ---
 
@@ -205,7 +205,7 @@ The docs you're reading right now live in `docs/` and follow this exact structur
 1. Create a `docs/` folder in your workspace
 2. Add markdown files
 3. Write a `SUMMARY.md` for navigation
-4. Open SquadUI — your docs appear in the panel
+4. Open SquadDash — your docs appear in the panel
 
 ---
 

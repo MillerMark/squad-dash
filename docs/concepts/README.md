@@ -1,15 +1,15 @@
 # Concepts
 
-This section explains the core concepts behind SquadUI and the Squad AI team model.
+This section explains the core concepts behind SquadDash and the Squad AI team model.
 
 ---
 
 ## What You'll Learn
 
-- **[Agents](agents.md)** — What agents are, how they work, and how SquadUI visualizes them
+- **[Agents](agents.md)** — What agents are, how they work, and how SquadDash visualizes them
 - **[Squad Team](squad-team.md)** — The `.squad/team.md` and `.squad/routing.md` model
 - **[Transcripts](transcripts.md)** — Multi-transcript panel system and live streaming
-- **[Documentation Panel](documentation-panel.md)** — How SquadUI renders docs from `docs/` folder
+- **[Documentation Panel](documentation-panel.md)** — How SquadDash renders docs from `docs/` folder
 
 ---
 
@@ -21,7 +21,7 @@ Squad is an AI team system where:
 - Work is routed based on type (backend, frontend, tests, docs, etc.)
 - Agents collaborate by handoff and delegation
 
-SquadUI makes this model **visual** and **interactive**.
+SquadDash makes this model **visual** and **interactive**.
 
 ---
 

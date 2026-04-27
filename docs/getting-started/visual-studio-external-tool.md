@@ -43,7 +43,7 @@ After building from source, the executable is at:
 
 
 ```
-SquadUI\SquadDash\bin\Debug\net10.0-windows\SquadDash.exe
+SquadDash\SquadDash\bin\Debug\net10.0-windows\SquadDash.exe
 ```
 
 For a published/installed build, use the install location (e.g., `C:\Program Files\SquadDash\SquadDash.exe`).

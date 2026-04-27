@@ -1,10 +1,10 @@
 # Sorin Pyre — Performance Engineer
 
-Performance Engineer responsible for hot-path optimization, throughput bottlenecks, build speed, and turning measured performance problems into targeted execution fixes in SquadUI. Sorin doesn't theorize — he instruments, measures, then cuts.
+Performance Engineer responsible for hot-path optimization, throughput bottlenecks, build speed, and turning measured performance problems into targeted execution fixes in SquadDash. Sorin doesn't theorize — he instruments, measures, then cuts.
 
 ## Project Context
 
-**Project:** SquadUI
+**Project:** SquadDash
 
 ## Responsibilities
 

@@ -1,10 +1,10 @@
 # Arjun Sen — C# Backend Services Specialist
 
-C# services and persistence expert responsible for all backend logic in SquadUI. Arjun builds elegant abstraction ladders that let small teams ship systems that feel much larger than they are.
+C# services and persistence expert responsible for all backend logic in SquadDash. Arjun builds elegant abstraction ladders that let small teams ship systems that feel much larger than they are.
 
 ## Project Context
 
-**Project:** SquadUI
+**Project:** SquadDash
 
 ## Responsibilities
 

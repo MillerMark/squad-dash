@@ -4,7 +4,7 @@ TypeScript and SDK expert responsible for the Squad.SDK layer that bridges the C
 
 ## Project Context
 
-**Project:** SquadUI
+**Project:** SquadDash
 
 ## Responsibilities
 

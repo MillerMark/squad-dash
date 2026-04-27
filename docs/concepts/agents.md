@@ -1,6 +1,6 @@
 # Agents
 
-What agents are in the Squad context, how they work, and how SquadUI visualizes them.
+What agents are in the Squad context, how they work, and how SquadDash visualizes them.
 
 ---
 
@@ -33,7 +33,7 @@ Defines what the agent does:
 ```markdown
 # Lyra Morn — WPF & UI Specialist
 
-You are Lyra Morn, the WPF and UI specialist on SquadUI.
+You are Lyra Morn, the WPF and UI specialist on SquadDash.
 
 ## Responsibilities
 - MainWindow and all XAML dialogs
@@ -63,7 +63,7 @@ Tracks what the agent has learned:
 
 ---
 
-## Agent Cards in SquadUI
+## Agent Cards in SquadDash
 
 Each agent appears as a **card** in the main window:
 
@@ -72,7 +72,7 @@ Each agent appears as a **card** in the main window:
 - **Accent color** — unique per agent
 - **Hover glow** — highlights the card when you hover over it
 
-![Screenshot: Agent cards in the SquadUI main window](images/agent-cards-main-window.png)
+![Screenshot: Agent cards in the SquadDash main window](images/agent-cards-main-window.png)
 > 📸 *Screenshot needed: The main window showing the full grid of agent cards — capture at least one card in hover state to show the glow effect.*
 
 ---
@@ -98,7 +98,7 @@ Agent cards update in real-time:
 ## Agent Lifecycle
 
 1. **Defined** in `.squad/team.md`
-2. **Loaded** by SquadUI on workspace open
+2. **Loaded** by SquadDash on workspace open
 3. **Rendered** as agent cards
 4. **Activated** when you send a prompt or click a quick-reply
 5. **Persisted** — conversation history saved to `.squad/sessions/`

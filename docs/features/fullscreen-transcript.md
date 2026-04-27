@@ -69,7 +69,7 @@ Fullscreen exits when you:
 
 ## Persistence
 
-Fullscreen state is saved **per workspace folder**. If you close SquadUI while in fullscreen with workspace `~/Projects/MyApp` open, the next time you open that workspace it will restore to fullscreen automatically.
+Fullscreen state is saved **per workspace folder**. If you close SquadDash while in fullscreen with workspace `~/Projects/MyApp` open, the next time you open that workspace it will restore to fullscreen automatically.
 
 Other workspaces are unaffected — each folder tracks its own view mode independently.
 

@@ -1,6 +1,6 @@
 # Configuration
 
-How to configure Squad workspaces and SquadUI application settings.
+How to configure Squad workspaces and SquadDash application settings.
 
 ---
 
@@ -21,9 +21,9 @@ Currently, this file is minimal. Future versions may add:
 
 ---
 
-## SquadUI Application Settings
+## SquadDash Application Settings
 
-SquadUI stores its own settings in:
+SquadDash stores its own settings in:
 
 ```
 %APPDATA%\SquadDash\ApplicationSettings.json
@@ -53,7 +53,7 @@ SquadUI stores its own settings in:
 
 ## Environment Variables
 
-SquadUI does not require environment variables, but respects:
+SquadDash does not require environment variables, but respects:
 
 | Variable | Purpose |
 |---|---|
@@ -63,7 +63,7 @@ SquadUI does not require environment variables, but respects:
 
 ## Workspace Paths
 
-SquadUI uses an `IWorkspacePaths` interface to locate key folders:
+SquadDash uses an `IWorkspacePaths` interface to locate key folders:
 
 | Property | Path |
 |---|---|
@@ -78,7 +78,7 @@ These are auto-discovered when you open a workspace.
 
 ## Node.js and Squad CLI Installation
 
-When you open a workspace, SquadUI:
+When you open a workspace, SquadDash:
 1. Checks if `package.json` exists (creates one if not)
 2. Runs `npm install` to install Squad CLI locally
 3. Applies Windows compatibility fixes
@@ -100,7 +100,7 @@ To enable push-to-talk (PTT):
 ![Screenshot: Preferences dialog showing speech configuration](images/preferences-dialog-speech-config.png)
 > 📸 *Screenshot needed: The Preferences dialog — show the Azure Speech Key and Region input fields.*
 
-SquadUI validates the key on save. Invalid keys show an error.
+SquadDash validates the key on save. Invalid keys show an error.
 
 ---
 

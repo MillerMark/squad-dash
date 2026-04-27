@@ -177,7 +177,7 @@ Committed: `a1b2c3d`
 git rev-parse --short HEAD   # → a1b2c3d
 ```
 
-**Why:** SquadDash auto-detects bare commit hashes in transcript text and wraps them in the correct hyperlinks automatically — no manual URL construction needed. Constructing the URL manually caused agents to hallucinate the wrong repo owner/name (e.g. `bradygaster/SquadUI` instead of `MillerMark/SquadUI`), producing broken links. Plain hash = correct link every time.
+**Why:** SquadDash auto-detects bare commit hashes in transcript text and wraps them in the correct hyperlinks automatically — no manual URL construction needed. Constructing the URL manually caused agents to hallucinate the wrong repo owner/name (e.g. `bradygaster/SquadDash` instead of `MillerMark/SquadDash`), producing broken links. Plain hash = correct link every time.
 
 **Anti-patterns:**
 - ❌ Constructing a markdown link: `` [`a1b2c3d`](https://github.com/...) `` — causes hallucination, app auto-links anyway
@@ -195,7 +195,7 @@ git rev-parse --short HEAD   # → a1b2c3d
 
 ## Decision
 
-Added in-app Documentation Mode to SquadUI. Toggled via View → View Documentation. When active, a resizable panel appears to the right of the transcript containing a topic tree and markdown viewer.
+Added in-app Documentation Mode to SquadDash. Toggled via View → View Documentation. When active, a resizable panel appears to the right of the transcript containing a topic tree and markdown viewer.
 
 ## Rationale
 
@@ -211,7 +211,7 @@ Provides discoverability for new users without leaving the app. Keeps workspace 
 
 ## Welcome content
 
-Default markdown welcome message introduces SquadUI features and instructs user to select topics from tree. Topics pre-populated with placeholder nodes (Getting Started, Agents, Workspace, Settings).
+Default markdown welcome message introduces SquadDash features and instructs user to select topics from tree. Topics pre-populated with placeholder nodes (Getting Started, Agents, Workspace, Settings).
 
 ## Next steps
 
@@ -539,7 +539,7 @@ The transcript layout fix is a cleanup of technical debt from the docs panel ful
 
 **By:** Mira Quill  
 **What:** Created initial `docs/` folder structure with 13 markdown files + `.gitkeep` placeholder  
-**Why:** Serves as both real SquadUI documentation and living template for repo authors using the docs panel feature
+**Why:** Serves as both real SquadDash documentation and living template for repo authors using the docs panel feature
 
 ---
 
@@ -579,8 +579,8 @@ Documented key features:
 
 ## Dual Purpose
 
-1. **Real documentation** — SquadUI users and contributors can browse these docs inside the app's documentation panel
-2. **Living template** — Repos using SquadUI can see a working example of the `docs/` structure and markdown rendering
+1. **Real documentation** — SquadDash users and contributors can browse these docs inside the app's documentation panel
+2. **Living template** — Repos using SquadDash can see a working example of the `docs/` structure and markdown rendering
 
 ---
 

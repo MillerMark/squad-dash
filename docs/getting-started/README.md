@@ -1,13 +1,13 @@
 # Getting Started
 
-This section covers installation, building, and first run of SquadUI.
+This section covers installation, building, and first run of SquadDash.
 
 ---
 
 ## What You'll Learn
 
 - How to install prerequisites
-- How to build SquadUI from source
+- How to build SquadDash from source
 - What happens on first launch
 - How to set up your first workspace
 
@@ -23,13 +23,13 @@ This section covers installation, building, and first run of SquadUI.
 
 ### Why Node.js?
 
-SquadUI shells out to `node`/`npm`/`npx` at runtime to install and run the Squad CLI inside each workspace. The app checks for all three on startup and shows an error if any are missing.
+SquadDash shells out to `node`/`npm`/`npx` at runtime to install and run the Squad CLI inside each workspace. The app checks for all three on startup and shows an error if any are missing.
 
-Node.js is **not** required to build SquadUI — only to run it with Squad workspaces.
+Node.js is **not** required to build SquadDash — only to run it with Squad workspaces.
 
 ---
 
 ## Next Steps
 
-- **[Installation](installation.md)** — Clone the repo and build SquadUI
+- **[Installation](installation.md)** — Clone the repo and build SquadDash
 - **[First Run](first-run.md)** — Launch the app and connect to a workspace

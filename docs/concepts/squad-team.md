@@ -59,10 +59,10 @@ The **routing.md** file defines who handles what type of work.
 | Documentation | Mira Quill | README, decisions.md, session logs |
 ```
 
-### How SquadUI Uses Routing
+### How SquadDash Uses Routing
 
 When you send a prompt:
-1. SquadUI reads `.squad/routing.md`
+1. SquadDash reads `.squad/routing.md`
 2. Determines which agent(s) should handle the request
 3. Routes the prompt to the appropriate agent(s)
 
@@ -72,7 +72,7 @@ You can also manually open any agent's transcript and send a direct prompt.
 
 ## Issue Label Routing
 
-SquadUI supports GitHub issue routing:
+SquadDash supports GitHub issue routing:
 
 ```markdown
 ## Issue Routing
@@ -87,9 +87,9 @@ When a GitHub issue gets a `squad:{member}` label, that agent can pick it up aut
 
 ---
 
-## How SquadUI Reads team.md
+## How SquadDash Reads team.md
 
-SquadUI parses the **Members** table:
+SquadDash parses the **Members** table:
 1. Extracts each row
 2. Loads the charter file from `.squad/agents/{name}/charter.md`
 3. Creates an agent card with the name and role
@@ -109,9 +109,9 @@ Some agents have special behavior:
 
 ---
 
-## Example: SquadUI's Own Team
+## Example: SquadDash's Own Team
 
-SquadUI is built by a Squad team. See `.squad/team.md` in the SquadUI repo for a real-world example:
+SquadDash is built by a Squad team. See `.squad/team.md` in the SquadDash repo for a real-world example:
 
 - **Lyra Morn** — WPF & UI
 - **Arjun Sen** — Backend services

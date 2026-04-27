@@ -1,6 +1,6 @@
 # Transcripts
 
-The multi-transcript panel system in SquadUI, and how conversations are streamed and persisted.
+The multi-transcript panel system in SquadDash, and how conversations are streamed and persisted.
 
 ---
 
@@ -80,7 +80,7 @@ All transcripts are saved to:
       {session-id}.json
 ```
 
-When you reopen a workspace, SquadUI restores all previous conversations.
+When you reopen a workspace, SquadDash restores all previous conversations.
 
 ---
 
@@ -122,7 +122,7 @@ Their output is logged but not displayed in the main window.
 
 ## Transcript Rendering
 
-SquadUI renders markdown in transcripts:
+SquadDash renders markdown in transcripts:
 - **Headings** (H1-H6)
 - **Bold**, *italic*, `code`
 - Code blocks with syntax highlighting
@@ -136,4 +136,4 @@ Rendering is handled by `MarkdownDocumentRenderer.cs`.
 ## Next
 
 - **[Agents](agents.md)** — How agents work in Squad
-- **[Documentation Panel](documentation-panel.md)** — Browse docs inside SquadUI
+- **[Documentation Panel](documentation-panel.md)** — Browse docs inside SquadDash

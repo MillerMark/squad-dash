@@ -1,13 +1,13 @@
 # Contributing
 
-How to contribute to SquadUI — adding agents, writing docs, and extending functionality.
+How to contribute to SquadDash — adding agents, writing docs, and extending functionality.
 
 ---
 
 ## What You'll Learn
 
 - **[Adding an Agent](adding-an-agent.md)** — How to create a new agent for your team
-- **[Writing Documentation](writing-docs.md)** — How to use SquadUI's docs panel to write docs
+- **[Writing Documentation](writing-docs.md)** — How to use SquadDash's docs panel to write docs
 
 ---
 
@@ -19,7 +19,7 @@ Extend your Squad team by creating new specialized agents. Each agent can handle
 
 ### 2. Write Documentation
 
-Improve SquadUI's docs or document your own workspace. The docs panel makes documentation a first-class citizen.
+Improve SquadDash's docs or document your own workspace. The docs panel makes documentation a first-class citizen.
 
 ### 3. File Issues
 
@@ -33,7 +33,7 @@ Fix bugs, add features, or improve code quality. Follow the project's coding sta
 
 ## Development Setup
 
-See **[Installation](../getting-started/installation.md)** for how to build SquadUI from source.
+See **[Installation](../getting-started/installation.md)** for how to build SquadDash from source.
 
 ---
 
@@ -49,7 +49,7 @@ See **[Installation](../getting-started/installation.md)** for how to build Squa
 ## Running Tests
 
 ```bash
-dotnet test SquadUI.slnx
+dotnet test squad-dash.slnx
 ```
 
 All tests should pass before submitting a PR.

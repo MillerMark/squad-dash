@@ -1,6 +1,6 @@
 # Installation
 
-How to clone and build SquadUI from source.
+How to clone and build SquadDash from source.
 
 ---
 
@@ -27,7 +27,7 @@ All three must be accessible on your `PATH`.
 
 ```bash
 git clone <repo-url>
-cd SquadUI
+cd SquadDash
 ```
 
 ---
@@ -47,10 +47,10 @@ npm install
 Build the entire solution with:
 
 ```bash
-dotnet build SquadUI.slnx
+dotnet build squad-dash.slnx
 ```
 
-Or open `SquadUI.slnx` in **Visual Studio 2022+** and press **F5**.
+Or open `squad-dash.slnx` in **Visual Studio 2022+** and press **F5**.
 
 ---
 
@@ -82,7 +82,7 @@ On first launch, you'll be prompted to select a workspace folder.
 ## Run Tests
 
 ```bash
-dotnet test SquadUI.slnx
+dotnet test squad-dash.slnx
 ```
 
 Tests use NUnit 4.4+. All tests should pass on a clean build.
@@ -91,4 +91,4 @@ Tests use NUnit 4.4+. All tests should pass on a clean build.
 
 ## Next
 
-- **[First Run](first-run.md)** — What to expect when you launch SquadUI for the first time
+- **[First Run](first-run.md)** — What to expect when you launch SquadDash for the first time

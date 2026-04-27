@@ -1,6 +1,6 @@
 # Reference
 
-This section provides technical reference material for SquadUI configuration, routing, and keyboard shortcuts.
+This section provides technical reference material for SquadDash configuration, routing, and keyboard shortcuts.
 
 ---
 

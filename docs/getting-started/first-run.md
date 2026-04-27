@@ -1,10 +1,10 @@
 # First Run
 
-What happens when you launch SquadUI for the first time, and how to connect to a workspace.
+What happens when you launch SquadDash for the first time, and how to connect to a workspace.
 
 ---
 
-## Launching SquadUI
+## Launching SquadDash
 
 Run:
 
@@ -20,9 +20,9 @@ Or from Visual Studio: **F5**.
 
 ### 1. Node.js Check
 
-SquadUI verifies that `node`, `npm`, and `npx` are accessible on your `PATH`. If any are missing, you'll see an error dialog.
+SquadDash verifies that `node`, `npm`, and `npx` are accessible on your `PATH`. If any are missing, you'll see an error dialog.
 
-**Fix:** Install Node.js LTS and restart SquadUI.
+**Fix:** Install Node.js LTS and restart SquadDash.
 
 ---
 
@@ -30,7 +30,7 @@ SquadUI verifies that `node`, `npm`, and `npx` are accessible on your `PATH`. If
 
 You'll be prompted to select a workspace folder. This is any directory where you want Squad to run — typically a Git repository.
 
-**What SquadUI Does:**
+**What SquadDash Does:**
 1. Checks if `package.json` exists (creates one if not)
 2. Installs the Squad CLI locally via `npm install`
 3. Applies Windows compatibility fixes to the installed CLI
@@ -40,7 +40,7 @@ You'll be prompted to select a workspace folder. This is any directory where you
 
 ### 3. Squad Initialization
 
-If the workspace is not yet Squad-enabled, SquadUI runs:
+If the workspace is not yet Squad-enabled, SquadDash runs:
 
 ```bash
 squad init
@@ -60,8 +60,8 @@ You'll see:
 - **Prompt input** — Type or use voice (double-Ctrl)
 - **Top menu** — Workspace, Preferences, Trace
 
-![Screenshot: SquadUI main window showing agent cards](images/main-window-agent-cards.png)
-> 📸 *Screenshot needed: The full SquadUI main window — show all agent cards, the prompt input bar at the bottom, and the top menu.*
+![Screenshot: SquadDash main window showing agent cards](images/main-window-agent-cards.png)
+> 📸 *Screenshot needed: The full SquadDash main window — show all agent cards, the prompt input bar at the bottom, and the top menu.*
 
 ---
 
@@ -137,4 +137,4 @@ To enable push-to-talk:
 
 - **[Agents](../concepts/agents.md)** — How agents work in Squad
 - **[Squad Team](../concepts/squad-team.md)** — Team and routing model
-- **[Documentation Panel](../concepts/documentation-panel.md)** — Browse docs inside SquadUI
+- **[Documentation Panel](../concepts/documentation-panel.md)** — Browse docs inside SquadDash

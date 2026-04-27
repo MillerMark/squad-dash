@@ -1,14 +1,14 @@
-# SquadUI
+# SquadDash
 
 **A native Windows dashboard for managing AI coding agent teams powered by the Squad CLI.**
 
-SquadUI transforms the Squad AI team system into a visual, interactive experience. Work with multiple specialized agents in parallel, see their activity in real-time, and manage your entire AI development team from one native WPF application.
+SquadDash transforms the Squad AI team system into a visual, interactive experience. Work with multiple specialized agents in parallel, see their activity in real-time, and manage your entire AI development team from one native WPF application.
 
 ---
 
-## What is SquadUI?
+## What is SquadDash?
 
-SquadUI is a desktop application for Windows that provides:
+SquadDash is a desktop application for Windows that provides:
 
 - **Visual agent management** — See all your agents at a glance with live status cards
 - **Multi-agent transcripts** — Open multiple agent conversation panels simultaneously
@@ -20,9 +20,9 @@ SquadUI is a desktop application for Windows that provides:
 
 ---
 
-## Why SquadUI?
+## Why SquadDash?
 
-The Squad CLI is powerful but command-line driven. SquadUI brings:
+The Squad CLI is powerful but command-line driven. SquadDash brings:
 
 - **Discoverability** — Hover on agent cards to see glowing accent highlights; shift-click to open transcripts
 - **Parallel workflows** — Launch multiple agents as background tasks and monitor them all at once
@@ -50,7 +50,7 @@ Each agent appears as a card showing:
 ### Documentation Panel
 - Reads from `docs/` folder in your workspace
 - Tree view on the left, rendered markdown on the right
-- This very documentation displays inside SquadUI
+- This very documentation displays inside SquadDash
 
 ### Voice Input (PTT)
 - Double-tap Ctrl to activate push-to-talk
@@ -70,7 +70,7 @@ Each agent appears as a card showing:
 ✨ **[Features](features/README.md)** — View modes, fullscreen, font size  
 🧠 **[Concepts](concepts/README.md)** — How agents, transcripts, and routing work  
 📖 **[Reference](reference/README.md)** — Configuration, routing tables, keyboard shortcuts  
-🛠️ **[Contributing](contributing/README.md)** — Add agents, write docs, extend SquadUI
+🛠️ **[Contributing](contributing/README.md)** — Add agents, write docs, extend SquadDash
 
 ---
 

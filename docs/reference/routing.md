@@ -34,7 +34,7 @@ The **Routing Table** is a markdown table in `.squad/routing.md`:
 ## How Routing Works
 
 When you send a prompt:
-1. SquadUI (or the Squad Coordinator agent) reads `.squad/routing.md`
+1. SquadDash (or the Squad Coordinator agent) reads `.squad/routing.md`
 2. Analyzes the prompt to determine work type
 3. Routes to the agent listed in the **Route To** column
 
@@ -46,7 +46,7 @@ You can also:
 
 ## Issue Label Routing
 
-SquadUI supports GitHub issue routing:
+SquadDash supports GitHub issue routing:
 
 ```markdown
 ## Issue Routing
@@ -94,9 +94,9 @@ These are guidelines for the Squad Coordinator.
 
 ---
 
-## Example: SquadUI Routing
+## Example: SquadDash Routing
 
-See `.squad/routing.md` in the SquadUI repo for a full example:
+See `.squad/routing.md` in the SquadDash repo for a full example:
 
 - **WPF/XAML UI** → Lyra Morn
 - **C# backend services** → Arjun Sen
@@ -113,7 +113,7 @@ See `.squad/routing.md` in the SquadUI repo for a full example:
 
 1. Open `.squad/routing.md` in your workspace
 2. Edit the table to add/remove/update routes
-3. Save — SquadUI reloads routing rules automatically
+3. Save — SquadDash reloads routing rules automatically
 
 ---
 

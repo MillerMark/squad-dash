@@ -120,6 +120,6 @@ See **[Slash Commands](../reference/slash-commands.md#squadDash-ui-commands)** f
 ## Related
 
 - **[Slash Commands](../reference/slash-commands.md)** — Complete reference for all `/` commands
-- **[Agents](../concepts/agents.md)** — What agents are, how they're structured, and how SquadUI renders them
+- **[Agents](../concepts/agents.md)** — What agents are, how they're structured, and how SquadDash renders them
 - **[Adding an Agent](../contributing/adding-an-agent.md)** — Manual process for defining an agent without the dialog
 - **[Squad Team](../concepts/squad-team.md)** — How `team.md` and routing work together

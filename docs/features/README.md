@@ -1,6 +1,6 @@
 # Features
 
-In-depth guides for SquadUI's view modes and UI features.
+In-depth guides for SquadDash's view modes and UI features.
 
 ---
 
@@ -13,7 +13,7 @@ In-depth guides for SquadUI's view modes and UI features.
 
 ## View Modes at a Glance
 
-SquadUI has three view modes, all accessible from the **View** menu:
+SquadDash has three view modes, all accessible from the **View** menu:
 
 | Mode | What's Visible | Best For |
 |---|---|---|
@@ -32,5 +32,5 @@ SquadUI has three view modes, all accessible from the **View** menu:
 
 ## Next
 
-- **[Concepts](../concepts/README.md)** — Core SquadUI model
+- **[Concepts](../concepts/README.md)** — Core SquadDash model
 - **[Reference](../reference/README.md)** — Keyboard shortcuts and configuration

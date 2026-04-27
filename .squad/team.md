@@ -1,6 +1,6 @@
 # Squad Team
 
-> SquadUI
+> SquadDash
 
 ## Coordinator
 
@@ -25,5 +25,5 @@
 
 ## Project Context
 
-- **Project:** SquadUI
+- **Project:** SquadDash
 - **Created:** 2026-04-09

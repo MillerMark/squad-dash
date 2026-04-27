@@ -1,6 +1,6 @@
 # Keyboard Shortcuts
 
-Known keyboard shortcuts and hotkeys in SquadUI.
+Known keyboard shortcuts and hotkeys in SquadDash.
 
 ---
 

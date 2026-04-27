@@ -54,7 +54,7 @@ You are Your Agent Name, the [role] on [project].
 ```markdown
 # Lyra Morn — WPF & UI Specialist
 
-You are Lyra Morn, the WPF and UI specialist on SquadUI.
+You are Lyra Morn, the WPF and UI specialist on SquadDash.
 
 ## Responsibilities
 - MainWindow and all XAML dialogs
@@ -137,9 +137,9 @@ Edit `.squad/routing.md` and add a row to the **Routing Table**:
 
 ---
 
-## Step 6: Reload SquadUI
+## Step 6: Reload SquadDash
 
-SquadUI automatically reloads the team roster when you reopen the workspace or refresh.
+SquadDash automatically reloads the team roster when you reopen the workspace or refresh.
 
 Your new agent should appear as a card in the main window.
 
@@ -152,7 +152,7 @@ Your new agent should appear as a card in the main window.
 3. Verify the agent responds appropriately
 
 ![Screenshot: New agent card appearing in the main window](images/new-agent-card-added.png)
-> 📸 *Screenshot needed: The SquadUI main window after adding a new agent — show the new card appearing in the agent grid.*
+> 📸 *Screenshot needed: The SquadDash main window after adding a new agent — show the new card appearing in the agent grid.*
 
 ---
 
@@ -193,7 +193,7 @@ You are the Security Specialist, responsible for identifying vulnerabilities and
 
 ## Core Context
 
-**Project:** SquadUI
+**Project:** SquadDash
 **Stack:** C# / WPF / TypeScript
 
 ---
