@@ -7563,11 +7563,11 @@ public partial class MainWindow : Window
                     promptText,
                     payload.TargetAgentHandle!,
                     addToHistory: true,
-                    clearPromptBox: true);
+                    clearPromptBox: false);
             }
             else
             {
-                await _pec.ExecutePromptAsync(promptText, addToHistory: true, clearPromptBox: true);
+                await _pec.ExecutePromptAsync(promptText, addToHistory: true, clearPromptBox: false);
             }
 
             MaybeReportPendingQuickReplyLaunchFailure(pendingLaunch);
