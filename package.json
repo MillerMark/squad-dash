@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "devDependencies": {
-    "@bradygaster/squad-cli": "^0.9.1"
+    "@bradygaster/squad-cli": "^0.9.4"
   },
   "dependencies": {
     "isomorphic-git": "^1.37.5"
