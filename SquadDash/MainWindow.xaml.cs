@@ -23,10 +23,10 @@ using System.Windows.Media.Animation;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls.Primitives;
-using Shapes = System.Windows.Shapes;
 using Microsoft.Win32;
 using SquadDash.Screenshots;
 using SquadDash.Screenshots.Fixtures;
+using Shapes = System.Windows.Shapes;
 
 namespace SquadDash;
 
@@ -2491,8 +2491,8 @@ public partial class MainWindow : Window
             // ── Search shortcuts ─────────────────────────────────────────────────
             if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
-                SearchBox.Focus();
-                SearchBox.SelectAll();
+                SearchBox?.Focus();
+                SearchBox?.SelectAll();
                 e.Handled = true;
                 return;
             }
@@ -10654,6 +10654,9 @@ public partial class MainWindow : Window
 
         var isDark = string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase);
         AgentStatusCard.SetTheme(isDark);
+
+        // Re-render doc-source find highlights so they use the new theme's colours.
+        DocSourceFind_RenderHighlights();
         foreach (var agent in _agents)
             agent.NotifyThemeChanged();
 
