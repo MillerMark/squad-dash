@@ -33,20 +33,20 @@ Fill in the fields as follows:
 | Field | Value | Notes |
 |---|---|---|
 | **Title** | `SquadDash` | This is the name that appears in the Tools menu |
-| **Command** | `C:\...\SquadDash.exe` | Full path to the SquadDash executable (see below) |
+| **Command** | `C:\...\SquadDash.App.exe` | Full path to the SquadDash executable (see below) |
 | **Arguments** | "`$(SolutionDir)`" | Passes the solution folder as the workspace path |
 | **Initial directory** | `$(SolutionDir)` | Sets the working directory to the solution folder |
 
-#### Finding SquadDash.exe
+#### Finding SquadDash.App.exe
 
 After building from source, the executable is at:
 
 
 ```
-SquadDash\SquadDash\bin\Debug\net10.0-windows\SquadDash.exe
+SquadDash\bin\Debug\net10.0-windows\SquadDash.App.exe
 ```
 
-For a published/installed build, use the install location (e.g., `C:\Program Files\SquadDash\SquadDash.exe`).
+For a published/installed build, use the install location (e.g., `C:\Program Files\SquadDash\SquadDash.App.exe`).
 
 ---
 
@@ -75,7 +75,7 @@ No workspace selection step — SquadDash opens straight to your project's agent
 You can also launch SquadDash directly from a terminal, passing the workspace path as an argument:
 
 ```cmd
-SquadDash.exe "C:\path\to\your\solution"
+SquadDash.App.exe "C:\path\to\your\solution"
 ```
 
 This is the same mechanism the VS External Tool uses — passing the solution directory directly to SquadDash.
@@ -86,7 +86,7 @@ This is the same mechanism the VS External Tool uses — passing the solution di
 
 | Problem | Fix |
 |---|---|
-| SquadDash doesn't open | Verify the **Command** path points to a valid `SquadDash.exe` |
+| SquadDash doesn't open | Verify the **Command** path points to a valid `SquadDash.App.exe` |
 | Wrong workspace loaded | Check the **Arguments** field — it should be `"$(SolutionDir)"` (with quotes) |
 | Node.js error on launch | Ensure `node`, `npm`, and `npx` are on your `PATH` — see [Installation](installation.md) |
 
