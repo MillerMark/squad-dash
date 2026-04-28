@@ -1806,6 +1806,8 @@ public partial class MainWindow : Window
         var port = evt.RcPort is int p ? p : 0;
         var url = evt.RcUrl ?? $"http://localhost:{port}";
         AppendLine($"📡 Remote access started: {url}");
+        if (!string.IsNullOrWhiteSpace(evt.RcLanUrl))
+            AppendLine($"  LAN URL: {evt.RcLanUrl}");
         SquadDashTrace.Write("UI", $"RC started port={port} url={url}");
     }
 
@@ -1841,6 +1843,7 @@ public partial class MainWindow : Window
         if (LoopPanelBorder is null) return;
         bool running = _pec.IsLoopRunning;
         StartLoopButton.IsEnabled = !running;
+        StopLoopButton.IsEnabled = running;
         LoopStatusTextBlock.Text = running
             ? (_loopCurrentIteration > 0 ? $"Running · #{_loopCurrentIteration}" : "Running")
             : "Idle";
@@ -1858,6 +1861,18 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(StartLoopButton_Click), ex);
+        }
+    }
+
+    private async void StopLoopButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _bridge.StopLoopAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(StopLoopButton_Click), ex);
         }
     }
 
@@ -10399,11 +10414,13 @@ public partial class MainWindow : Window
         AddWorkspaceFolderMenuItem(Path.Combine("decisions", "inbox"));
 
         var loopMdPath = Path.Combine(_currentWorkspace.FolderPath, "loop.md");
-        if (File.Exists(loopMdPath))
+        var loopMenuItem = new MenuItem
         {
-            var loopEntry = new SidebarEntry("🔁 loop.md", string.Empty, loopMdPath, true, SidebarEntryKind.File);
-            AddWorkspaceEntryMenuItem(loopEntry);
-        }
+            Header = "🔁 loop.md",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        loopMenuItem.Click += (_, _) => OpenOrCreateLoopMd(loopMdPath);
+        WorkspaceMenuItem.Items.Add(loopMenuItem);
 
         var tasksMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         if (File.Exists(tasksMdPath))
@@ -10490,6 +10507,33 @@ public partial class MainWindow : Window
         };
         item.Click += (_, _) => OpenSidebarEntry(entry);
         WorkspaceMenuItem.Items.Add(item);
+    }
+
+    private void OpenOrCreateLoopMd(string loopMdPath)
+    {
+        try
+        {
+            if (!File.Exists(loopMdPath))
+            {
+                File.WriteAllText(loopMdPath, """
+                    # Loop Instructions
+
+                    You are running in autonomous loop mode. On each iteration:
+
+                    1. Check for outstanding tasks in `.squad/tasks.md`
+                    2. Pick the highest-priority unchecked item
+                    3. Work on it and mark it `[x]` when done
+                    4. Report what you accomplished
+
+                    Stop looping when all tasks are complete or when instructed.
+                    """);
+            }
+            NavigateToDocByPath(loopMdPath);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OpenOrCreateLoopMd), ex);
+        }
     }
 
     private void ConfigureInboxWatcher(string inboxPath)

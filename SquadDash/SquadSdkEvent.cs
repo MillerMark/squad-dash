@@ -93,6 +93,7 @@ public sealed class SquadSdkEvent {
     public int? RcPort { get; set; }
     public string? RcToken { get; set; }
     public string? RcUrl { get; set; }
+    public string? RcLanUrl { get; set; }
 }
 
 public sealed class SquadBackgroundAgentInfo {

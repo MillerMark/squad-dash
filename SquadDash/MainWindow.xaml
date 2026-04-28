@@ -862,6 +862,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock Text="Loop"
                                        FontSize="15"
@@ -877,6 +878,13 @@
                                     Content="▶ Start Loop"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="StartLoopButton_Click" />
+                            <Button x:Name="StopLoopButton"
+                                    Grid.Row="3"
+                                    Content="■ Stop"
+                                    Margin="0,4,0,0"
+                                    IsEnabled="False"
+                                    Style="{StaticResource ThemedButtonStyle}"
+                                    Click="StopLoopButton_Click" />
                         </Grid>
                     </Border>
 

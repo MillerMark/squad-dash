@@ -659,6 +659,13 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    public async Task StopLoopAsync() {
+        var requestId = Guid.NewGuid().ToString("N");
+        SquadDashTrace.Write("Bridge", "StopLoopAsync");
+        await SendBridgeRequestAsync(new SquadSdkRunLoopStopRequest(requestId))
+            .ConfigureAwait(false);
+    }
+
     public async Task StartRemoteAsync(
         string repo,
         string branch,
@@ -765,6 +772,10 @@ internal sealed record SquadSdkRunLoopRequest(
     public SquadSdkRunLoopRequest(string loopMdPath, string cwd, string? requestId, string? sessionId)
         : this("run_loop", loopMdPath, cwd, requestId, sessionId) { }
 }
+
+internal sealed record SquadSdkRunLoopStopRequest(
+    [property: JsonPropertyName("requestId")] string? RequestId,
+    [property: JsonPropertyName("type")] string Type = "run_loop_stop");
 
 internal sealed record SquadSdkRcStartRequest(
     [property: JsonPropertyName("port")] int Port,

@@ -48,7 +48,7 @@
 
 ## 🟡 Mid Priority
 
-- [ ] **Loop panel — Stop button + open/edit loop.md** *(Owner: Lyra Morn + Arjun Sen)*
+- [x] **Loop panel — Stop button + open/edit loop.md** *(Owner: Lyra Morn + Arjun Sen)*
   The Loop panel currently only has a Start button. Add a Stop button wired to a `run_loop_stop`
   NDJSON event (Talia adds to bridge; Arjun adds C# method). Add ✏️ button that opens `loop.md`
   in the doc editor if it exists, or prompts to create it from a template if it doesn't.
