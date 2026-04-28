@@ -363,8 +363,13 @@
                               IsCheckable="True"
                               Click="ViewDocumentationMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem x:Name="ViewLoopPanelMenuItem"
+                              Header="Loop Panel"
+                              IsCheckable="True"
+                              Click="ViewLoopPanelMenuItem_Click" />
                     <MenuItem x:Name="ViewTasksMenuItem"
-                              Header="Tasks"
+                              Header="Tasks Panel"
+                              IsCheckable="True"
                               Click="ViewTasksMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
@@ -755,6 +760,8 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <Border x:Name="ActiveAgentsPanelBorder"
@@ -853,8 +860,8 @@
                             Grid.Column="4"
                             MinWidth="160"
                             Padding="12"
-                            Background="{DynamicResource ActivePanelSurface}"
-                            BorderBrush="{DynamicResource ActivePanelBorder}"
+                            Background="{DynamicResource SidebarPanelSurface}"
+                            BorderBrush="{DynamicResource SidebarPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16">
                         <Grid>
@@ -864,10 +871,25 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Loop"
-                                       FontSize="15"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource ActivePanelTitle}" />
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="Loop"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource ActivePanelTitle}"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="LoopPanelCloseButton"
+                                        Content="×"
+                                        Width="18"
+                                        Height="18"
+                                        Padding="0"
+                                        FontSize="13"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        ToolTip="Hide Loop panel"
+                                        Click="LoopPanelCloseButton_Click" />
+                            </Grid>
                             <TextBlock x:Name="LoopStatusTextBlock"
                                        Grid.Row="1"
                                        Text="Idle"
@@ -888,8 +910,63 @@
                         </Grid>
                     </Border>
 
-                    <Border x:Name="WatchPanelBorder"
+                    <Border x:Name="TasksPanelBorder"
                             Grid.Column="6"
+                            MinWidth="200"
+                            MaxWidth="280"
+                            Padding="12"
+                            Background="{DynamicResource SidebarPanelSurface}"
+                            BorderBrush="{DynamicResource SidebarPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Title row with close button -->
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="Tasks"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="TasksPanelCloseButton"
+                                        Content="×"
+                                        Width="18"
+                                        Height="18"
+                                        Padding="0"
+                                        FontSize="13"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        ToolTip="Hide Tasks panel"
+                                        Click="TasksPanelCloseButton_Click" />
+                            </Grid>
+
+                            <!-- Task items content -->
+                            <ScrollViewer x:Name="TasksItemsScrollViewer"
+                                          Grid.Row="1"
+                                          MaxHeight="300"
+                                          Margin="0,8,0,0"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="TasksItemsPanel">
+                                    <TextBlock x:Name="TasksEmptyTextBlock"
+                                               Text="No open tasks"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource BodyText}"
+                                               Visibility="Collapsed" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="WatchPanelBorder"
+                            Grid.Column="8"
                             MinWidth="180"
                             Padding="12"
                             Background="{DynamicResource ActivePanelSurface}"

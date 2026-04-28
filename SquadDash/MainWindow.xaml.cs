@@ -193,6 +193,8 @@ public partial class MainWindow : Window
     private Shapes.Rectangle? _docSourceHoverHighlight;
     private DispatcherTimer? _docSourceHoverTimer;
     private int _loopCurrentIteration;
+    private bool _loopPanelVisible = true;
+    private bool _tasksPanelVisible = false;
     private string? _watchCycleId;
     private int     _watchFleetSize;
     private int     _watchWaveIndex;
@@ -1887,12 +1889,108 @@ public partial class MainWindow : Window
     private void SyncLoopPanel()
     {
         if (LoopPanelBorder is null) return;
+        LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         bool running = _pec.IsLoopRunning;
         StartLoopButton.IsEnabled = !running;
         StopLoopButton.IsEnabled = running;
         LoopStatusTextBlock.Text = running
             ? (_loopCurrentIteration > 0 ? $"Running · #{_loopCurrentIteration}" : "Running")
             : "Idle";
+    }
+
+    private void SyncTasksPanel()
+    {
+        if (TasksPanelBorder is null) return;
+        TasksPanelBorder.Visibility = _tasksPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+        if (_tasksPanelVisible)
+            LoadTasksPanel();
+    }
+
+    private void LoadTasksPanel()
+    {
+        if (TasksItemsPanel is null) return;
+        var workspace = _currentWorkspace;
+        if (workspace is null) {
+            ShowTasksPanelEmpty("No workspace open");
+            return;
+        }
+
+        var tasksPath = Path.Combine(workspace.SquadFolderPath, "tasks.md");
+        if (!File.Exists(tasksPath)) {
+            ShowTasksPanelEmpty("No tasks.md found");
+            return;
+        }
+
+        string[] lines;
+        try { lines = File.ReadAllLines(tasksPath); }
+        catch { ShowTasksPanelEmpty("Could not read tasks.md"); return; }
+
+        var groups = TasksPanelParser.Parse(lines)
+            .Where(g => g.Items.Count > 0)
+            .ToList();
+
+        // Clear existing content (keep the empty TextBlock)
+        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--) {
+            var child = TasksItemsPanel.Children[i];
+            if (child == TasksEmptyTextBlock) continue;
+            TasksItemsPanel.Children.RemoveAt(i);
+        }
+
+        if (groups.Count == 0) {
+            ShowTasksPanelEmpty("No open tasks");
+            return;
+        }
+
+        TasksEmptyTextBlock.Visibility = Visibility.Collapsed;
+
+        foreach (var group in groups) {
+            // Priority heading
+            var heading = new TextBlock {
+                Text = $"{group.Emoji} {group.Label}",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 8, 0, 3)
+            };
+            heading.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            TasksItemsPanel.Children.Add(heading);
+
+            foreach (var item in group.Items) {
+                var row = new StackPanel {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 2, 0, 0)
+                };
+                var bullet = new TextBlock {
+                    Text = "·",
+                    FontSize = 12,
+                    Width = 12,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 1, 4, 0)
+                };
+                bullet.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                var label = new TextBlock {
+                    Text = item,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 220
+                };
+                label.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                row.Children.Add(bullet);
+                row.Children.Add(label);
+                TasksItemsPanel.Children.Add(row);
+            }
+        }
+    }
+
+    private void ShowTasksPanelEmpty(string message)
+    {
+        if (TasksEmptyTextBlock is null) return;
+        // Remove all non-empty-text children
+        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--) {
+            if (TasksItemsPanel.Children[i] != TasksEmptyTextBlock)
+                TasksItemsPanel.Children.RemoveAt(i);
+        }
+        TasksEmptyTextBlock.Text = message;
+        TasksEmptyTextBlock.Visibility = Visibility.Visible;
     }
 
     private async void StartLoopButton_Click(object sender, RoutedEventArgs e)
@@ -4212,6 +4310,10 @@ public partial class MainWindow : Window
             ToolIconGalleryMenuItem.Visibility = shiftDown ? Visibility.Visible : Visibility.Collapsed;
         if (ToolIconGallerySeparator is not null)
             ToolIconGallerySeparator.Visibility = shiftDown ? Visibility.Visible : Visibility.Collapsed;
+        if (ViewLoopPanelMenuItem is not null)
+            ViewLoopPanelMenuItem.IsChecked = _loopPanelVisible;
+        if (ViewTasksMenuItem is not null)
+            ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
     }
 
     private void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)
@@ -4316,15 +4418,51 @@ public partial class MainWindow : Window
     {
         try
         {
-            var workspace = _currentWorkspace;
-            if (workspace is null) return;
-            var tasksPath = Path.Combine(workspace.SquadFolderPath, "tasks.md");
-            OpenMarkdownFile(tasksPath, "Tasks");
+            _tasksPanelVisible = !_tasksPanelVisible;
+            SyncTasksPanel();
+            if (ViewTasksMenuItem is not null)
+                ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(ViewTasksMenuItem_Click), ex);
         }
+    }
+
+    private void LoopPanelCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _loopPanelVisible = false;
+            SyncLoopPanel();
+            if (ViewLoopPanelMenuItem is not null)
+                ViewLoopPanelMenuItem.IsChecked = false;
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelCloseButton_Click), ex); }
+    }
+
+    private void TasksPanelCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _tasksPanelVisible = false;
+            SyncTasksPanel();
+            if (ViewTasksMenuItem is not null)
+                ViewTasksMenuItem.IsChecked = false;
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelCloseButton_Click), ex); }
+    }
+
+    private void ViewLoopPanelMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _loopPanelVisible = !_loopPanelVisible;
+            SyncLoopPanel();
+            if (ViewLoopPanelMenuItem is not null)
+                ViewLoopPanelMenuItem.IsChecked = _loopPanelVisible;
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ViewLoopPanelMenuItem_Click), ex); }
     }
 
     private void SetDocumentationMode(bool enabled, bool persistChange = true)
@@ -10424,6 +10562,7 @@ public partial class MainWindow : Window
         {
             OpenSquadFolderMenuItem?.IsEnabled = false;
             UpdateInteractiveControlState();
+            SyncTasksPanel();
             return;
         }
 
@@ -10498,6 +10637,7 @@ public partial class MainWindow : Window
 
         ConfigureInboxWatcher(Path.Combine(squadRoot, "decisions", "inbox"));
         UpdateInteractiveControlState();
+        SyncTasksPanel();
     }
 
     private void ClearWorkspaceMenuFileItems()

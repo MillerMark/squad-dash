@@ -6,6 +6,8 @@
     <SolidColorBrush x:Key="PanelSurface" Color="#242018"/>
     <SolidColorBrush x:Key="ActivePanelSurface" Color="#1A2535"/>
     <SolidColorBrush x:Key="RosterPanelSurface" Color="#252018"/>
+    <SolidColorBrush x:Key="SidebarPanelSurface" Color="#1F1C16"/>
+    <SolidColorBrush x:Key="SidebarPanelBorder" Color="#3C3529"/>
     <SolidColorBrush x:Key="WorkspaceSurface" Color="#222018"/>
     <SolidColorBrush x:Key="CardSurface" Color="#2E2920"/>
     <SolidColorBrush x:Key="HoverSurface" Color="#252220"/>
