@@ -178,6 +178,16 @@ public partial class MainWindow : Window
     private DispatcherTimer? _searchDebounceTimer;
     private SearchHighlightAdorner? _searchAdorner;
     private ScrollbarMarkerAdorner? _scrollbarAdorner;
+    // Pointer cache — built on first RefreshAdornerHighlights after a search, reused on Next/Prev.
+    private List<(TextPointer Start, TextPointer End, string Text)>? _cachedSearchPointers;
+    private int[]          _cachedMatchToCursor      = [];  // match i → index in _cachedSearchPointers, -1 if BUC/skip
+    private TextPointer?[] _cachedMatchScrollPointer = [];  // match i → pointer to scroll to
+    private TextBlock?[]   _cachedMatchBucCell        = [];  // match i → BUC table cell, null if not a BUC match
+    // TextBlocks inside table cells that currently carry a search-highlight background.
+    private readonly HashSet<TextBlock> _bucHighlightedCells = [];
+    // Frozen highlight brushes for BUC table-cell backgrounds (match adorner colors).
+    private static readonly Brush BucInactiveBrush = MakeFrozenBrush(Color.FromArgb( 80, 255, 213,  79));
+    private static readonly Brush BucActiveBrush   = MakeFrozenBrush(Color.FromArgb(160, 255, 143,   0));
     private ScrollBar? _transcriptScrollBar;
     private ScrollViewer? _transcriptScrollViewer;
 
@@ -6011,6 +6021,8 @@ public partial class MainWindow : Window
         _searchMatchCursor = -1;
         _searchAdorner?.Clear();
         _scrollbarAdorner?.Clear();
+        _cachedSearchPointers = null;
+        ClearBucCellHighlights();
         if (!string.IsNullOrEmpty(SearchBox.Text))
             SearchBox.Text = string.Empty;
         UpdateSearchUi();
@@ -13017,12 +13029,15 @@ public partial class MainWindow : Window
             _searchMatchCursor = -1;
             _searchAdorner?.Clear();
             _scrollbarAdorner?.Clear();
+            _cachedSearchPointers = null;
+            ClearBucCellHighlights();
             UpdateSearchUi();
             return;
         }
 
         var cts = new CancellationTokenSource();
         _searchCts = cts;
+        _cachedSearchPointers = null;  // Invalidate stale pointer cache from previous search.
 
         try
         {
@@ -13126,7 +13141,9 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Navigates to the match at <paramref name="index"/> (wraps around),
-    /// ensuring the turn is rendered and scrolling the prompt paragraph into view.
+    /// ensuring the turn is rendered and scrolling the match into view.
+    /// Uses a pointer cache to skip the full document re-walk when the turn is
+    /// already rendered, keeping navigation latency well under 100 ms.
     /// </summary>
     private async Task NavigateToMatchAsync(int index)
     {
@@ -13136,53 +13153,34 @@ public partial class MainWindow : Window
         _searchMatchCursor = index;
         UpdateSearchUi();
 
-        var match = _searchMatches[index];
+        var match        = _searchMatches[index];
         var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-        var query = SearchBox.Text;
 
-        TextPointer? searchFrom = null;
+        // Fast path: pointer cache is valid and the turn is already in the FlowDocument.
+        // Just nudge the adorner cursor — no document walk needed.
+        if (_cachedSearchPointers is not null
+            && (activeThread.Kind != TranscriptThreadKind.Coordinator
+                || _conversationManager.IsTurnRendered(match.TurnIndex)))
+        {
+            var cursorInList = index < _cachedMatchToCursor.Length ? _cachedMatchToCursor[index] : -1;
+            _searchAdorner?.UpdateCurrentIndex(cursorInList);
+            UpdateBucActiveHighlight(index);
+            ScrollToMatchPointerIfNeeded(
+                index < _cachedMatchScrollPointer.Length ? _cachedMatchScrollPointer[index] : null);
+            SyncPromptNavButtons();
+            return;
+        }
 
+        // Slow path: the turn may need to be prepended into the FlowDocument.
         if (activeThread.Kind == TranscriptThreadKind.Coordinator)
         {
+            // Invalidate the cache before prepending so stale pointers aren't used.
+            if (!_conversationManager.IsTurnRendered(match.TurnIndex))
+                _cachedSearchPointers = null;
             await _conversationManager.EnsureTurnRenderedAsync(match.TurnIndex);
-
-            var startedAt = _conversationManager.GetCoordinatorTurnStartedAt(match.TurnIndex);
-            if (startedAt.HasValue)
-            {
-                var entry = CoordinatorThread.PromptParagraphs
-                    .FirstOrDefault(e => e.Timestamp == startedAt.Value);
-                if (entry is not null)
-                {
-                    // For user matches: start from the prompt paragraph start.
-                    // For assistant matches: start from after the prompt paragraph
-                    // so we don't accidentally match the quoted user text.
-                    searchFrom = match.TurnRole == "assistant"
-                        ? entry.Paragraph.ContentEnd
-                        : entry.Paragraph.ContentStart;
-                }
-            }
-        }
-        else
-        {
-            // Agent thread — all turns are rendered at selection time; index maps directly.
-            if (match.TurnIndex >= 0 && match.TurnIndex < activeThread.PromptParagraphs.Count)
-            {
-                var entry = activeThread.PromptParagraphs[match.TurnIndex];
-                searchFrom = match.TurnRole == "assistant"
-                    ? entry.Paragraph.ContentEnd
-                    : entry.Paragraph.ContentStart;
-            }
         }
 
-        if (searchFrom == null) return;
-
-        // Dispatch the adorner refresh at Loaded priority (lower than Render=7, higher
-        // than Background) so it runs AFTER the WPF layout pass settles.  This fixes:
-        //   • Items 1, 2 — newly prepended turns had no layout yet when we refreshed
-        //   • Scroll direction — RefreshAdornerHighlights now scrolls to the exact
-        //     match pointer (not paragraph.ContentStart), preventing wrong-direction jumps.
-        // All skip-counting and BUC handling is now inside RefreshAdornerHighlights
-        // via SearchWalker, so we don't need the priorSameField loop here anymore.
+        // Schedule a full adorner rebuild once layout has settled.
         _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, RefreshAdornerHighlights);
     }
 
@@ -13229,6 +13227,13 @@ public partial class MainWindow : Window
         // (one per occurrence) so the caller's skip count stays correct.
         private int _pendingBucCount;
         private TextPointer? _pendingBucEnd;
+        // Tracks the BUC element and occurrence index of the most-recently returned BUC match.
+        private BlockUIContainer? _lastBucElement;
+        private int _lastBucOccurrenceIndex;
+        private int _lastBucTotalCount;
+
+        public BlockUIContainer? LastBucElement        => _lastBucElement;
+        public int               LastBucOccurrenceIndex => _lastBucOccurrenceIndex;
 
         public SearchWalker(TextPointer start) => _cursor = start;
 
@@ -13245,6 +13250,7 @@ public partial class MainWindow : Window
             if (_pendingBucCount > 0)
             {
                 _pendingBucCount--;
+                _lastBucOccurrenceIndex = _lastBucTotalCount - _pendingBucCount - 1;
                 return _pendingBucEnd is not null
                     ? new TextRange(_pendingBucEnd, _pendingBucEnd)
                     : null;
@@ -13284,11 +13290,14 @@ public partial class MainWindow : Window
                             var count = CountOccurrences(bucText, searchText);
                             if (count > 0)
                             {
-                                var bucEnd = buc.ContentEnd;
-                                _cursor          = bucEnd;
-                                _pendingBucEnd   = bucEnd;
-                                _pendingBucCount = count - 1;
-                                // Zero-length range signals "found in UIElement, cannot highlight".
+                                var bucEnd              = buc.ContentEnd;
+                                _cursor                 = bucEnd;
+                                _pendingBucEnd          = bucEnd;
+                                _pendingBucCount        = count - 1;
+                                _lastBucElement         = buc;
+                                _lastBucOccurrenceIndex = 0;
+                                _lastBucTotalCount      = count;
+                                // Zero-length range signals "found in UIElement, cannot highlight via adorner".
                                 return new TextRange(bucEnd, bucEnd);
                             }
                         }
@@ -13328,7 +13337,10 @@ public partial class MainWindow : Window
     /// <summary>
     /// Rebuilds the adorner highlight list from all currently-rendered matches and
     /// updates the current-match index.  Skips matches whose turns are not yet in
-    /// the FlowDocument (no async rendering).
+    /// the FlowDocument.  Also highlights matching table cells inside
+    /// <see cref="BlockUIContainer"/> elements by applying a background brush to
+    /// the cell's TextBlock.  Populates the pointer cache used by
+    /// <see cref="NavigateToMatchAsync"/> for fast cursor-update navigation.
     /// </summary>
     private void RefreshAdornerHighlights()
     {
@@ -13339,32 +13351,38 @@ public partial class MainWindow : Window
         {
             _searchAdorner.Clear();
             _scrollbarAdorner?.Clear();
+            _cachedSearchPointers = null;
+            ClearBucCellHighlights();
             return;
         }
 
         var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-        var pointers = new List<(TextPointer Start, TextPointer End, string Text)>(_searchMatches.Count);
+        var pointers     = new List<(TextPointer Start, TextPointer End, string Text)>(_searchMatches.Count);
         var cursorInList = -1;
 
-        // Use a SearchWalker per (turnIndex, role) field.  Unlike the old lastEndByKey
-        // approach, SearchWalker correctly counts occurrences inside BlockUIContainer
-        // elements (rendered tables and code blocks), keeping skip counts accurate.
-        var walkerByKey = new Dictionary<(int TurnIndex, string Role), SearchWalker>();
+        // Per-match cache arrays — rebuilt on every full refresh, then reused by the fast path.
+        var matchToCursor      = new int[_searchMatches.Count];
+        var matchScrollPointer = new TextPointer?[_searchMatches.Count];
+        var matchBucCell       = new TextBlock?[_searchMatches.Count];
+        Array.Fill(matchToCursor, -1);
 
-        // Track the pointer for the current match so we can scroll to it below.
+        // Clear previously-highlighted BUC table cells before re-applying them.
+        ClearBucCellHighlights();
+
+        var walkerByKey = new Dictionary<(int TurnIndex, string Role), SearchWalker>();
         TextPointer? currentMatchPointer = null;
 
         for (var i = 0; i < _searchMatches.Count; i++)
         {
             var match = _searchMatches[i];
-            var key = (match.TurnIndex, match.TurnRole);
+            var key   = (match.TurnIndex, match.TurnRole);
 
             if (!walkerByKey.TryGetValue(key, out var walker))
             {
                 var searchFrom = GetSearchFromPointerSync(match, activeThread);
                 if (searchFrom is null)
                 {
-                    SquadDashTrace.Write(TraceCategory.Performance,
+                    SquadDashTrace.Write(TraceCategory.UI,
                         $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} SKIPPED(unrendered)");
                     continue;
                 }
@@ -13375,20 +13393,30 @@ public partial class MainWindow : Window
             var range = walker.FindNext(query);
             if (range is null)
             {
-                SquadDashTrace.Write(TraceCategory.Performance,
+                SquadDashTrace.Write(TraceCategory.UI,
                     $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} SKIPPED(walker_exhausted) cursor={i == _searchMatchCursor}");
                 continue;
             }
 
+            matchScrollPointer[i] = range.Start;
+
             // Zero-length range = match inside a BlockUIContainer (table / code block).
-            // The walker already advanced past it so skip counts stay correct, but we
-            // cannot draw a highlight here.
+            // Cannot highlight via the adorner; apply a background brush to the cell instead.
             if (range.Start.CompareTo(range.End) == 0)
             {
-                SquadDashTrace.Write(TraceCategory.Performance,
+                SquadDashTrace.Write(TraceCategory.UI,
                     $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} BUC_MATCH cursor={i == _searchMatchCursor}");
+                if (walker.LastBucElement is not null)
+                {
+                    var bucCell = GetTableCellByOccurrence(walker.LastBucElement, walker.LastBucOccurrenceIndex, query);
+                    if (bucCell is not null)
+                    {
+                        _bucHighlightedCells.Add(bucCell);
+                        matchBucCell[i] = bucCell;
+                    }
+                }
                 if (i == _searchMatchCursor)
-                    currentMatchPointer = range.Start; // best-effort BUC position
+                    currentMatchPointer = range.Start;
                 continue;
             }
 
@@ -13398,50 +13426,34 @@ public partial class MainWindow : Window
                 currentMatchPointer = range.Start;
             }
 
-            var actualText = new TextRange(range.Start, range.End).Text;
-            SquadDashTrace.Write(TraceCategory.Performance,
+            matchToCursor[i] = pointers.Count;
+            var actualText   = new TextRange(range.Start, range.End).Text;
+            SquadDashTrace.Write(TraceCategory.UI,
                 $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} TEXT_MATCH listIdx={pointers.Count} cursor={i == _searchMatchCursor} text='{actualText}'");
             pointers.Add((range.Start, range.End, string.IsNullOrEmpty(actualText) ? query : actualText));
         }
 
+        // Apply BUC cell backgrounds: all inactive first, then the active cell on top.
+        foreach (var cell in _bucHighlightedCells)
+            cell.Background = BucInactiveBrush;
+        if (_searchMatchCursor >= 0 && _searchMatchCursor < matchBucCell.Length
+            && matchBucCell[_searchMatchCursor] is { } activeBucCell)
+            activeBucCell.Background = BucActiveBrush;
+
         _searchAdorner.SetMatches(pointers, cursorInList);
 
-        // Scroll to the current match.  Running here (inside BeginInvoke at Loaded
-        // priority) guarantees layout has settled after EnsureTurnRenderedAsync, so
-        // GetCharacterRect returns correct viewport-relative coordinates.
-        if (currentMatchPointer is not null)
-        {
-            var sv = OutputTextBox.Template?.FindName("PART_ContentHost", OutputTextBox) as ScrollViewer;
-            if (sv is not null)
-            {
-                // Use the actual match pointer, NOT paragraph.ContentStart, so that
-                // we scroll to the match itself rather than the paragraph's top.
-                // This prevents the wrong-direction scroll when a long paragraph
-                // starts above the viewport but the match is further down inside it.
-                var rect = currentMatchPointer.GetCharacterRect(LogicalDirection.Forward);
+        // Persist the pointer cache for fast-path navigation.
+        _cachedSearchPointers     = pointers;
+        _cachedMatchToCursor      = matchToCursor;
+        _cachedMatchScrollPointer = matchScrollPointer;
+        _cachedMatchBucCell       = matchBucCell;
 
-                // For BUC boundaries or not-yet-laid-out content, rect may be empty.
-                // Fall back to the containing paragraph.
-                if (rect.IsEmpty)
-                {
-                    var para = currentMatchPointer.Paragraph;
-                    if (para is not null)
-                        rect = para.ContentStart.GetCharacterRect(LogicalDirection.Forward);
-                }
-
-                if (!rect.IsEmpty)
-                {
-                    // Only scroll when the match is not already fully within the viewport.
-                    var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
-                    SquadDashTrace.Write(TraceCategory.Performance,
-                        $"SEARCH_SCROLL cursor={_searchMatchCursor} rectTop={rect.Top:F0} rectBottom={rect.Bottom:F0} vp={sv.ViewportHeight:F0} offset={sv.VerticalOffset:F0} fullyVisible={isFullyVisible}");
-                    if (!isFullyVisible)
-                        _scrollController.ScrollToOffset(sv.VerticalOffset + rect.Top);
-                }
-                // If rect is still empty (freshly prepended or BUC boundary),
-                // do nothing — the adorner will reposition via ScrollChanged when layout fires.
-            }
-        }
+        // Scroll to the current match.  Fall back to the first rendered match if the
+        // current match is unrendered (handles auto-scroll when typing finds match 0
+        // in an older, not-yet-prepended turn).
+        if (currentMatchPointer is null && pointers.Count > 0)
+            currentMatchPointer = pointers[0].Start;
+        ScrollToMatchPointerIfNeeded(currentMatchPointer);
 
         SyncPromptNavButtons();
 
@@ -13467,6 +13479,143 @@ public partial class MainWindow : Window
                 _scrollbarAdorner.Clear();
             }
         }
+    }
+
+    // ── Search helper methods ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Scrolls the transcript so that <paramref name="pointer"/> is visible.
+    /// If the pointer is already fully visible, does nothing.
+    /// </summary>
+    private void ScrollToMatchPointerIfNeeded(TextPointer? pointer)
+    {
+        if (pointer is null) return;
+        var sv = OutputTextBox.Template?.FindName("PART_ContentHost", OutputTextBox) as ScrollViewer;
+        if (sv is null) return;
+
+        var rect = pointer.GetCharacterRect(LogicalDirection.Forward);
+        if (rect.IsEmpty)
+        {
+            var para = pointer.Paragraph;
+            if (para is not null)
+                rect = para.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+        }
+
+        if (rect.IsEmpty) return;
+
+        var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"SEARCH_SCROLL cursor={_searchMatchCursor} rectTop={rect.Top:F0} rectBottom={rect.Bottom:F0} vp={sv.ViewportHeight:F0} offset={sv.VerticalOffset:F0} fullyVisible={isFullyVisible}");
+        if (!isFullyVisible)
+            _scrollController.ScrollToOffset(sv.VerticalOffset + rect.Top);
+    }
+
+    /// <summary>
+    /// Resets all highlighted BUC table cells to the inactive brush, then marks the
+    /// cell at <paramref name="matchIndex"/> as the active (bright) cell.
+    /// </summary>
+    private void UpdateBucActiveHighlight(int matchIndex)
+    {
+        foreach (var cell in _bucHighlightedCells)
+            cell.Background = BucInactiveBrush;
+        if (_cachedMatchBucCell is not null
+            && matchIndex >= 0 && matchIndex < _cachedMatchBucCell.Length
+            && _cachedMatchBucCell[matchIndex] is { } active)
+            active.Background = BucActiveBrush;
+    }
+
+    /// <summary>
+    /// Removes all BUC cell background highlights and clears the tracked set.
+    /// </summary>
+    private void ClearBucCellHighlights()
+    {
+        foreach (var cell in _bucHighlightedCells)
+            cell.Background = null;
+        _bucHighlightedCells.Clear();
+    }
+
+    /// <summary>
+    /// Finds the <see cref="TextBlock"/> in <paramref name="buc"/>'s StackPanel whose
+    /// cumulative occurrence of <paramref name="query"/> equals
+    /// <paramref name="occurrenceIndex"/> (0-based across all cells, left→right, top→bottom).
+    /// Returns <c>null</c> if the cell cannot be located.
+    /// </summary>
+    private static TextBlock? GetTableCellByOccurrence(BlockUIContainer buc, int occurrenceIndex, string query)
+    {
+        if (buc.Child is not StackPanel sp) return null;
+        var count = 0;
+        foreach (var rowChild in sp.Children)
+        {
+            if (rowChild is not Grid grid) continue;
+            foreach (var colChild in grid.Children)
+            {
+                if (colChild is not Border border || border.Child is not TextBlock tb) continue;
+                var cellText  = GetTextBlockContent(tb);
+                var cellCount = CountSubstringOccurrences(cellText, query);
+                if (count + cellCount > occurrenceIndex)
+                    return tb;  // target occurrence is inside this cell
+                count += cellCount;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the text content of a <see cref="TextBlock"/>.  Uses the Inlines tree
+    /// if populated (as done by <c>AppendTextRuns</c>), otherwise falls back to
+    /// <see cref="TextBlock.Text"/>.
+    /// </summary>
+    private static string GetTextBlockContent(TextBlock tb)
+    {
+        if (tb.Inlines.Count == 0)
+            return tb.Text;
+        var sb = new System.Text.StringBuilder();
+        AppendInlineText(tb.Inlines, sb);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Recursively appends the plain text of all <see cref="Run"/> and container
+    /// <see cref="Span"/> elements within <paramref name="inlines"/>.
+    /// </summary>
+    private static void AppendInlineText(InlineCollection inlines, System.Text.StringBuilder sb)
+    {
+        foreach (var inline in inlines)
+        {
+            switch (inline)
+            {
+                case Run run:
+                    sb.Append(run.Text);
+                    break;
+                case Span span:
+                    AppendInlineText(span.Inlines, sb);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Counts the number of non-overlapping case-insensitive occurrences of
+    /// <paramref name="query"/> inside <paramref name="text"/>.
+    /// </summary>
+    private static int CountSubstringOccurrences(string text, string query)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(query)) return 0;
+        var count = 0;
+        var idx   = 0;
+        while ((idx = text.IndexOf(query, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            count++;
+            idx += query.Length;
+        }
+        return count;
+    }
+
+    private static SolidColorBrush MakeFrozenBrush(Color c)
+    {
+        var b = new SolidColorBrush(c);
+        b.Freeze();
+        return b;
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -13537,6 +13686,8 @@ public partial class MainWindow : Window
         SearchBox.Text = string.Empty;
         _searchAdorner?.Clear();
         _scrollbarAdorner?.Clear();
+        _cachedSearchPointers = null;
+        ClearBucCellHighlights();
         UpdateSearchUi();
     }
 

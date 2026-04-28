@@ -306,6 +306,7 @@ internal sealed class TranscriptConversationManager {
     /// up to trigger loading all of them).
     /// </summary>
     internal bool HasMoreTurnsAbove => _coordinatorRenderedFromIndex > 0;
+    internal bool IsTurnRendered(int turnIndex) => turnIndex >= _coordinatorRenderedFromIndex;
 
     /// <summary>
     /// Prepends the next batch of older coordinator turns to the top of the
