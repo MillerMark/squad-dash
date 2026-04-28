@@ -123,10 +123,10 @@
     <!-- Effect Token -->
     <DropShadowEffect x:Key="PopupShadow" BlurRadius="8" Opacity="0.20" ShadowDepth="2" Color="#000000"/>
     <!-- Search Highlight Tokens -->
-    <SolidColorBrush x:Key="SearchHighlight"        Color="#FFE082"/>
-    <SolidColorBrush x:Key="SearchHighlightCurrent"     Color="#FFF2C53F"/>
-    <SolidColorBrush x:Key="SearchHighlightText"        Color="#3D2B00"/>
-    <SolidColorBrush x:Key="SearchHighlightTextCurrent" Color="#FF0F0B00"/>
+    <SolidColorBrush x:Key="SearchHighlight"            Color="#FFEAAB"/>
+    <SolidColorBrush x:Key="SearchHighlightCurrent"     Color="#FED457"/>
+    <SolidColorBrush x:Key="SearchHighlightText"        Color="#000000"/>
+    <SolidColorBrush x:Key="SearchHighlightTextCurrent" Color="#000000"/>
     <!-- Screenshot Overlay Tokens -->
     <SolidColorBrush x:Key="OverlayDimFill"             Color="#60000000"/>
     <SolidColorBrush x:Key="ScreenshotAnchorNamed"       Color="#388E3C"/>
