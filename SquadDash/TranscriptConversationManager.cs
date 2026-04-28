@@ -1258,8 +1258,13 @@ internal readonly record struct SessionSelectionResult(
 ///   (<c>Prompt</c> or <c>ResponseText</c>).  The UI layer can use this for
 ///   in-excerpt highlighting.
 /// </param>
+/// <param name="Thread">
+///   The agent transcript thread that contains this match, or <c>null</c> for the
+///   main coordinator transcript.
+/// </param>
 internal record TurnSearchMatch(
     int    TurnIndex,
     string TurnRole,
     string MatchExcerpt,
-    int    MatchOffset);
+    int    MatchOffset,
+    TranscriptThreadState? Thread = null);

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using System.Collections.Generic;
 
 namespace SquadDash;
@@ -12,17 +13,26 @@ internal sealed record AbortAgentsConfirmationTarget(
     string TaskId,
     string TaskKind,
     string DisplayLabel,
+    DateTimeOffset StartedAt,
     bool IsCoordinator);
 
 internal sealed class AbortAgentsConfirmationWindow : Window {
     private readonly List<(CheckBox CheckBox, AbortAgentsConfirmationTarget Target)> _items = [];
+    private readonly Func<IReadOnlyList<AbortAgentsConfirmationTarget>> _getTargets;
+    private readonly DispatcherTimer _refreshTimer;
+    private readonly StackPanel _listPanel;
+    private readonly TextBlock _emptyText;
     private readonly Button _confirmButton;
 
     public IReadOnlyList<AbortAgentsConfirmationTarget> SelectedTargets { get; private set; }
         = Array.Empty<AbortAgentsConfirmationTarget>();
 
-    public AbortAgentsConfirmationWindow(IReadOnlyList<AbortAgentsConfirmationTarget> targets) {
+    public AbortAgentsConfirmationWindow(
+        IReadOnlyList<AbortAgentsConfirmationTarget> targets,
+        Func<IReadOnlyList<AbortAgentsConfirmationTarget>>? getTargets = null) {
         ArgumentNullException.ThrowIfNull(targets);
+
+        _getTargets = getTargets ?? (() => targets);
 
         Title = "Confirm Abort";
         Width = 460;
@@ -67,16 +77,15 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         };
         listBorder.Child = scroll;
 
-        var list = new StackPanel();
-        scroll.Content = list;
+        _listPanel = new StackPanel();
+        scroll.Content = _listPanel;
 
-        foreach (var target in targets) {
-            var checkBox = BuildTargetCheckBox(target);
-            checkBox.Checked += (_, _) => UpdateConfirmButtonState();
-            checkBox.Unchecked += (_, _) => UpdateConfirmButtonState();
-            _items.Add((checkBox, target));
-            list.Children.Add(checkBox);
-        }
+        _emptyText = new TextBlock {
+            Text = "No active agents.",
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed
+        };
+        _emptyText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
 
         var buttonRow = new StackPanel {
             Orientation = Orientation.Horizontal,
@@ -106,14 +115,23 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         _confirmButton.Click += ConfirmButton_Click;
         buttonRow.Children.Add(_confirmButton);
 
+        _refreshTimer = new DispatcherTimer {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _refreshTimer.Tick += (_, _) => RefreshTargets(_getTargets(), preserveChecks: true);
+
         PreviewKeyDown += AbortAgentsConfirmationWindow_PreviewKeyDown;
-        UpdateConfirmButtonState();
+        Closed += (_, _) => _refreshTimer.Stop();
+
+        RefreshTargets(targets, preserveChecks: false);
+        _refreshTimer.Start();
     }
 
     private CheckBox BuildTargetCheckBox(AbortAgentsConfirmationTarget target) {
         var label = string.IsNullOrWhiteSpace(target.DisplayLabel)
             ? "Agent"
             : target.DisplayLabel.Trim();
+        var timedLabel = $"{label} - {StatusTimingPresentation.FormatRelativeTimestamp(target.StartedAt)}";
 
         var secondaryText = target.IsCoordinator
             ? "Coordinator thread"
@@ -126,7 +144,7 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         };
 
         var primary = new TextBlock {
-            Text = label,
+            Text = timedLabel,
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold
         };
@@ -151,6 +169,47 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         checkBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         return checkBox;
+    }
+
+    private void RefreshTargets(
+        IReadOnlyList<AbortAgentsConfirmationTarget> targets,
+        bool preserveChecks) {
+        var previousCheckStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        if (preserveChecks) {
+            foreach (var item in _items)
+                previousCheckStates[BuildSelectionKey(item.Target)] = item.CheckBox.IsChecked == true;
+        }
+
+        _items.Clear();
+        _listPanel.Children.Clear();
+
+        foreach (var target in targets) {
+            var checkBox = BuildTargetCheckBox(target);
+            var selectionKey = BuildSelectionKey(target);
+            if (previousCheckStates.TryGetValue(selectionKey, out var wasChecked))
+                checkBox.IsChecked = wasChecked;
+
+            checkBox.Checked += (_, _) => UpdateConfirmButtonState();
+            checkBox.Unchecked += (_, _) => UpdateConfirmButtonState();
+            _items.Add((checkBox, target));
+            _listPanel.Children.Add(checkBox);
+        }
+
+        if (_items.Count == 0)
+            _listPanel.Children.Add(_emptyText);
+
+        _emptyText.Visibility = _items.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        UpdateConfirmButtonState();
+    }
+
+    private static string BuildSelectionKey(AbortAgentsConfirmationTarget target) {
+        if (target.IsCoordinator)
+            return "coordinator";
+
+        return target.TaskKind.Trim() + "\u001f" + target.TaskId.Trim();
     }
 
     private void ConfirmButton_Click(object sender, RoutedEventArgs e) {

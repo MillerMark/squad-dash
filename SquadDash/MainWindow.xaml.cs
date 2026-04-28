@@ -181,6 +181,8 @@ public partial class MainWindow : Window
     private ScrollbarMarkerAdorner? _scrollbarAdorner;
     // Pointer cache — built on first RefreshAdornerHighlights after a search, reused on Next/Prev.
     private List<(TextPointer Start, TextPointer End, string Text)>? _cachedSearchPointers;
+    // Set true while navigating to a match in a different thread to suppress search-state clear.
+    private bool _searchNavigating;
     private int[] _cachedMatchToCursor = [];  // match i → index in _cachedSearchPointers, -1 if BUC/skip
     private TextPointer?[] _cachedMatchScrollPointer = [];  // match i → pointer to scroll to
     private TextBlock?[] _cachedMatchBucCell = [];  // match i → BUC table cell, null if not a BUC match
@@ -1160,7 +1162,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var dialog = new AbortAgentsConfirmationWindow(abortTargets)
+            var dialog = new AbortAgentsConfirmationWindow(abortTargets, BuildAbortConfirmationTargets)
             {
                 Owner = this
             };
@@ -1190,6 +1192,7 @@ public partial class MainWindow : Window
                 "coordinator",
                 "coordinator",
                 "Coordinator",
+                _pec.CurrentPromptStartedAt ?? CoordinatorThread.CurrentTurn?.StartedAt ?? DateTimeOffset.Now,
                 IsCoordinator: true));
         }
 
@@ -1202,6 +1205,7 @@ public partial class MainWindow : Window
                 target.TaskId,
                 target.TaskKind,
                 target.DisplayLabel,
+                target.StartedAt,
                 IsCoordinator: false));
         }
 
@@ -6224,16 +6228,20 @@ public partial class MainWindow : Window
     {
         _selectedTranscriptThread = thread;
 
-        // Clear stale search results from the previous thread.
-        _searchMatches = [];
-        _searchMatchCursor = -1;
-        _searchAdorner?.Clear();
-        _scrollbarAdorner?.Clear();
-        _cachedSearchPointers = null;
-        ClearBucCellHighlights();
-        if (!string.IsNullOrEmpty(SearchBox.Text))
-            SearchBox.Text = string.Empty;
-        UpdateSearchUi();
+        // Preserve search state when navigating to a match in a different thread.
+        // When _searchNavigating is set, the caller owns restoring state after the switch.
+        if (!_searchNavigating)
+        {
+            _searchMatches = [];
+            _searchMatchCursor = -1;
+            _searchAdorner?.Clear();
+            _scrollbarAdorner?.Clear();
+            _cachedSearchPointers = null;
+            ClearBucCellHighlights();
+            if (!string.IsNullOrEmpty(SearchBox.Text))
+                SearchBox.Text = string.Empty;
+            UpdateSearchUi();
+        }
 
         foreach (var candidate in EnumerateTranscriptThreads())
             candidate.IsSelected = ReferenceEquals(candidate, thread);
@@ -8552,42 +8560,7 @@ public partial class MainWindow : Window
 
     private static string FormatRelativeTime(DateTimeOffset timestamp)
     {
-        var now = DateTimeOffset.Now;
-        var elapsed = now - timestamp;
-        var localTs = timestamp.LocalDateTime;
-
-        if (elapsed.TotalMinutes < 1)
-            return $"just now ({localTs:h:mm tt})";
-
-        if (elapsed.TotalHours < 1)
-        {
-            int mins = (int)elapsed.TotalMinutes;
-            string ago = mins == 1 ? "1 minute ago" : $"{mins} minutes ago";
-            return $"{ago} ({localTs:h:mm tt})";
-        }
-
-        if (elapsed.TotalHours < 24)
-        {
-            int hours = (int)elapsed.TotalHours;
-            int mins = (int)(elapsed.TotalMinutes % 60);
-            string hourPart = hours == 1 ? "1 hour" : $"{hours} hours";
-            string ago = mins == 0 ? $"{hourPart} ago" : $"{hourPart} {mins} minutes ago";
-            return $"{ago} ({localTs:h:mm tt})";
-        }
-
-        var localNow = now.LocalDateTime;
-
-        if (localNow.Date == localTs.Date.AddDays(1))
-            return $"Yesterday at {localTs:h:mm tt} ({localTs:MMM d})";
-
-        if ((localNow.Date - localTs.Date).TotalDays < 7)
-            return $"{localTs:dddd} at {localTs:h:mm tt} ({localTs:MMM d})";
-
-        if ((localNow.Date - localTs.Date).TotalDays < 14)
-            return $"Last week ({localTs:MMM d})";
-
-        int weeks = (int)((localNow.Date - localTs.Date).TotalDays / 7);
-        return weeks == 1 ? $"1 week ago ({localTs:MMM d})" : $"{weeks} weeks ago ({localTs:MMM d})";
+        return StatusTimingPresentation.FormatRelativeTimestamp(timestamp);
     }
 
     private void ShowPromptNavHintWithFadeOut()
@@ -11529,9 +11502,6 @@ public partial class MainWindow : Window
 
     private void SyncAgentCardBuckets()
     {
-        _activeAgentCards.Clear();
-        _inactiveAgentCards.Clear();
-
         var visibleCards = _agents
             .Where(agent => agent.CardVisibility == Visibility.Visible)
             .ToArray();
@@ -11540,10 +11510,22 @@ public partial class MainWindow : Window
             card.IsInActivePanel = card.IsLeadAgent || card.Threads.Any(_backgroundTaskPresenter.IsThreadCurrentRunForDisplay);
         }
 
-        foreach (var card in visibleCards.Where(card => card.IsInActivePanel).OrderBy(GetAgentCardBucketSortKey))
+        // Active panel: stable insertion order — never reorder cards already present.
+        // Only remove cards that left the active set and append cards that just entered.
+        var shouldBeActive = visibleCards.Where(static c => c.IsInActivePanel).ToHashSet();
+        for (var i = _activeAgentCards.Count - 1; i >= 0; i--)
+        {
+            if (!shouldBeActive.Contains(_activeAgentCards[i]))
+                _activeAgentCards.RemoveAt(i);
+        }
+        var alreadyActive = _activeAgentCards.ToHashSet();
+        foreach (var card in visibleCards.Where(c => c.IsInActivePanel && !alreadyActive.Contains(c))
+                                         .OrderBy(GetAgentCardBucketSortKey))
             _activeAgentCards.Add(card);
 
-        foreach (var card in visibleCards.Where(card => !card.IsInActivePanel).OrderBy(GetAgentCardBucketSortKey))
+        // Inactive panel: full rebuild (sorted by last activity).
+        _inactiveAgentCards.Clear();
+        foreach (var card in visibleCards.Where(static card => !card.IsInActivePanel).OrderBy(GetAgentCardBucketSortKey))
             _inactiveAgentCards.Add(card);
 
         foreach (var card in visibleCards)
@@ -13308,28 +13290,31 @@ public partial class MainWindow : Window
 
         try
         {
-            var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-            IReadOnlyList<TurnSearchMatch> matches;
+            // Always search the coordinator transcript first (async, may be large).
+            var coordinatorMatches = await _conversationManager.SearchTurnsAsync(query, cts.Token);
+            if (cts.IsCancellationRequested) return;
 
-            if (activeThread.Kind == TranscriptThreadKind.Coordinator)
-            {
-                // Coordinator: async search (scans _allCoordinatorTurns off-thread).
-                matches = await _conversationManager.SearchTurnsAsync(query, cts.Token);
-            }
-            else
-            {
-                // Agent thread: synchronous — all turns already in memory.
-                matches = SearchAgentThread(activeThread, query);
-            }
-
-            if (cts.IsCancellationRequested)
-                return;
-
-            _searchMatches = matches;
-            _searchMatchCursor = matches.Count > 0 ? 0 : -1;
+            // Show coordinator results immediately so the user gets fast feedback.
+            _searchMatches = coordinatorMatches;
+            _searchMatchCursor = coordinatorMatches.Count > 0 ? 0 : -1;
             UpdateSearchUi();
 
-            if (matches.Count > 0)
+            // Then search all agent threads synchronously (all turns already in memory).
+            var allMatches = new List<TurnSearchMatch>(coordinatorMatches);
+            foreach (var agentThread in _agentThreadRegistry.ThreadOrder)
+            {
+                if (cts.IsCancellationRequested) return;
+                var agentMatches = SearchAgentThread(agentThread, query, agentThread);
+                allMatches.AddRange(agentMatches);
+            }
+
+            if (cts.IsCancellationRequested) return;
+
+            _searchMatches = allMatches;
+            _searchMatchCursor = allMatches.Count > 0 ? 0 : -1;
+            UpdateSearchUi();
+
+            if (allMatches.Count > 0)
                 await NavigateToMatchAsync(0);
         }
         catch (OperationCanceledException)
@@ -13347,9 +13332,11 @@ public partial class MainWindow : Window
     /// using the same case-insensitive excerpt format as
     /// <see cref="TranscriptConversationManager.SearchTurnsAsync"/>.
     /// Agent threads are fully rendered at selection time so no async is needed.
+    /// <paramref name="sourceThread"/> is stored on each match so
+    /// <see cref="NavigateToMatchAsync"/> can switch transcripts when needed.
     /// </summary>
     private static IReadOnlyList<TurnSearchMatch> SearchAgentThread(
-        TranscriptThreadState thread, string query)
+        TranscriptThreadState thread, string query, TranscriptThreadState? sourceThread = null)
     {
         if (string.IsNullOrEmpty(query))
             return [];
@@ -13362,8 +13349,8 @@ public partial class MainWindow : Window
         for (var i = 0; i < thread.SavedTurns.Count; i++)
         {
             var turn = thread.SavedTurns[i];
-            ScanSearchField(turn.Prompt ?? string.Empty, "user", i, query, cmp, MaxExcerptLength, ExcerptPad, results);
-            ScanSearchField(turn.ResponseText ?? string.Empty, "assistant", i, query, cmp, MaxExcerptLength, ExcerptPad, results);
+            ScanSearchField(turn.Prompt ?? string.Empty, "user", i, query, cmp, MaxExcerptLength, ExcerptPad, results, sourceThread);
+            ScanSearchField(turn.ResponseText ?? string.Empty, "assistant", i, query, cmp, MaxExcerptLength, ExcerptPad, results, sourceThread);
         }
 
         return results;
@@ -13377,7 +13364,8 @@ public partial class MainWindow : Window
         StringComparison cmp,
         int maxExcerptLength,
         int excerptPad,
-        List<TurnSearchMatch> results)
+        List<TurnSearchMatch> results,
+        TranscriptThreadState? thread = null)
     {
         var searchFrom = 0;
         while (searchFrom < text.Length)
@@ -13401,7 +13389,7 @@ public partial class MainWindow : Window
                 excerpt = prefix + rawExcerpt + suffix;
             }
 
-            results.Add(new TurnSearchMatch(turnIndex, role, excerpt, offset));
+            results.Add(new TurnSearchMatch(turnIndex, role, excerpt, offset, thread));
             searchFrom = offset + query.Length;
         }
     }
@@ -13421,7 +13409,28 @@ public partial class MainWindow : Window
         UpdateSearchUi();
 
         var match = _searchMatches[index];
+        var matchThread = match.Thread;  // null = coordinator
+
+        // If the match is in a different thread than currently displayed, switch to it.
+        // _searchNavigating suppresses the search-state clear inside SelectTranscriptThread.
         var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
+        var targetThread = matchThread ?? CoordinatorThread;
+        if (!ReferenceEquals(activeThread, targetThread))
+        {
+            _searchNavigating = true;
+            try
+            {
+                SelectTranscriptThread(targetThread);
+                _cachedSearchPointers = null;  // Pointers are document-specific; invalidate after switch.
+                // Allow the document assignment and layout to settle before adorner rebuild.
+                await Dispatcher.BeginInvoke(DispatcherPriority.Loaded, static () => { }).Task;
+            }
+            finally
+            {
+                _searchNavigating = false;
+            }
+            activeThread = targetThread;
+        }
 
         // Fast path: pointer cache is valid and the turn is already in the FlowDocument.
         // Just nudge the adorner cursor — no document walk needed.
@@ -13439,7 +13448,7 @@ public partial class MainWindow : Window
         }
 
         // Slow path: the turn may need to be prepended into the FlowDocument.
-        if (activeThread.Kind == TranscriptThreadKind.Coordinator)
+        if (activeThread.Kind == TranscriptThreadKind.Coordinator && matchThread is null)
         {
             // Invalidate the cache before prepending so stale pointers aren't used.
             if (!_conversationManager.IsTurnRendered(match.TurnIndex))
@@ -13646,6 +13655,13 @@ public partial class MainWindow : Window
 
             if (!walkerByKey.TryGetValue(key, out var walker))
             {
+                // Only highlight matches that belong to the currently visible thread.
+                var matchThread = match.Thread ?? CoordinatorThread;
+                if (!ReferenceEquals(matchThread, activeThread))
+                {
+                    matchToCursor[i] = -1;
+                    continue;
+                }
                 var searchFrom = GetSearchFromPointerSync(match, activeThread);
                 if (searchFrom is null)
                 {

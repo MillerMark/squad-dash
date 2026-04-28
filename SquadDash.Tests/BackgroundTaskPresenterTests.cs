@@ -160,12 +160,14 @@ internal sealed class BackgroundTaskPresenterTests {
     [Test]
     public void GetAbortTargets_ReturnsAllNonTerminalAgentsAndShells() {
         var presenter = MakePresenter();
+        var agentStartedAt = new DateTimeOffset(2026, 4, 28, 14, 28, 0, TimeSpan.FromHours(-4));
+        var shellStartedAt = agentStartedAt.AddMinutes(1);
         presenter.BackgroundAgents = [
-            new SquadBackgroundAgentInfo { AgentId = "lyra-live", AgentDisplayName = "Lyra", Status = "running" },
+            new SquadBackgroundAgentInfo { AgentId = "lyra-live", AgentDisplayName = "Lyra", Status = "running", StartedAt = agentStartedAt.ToString("O") },
             new SquadBackgroundAgentInfo { AgentId = "done-agent", AgentDisplayName = "Done", Status = "completed" }
         ];
         presenter.BackgroundShells = [
-            new SquadBackgroundShellInfo { ShellId = "shell-live", Description = "Build check", Status = "running" },
+            new SquadBackgroundShellInfo { ShellId = "shell-live", Description = "Build check", Status = "running", StartedAt = shellStartedAt.ToString("O") },
             new SquadBackgroundShellInfo { ShellId = "shell-done", Description = "Finished", Status = "cancelled" }
         ];
 
@@ -174,7 +176,9 @@ internal sealed class BackgroundTaskPresenterTests {
         Assert.Multiple(() => {
             Assert.That(targets.Select(target => target.TaskId), Is.EquivalentTo(new[] { "lyra-live", "shell-live" }));
             Assert.That(targets.Single(target => target.TaskId == "lyra-live").TaskKind, Is.EqualTo("agent"));
+            Assert.That(targets.Single(target => target.TaskId == "lyra-live").StartedAt, Is.EqualTo(agentStartedAt));
             Assert.That(targets.Single(target => target.TaskId == "shell-live").TaskKind, Is.EqualTo("shell"));
+            Assert.That(targets.Single(target => target.TaskId == "shell-live").StartedAt, Is.EqualTo(shellStartedAt));
         });
     }
 
@@ -197,6 +201,7 @@ internal sealed class BackgroundTaskPresenterTests {
     [Test]
     public void GetAbortTargets_IncludesActiveFallbackAgentThreads_WhenSnapshotIsEmpty() {
         var registry = MakeRegistry();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
         var thread = registry.GetOrCreateAgentThread(
             toolCallId: "call-lyra",
             agentId: "lyra-live",
@@ -205,7 +210,7 @@ internal sealed class BackgroundTaskPresenterTests {
             agentDescription: "Writing tests",
             status: "running",
             prompt: "Write tests",
-            startedAt: DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
+            startedAt: startedAt.ToString("O"));
         thread.WasObservedAsBackgroundTask = true;
         thread.IsCurrentBackgroundRun = true;
         thread.StatusText = "Running";
@@ -217,6 +222,7 @@ internal sealed class BackgroundTaskPresenterTests {
         Assert.Multiple(() => {
             Assert.That(targets.Select(target => target.TaskId), Is.EqualTo(new[] { "lyra-live" }));
             Assert.That(targets.Single().DisplayLabel, Is.EqualTo("Lyra (lyra-live)"));
+            Assert.That(targets.Single().StartedAt, Is.EqualTo(startedAt));
         });
     }
 

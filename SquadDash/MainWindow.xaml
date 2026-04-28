@@ -393,10 +393,10 @@
                         Orientation="Horizontal"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
-                        Margin="8,0,0,0"
+                        Margin="8,2,0,0"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True">
                 <TextBox x:Name="SearchBox"
-                         Width="220"
+                         Width="154"
                          Height="26"
                          VerticalAlignment="Center"
                          Padding="6,4,6,4"
@@ -923,7 +923,7 @@
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
 
                             <!-- Title row with close button -->
@@ -950,7 +950,6 @@
                             <!-- Task items content -->
                             <ScrollViewer x:Name="TasksItemsScrollViewer"
                                           Grid.Row="1"
-                                          MaxHeight="300"
                                           Margin="0,8,0,0"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">

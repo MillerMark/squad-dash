@@ -54,4 +54,24 @@ internal sealed class StatusTimingPresentationTests {
 
         Assert.That(formatted, Is.EqualTo(expected));
     }
+
+    [Test]
+    public void FormatRelativeTimestamp_ShowsJustNowWithClockTime() {
+        var timestamp = new DateTimeOffset(2026, 4, 28, 14, 33, 0, TimeSpan.FromHours(-4));
+        var now = timestamp.AddSeconds(30);
+
+        var formatted = StatusTimingPresentation.FormatRelativeTimestamp(timestamp, now);
+
+        Assert.That(formatted, Is.EqualTo("just now (2:33 PM)"));
+    }
+
+    [Test]
+    public void FormatRelativeTimestamp_ShowsMinutesAndClockTime() {
+        var timestamp = new DateTimeOffset(2026, 4, 28, 14, 30, 0, TimeSpan.FromHours(-4));
+        var now = timestamp.AddMinutes(3);
+
+        var formatted = StatusTimingPresentation.FormatRelativeTimestamp(timestamp, now);
+
+        Assert.That(formatted, Is.EqualTo("3 minutes ago (2:30 PM)"));
+    }
 }

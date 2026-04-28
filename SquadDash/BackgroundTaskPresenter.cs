@@ -131,7 +131,8 @@ internal sealed class BackgroundTaskPresenter {
                 return new BackgroundAbortTarget(
                     matchingAgent.AgentId.Trim(),
                     "agent",
-                    ResolveBackgroundAgentDisplayLabel(matchingAgent));
+                    ResolveBackgroundAgentDisplayLabel(matchingAgent),
+                    TryParseTimestamp(matchingAgent.StartedAt) ?? DateTimeOffset.Now);
             }
         }
 
@@ -794,7 +795,8 @@ internal sealed class BackgroundTaskPresenter {
             candidates.Add(new BackgroundAbortTarget(
                 taskId,
                 "agent",
-                ResolveBackgroundAgentDisplayLabel(agent)));
+                ResolveBackgroundAgentDisplayLabel(agent),
+                TryParseTimestamp(agent.StartedAt) ?? DateTimeOffset.Now));
         }
 
         foreach (var shell in _backgroundShells) {
@@ -807,7 +809,8 @@ internal sealed class BackgroundTaskPresenter {
             candidates.Add(new BackgroundAbortTarget(
                 taskId,
                 "shell",
-                BuildBackgroundShellLabel(shell)));
+                BuildBackgroundShellLabel(shell),
+                TryParseTimestamp(shell.StartedAt) ?? DateTimeOffset.Now));
         }
 
         foreach (var thread in GetFallbackLiveBackgroundThreads()) {
@@ -821,7 +824,8 @@ internal sealed class BackgroundTaskPresenter {
             candidates.Add(new BackgroundAbortTarget(
                 taskId,
                 "agent",
-                BuildBackgroundAgentLabel(thread)));
+                BuildBackgroundAgentLabel(thread),
+                thread.StartedAt));
         }
 
         return candidates;
@@ -959,4 +963,5 @@ internal sealed class BackgroundTaskPresenter {
 internal sealed record BackgroundAbortTarget(
     string TaskId,
     string TaskKind,
-    string DisplayLabel);
+    string DisplayLabel,
+    DateTimeOffset StartedAt);
