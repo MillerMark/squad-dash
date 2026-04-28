@@ -68,7 +68,36 @@
 
 ## 🟢 Low Priority
 
-- [ ] **RC — mobile web client** *(Owner: Orion Vale — architecture first, then Talia)*
+- [ ] **RC mobile — decide SDK PR ownership for binary audio frames** *(Owner: Orion Vale)*
+  `onAudioChunk` / `onAudioStart` / `onAudioEnd` additions to `RemoteBridgeConfig` must land in
+  `@bradygaster/squad-sdk` before the PTT audio path can work end-to-end. Identify who submits
+  the PR and confirm expected merge timeline. This is the critical-path scheduling risk for
+  RC phone voice input. See `.squad/rc-mobile-architecture.md` §Key Decisions #1.
+
+- [ ] **RC mobile — spike Option C audio format (WEBM_OPUS) before building Option B** *(Owner: Talia Rune)*
+  Before building the full WebAudio AudioWorklet PCM pipeline (Option B), spend ½ day verifying
+  whether `AudioStreamContainerFormat.WEBM_OPUS` is available in Azure Cognitive Services SDK
+  1.49.0 and works with browser-sourced audio. If it does, use Option C (simpler, lower bandwidth).
+  Fall back to Option B only if Option C fails. See `.squad/rc-mobile-architecture.md` §Key Decisions #2.
+
+- [ ] **RC mobile — approve QRCoder NuGet package** *(Owner: Arjun Sen)*
+  RC mobile web client needs a QR code displayed in SquadDash for the phone to scan (URL + token).
+  Two candidates: `QRCoder` (MIT, ~150 KB, no native deps) and `ZXing.Net` (Apache 2.0, larger).
+  `QRCoder` is preferred for minimal footprint. Requires explicit approval before adding.
+  See `.squad/rc-mobile-architecture.md` §Key Decisions #3.
+
+- [ ] **RC mobile — define PTT-during-LLM-run policy** *(Owner: Orion Vale)*
+  What happens when the user initiates PTT on the phone while an LLM response is already streaming?
+  Options: (a) queue prompt, (b) abort current run, (c) reject with error.
+  Recommendation: show "⏳ Wait for response to complete" on phone; auto-unblock when `complete` fires.
+  Decision needed before wiring PTT UX. See `.squad/rc-mobile-architecture.md` §Key Decisions #4.
+
+- [ ] **RC mobile — define session isolation policy for multi-phone connections** *(Owner: Orion Vale)*
+  `RemoteBridge` allows multiple simultaneous phone connections. If two phones connect and submit
+  prompts, do they share one SquadBridge session (shared history) or get isolated sessions?
+  Decision affects how `onPrompt` is wired in `handleRcStart`. See `.squad/rc-mobile-architecture.md` §Key Decisions #5.
+
+
   Design and implement a minimal web client served from the RC HTTP port. The phone browser
   navigates to `http://<pc-ip>:<port>` and gets a text input + response stream. Architecture
   review needed first: authentication flow, streaming protocol, history display.

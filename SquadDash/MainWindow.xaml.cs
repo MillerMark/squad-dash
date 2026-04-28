@@ -10413,7 +10413,7 @@ public partial class MainWindow : Window
 
         AddWorkspaceFolderMenuItem(Path.Combine("decisions", "inbox"));
 
-        var loopMdPath = Path.Combine(_currentWorkspace.FolderPath, "loop.md");
+        var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
         var loopMenuItem = new MenuItem
         {
             Header = "🔁 loop.md",

@@ -626,7 +626,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         var requestId = Guid.NewGuid().ToString("N");
         SquadDashTrace.Write("Bridge", $"RunLoopAsync loopMdPath={loopMdPath} cwd={cwd} sessionId={sessionId ?? "(auto)"}");
 
-        await SendBridgeRequestAsync(new SquadSdkRunLoopRequest(loopMdPath.Trim(), cwd.Trim(), requestId, sessionId?.Trim()))
+        await SendBridgeRequestWithRestartAsync(new SquadSdkRunLoopRequest(loopMdPath.Trim(), cwd.Trim(), requestId, sessionId?.Trim()))
             .ConfigureAwait(false);
     }
 
