@@ -1,24 +1,21 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SquadDash;
-
-// -- Provider interface -------------------------------------------------
 
 internal interface IPushNotificationProvider {
     Task<bool> SendAsync(string title, string message, string? tags = null);
 }
 
-// -- ntfy.sh provider ---------------------------------------------------
-
 internal sealed class NtfyNotificationProvider : IPushNotificationProvider {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly string _topic;
 
     public NtfyNotificationProvider(string topic) {
@@ -28,157 +25,245 @@ internal sealed class NtfyNotificationProvider : IPushNotificationProvider {
     public async Task<bool> SendAsync(string title, string message, string? tags = null) {
         try {
             var url = $"https://ntfy.sh/{Uri.EscapeDataString(_topic)}";
-            var req = new HttpRequestMessage(HttpMethod.Post, url) {
-                Content = new StringContent(message, Encoding.UTF8, "text/plain")
-            };
-            req.Headers.TryAddWithoutValidation("Title", title);
-            if (!string.IsNullOrWhiteSpace(tags))
-                req.Headers.TryAddWithoutValidation("Tags", tags);
-            var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            return resp.IsSuccessStatusCode;
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("Title", title);
+            if (!string.IsNullOrWhiteSpace(tags)) {
+                request.Headers.Add("Tags", tags);
+            }
+            request.Content = new StringContent(message, Encoding.UTF8, "text/plain");
+
+            var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            return true;
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("Notifications", $"NtfyNotificationProvider.SendAsync failed: {ex.Message}");
+            SquadDashTrace.Write("Notifications", $"Failed to send ntfy notification: {ex.Message}");
             return false;
         }
     }
 }
 
-// -- Rate limiter --------------------------------------------------------
+internal sealed class RateLimiterDecision {
+    public bool ShouldSend { get; init; }
+    public bool IsDigest { get; init; }
+    public string? DigestMessage { get; init; }
+}
+
+internal sealed class RateLimiterState {
+    public DateTimeOffset LastSent { get; set; }
+    public int CountInWindow { get; set; }
+}
 
 internal sealed class NotificationRateLimiter {
-    private static readonly TimeSpan[] _ladder = [
-        TimeSpan.FromSeconds(10),
-        TimeSpan.FromMinutes(1),
-        TimeSpan.FromMinutes(10),
-        TimeSpan.FromHours(1),
-        TimeSpan.FromDays(1),
-    ];
-    private const int DigestThreshold = 3;
-    private readonly ConcurrentDictionary<string, EventState> _events = new();
-    private readonly object _lock = new();
-    private readonly Queue<DateTimeOffset> _recent = new();
-    private int _level = 0;
-    private DateTimeOffset _resetEligibleAt = DateTimeOffset.MinValue;
+    private readonly ConcurrentDictionary<string, RateLimiterState> _eventTypeTimestamps = new();
+    private readonly ConcurrentDictionary<long, int> _minuteWindows = new();
+    private readonly object _escalationLock = new();
+    private TimeSpan _currentDigestInterval = TimeSpan.FromMinutes(1);
+    private DateTimeOffset _lastDigestSent = DateTimeOffset.MinValue;
+    private int _pendingDigestCount = 0;
+    private DateTimeOffset _lastEscalationCheck = DateTimeOffset.MinValue;
 
-    internal sealed record Decision(bool ShouldSend, bool IsDigest, string? DigestMessage);
+    public RateLimiterDecision ShouldSend(string eventType) {
+        var now = DateTimeOffset.UtcNow;
 
-    private sealed class EventState {
-        public DateTimeOffset LastSentAt { get; set; } = DateTimeOffset.MinValue;
-        public int Suppressed { get; set; }
+        // Track per-minute rate
+        var currentMinute = now.Ticks / TimeSpan.TicksPerMinute;
+        _minuteWindows.AddOrUpdate(currentMinute, 1, (_, count) => count + 1);
+
+        // Clean old minute windows
+        foreach (var key in _minuteWindows.Keys.ToArray()) {
+            if (key < currentMinute - 2) {
+                _minuteWindows.TryRemove(key, out _);
+            }
+        }
+
+        // Calculate events per minute
+        var eventsInLastMinute = _minuteWindows.TryGetValue(currentMinute, out var count) ? count : 0;
+        if (currentMinute > 0 && _minuteWindows.TryGetValue(currentMinute - 1, out var prevCount)) {
+            eventsInLastMinute += prevCount;
+        }
+
+        lock (_escalationLock) {
+            // Check escalation thresholds
+            if (eventsInLastMinute > 3 && (now - _lastEscalationCheck).TotalMinutes >= 1) {
+                _lastEscalationCheck = now;
+
+                // Escalate digest interval if still exceeding rate
+                if (_currentDigestInterval == TimeSpan.FromMinutes(1) && eventsInLastMinute > 5) {
+                    _currentDigestInterval = TimeSpan.FromMinutes(10);
+                    SquadDashTrace.Write("Notifications", "Escalating digest interval to 10 minutes");
+                }
+                else if (_currentDigestInterval == TimeSpan.FromMinutes(10) && eventsInLastMinute > 5) {
+                    _currentDigestInterval = TimeSpan.FromHours(1);
+                    SquadDashTrace.Write("Notifications", "Escalating digest interval to 1 hour");
+                }
+                else if (_currentDigestInterval == TimeSpan.FromHours(1) && eventsInLastMinute > 5) {
+                    _currentDigestInterval = TimeSpan.FromHours(24);
+                    SquadDashTrace.Write("Notifications", "Escalating digest interval to 24 hours");
+                }
+            }
+            else if (eventsInLastMinute <= 2 && (now - _lastEscalationCheck).TotalMinutes >= 1) {
+                // Reset escalation if traffic drops
+                if (_currentDigestInterval != TimeSpan.FromMinutes(1)) {
+                    _currentDigestInterval = TimeSpan.FromMinutes(1);
+                    _lastEscalationCheck = now;
+                    SquadDashTrace.Write("Notifications", "Resetting digest interval to 1 minute");
+                }
+            }
+
+            // Handle digest mode
+            if (eventsInLastMinute > 3) {
+                _pendingDigestCount++;
+
+                if ((now - _lastDigestSent) >= _currentDigestInterval) {
+                    _lastDigestSent = now;
+                    var digestMsg = $"{_pendingDigestCount} events in the last {FormatInterval(_currentDigestInterval)}";
+                    _pendingDigestCount = 0;
+                    return new RateLimiterDecision {
+                        ShouldSend = true,
+                        IsDigest = true,
+                        DigestMessage = digestMsg
+                    };
+                }
+
+                return new RateLimiterDecision { ShouldSend = false };
+            }
+        }
+
+        // Normal mode: per-event-type throttling
+        var state = _eventTypeTimestamps.GetOrAdd(eventType, _ => new RateLimiterState { LastSent = DateTimeOffset.MinValue });
+
+        lock (state) {
+            if ((now - state.LastSent).TotalSeconds < 10) {
+                return new RateLimiterDecision { ShouldSend = false };
+            }
+
+            state.LastSent = now;
+            state.CountInWindow++;
+        }
+
+        return new RateLimiterDecision { ShouldSend = true };
     }
 
-    public Decision Evaluate(string eventName) {
-        var now = DateTimeOffset.UtcNow;
-        lock (_lock) {
-            var window = _ladder[Math.Min(_level, _ladder.Length - 1)];
-            while (_recent.Count > 0 && now - _recent.Peek() > window)
-                _recent.Dequeue();
-            int recentInMin = 0;
-            foreach (var ts in _recent)
-                if (now - ts <= TimeSpan.FromSeconds(60)) recentInMin++;
-            if (recentInMin > DigestThreshold && _level < _ladder.Length - 1) {
-                _level++;
-                _resetEligibleAt = now + window;
-            }
-            if (_level > 0 && now >= _resetEligibleAt && recentInMin <= 1) {
-                _level--;
-                _resetEligibleAt = now + _ladder[_level];
-            }
-            var state = _events.GetOrAdd(eventName, _ => new EventState());
-            var interval = _ladder[Math.Min(_level, _ladder.Length - 1)];
-            if (now - state.LastSentAt < interval) {
-                state.Suppressed++;
-                return new Decision(false, false, null);
-            }
-            bool isDigest = _level > 0 && state.Suppressed > 0;
-            string? msg = isDigest ? $"{state.Suppressed + 1} {eventName} events" : null;
-            state.LastSentAt = now;
-            state.Suppressed = 0;
-            _recent.Enqueue(now);
-            return new Decision(true, isDigest, msg);
-        }
+    private static string FormatInterval(TimeSpan interval) {
+        if (interval.TotalDays >= 1) return "day";
+        if (interval.TotalHours >= 1) return "hour";
+        if (interval.TotalMinutes >= 10) return "10 minutes";
+        return "minute";
     }
 }
 
-// -- Orchestrator --------------------------------------------------------
-
 internal sealed class PushNotificationService {
-    private static readonly IReadOnlyDictionary<string, bool> _defaults =
-        new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase) {
-            ["assistant_turn_complete"]    = true,
-            ["loop_stopped"]              = true,
-            ["rc_connection_dropped"]     = true,
-            ["git_commit_pushed"]         = false,
-            ["loop_iteration_complete"]   = false,
-            ["rc_connection_established"] = false,
-        };
-
-    private readonly ApplicationSettingsStore _store;
+    private readonly ApplicationSettingsStore _settingsStore;
     private readonly NotificationRateLimiter _rateLimiter = new();
     private IPushNotificationProvider? _provider;
-    private ApplicationSettingsSnapshot _settings;
 
-    public PushNotificationService(ApplicationSettingsStore store) {
-        _store = store;
-        _settings = store.Load();
-        _provider = Build(_settings);
+    private static readonly IReadOnlyDictionary<string, bool> DefaultEventToggles = new Dictionary<string, bool> {
+        ["assistant_turn_complete"] = true,
+        ["loop_stopped"] = true,
+        ["rc_connection_dropped"] = true,
+        ["git_commit_pushed"] = false,
+        ["loop_iteration_complete"] = false,
+        ["rc_connection_established"] = false
+    };
+
+    public PushNotificationService(ApplicationSettingsStore settingsStore) {
+        _settingsStore = settingsStore;
+        ReloadProvider();
     }
 
     public void ReloadProvider() {
-        _settings = _store.Load();
-        _provider = Build(_settings);
+        try {
+            var settings = _settingsStore.Load();
+
+            // Check environment variable override
+            var ntfyTopic = Environment.GetEnvironmentVariable("SQUADASH_NTFY_TOPIC");
+
+            if (!string.IsNullOrWhiteSpace(ntfyTopic)) {
+                _provider = new NtfyNotificationProvider(ntfyTopic);
+                SquadDashTrace.Write("Notifications", $"Loaded ntfy provider from env var: {ntfyTopic}");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.NotificationProvider)) {
+                _provider = null;
+                return;
+            }
+
+            if (settings.NotificationProvider.Equals("ntfy", StringComparison.OrdinalIgnoreCase)) {
+                if (settings.NotificationEndpoint?.TryGetValue("topic", out var topic) == true
+                    && !string.IsNullOrWhiteSpace(topic)) {
+                    _provider = new NtfyNotificationProvider(topic);
+                    SquadDashTrace.Write("Notifications", $"Loaded ntfy provider: {topic}");
+                }
+                else {
+                    _provider = null;
+                    SquadDashTrace.Write("Notifications", "ntfy provider configured but no topic specified");
+                }
+            }
+            else {
+                _provider = null;
+                SquadDashTrace.Write("Notifications", $"Unknown notification provider: {settings.NotificationProvider}");
+            }
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Notifications", $"Failed to reload provider: {ex.Message}");
+            _provider = null;
+        }
     }
 
     public async Task NotifyEventAsync(string eventName, string title, string message) {
         try {
-            var provider = _provider;
-            if (provider is null) return;
-            var toggles = _settings.NotificationEventToggles;
-            bool enabled = toggles is not null && toggles.TryGetValue(eventName, out var t)
-                ? t
-                : _defaults.TryGetValue(eventName, out var d) && d;
-            if (!enabled) return;
-            var dec = _rateLimiter.Evaluate(eventName);
-            if (!dec.ShouldSend) {
-                SquadDashTrace.Write("Notifications", $"Rate-limited: {eventName}");
+            if (_provider == null) {
                 return;
             }
-            var msg = dec.IsDigest ? dec.DigestMessage! : message;
-            var ok = await provider.SendAsync(title, msg).ConfigureAwait(false);
-            SquadDashTrace.Write("Notifications", $"{(ok ? "Sent" : "Failed")}: {eventName}");
+
+            var settings = _settingsStore.Load();
+            var eventToggles = settings.NotificationEventToggles ?? DefaultEventToggles;
+
+            // Check if event is enabled (default to the DefaultEventToggles value, or false if not in defaults)
+            var isEnabled = eventToggles.TryGetValue(eventName, out var enabled)
+                ? enabled
+                : (DefaultEventToggles.TryGetValue(eventName, out var defaultEnabled) && defaultEnabled);
+
+            if (!isEnabled) {
+                return;
+            }
+
+            var decision = _rateLimiter.ShouldSend(eventName);
+            if (!decision.ShouldSend) {
+                return;
+            }
+
+            var finalMessage = decision.IsDigest && decision.DigestMessage != null
+                ? decision.DigestMessage
+                : message;
+
+            await _provider.SendAsync(title, finalMessage).ConfigureAwait(false);
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("Notifications", $"NotifyEventAsync: {ex.Message}");
+            SquadDashTrace.Write("Notifications", $"NotifyEventAsync failed for {eventName}: {ex.Message}");
         }
     }
-
-    private static IPushNotificationProvider? Build(ApplicationSettingsSnapshot s) {
-        if (string.IsNullOrWhiteSpace(s.NotificationProvider)) return null;
-        if (string.Equals(s.NotificationProvider, "ntfy", StringComparison.OrdinalIgnoreCase)) {
-            var topic = Environment.GetEnvironmentVariable("SQUADASH_NTFY_TOPIC");
-            if (string.IsNullOrWhiteSpace(topic))
-                s.NotificationEndpoint?.TryGetValue("topic", out topic);
-            if (string.IsNullOrWhiteSpace(topic)) {
-                SquadDashTrace.Write("Notifications", "ntfy: no topic configured");
-                return null;
-            }
-            return new NtfyNotificationProvider(topic!);
-        }
-        SquadDashTrace.Write("Notifications", $"Unknown provider: {s.NotificationProvider}");
-        return null;
-    }
-
-    private static readonly Regex _rx = new(
-        @"{\s*""notification""\s*:\s*""((?:[^""\\]|\\.)*)""\s*}",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     internal static string? ExtractNotificationJson(string responseText) {
-        if (string.IsNullOrEmpty(responseText)) return null;
-        var m = _rx.Match(responseText);
-        if (!m.Success) return null;
-        var raw = m.Groups[1].Value;
-        try { return JsonSerializer.Deserialize<string>($"\"{raw}\""); }
-        catch { return raw; }
+        if (string.IsNullOrWhiteSpace(responseText)) {
+            return null;
+        }
+
+        try {
+            // Match {"notification": "..."} with case-insensitive key
+            var pattern = @"\{\s*""notification""\s*:\s*""([^""]*)""\s*\}";
+            var match = Regex.Match(responseText, pattern, RegexOptions.IgnoreCase);
+
+            if (match.Success && match.Groups.Count > 1) {
+                return match.Groups[1].Value;
+            }
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Notifications", $"ExtractNotificationJson failed: {ex.Message}");
+        }
+
+        return null;
     }
 }
