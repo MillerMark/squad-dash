@@ -255,7 +255,6 @@ public partial class MainWindow : Window
 
     private readonly List<SecondaryTranscriptEntry> _secondaryTranscripts = new();
     private DispatcherTimer? _transcriptTitleRefreshTimer;
-    private DispatcherTimer? _glowFadeTimer;
     private TranscriptSelectionController _selectionController = null!; // initialized in constructor
     private HashSet<AgentStatusCard> _prevActiveAgentCards = new();
     private bool _mainTranscriptVisible = true;
@@ -3551,29 +3550,8 @@ public partial class MainWindow : Window
                     };
                     MainTranscriptBorder.Effect = glow;
 
-                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0.4, 1.0, TimeSpan.FromMilliseconds(600))
-                    {
-                        AutoReverse = true,
-                        RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
-                    };
+                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0.4, 1.0, TimeSpan.FromMilliseconds(2000));
                     glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, opacityAnim);
-
-                    // Start timer to auto-fade after 3 seconds
-                    if (_glowFadeTimer == null)
-                    {
-                        _glowFadeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-                        _glowFadeTimer.Tick += (_, _) =>
-                        {
-                            _glowFadeTimer?.Stop();
-                            if (MainTranscriptBorder?.Effect is System.Windows.Media.Effects.DropShadowEffect mainGlow)
-                            {
-                                mainGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                                MainTranscriptBorder.Effect = null;
-                            }
-                        };
-                    }
-                    _glowFadeTimer.Stop();
-                    _glowFadeTimer.Start();
                 }
                 return;
             }
@@ -3593,29 +3571,8 @@ public partial class MainWindow : Window
             };
             entry.PanelBorder.Effect = secondaryGlow;
 
-            var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0.4, 1.0, TimeSpan.FromMilliseconds(600))
-            {
-                AutoReverse = true,
-                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
-            };
+            var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0.4, 1.0, TimeSpan.FromMilliseconds(2000));
             secondaryGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, secondaryOpacityAnim);
-
-            // Start timer to auto-fade after 3 seconds
-            if (_glowFadeTimer == null)
-            {
-                _glowFadeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-                _glowFadeTimer.Tick += (_, _) =>
-                {
-                    _glowFadeTimer?.Stop();
-                    if (entry.PanelBorder.Effect is System.Windows.Media.Effects.DropShadowEffect glow)
-                    {
-                        glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                        entry.PanelBorder.Effect = null;
-                    }
-                };
-            }
-            _glowFadeTimer.Stop();
-            _glowFadeTimer.Start();
         }
         catch (Exception ex)
         {
@@ -3627,9 +3584,6 @@ public partial class MainWindow : Window
     {
         try
         {
-            // Stop the auto-fade timer
-            _glowFadeTimer?.Stop();
-
             if (sender is not FrameworkElement { DataContext: AgentStatusCard agentCard })
                 return;
 
