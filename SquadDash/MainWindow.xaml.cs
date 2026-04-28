@@ -2990,6 +2990,16 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // ── Prompt text box: Ctrl+B for markdown bold ─────────────────────
+            if (e.Key == Key.B &&
+                (Keyboard.Modifiers & ModifierKeys.Control) != 0 &&
+                PromptTextBox?.IsFocused == true)
+            {
+                PromptTextBox_ApplyBold();
+                e.Handled = true;
+                return;
+            }
+
             switch (_pttState)
             {
                 case PttState.Idle:
@@ -5144,23 +5154,32 @@ public partial class MainWindow : Window
     private void DocSourceTextBox_ApplyBold()
     {
         if (DocSourceTextBox is null) return;
-        var box = DocSourceTextBox;
+        ApplyMarkdownBold(DocSourceTextBox);
+    }
+
+    private void PromptTextBox_ApplyBold()
+    {
+        ApplyMarkdownBold(PromptTextBox);
+    }
+
+    private static void ApplyMarkdownBold(TextBox box)
+    {
         var selStart = box.SelectionStart;
         var selLen   = box.SelectionLength;
 
         if (selLen > 0)
         {
-            var selected = box.SelectedText;
-            var trimmed = selected.TrimEnd(' ');
-            var trailingSpaces = selected.Substring(trimmed.Length);
-            box.SelectedText = $"**{trimmed}**{trailingSpaces}";
+            var selected       = box.SelectedText;
+            var trimmed        = selected.TrimEnd(' ');
+            var trailingSpaces = selected[trimmed.Length..];
+            box.SelectedText    = $"**{trimmed}**{trailingSpaces}";
             box.SelectionStart  = selStart;
             box.SelectionLength = trimmed.Length + 4;
         }
         else
         {
             var caret = box.CaretIndex;
-            box.Text = box.Text.Insert(caret, "****");
+            box.Text       = box.Text.Insert(caret, "****");
             box.CaretIndex = caret + 2;
         }
     }
