@@ -84,6 +84,9 @@ internal static class VoiceInsertionHeuristics
     ///   <item>Open parenthesis <c>(</c></item>
     ///   <item>Semicolon <c>;</c></item>
     ///   <item>Hyphen or en/em dash <c>-</c> <c>–</c> <c>—</c></item>
+    ///   <item>Close double-quote <c>"</c> (straight or curly) preceded by a
+    ///         lowercase letter — e.g. <c>word" </c> indicates we are still inside
+    ///         the surrounding sentence.</item>
     /// </list>
     ///
     /// <para>NOT continuation (sentence-ending or ambiguous):</para>
@@ -103,6 +106,11 @@ internal static class VoiceInsertionHeuristics
         {
             var ch = leftContext[i];
             if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') continue;
+
+            // Close-quote after lowercase: e.g. `word" ` — we're still inside a
+            // surrounding sentence, so the incoming voice text should continue lowercase.
+            if ((ch == '"' || ch == '\u201D') && i > 0 && char.IsLower(leftContext[i - 1]))
+                return true;
 
             return char.IsLower(ch)
                    || ch == ','
