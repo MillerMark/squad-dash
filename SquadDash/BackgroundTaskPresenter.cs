@@ -142,6 +142,9 @@ internal sealed class BackgroundTaskPresenter {
         return candidates.Count == 1 ? candidates[0] : null;
     }
 
+    internal IReadOnlyList<BackgroundAbortTarget> GetAbortTargets() =>
+        BuildAbortCandidates();
+
     internal bool IsThreadCurrentRunForDisplay(TranscriptThreadState thread) {
         if (thread.IsPlaceholderThread || AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
             return false;

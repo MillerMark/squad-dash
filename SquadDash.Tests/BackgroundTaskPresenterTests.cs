@@ -158,6 +158,43 @@ internal sealed class BackgroundTaskPresenterTests {
     }
 
     [Test]
+    public void GetAbortTargets_ReturnsAllNonTerminalAgentsAndShells() {
+        var presenter = MakePresenter();
+        presenter.BackgroundAgents = [
+            new SquadBackgroundAgentInfo { AgentId = "lyra-live", AgentDisplayName = "Lyra", Status = "running" },
+            new SquadBackgroundAgentInfo { AgentId = "done-agent", AgentDisplayName = "Done", Status = "completed" }
+        ];
+        presenter.BackgroundShells = [
+            new SquadBackgroundShellInfo { ShellId = "shell-live", Description = "Build check", Status = "running" },
+            new SquadBackgroundShellInfo { ShellId = "shell-done", Description = "Finished", Status = "cancelled" }
+        ];
+
+        var targets = presenter.GetAbortTargets();
+
+        Assert.Multiple(() => {
+            Assert.That(targets.Select(target => target.TaskId), Is.EquivalentTo(new[] { "lyra-live", "shell-live" }));
+            Assert.That(targets.Single(target => target.TaskId == "lyra-live").TaskKind, Is.EqualTo("agent"));
+            Assert.That(targets.Single(target => target.TaskId == "shell-live").TaskKind, Is.EqualTo("shell"));
+        });
+    }
+
+    [Test]
+    public void GetAbortTargets_DeduplicatesTaskIds() {
+        var presenter = MakePresenter();
+        presenter.BackgroundAgents = [
+            new SquadBackgroundAgentInfo { AgentId = "shared-task", AgentDisplayName = "Lyra", Status = "running" },
+            new SquadBackgroundAgentInfo { AgentId = "shared-task", AgentDisplayName = "Lyra Duplicate", Status = "running" }
+        ];
+        presenter.BackgroundShells = [
+            new SquadBackgroundShellInfo { ShellId = "shared-task", Description = "Same id", Status = "running" }
+        ];
+
+        var targets = presenter.GetAbortTargets();
+
+        Assert.That(targets.Select(target => target.TaskId), Is.EqualTo(new[] { "shared-task" }));
+    }
+
+    [Test]
     public void IsThreadCurrentRunForDisplay_ReturnsTrue_ForCurrentNonTerminalThread() {
         var presenter = MakePresenter();
         var thread = MakeThread("lyra-live", startedAt: DateTimeOffset.UtcNow.AddMinutes(-5));

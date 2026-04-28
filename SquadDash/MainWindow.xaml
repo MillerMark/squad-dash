@@ -1245,7 +1245,7 @@
                             IsEnabled="False"
                             Style="{StaticResource ThemedButtonStyle}"
                             Click="AbortButton_Click">
-                        Abort
+                        Abort...
                     </Button>
                 </StackPanel>
 

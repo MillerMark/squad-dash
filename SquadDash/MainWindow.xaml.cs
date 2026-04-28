@@ -1137,33 +1137,79 @@ public partial class MainWindow : Window
     {
         try
         {
-            var selectedThread = _selectedTranscriptThread ?? CoordinatorThread;
-            if (_isPromptRunning)
+            var abortTargets = BuildAbortConfirmationTargets();
+            if (abortTargets.Count == 0)
             {
-                SquadDashTrace.Write("UI", "AbortButton clicked — aborting active prompt.");
-                _bridge.AbortPrompt();
-                return;
-            }
-
-            var abortTarget = _backgroundTaskPresenter.TryResolveAbortTarget(selectedThread);
-            if (abortTarget is null)
-            {
+                var selectedThread = _selectedTranscriptThread ?? CoordinatorThread;
                 SquadDashTrace.Write(
                     "UI",
-                    $"AbortButton clicked but no abortable background task was resolved for thread={selectedThread.ThreadId}");
+                    $"AbortButton clicked but no abortable prompt or background task was resolved for thread={selectedThread.ThreadId}");
                 return;
             }
 
-            SquadDashTrace.Write(
-                "UI",
-                $"AbortButton clicked — cancelling background {abortTarget.TaskKind} task={abortTarget.TaskId} label={abortTarget.DisplayLabel}");
-            await _bridge.CancelBackgroundTaskAsync(
-                abortTarget.TaskId,
-                _conversationManager.CurrentSessionId).ConfigureAwait(true);
+            var dialog = new AbortAgentsConfirmationWindow(abortTargets) {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true || dialog.SelectedTargets.Count == 0) {
+                SquadDashTrace.Write("UI", "AbortButton confirmation cancelled.");
+                return;
+            }
+
+            await AbortConfirmedTargetsAsync(dialog.SelectedTargets).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
             HandleUiCallbackException("Abort", ex);
+        }
+    }
+
+    private IReadOnlyList<AbortAgentsConfirmationTarget> BuildAbortConfirmationTargets()
+    {
+        var targets = new List<AbortAgentsConfirmationTarget>();
+        var seenBackgroundTaskIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (_isPromptRunning)
+        {
+            targets.Add(new AbortAgentsConfirmationTarget(
+                "coordinator",
+                "coordinator",
+                "Coordinator",
+                IsCoordinator: true));
+        }
+
+        foreach (var target in _backgroundTaskPresenter.GetAbortTargets())
+        {
+            if (string.IsNullOrWhiteSpace(target.TaskId) || !seenBackgroundTaskIds.Add(target.TaskId))
+                continue;
+
+            targets.Add(new AbortAgentsConfirmationTarget(
+                target.TaskId,
+                target.TaskKind,
+                target.DisplayLabel,
+                IsCoordinator: false));
+        }
+
+        return targets;
+    }
+
+    private async Task AbortConfirmedTargetsAsync(IReadOnlyList<AbortAgentsConfirmationTarget> targets)
+    {
+        var abortCoordinator = targets.Any(target => target.IsCoordinator);
+        if (abortCoordinator)
+        {
+            SquadDashTrace.Write("UI", "AbortButton confirmed — aborting active coordinator prompt.");
+            _bridge.AbortPrompt();
+        }
+
+        foreach (var target in targets.Where(target => !target.IsCoordinator))
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} label={target.DisplayLabel}");
+            await _bridge.CancelBackgroundTaskAsync(
+                target.TaskId,
+                _conversationManager.CurrentSessionId).ConfigureAwait(true);
         }
     }
 
