@@ -180,9 +180,9 @@ public partial class MainWindow : Window
     private ScrollbarMarkerAdorner? _scrollbarAdorner;
     // Pointer cache — built on first RefreshAdornerHighlights after a search, reused on Next/Prev.
     private List<(TextPointer Start, TextPointer End, string Text)>? _cachedSearchPointers;
-    private int[]          _cachedMatchToCursor      = [];  // match i → index in _cachedSearchPointers, -1 if BUC/skip
+    private int[] _cachedMatchToCursor = [];  // match i → index in _cachedSearchPointers, -1 if BUC/skip
     private TextPointer?[] _cachedMatchScrollPointer = [];  // match i → pointer to scroll to
-    private TextBlock?[]   _cachedMatchBucCell        = [];  // match i → BUC table cell, null if not a BUC match
+    private TextBlock?[] _cachedMatchBucCell = [];  // match i → BUC table cell, null if not a BUC match
     // TextBlocks inside table cells that currently carry a search-highlight background.
     private readonly HashSet<TextBlock> _bucHighlightedCells = [];
     private ScrollBar? _transcriptScrollBar;
@@ -204,10 +204,10 @@ public partial class MainWindow : Window
     private bool _loopPanelVisible = true;
     private bool _tasksPanelVisible = false;
     private string? _watchCycleId;
-    private int     _watchFleetSize;
-    private int     _watchWaveIndex;
-    private int     _watchWaveCount;
-    private int     _watchAgentCount;
+    private int _watchFleetSize;
+    private int _watchWaveIndex;
+    private int _watchWaveCount;
+    private int _watchAgentCount;
     private string? _watchPhase;
     private bool _remoteAccessActive;
     private MenuItem? _remoteAccessMenuItem;
@@ -1158,11 +1158,13 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var dialog = new AbortAgentsConfirmationWindow(abortTargets) {
+            var dialog = new AbortAgentsConfirmationWindow(abortTargets)
+            {
                 Owner = this
             };
 
-            if (dialog.ShowDialog() != true || dialog.SelectedTargets.Count == 0) {
+            if (dialog.ShowDialog() != true || dialog.SelectedTargets.Count == 0)
+            {
                 SquadDashTrace.Write("UI", "AbortButton confirmation cancelled.");
                 return;
             }
@@ -1919,13 +1921,15 @@ public partial class MainWindow : Window
     {
         if (TasksItemsPanel is null) return;
         var workspace = _currentWorkspace;
-        if (workspace is null) {
+        if (workspace is null)
+        {
             ShowTasksPanelEmpty("No workspace open");
             return;
         }
 
         var tasksPath = Path.Combine(workspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath)) {
+        if (!File.Exists(tasksPath))
+        {
             ShowTasksPanelEmpty("No tasks.md found");
             return;
         }
@@ -1939,22 +1943,26 @@ public partial class MainWindow : Window
             .ToList();
 
         // Clear existing content (keep the empty TextBlock)
-        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--) {
+        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--)
+        {
             var child = TasksItemsPanel.Children[i];
             if (child == TasksEmptyTextBlock) continue;
             TasksItemsPanel.Children.RemoveAt(i);
         }
 
-        if (groups.Count == 0) {
+        if (groups.Count == 0)
+        {
             ShowTasksPanelEmpty("No open tasks");
             return;
         }
 
         TasksEmptyTextBlock.Visibility = Visibility.Collapsed;
 
-        foreach (var group in groups) {
+        foreach (var group in groups)
+        {
             // Priority heading
-            var heading = new TextBlock {
+            var heading = new TextBlock
+            {
                 Text = $"{group.Emoji} {group.Label}",
                 FontSize = 11,
                 FontWeight = FontWeights.SemiBold,
@@ -1963,12 +1971,15 @@ public partial class MainWindow : Window
             heading.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             TasksItemsPanel.Children.Add(heading);
 
-            foreach (var item in group.Items) {
-                var row = new StackPanel {
+            foreach (var item in group.Items)
+            {
+                var row = new StackPanel
+                {
                     Orientation = Orientation.Horizontal,
                     Margin = new Thickness(0, 2, 0, 0)
                 };
-                var checkbox = new Border {
+                var checkbox = new Border
+                {
                     Width = 10,
                     Height = 10,
                     BorderThickness = new Thickness(1.5),
@@ -1979,7 +1990,8 @@ public partial class MainWindow : Window
                     IsHitTestVisible = false
                 };
                 checkbox.SetResourceReference(Border.BorderBrushProperty, "BodyText");
-                var label = new TextBlock {
+                var label = new TextBlock
+                {
                     Text = item,
                     FontSize = 12,
                     TextWrapping = TextWrapping.Wrap,
@@ -1997,7 +2009,8 @@ public partial class MainWindow : Window
     {
         if (TasksEmptyTextBlock is null) return;
         // Remove all non-empty-text children
-        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--) {
+        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--)
+        {
             if (TasksItemsPanel.Children[i] != TasksEmptyTextBlock)
                 TasksItemsPanel.Children.RemoveAt(i);
         }
@@ -3046,12 +3059,16 @@ public partial class MainWindow : Window
                             _pttTargetTextBox = DocSourceTextBox?.IsFocused == true
                                 ? DocSourceTextBox
                                 : PromptTextBox;
-                            // Capture caret before the PTT panel becomes visible (layout shifts can reset it).
-                            _sessionCaretIndex = _pttTargetTextBox.CaretIndex;
-                            // Only auto-send when the target is the prompt box.
-                            _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning;
-                            _pttState = PttState.Active;
-                            _ = StartPushToTalkAsync();
+
+                            if (_pttTargetTextBox != null)
+                            {
+                                // Capture caret before the PTT panel becomes visible (layout shifts can reset it).
+                                _sessionCaretIndex = _pttTargetTextBox.CaretIndex;
+                                // Only auto-send when the target is the prompt box.
+                                _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning;
+                                _pttState = PttState.Active;
+                                _ = StartPushToTalkAsync();
+                            }
                         }
                         else
                         {
@@ -3263,10 +3280,10 @@ public partial class MainWindow : Window
         var physWa = NativeMethods.GetWorkAreaForPhysicalPoint((int)physicalPoint.X, (int)physicalPoint.Y);
 
         // Convert everything to WPF logical DIPs.
-        var logicalPoint     = DpiHelper.PhysicalToLogical(target, physicalPoint);
-        var logicalWaOrigin  = DpiHelper.PhysicalToLogical(target, new System.Windows.Point(physWa.Left, physWa.Top));
-        var logicalWaCorner  = DpiHelper.PhysicalToLogical(target, new System.Windows.Point(physWa.Right, physWa.Bottom));
-        var logicalWorkArea  = new System.Windows.Rect(logicalWaOrigin, logicalWaCorner);
+        var logicalPoint = DpiHelper.PhysicalToLogical(target, physicalPoint);
+        var logicalWaOrigin = DpiHelper.PhysicalToLogical(target, new System.Windows.Point(physWa.Left, physWa.Top));
+        var logicalWaCorner = DpiHelper.PhysicalToLogical(target, new System.Windows.Point(physWa.Right, physWa.Bottom));
+        var logicalWorkArea = new System.Windows.Rect(logicalWaOrigin, logicalWaCorner);
 
         _pttWindow.PositionUnderCaret(logicalPoint, logicalWorkArea);
     }
@@ -3318,9 +3335,10 @@ public partial class MainWindow : Window
         var current = target.Text;
         // Clamp in case text was externally modified since session start.
         var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
-        var leftContext  = current[..caretIndex];
+        var leftContext = current[..caretIndex];
         var rightContext = current[caretIndex..];
-        var prefix = caretIndex > 0 && current[caretIndex - 1] != ' ' ? " " : string.Empty;
+        var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
+        var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' ? " " : string.Empty;
         var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
         var insert = prefix + processed;
         target.Text = current[..caretIndex] + insert + current[caretIndex..];
@@ -4055,8 +4073,8 @@ public partial class MainWindow : Window
             if (sender is not MenuItem { Tag: AgentStatusCard agentCard })
                 return;
 
-            var agentsDir    = _workspacePaths.AgentImageAssetsDirectory;
-            var initialDir   = _lastAgentImageFolder
+            var agentsDir = _workspacePaths.AgentImageAssetsDirectory;
+            var initialDir = _lastAgentImageFolder
                                ?? (Directory.Exists(agentsDir) ? agentsDir : null);
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
@@ -5169,7 +5187,7 @@ public partial class MainWindow : Window
     private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {
         var hasSelection = DocSourceTextBox?.SelectionLength > 0;
-        if (DocBoldButton   is not null) DocBoldButton.IsEnabled   = hasSelection;
+        if (DocBoldButton is not null) DocBoldButton.IsEnabled = hasSelection;
         if (DocItalicButton is not null) DocItalicButton.IsEnabled = hasSelection;
     }
 
@@ -5196,12 +5214,12 @@ public partial class MainWindow : Window
     {
         if (DocSourceTextBox is null) return;
         var selStart = DocSourceTextBox.SelectionStart;
-        var selLen   = DocSourceTextBox.SelectionLength;
+        var selLen = DocSourceTextBox.SelectionLength;
         if (selLen > 0)
         {
             var text = DocSourceTextBox.SelectedText;
-            var md   = $"[{text}](url)";
-            DocSourceTextBox.SelectedText   = md;
+            var md = $"[{text}](url)";
+            DocSourceTextBox.SelectedText = md;
             DocSourceTextBox.SelectionStart = selStart;
             DocSourceTextBox.SelectionLength = md.Length;
         }
@@ -5209,8 +5227,8 @@ public partial class MainWindow : Window
         {
             var caret = DocSourceTextBox.CaretIndex;
             const string md = "[text](url)";
-            DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, md);
-            DocSourceTextBox.SelectionStart  = caret;
+            DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, md);
+            DocSourceTextBox.SelectionStart = caret;
             DocSourceTextBox.SelectionLength = md.Length;
         }
     }
@@ -5229,7 +5247,7 @@ public partial class MainWindow : Window
         const string placeholder =
             "![Screenshot: brief description](images/descriptive-filename.png)\n" +
             "> 📸 *Screenshot needed: Detailed description of what to capture in this screenshot.*";
-        DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, placeholder);
+        DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, placeholder);
         DocSourceTextBox.CaretIndex = caret + placeholder.Length;
     }
 
@@ -5248,7 +5266,7 @@ public partial class MainWindow : Window
             "| Column 1 | Column 2 | Column 3 |\n" +
             "|----------|----------|----------|\n" +
             "| Cell     | Cell     | Cell     |";
-        DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, table);
+        DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, table);
         DocSourceTextBox.CaretIndex = caret + table.Length;
     }
 
@@ -5263,19 +5281,19 @@ public partial class MainWindow : Window
     {
         if (DocSourceTextBox is null) return;
         var selStart = DocSourceTextBox.SelectionStart;
-        var selLen   = DocSourceTextBox.SelectionLength;
+        var selLen = DocSourceTextBox.SelectionLength;
         if (selLen > 0)
         {
             var text = DocSourceTextBox.SelectedText;
-            var md   = $"`{text}`";
-            DocSourceTextBox.SelectedText    = md;
-            DocSourceTextBox.SelectionStart  = selStart;
+            var md = $"`{text}`";
+            DocSourceTextBox.SelectedText = md;
+            DocSourceTextBox.SelectionStart = selStart;
             DocSourceTextBox.SelectionLength = md.Length;
         }
         else
         {
             var caret = DocSourceTextBox.CaretIndex;
-            DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, "``");
+            DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, "``");
             DocSourceTextBox.CaretIndex = caret + 1;
         }
     }
@@ -5291,20 +5309,20 @@ public partial class MainWindow : Window
     {
         if (DocSourceTextBox is null) return;
         var selStart = DocSourceTextBox.SelectionStart;
-        var selLen   = DocSourceTextBox.SelectionLength;
+        var selLen = DocSourceTextBox.SelectionLength;
         if (selLen > 0)
         {
             var text = DocSourceTextBox.SelectedText;
-            var md   = $"\n```\n{text}\n```\n";
-            DocSourceTextBox.SelectedText    = md;
-            DocSourceTextBox.SelectionStart  = selStart;
+            var md = $"\n```\n{text}\n```\n";
+            DocSourceTextBox.SelectedText = md;
+            DocSourceTextBox.SelectionStart = selStart;
             DocSourceTextBox.SelectionLength = md.Length;
         }
         else
         {
             var caret = DocSourceTextBox.CaretIndex;
             const string fence = "\n```\n\n```\n";
-            DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, fence);
+            DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, fence);
             DocSourceTextBox.CaretIndex = caret + 5; // position inside the fence
         }
     }
@@ -5338,8 +5356,8 @@ public partial class MainWindow : Window
                 CommandTarget = DocSourceTextBox
             };
 
-            cutItem.IsEnabled   = DocSourceTextBox.SelectionLength > 0;
-            copyItem.IsEnabled  = DocSourceTextBox.SelectionLength > 0;
+            cutItem.IsEnabled = DocSourceTextBox.SelectionLength > 0;
+            copyItem.IsEnabled = DocSourceTextBox.SelectionLength > 0;
             pasteItem.IsEnabled = Clipboard.ContainsText();
 
             menu.Items.Add(cutItem);
@@ -5352,7 +5370,7 @@ public partial class MainWindow : Window
                 var imgItem = new MenuItem
                 {
                     Header = "Paste image from clipboard",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                    Style = (Style)FindResource("ThemedMenuItemStyle")
                 };
                 imgItem.Click += (_, _) => DocSourceTextBox_PasteImageFromClipboard();
                 menu.Items.Add(imgItem);
@@ -5379,10 +5397,10 @@ public partial class MainWindow : Window
         editor.ShowDialog();
         if (editor.Result is not { } image) return;
 
-        var docName   = Path.GetFileNameWithoutExtension(_currentDocPath);
+        var docName = Path.GetFileNameWithoutExtension(_currentDocPath);
         var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-        var fileName  = $"{docName}-{timestamp}.png";
-        var docDir    = Path.GetDirectoryName(_currentDocPath)!;
+        var fileName = $"{docName}-{timestamp}.png";
+        var docDir = Path.GetDirectoryName(_currentDocPath)!;
         var imagesDir = Path.Combine(docDir, "images");
         Directory.CreateDirectory(imagesDir);
         var fullImagePath = Path.Combine(imagesDir, fileName);
@@ -5393,7 +5411,7 @@ public partial class MainWindow : Window
             encoder.Save(stream);
 
         var caretIndex = DocSourceTextBox.CaretIndex;
-        var markdown   = $"![{docName} screenshot](images/{fileName})";
+        var markdown = $"![{docName} screenshot](images/{fileName})";
         DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caretIndex, markdown);
         DocSourceTextBox.CaretIndex = caretIndex + markdown.Length;
     }
@@ -10908,8 +10926,8 @@ public partial class MainWindow : Window
     private void UpdateLoopPanelButtonStates()
     {
         if (_currentWorkspace is null) return;
-        var loopMdPath  = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
-        var loopExists  = File.Exists(loopMdPath);
+        var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
+        var loopExists = File.Exists(loopMdPath);
 
         if (StartLoopButton is not null)
             StartLoopButton.IsEnabled = loopExists;
@@ -12997,7 +13015,7 @@ public partial class MainWindow : Window
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.StreamSource = stream;
-            bitmap.CacheOption  = BitmapCacheOption.OnLoad;
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
             bitmap.EndInit();
             bitmap.Freeze();
             return bitmap;
@@ -13344,7 +13362,7 @@ public partial class MainWindow : Window
         _searchMatchCursor = index;
         UpdateSearchUi();
 
-        var match        = _searchMatches[index];
+        var match = _searchMatches[index];
         var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
 
         // Fast path: pointer cache is valid and the turn is already in the FlowDocument.
@@ -13423,8 +13441,8 @@ public partial class MainWindow : Window
         private int _lastBucOccurrenceIndex;
         private int _lastBucTotalCount;
 
-        public BlockUIContainer? LastBucElement        => _lastBucElement;
-        public int               LastBucOccurrenceIndex => _lastBucOccurrenceIndex;
+        public BlockUIContainer? LastBucElement => _lastBucElement;
+        public int LastBucOccurrenceIndex => _lastBucOccurrenceIndex;
 
         public SearchWalker(TextPointer start) => _cursor = start;
 
@@ -13461,7 +13479,7 @@ public partial class MainWindow : Window
                     if (idx >= 0)
                     {
                         var matchStart = nav.GetPositionAtOffset(idx, LogicalDirection.Forward);
-                        var matchEnd   = matchStart?.GetPositionAtOffset(searchText.Length, LogicalDirection.Forward);
+                        var matchEnd = matchStart?.GetPositionAtOffset(searchText.Length, LogicalDirection.Forward);
                         if (matchStart is not null && matchEnd is not null)
                         {
                             _cursor = matchEnd;
@@ -13481,13 +13499,13 @@ public partial class MainWindow : Window
                             var count = CountOccurrences(bucText, searchText);
                             if (count > 0)
                             {
-                                var bucEnd              = buc.ContentEnd;
-                                _cursor                 = bucEnd;
-                                _pendingBucEnd          = bucEnd;
-                                _pendingBucCount        = count - 1;
-                                _lastBucElement         = buc;
+                                var bucEnd = buc.ContentEnd;
+                                _cursor = bucEnd;
+                                _pendingBucEnd = bucEnd;
+                                _pendingBucCount = count - 1;
+                                _lastBucElement = buc;
                                 _lastBucOccurrenceIndex = 0;
-                                _lastBucTotalCount      = count;
+                                _lastBucTotalCount = count;
                                 // Zero-length range signals "found in UIElement, cannot highlight via adorner".
                                 return new TextRange(bucEnd, bucEnd);
                             }
@@ -13506,14 +13524,14 @@ public partial class MainWindow : Window
             buc.Child switch
             {
                 StackPanel { Tag: string tableText } => tableText,
-                TextBox tb                           => tb.Text,
-                _                                    => null,
+                TextBox tb => tb.Text,
+                _ => null,
             };
 
         private static int CountOccurrences(string text, string search)
         {
             var count = 0;
-            var from  = 0;
+            var from = 0;
             while (true)
             {
                 var idx = text.IndexOf(search, from, StringComparison.OrdinalIgnoreCase);
@@ -13548,13 +13566,13 @@ public partial class MainWindow : Window
         }
 
         var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-        var pointers     = new List<(TextPointer Start, TextPointer End, string Text)>(_searchMatches.Count);
+        var pointers = new List<(TextPointer Start, TextPointer End, string Text)>(_searchMatches.Count);
         var cursorInList = -1;
 
         // Per-match cache arrays — rebuilt on every full refresh, then reused by the fast path.
-        var matchToCursor      = new int[_searchMatches.Count];
+        var matchToCursor = new int[_searchMatches.Count];
         var matchScrollPointer = new TextPointer?[_searchMatches.Count];
-        var matchBucCell       = new TextBlock?[_searchMatches.Count];
+        var matchBucCell = new TextBlock?[_searchMatches.Count];
         Array.Fill(matchToCursor, -1);
 
         // Clear previously-highlighted BUC table cells before re-applying them.
@@ -13566,7 +13584,7 @@ public partial class MainWindow : Window
         for (var i = 0; i < _searchMatches.Count; i++)
         {
             var match = _searchMatches[i];
-            var key   = (match.TurnIndex, match.TurnRole);
+            var key = (match.TurnIndex, match.TurnRole);
 
             if (!walkerByKey.TryGetValue(key, out var walker))
             {
@@ -13618,7 +13636,7 @@ public partial class MainWindow : Window
             }
 
             matchToCursor[i] = pointers.Count;
-            var actualText   = new TextRange(range.Start, range.End).Text;
+            var actualText = new TextRange(range.Start, range.End).Text;
             SquadDashTrace.Write(TraceCategory.UI,
                 $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} TEXT_MATCH listIdx={pointers.Count} cursor={i == _searchMatchCursor} text='{actualText}'");
             pointers.Add((range.Start, range.End, string.IsNullOrEmpty(actualText) ? query : actualText));
@@ -13627,10 +13645,10 @@ public partial class MainWindow : Window
         // Apply BUC cell backgrounds + dark text: all inactive first, then the active cell on top.
         // Read brushes from the current theme resources (same as SearchHighlightAdorner) so
         // that BUC highlights automatically match the active theme.
-        var bucInactiveBg   = GetThemeBrush("SearchHighlight",            Color.FromRgb( 98,  84,  44));
-        var bucActiveBg     = GetThemeBrush("SearchHighlightCurrent",     Color.FromRgb(255, 229, 122));
-        var bucInactiveFg   = GetThemeBrush("SearchHighlightText",        Color.FromRgb( 18,  13,   0));
-        var bucActiveFg     = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(  0,   0,   0));
+        var bucInactiveBg = GetThemeBrush("SearchHighlight", Color.FromRgb(98, 84, 44));
+        var bucActiveBg = GetThemeBrush("SearchHighlightCurrent", Color.FromRgb(255, 229, 122));
+        var bucInactiveFg = GetThemeBrush("SearchHighlightText", Color.FromRgb(18, 13, 0));
+        var bucActiveFg = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(0, 0, 0));
         foreach (var cell in _bucHighlightedCells)
         {
             cell.Background = bucInactiveBg;
@@ -13646,10 +13664,10 @@ public partial class MainWindow : Window
         _searchAdorner.SetMatches(pointers, cursorInList);
 
         // Persist the pointer cache for fast-path navigation.
-        _cachedSearchPointers     = pointers;
-        _cachedMatchToCursor      = matchToCursor;
+        _cachedSearchPointers = pointers;
+        _cachedMatchToCursor = matchToCursor;
         _cachedMatchScrollPointer = matchScrollPointer;
-        _cachedMatchBucCell       = matchBucCell;
+        _cachedMatchBucCell = matchBucCell;
 
         // Scroll to the current match.  Fall back to the first rendered match if the
         // current match is unrendered (handles auto-scroll when typing finds match 0
@@ -13719,10 +13737,10 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateBucActiveHighlight(int matchIndex)
     {
-        var bucInactiveBg = GetThemeBrush("SearchHighlight",            Color.FromRgb( 98,  84,  44));
-        var bucActiveBg   = GetThemeBrush("SearchHighlightCurrent",     Color.FromRgb(255, 229, 122));
-        var bucInactiveFg = GetThemeBrush("SearchHighlightText",        Color.FromRgb( 18,  13,   0));
-        var bucActiveFg   = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(  0,   0,   0));
+        var bucInactiveBg = GetThemeBrush("SearchHighlight", Color.FromRgb(98, 84, 44));
+        var bucActiveBg = GetThemeBrush("SearchHighlightCurrent", Color.FromRgb(255, 229, 122));
+        var bucInactiveFg = GetThemeBrush("SearchHighlightText", Color.FromRgb(18, 13, 0));
+        var bucActiveFg = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(0, 0, 0));
         foreach (var cell in _bucHighlightedCells)
         {
             cell.Background = bucInactiveBg;
@@ -13767,7 +13785,7 @@ public partial class MainWindow : Window
             foreach (var colChild in grid.Children)
             {
                 if (colChild is not Border border || border.Child is not TextBlock tb) continue;
-                var cellText  = GetTextBlockContent(tb);
+                var cellText = GetTextBlockContent(tb);
                 var cellCount = CountSubstringOccurrences(cellText, query);
                 if (count + cellCount > occurrenceIndex)
                     return tb;  // target occurrence is inside this cell
@@ -13819,7 +13837,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(query)) return 0;
         var count = 0;
-        var idx   = 0;
+        var idx = 0;
         while ((idx = text.IndexOf(query, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
         {
             count++;
