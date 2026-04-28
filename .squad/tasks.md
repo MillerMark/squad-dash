@@ -70,7 +70,7 @@
 
 ## 🟢 Low Priority — Deferred / Debt
 
-- [ ] **F11 shortcut — fullscreen transcript toggle** *(Owner: Lyra Morn)*
+- [x] **F11 shortcut — fullscreen transcript toggle** *(Owner: Lyra Morn)*
   Add `Key.F11` handler in `Window_PreviewKeyDown` to call `SetTranscriptFullScreen(!_transcriptFullScreenEnabled)`.
   Add `InputGestureText="F11"` to `FullScreenTranscriptMenuItem` in XAML.
 

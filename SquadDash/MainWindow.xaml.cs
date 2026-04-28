@@ -2773,6 +2773,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (e.Key == Key.F11)
+            {
+                SetTranscriptFullScreen(!_transcriptFullScreenEnabled);
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.Escape && _transcriptFullScreenEnabled && _pttState != PttState.Active)
             {
                 e.Handled = true;

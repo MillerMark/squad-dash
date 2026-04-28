@@ -344,6 +344,7 @@
                     <MenuItem x:Name="FullScreenTranscriptMenuItem"
                               Header="_Full Screen Transcript"
                               IsCheckable="True"
+                              InputGestureText="F11"
                               Click="FullScreenTranscriptMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem x:Name="ThemeToggleMenuItem"
