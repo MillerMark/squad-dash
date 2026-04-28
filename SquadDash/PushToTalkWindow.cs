@@ -148,23 +148,21 @@ internal sealed class PushToTalkWindow : Window
 
     internal void MarkShiftSuppressed() => _hintBorder.Visibility = Visibility.Collapsed;
 
-    internal void PositionUnderCaret(System.Windows.Point caretScreenPoint)
+    internal void PositionUnderCaret(System.Windows.Point caretScreenPoint, System.Windows.Rect workArea)
     {
         const double estimatedWidth  = 80;
         const double estimatedHeight = 110; // generous — covers mic + hint pill
 
-        var workArea = SystemParameters.WorkArea;
-
         var left = caretScreenPoint.X - 6;
         var top  = caretScreenPoint.Y + 4;
 
-        // Clamp horizontally
+        // Clamp to the work area of the monitor that actually contains the caret.
         if (left + estimatedWidth > workArea.Right)
             left = workArea.Right - estimatedWidth - 4;
         if (left < workArea.Left)
             left = workArea.Left + 4;
 
-        // If the window would fall below the work area, flip it above the caret
+        // If the window would fall below the work area, flip it above the caret.
         if (top + estimatedHeight > workArea.Bottom)
             top = caretScreenPoint.Y - estimatedHeight - 4;
         if (top < workArea.Top)

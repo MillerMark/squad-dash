@@ -3248,20 +3248,27 @@ public partial class MainWindow : Window
             return;
 
         var target = _pttTargetTextBox ?? PromptTextBox;
-        System.Windows.Point screenPoint;
+        System.Windows.Point physicalPoint;
         try
         {
             var caretRect = target.GetRectFromCharacterIndex(_sessionCaretIndex);
-            screenPoint = target.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
-            screenPoint = DpiHelper.PhysicalToLogical(target, screenPoint);
+            physicalPoint = target.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
         }
         catch
         {
-            screenPoint = target.PointToScreen(new System.Windows.Point(0, target.ActualHeight + 4));
-            screenPoint = DpiHelper.PhysicalToLogical(target, screenPoint);
+            physicalPoint = target.PointToScreen(new System.Windows.Point(0, target.ActualHeight + 4));
         }
 
-        _pttWindow.PositionUnderCaret(screenPoint);
+        // Get the work area (physical px) for whichever monitor the caret is on.
+        var physWa = NativeMethods.GetWorkAreaForPhysicalPoint((int)physicalPoint.X, (int)physicalPoint.Y);
+
+        // Convert everything to WPF logical DIPs.
+        var logicalPoint     = DpiHelper.PhysicalToLogical(target, physicalPoint);
+        var logicalWaOrigin  = DpiHelper.PhysicalToLogical(target, new System.Windows.Point(physWa.Left, physWa.Top));
+        var logicalWaCorner  = DpiHelper.PhysicalToLogical(target, new System.Windows.Point(physWa.Right, physWa.Bottom));
+        var logicalWorkArea  = new System.Windows.Rect(logicalWaOrigin, logicalWaCorner);
+
+        _pttWindow.PositionUnderCaret(logicalPoint, logicalWorkArea);
     }
 
     private void ClosePttWindow()
