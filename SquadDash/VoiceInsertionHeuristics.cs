@@ -66,11 +66,15 @@ internal static class VoiceInsertionHeuristics
         // 3. Conservative trailing-punctuation corrections (e.g. "this." → "this:").
         result = ApplyTrailingPunctuationFixes(result);
 
-        // 4. Right context starts directly with a letter: append a space so the
-        //    inserted text doesn't run into the next word.
-        //    Example: caret before "years" in "four|years ago", inserting
-        //    "score and twenty" → "score and twenty " → "four score and twenty years ago".
-        if (IsRightContextStartsWithLetter(rightContext) && !result.EndsWith(' '))
+        // 4. Right context starts with any non-whitespace character other than ')':
+        //    append a space so the inserted text doesn't run into whatever follows.
+        //    The ')' exception lets voice fill the inside of "()" without leaving a
+        //    trailing space just before the close paren.
+        //    Examples:
+        //      caret before "years"  → "score and twenty " → "four score and twenty years ago"
+        //      caret before "(note)" → "see " → "see (note)"
+        //      caret before ")"      → "done"  → "(done)"  — no trailing space
+        if (IsRightContextRequiresTrailingSpace(rightContext) && !result.EndsWith(' '))
             result += ' ';
 
         return result;
@@ -222,6 +226,17 @@ internal static class VoiceInsertionHeuristics
     /// </summary>
     internal static bool IsRightContextStartsWithLetter(string rightContext) =>
         rightContext.Length > 0 && char.IsLetter(rightContext[0]);
+
+    /// <summary>
+    /// Returns <c>true</c> when the character immediately to the right of the
+    /// caret is any non-whitespace character other than <c>')'</c>.
+    /// When true, a trailing space should be appended to the inserted text so
+    /// it doesn't run into the next token.
+    /// The <c>')'</c> exception prevents a spurious space inside empty parens
+    /// like <c>"(|)"</c> → <c>"(done)"</c> rather than <c>"(done )"</c>.
+    /// </summary>
+    internal static bool IsRightContextRequiresTrailingSpace(string rightContext) =>
+        rightContext.Length > 0 && rightContext[0] != ')' && !char.IsWhiteSpace(rightContext[0]);
 
     /// <summary>
     /// Returns <c>true</c> when the first character of <paramref name="rightContext"/>
