@@ -811,17 +811,16 @@ internal static class MarkdownHtmlBuilder {
     margin: 1em 0 1.15em;
   }
   table {
-    width: 100%;
+    width: auto;
     border-collapse: collapse;
     margin: 0 0 1em;
-    table-layout: fixed;
   }
   th, td {
     border: 1px solid {{line}};
     padding: 0.45em 0.6em;
     vertical-align: top;
     text-align: left;
-    word-wrap: break-word;
+    white-space: nowrap;
   }
   th {
     background: {{thHeaderBg}};
