@@ -13176,31 +13176,14 @@ public partial class MainWindow : Window
 
         if (searchFrom == null) return;
 
-        // If earlier matches share the same (TurnIndex, TurnRole) field, they all
-        // start from the same field pointer.  Count and skip past them so we land on
-        // the correct nth occurrence rather than always the first one in the field.
-        var priorSameField = 0;
-        for (var j = 0; j < index; j++)
-        {
-            var m = _searchMatches[j];
-            if (m.TurnIndex == match.TurnIndex && m.TurnRole == match.TurnRole)
-                priorSameField++;
-        }
-        for (var skip = 0; skip < priorSameField; skip++)
-        {
-            var skipRange = FindTextFromPointer(searchFrom, query);
-            if (skipRange is null) break;
-            searchFrom = skipRange.End;
-        }
-
-        // Find the exact text range so we can scroll to the paragraph that actually
-        // contains the match, rather than assuming it is the prompt paragraph itself.
-        var textRange = FindTextFromPointer(searchFrom, query);
-        var scrollTarget = textRange?.Start.Paragraph ?? searchFrom.Paragraph;
-        if (scrollTarget != null)
-            ScrollToPromptParagraph(scrollTarget);
-
-        RefreshAdornerHighlights();
+        // Dispatch the adorner refresh at Loaded priority (lower than Render=7, higher
+        // than Background) so it runs AFTER the WPF layout pass settles.  This fixes:
+        //   • Items 1, 2 — newly prepended turns had no layout yet when we refreshed
+        //   • Scroll direction — RefreshAdornerHighlights now scrolls to the exact
+        //     match pointer (not paragraph.ContentStart), preventing wrong-direction jumps.
+        // All skip-counting and BUC handling is now inside RefreshAdornerHighlights
+        // via SearchWalker, so we don't need the priorSameField loop here anymore.
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, RefreshAdornerHighlights);
     }
 
     /// <summary>
@@ -13233,6 +13216,116 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Stateful forward-walking search helper that correctly handles
+    /// <see cref="BlockUIContainer"/> elements (rendered code blocks and tables).
+    /// Unlike chained <see cref="FindTextFromPointer"/> calls, this walker counts
+    /// occurrences inside UIElement containers so that skip counts remain accurate
+    /// even when some matches cannot be highlighted.
+    /// </summary>
+    private sealed class SearchWalker
+    {
+        private TextPointer? _cursor;
+        // When a BlockUIContainer holds N occurrences, we return ContentEnd N times
+        // (one per occurrence) so the caller's skip count stays correct.
+        private int _pendingBucCount;
+        private TextPointer? _pendingBucEnd;
+
+        public SearchWalker(TextPointer start) => _cursor = start;
+
+        /// <summary>
+        /// Returns the <see cref="TextRange"/> of the next occurrence of
+        /// <paramref name="searchText"/>, or <c>null</c> when exhausted.
+        /// A <b>zero-length</b> range (Start == End) signals a match inside a
+        /// <see cref="BlockUIContainer"/> — the cursor is advanced correctly
+        /// but the range cannot be drawn by the adorner.
+        /// </summary>
+        public TextRange? FindNext(string searchText)
+        {
+            // Drain remaining occurrences that were inside the last BUC.
+            if (_pendingBucCount > 0)
+            {
+                _pendingBucCount--;
+                return _pendingBucEnd is not null
+                    ? new TextRange(_pendingBucEnd, _pendingBucEnd)
+                    : null;
+            }
+
+            if (_cursor is null) return null;
+
+            var nav = _cursor;
+            while (nav is not null)
+            {
+                var ctx = nav.GetPointerContext(LogicalDirection.Forward);
+
+                if (ctx == TextPointerContext.Text)
+                {
+                    var runText = nav.GetTextInRun(LogicalDirection.Forward);
+                    var idx = runText.IndexOf(searchText, StringComparison.OrdinalIgnoreCase);
+                    if (idx >= 0)
+                    {
+                        var matchStart = nav.GetPositionAtOffset(idx, LogicalDirection.Forward);
+                        var matchEnd   = matchStart?.GetPositionAtOffset(searchText.Length, LogicalDirection.Forward);
+                        if (matchStart is not null && matchEnd is not null)
+                        {
+                            _cursor = matchEnd;
+                            return new TextRange(matchStart, matchEnd);
+                        }
+                    }
+                }
+                else if (ctx == TextPointerContext.ElementStart)
+                {
+                    // Detect BlockUIContainer (rendered table or code block).
+                    var elem = nav.GetAdjacentElement(LogicalDirection.Forward);
+                    if (elem is BlockUIContainer buc)
+                    {
+                        var bucText = GetBlockUIContainerText(buc);
+                        if (!string.IsNullOrEmpty(bucText))
+                        {
+                            var count = CountOccurrences(bucText, searchText);
+                            if (count > 0)
+                            {
+                                var bucEnd = buc.ContentEnd;
+                                _cursor          = bucEnd;
+                                _pendingBucEnd   = bucEnd;
+                                _pendingBucCount = count - 1;
+                                // Zero-length range signals "found in UIElement, cannot highlight".
+                                return new TextRange(bucEnd, bucEnd);
+                            }
+                        }
+                    }
+                }
+
+                nav = nav.GetNextContextPosition(LogicalDirection.Forward);
+            }
+
+            _cursor = null;
+            return null;
+        }
+
+        private static string? GetBlockUIContainerText(BlockUIContainer buc) =>
+            buc.Child switch
+            {
+                StackPanel { Tag: string tableText } => tableText,
+                TextBox tb                           => tb.Text,
+                _                                    => null,
+            };
+
+        private static int CountOccurrences(string text, string search)
+        {
+            var count = 0;
+            var from  = 0;
+            while (true)
+            {
+                var idx = text.IndexOf(search, from, StringComparison.OrdinalIgnoreCase);
+                if (idx < 0) break;
+                count++;
+                from = idx + search.Length;
+            }
+            return count;
+        }
+    }
+
+    /// <summary>
     /// Rebuilds the adorner highlight list from all currently-rendered matches and
     /// updates the current-match index.  Skips matches whose turns are not yet in
     /// the FlowDocument (no async rendering).
@@ -13253,33 +13346,88 @@ public partial class MainWindow : Window
         var pointers = new List<(TextPointer Start, TextPointer End, string Text)>(_searchMatches.Count);
         var cursorInList = -1;
 
-        // Track the last end-pointer per (turnIndex, role) to step through multiple
-        // occurrences in the same field without re-scanning from the field start.
-        var lastEndByKey = new Dictionary<(int TurnIndex, string Role), TextPointer>();
+        // Use a SearchWalker per (turnIndex, role) field.  Unlike the old lastEndByKey
+        // approach, SearchWalker correctly counts occurrences inside BlockUIContainer
+        // elements (rendered tables and code blocks), keeping skip counts accurate.
+        var walkerByKey = new Dictionary<(int TurnIndex, string Role), SearchWalker>();
+
+        // Track the pointer for the current match so we can scroll to it below.
+        TextPointer? currentMatchPointer = null;
 
         for (var i = 0; i < _searchMatches.Count; i++)
         {
             var match = _searchMatches[i];
             var key = (match.TurnIndex, match.TurnRole);
 
-            var searchFrom = lastEndByKey.TryGetValue(key, out var lastEnd)
-                ? lastEnd
-                : GetSearchFromPointerSync(match, activeThread);
+            if (!walkerByKey.TryGetValue(key, out var walker))
+            {
+                var searchFrom = GetSearchFromPointerSync(match, activeThread);
+                if (searchFrom is null) continue;
+                walker = new SearchWalker(searchFrom);
+                walkerByKey[key] = walker;
+            }
 
-            if (searchFrom is null) continue;
-
-            var range = FindTextFromPointer(searchFrom, query);
+            var range = walker.FindNext(query);
             if (range is null) continue;
 
+            // Zero-length range = match inside a BlockUIContainer (table / code block).
+            // The walker already advanced past it so skip counts stay correct, but we
+            // cannot draw a highlight here.
+            if (range.Start.CompareTo(range.End) == 0)
+            {
+                if (i == _searchMatchCursor)
+                    currentMatchPointer = range.Start; // best-effort BUC position
+                continue;
+            }
+
             if (i == _searchMatchCursor)
+            {
                 cursorInList = pointers.Count;
+                currentMatchPointer = range.Start;
+            }
 
             var actualText = new TextRange(range.Start, range.End).Text;
             pointers.Add((range.Start, range.End, string.IsNullOrEmpty(actualText) ? query : actualText));
-            lastEndByKey[key] = range.End;
         }
 
         _searchAdorner.SetMatches(pointers, cursorInList);
+
+        // Scroll to the current match.  Running here (inside BeginInvoke at Loaded
+        // priority) guarantees layout has settled after EnsureTurnRenderedAsync, so
+        // GetCharacterRect returns correct viewport-relative coordinates.
+        if (currentMatchPointer is not null)
+        {
+            var sv = OutputTextBox.Template?.FindName("PART_ContentHost", OutputTextBox) as ScrollViewer;
+            if (sv is not null)
+            {
+                // Use the actual match pointer, NOT paragraph.ContentStart, so that
+                // we scroll to the match itself rather than the paragraph's top.
+                // This prevents the wrong-direction scroll when a long paragraph
+                // starts above the viewport but the match is further down inside it.
+                var rect = currentMatchPointer.GetCharacterRect(LogicalDirection.Forward);
+
+                // For BUC boundaries or not-yet-laid-out content, rect may be empty.
+                // Fall back to the containing paragraph.
+                if (rect.IsEmpty)
+                {
+                    var para = currentMatchPointer.Paragraph;
+                    if (para is not null)
+                        rect = para.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                }
+
+                if (!rect.IsEmpty)
+                {
+                    // Only scroll when the match is not already fully within the viewport.
+                    var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
+                    if (!isFullyVisible)
+                        _scrollController.ScrollToOffset(sv.VerticalOffset + rect.Top);
+                }
+                // If rect is still empty (freshly prepended or BUC boundary),
+                // do nothing — the adorner will reposition via ScrollChanged when layout fires.
+            }
+        }
+
+        SyncPromptNavButtons();
 
         // Compute proportional positions for the scrollbar marker adorner.
         if (_scrollbarAdorner is not null && _transcriptScrollViewer is not null)
