@@ -57,6 +57,12 @@ internal static class VoiceInsertionHeuristics
         if (IsRightContextMidSentence(rightContext))
             result = StripTrailingPeriods(result);
 
+        // 2b. Right context starts with punctuation (.  ,  ;  !  ?  :): the inserted
+        //     text's trailing sentence-ending punctuation would double up, so strip it.
+        //     Example: caret before ", which" — inserting "hello." → "hello".
+        if (IsRightContextStartsWithPunctuation(rightContext))
+            result = StripTrailingSentencePunctuation(result);
+
         // 3. Conservative trailing-punctuation corrections (e.g. "this." → "this:").
         result = ApplyTrailingPunctuationFixes(result);
 
@@ -216,6 +222,26 @@ internal static class VoiceInsertionHeuristics
     /// </summary>
     internal static bool IsRightContextStartsWithLetter(string rightContext) =>
         rightContext.Length > 0 && char.IsLetter(rightContext[0]);
+
+    /// <summary>
+    /// Returns <c>true</c> when the first character of <paramref name="rightContext"/>
+    /// is a punctuation mark that would cause the inserted text's trailing punctuation
+    /// to double up: <c>. , ; ! ? :</c>.
+    /// </summary>
+    internal static bool IsRightContextStartsWithPunctuation(string rightContext) =>
+        rightContext.Length > 0 && ".,;!?:".IndexOf(rightContext[0]) >= 0;
+
+    /// <summary>
+    /// Removes one trailing sentence-ending punctuation character (<c>.</c>, <c>!</c>,
+    /// or <c>?</c>) from <paramref name="text"/>.  Used when the right context already
+    /// opens with punctuation, making the inserted punctuation redundant.
+    /// </summary>
+    internal static string StripTrailingSentencePunctuation(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var last = text[^1];
+        return last == '.' || last == '!' || last == '?' ? text[..^1] : text;
+    }
 
     /// <summary>
     /// Removes one trailing period from <paramref name="text"/>.
