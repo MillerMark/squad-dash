@@ -60,6 +60,13 @@ internal static class VoiceInsertionHeuristics
         // 3. Conservative trailing-punctuation corrections (e.g. "this." → "this:").
         result = ApplyTrailingPunctuationFixes(result);
 
+        // 4. Right context starts directly with a letter: append a space so the
+        //    inserted text doesn't run into the next word.
+        //    Example: caret before "years" in "four|years ago", inserting
+        //    "score and twenty" → "score and twenty " → "four score and twenty years ago".
+        if (IsRightContextStartsWithLetter(rightContext) && !result.EndsWith(' '))
+            result += ' ';
+
         return result;
     }
 
@@ -193,6 +200,14 @@ internal static class VoiceInsertionHeuristics
 
         return false;
     }
+
+    /// <summary>
+    /// Returns <c>true</c> when the character immediately to the right of the
+    /// caret (i.e. <c>rightContext[0]</c>) is a letter — meaning the inserted
+    /// text will run directly into the next word unless a trailing space is added.
+    /// </summary>
+    internal static bool IsRightContextStartsWithLetter(string rightContext) =>
+        rightContext.Length > 0 && char.IsLetter(rightContext[0]);
 
     /// <summary>
     /// Removes one trailing period from <paramref name="text"/>.
