@@ -8291,9 +8291,16 @@ public partial class MainWindow : Window
 
             var tp = paragraph.ContentStart;
             var rect = tp.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward);
-            double targetOffset = sv.VerticalOffset + rect.Top;
 
-            _scrollController.ScrollToOffset(targetOffset);
+            // rect is in coordinates relative to the scroll viewer's visible area.
+            // Skip scrolling if the target is already fully within the viewport.
+            var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
+            if (!isFullyVisible)
+            {
+                double targetOffset = sv.VerticalOffset + rect.Top;
+                _scrollController.ScrollToOffset(targetOffset);
+            }
+
             SyncPromptNavButtons();
         });
     }
