@@ -123,7 +123,7 @@
     <!-- Effect Token -->
     <DropShadowEffect x:Key="PopupShadow" BlurRadius="10" Opacity="0.55" ShadowDepth="2" Color="#000000"/>
     <!-- Search Highlight Tokens -->
-    <SolidColorBrush x:Key="SearchHighlight"            Color="#62542C"/>
+    <SolidColorBrush x:Key="SearchHighlight"            Color="#8E7735"/>
     <SolidColorBrush x:Key="SearchHighlightCurrent"     Color="#FFE57A"/>
     <SolidColorBrush x:Key="SearchHighlightText"        Color="#120D00"/>
     <SolidColorBrush x:Key="SearchHighlightTextCurrent" Color="#000000"/>
