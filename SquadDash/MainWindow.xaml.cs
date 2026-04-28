@@ -185,9 +185,11 @@ public partial class MainWindow : Window
     private TextBlock?[]   _cachedMatchBucCell        = [];  // match i → BUC table cell, null if not a BUC match
     // TextBlocks inside table cells that currently carry a search-highlight background.
     private readonly HashSet<TextBlock> _bucHighlightedCells = [];
-    // Frozen highlight brushes for BUC table-cell backgrounds (match adorner colors).
-    private static readonly Brush BucInactiveBrush = MakeFrozenBrush(Color.FromArgb( 80, 255, 213,  79));
-    private static readonly Brush BucActiveBrush   = MakeFrozenBrush(Color.FromArgb(160, 255, 143,   0));
+    // Colors match SearchHighlightAdorner exactly — same alpha/hue, same text brushes.
+    private static readonly Brush BucInactiveBrush     = MakeFrozenBrush(Color.FromArgb(180, 255, 213,  79));
+    private static readonly Brush BucActiveBrush       = MakeFrozenBrush(Color.FromArgb(230, 255, 143,   0));
+    private static readonly Brush BucInactiveTextBrush = MakeFrozenBrush(Color.FromRgb ( 18,  13,   0));
+    private static readonly Brush BucActiveTextBrush   = MakeFrozenBrush(Color.FromRgb ( 49,  34,   0));
     private ScrollBar? _transcriptScrollBar;
     private ScrollViewer? _transcriptScrollViewer;
 
@@ -13433,12 +13435,18 @@ public partial class MainWindow : Window
             pointers.Add((range.Start, range.End, string.IsNullOrEmpty(actualText) ? query : actualText));
         }
 
-        // Apply BUC cell backgrounds: all inactive first, then the active cell on top.
+        // Apply BUC cell backgrounds + dark text: all inactive first, then the active cell on top.
         foreach (var cell in _bucHighlightedCells)
+        {
             cell.Background = BucInactiveBrush;
+            cell.Foreground = BucInactiveTextBrush;
+        }
         if (_searchMatchCursor >= 0 && _searchMatchCursor < matchBucCell.Length
             && matchBucCell[_searchMatchCursor] is { } activeBucCell)
+        {
             activeBucCell.Background = BucActiveBrush;
+            activeBucCell.Foreground = BucActiveTextBrush;
+        }
 
         _searchAdorner.SetMatches(pointers, cursorInList);
 
@@ -13517,20 +13525,30 @@ public partial class MainWindow : Window
     private void UpdateBucActiveHighlight(int matchIndex)
     {
         foreach (var cell in _bucHighlightedCells)
+        {
             cell.Background = BucInactiveBrush;
+            cell.Foreground = BucInactiveTextBrush;
+        }
         if (_cachedMatchBucCell is not null
             && matchIndex >= 0 && matchIndex < _cachedMatchBucCell.Length
             && _cachedMatchBucCell[matchIndex] is { } active)
+        {
             active.Background = BucActiveBrush;
+            active.Foreground = BucActiveTextBrush;
+        }
     }
 
     /// <summary>
     /// Removes all BUC cell background highlights and clears the tracked set.
+    /// Also restores each cell's Foreground to the theme-defined value via ClearValue.
     /// </summary>
     private void ClearBucCellHighlights()
     {
         foreach (var cell in _bucHighlightedCells)
+        {
             cell.Background = null;
+            cell.ClearValue(TextBlock.ForegroundProperty);
+        }
         _bucHighlightedCells.Clear();
     }
 
