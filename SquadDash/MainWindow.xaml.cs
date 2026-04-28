@@ -13169,6 +13169,23 @@ public partial class MainWindow : Window
 
         if (searchFrom == null) return;
 
+        // If earlier matches share the same (TurnIndex, TurnRole) field, they all
+        // start from the same field pointer.  Count and skip past them so we land on
+        // the correct nth occurrence rather than always the first one in the field.
+        var priorSameField = 0;
+        for (var j = 0; j < index; j++)
+        {
+            var m = _searchMatches[j];
+            if (m.TurnIndex == match.TurnIndex && m.TurnRole == match.TurnRole)
+                priorSameField++;
+        }
+        for (var skip = 0; skip < priorSameField; skip++)
+        {
+            var skipRange = FindTextFromPointer(searchFrom, query);
+            if (skipRange is null) break;
+            searchFrom = skipRange.End;
+        }
+
         // Find the exact text range so we can scroll to the paragraph that actually
         // contains the match, rather than assuming it is the prompt paragraph itself.
         var textRange = FindTextFromPointer(searchFrom, query);
