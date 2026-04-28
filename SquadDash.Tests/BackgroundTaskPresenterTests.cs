@@ -195,6 +195,32 @@ internal sealed class BackgroundTaskPresenterTests {
     }
 
     [Test]
+    public void GetAbortTargets_IncludesActiveFallbackAgentThreads_WhenSnapshotIsEmpty() {
+        var registry = MakeRegistry();
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-lyra",
+            agentId: "lyra-live",
+            agentName: "lyra-morn",
+            agentDisplayName: "Lyra",
+            agentDescription: "Writing tests",
+            status: "running",
+            prompt: "Write tests",
+            startedAt: DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.IsCurrentBackgroundRun = true;
+        thread.StatusText = "Running";
+
+        var presenter = MakePresenter(registry, isPromptRunning: true);
+
+        var targets = presenter.GetAbortTargets();
+
+        Assert.Multiple(() => {
+            Assert.That(targets.Select(target => target.TaskId), Is.EqualTo(new[] { "lyra-live" }));
+            Assert.That(targets.Single().DisplayLabel, Is.EqualTo("Lyra (lyra-live)"));
+        });
+    }
+
+    [Test]
     public void IsThreadCurrentRunForDisplay_ReturnsTrue_ForCurrentNonTerminalThread() {
         var presenter = MakePresenter();
         var thread = MakeThread("lyra-live", startedAt: DateTimeOffset.UtcNow.AddMinutes(-5));
@@ -252,14 +278,16 @@ internal sealed class BackgroundTaskPresenterTests {
             resolveBackgroundAgentDisplayLabel: _ => string.Empty,
             buildAgentLabel:                  _ => string.Empty);
 
-    private static BackgroundTaskPresenter MakePresenter() {
-        var registry = MakeRegistry();
+    private static BackgroundTaskPresenter MakePresenter(
+        AgentThreadRegistry? registry = null,
+        bool isPromptRunning = false) {
+        registry ??= MakeRegistry();
 
         return new BackgroundTaskPresenter(
             agentThreadRegistry:          registry,
             appendLine:                   (_, _) => { },
             syncAgentCards:               () => { },
-            isPromptRunning:              () => false,
+            isPromptRunning:              () => isPromptRunning,
             currentTurn:                  () => null,
             themeBrush:                   _ => Brushes.Transparent,
             tryPostToUi:                  (action, _) => action(),

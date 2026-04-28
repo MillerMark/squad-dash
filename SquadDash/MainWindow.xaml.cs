@@ -10039,7 +10039,7 @@ public partial class MainWindow : Window
             squadInstalled: _currentInstallationState?.IsSquadInstalledForActiveDirectory == true,
             isInstallingSquad: _isInstallingSquad,
             isPromptRunning: _isPromptRunning,
-            canAbortBackgroundTask: _backgroundTaskPresenter.TryResolveAbortTarget(_selectedTranscriptThread ?? CoordinatorThread) is not null,
+            canAbortBackgroundTask: _backgroundTaskPresenter.GetAbortTargets().Count > 0,
             currentPromptText: PromptTextBox.Text);
 
         StatusAgentPanelsGrid.IsEnabled = state.AgentItemsEnabled;

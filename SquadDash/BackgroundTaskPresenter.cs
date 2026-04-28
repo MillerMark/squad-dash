@@ -810,6 +810,20 @@ internal sealed class BackgroundTaskPresenter {
                 BuildBackgroundShellLabel(shell)));
         }
 
+        foreach (var thread in GetFallbackLiveBackgroundThreads()) {
+            var taskId = !string.IsNullOrWhiteSpace(thread.AgentId)
+                ? thread.AgentId.Trim()
+                : thread.ToolCallId?.Trim();
+            if (string.IsNullOrWhiteSpace(taskId) ||
+                !seenTaskIds.Add(taskId))
+                continue;
+
+            candidates.Add(new BackgroundAbortTarget(
+                taskId,
+                "agent",
+                BuildBackgroundAgentLabel(thread)));
+        }
+
         return candidates;
     }
 

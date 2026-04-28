@@ -671,10 +671,10 @@ async function handleRcStart(request) {
         emit({
             type: "rc_started",
             requestId: request.requestId,
-            port,
-            token: rcBridge.getSessionToken(),
-            url: `http://localhost:${port}`,
-            lanUrl: lanIp ? `http://${lanIp}:${port}` : null
+            rcPort: port,
+            rcToken: rcBridge.getSessionToken(),
+            rcUrl: `http://localhost:${port}`,
+            rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null
         });
     }
     catch (err) {
