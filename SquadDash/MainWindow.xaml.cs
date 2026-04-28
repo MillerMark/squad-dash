@@ -10614,6 +10614,8 @@ public partial class MainWindow : Window
         loopMenuItem.Click += (_, _) => OpenOrCreateLoopMd(loopMdPath);
         WorkspaceMenuItem.Items.Add(loopMenuItem);
 
+        UpdateLoopPanelButtonStates();
+
         var tasksMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         if (File.Exists(tasksMdPath))
         {
@@ -10708,6 +10710,7 @@ public partial class MainWindow : Window
         {
             if (!File.Exists(loopMdPath))
             {
+                Directory.CreateDirectory(Path.GetDirectoryName(loopMdPath)!);
                 File.WriteAllText(loopMdPath, """
                     # Loop Instructions
 
@@ -10720,12 +10723,58 @@ public partial class MainWindow : Window
 
                     Stop looping when all tasks are complete or when instructed.
                     """);
+                UpdateLoopPanelButtonStates();
             }
-            NavigateToDocByPath(loopMdPath);
+
+            // Ensure the documentation panel is open.
+            if (!_documentationModeEnabled)
+                SetDocumentationMode(true);
+
+            // Load the file directly — loop.md lives in .squad/, not docs/,
+            // so it is not in the tree; bypass FindDocNodeByTag.
+            _currentDocPath = loopMdPath;
+            var markdown = File.ReadAllText(loopMdPath);
+            var html = MarkdownHtmlBuilder.Build(markdown, "loop.md",
+                filePath: loopMdPath, isDark: AgentStatusCard.IsDarkTheme);
+            DocMarkdownViewer?.NavigateToString(html);
+
+            if (DocSourcePanel?.Visibility != Visibility.Visible)
+                ShowDocSourcePanel();
+            else
+                PopulateDocSourceEditor();
+
+            DocSourceTextBox?.Focus();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(OpenOrCreateLoopMd), ex);
+        }
+    }
+
+    private void UpdateLoopPanelButtonStates()
+    {
+        if (_currentWorkspace is null) return;
+        var loopMdPath  = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
+        var loopExists  = File.Exists(loopMdPath);
+
+        if (StartLoopButton is not null)
+            StartLoopButton.IsEnabled = loopExists;
+
+        if (CreateEditLoopFileButton is not null)
+            CreateEditLoopFileButton.Content = loopExists ? "📝 Edit Loop File" : "📝 Create Loop File";
+    }
+
+    private void CreateEditLoopFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null) return;
+            var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
+            OpenOrCreateLoopMd(loopMdPath);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(CreateEditLoopFileButton_Click), ex);
         }
     }
 
@@ -10819,11 +10868,17 @@ public partial class MainWindow : Window
 
     private void HandleSquadMarkdownWatcherChange(string? fullPath)
     {
-        if (_currentWorkspace is null ||
-            !RoutingIssueWatchPathPolicy.IsRelevantPath(_currentWorkspace.SquadFolderPath, fullPath))
+        if (_currentWorkspace is null) return;
+
+        // Always check if loop.md existence changed so loop panel buttons stay current.
+        if (fullPath is not null &&
+            fullPath.EndsWith("loop.md", StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            UpdateLoopPanelButtonStates();
         }
+
+        if (!RoutingIssueWatchPathPolicy.IsRelevantPath(_currentWorkspace.SquadFolderPath, fullPath))
+            return;
 
         ScheduleAgentRefreshFromTeamWatcher();
     }

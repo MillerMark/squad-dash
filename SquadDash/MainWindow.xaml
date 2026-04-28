@@ -855,7 +855,7 @@
 
                     <Border x:Name="LoopPanelBorder"
                             Grid.Column="3"
-                            MinWidth="160"
+                            MinWidth="136"
                             Margin="14,0,0,0"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"
@@ -864,6 +864,7 @@
                             CornerRadius="16">
                         <Grid>
                             <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -896,6 +897,7 @@
                             <Button x:Name="StartLoopButton"
                                     Grid.Row="2"
                                     Content="▶ Start Loop"
+                                    IsEnabled="False"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="StartLoopButton_Click" />
                             <Button x:Name="StopLoopButton"
@@ -905,6 +907,13 @@
                                     IsEnabled="False"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="StopLoopButton_Click" />
+                            <Button x:Name="CreateEditLoopFileButton"
+                                    Grid.Row="4"
+                                    Content="📝 Create Loop File"
+                                    Margin="0,14,0,0"
+                                    Style="{StaticResource ThemedButtonStyle}"
+                                    ToolTip="Create or open loop.md for editing"
+                                    Click="CreateEditLoopFileButton_Click" />
                         </Grid>
                     </Border>
 
