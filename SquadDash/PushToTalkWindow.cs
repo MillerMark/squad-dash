@@ -150,7 +150,27 @@ internal sealed class PushToTalkWindow : Window
 
     internal void PositionUnderCaret(System.Windows.Point caretScreenPoint)
     {
-        Left = caretScreenPoint.X - 6;
-        Top = caretScreenPoint.Y + 4;
+        const double estimatedWidth  = 80;
+        const double estimatedHeight = 110; // generous — covers mic + hint pill
+
+        var workArea = SystemParameters.WorkArea;
+
+        var left = caretScreenPoint.X - 6;
+        var top  = caretScreenPoint.Y + 4;
+
+        // Clamp horizontally
+        if (left + estimatedWidth > workArea.Right)
+            left = workArea.Right - estimatedWidth - 4;
+        if (left < workArea.Left)
+            left = workArea.Left + 4;
+
+        // If the window would fall below the work area, flip it above the caret
+        if (top + estimatedHeight > workArea.Bottom)
+            top = caretScreenPoint.Y - estimatedHeight - 4;
+        if (top < workArea.Top)
+            top = workArea.Top + 4;
+
+        Left = left;
+        Top  = top;
     }
 }

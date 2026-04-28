@@ -270,6 +270,8 @@ public partial class MainWindow : Window
     private DateTime _ctrlFirstReleaseTime;
     private SpeechRecognitionService? _speechService;
     private PushToTalkWindow? _pttWindow;
+    private TextBox? _pttTargetTextBox;   // resolved at activation; null = PromptTextBox
+    private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private DispatcherTimer? _promptNavHintTimer;
     private string? _workspaceGitHubUrl;
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
@@ -2910,7 +2912,10 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     return;
                 }
-                return;
+                // Let bare Ctrl key events fall through so the double-tap PTT state machine
+                // can track them. All other keys are eaten here.
+                if (!IsCtrlKey(e.Key))
+                    return;
             }
 
             // Also guard the transcript search box and the doc find text box
@@ -3036,8 +3041,15 @@ public partial class MainWindow : Window
                         var gapMs = (DateTime.UtcNow - _ctrlFirstReleaseTime).TotalMilliseconds;
                         if (gapMs <= PttDoubleClickTime)
                         {
-                            // Capture whether Send is enabled at the moment PTT starts
-                            _voiceStartedWithSendEnabled = !_isPromptRunning;
+                            // Resolve the target TextBox at activation time.
+                            // DocSourceTextBox focus is still valid here since only Ctrl key was pressed.
+                            _pttTargetTextBox = DocSourceTextBox?.IsFocused == true
+                                ? DocSourceTextBox
+                                : PromptTextBox;
+                            // Capture caret before the PTT panel becomes visible (layout shifts can reset it).
+                            _sessionCaretIndex = _pttTargetTextBox.CaretIndex;
+                            // Only auto-send when the target is the prompt box.
+                            _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning;
                             _pttState = PttState.Active;
                             _ = StartPushToTalkAsync();
                         }
@@ -3136,11 +3148,13 @@ public partial class MainWindow : Window
 
     private async Task StartPushToTalkAsync()
     {
+        var target = _pttTargetTextBox ?? PromptTextBox;
+
         // In fullscreen transcript mode, peek the prompt so the user can see dictated text.
         if (_transcriptFullScreenEnabled && !_fullScreenPromptVisible)
             ShowFullScreenPrompt();
 
-        _pttHadPreexistingText = !string.IsNullOrEmpty(PromptTextBox.Text);
+        _pttHadPreexistingText = !string.IsNullOrEmpty(target.Text);
         _pttShiftTappedDuringRecording = false;
         var key = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
         var region = _settingsSnapshot.SpeechRegion;
@@ -3151,7 +3165,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        _pttWindow = new PushToTalkWindow(this, showHint: !_pttHadPreexistingText);
+        // Only show the "release to send" hint when targeting the prompt and it's empty.
+        _pttWindow = new PushToTalkWindow(this, showHint: target == PromptTextBox && !_pttHadPreexistingText);
         PositionPttWindow();
         _pttWindow.Show();
         _pttWindow.VolumeBar.Height = 0;
@@ -3232,19 +3247,21 @@ public partial class MainWindow : Window
         if (_pttWindow is null)
             return;
 
+        var target = _pttTargetTextBox ?? PromptTextBox;
+        System.Windows.Point screenPoint;
         try
         {
-            var caretRect = PromptTextBox.GetRectFromCharacterIndex(PromptTextBox.CaretIndex);
-            var screenPoint = PromptTextBox.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
-            screenPoint = DpiHelper.PhysicalToLogical(PromptTextBox, screenPoint);
-            _pttWindow.PositionUnderCaret(screenPoint);
+            var caretRect = target.GetRectFromCharacterIndex(_sessionCaretIndex);
+            screenPoint = target.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
+            screenPoint = DpiHelper.PhysicalToLogical(target, screenPoint);
         }
         catch
         {
-            var screenPoint = PromptTextBox.PointToScreen(new System.Windows.Point(0, PromptTextBox.ActualHeight + 4));
-            screenPoint = DpiHelper.PhysicalToLogical(PromptTextBox, screenPoint);
-            _pttWindow.PositionUnderCaret(screenPoint);
+            screenPoint = target.PointToScreen(new System.Windows.Point(0, target.ActualHeight + 4));
+            screenPoint = DpiHelper.PhysicalToLogical(target, screenPoint);
         }
+
+        _pttWindow.PositionUnderCaret(screenPoint);
     }
 
     private void ClosePttWindow()
@@ -3256,6 +3273,8 @@ public partial class MainWindow : Window
     private async Task StopPushToTalkAsync(bool send)
     {
         _pttState = PttState.Idle;
+        var wasTargetingPrompt = _pttTargetTextBox is null || _pttTargetTextBox == PromptTextBox;
+        _pttTargetTextBox = null;
         ClosePttWindow();
 
         if (_restartPending && !_isPromptRunning)
@@ -3274,7 +3293,7 @@ public partial class MainWindow : Window
             service.Dispose();
         }
 
-        if (send)
+        if (send && wasTargetingPrompt)
         {
             await Task.Delay(220).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
@@ -3288,12 +3307,18 @@ public partial class MainWindow : Window
     private void AppendSpeechToPrompt(string text)
     {
         _promptHasVoiceInput = true;
-        var caretIndex = PromptTextBox.CaretIndex;
-        var current = PromptTextBox.Text;
-        var prefix = caretIndex > 0 && current.Length > 0 && current[caretIndex - 1] != ' ' ? " " : string.Empty;
-        var insert = prefix + text;
-        PromptTextBox.Text = current[..caretIndex] + insert + current[caretIndex..];
-        PromptTextBox.CaretIndex = caretIndex + insert.Length;
+        var target = _pttTargetTextBox ?? PromptTextBox;
+        var current = target.Text;
+        // Clamp in case text was externally modified since session start.
+        var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
+        var leftContext  = current[..caretIndex];
+        var rightContext = current[caretIndex..];
+        var prefix = caretIndex > 0 && current[caretIndex - 1] != ' ' ? " " : string.Empty;
+        var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
+        var insert = prefix + processed;
+        target.Text = current[..caretIndex] + insert + current[caretIndex..];
+        target.CaretIndex = caretIndex + insert.Length;
+        _sessionCaretIndex = caretIndex + insert.Length;
     }
 
     private void UpdateVoiceHintVisibility()
