@@ -481,6 +481,7 @@ internal sealed class ApplicationSettingsStore {
                 SourceOpen = state.SourceOpen ?? existing.SourceOpen,
                 SourceWidth = state.SourceWidth ?? existing.SourceWidth,
                 FullScreenTranscript = state.FullScreenTranscript ?? existing.FullScreenTranscript,
+                TasksPanelVisible = state.TasksPanelVisible ?? existing.TasksPanelVisible,
             };
         }
         dict[key] = state;
@@ -504,6 +505,11 @@ internal sealed record WorkspaceDocsPanelState
     public double? TopicsWidthFraction { get; init; }
     public bool? SourceOpen { get; init; }
     public double? SourceWidth { get; init; }
+    /// <summary>
+    /// Whether the Tasks sidebar panel was visible. <c>null</c> or <c>false</c> = hidden (default).
+    /// <c>true</c> = user had the panel open and wants it restored on next startup.
+    /// </summary>
+    public bool? TasksPanelVisible { get; init; }
 }
 
 internal sealed record ApplicationSettingsSnapshot(

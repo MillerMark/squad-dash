@@ -1917,6 +1917,13 @@ public partial class MainWindow : Window
             LoadTasksPanel();
     }
 
+    private void PersistTasksPanelVisible()
+    {
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { TasksPanelVisible = _tasksPanelVisible };
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
     private void LoadTasksPanel()
     {
         if (TasksItemsPanel is null) return;
@@ -4483,6 +4490,7 @@ public partial class MainWindow : Window
             SyncTasksPanel();
             if (ViewTasksMenuItem is not null)
                 ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
+            PersistTasksPanelVisible();
         }
         catch (Exception ex)
         {
@@ -4510,6 +4518,7 @@ public partial class MainWindow : Window
             SyncTasksPanel();
             if (ViewTasksMenuItem is not null)
                 ViewTasksMenuItem.IsChecked = false;
+            PersistTasksPanelVisible();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelCloseButton_Click), ex); }
     }
@@ -12310,6 +12319,15 @@ public partial class MainWindow : Window
         {
             _transcriptFullScreenEnabled = true;
             ApplyViewMode();
+        }
+
+        // Restore tasks panel visibility.
+        if (_docsPanelState.TasksPanelVisible == true)
+        {
+            _tasksPanelVisible = true;
+            SyncTasksPanel();
+            if (ViewTasksMenuItem is not null)
+                ViewTasksMenuItem.IsChecked = true;
         }
 
         // Open: null (absent) or true = open (the default). false = explicitly closed.
