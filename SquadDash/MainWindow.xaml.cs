@@ -11080,6 +11080,14 @@ public partial class MainWindow : Window
             UpdateLoopPanelButtonStates();
         }
 
+        // Reload the tasks panel whenever tasks.md changes.
+        if (fullPath is not null &&
+            fullPath.EndsWith("tasks.md", StringComparison.OrdinalIgnoreCase) &&
+            _tasksPanelVisible)
+        {
+            LoadTasksPanel();
+        }
+
         if (!RoutingIssueWatchPathPolicy.IsRelevantPath(_currentWorkspace.SquadFolderPath, fullPath))
             return;
 
