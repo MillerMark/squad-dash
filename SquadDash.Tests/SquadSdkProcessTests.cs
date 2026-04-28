@@ -59,6 +59,33 @@ internal sealed class SquadSdkProcessTests {
             Throws.TypeOf<ArgumentException>().With.Message.Contains("Working directory"));
     }
 
+    /// <summary>
+    /// Regression test for the Fix 1 change: RunLoopAsync must call
+    /// SendBridgeRequestWithRestartAsync (which calls EnsureProcessStarted) rather than
+    /// SendBridgeRequestAsync (which threw "The Squad bridge is not running." when no
+    /// process had been started yet).
+    /// </summary>
+    [Test]
+    public async Task RunLoopAsync_ValidArgs_DoesNotThrowBridgeNotRunning() {
+        // Process reads one line from stdin then exits — enough for EnsureProcessStarted
+        // to succeed and the write to complete before the process dies.
+        await using var sut = new SquadSdkProcess(BuildStartInfo("set /p x="));
+
+        // The call may succeed or fail with a "process exited" error — both are fine.
+        // What must NOT happen is InvalidOperationException("The Squad bridge is not running.").
+        InvalidOperationException? bridgeNotRunningEx = null;
+        try {
+            await sut.RunLoopAsync("C:\\workspace\\.squad\\loop.md", "C:\\workspace");
+        } catch (InvalidOperationException ioe) when (ioe.Message.Contains("Squad bridge is not running")) {
+            bridgeNotRunningEx = ioe;
+        } catch {
+            // Any other exception (e.g. "process exited before prompt completed") is acceptable.
+        }
+
+        Assert.That(bridgeNotRunningEx, Is.Null,
+            "RunLoopAsync must not throw 'bridge not running' — it should auto-start the process.");
+    }
+
     [Test]
     public async Task StartRemoteAsync_EmptyRepo_ThrowsArgumentException() {
         await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));

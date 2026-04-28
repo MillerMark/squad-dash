@@ -153,6 +153,10 @@ internal sealed class SquadSdkProcessSerializationTests {
         });
     }
 
+    /// <summary>
+    /// Verifies deserialization of the rc_started event using the exact camelCase field names
+    /// emitted by the TypeScript runPrompt.ts bridge (rcPort, rcToken, rcUrl, rcLanUrl).
+    /// </summary>
     [Test]
     public void SquadSdkEvent_DeserializesRcStartedPayload() {
         const string json = """
@@ -160,7 +164,8 @@ internal sealed class SquadSdkProcessSerializationTests {
               "type": "rc_started",
               "rcPort": 3000,
               "rcToken": "tok-xyz",
-              "rcUrl": "http://localhost:3000"
+              "rcUrl": "http://localhost:3000",
+              "rcLanUrl": "http://192.168.1.100:3000"
             }
             """;
 
@@ -176,6 +181,7 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(evt.RcPort, Is.EqualTo(3000));
             Assert.That(evt.RcToken, Is.EqualTo("tok-xyz"));
             Assert.That(evt.RcUrl, Is.EqualTo("http://localhost:3000"));
+            Assert.That(evt.RcLanUrl, Is.EqualTo("http://192.168.1.100:3000"));
         });
     }
 
