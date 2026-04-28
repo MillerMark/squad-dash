@@ -1959,14 +1959,17 @@ public partial class MainWindow : Window
                     Orientation = Orientation.Horizontal,
                     Margin = new Thickness(0, 2, 0, 0)
                 };
-                var bullet = new TextBlock {
-                    Text = "·",
-                    FontSize = 12,
-                    Width = 12,
+                var checkbox = new Border {
+                    Width = 10,
+                    Height = 10,
+                    BorderThickness = new Thickness(1.5),
+                    CornerRadius = new CornerRadius(1),
+                    Background = Brushes.Transparent,
                     VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 1, 4, 0)
+                    Margin = new Thickness(0, 2, 6, 0),
+                    IsHitTestVisible = false
                 };
-                bullet.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                checkbox.SetResourceReference(Border.BorderBrushProperty, "BodyText");
                 var label = new TextBlock {
                     Text = item,
                     FontSize = 12,
@@ -1974,7 +1977,7 @@ public partial class MainWindow : Window
                     MaxWidth = 220
                 };
                 label.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-                row.Children.Add(bullet);
+                row.Children.Add(checkbox);
                 row.Children.Add(label);
                 TasksItemsPanel.Children.Add(row);
             }
@@ -8300,6 +8303,11 @@ public partial class MainWindow : Window
         var thread = _selectedTranscriptThread ?? CoordinatorThread;
         var count = thread.PromptParagraphs.Count;
         var idx = thread.PromptNavIndex;
+
+        var isCoordinatorThread = ReferenceEquals(thread, CoordinatorThread);
+        PromptNavButtonsPanel.Visibility = isCoordinatorThread || count > 1
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         PromptNavUpButton.IsEnabled = count > 0 && (idx == -1 || idx > 0);
         PromptNavDownButton.IsEnabled = count > 0 && idx != -1 && idx < count - 1;

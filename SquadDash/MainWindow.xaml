@@ -756,11 +756,8 @@
                                           Width="Auto" />
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
@@ -857,8 +854,9 @@
                     </Border>
 
                     <Border x:Name="LoopPanelBorder"
-                            Grid.Column="4"
+                            Grid.Column="3"
                             MinWidth="160"
+                            Margin="14,0,0,0"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"
                             BorderBrush="{DynamicResource RosterPanelBorder}"
@@ -875,7 +873,7 @@
                                 <TextBlock Text="Loop"
                                            FontSize="15"
                                            FontWeight="SemiBold"
-                                           Foreground="{DynamicResource ActivePanelTitle}"
+                                           Foreground="{DynamicResource RosterPanelTitle}"
                                            HorizontalAlignment="Left"
                                            VerticalAlignment="Center" />
                                 <Button x:Name="LoopPanelCloseButton"
@@ -894,7 +892,7 @@
                                        Grid.Row="1"
                                        Text="Idle"
                                        Margin="0,4,0,10"
-                                       Foreground="{DynamicResource ActivePanelSubtitle}" />
+                                       Foreground="{DynamicResource BodyText}" />
                             <Button x:Name="StartLoopButton"
                                     Grid.Row="2"
                                     Content="▶ Start Loop"
@@ -911,9 +909,10 @@
                     </Border>
 
                     <Border x:Name="TasksPanelBorder"
-                            Grid.Column="6"
+                            Grid.Column="4"
                             MinWidth="200"
                             MaxWidth="280"
+                            Margin="14,0,0,0"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"
                             BorderBrush="{DynamicResource RosterPanelBorder}"
@@ -966,8 +965,9 @@
                     </Border>
 
                     <Border x:Name="WatchPanelBorder"
-                            Grid.Column="8"
+                            Grid.Column="5"
                             MinWidth="180"
+                            Margin="14,0,0,0"
                             Padding="12"
                             Background="{DynamicResource ActivePanelSurface}"
                             BorderBrush="{DynamicResource ActivePanelBorder}"
@@ -1009,7 +1009,8 @@
                             Margin="0,0,0,12">
                 <DockPanel LastChildFill="False">
                     <!-- Right-docked nav buttons must appear first in child order -->
-                    <StackPanel DockPanel.Dock="Right"
+                    <StackPanel x:Name="PromptNavButtonsPanel"
+                                DockPanel.Dock="Right"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
                         <Button x:Name="PromptNavUpButton"
