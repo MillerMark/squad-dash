@@ -68,17 +68,33 @@
 
 ## 🟢 Low Priority
 
-- [ ] **Phone push notifications — architecture & implementation** *(Owner: Orion Vale — architecture first, then Arjun Sen + Talia Rune)*
-  Send push notifications to the user's phone when key SquadDash events occur (e.g. AI response
-  complete, git commit pushed, loop iteration finished, RC connection established).
-  Recommended delivery mechanism: **ntfy.sh** (free, no account required, plain HTTP POST) or
-  **Pushover** (~$5 one-time app, richer notification options). Architecture review needed to decide:
-  - Which events should trigger notifications (and which are too noisy)
-  - Whether the topic URL / API key is stored in workspace settings or global settings
-  - Whether notifications are opt-in per event type (configurable in a settings panel)
-  - Whether Talia wires event hooks in the bridge or Arjun hooks into C# event points
-  User has approved adding QRCoder NuGet package for QR code display of the notification
-  endpoint URL.
+- [ ] **Phone push notifications — architecture & implementation** *(Owner: Arjun Sen + Talia Rune + Lyra Morn — architecture complete, building)*
+  Send push notifications to the user's phone when key SquadDash events occur.
+
+  **Architecture decisions (all confirmed):**
+  - **Delivery:** ntfy.sh Phase 1; pluggable `IPushNotificationProvider` for Pushover in Phase 2
+  - **Events on by default:** AI turn complete, loop stopped, RC connection dropped
+  - **Events off by default:** git commit (agent-only, not manual), loop iteration, RC established
+  - **Git commits:** notify for agent-authored commits only (not user's manual commits)
+  - **Rate limiting (cascading backpressure):**
+    - Normal: max 1 notification per event per 10 seconds
+    - If rate exceeds 3/min: consolidate into "N events in the last minute" digest, send once/min
+    - If still exceeding: escalate to once/10 min, then once/hour, then once/day
+    - Escalation resets when traffic drops back below threshold
+  - **Message content:** AI composes its own notification summary — SquadDash injects into each
+    prompt: "When done, include `{\"notification\": \"one-sentence summary\"}` in your response."
+    C# extracts this JSON block and sends it. Fallback: "[AgentName] turn complete."
+  - **Config:** Global/machine-wide in `ApplicationSettingsStore` (not per-workspace)
+  - **Settings UI:** New "Notifications" section in PreferencesWindow with QR code display
+  - **QRCoder NuGet:** ✅ Approved (MIT, ~150 KB, no native deps)
+  - **Env var override:** `SQUADASH_NTFY_TOPIC` for test/CI redirect — Arjun implements
+
+  **Build ownership:**
+  - Arjun: `PushNotificationService.cs`, `IPushNotificationProvider`, `NtfyNotificationProvider`,
+    settings store methods, rate limiter, commit event hook (agent-authored filter)
+  - Talia: confirm `"done"` event is used for turn-complete hook (document in decisions.md);
+    confirm `"loop_stopped"` / `"rc_stopped"` hooks
+  - Lyra: Notifications section in PreferencesWindow, QRCoder QR display, Test button
 
 - [ ] **RC mobile — decide SDK PR ownership for binary audio frames** *(Owner: Orion Vale)*
   `onAudioChunk` / `onAudioStart` / `onAudioEnd` additions to `RemoteBridgeConfig` must land in
@@ -92,10 +108,10 @@
   1.49.0 and works with browser-sourced audio. If it does, use Option C (simpler, lower bandwidth).
   Fall back to Option B only if Option C fails. See `.squad/rc-mobile-architecture.md` §Key Decisions #2.
 
-- [ ] **RC mobile — approve QRCoder NuGet package** *(Owner: Arjun Sen)*
+- [x] **RC mobile — approve QRCoder NuGet package** *(Owner: Arjun Sen)*
   RC mobile web client needs a QR code displayed in SquadDash for the phone to scan (URL + token).
   Two candidates: `QRCoder` (MIT, ~150 KB, no native deps) and `ZXing.Net` (Apache 2.0, larger).
-  `QRCoder` is preferred for minimal footprint. Requires explicit approval before adding.
+  `QRCoder` is preferred for minimal footprint. **✅ Approved 2026-04-28.**
   See `.squad/rc-mobile-architecture.md` §Key Decisions #3.
 
 - [ ] **RC mobile — define PTT-during-LLM-run policy** *(Owner: Orion Vale)*
