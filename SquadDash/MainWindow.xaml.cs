@@ -185,11 +185,14 @@ public partial class MainWindow : Window
     private TextBlock?[]   _cachedMatchBucCell        = [];  // match i → BUC table cell, null if not a BUC match
     // TextBlocks inside table cells that currently carry a search-highlight background.
     private readonly HashSet<TextBlock> _bucHighlightedCells = [];
-    // Colors match SearchHighlightAdorner exactly — same alpha/hue, same text brushes.
-    private static readonly Brush BucInactiveBrush     = MakeFrozenBrush(Color.FromArgb(180, 255, 213,  79));
-    private static readonly Brush BucActiveBrush       = MakeFrozenBrush(Color.FromArgb(230, 255, 143,   0));
-    private static readonly Brush BucInactiveTextBrush = MakeFrozenBrush(Color.FromRgb ( 18,  13,   0));
-    private static readonly Brush BucActiveTextBrush   = MakeFrozenBrush(Color.FromRgb ( 49,  34,   0));
+    // Opaque brushes using the exact perceived colors the adorner produces (dark theme).
+    // Semi-transparent brushes can't be used here because TextBlock.Background composites
+    // against the table cell's own dark background, yielding a different hue than the
+    // adorner (which composites against the RichTextBox background).
+    private static readonly Brush BucInactiveBrush     = MakeFrozenBrush(Color.FromRgb(166, 141,  66)); // #a68d42
+    private static readonly Brush BucActiveBrush       = MakeFrozenBrush(Color.FromRgb(255, 229, 122)); // #ffe57a
+    private static readonly Brush BucInactiveTextBrush = MakeFrozenBrush(Color.FromRgb ( 18,  13,   0)); // #120d00
+    private static readonly Brush BucActiveTextBrush   = MakeFrozenBrush(Color.FromRgb ( 49,  34,   0)); // #312200
     private ScrollBar? _transcriptScrollBar;
     private ScrollViewer? _transcriptScrollViewer;
 
