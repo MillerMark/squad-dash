@@ -217,12 +217,14 @@ internal sealed class PushToTalkController : IDisposable {
     // ── Speech text insertion ──────────────────────────────────────────────
     private void AppendSpeechToPrompt(string text) {
         _promptHasVoiceInput = true;
-        var caretIndex = _promptTextBox.CaretIndex;
-        var current    = _promptTextBox.Text;
-        var prefix     = caretIndex > 0 && current.Length > 0 && current[caretIndex - 1] != ' '
-                             ? " "
-                             : string.Empty;
-        var insert = prefix + text;
+        var caretIndex  = _promptTextBox.CaretIndex;
+        var current     = _promptTextBox.Text;
+        var leftContext = current[..caretIndex];
+        var prefix      = caretIndex > 0 && current.Length > 0 && current[caretIndex - 1] != ' '
+                              ? " "
+                              : string.Empty;
+        var processed = VoiceInsertionHeuristics.Apply(leftContext, text);
+        var insert    = prefix + processed;
         _promptTextBox.Text       = current[..caretIndex] + insert + current[caretIndex..];
         _promptTextBox.CaretIndex = caretIndex + insert.Length;
     }

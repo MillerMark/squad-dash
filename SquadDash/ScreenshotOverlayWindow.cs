@@ -1294,7 +1294,8 @@ internal sealed class ScreenshotOverlayWindow : Window
             {
                 if (_descriptionBox == null) return;
                 var current = _descriptionBox.Text == _descriptionPlaceholder ? "" : _descriptionBox.Text;
-                _descriptionBox.Text       = (current.Length > 0 ? current + " " : "") + text;
+                var processed = VoiceInsertionHeuristics.Apply(current, text);
+                _descriptionBox.Text       = (current.Length > 0 ? current + " " : "") + processed;
                 _descriptionBox.Opacity    = 1.0;
                 _descriptionBox.CaretIndex = _descriptionBox.Text.Length;
             });
