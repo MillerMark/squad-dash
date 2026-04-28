@@ -46,7 +46,44 @@
 
 ---
 
+## 🟡 Mid Priority
+
+- [ ] **Loop panel — Stop button + open/edit loop.md** *(Owner: Lyra Morn + Arjun Sen)*
+  The Loop panel currently only has a Start button. Add a Stop button wired to a `run_loop_stop`
+  NDJSON event (Talia adds to bridge; Arjun adds C# method). Add ✏️ button that opens `loop.md`
+  in the doc editor if it exists, or prompts to create it from a template if it doesn't.
+  Template should include headings and example standing instructions.
+
+- [ ] **Loop output log pane** *(Owner: Lyra Morn)*
+  The bridge already emits `loop_output_line` events. Add a collapsible scrollable log pane
+  to the Loop panel (or a floating window) that displays the live output from the running loop.
+
+- [ ] **RC — LAN access (bind to PC IP, not localhost)** *(Owner: Talia Rune)*
+  Currently the RC server URL is `http://localhost:<port>` — only reachable from the host PC.
+  Add a `host` binding option so the server listens on `0.0.0.0` (or the PC's LAN IP).
+  SquadDash shows the LAN URL in the transcript alongside the localhost URL when RC starts.
+  Prerequisite for phone access on the same WiFi network.
+
+---
+
 ## 🟢 Low Priority
+
+- [ ] **RC — mobile web client** *(Owner: Orion Vale — architecture first, then Talia)*
+  Design and implement a minimal web client served from the RC HTTP port. The phone browser
+  navigates to `http://<pc-ip>:<port>` and gets a text input + response stream. Architecture
+  review needed first: authentication flow, streaming protocol, history display.
+
+- [ ] **RC — phone voice input via PTT bridge** *(Owner: Orion Vale — architecture first, then Talia + Arjun)*
+  Allow a phone browser to stream microphone audio over WebSocket to SquadDash, which pipes
+  it into the existing Azure Cognitive Services `PushAudioInputStream`. The transcribed text
+  follows the same PTT completion path as desktop mic input. Key challenges: audio format
+  (browser exports WebM/Opus; Azure expects PCM — needs transcoding via NAudio or FFmpeg),
+  latency, and auth. Architecture review needed before implementation.
+
+- [ ] **RC — ngrok/Cloudflare tunnel auto-start** *(Owner: Talia Rune + Orion Vale)*
+  When RC starts, optionally auto-launch an ngrok or Cloudflare tunnel and surface the public
+  URL in the transcript. Enables phone access from outside the home network without router
+  port-forwarding. Requires tunnel binary detection and token configuration.
 
 - [ ] **`squad streams` / `subsquads` management** *(Owner: Talia Rune)*
   `squad streams` is deprecated in 0.9.5-insider; the replacement is `squad subsquads`
