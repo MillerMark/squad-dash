@@ -1960,16 +1960,31 @@ public partial class MainWindow : Window
 
         foreach (var group in groups)
         {
-            // Priority heading
-            var heading = new TextBlock
+            // Priority heading: colored dot + label text
+            var headingRow = new StackPanel
             {
-                Text = $"{group.Emoji} {group.Label}",
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
+                Orientation = Orientation.Horizontal,
                 Margin = new Thickness(0, 8, 0, 3)
             };
-            heading.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-            TasksItemsPanel.Children.Add(heading);
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 9,
+                Height = 9,
+                Fill = PriorityDotColor(group.Emoji),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0)
+            };
+            var headingLabel = new TextBlock
+            {
+                Text = group.Label,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            headingRow.Children.Add(dot);
+            headingRow.Children.Add(headingLabel);
+            TasksItemsPanel.Children.Add(headingRow);
 
             foreach (var item in group.Items)
             {
@@ -2004,6 +2019,13 @@ public partial class MainWindow : Window
             }
         }
     }
+
+    private static Brush PriorityDotColor(string emoji) => emoji switch {
+        "🔴" => new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35)), // red
+        "🟡" => new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)), // amber
+        "🟢" => new SolidColorBrush(Color.FromRgb(0x42, 0xA5, 0xF5)), // light blue
+        _    => Brushes.Gray
+    };
 
     private void ShowTasksPanelEmpty(string message)
     {
