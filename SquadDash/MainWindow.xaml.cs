@@ -2617,6 +2617,10 @@ public partial class MainWindow : Window
             entry.TranscriptBox.FontSize = _transcriptFontSize;
         foreach (var thread in EnumerateTranscriptThreads())
             ApplyTranscriptFontSizeToDocument(thread.Document);
+
+        // Adorner overlay text uses the RichTextBox FontSize — invalidate so it redraws
+        // at the new size without waiting for a layout pass.
+        _searchAdorner?.InvalidateHighlights();
     }
 
     private void ApplyTranscriptFontSizeToDocument(FlowDocument document)

@@ -174,10 +174,12 @@ internal sealed class SearchHighlightAdorner : Adorner
     {
         if (highlightRect.IsEmpty || string.IsNullOrEmpty(matchText)) return;
 
-        var fontSize   = 13.0;
-        var fontFamily = new FontFamily("Segoe UI");
-        var fontWeight = FontWeights.Normal;
-        var fontStyle  = FontStyles.Normal;
+        // Read font properties directly from the RichTextBox so the overlay text
+        // matches the current zoom level and typeface (Ctrl+scroll changes FontSize).
+        var fontSize   = _rtb.FontSize;
+        var fontFamily = _rtb.FontFamily;
+        var fontWeight = _rtb.FontWeight;
+        var fontStyle  = _rtb.FontStyle;
 
         var typeface = new Typeface(fontFamily, fontStyle, fontWeight, FontStretches.Normal);
         var dpi      = VisualTreeHelper.GetDpi(_rtb).PixelsPerDip;
