@@ -2903,6 +2903,13 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     return;
                 }
+                // Ctrl+I: wrap selection in markdown italic
+                if (e.Key == Key.I && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                {
+                    DocSourceTextBox_ApplyItalic();
+                    e.Handled = true;
+                    return;
+                }
                 return;
             }
 
@@ -5135,6 +5142,178 @@ public partial class MainWindow : Window
             var caret = box.CaretIndex;
             box.Text       = box.Text.Insert(caret, "****");
             box.CaretIndex = caret + 2;
+        }
+    }
+
+    private void DocSourceTextBox_ApplyItalic()
+    {
+        if (DocSourceTextBox is null) return;
+        ApplyMarkdownItalic(DocSourceTextBox);
+        DocSourceTextBox.Focus();
+    }
+
+    private static void ApplyMarkdownItalic(TextBox box)
+    {
+        var selStart = box.SelectionStart;
+        var selLen   = box.SelectionLength;
+
+        if (selLen > 0)
+        {
+            var selected       = box.SelectedText;
+            var trimmed        = selected.TrimEnd(' ');
+            var trailingSpaces = selected[trimmed.Length..];
+            box.SelectedText    = $"*{trimmed}*{trailingSpaces}";
+            box.SelectionStart  = selStart;
+            box.SelectionLength = trimmed.Length + 2;
+        }
+        else
+        {
+            var caret = box.CaretIndex;
+            box.Text       = box.Text.Insert(caret, "**");
+            box.CaretIndex = caret + 1;
+        }
+    }
+
+    private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
+    {
+        var hasSelection = DocSourceTextBox?.SelectionLength > 0;
+        if (DocBoldButton   is not null) DocBoldButton.IsEnabled   = hasSelection;
+        if (DocItalicButton is not null) DocItalicButton.IsEnabled = hasSelection;
+    }
+
+    private void DocBoldButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        ApplyMarkdownBold(DocSourceTextBox);
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocItalicButton_Click(object sender, RoutedEventArgs e)
+    {
+        DocSourceTextBox_ApplyItalic();
+    }
+
+    private void DocLinkButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        DocSourceTextBox_InsertLink();
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocSourceTextBox_InsertLink()
+    {
+        if (DocSourceTextBox is null) return;
+        var selStart = DocSourceTextBox.SelectionStart;
+        var selLen   = DocSourceTextBox.SelectionLength;
+        if (selLen > 0)
+        {
+            var text = DocSourceTextBox.SelectedText;
+            var md   = $"[{text}](url)";
+            DocSourceTextBox.SelectedText   = md;
+            DocSourceTextBox.SelectionStart = selStart;
+            DocSourceTextBox.SelectionLength = md.Length;
+        }
+        else
+        {
+            var caret = DocSourceTextBox.CaretIndex;
+            const string md = "[text](url)";
+            DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, md);
+            DocSourceTextBox.SelectionStart  = caret;
+            DocSourceTextBox.SelectionLength = md.Length;
+        }
+    }
+
+    private void DocImageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        DocSourceTextBox_InsertImagePlaceholder();
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocSourceTextBox_InsertImagePlaceholder()
+    {
+        if (DocSourceTextBox is null) return;
+        var caret = DocSourceTextBox.CaretIndex;
+        const string placeholder =
+            "![Screenshot: brief description](images/descriptive-filename.png)\n" +
+            "> 📸 *Screenshot needed: Detailed description of what to capture in this screenshot.*";
+        DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, placeholder);
+        DocSourceTextBox.CaretIndex = caret + placeholder.Length;
+    }
+
+    private void DocTableButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        DocSourceTextBox_InsertTable();
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocSourceTextBox_InsertTable()
+    {
+        if (DocSourceTextBox is null) return;
+        var caret = DocSourceTextBox.CaretIndex;
+        const string table =
+            "| Column 1 | Column 2 | Column 3 |\n" +
+            "|----------|----------|----------|\n" +
+            "| Cell     | Cell     | Cell     |";
+        DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, table);
+        DocSourceTextBox.CaretIndex = caret + table.Length;
+    }
+
+    private void DocInlineCodeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        DocSourceTextBox_InsertInlineCode();
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocSourceTextBox_InsertInlineCode()
+    {
+        if (DocSourceTextBox is null) return;
+        var selStart = DocSourceTextBox.SelectionStart;
+        var selLen   = DocSourceTextBox.SelectionLength;
+        if (selLen > 0)
+        {
+            var text = DocSourceTextBox.SelectedText;
+            var md   = $"`{text}`";
+            DocSourceTextBox.SelectedText    = md;
+            DocSourceTextBox.SelectionStart  = selStart;
+            DocSourceTextBox.SelectionLength = md.Length;
+        }
+        else
+        {
+            var caret = DocSourceTextBox.CaretIndex;
+            DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, "``");
+            DocSourceTextBox.CaretIndex = caret + 1;
+        }
+    }
+
+    private void DocCodeBlockButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        DocSourceTextBox_InsertCodeBlock();
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocSourceTextBox_InsertCodeBlock()
+    {
+        if (DocSourceTextBox is null) return;
+        var selStart = DocSourceTextBox.SelectionStart;
+        var selLen   = DocSourceTextBox.SelectionLength;
+        if (selLen > 0)
+        {
+            var text = DocSourceTextBox.SelectedText;
+            var md   = $"\n```\n{text}\n```\n";
+            DocSourceTextBox.SelectedText    = md;
+            DocSourceTextBox.SelectionStart  = selStart;
+            DocSourceTextBox.SelectionLength = md.Length;
+        }
+        else
+        {
+            var caret = DocSourceTextBox.CaretIndex;
+            const string fence = "\n```\n\n```\n";
+            DocSourceTextBox.Text       = DocSourceTextBox.Text.Insert(caret, fence);
+            DocSourceTextBox.CaretIndex = caret + 5; // position inside the fence
         }
     }
 
