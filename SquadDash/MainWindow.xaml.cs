@@ -10937,24 +10937,7 @@ public partial class MainWindow : Window
                 UpdateLoopPanelButtonStates();
             }
 
-            // Ensure the documentation panel is open.
-            if (!_documentationModeEnabled)
-                SetDocumentationMode(true);
-
-            // Load the file directly — loop.md lives in .squad/, not docs/,
-            // so it is not in the tree; bypass FindDocNodeByTag.
-            _currentDocPath = loopMdPath;
-            var markdown = File.ReadAllText(loopMdPath);
-            var html = MarkdownHtmlBuilder.Build(markdown, "loop.md",
-                filePath: loopMdPath, isDark: AgentStatusCard.IsDarkTheme);
-            DocMarkdownViewer?.NavigateToString(html);
-
-            if (DocSourcePanel?.Visibility != Visibility.Visible)
-                ShowDocSourcePanel();
-            else
-                PopulateDocSourceEditor();
-
-            DocSourceTextBox?.Focus();
+            OpenMarkdownFile(loopMdPath, "Loop Instructions");
         }
         catch (Exception ex)
         {
