@@ -1315,6 +1315,7 @@ internal sealed class ScreenshotOverlayWindow : Window
             if (_descriptionBox is not null)
             {
                 var pt = _descriptionBox.PointToScreen(new System.Windows.Point(0, -40));
+                pt = DpiHelper.PhysicalToLogical(_descriptionBox, pt);
                 _descPttWindow.Left = pt.X;
                 _descPttWindow.Top  = pt.Y;
             }

@@ -3107,11 +3107,13 @@ public partial class MainWindow : Window
         {
             var caretRect = PromptTextBox.GetRectFromCharacterIndex(PromptTextBox.CaretIndex);
             var screenPoint = PromptTextBox.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
+            screenPoint = DpiHelper.PhysicalToLogical(PromptTextBox, screenPoint);
             _pttWindow.PositionUnderCaret(screenPoint);
         }
         catch
         {
             var screenPoint = PromptTextBox.PointToScreen(new System.Windows.Point(0, PromptTextBox.ActualHeight + 4));
+            screenPoint = DpiHelper.PhysicalToLogical(PromptTextBox, screenPoint);
             _pttWindow.PositionUnderCaret(screenPoint);
         }
     }
