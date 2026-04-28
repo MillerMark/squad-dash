@@ -1149,3 +1149,27 @@ public ApplicationSettingsSnapshot SaveNotificationEventToggles(
 **Reviewers:** Arjun Sen, Talia Rune, Lyra Morn  
 **Status:** Awaiting approval
 
+---
+
+## Notification Event Hooks (2026-04-28)
+
+**By:** Talia Rune (TypeScript & SDK Bridge Specialist)
+
+Event hooks for `PushNotificationService` — confirmed by reading `Squad.SDK/runPrompt.ts`, `SquadDash/MainWindow.xaml.cs` (HandleEvent switch at line 1229), and `SquadDash/SquadSdkEvent.cs`.
+
+- **assistant_turn_complete:** uses `"done"` event **[confirmed]**  
+  Emitted in `runPrompt.ts` line 582 via `onDone()` callback — fires when the AI agent finishes its full response turn. Semantic match correct.
+
+- **loop_stopped:** uses `"loop_stopped"` event **[confirmed]**  
+  Emitted in `runPrompt.ts` lines 686 and 711 — fires when a loop subprocess exits cleanly (code 0 or killed) or when no loop is active and stop is requested. Semantic match correct.
+
+- **rc_connection_dropped:** uses `"rc_stopped"` event **[confirmed]**  
+  Emitted in `runPrompt.ts` lines 809 and 823 — fires when remote bridge is stopped (either no active bridge or after successful shutdown). Semantic match correct.
+
+All three events exist in the TypeScript SDK, are emitted at the correct lifecycle moments, and are already handled in the C# `MainWindow.HandleEvent` switch statement. **No code changes needed.**
+
+**Files verified:**
+- `Squad.SDK/runPrompt.ts` — lines 582 (`done`), 686/711 (`loop_stopped`), 809/823 (`rc_stopped`)
+- `SquadDash/MainWindow.xaml.cs` — lines 1403 (`done`), 1359 (`loop_stopped`), 1395 (`rc_stopped`)
+- `SquadDash/SquadSdkEvent.cs` — event model definitions (LoopStatus, LoopMdPath, etc.)
+
