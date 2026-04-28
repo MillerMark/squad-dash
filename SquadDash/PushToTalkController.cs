@@ -34,6 +34,7 @@ internal sealed class PushToTalkController : IDisposable {
     private SpeechRecognitionService?   _speechService;
     private Func<IEnumerable<string>>?  _phraseHintsProvider;
     private bool                        _voiceStartedWithSendEnabled;
+    private int                         _sessionCaretIndex;
 
     // ── Public surface ─────────────────────────────────────────────────────
     internal bool IsActive           => _pttState == PttState.Active;
@@ -162,6 +163,11 @@ internal sealed class PushToTalkController : IDisposable {
             return;
         }
 
+        // Capture caret position before the panel becomes visible.
+        // CaretIndex can change (or appear to reset) once layout shifts occur,
+        // so we snapshot it here to guarantee a correct leftContext at recognition time.
+        _sessionCaretIndex = _promptTextBox.CaretIndex;
+
         _pushToTalkPanel.Visibility = Visibility.Visible;
         _volumeBar.Height = 0;
 
@@ -217,16 +223,19 @@ internal sealed class PushToTalkController : IDisposable {
     // ── Speech text insertion ──────────────────────────────────────────────
     private void AppendSpeechToPrompt(string text) {
         _promptHasVoiceInput = true;
-        var caretIndex  = _promptTextBox.CaretIndex;
-        var current     = _promptTextBox.Text;
-        var leftContext = current[..caretIndex];
-        var prefix      = caretIndex > 0 && current.Length > 0 && current[caretIndex - 1] != ' '
-                              ? " "
-                              : string.Empty;
-        var processed = VoiceInsertionHeuristics.Apply(leftContext, text);
+        var current      = _promptTextBox.Text;
+        // Clamp in case text was externally modified since session start.
+        var caretIndex   = Math.Min(_sessionCaretIndex, current.Length);
+        var leftContext  = current[..caretIndex];
+        var rightContext = current[caretIndex..];
+        var prefix       = caretIndex > 0 && current[caretIndex - 1] != ' '
+                               ? " "
+                               : string.Empty;
+        var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
         var insert    = prefix + processed;
         _promptTextBox.Text       = current[..caretIndex] + insert + current[caretIndex..];
         _promptTextBox.CaretIndex = caretIndex + insert.Length;
+        _sessionCaretIndex        = caretIndex + insert.Length;
     }
 
     // ── UI hint ────────────────────────────────────────────────────────────

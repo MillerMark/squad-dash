@@ -33,18 +33,31 @@ internal static class VoiceInsertionHeuristics
     /// <param name="incomingText">
     ///   The raw text returned by the speech recogniser.
     /// </param>
-    public static string Apply(string leftContext, string incomingText)
+    /// <param name="rightContext">
+    ///   The text that exists to the RIGHT of the insertion caret
+    ///   (i.e. <c>promptText[caretIndex..]</c>).  Used to detect whether the
+    ///   insertion point is mid-sentence (so trailing periods should be
+    ///   stripped).  Pass <c>""</c> or omit when appending at the end.
+    /// </param>
+    public static string Apply(string leftContext, string incomingText, string rightContext = "")
     {
         if (string.IsNullOrEmpty(incomingText)) return incomingText;
 
         var result = incomingText;
 
-        // 1. Mid-sentence continuation: lowercase first word unless it is a
-        //    special-case token (acronym, CamelCase, pronoun "I").
+        // 1. Mid-sentence continuation (left side): lowercase first word unless
+        //    it is a special-case token (acronym, CamelCase, pronoun "I").
         if (IsSentenceContinuation(leftContext))
             result = LowercaseFirstWordIfNotSpecial(result);
 
-        // 2. Conservative trailing-punctuation corrections.
+        // 2. Mid-sentence insertion (right side): strip any trailing period when
+        //    the character immediately to the right of the caret is a lowercase
+        //    letter or a closing parenthesis — inserting a sentence-ending period
+        //    mid-sentence produces broken punctuation.
+        if (IsRightContextMidSentence(rightContext))
+            result = StripTrailingPeriods(result);
+
+        // 3. Conservative trailing-punctuation corrections (e.g. "this." → "this:").
         result = ApplyTrailingPunctuationFixes(result);
 
         return result;
@@ -162,7 +175,36 @@ internal static class VoiceInsertionHeuristics
         return text;
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    /// <summary>
+    /// Returns <c>true</c> when the first non-whitespace character of
+    /// <paramref name="rightContext"/> indicates the caret is mid-sentence —
+    /// specifically a lowercase letter or a closing parenthesis <c>)</c>.
+    /// When true, the caller should strip trailing periods from the inserted text.
+    /// </summary>
+    internal static bool IsRightContextMidSentence(string rightContext)
+    {
+        if (string.IsNullOrEmpty(rightContext)) return false;
+
+        foreach (var ch in rightContext)
+        {
+            if (ch == ' ' || ch == '\t') continue;
+            return char.IsLower(ch) || ch == ')';
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Removes one trailing period from <paramref name="text"/>.
+    /// Used when the caret is mid-sentence (right context signals continuation).
+    /// </summary>
+    internal static string StripTrailingPeriods(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return text.EndsWith('.') ? text[..^1] : text;
+    }
+
+
 
     /// <summary>
     /// Checks whether <paramref name="text"/> ends with <paramref name="targetWord"/>
@@ -175,8 +217,11 @@ internal static class VoiceInsertionHeuristics
     /// </summary>
     private static bool TryMatchTrailingWord(string text, string targetWord, out int stemLength)
     {
+        // Trim trailing whitespace (speech recognizers sometimes append a space).
+        var trimmed = text.TrimEnd();
+
         // Strip optional trailing period.
-        var core = text.EndsWith('.') ? text[..^1] : text;
+        var core = trimmed.EndsWith('.') ? trimmed[..^1] : trimmed;
 
         if (core.EndsWith(targetWord, StringComparison.OrdinalIgnoreCase))
         {
