@@ -239,6 +239,21 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveNotificationSettings(
+        string? provider,
+        IReadOnlyDictionary<string, string>? endpoint,
+        IReadOnlyDictionary<string, bool>? eventToggles) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            NotificationProvider = string.IsNullOrWhiteSpace(provider) ? null : provider.Trim(),
+            NotificationEndpoint = endpoint,
+            NotificationEventToggles = eventToggles
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveDeveloperIssueSimulation(
         DeveloperStartupIssueSimulation startupIssueSimulation,
         DeveloperRuntimeIssueSimulation runtimeIssueSimulation) {
@@ -586,6 +601,16 @@ internal sealed record ApplicationSettingsSnapshot(
     /// </summary>
     public double? DocsSourceWidth { get; init; }
 
+    // ── Notifications ──────────────────────────────────────────────────────
+    /// <summary>Push notification provider. "ntfy" or null (disabled).</summary>
+    public string? NotificationProvider { get; init; }
+
+    /// <summary>Endpoint config for push notifications. For ntfy: { "topic": "my-topic" }.</summary>
+    public IReadOnlyDictionary<string, string>? NotificationEndpoint { get; init; }
+
+    /// <summary>Per-event notification toggles. Keys are event names, values are on/off booleans.</summary>
+    public IReadOnlyDictionary<string, bool>? NotificationEventToggles { get; init; }
+
     /// <summary>
     /// Names of <see cref="TraceCategory"/> values that should be suppressed in
     /// the live trace window.  Stored as strings so the JSON round-trips cleanly
@@ -770,6 +795,11 @@ internal sealed record ApplicationSettingsSnapshot(
                                     .Distinct(StringComparer.OrdinalIgnoreCase)
                                     .ToArray(),
             DocsSelectedTopic = string.IsNullOrWhiteSpace(DocsSelectedTopic) ? null : DocsSelectedTopic.Trim(),
+            DocsSourceOpen = DocsSourceOpen,
+            DocsSourceWidth = DocsSourceWidth,
+            NotificationProvider = string.IsNullOrWhiteSpace(NotificationProvider) ? null : NotificationProvider.Trim(),
+            NotificationEndpoint = NotificationEndpoint,
+            NotificationEventToggles = NotificationEventToggles,
         };
     }
 

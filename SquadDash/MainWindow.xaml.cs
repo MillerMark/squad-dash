@@ -84,6 +84,7 @@ public partial class MainWindow : Window
     private readonly WorkspaceOpenCoordinator _workspaceOpenCoordinator;
     private readonly InstanceActivationChannel _instanceActivationChannel;
     private PreferencesWindow? _preferencesWindow;
+    private readonly PushNotificationService _pushNotificationService;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
     private readonly ObservableCollection<AgentStatusCard> _activeAgentCards = [];
     private readonly ObservableCollection<AgentStatusCard> _inactiveAgentCards = [];
@@ -292,6 +293,7 @@ public partial class MainWindow : Window
         _startupWorkspaceLease = startupWorkspaceLease;
         _squadCliAdapter = new SquadCliAdapter(_workspacePaths, (op, ex) => HandleUiCallbackException(op, ex));
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
+        _pushNotificationService = new PushNotificationService(_settingsStore);
         InitializeComponent();
         _scrollController = new TranscriptScrollController(OutputTextBox, Dispatcher);
         _scrollController.SetScrollToBottomButton(ScrollToBottomButton);
@@ -1358,6 +1360,7 @@ public partial class MainWindow : Window
 
             case "loop_stopped":
                 HandleLoopStopped(evt);
+                _ = _pushNotificationService.NotifyEventAsync("loop_stopped", "SquadDash", "Loop stopped");
                 break;
 
             case "loop_error":
@@ -1394,6 +1397,7 @@ public partial class MainWindow : Window
 
             case "rc_stopped":
                 HandleRcStopped(evt);
+                _ = _pushNotificationService.NotifyEventAsync("rc_connection_dropped", "SquadDash", "Remote connection dropped");
                 break;
 
             case "rc_error":
@@ -1407,6 +1411,10 @@ public partial class MainWindow : Window
                 _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
                 FlushDeferredSystemLines();
+                {
+                    var agentName = _leadAgent?.Name ?? "Agent";
+                    _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", $"{agentName} turn complete");
+                }
                 break;
 
             case "error":
@@ -4356,10 +4364,12 @@ public partial class MainWindow : Window
                 CanShowOwnedWindow() ? this : null,
                 _settingsStore,
                 _settingsSnapshot,
+                _pushNotificationService,
                 showDevOptions,
                 snapshot =>
                 {
                     _settingsSnapshot = snapshot;
+                    _pushNotificationService.ReloadProvider();
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
