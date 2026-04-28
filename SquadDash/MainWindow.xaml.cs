@@ -185,15 +185,8 @@ public partial class MainWindow : Window
     private TextBlock?[]   _cachedMatchBucCell        = [];  // match i → BUC table cell, null if not a BUC match
     // TextBlocks inside table cells that currently carry a search-highlight background.
     private readonly HashSet<TextBlock> _bucHighlightedCells = [];
-    // Opaque brushes using the exact perceived colors the adorner produces (dark theme).
-    // Semi-transparent brushes can't be used here because TextBlock.Background composites
-    // against the table cell's own dark background, yielding a different hue than the
-    // adorner (which composites against the RichTextBox background).
-    private static readonly Brush BucInactiveBrush     = MakeFrozenBrush(Color.FromRgb(166, 141,  66)); // #a68d42
-    private static readonly Brush BucActiveBrush       = MakeFrozenBrush(Color.FromRgb(255, 229, 122)); // #ffe57a
-    private static readonly Brush BucInactiveTextBrush = MakeFrozenBrush(Color.FromRgb ( 18,  13,   0)); // #120d00
-    private static readonly Brush BucActiveTextBrush   = MakeFrozenBrush(Color.FromRgb ( 49,  34,   0)); // #312200
     private ScrollBar? _transcriptScrollBar;
+    private string? _lastAgentImageFolder;
     private ScrollViewer? _transcriptScrollViewer;
 
     // ── Doc source find-in-source bar state ────────────────────────────────────
@@ -4055,18 +4048,21 @@ public partial class MainWindow : Window
             if (sender is not MenuItem { Tag: AgentStatusCard agentCard })
                 return;
 
-            var agentsDir = _workspacePaths.AgentImageAssetsDirectory;
+            var agentsDir    = _workspacePaths.AgentImageAssetsDirectory;
+            var initialDir   = _lastAgentImageFolder
+                               ?? (Directory.Exists(agentsDir) ? agentsDir : null);
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = $"Choose image for {agentCard.Name}",
                 Filter = "Image files (*.png;*.jpg;*.jpeg;*.jfif;*.bmp;*.gif)|*.png;*.jpg;*.jpeg;*.jfif;*.bmp;*.gif|All files (*.*)|*.*",
                 Multiselect = false,
-                InitialDirectory = Directory.Exists(agentsDir) ? agentsDir : null
+                InitialDirectory = initialDir
             };
 
             if (dialog.ShowDialog(this) != true)
                 return;
 
+            _lastAgentImageFolder = Path.GetDirectoryName(dialog.FileName);
             ApplyAgentImage(agentCard, dialog.FileName, persist: true);
         }
         catch (Exception ex)
@@ -12808,10 +12804,14 @@ public partial class MainWindow : Window
 
         try
         {
+            // Use StreamSource instead of UriSource to bypass WPF's internal per-URI
+            // bitmap cache.  This ensures a re-selected file is always read fresh from
+            // disk even if the same path was used before (e.g. after external edits).
+            using var stream = File.OpenRead(imagePath);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
-            bitmap.UriSource = new Uri(imagePath, UriKind.Absolute);
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = stream;
+            bitmap.CacheOption  = BitmapCacheOption.OnLoad;
             bitmap.EndInit();
             bitmap.Freeze();
             return bitmap;
@@ -13439,16 +13439,22 @@ public partial class MainWindow : Window
         }
 
         // Apply BUC cell backgrounds + dark text: all inactive first, then the active cell on top.
+        // Read brushes from the current theme resources (same as SearchHighlightAdorner) so
+        // that BUC highlights automatically match the active theme.
+        var bucInactiveBg   = GetThemeBrush("SearchHighlight",            Color.FromRgb( 98,  84,  44));
+        var bucActiveBg     = GetThemeBrush("SearchHighlightCurrent",     Color.FromRgb(255, 229, 122));
+        var bucInactiveFg   = GetThemeBrush("SearchHighlightText",        Color.FromRgb( 18,  13,   0));
+        var bucActiveFg     = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(  0,   0,   0));
         foreach (var cell in _bucHighlightedCells)
         {
-            cell.Background = BucInactiveBrush;
-            cell.Foreground = BucInactiveTextBrush;
+            cell.Background = bucInactiveBg;
+            cell.Foreground = bucInactiveFg;
         }
         if (_searchMatchCursor >= 0 && _searchMatchCursor < matchBucCell.Length
             && matchBucCell[_searchMatchCursor] is { } activeBucCell)
         {
-            activeBucCell.Background = BucActiveBrush;
-            activeBucCell.Foreground = BucActiveTextBrush;
+            activeBucCell.Background = bucActiveBg;
+            activeBucCell.Foreground = bucActiveFg;
         }
 
         _searchAdorner.SetMatches(pointers, cursorInList);
@@ -13527,17 +13533,21 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateBucActiveHighlight(int matchIndex)
     {
+        var bucInactiveBg = GetThemeBrush("SearchHighlight",            Color.FromRgb( 98,  84,  44));
+        var bucActiveBg   = GetThemeBrush("SearchHighlightCurrent",     Color.FromRgb(255, 229, 122));
+        var bucInactiveFg = GetThemeBrush("SearchHighlightText",        Color.FromRgb( 18,  13,   0));
+        var bucActiveFg   = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(  0,   0,   0));
         foreach (var cell in _bucHighlightedCells)
         {
-            cell.Background = BucInactiveBrush;
-            cell.Foreground = BucInactiveTextBrush;
+            cell.Background = bucInactiveBg;
+            cell.Foreground = bucInactiveFg;
         }
         if (_cachedMatchBucCell is not null
             && matchIndex >= 0 && matchIndex < _cachedMatchBucCell.Length
             && _cachedMatchBucCell[matchIndex] is { } active)
         {
-            active.Background = BucActiveBrush;
-            active.Foreground = BucActiveTextBrush;
+            active.Background = bucActiveBg;
+            active.Foreground = bucActiveFg;
         }
     }
 
@@ -13638,6 +13648,14 @@ public partial class MainWindow : Window
         b.Freeze();
         return b;
     }
+
+    /// <summary>
+    /// Looks up a <see cref="Brush"/> from the current application theme resources by
+    /// <paramref name="key"/>.  Falls back to a new brush with <paramref name="fallback"/>
+    /// if the key is not found (e.g. in tests or before resources load).
+    /// </summary>
+    private static Brush GetThemeBrush(string key, Color fallback)
+        => Application.Current?.Resources[key] as Brush ?? new SolidColorBrush(fallback);
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
     {
