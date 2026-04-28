@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 import readline from "node:readline";
 import { SquadBridgeService } from "./squadService.js";
+import { RemoteBridge } from "@bradygaster/squad-sdk";
+let activeRemoteBridge = null;
+let activeLoopProc = null;
 const bridge = new SquadBridgeService({
     onBackgroundTasksChanged(sessionId, tasks) {
         emit({
@@ -281,6 +285,34 @@ function tryParseRunLoopRequest(parsed) {
         sessionId
     };
 }
+function tryParseRcStartRequest(parsed) {
+    if (typeof parsed.repo !== "string" || typeof parsed.branch !== "string" ||
+        typeof parsed.machine !== "string" || typeof parsed.squadDir !== "string" ||
+        typeof parsed.cwd !== "string")
+        return null;
+    const repo = parsed.repo.trim();
+    const branch = parsed.branch.trim();
+    const machine = parsed.machine.trim();
+    const squadDir = parsed.squadDir.trim();
+    const cwd = parsed.cwd.trim();
+    if (!repo || !branch || !machine || !squadDir || !cwd)
+        return null;
+    return {
+        type: "rc_start",
+        requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+            ? parsed.requestId.trim()
+            : undefined,
+        port: typeof parsed.port === "number" ? parsed.port : 0,
+        repo,
+        branch,
+        machine,
+        squadDir,
+        cwd,
+        sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
+            ? parsed.sessionId.trim()
+            : undefined
+    };
+}
 function tryParseRequest(line) {
     try {
         const parsed = JSON.parse(line);
@@ -317,14 +349,26 @@ function tryParseRequest(line) {
             return tryParseDelegateRequest(parsed);
         if (parsed.type === "run_loop")
             return tryParseRunLoopRequest(parsed);
+        if (parsed.type === "rc_start")
+            return tryParseRcStartRequest(parsed);
+        if (parsed.type === "rc_stop") {
+            return {
+                type: "rc_stop",
+                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+                    ? parsed.requestId.trim()
+                    : undefined
+            };
+        }
         return tryParsePromptRequest(parsed);
     }
     catch {
         return null;
     }
 }
-function buildRunHandlers(requestId) {
+function buildRunHandlers(requestId, remoteBridge) {
     let startedThinking = false;
+    let rcAccumulatedContent = "";
+    const rcSessionId = requestId ?? randomUUID();
     return {
         onSessionReady(session) {
             emit({
@@ -386,6 +430,7 @@ function buildRunHandlers(requestId) {
                 skill: tool.skill,
                 args: tool.args
             });
+            remoteBridge?.sendToolCall("copilot", tool.toolName, tool.args ?? {}, "running");
         },
         onToolProgress(tool) {
             emit({
@@ -421,6 +466,7 @@ function buildRunHandlers(requestId) {
                 outputText: tool.outputText,
                 args: tool.args
             });
+            remoteBridge?.sendToolCall("copilot", tool.toolName, tool.args ?? {}, tool.success ? "completed" : "error");
         },
         onDelta(chunk) {
             emit({
@@ -428,18 +474,30 @@ function buildRunHandlers(requestId) {
                 requestId,
                 chunk
             });
+            if (remoteBridge) {
+                rcAccumulatedContent += chunk;
+                remoteBridge.sendDelta(rcSessionId, "copilot", chunk);
+            }
         },
         onDone() {
             emit({
                 type: "done",
                 requestId
             });
+            if (remoteBridge && rcAccumulatedContent) {
+                remoteBridge.addMessage("agent", rcAccumulatedContent);
+                rcAccumulatedContent = "";
+            }
         },
         onAborted() {
             emit({
                 type: "aborted",
                 requestId
             });
+            if (remoteBridge && rcAccumulatedContent) {
+                remoteBridge.addMessage("agent", rcAccumulatedContent + " [aborted]");
+                rcAccumulatedContent = "";
+            }
         }
     };
 }
@@ -453,6 +511,7 @@ async function handleRunLoop(request) {
                 shell: false,
                 stdio: ["ignore", "pipe", "pipe"]
             });
+            activeLoopProc = proc;
         }
         catch (err) {
             emit({
@@ -514,7 +573,8 @@ async function handleRunLoop(request) {
             resolve();
         });
         proc.on("close", (code) => {
-            if (code === 0) {
+            activeLoopProc = null;
+            if (code === 0 || proc.killed) {
                 emit({
                     type: "loop_stopped",
                     requestId,
@@ -537,11 +597,113 @@ async function handleRunLoop(request) {
         });
     });
 }
+function handleRunLoopStop(request) {
+    if (!activeLoopProc) {
+        emit({
+            type: "loop_stopped",
+            requestId: request.requestId,
+            loopStatus: "stopped"
+        });
+        return;
+    }
+    // Kill the subprocess — the proc.on("close") handler in handleRunLoop
+    // will emit loop_stopped once the process exits.
+    activeLoopProc.kill("SIGTERM");
+}
 async function handlePrompt(request) {
     await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);
 }
 async function handleDelegate(request) {
     await bridge.runDelegation(request, buildRunHandlers(request.requestId));
+}
+function getLanIp() {
+    const nets = os.networkInterfaces();
+    for (const iface of Object.values(nets)) {
+        if (!iface)
+            continue;
+        for (const addr of iface) {
+            if (addr.family === "IPv4" && !addr.internal) {
+                return addr.address;
+            }
+        }
+    }
+    return null;
+}
+async function handleRcStart(request) {
+    if (activeRemoteBridge) {
+        emit({
+            type: "rc_error",
+            requestId: request.requestId,
+            message: "Remote bridge is already running. Stop it first with rc_stop."
+        });
+        return;
+    }
+    const rcBridge = new RemoteBridge({
+        port: request.port ?? 0,
+        maxHistory: 50,
+        repo: request.repo,
+        branch: request.branch,
+        machine: request.machine,
+        squadDir: request.squadDir,
+        onPrompt: async (text) => {
+            const remoteRequestId = randomUUID();
+            rcBridge.addMessage("user", text);
+            try {
+                await bridge.runPrompt(text, buildRunHandlers(remoteRequestId, rcBridge), { cwd: request.cwd, sessionId: request.sessionId });
+            }
+            catch (err) {
+                rcBridge.sendError(err instanceof Error ? err.message : String(err));
+            }
+        },
+        onCommand: async (name, args) => {
+            emit({
+                type: "rc_command",
+                requestId: request.requestId,
+                name,
+                args
+            });
+        }
+    });
+    try {
+        const port = await rcBridge.start();
+        activeRemoteBridge = rcBridge;
+        const lanIp = getLanIp();
+        emit({
+            type: "rc_started",
+            requestId: request.requestId,
+            port,
+            token: rcBridge.getSessionToken(),
+            url: `http://localhost:${port}`,
+            lanUrl: lanIp ? `http://${lanIp}:${port}` : null
+        });
+    }
+    catch (err) {
+        emit({
+            type: "rc_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+async function handleRcStop(request) {
+    if (!activeRemoteBridge) {
+        emit({
+            type: "rc_stopped",
+            requestId: request.requestId
+        });
+        return;
+    }
+    try {
+        await activeRemoteBridge.stop();
+    }
+    catch {
+        // ignore stop errors — bridge may already be closed
+    }
+    activeRemoteBridge = null;
+    emit({
+        type: "rc_stopped",
+        requestId: request.requestId
+    });
 }
 async function main() {
     const directPrompt = process.argv.slice(2).join(" ").trim();
@@ -650,6 +812,18 @@ async function main() {
                 .finally(() => {
                 activeLoopTask = null;
             });
+            continue;
+        }
+        if (request.type === "run_loop_stop") {
+            handleRunLoopStop(request);
+            continue;
+        }
+        if (request.type === "rc_start") {
+            await handleRcStart(request);
+            continue;
+        }
+        if (request.type === "rc_stop") {
+            await handleRcStop(request);
             continue;
         }
         if (activePromptTask) {

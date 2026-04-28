@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 import readline from "node:readline";
 import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
 import { RemoteBridge } from "@bradygaster/squad-sdk";
@@ -48,6 +49,11 @@ type RunLoopRequest = {
     sessionId?: string;
 };
 
+type RunLoopStopRequest = {
+    type: "run_loop_stop";
+    requestId?: string;
+};
+
 type RcStartRequest = {
     type: "rc_start";
     requestId?: string;
@@ -65,9 +71,10 @@ type RcStopRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RcStartRequest | RcStopRequest;
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
+let activeLoopProc: ReturnType<typeof spawn> | null = null;
 
 const bridge = new SquadBridgeService({
     onBackgroundTasksChanged(sessionId, tasks) {
@@ -605,6 +612,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                 shell: false,
                 stdio: ["ignore", "pipe", "pipe"]
             });
+            activeLoopProc = proc;
         }
         catch (err) {
             emit({
@@ -672,7 +680,8 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
         });
 
         proc.on("close", (code: number | null) => {
-            if (code === 0) {
+            activeLoopProc = null;
+            if (code === 0 || proc.killed) {
                 emit({
                     type: "loop_stopped",
                     requestId,
@@ -696,12 +705,39 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
     });
 }
 
+function handleRunLoopStop(request: RunLoopStopRequest): void {
+    if (!activeLoopProc) {
+        emit({
+            type: "loop_stopped",
+            requestId: request.requestId,
+            loopStatus: "stopped"
+        });
+        return;
+    }
+    // Kill the subprocess — the proc.on("close") handler in handleRunLoop
+    // will emit loop_stopped once the process exits.
+    activeLoopProc.kill("SIGTERM");
+}
+
 async function handlePrompt(request: PromptRequest) {
     await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);
 }
 
 async function handleDelegate(request: DelegateRequest) {
     await bridge.runDelegation(request, buildRunHandlers(request.requestId));
+}
+
+function getLanIp(): string | null {
+    const nets = os.networkInterfaces();
+    for (const iface of Object.values(nets)) {
+        if (!iface) continue;
+        for (const addr of iface) {
+            if (addr.family === "IPv4" && !addr.internal) {
+                return addr.address;
+            }
+        }
+    }
+    return null;
 }
 
 async function handleRcStart(request: RcStartRequest): Promise<void> {
@@ -748,12 +784,14 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
     try {
         const port = await rcBridge.start();
         activeRemoteBridge = rcBridge;
+        const lanIp = getLanIp();
         emit({
             type: "rc_started",
             requestId: request.requestId,
             port,
             token: rcBridge.getSessionToken(),
-            url: `http://localhost:${port}`
+            url: `http://localhost:${port}`,
+            lanUrl: lanIp ? `http://${lanIp}:${port}` : null
         });
     }
     catch (err) {
@@ -906,6 +944,11 @@ async function main() {
                 .finally(() => {
                     activeLoopTask = null;
                 });
+            continue;
+        }
+
+        if (request.type === "run_loop_stop") {
+            handleRunLoopStop(request);
             continue;
         }
 
