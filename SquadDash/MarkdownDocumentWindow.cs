@@ -195,7 +195,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         _srcItalicButton = MakeToolbarButton("I",  "Italic (Ctrl+I)",      italic: true, enabled: false);
         var srcLinkBtn   = MakeToolbarButton("Link", "Insert link",         enabled: true);
         var srcTableBtn  = MakeToolbarButton("Table", "Insert table",       enabled: true);
-        var srcCodeBtn   = MakeToolbarButton("code", "Insert inline code", enabled: true);
+        var srcCodeBtn   = MakeToolbarButton("`code`", "Insert inline code", enabled: true);
         var srcBlockBtn  = MakeToolbarButton("{ }", "Insert code block",    enabled: true);
 
         foreach (var document in _documents) {
