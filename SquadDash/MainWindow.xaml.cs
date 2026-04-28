@@ -5155,27 +5155,7 @@ public partial class MainWindow : Window
         ApplyMarkdownBold(PromptTextBox);
     }
 
-    private static void ApplyMarkdownBold(TextBox box)
-    {
-        var selStart = box.SelectionStart;
-        var selLen   = box.SelectionLength;
-
-        if (selLen > 0)
-        {
-            var selected       = box.SelectedText;
-            var trimmed        = selected.TrimEnd(' ');
-            var trailingSpaces = selected[trimmed.Length..];
-            box.SelectedText    = $"**{trimmed}**{trailingSpaces}";
-            box.SelectionStart  = selStart;
-            box.SelectionLength = trimmed.Length + 4;
-        }
-        else
-        {
-            var caret = box.CaretIndex;
-            box.Text       = box.Text.Insert(caret, "****");
-            box.CaretIndex = caret + 2;
-        }
-    }
+    private static void ApplyMarkdownBold(TextBox box) => MarkdownEditorCommands.ApplyBold(box);
 
     private void DocSourceTextBox_ApplyItalic()
     {
@@ -5184,27 +5164,7 @@ public partial class MainWindow : Window
         DocSourceTextBox.Focus();
     }
 
-    private static void ApplyMarkdownItalic(TextBox box)
-    {
-        var selStart = box.SelectionStart;
-        var selLen   = box.SelectionLength;
-
-        if (selLen > 0)
-        {
-            var selected       = box.SelectedText;
-            var trimmed        = selected.TrimEnd(' ');
-            var trailingSpaces = selected[trimmed.Length..];
-            box.SelectedText    = $"*{trimmed}*{trailingSpaces}";
-            box.SelectionStart  = selStart;
-            box.SelectionLength = trimmed.Length + 2;
-        }
-        else
-        {
-            var caret = box.CaretIndex;
-            box.Text       = box.Text.Insert(caret, "**");
-            box.CaretIndex = caret + 1;
-        }
-    }
+    private static void ApplyMarkdownItalic(TextBox box) => MarkdownEditorCommands.ApplyItalic(box);
 
     private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {

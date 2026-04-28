@@ -43,6 +43,9 @@ internal sealed class MarkdownDocumentWindow : Window {
     private readonly GridSplitter _splitter;
     private readonly Border _sourceBorder;
     private readonly Grid _sourceEditorHost;
+    private readonly Border _sourceToolbarBorder;
+    private Button? _srcBoldButton;
+    private Button? _srcItalicButton;
     private bool _showSource;
     private bool _isSwitchingDocument;
     private bool _isClosingAfterPrompt;
@@ -184,12 +187,34 @@ internal sealed class MarkdownDocumentWindow : Window {
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(8),
             Child = _sourceEditorHost,
-            Visibility = Visibility.Collapsed
         };
         _sourceBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
         _sourceBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
-        Grid.SetColumn(_sourceBorder, 2);
-        _contentGrid.Children.Add(_sourceBorder);
+
+        _srcBoldButton   = MakeToolbarButton("B",  "Bold (Ctrl+B)",        bold:   true, enabled: false);
+        _srcItalicButton = MakeToolbarButton("I",  "Italic (Ctrl+I)",      italic: true, enabled: false);
+        var srcLinkBtn   = MakeToolbarButton("Link", "Insert link",         enabled: true);
+        var srcTableBtn  = MakeToolbarButton("Table", "Insert table",       enabled: true);
+        var srcCodeBtn   = MakeToolbarButton("code", "Insert inline code", enabled: true);
+        var srcBlockBtn  = MakeToolbarButton("{ }", "Insert code block",    enabled: true);
+
+        foreach (var document in _documents) {
+            document.EditorTextBox.SelectionChanged += EditorTextBox_SelectionChanged;
+            document.EditorTextBox.PreviewKeyDown   += EditorTextBox_PreviewKeyDown;
+        }
+
+        var tbStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new System.Windows.Thickness(0, 0, 0, 6) };
+        foreach (var btn in new[] { (Button)_srcBoldButton, _srcItalicButton, srcLinkBtn, srcTableBtn, srcCodeBtn, srcBlockBtn })
+            tbStack.Children.Add(btn);
+
+        var sourceColumnPanel = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(tbStack, System.Windows.Controls.Dock.Top);
+        sourceColumnPanel.Children.Add(tbStack);
+        sourceColumnPanel.Children.Add(_sourceBorder);
+
+        _sourceToolbarBorder = new Border { Child = sourceColumnPanel, Visibility = Visibility.Collapsed };
+        Grid.SetColumn(_sourceToolbarBorder, 2);
+        _contentGrid.Children.Add(_sourceToolbarBorder);
 
         Closing += MarkdownDocumentWindow_Closing;
 
@@ -254,6 +279,56 @@ internal sealed class MarkdownDocumentWindow : Window {
         document.IsDirty = !string.Equals(document.WorkingText, document.SavedText, StringComparison.Ordinal);
         RenderPreview(document);
         UpdateChrome();
+    }
+
+    private void EditorTextBox_SelectionChanged(object sender, System.Windows.RoutedEventArgs e) {
+        if (sender is not TextBox { Tag: MarkdownDocumentTabState doc } tb || !ReferenceEquals(doc, _activeDocument))
+            return;
+        var hasSelection = tb.SelectionLength > 0;
+        if (_srcBoldButton   is not null) _srcBoldButton.IsEnabled   = hasSelection;
+        if (_srcItalicButton is not null) _srcItalicButton.IsEnabled = hasSelection;
+    }
+
+    private void EditorTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
+        if (sender is not TextBox tb) return;
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
+        if (e.Key == System.Windows.Input.Key.B) {
+            MarkdownEditorCommands.ApplyBold(tb);
+            e.Handled = true;
+        } else if (e.Key == System.Windows.Input.Key.I) {
+            MarkdownEditorCommands.ApplyItalic(tb);
+            e.Handled = true;
+        }
+    }
+
+    private Button MakeToolbarButton(string label, string tooltip, bool bold = false, bool italic = false, bool enabled = true) {
+        var btn = new Button {
+            Content = label,
+            Width   = 28,
+            Height  = 24,
+            Margin  = new System.Windows.Thickness(0, 0, 3, 0),
+            ToolTip = tooltip,
+            IsEnabled = enabled,
+            FontWeight = bold   ? System.Windows.FontWeights.Bold   : System.Windows.FontWeights.Normal,
+            FontStyle  = italic ? System.Windows.FontStyles.Italic  : System.Windows.FontStyles.Normal,
+        };
+        btn.SetResourceReference(StyleProperty, "ThemedButtonStyle");
+        btn.Click += (_, _) => OnToolbarButtonClick(label);
+        return btn;
+    }
+
+    private void OnToolbarButtonClick(string label) {
+        var tb = _activeDocument?.EditorTextBox;
+        if (tb is null) return;
+        switch (label) {
+            case "B":       MarkdownEditorCommands.ApplyBold(tb);        break;
+            case "I":       MarkdownEditorCommands.ApplyItalic(tb);      break;
+            case "Link":    MarkdownEditorCommands.InsertLink(tb);       break;
+            case "Table":   MarkdownEditorCommands.InsertTable(tb);      break;
+            case "`code`":  MarkdownEditorCommands.InsertInlineCode(tb); break;
+            case "{ }":     MarkdownEditorCommands.InsertCodeBlock(tb);  break;
+        }
+        tb.Focus();
     }
 
     private void MarkdownDocumentWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e) {
