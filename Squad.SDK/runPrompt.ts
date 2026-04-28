@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
+import { RemoteBridge } from "@bradygaster/squad-sdk";
 
 type PromptRequest = {
     type?: "prompt";
@@ -38,7 +40,34 @@ type ShutdownRequest = {
     type: "shutdown";
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest;
+type RunLoopRequest = {
+    type: "run_loop";
+    requestId?: string;
+    loopMdPath: string;
+    cwd: string;
+    sessionId?: string;
+};
+
+type RcStartRequest = {
+    type: "rc_start";
+    requestId?: string;
+    port?: number;
+    repo: string;
+    branch: string;
+    machine: string;
+    squadDir: string;
+    cwd: string;
+    sessionId?: string;
+};
+
+type RcStopRequest = {
+    type: "rc_stop";
+    requestId?: string;
+};
+
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RcStartRequest | RcStopRequest;
+
+let activeRemoteBridge: RemoteBridge | null = null;
 
 const bridge = new SquadBridgeService({
     onBackgroundTasksChanged(sessionId, tasks) {
@@ -194,6 +223,51 @@ const bridge = new SquadBridgeService({
             outputText: tool.outputText,
             args: tool.args
         });
+    },
+    onWatchFleetDispatched(sessionId, info) {
+        emit({
+            type: "watch_fleet_dispatched",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchFleetSize: info.fleetSize,
+            prompt: info.prompt
+        });
+    },
+    onWatchWaveDispatched(sessionId, info) {
+        emit({
+            type: "watch_wave_dispatched",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchWaveIndex: info.waveIndex,
+            watchWaveCount: info.waveCount,
+            watchAgentCount: info.agentCount
+        });
+    },
+    onWatchHydration(sessionId, info) {
+        emit({
+            type: "watch_hydration",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchPhase: info.phase
+        });
+    },
+    onWatchRetro(sessionId, info) {
+        emit({
+            type: "watch_retro",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchRetroSummary: info.summary
+        });
+    },
+    onWatchMonitorNotification(sessionId, info) {
+        emit({
+            type: "watch_monitor_notification",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchNotificationChannel: info.channel,
+            watchNotificationSent: info.sent,
+            watchNotificationRecipient: info.recipient
+        });
     }
 });
 
@@ -263,6 +337,62 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
     };
 }
 
+function tryParseRunLoopRequest(parsed: Partial<RunLoopRequest>): RunLoopRequest | null {
+    if (typeof parsed.loopMdPath !== "string" || typeof parsed.cwd !== "string")
+        return null;
+
+    const loopMdPath = parsed.loopMdPath.trim();
+    const cwd = parsed.cwd.trim();
+    if (!loopMdPath || !cwd)
+        return null;
+
+    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+        ? parsed.requestId.trim()
+        : randomUUID();
+    const sessionId = typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
+        ? parsed.sessionId.trim()
+        : undefined;
+
+    return {
+        type: "run_loop",
+        requestId,
+        loopMdPath,
+        cwd,
+        sessionId
+    };
+}
+
+function tryParseRcStartRequest(parsed: Partial<RcStartRequest>): RcStartRequest | null {
+    if (typeof parsed.repo !== "string" || typeof parsed.branch !== "string" ||
+        typeof parsed.machine !== "string" || typeof parsed.squadDir !== "string" ||
+        typeof parsed.cwd !== "string")
+        return null;
+
+    const repo = parsed.repo.trim();
+    const branch = parsed.branch.trim();
+    const machine = parsed.machine.trim();
+    const squadDir = parsed.squadDir.trim();
+    const cwd = parsed.cwd.trim();
+    if (!repo || !branch || !machine || !squadDir || !cwd)
+        return null;
+
+    return {
+        type: "rc_start",
+        requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+            ? parsed.requestId.trim()
+            : undefined,
+        port: typeof parsed.port === "number" ? parsed.port : 0,
+        repo,
+        branch,
+        machine,
+        squadDir,
+        cwd,
+        sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
+            ? parsed.sessionId.trim()
+            : undefined
+    };
+}
+
 function tryParseRequest(line: string): BridgeRequest | null {
     try {
         const parsed = JSON.parse(line) as Partial<BridgeRequest>;
@@ -302,6 +432,21 @@ function tryParseRequest(line: string): BridgeRequest | null {
         if (parsed.type === "delegate")
             return tryParseDelegateRequest(parsed as Partial<DelegateRequest>);
 
+        if (parsed.type === "run_loop")
+            return tryParseRunLoopRequest(parsed as Partial<RunLoopRequest>);
+
+        if (parsed.type === "rc_start")
+            return tryParseRcStartRequest(parsed as Partial<RcStartRequest>);
+
+        if (parsed.type === "rc_stop") {
+            return {
+                type: "rc_stop",
+                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+                    ? parsed.requestId.trim()
+                    : undefined
+            };
+        }
+
         return tryParsePromptRequest(parsed as Partial<PromptRequest>);
     }
     catch {
@@ -309,8 +454,10 @@ function tryParseRequest(line: string): BridgeRequest | null {
     }
 }
 
-function buildRunHandlers(requestId: string | undefined): SquadRunHandlers {
+function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBridge): SquadRunHandlers {
     let startedThinking = false;
+    let rcAccumulatedContent = "";
+    const rcSessionId = requestId ?? randomUUID();
 
     return {
         onSessionReady(session) {
@@ -374,6 +521,7 @@ function buildRunHandlers(requestId: string | undefined): SquadRunHandlers {
                 skill: tool.skill,
                 args: tool.args
             });
+            remoteBridge?.sendToolCall("copilot", tool.toolName, (tool.args as Record<string, unknown>) ?? {}, "running");
         },
         onToolProgress(tool) {
             emit({
@@ -409,6 +557,7 @@ function buildRunHandlers(requestId: string | undefined): SquadRunHandlers {
                 outputText: tool.outputText,
                 args: tool.args
             });
+            remoteBridge?.sendToolCall("copilot", tool.toolName, (tool.args as Record<string, unknown>) ?? {}, tool.success ? "completed" : "error");
         },
         onDelta(chunk) {
             emit({
@@ -416,20 +565,135 @@ function buildRunHandlers(requestId: string | undefined): SquadRunHandlers {
                 requestId,
                 chunk
             });
+            if (remoteBridge) {
+                rcAccumulatedContent += chunk;
+                remoteBridge.sendDelta(rcSessionId, "copilot", chunk);
+            }
         },
         onDone() {
             emit({
                 type: "done",
                 requestId
             });
+            if (remoteBridge && rcAccumulatedContent) {
+                remoteBridge.addMessage("agent", rcAccumulatedContent);
+                rcAccumulatedContent = "";
+            }
         },
         onAborted() {
             emit({
                 type: "aborted",
                 requestId
             });
+            if (remoteBridge && rcAccumulatedContent) {
+                remoteBridge.addMessage("agent", rcAccumulatedContent + " [aborted]");
+                rcAccumulatedContent = "";
+            }
         }
     };
+}
+
+async function handleRunLoop(request: RunLoopRequest): Promise<void> {
+    const { requestId, sessionId, loopMdPath, cwd } = request;
+
+    return new Promise<void>((resolve, reject) => {
+        let proc: ReturnType<typeof spawn>;
+
+        try {
+            proc = spawn("cmd.exe", ["/c", "npx", "squad", "loop", loopMdPath], {
+                cwd,
+                shell: false,
+                stdio: ["ignore", "pipe", "pipe"]
+            });
+        }
+        catch (err) {
+            emit({
+                type: "loop_error",
+                requestId,
+                sessionId,
+                loopMdPath,
+                loopStatus: "error",
+                message: err instanceof Error ? err.message : String(err)
+            });
+            reject(err);
+            return;
+        }
+
+        emit({
+            type: "loop_started",
+            requestId,
+            sessionId,
+            loopMdPath,
+            loopStatus: "running"
+        });
+
+        const rlOut = readline.createInterface({ input: proc.stdout!, crlfDelay: Infinity });
+
+        rlOut.on("line", (line: string) => {
+            emit({
+                type: "loop_output",
+                requestId,
+                sessionId,
+                loopMdPath,
+                outputLine: line
+            });
+
+            try {
+                const parsed = JSON.parse(line) as Record<string, unknown>;
+                if (parsed && typeof parsed === "object" && ("iteration" in parsed || "type" in parsed)) {
+                    const iterNum = typeof parsed["iteration"] === "number"
+                        ? parsed["iteration"]
+                        : undefined;
+                    emit({
+                        type: "loop_iteration",
+                        requestId,
+                        sessionId,
+                        loopMdPath,
+                        loopStatus: "running",
+                        loopIteration: iterNum
+                    });
+                }
+            }
+            catch {
+                // not JSON — no loop_iteration event
+            }
+        });
+
+        proc.on("error", (err: Error) => {
+            emit({
+                type: "loop_error",
+                requestId,
+                sessionId,
+                loopMdPath,
+                loopStatus: "error",
+                message: err.message
+            });
+            resolve();
+        });
+
+        proc.on("close", (code: number | null) => {
+            if (code === 0) {
+                emit({
+                    type: "loop_stopped",
+                    requestId,
+                    sessionId,
+                    loopMdPath,
+                    loopStatus: "stopped"
+                });
+            }
+            else {
+                emit({
+                    type: "loop_error",
+                    requestId,
+                    sessionId,
+                    loopMdPath,
+                    loopStatus: "error",
+                    message: `squad loop exited with code ${code}`
+                });
+            }
+            resolve();
+        });
+    });
 }
 
 async function handlePrompt(request: PromptRequest) {
@@ -438,6 +702,89 @@ async function handlePrompt(request: PromptRequest) {
 
 async function handleDelegate(request: DelegateRequest) {
     await bridge.runDelegation(request, buildRunHandlers(request.requestId));
+}
+
+async function handleRcStart(request: RcStartRequest): Promise<void> {
+    if (activeRemoteBridge) {
+        emit({
+            type: "rc_error",
+            requestId: request.requestId,
+            message: "Remote bridge is already running. Stop it first with rc_stop."
+        });
+        return;
+    }
+
+    const rcBridge = new RemoteBridge({
+        port: request.port ?? 0,
+        maxHistory: 50,
+        repo: request.repo,
+        branch: request.branch,
+        machine: request.machine,
+        squadDir: request.squadDir,
+        onPrompt: async (text) => {
+            const remoteRequestId = randomUUID();
+            rcBridge.addMessage("user", text);
+            try {
+                await bridge.runPrompt(
+                    text,
+                    buildRunHandlers(remoteRequestId, rcBridge),
+                    { cwd: request.cwd, sessionId: request.sessionId }
+                );
+            }
+            catch (err) {
+                rcBridge.sendError(err instanceof Error ? err.message : String(err));
+            }
+        },
+        onCommand: async (name, args) => {
+            emit({
+                type: "rc_command",
+                requestId: request.requestId,
+                name,
+                args
+            });
+        }
+    });
+
+    try {
+        const port = await rcBridge.start();
+        activeRemoteBridge = rcBridge;
+        emit({
+            type: "rc_started",
+            requestId: request.requestId,
+            port,
+            token: rcBridge.getSessionToken(),
+            url: `http://localhost:${port}`
+        });
+    }
+    catch (err) {
+        emit({
+            type: "rc_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+
+async function handleRcStop(request: RcStopRequest): Promise<void> {
+    if (!activeRemoteBridge) {
+        emit({
+            type: "rc_stopped",
+            requestId: request.requestId
+        });
+        return;
+    }
+
+    try {
+        await activeRemoteBridge.stop();
+    }
+    catch {
+        // ignore stop errors — bridge may already be closed
+    }
+    activeRemoteBridge = null;
+    emit({
+        type: "rc_stopped",
+        requestId: request.requestId
+    });
 }
 
 async function main() {
@@ -474,6 +821,7 @@ async function main() {
     });
 
     let activePromptTask: Promise<void> | null = null;
+    let activeLoopTask: Promise<void> | null = null;
 
     for await (const line of rl) {
         const request = tryParseRequest(line);
@@ -528,6 +876,46 @@ async function main() {
                     message: err instanceof Error ? err.message : String(err)
                 });
             }
+            continue;
+        }
+
+        if (request.type === "run_loop") {
+            if (activeLoopTask) {
+                emit({
+                    type: "loop_error",
+                    requestId: request.requestId,
+                    sessionId: request.sessionId,
+                    loopMdPath: request.loopMdPath,
+                    loopStatus: "error",
+                    message: "A loop is already running"
+                });
+                continue;
+            }
+
+            activeLoopTask = handleRunLoop(request)
+                .catch(err => {
+                    emit({
+                        type: "loop_error",
+                        requestId: request.requestId,
+                        sessionId: request.sessionId,
+                        loopMdPath: request.loopMdPath,
+                        loopStatus: "error",
+                        message: err instanceof Error ? err.message : String(err)
+                    });
+                })
+                .finally(() => {
+                    activeLoopTask = null;
+                });
+            continue;
+        }
+
+        if (request.type === "rc_start") {
+            await handleRcStart(request);
+            continue;
+        }
+
+        if (request.type === "rc_stop") {
+            await handleRcStop(request);
             continue;
         }
 

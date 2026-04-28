@@ -117,6 +117,36 @@ export type SubagentTranscriptInfo = {
     reasoningText?: string;
 };
 
+export type WatchFleetInfo = {
+    cycleId?: string;
+    fleetSize?: number;
+    prompt?: string;
+};
+
+export type WatchWaveInfo = {
+    cycleId?: string;
+    waveIndex?: number;
+    waveCount?: number;
+    agentCount?: number;
+};
+
+export type WatchHydrationInfo = {
+    cycleId?: string;
+    phase?: string;
+};
+
+export type WatchRetroInfo = {
+    cycleId?: string;
+    summary?: string;
+};
+
+export type WatchMonitorInfo = {
+    cycleId?: string;
+    channel?: string;
+    sent?: boolean;
+    recipient?: string;
+};
+
 export type SquadRunHandlers = {
     onSessionReady?: (session: SessionReadyInfo) => void;
     onThinking?: (text: string, speaker?: string) => void;
@@ -145,6 +175,12 @@ export type SquadBridgeHandlers = {
     onSubagentToolStart?: (sessionId: string, subagent: SubagentLifecycleInfo, tool: ToolLifecycleEvent) => void;
     onSubagentToolProgress?: (sessionId: string, subagent: SubagentLifecycleInfo, tool: ToolLifecycleEvent) => void;
     onSubagentToolComplete?: (sessionId: string, subagent: SubagentLifecycleInfo, tool: ToolLifecycleEvent) => void;
+    // Watch lifecycle handlers — stubbed pending SDK stabilization of watch.* events
+    onWatchFleetDispatched?: (sessionId: string, info: WatchFleetInfo) => void;
+    onWatchWaveDispatched?: (sessionId: string, info: WatchWaveInfo) => void;
+    onWatchHydration?: (sessionId: string, info: WatchHydrationInfo) => void;
+    onWatchRetro?: (sessionId: string, info: WatchRetroInfo) => void;
+    onWatchMonitorNotification?: (sessionId: string, info: WatchMonitorInfo) => void;
 };
 
 type ActiveToolContext = Omit<
@@ -1339,6 +1375,60 @@ export class SquadBridgeService {
                 state.session.sessionId,
                 merged);
             void this.refreshBackgroundTasks(state);
+        });
+
+        // Watch lifecycle stubs — these event names are expected once the SDK stabilizes
+        // watch.* events in a future Squad SDK release. Registered now so SquadDash
+        // automatically forwards them when the SDK starts emitting them.
+
+        state.session.on("watch.fleet_dispatched", (event: unknown) => {
+            this.bridgeHandlers.onWatchFleetDispatched?.(
+                state.session.sessionId,
+                {
+                    cycleId: getEventStringValue(event, "cycleId"),
+                    fleetSize: getEventNumberValue(event, "fleetSize"),
+                    prompt: getEventStringValue(event, "prompt")
+                });
+        });
+
+        state.session.on("watch.wave_dispatched", (event: unknown) => {
+            this.bridgeHandlers.onWatchWaveDispatched?.(
+                state.session.sessionId,
+                {
+                    cycleId: getEventStringValue(event, "cycleId"),
+                    waveIndex: getEventNumberValue(event, "waveIndex"),
+                    waveCount: getEventNumberValue(event, "waveCount"),
+                    agentCount: getEventNumberValue(event, "agentCount")
+                });
+        });
+
+        state.session.on("watch.hydration", (event: unknown) => {
+            this.bridgeHandlers.onWatchHydration?.(
+                state.session.sessionId,
+                {
+                    cycleId: getEventStringValue(event, "cycleId"),
+                    phase: getEventStringValue(event, "phase")
+                });
+        });
+
+        state.session.on("watch.retro", (event: unknown) => {
+            this.bridgeHandlers.onWatchRetro?.(
+                state.session.sessionId,
+                {
+                    cycleId: getEventStringValue(event, "cycleId"),
+                    summary: getEventStringValue(event, "summary")
+                });
+        });
+
+        state.session.on("watch.monitor_notification", (event: unknown) => {
+            this.bridgeHandlers.onWatchMonitorNotification?.(
+                state.session.sessionId,
+                {
+                    cycleId: getEventStringValue(event, "cycleId"),
+                    channel: getEventStringValue(event, "channel"),
+                    sent: getEventBooleanValue(event, "sent"),
+                    recipient: getEventStringValue(event, "recipient")
+                });
         });
     }
 

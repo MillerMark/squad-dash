@@ -617,6 +617,19 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         _ = SendAbortRequestAsync(requestId);
     }
 
+    public async Task RunLoopAsync(string loopMdPath, string cwd, string? sessionId = null) {
+        if (string.IsNullOrWhiteSpace(loopMdPath))
+            throw new ArgumentException("Loop markdown path cannot be empty.", nameof(loopMdPath));
+        if (string.IsNullOrWhiteSpace(cwd))
+            throw new ArgumentException("Working directory cannot be empty.", nameof(cwd));
+
+        var requestId = Guid.NewGuid().ToString("N");
+        SquadDashTrace.Write("Bridge", $"RunLoopAsync loopMdPath={loopMdPath} cwd={cwd} sessionId={sessionId ?? "(auto)"}");
+
+        await SendBridgeRequestAsync(new SquadSdkRunLoopRequest(loopMdPath.Trim(), cwd.Trim(), requestId, sessionId?.Trim()))
+            .ConfigureAwait(false);
+    }
+
     public async Task CancelBackgroundTaskAsync(string taskId, string? sessionId = null) {
         if (string.IsNullOrWhiteSpace(taskId))
             throw new ArgumentException("Background task id cannot be empty.", nameof(taskId));
@@ -643,6 +656,38 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         catch (Exception ex) {
             SquadDashTrace.Write("Bridge", $"Failed to send abort request for {requestId}: {ex.Message}");
             ErrorReceived?.Invoke(this, ex.Message);
+        }
+    }
+
+    public async Task StartRemoteAsync(
+        string repo,
+        string branch,
+        string machine,
+        string squadDir,
+        string cwd,
+        int port = 0,
+        string? sessionId = null) {
+        if (string.IsNullOrWhiteSpace(repo))
+            throw new ArgumentException("Repo name cannot be empty.", nameof(repo));
+        if (string.IsNullOrWhiteSpace(cwd))
+            throw new ArgumentException("Working directory cannot be empty.", nameof(cwd));
+
+        var requestId = Guid.NewGuid().ToString("N");
+        SquadDashTrace.Write("Bridge", $"StartRemoteAsync repo={repo} branch={branch} port={port}");
+
+        await SendBridgeRequestWithRestartAsync(
+            new SquadSdkRcStartRequest(port, repo, branch, machine, squadDir, cwd, requestId, sessionId))
+            .ConfigureAwait(false);
+    }
+
+    public async Task StopRemoteAsync() {
+        SquadDashTrace.Write("Bridge", "StopRemoteAsync");
+        var requestId = Guid.NewGuid().ToString("N");
+        try {
+            await SendBridgeRequestAsync(new SquadSdkRcStopRequest(requestId)).ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send rc_stop request: {ex.Message}");
         }
     }
 }
@@ -709,6 +754,32 @@ internal sealed record SquadSdkCancelBackgroundTaskRequest(
     [property: JsonPropertyName("taskId")] string TaskId,
     [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId = null,
     [property: JsonPropertyName("type")] string Type = "cancel_background_task");
+
+internal sealed record SquadSdkRunLoopRequest(
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("loopMdPath")] string LoopMdPath,
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("requestId")] string? RequestId,
+    [property: JsonPropertyName("sessionId")] string? SessionId)
+{
+    public SquadSdkRunLoopRequest(string loopMdPath, string cwd, string? requestId, string? sessionId)
+        : this("run_loop", loopMdPath, cwd, requestId, sessionId) { }
+}
+
+internal sealed record SquadSdkRcStartRequest(
+    [property: JsonPropertyName("port")] int Port,
+    [property: JsonPropertyName("repo")] string Repo,
+    [property: JsonPropertyName("branch")] string Branch,
+    [property: JsonPropertyName("machine")] string Machine,
+    [property: JsonPropertyName("squadDir")] string SquadDir,
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId = null,
+    [property: JsonPropertyName("type")] string Type = "rc_start");
+
+internal sealed record SquadSdkRcStopRequest(
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "rc_stop");
 
 internal sealed class RecoverableSessionResetException : InvalidOperationException {
     public RecoverableSessionResetException(string message)

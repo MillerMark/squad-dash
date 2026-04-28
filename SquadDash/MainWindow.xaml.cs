@@ -192,6 +192,15 @@ public partial class MainWindow : Window
     private Canvas? _docSourceOverlayCanvas;     // persistent overlay canvas for highlights
     private Shapes.Rectangle? _docSourceHoverHighlight;
     private DispatcherTimer? _docSourceHoverTimer;
+    private int _loopCurrentIteration;
+    private string? _watchCycleId;
+    private int     _watchFleetSize;
+    private int     _watchWaveIndex;
+    private int     _watchWaveCount;
+    private int     _watchAgentCount;
+    private string? _watchPhase;
+    private bool _remoteAccessActive;
+    private MenuItem? _remoteAccessMenuItem;
     private ApplicationSettingsSnapshot _settingsSnapshot = ApplicationSettingsSnapshot.Empty;
     private string _activeThemeName = "Light";
     private readonly long _processStartedAtUtcTicks = ProcessIdentity.GetCurrentProcessStartedAtUtcTicks();
@@ -1280,6 +1289,58 @@ public partial class MainWindow : Window
                 HandleSubagentFailed(evt);
                 break;
 
+            case "loop_started":
+                HandleLoopStarted(evt);
+                break;
+
+            case "loop_iteration":
+                HandleLoopIteration(evt);
+                break;
+
+            case "loop_stopped":
+                HandleLoopStopped(evt);
+                break;
+
+            case "loop_error":
+                HandleLoopError(evt);
+                break;
+
+            case "loop_output":
+                HandleLoopOutput(evt);
+                break;
+
+            case "watch_fleet_dispatched":
+                HandleWatchFleetDispatched(evt);
+                break;
+
+            case "watch_wave_dispatched":
+                HandleWatchWaveDispatched(evt);
+                break;
+
+            case "watch_hydration":
+                HandleWatchHydration(evt);
+                break;
+
+            case "watch_retro":
+                HandleWatchRetro(evt);
+                break;
+
+            case "watch_monitor_notification":
+                HandleWatchMonitorNotification(evt);
+                break;
+
+            case "rc_started":
+                HandleRcStarted(evt);
+                break;
+
+            case "rc_stopped":
+                HandleRcStopped(evt);
+                break;
+
+            case "rc_error":
+                HandleRcError(evt);
+                break;
+
             case "done":
                 _pec.ActiveToolName = null;
                 FinalizeCurrentTurnResponse();
@@ -1602,6 +1663,202 @@ public partial class MainWindow : Window
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_failed");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
+    }
+
+    private void HandleLoopStarted(SquadSdkEvent evt)
+    {
+        _pec.SetIsLoopRunning(true);
+        _loopCurrentIteration = 0;
+        var label = string.IsNullOrWhiteSpace(evt.LoopMdPath)
+            ? "🔁 Loop started"
+            : $"🔁 Loop started: {evt.LoopMdPath}";
+        AppendLine(label);
+        SquadDashTrace.Write("UI", $"Loop started mdPath={evt.LoopMdPath ?? "(none)"}");
+        SyncLoopPanel();
+    }
+
+    private void HandleLoopIteration(SquadSdkEvent evt)
+    {
+        if (evt.LoopIteration is int n) _loopCurrentIteration = n;
+        var iterLabel = evt.LoopIteration is int m ? $"↩ Iteration {m}" : "↩ Iteration";
+        AppendLine(iterLabel);
+        SquadDashTrace.Write("UI", $"Loop iteration={evt.LoopIteration?.ToString() ?? "(unknown)"}");
+        SyncLoopPanel();
+    }
+
+    private void HandleLoopStopped(SquadSdkEvent evt)
+    {
+        _pec.SetIsLoopRunning(false);
+        _loopCurrentIteration = 0;
+        AppendLine("✅ Loop stopped");
+        SquadDashTrace.Write("UI", $"Loop stopped mdPath={evt.LoopMdPath ?? "(none)"}");
+        SyncLoopPanel();
+    }
+
+    private void HandleLoopError(SquadSdkEvent evt)
+    {
+        _pec.SetIsLoopRunning(false);
+        _loopCurrentIteration = 0;
+        var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
+            ? "❌ Loop error"
+            : $"❌ Loop error: {evt.Message}";
+        AppendLine(errorLabel, ThemeBrush("SystemErrorText"));
+        SquadDashTrace.Write("UI", $"Loop error message={evt.Message ?? "(none)"}");
+        SyncLoopPanel();
+    }
+
+    private void HandleLoopOutput(SquadSdkEvent evt)
+    {
+        if (!string.IsNullOrWhiteSpace(evt.OutputLine))
+            SquadDashTrace.Write("LoopOutput", evt.OutputLine!);
+    }
+
+    private void HandleWatchFleetDispatched(SquadSdkEvent evt)
+    {
+        _watchCycleId = evt.WatchCycleId ?? Guid.NewGuid().ToString("N")[..8];
+        _watchFleetSize = evt.WatchFleetSize ?? 0;
+        _watchWaveIndex = 0;
+        _watchWaveCount = 0;
+        _watchAgentCount = 0;
+        _watchPhase = null;
+        AppendLine($"👁 Watch: fleet dispatched ({_watchFleetSize} agents)");
+        SquadDashTrace.Write("Watch", $"fleet cycleId={_watchCycleId} size={_watchFleetSize}");
+        SyncWatchPanel();
+    }
+
+    private void HandleWatchWaveDispatched(SquadSdkEvent evt)
+    {
+        _watchWaveIndex = evt.WatchWaveIndex ?? _watchWaveIndex;
+        _watchWaveCount = evt.WatchWaveCount ?? _watchWaveCount;
+        _watchAgentCount = evt.WatchAgentCount ?? _watchAgentCount;
+        AppendLine($"👁 Watch: wave {_watchWaveIndex + 1}/{_watchWaveCount} ({_watchAgentCount} agents)");
+        SquadDashTrace.Write("Watch", $"wave {_watchWaveIndex + 1}/{_watchWaveCount} agents={_watchAgentCount}");
+        SyncWatchPanel();
+    }
+
+    private void HandleWatchHydration(SquadSdkEvent evt)
+    {
+        _watchPhase = evt.WatchPhase;
+        SquadDashTrace.Write("Watch", $"hydration phase={_watchPhase ?? "(none)"}");
+        SyncWatchPanel();
+    }
+
+    private void HandleWatchRetro(SquadSdkEvent evt)
+    {
+        var summary = evt.WatchRetroSummary;
+        AppendLine(string.IsNullOrWhiteSpace(summary)
+            ? "👁 Watch: retro complete"
+            : $"👁 Watch: retro — {summary}");
+        SquadDashTrace.Write("Watch", $"retro cycleId={_watchCycleId} summary={summary ?? "(none)"}");
+        _watchCycleId = null;
+        _watchFleetSize = 0;
+        _watchWaveIndex = 0;
+        _watchWaveCount = 0;
+        _watchAgentCount = 0;
+        _watchPhase = null;
+        SyncWatchPanel();
+    }
+
+    private void HandleWatchMonitorNotification(SquadSdkEvent evt)
+    {
+        var channel = evt.WatchNotificationChannel ?? "unknown";
+        var sent = evt.WatchNotificationSent == true ? "sent" : "skipped";
+        AppendLine($"👁 Watch: monitor notification ({channel}, {sent})");
+        SquadDashTrace.Write("Watch", $"monitor channel={channel} sent={sent} recipient={evt.WatchNotificationRecipient ?? "(none)"}");
+    }
+
+    private void SyncWatchPanel()
+    {
+        if (WatchPanelBorder is null) return;
+
+        bool active = _watchCycleId is not null;
+        WatchPanelBorder.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!active) return;
+
+        WatchStatusStack.Children.Clear();
+
+        if (_watchFleetSize > 0)
+            WatchStatusStack.Children.Add(MakeWatchRow($"Fleet: {_watchFleetSize} agents"));
+
+        if (_watchWaveCount > 0)
+            WatchStatusStack.Children.Add(MakeWatchRow($"Wave {_watchWaveIndex + 1} of {_watchWaveCount}"));
+        else if (_watchAgentCount > 0)
+            WatchStatusStack.Children.Add(MakeWatchRow($"{_watchAgentCount} agents dispatched"));
+
+        if (!string.IsNullOrWhiteSpace(_watchPhase))
+            WatchStatusStack.Children.Add(MakeWatchRow($"Phase: {_watchPhase}"));
+    }
+
+    private TextBlock MakeWatchRow(string text) =>
+        new TextBlock
+        {
+            Text = text,
+            Margin = new Thickness(0, 2, 0, 0),
+            Foreground = (Brush)FindResource("ActivePanelSubtitle"),
+            TextWrapping = TextWrapping.Wrap
+        };
+
+    private void HandleRcStarted(SquadSdkEvent evt)
+    {
+        _remoteAccessActive = true;
+        UpdateRemoteAccessMenuHeader();
+        var port = evt.RcPort is int p ? p : 0;
+        var url = evt.RcUrl ?? $"http://localhost:{port}";
+        AppendLine($"📡 Remote access started: {url}");
+        SquadDashTrace.Write("UI", $"RC started port={port} url={url}");
+    }
+
+    private void HandleRcStopped(SquadSdkEvent evt)
+    {
+        _remoteAccessActive = false;
+        UpdateRemoteAccessMenuHeader();
+        AppendLine("📡 Remote access stopped");
+        SquadDashTrace.Write("UI", "RC stopped");
+    }
+
+    private void HandleRcError(SquadSdkEvent evt)
+    {
+        _remoteAccessActive = false;
+        UpdateRemoteAccessMenuHeader();
+        var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
+            ? "❌ Remote access error"
+            : $"❌ Remote access error: {evt.Message}";
+        AppendLine(errorLabel, ThemeBrush("SystemErrorText"));
+        SquadDashTrace.Write("UI", $"RC error message={evt.Message ?? "(none)"}");
+    }
+
+    private void UpdateRemoteAccessMenuHeader()
+    {
+        if (_remoteAccessMenuItem is null) return;
+        _remoteAccessMenuItem.Header = _remoteAccessActive
+            ? "Stop _Remote Access"
+            : "Start _Remote Access";
+    }
+
+    private void SyncLoopPanel()
+    {
+        if (LoopPanelBorder is null) return;
+        bool running = _pec.IsLoopRunning;
+        StartLoopButton.IsEnabled = !running;
+        LoopStatusTextBlock.Text = running
+            ? (_loopCurrentIteration > 0 ? $"Running · #{_loopCurrentIteration}" : "Running")
+            : "Idle";
+    }
+
+    private async void StartLoopButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null) return;
+            var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
+            await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
+                _conversationManager.CurrentSessionId);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(StartLoopButton_Click), ex);
+        }
     }
 
     private static bool ShouldSuppressSilentBackgroundAgent(SquadSdkEvent evt) =>
@@ -3679,6 +3936,36 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(SquadCliMenuItem_Click), ex);
+        }
+    }
+
+    private async void RemoteAccessMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                return;
+
+            if (_remoteAccessActive)
+            {
+                await _bridge.StopRemoteAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                var repo = System.IO.Path.GetFileName(_currentWorkspace.FolderPath);
+                var machine = System.Environment.MachineName;
+                await _bridge.StartRemoteAsync(
+                    repo: repo,
+                    branch: "main",
+                    machine: machine,
+                    squadDir: _currentWorkspace.SquadFolderPath,
+                    cwd: _currentWorkspace.FolderPath,
+                    sessionId: _conversationManager.CurrentSessionId).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RemoteAccessMenuItem_Click), ex);
         }
     }
 
@@ -10128,6 +10415,14 @@ public partial class MainWindow : Window
         };
         squadCliMenuItem.Click += SquadCliMenuItem_Click;
         WorkspaceMenuItem.Items.Add(squadCliMenuItem);
+
+        _remoteAccessMenuItem = new MenuItem
+        {
+            Header = "Start _Remote Access",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        _remoteAccessMenuItem.Click += RemoteAccessMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(_remoteAccessMenuItem);
 
         ConfigureInboxWatcher(Path.Combine(squadRoot, "decisions", "inbox"));
         UpdateInteractiveControlState();

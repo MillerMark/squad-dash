@@ -73,6 +73,26 @@ public sealed class SquadSdkEvent {
     public int? DurationMs { get; set; }
     public SquadBackgroundAgentInfo[]? BackgroundAgents { get; set; }
     public SquadBackgroundShellInfo[]? BackgroundShells { get; set; }
+    // Watch lifecycle event fields
+    public string? WatchCycleId { get; set; }
+    public string? WatchPhase { get; set; }
+    public int? WatchFleetSize { get; set; }
+    public int? WatchWaveIndex { get; set; }
+    public int? WatchWaveCount { get; set; }
+    public int? WatchAgentCount { get; set; }
+    public string? WatchRetroSummary { get; set; }
+    public string? WatchNotificationChannel { get; set; }
+    public bool? WatchNotificationSent { get; set; }
+    public string? WatchNotificationRecipient { get; set; }
+    // Loop lifecycle event fields
+    public int? LoopIteration { get; set; }
+    public string? LoopStatus { get; set; }
+    public string? LoopMdPath { get; set; }
+    public string? OutputLine { get; set; }
+    // Remote bridge event fields
+    public int? RcPort { get; set; }
+    public string? RcToken { get; set; }
+    public string? RcUrl { get; set; }
 }
 
 public sealed class SquadBackgroundAgentInfo {

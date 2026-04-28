@@ -221,6 +221,15 @@ internal sealed class PromptExecutionController {
     /// </summary>
     internal string? ActiveToolName { get; set; }
 
+    /// <summary>
+    /// True while a <c>loop_started</c> event has been received and no corresponding
+    /// <c>loop_stopped</c> or <c>loop_error</c> has arrived yet.
+    /// UI indicator bindings (e.g. Lyra Morn's loop badge) should poll or observe this.
+    /// </summary>
+    internal bool IsLoopRunning { get; private set; }
+
+    internal void SetIsLoopRunning(bool value) => IsLoopRunning = value;
+
     // ── Exposed read-only health state (BackgroundTaskPresenter forward-ref) ──
     internal bool            PromptNoActivityWarningShown => _promptNoActivityWarningShown;
     internal bool            PromptStallWarningShown      => _promptStallWarningShown;

@@ -750,6 +750,10 @@
                                           Width="Auto" />
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <Border x:Name="ActiveAgentsPanelBorder"
@@ -841,6 +845,61 @@
                                     </ItemsControl.ItemsPanel>
                                 </ItemsControl>
                             </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="LoopPanelBorder"
+                            Grid.Column="4"
+                            MinWidth="160"
+                            Padding="12"
+                            Background="{DynamicResource ActivePanelSurface}"
+                            BorderBrush="{DynamicResource ActivePanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Loop"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource ActivePanelTitle}" />
+                            <TextBlock x:Name="LoopStatusTextBlock"
+                                       Grid.Row="1"
+                                       Text="Idle"
+                                       Margin="0,4,0,10"
+                                       Foreground="{DynamicResource ActivePanelSubtitle}" />
+                            <Button x:Name="StartLoopButton"
+                                    Grid.Row="2"
+                                    Content="▶ Start Loop"
+                                    Style="{StaticResource ThemedButtonStyle}"
+                                    Click="StartLoopButton_Click" />
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="WatchPanelBorder"
+                            Grid.Column="6"
+                            MinWidth="180"
+                            Padding="12"
+                            Background="{DynamicResource ActivePanelSurface}"
+                            BorderBrush="{DynamicResource ActivePanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Watch"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource ActivePanelTitle}" />
+                            <StackPanel x:Name="WatchStatusStack"
+                                        Grid.Row="1"
+                                        Margin="0,6,0,0" />
                         </Grid>
                     </Border>
                 </Grid>

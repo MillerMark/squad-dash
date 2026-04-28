@@ -925,6 +925,44 @@ export class SquadBridgeService {
             this.bridgeHandlers.onSubagentFailed?.(state.session.sessionId, merged);
             void this.refreshBackgroundTasks(state);
         });
+        // Watch lifecycle stubs — these event names are expected once the SDK stabilizes
+        // watch.* events in a future Squad SDK release. Registered now so SquadDash
+        // automatically forwards them when the SDK starts emitting them.
+        state.session.on("watch.fleet_dispatched", (event) => {
+            this.bridgeHandlers.onWatchFleetDispatched?.(state.session.sessionId, {
+                cycleId: getEventStringValue(event, "cycleId"),
+                fleetSize: getEventNumberValue(event, "fleetSize"),
+                prompt: getEventStringValue(event, "prompt")
+            });
+        });
+        state.session.on("watch.wave_dispatched", (event) => {
+            this.bridgeHandlers.onWatchWaveDispatched?.(state.session.sessionId, {
+                cycleId: getEventStringValue(event, "cycleId"),
+                waveIndex: getEventNumberValue(event, "waveIndex"),
+                waveCount: getEventNumberValue(event, "waveCount"),
+                agentCount: getEventNumberValue(event, "agentCount")
+            });
+        });
+        state.session.on("watch.hydration", (event) => {
+            this.bridgeHandlers.onWatchHydration?.(state.session.sessionId, {
+                cycleId: getEventStringValue(event, "cycleId"),
+                phase: getEventStringValue(event, "phase")
+            });
+        });
+        state.session.on("watch.retro", (event) => {
+            this.bridgeHandlers.onWatchRetro?.(state.session.sessionId, {
+                cycleId: getEventStringValue(event, "cycleId"),
+                summary: getEventStringValue(event, "summary")
+            });
+        });
+        state.session.on("watch.monitor_notification", (event) => {
+            this.bridgeHandlers.onWatchMonitorNotification?.(state.session.sessionId, {
+                cycleId: getEventStringValue(event, "cycleId"),
+                channel: getEventStringValue(event, "channel"),
+                sent: getEventBooleanValue(event, "sent"),
+                recipient: getEventStringValue(event, "recipient")
+            });
+        });
     }
     async disposeSession(sessionId) {
         const state = this.sessions.get(sessionId);

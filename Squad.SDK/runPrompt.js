@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 import { SquadBridgeService } from "./squadService.js";
@@ -155,6 +156,51 @@ const bridge = new SquadBridgeService({
             outputText: tool.outputText,
             args: tool.args
         });
+    },
+    onWatchFleetDispatched(sessionId, info) {
+        emit({
+            type: "watch_fleet_dispatched",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchFleetSize: info.fleetSize,
+            prompt: info.prompt
+        });
+    },
+    onWatchWaveDispatched(sessionId, info) {
+        emit({
+            type: "watch_wave_dispatched",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchWaveIndex: info.waveIndex,
+            watchWaveCount: info.waveCount,
+            watchAgentCount: info.agentCount
+        });
+    },
+    onWatchHydration(sessionId, info) {
+        emit({
+            type: "watch_hydration",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchPhase: info.phase
+        });
+    },
+    onWatchRetro(sessionId, info) {
+        emit({
+            type: "watch_retro",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchRetroSummary: info.summary
+        });
+    },
+    onWatchMonitorNotification(sessionId, info) {
+        emit({
+            type: "watch_monitor_notification",
+            sessionId,
+            watchCycleId: info.cycleId,
+            watchNotificationChannel: info.channel,
+            watchNotificationSent: info.sent,
+            watchNotificationRecipient: info.recipient
+        });
     }
 });
 function emit(event) {
@@ -214,6 +260,27 @@ function tryParseDelegateRequest(parsed) {
         configDir
     };
 }
+function tryParseRunLoopRequest(parsed) {
+    if (typeof parsed.loopMdPath !== "string" || typeof parsed.cwd !== "string")
+        return null;
+    const loopMdPath = parsed.loopMdPath.trim();
+    const cwd = parsed.cwd.trim();
+    if (!loopMdPath || !cwd)
+        return null;
+    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+        ? parsed.requestId.trim()
+        : randomUUID();
+    const sessionId = typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
+        ? parsed.sessionId.trim()
+        : undefined;
+    return {
+        type: "run_loop",
+        requestId,
+        loopMdPath,
+        cwd,
+        sessionId
+    };
+}
 function tryParseRequest(line) {
     try {
         const parsed = JSON.parse(line);
@@ -248,6 +315,8 @@ function tryParseRequest(line) {
             return { type: "shutdown" };
         if (parsed.type === "delegate")
             return tryParseDelegateRequest(parsed);
+        if (parsed.type === "run_loop")
+            return tryParseRunLoopRequest(parsed);
         return tryParsePromptRequest(parsed);
     }
     catch {
@@ -374,6 +443,100 @@ function buildRunHandlers(requestId) {
         }
     };
 }
+async function handleRunLoop(request) {
+    const { requestId, sessionId, loopMdPath, cwd } = request;
+    return new Promise((resolve, reject) => {
+        let proc;
+        try {
+            proc = spawn("cmd.exe", ["/c", "npx", "squad", "loop", loopMdPath], {
+                cwd,
+                shell: false,
+                stdio: ["ignore", "pipe", "pipe"]
+            });
+        }
+        catch (err) {
+            emit({
+                type: "loop_error",
+                requestId,
+                sessionId,
+                loopMdPath,
+                loopStatus: "error",
+                message: err instanceof Error ? err.message : String(err)
+            });
+            reject(err);
+            return;
+        }
+        emit({
+            type: "loop_started",
+            requestId,
+            sessionId,
+            loopMdPath,
+            loopStatus: "running"
+        });
+        const rlOut = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
+        rlOut.on("line", (line) => {
+            emit({
+                type: "loop_output",
+                requestId,
+                sessionId,
+                loopMdPath,
+                outputLine: line
+            });
+            try {
+                const parsed = JSON.parse(line);
+                if (parsed && typeof parsed === "object" && ("iteration" in parsed || "type" in parsed)) {
+                    const iterNum = typeof parsed["iteration"] === "number"
+                        ? parsed["iteration"]
+                        : undefined;
+                    emit({
+                        type: "loop_iteration",
+                        requestId,
+                        sessionId,
+                        loopMdPath,
+                        loopStatus: "running",
+                        loopIteration: iterNum
+                    });
+                }
+            }
+            catch {
+                // not JSON — no loop_iteration event
+            }
+        });
+        proc.on("error", (err) => {
+            emit({
+                type: "loop_error",
+                requestId,
+                sessionId,
+                loopMdPath,
+                loopStatus: "error",
+                message: err.message
+            });
+            resolve();
+        });
+        proc.on("close", (code) => {
+            if (code === 0) {
+                emit({
+                    type: "loop_stopped",
+                    requestId,
+                    sessionId,
+                    loopMdPath,
+                    loopStatus: "stopped"
+                });
+            }
+            else {
+                emit({
+                    type: "loop_error",
+                    requestId,
+                    sessionId,
+                    loopMdPath,
+                    loopStatus: "error",
+                    message: `squad loop exited with code ${code}`
+                });
+            }
+            resolve();
+        });
+    });
+}
 async function handlePrompt(request) {
     await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);
 }
@@ -410,6 +573,7 @@ async function main() {
         terminal: false
     });
     let activePromptTask = null;
+    let activeLoopTask = null;
     for await (const line of rl) {
         const request = tryParseRequest(line);
         if (!request)
@@ -458,6 +622,34 @@ async function main() {
                     message: err instanceof Error ? err.message : String(err)
                 });
             }
+            continue;
+        }
+        if (request.type === "run_loop") {
+            if (activeLoopTask) {
+                emit({
+                    type: "loop_error",
+                    requestId: request.requestId,
+                    sessionId: request.sessionId,
+                    loopMdPath: request.loopMdPath,
+                    loopStatus: "error",
+                    message: "A loop is already running"
+                });
+                continue;
+            }
+            activeLoopTask = handleRunLoop(request)
+                .catch(err => {
+                emit({
+                    type: "loop_error",
+                    requestId: request.requestId,
+                    sessionId: request.sessionId,
+                    loopMdPath: request.loopMdPath,
+                    loopStatus: "error",
+                    message: err instanceof Error ? err.message : String(err)
+                });
+            })
+                .finally(() => {
+                activeLoopTask = null;
+            });
             continue;
         }
         if (activePromptTask) {
