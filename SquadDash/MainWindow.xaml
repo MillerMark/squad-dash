@@ -862,15 +862,8 @@
                             BorderBrush="{DynamicResource RosterPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0">
+                        <DockPanel LastChildFill="False">
+                            <Grid DockPanel.Dock="Top">
                                 <TextBlock Text="Loop"
                                            FontSize="15"
                                            FontWeight="SemiBold"
@@ -890,31 +883,33 @@
                                         Click="LoopPanelCloseButton_Click" />
                             </Grid>
                             <TextBlock x:Name="LoopStatusTextBlock"
-                                       Grid.Row="1"
+                                       DockPanel.Dock="Top"
                                        Text="Idle"
                                        Margin="0,4,0,10"
                                        Foreground="{DynamicResource BodyText}" />
                             <Button x:Name="StartLoopButton"
-                                    Grid.Row="2"
+                                    DockPanel.Dock="Top"
                                     Content="▶ Start Loop"
                                     IsEnabled="False"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="StartLoopButton_Click" />
                             <Button x:Name="StopLoopButton"
-                                    Grid.Row="3"
+                                    DockPanel.Dock="Top"
                                     Content="■ Stop"
                                     Margin="0,4,0,0"
                                     IsEnabled="False"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="StopLoopButton_Click" />
                             <Button x:Name="CreateEditLoopFileButton"
-                                    Grid.Row="4"
+                                    DockPanel.Dock="Bottom"
                                     Content="📝 Create Loop File"
-                                    Margin="0,14,0,0"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     ToolTip="Create or open loop.md for editing"
                                     Click="CreateEditLoopFileButton_Click" />
-                        </Grid>
+                            <Separator DockPanel.Dock="Bottom"
+                                       Margin="0,8,0,6"
+                                       Background="{DynamicResource RosterPanelBorder}" />
+                        </DockPanel>
                     </Border>
 
                     <Border x:Name="TasksPanelBorder"
