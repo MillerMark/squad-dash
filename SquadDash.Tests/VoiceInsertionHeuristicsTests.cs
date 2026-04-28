@@ -268,4 +268,163 @@ internal sealed class VoiceInsertionHeuristicsTests {
     public void Apply_EmptyIncomingText_ReturnsEmpty() {
         Assert.That(VoiceInsertionHeuristics.Apply("some context", ""), Is.EqualTo(""));
     }
+
+    // ── IsRightContextStartsWithLetter ────────────────────────────────────────
+
+    [Test]
+    public void IsRightContextStartsWithLetter_EmptyString_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithLetter(""), Is.False);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithLetter_StartsWithLetter_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithLetter("years ago"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithLetter_StartsWithSpace_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithLetter(" years"), Is.False);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithLetter_StartsWithDigit_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithLetter("42"), Is.False);
+    }
+
+    // ── IsRightContextRequiresTrailingSpace ───────────────────────────────────
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_EmptyString_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(""), Is.False);
+    }
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_StartsWithLetter_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace("years"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_StartsWithDigit_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace("42 items"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_StartsWithOpenParen_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace("(note)"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_StartsWithCloseParen_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(")"), Is.False);
+    }
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_StartsWithWhitespace_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(" years"), Is.False);
+    }
+
+    [Test]
+    public void IsRightContextRequiresTrailingSpace_StartsWithComma_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(", which"), Is.True);
+    }
+
+    // ── IsRightContextStartsWithPunctuation ───────────────────────────────────
+
+    [Test]
+    public void IsRightContextStartsWithPunctuation_EmptyString_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithPunctuation(""), Is.False);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithPunctuation_StartsWithPeriod_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithPunctuation(". More"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithPunctuation_StartsWithComma_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithPunctuation(", which"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithPunctuation_StartsWithExclamation_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithPunctuation("! ok"), Is.True);
+    }
+
+    [Test]
+    public void IsRightContextStartsWithPunctuation_StartsWithLetter_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextStartsWithPunctuation("years"), Is.False);
+    }
+
+    // ── StripTrailingSentencePunctuation ──────────────────────────────────────
+
+    [Test]
+    public void StripTrailingSentencePunctuation_EndsWithPeriod_RemovesPeriod() {
+        Assert.That(VoiceInsertionHeuristics.StripTrailingSentencePunctuation("hello."), Is.EqualTo("hello"));
+    }
+
+    [Test]
+    public void StripTrailingSentencePunctuation_EndsWithExclamation_RemovesIt() {
+        Assert.That(VoiceInsertionHeuristics.StripTrailingSentencePunctuation("wow!"), Is.EqualTo("wow"));
+    }
+
+    [Test]
+    public void StripTrailingSentencePunctuation_EndsWithQuestion_RemovesIt() {
+        Assert.That(VoiceInsertionHeuristics.StripTrailingSentencePunctuation("really?"), Is.EqualTo("really"));
+    }
+
+    [Test]
+    public void StripTrailingSentencePunctuation_EndsWithComma_ReturnsUnchanged() {
+        Assert.That(VoiceInsertionHeuristics.StripTrailingSentencePunctuation("hello,"), Is.EqualTo("hello,"));
+    }
+
+    [Test]
+    public void StripTrailingSentencePunctuation_EmptyString_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.StripTrailingSentencePunctuation(""), Is.EqualTo(""));
+    }
+
+    // ── Apply: trailing-space heuristic (heuristic 4 extended) ───────────────
+
+    [Test]
+    public void Apply_RightContextLetter_AddsTrailingSpace() {
+        // caret before "years" — inserting "score and seven" should get trailing space
+        var result = VoiceInsertionHeuristics.Apply("", "Score and seven", "years ago");
+        Assert.That(result, Does.EndWith(" "));
+        Assert.That(result + "years ago", Is.EqualTo("Score and seven years ago"));
+    }
+
+    [Test]
+    public void Apply_RightContextDigit_AddsTrailingSpace() {
+        var result = VoiceInsertionHeuristics.Apply("", "Step", "42");
+        Assert.That(result, Is.EqualTo("Step "));
+    }
+
+    [Test]
+    public void Apply_RightContextOpenParen_AddsTrailingSpace() {
+        // caret before "(note)" — should ensure space before the paren
+        var result = VoiceInsertionHeuristics.Apply("see", "the details", "(note)");
+        Assert.That(result, Does.EndWith(" "));
+    }
+
+    [Test]
+    public void Apply_RightContextCloseParen_NoTrailingSpace() {
+        // caret inside "(|)" — voice fills the parens, no trailing space before ')'
+        var result = VoiceInsertionHeuristics.Apply("(", "for today.", ")");
+        Assert.That(result, Is.EqualTo("for today"));  // lowercase + period stripped + no trailing space
+    }
+
+    [Test]
+    public void Apply_RightContextPunct_TrailingPunctStripped_NoRunTogether() {
+        // caret before "," — "hello." should become "hello" (punct stripped)
+        var result = VoiceInsertionHeuristics.Apply("", "Hello.", ", world");
+        Assert.That(result, Does.Not.EndWith("."));
+    }
+
+    // ── Apply: open-paren left context (no-prefix-space + continuation) ──────
+
+    [Test]
+    public void Apply_LeftContextOpenParen_LowercasesAndStripsTrailingPeriod() {
+        // left = "(", right = ")" — inside parens: lowercase, strip period, no trailing space
+        var result = VoiceInsertionHeuristics.Apply("(", "For today.", ")");
+        Assert.That(result, Is.EqualTo("for today"));
+    }
 }
