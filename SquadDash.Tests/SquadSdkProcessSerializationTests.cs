@@ -62,6 +62,124 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void RunLoopRequest_UsesCorrectJsonPropertyNames() {
+        var json = JsonSerializer.Serialize(new SquadSdkRunLoopRequest("C:\\workspace\\loop.md", "C:\\workspace", null, null));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"type\":\"run_loop\""));
+            Assert.That(json, Does.Contain("\"loopMdPath\":\"C:\\\\workspace\\\\loop.md\""));
+            Assert.That(json, Does.Contain("\"cwd\":\"C:\\\\workspace\""));
+            Assert.That(json, Does.Not.Contain("\"Type\""));
+            Assert.That(json, Does.Not.Contain("\"LoopMdPath\""));
+        });
+    }
+
+    [Test]
+    public void RcStartRequest_UsesCorrectJsonPropertyNames() {
+        var json = JsonSerializer.Serialize(new SquadSdkRcStartRequest(3000, "my-repo", "main", "my-machine", "C:\\workspace\\.squad", "C:\\workspace", "req-1", null));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"port\":3000"));
+            Assert.That(json, Does.Contain("\"repo\":\"my-repo\""));
+            Assert.That(json, Does.Contain("\"branch\":\"main\""));
+            Assert.That(json, Does.Contain("\"machine\":\"my-machine\""));
+            Assert.That(json, Does.Contain("\"type\":\"rc_start\""));
+            Assert.That(json, Does.Not.Contain("\"Port\""));
+            Assert.That(json, Does.Not.Contain("\"Repo\""));
+            Assert.That(json, Does.Not.Contain("\"Branch\""));
+            Assert.That(json, Does.Not.Contain("\"sessionId\""));
+        });
+    }
+
+    [Test]
+    public void RcStopRequest_UsesCorrectJsonPropertyNames() {
+        var json = JsonSerializer.Serialize(new SquadSdkRcStopRequest("req-2"));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"requestId\":\"req-2\""));
+            Assert.That(json, Does.Contain("\"type\":\"rc_stop\""));
+            Assert.That(json, Does.Not.Contain("\"RequestId\""));
+            Assert.That(json, Does.Not.Contain("\"Type\""));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesLoopIterationPayload() {
+        const string json = """
+            {
+              "type": "loop_iteration",
+              "loopIteration": 3,
+              "loopMdPath": "C:\\workspace\\loop.md",
+              "outputLine": "Running iteration 3"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions {
+                PropertyNameCaseInsensitive = true
+            });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("loop_iteration"));
+            Assert.That(evt.LoopIteration, Is.EqualTo(3));
+            Assert.That(evt.LoopMdPath, Is.EqualTo("C:\\workspace\\loop.md"));
+            Assert.That(evt.OutputLine, Is.EqualTo("Running iteration 3"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesWatchFleetPayload() {
+        const string json = """
+            {
+              "type": "watch_fleet_dispatched",
+              "watchFleetSize": 5,
+              "watchCycleId": "cycle-abc"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions {
+                PropertyNameCaseInsensitive = true
+            });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("watch_fleet_dispatched"));
+            Assert.That(evt.WatchFleetSize, Is.EqualTo(5));
+            Assert.That(evt.WatchCycleId, Is.EqualTo("cycle-abc"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcStartedPayload() {
+        const string json = """
+            {
+              "type": "rc_started",
+              "rcPort": 3000,
+              "rcToken": "tok-xyz",
+              "rcUrl": "http://localhost:3000"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions {
+                PropertyNameCaseInsensitive = true
+            });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_started"));
+            Assert.That(evt.RcPort, Is.EqualTo(3000));
+            Assert.That(evt.RcToken, Is.EqualTo("tok-xyz"));
+            Assert.That(evt.RcUrl, Is.EqualTo("http://localhost:3000"));
+        });
+    }
+
+    [Test]
     public void SquadSdkEvent_DeserializesToolLifecyclePayload() {
         const string json = """
             {

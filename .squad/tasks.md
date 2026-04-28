@@ -74,7 +74,7 @@
   Add `Key.F11` handler in `Window_PreviewKeyDown` to call `SetTranscriptFullScreen(!_transcriptFullScreenEnabled)`.
   Add `InputGestureText="F11"` to `FullScreenTranscriptMenuItem` in XAML.
 
-- [ ] **Test coverage — new SDK process methods** *(Owner: Vesper Knox)*
+- [x] **Test coverage — new SDK process methods** *(Owner: Vesper Knox)*
   `RunLoopAsync()`, `StartRemoteAsync()`, `StopRemoteAsync()` have no tests.
   Add argument validation tests to `SquadSdkProcessTests.cs` and serialization round-trip
   tests for `SquadSdkRunLoopRequest`, `SquadSdkRcStartRequest`, `SquadSdkRcStopRequest`

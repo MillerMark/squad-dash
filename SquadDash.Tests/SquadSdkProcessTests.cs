@@ -42,6 +42,42 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task RunLoopAsync_EmptyLoopMdPath_ThrowsArgumentException() {
+        await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
+
+        Assert.That(
+            async () => await sut.RunLoopAsync("   ", "C:\\some\\dir"),
+            Throws.TypeOf<ArgumentException>().With.Message.Contains("Loop markdown path"));
+    }
+
+    [Test]
+    public async Task RunLoopAsync_EmptyWorkingDirectory_ThrowsArgumentException() {
+        await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
+
+        Assert.That(
+            async () => await sut.RunLoopAsync("C:\\workspace\\loop.md", "   "),
+            Throws.TypeOf<ArgumentException>().With.Message.Contains("Working directory"));
+    }
+
+    [Test]
+    public async Task StartRemoteAsync_EmptyRepo_ThrowsArgumentException() {
+        await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
+
+        Assert.That(
+            async () => await sut.StartRemoteAsync("   ", "main", "my-machine", "C:\\workspace\\.squad", "C:\\workspace"),
+            Throws.TypeOf<ArgumentException>().With.Message.Contains("Repo"));
+    }
+
+    [Test]
+    public async Task StartRemoteAsync_EmptyWorkingDirectory_ThrowsArgumentException() {
+        await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
+
+        Assert.That(
+            async () => await sut.StartRemoteAsync("my-repo", "main", "my-machine", "C:\\workspace\\.squad", "   "),
+            Throws.TypeOf<ArgumentException>().With.Message.Contains("Working directory"));
+    }
+
+    [Test]
     public async Task RunNamedAgentDelegationAsync_EmptySessionId_ThrowsArgumentException() {
         await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
 
