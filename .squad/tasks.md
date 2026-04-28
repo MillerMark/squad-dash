@@ -68,6 +68,18 @@
 
 ## 🟢 Low Priority
 
+- [ ] **Phone push notifications — architecture & implementation** *(Owner: Orion Vale — architecture first, then Arjun Sen + Talia Rune)*
+  Send push notifications to the user's phone when key SquadDash events occur (e.g. AI response
+  complete, git commit pushed, loop iteration finished, RC connection established).
+  Recommended delivery mechanism: **ntfy.sh** (free, no account required, plain HTTP POST) or
+  **Pushover** (~$5 one-time app, richer notification options). Architecture review needed to decide:
+  - Which events should trigger notifications (and which are too noisy)
+  - Whether the topic URL / API key is stored in workspace settings or global settings
+  - Whether notifications are opt-in per event type (configurable in a settings panel)
+  - Whether Talia wires event hooks in the bridge or Arjun hooks into C# event points
+  User has approved adding QRCoder NuGet package for QR code display of the notification
+  endpoint URL.
+
 - [ ] **RC mobile — decide SDK PR ownership for binary audio frames** *(Owner: Orion Vale)*
   `onAudioChunk` / `onAudioStart` / `onAudioEnd` additions to `RemoteBridgeConfig` must land in
   `@bradygaster/squad-sdk` before the PTT audio path can work end-to-end. Identify who submits

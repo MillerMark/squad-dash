@@ -590,3 +590,562 @@ Documented key features:
 - Future: Expand keyboard-shortcuts.md as features evolve
 - Future: Add architecture diagrams to concepts/
 
+
+
+
+# ADR-001: Phone Push Notifications for SquadDash
+
+## Status
+Proposed
+
+## Context
+
+SquadDash is a desktop WPF application that orchestrates long-running AI agent workflows. Users frequently need to step away from their desk while agents work, requiring awareness of completion states without constant desktop monitoring. The existing WPF UI provides rich visual feedback but requires the user to remain at the machine.
+
+**User requirement:** Receive phone notifications for key workflow milestones (agent turn complete, loop complete, git commits) without requiring the SquadDash window to be in focus.
+
+**Technical environment:**
+- WPF desktop application running on Windows
+- Event-driven architecture via `SquadSdkEvent` delivered from SDK bridge to `MainWindow.HandleEvent`
+- Settings persisted via `ApplicationSettingsStore` (JSON-based atomic writes to `%LocalAppData%\SquadDash\settings.json`)
+- Existing service decomposition: `PromptExecutionController`, `BackgroundTaskPresenter`, `TranscriptConversationManager`, `AgentThreadRegistry`
+
+## Decision
+
+**Implement pluggable push notification architecture with ntfy.sh as the primary delivery mechanism, designed to support Pushover, Telegram, and SMS as future additions.**
+
+### Delivery Mechanism
+
+**Phase 1 (Immediate Implementation):** ntfy.sh only  
+**Phase 2 (Future):** Add Pushover, Telegram Bot, Twilio SMS as selectable providers
+
+**Rationale for ntfy.sh first:**
+1. **Zero friction onboarding:** No API keys, no account creation, no per-message cost
+2. **HTTP-trivial integration:** Single `POST https://ntfy.sh/{topic}` with message body
+3. **Self-service subscription:** User scans QR code on their phone → auto-subscribes to the topic
+4. **Adequate for MVP:** Handles notification delivery reliably; advanced features (priority, sounds, custom icons) deferred to Pushover phase
+
+**Why not Pushover first?**
+- $5 purchase barrier before testing
+- Requires API key management (user + app keys)
+- Better suited as an upgrade path for power users after ntfy.sh proves the pattern
+
+**Why not Telegram/SMS first?**
+- Telegram: Higher friction for non-Telegram users (requires Telegram app + bot interaction)
+- Twilio SMS: Ongoing per-message cost model; overkill for this use case
+
+**Pluggable design justification:** The HTTP POST pattern is identical across all candidates (URL + headers + JSON body). Abstracting early costs nothing and prevents ntfy.sh lock-in.
+
+---
+
+## Event Taxonomy
+
+Only events representing **workflow completion milestones** should trigger notifications. Streaming progress (thinking_delta, response_delta, tool_progress) is too noisy for phone interrupts.
+
+| Event Name | Default Enabled | Rationale | Owner |
+|------------|-----------------|-----------|-------|
+| `assistant_turn_complete` | ✅ Yes | Core use case: AI finished answering your prompt. Primary notification trigger. | Talia (SDK event surfacing) |
+| `git_commit_pushed` | ❌ No | Optional for users with git-heavy workflows. Can be spammy in rapid-commit scenarios. | Arjun (C# git event detection) |
+| `loop_iteration_complete` | ❌ No | Mid-loop checkpoints — useful for very long loops. Default off to avoid notification storms. | Talia (loop events already surfaced) |
+| `loop_stopped` | ✅ Yes | Loop workflow finished or manually stopped — clear endpoint signal. | Talia |
+| `rc_connection_established` | ❌ No | Nice-to-know status update, not workflow-critical. Default off. | Talia (RC events already surfaced) |
+| `rc_connection_dropped` | ✅ Yes | Failure signal — user needs to know remote access broke. | Talia |
+| `long_running_task_complete` | 🟡 Deferred | Future: task agents taking >5 minutes. Requires new event type. | Talia (new event) + Arjun (detection) |
+
+**Implementation note:** `assistant_turn_complete` does **not** exist as a discrete `SquadSdkEvent.Type` today. The `"done"` event at line 1403 of `MainWindow.xaml.cs` is the semantic equivalent. **Owner: Talia** to either (a) emit `assistant_turn_complete` from SDK or (b) confirm `"done"` is the canonical signal for notification purposes.
+
+**Per-event toggles:** Settings UI will expose checkboxes for each event type. Stored in `ApplicationSettingsSnapshot.NotificationEventToggles: IReadOnlyDictionary<string, bool>`.
+
+---
+
+## Configuration Architecture
+
+### Storage Location
+**Global (machine-wide) settings, not per-workspace.**
+
+**Rationale:**
+- Notification endpoints (ntfy topic, Pushover keys, phone number) are user identity, not project-specific
+- User wants the same phone to receive notifications regardless of which SquadDash workspace is open
+- Consistent with existing global settings: `UserName`, `SpeechRegion`, `LastUsedModel`, `Theme`
+
+### Schema (ApplicationSettingsSnapshot additions)
+
+```csharp
+// Added to ApplicationSettingsSnapshot record (ApplicationSettingsStore.cs ~line 515)
+public sealed record ApplicationSettingsSnapshot(
+    // ... existing parameters ...
+    IReadOnlyDictionary<string, string> IgnoredRoutingIssueFingerprintsByWorkspace)
+{
+    // ... existing properties ...
+
+    /// <summary>
+    /// Push notification delivery provider. "ntfy", "pushover", "telegram", "twilio", or null (disabled).
+    /// </summary>
+    public string? NotificationProvider { get; init; }
+
+    /// <summary>
+    /// Endpoint configuration for the selected provider.
+    /// ntfy: { "topic": "my-squad-dash-abc123" }
+    /// pushover: { "user_key": "...", "api_token": "..." }
+    /// telegram: { "bot_token": "...", "chat_id": "..." }
+    /// twilio: { "account_sid": "...", "auth_token": "...", "from": "+1...", "to": "+1..." }
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? NotificationEndpoint { get; init; }
+
+    /// <summary>
+    /// Per-event enable/disable toggles.
+    /// Key = event name (e.g., "assistant_turn_complete"), Value = enabled (true) or disabled (false).
+    /// Missing keys inherit default from Event Taxonomy table above.
+    /// </summary>
+    public IReadOnlyDictionary<string, bool>? NotificationEventToggles { get; init; }
+}
+```
+
+### ApplicationSettingsStore Methods (Arjun)
+
+```csharp
+// Add to ApplicationSettingsStore class
+public ApplicationSettingsSnapshot SaveNotificationProvider(
+    string? provider,
+    IReadOnlyDictionary<string, string>? endpoint);
+
+public ApplicationSettingsSnapshot SaveNotificationEventToggles(
+    IReadOnlyDictionary<string, bool> toggles);
+```
+
+---
+
+## Settings UI
+
+### Placement
+**Dedicated "Notifications" section in the existing `PreferencesWindow`.**
+
+**Rationale:**
+- PreferencesWindow already exists (`PreferencesWindow.cs`) and handles global settings (UserName, SpeechRegion, API Key)
+- Avoids adding another top-level window to the application
+- Groups related configuration in one location
+- Consistent with existing settings UX patterns
+
+### Layout (Wireframe-Level Description)
+
+```
+┌─ Notifications ──────────────────────────────────────────┐
+│                                                           │
+│  Enable Phone Notifications  [✓]                         │
+│                                                           │
+│  Delivery Method:  [ ntfy.sh ▼ ]  (future: Pushover...)  │
+│                                                           │
+│  ┌─ ntfy.sh Configuration ──────────────────────────┐    │
+│  │  Topic:  [my-squad-dash-abc123_____________]     │    │
+│  │                                                   │    │
+│  │  [ Generate Random Topic ]                       │    │
+│  │                                                   │    │
+│  │  [QR Code]  ← Scan with phone ntfy app          │    │
+│  │   █████████                                       │    │
+│  │   ██ ▄▄▄ ██         Encodes:                     │    │
+│  │   ██ ███ ██    https://ntfy.sh/my-squad-dash-... │    │
+│  │   ██▄▄▄▄▄██                                       │    │
+│  │   █████████                                       │    │
+│  └───────────────────────────────────────────────────┘    │
+│                                                           │
+│  Notify me when:                                          │
+│  [✓] AI turn completes                                    │
+│  [ ] Git commit pushed                                    │
+│  [ ] Loop iteration completes                             │
+│  [✓] Loop stopped                                         │
+│  [ ] Remote connection established                        │
+│  [✓] Remote connection dropped                            │
+│                                                           │
+│                                    [Test Notification]    │
+└───────────────────────────────────────────────────────────┘
+```
+
+### Component Ownership: Lyra Morn (WPF/XAML specialist)
+
+**Implementation notes:**
+1. **QR Code rendering:** Use `QRCoder` NuGet package (already approved for RC mobile). Generate QR image from `https://ntfy.sh/{topic}`.
+2. **"Generate Random Topic":** Button generates a secure topic name like `squad-dash-{username}-{guid-suffix}` to prevent topic collisions.
+3. **"Test Notification":** Sends a test message via the configured endpoint to validate setup.
+4. **Provider dropdown:** Initially shows only "ntfy.sh". Phase 2 adds "Pushover", "Telegram Bot", "Twilio SMS".
+5. **Dynamic config panel:** Config UI (Topic / API Keys / etc.) swaps based on selected provider.
+
+---
+
+## Implementation Plan
+
+### Phase 1: ntfy.sh Foundation (1 week)
+
+#### Arjun Sen: C# Notification Service (2–3 days)
+**File:** `SquadDash/PushNotificationService.cs`
+
+```csharp
+internal interface IPushNotificationProvider
+{
+    Task<bool> SendAsync(string title, string message, string? tags = null);
+}
+
+internal sealed class NtfyNotificationProvider : IPushNotificationProvider
+{
+    private readonly string _topic;
+    private readonly HttpClient _httpClient;
+
+    public NtfyNotificationProvider(string topic, HttpClient? httpClient = null)
+    {
+        if (string.IsNullOrWhiteSpace(topic))
+            throw new ArgumentException("ntfy topic cannot be empty", nameof(topic));
+        _topic = topic;
+        _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+    }
+
+    public async Task<bool> SendAsync(string title, string message, string? tags = null)
+    {
+        try
+        {
+            var content = new StringContent(message, System.Text.Encoding.UTF8, "text/plain");
+            content.Headers.Add("Title", title);
+            if (!string.IsNullOrWhiteSpace(tags))
+                content.Headers.Add("Tags", tags);
+
+            var response = await _httpClient.PostAsync($"https://ntfy.sh/{_topic}", content);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Notifications", $"ntfy send failed: {ex.Message}");
+            return false;
+        }
+    }
+}
+
+internal sealed class PushNotificationService
+{
+    private readonly ApplicationSettingsStore _settingsStore;
+    private readonly Func<ApplicationSettingsSnapshot> _getCurrentSettings;
+    private IPushNotificationProvider? _currentProvider;
+
+    public PushNotificationService(
+        ApplicationSettingsStore settingsStore,
+        Func<ApplicationSettingsSnapshot> getCurrentSettings)
+    {
+        _settingsStore = settingsStore;
+        _getCurrentSettings = getCurrentSettings;
+        ReloadProvider();
+    }
+
+    public void ReloadProvider()
+    {
+        var settings = _getCurrentSettings();
+        _currentProvider = settings.NotificationProvider switch
+        {
+            "ntfy" when settings.NotificationEndpoint?.TryGetValue("topic", out var topic) == true
+                => new NtfyNotificationProvider(topic),
+            // Phase 2: "pushover" => new PushoverNotificationProvider(...),
+            _ => null
+        };
+    }
+
+    public async Task NotifyEventAsync(string eventName, string title, string message)
+    {
+        var settings = _getCurrentSettings();
+        var enabled = settings.NotificationEventToggles?.TryGetValue(eventName, out var toggle) == true
+            ? toggle
+            : GetDefaultEnabledState(eventName);
+
+        if (!enabled || _currentProvider is null)
+            return;
+
+        SquadDashTrace.Write("Notifications", $"Sending: event={eventName} title={title}");
+        await _currentProvider.SendAsync(title, message, tags: "computer,completed");
+    }
+
+    private static bool GetDefaultEnabledState(string eventName)
+    {
+        return eventName switch
+        {
+            "assistant_turn_complete" => true,
+            "loop_stopped" => true,
+            "rc_connection_dropped" => true,
+            _ => false
+        };
+    }
+}
+```
+
+**Integration point:** MainWindow constructor creates `_pushNotificationService` and wires `ReloadProvider()` after settings changes.
+
+**Event hooks (3–5 call sites in MainWindow.HandleEvent):**
+
+```csharp
+// Line ~1403 in HandleEvent switch ("done" case)
+case "done":
+    _pec.ActiveToolName = null;
+    FinalizeCurrentTurnResponse();
+    CollapseCurrentTurnThinking();
+    _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
+    _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
+    FlushDeferredSystemLines();
+    // NEW:
+    _ = _pushNotificationService.NotifyEventAsync(
+        "assistant_turn_complete",
+        "SquadDash",
+        "AI response complete");
+    break;
+
+// Line ~1360 (loop_stopped case)
+case "loop_stopped":
+    HandleLoopStopped(evt);
+    // NEW:
+    _ = _pushNotificationService.NotifyEventAsync(
+        "loop_stopped",
+        "SquadDash",
+        $"Loop stopped after {evt.LoopIteration ?? 0} iterations");
+    break;
+
+// Line ~1396 (rc_stopped case) — if user-initiated, skip notification
+case "rc_stopped":
+    HandleRcStopped(evt);
+    // NEW (only if not graceful shutdown):
+    if (!_remoteAccessGracefulShutdown) // need to track this flag
+    {
+        _ = _pushNotificationService.NotifyEventAsync(
+            "rc_connection_dropped",
+            "SquadDash",
+            "Remote connection dropped");
+    }
+    break;
+```
+
+**Test:** `PushNotificationServiceTests.cs` — mock HttpClient, verify POST URL/headers/body.
+
+#### Talia Rune: SDK Event Surfacing (1 day)
+
+**Task:** Confirm whether `"done"` event is the canonical signal for `assistant_turn_complete` or if a new event type should be emitted.
+
+**If new event needed:** Modify SDK bridge to emit `{ "Type": "assistant_turn_complete", ... }` after the final `"done"` event in a turn.
+
+**Deliverable:** Document in `.squad/decisions.md` which event type C# should hook for notifications.
+
+#### Lyra Morn: Settings UI (2–3 days)
+
+**File:** `SquadDash/PreferencesWindow.cs` (extend existing)
+
+**Tasks:**
+1. Add "Notifications" section to PreferencesWindow form stack
+2. Add provider dropdown (initially single option: "ntfy.sh")
+3. Add ntfy topic TextBox + "Generate Random Topic" button
+4. Add QRCoder-based QR image display (refresh on topic change)
+5. Add per-event checkboxes (load from settings, bind to UI)
+6. Wire "Test Notification" button → calls `PushNotificationService.NotifyEventAsync("test", "Test", "SquadDash notifications are working!")`
+7. Save button → `_settingsStore.SaveNotificationProvider(...)` + `_settingsStore.SaveNotificationEventToggles(...)`
+
+**Dependencies:**
+- QRCoder NuGet package (MIT license) — **already approved** per `.squad/tasks.md`
+- `ApplicationSettingsStore.SaveNotificationProvider` + `SaveNotificationEventToggles` methods (Arjun)
+
+**Test:** Manual verification — open Preferences, configure ntfy topic, scan QR code on phone, toggle event checkboxes, save, trigger notification event in app.
+
+#### Integration (1 day)
+
+**File:** `SquadDash/MainWindow.xaml.cs`
+
+1. Add `_pushNotificationService` field
+2. Wire in constructor after `_settingsStore` is created
+3. Call `_pushNotificationService.ReloadProvider()` in `ApplySettings` after settings changes
+4. Add notification hooks in `HandleEvent` switch statement (see Arjun section above)
+
+### Phase 2: Multi-Provider Support (Future)
+
+**Scope:** Add Pushover, Telegram Bot, Twilio SMS providers.
+
+**Changes required:**
+1. Arjun: Implement `PushoverNotificationProvider`, `TelegramNotificationProvider`, `TwilioNotificationProvider` classes implementing `IPushNotificationProvider`
+2. Lyra: Extend Settings UI provider dropdown + add provider-specific config panels
+3. Talia: No changes (events already surfaced)
+
+**Timeline:** Post-MVP, user-requested feature based on feedback.
+
+---
+
+## Interface Contracts
+
+### C# Interfaces
+
+```csharp
+// SquadDash/PushNotificationService.cs
+internal interface IPushNotificationProvider
+{
+    /// <summary>
+    /// Sends a push notification.
+    /// </summary>
+    /// <param name="title">Notification title (short, 1 line)</param>
+    /// <param name="message">Notification body (1–3 lines)</param>
+    /// <param name="tags">Optional comma-separated tags (e.g., "computer,completed")</param>
+    /// <returns>True if sent successfully, false if failed (logs error to trace)</returns>
+    Task<bool> SendAsync(string title, string message, string? tags = null);
+}
+```
+
+### ApplicationSettingsStore Methods
+
+```csharp
+// SquadDash/ApplicationSettingsStore.cs (add to class)
+
+/// <summary>
+/// Saves notification provider and endpoint configuration.
+/// </summary>
+/// <param name="provider">"ntfy", "pushover", "telegram", "twilio", or null to disable</param>
+/// <param name="endpoint">Provider-specific config keys (topic, API keys, phone numbers)</param>
+public ApplicationSettingsSnapshot SaveNotificationProvider(
+    string? provider,
+    IReadOnlyDictionary<string, string>? endpoint)
+{
+    using var mutex = AcquireMutex();
+    var current = LoadCore();
+    var updated = current with
+    {
+        NotificationProvider = string.IsNullOrWhiteSpace(provider) ? null : provider.Trim(),
+        NotificationEndpoint = endpoint
+    };
+    SaveCore(updated);
+    return updated;
+}
+
+/// <summary>
+/// Saves per-event notification toggles.
+/// </summary>
+/// <param name="toggles">Event name → enabled (true/false)</param>
+public ApplicationSettingsSnapshot SaveNotificationEventToggles(
+    IReadOnlyDictionary<string, bool> toggles)
+{
+    using var mutex = AcquireMutex();
+    var current = LoadCore();
+    var updated = current with { NotificationEventToggles = toggles };
+    SaveCore(updated);
+    return updated;
+}
+```
+
+### SDK Event (Talia to confirm)
+
+**Option A:** Reuse `"done"` event  
+**Option B:** Emit new event type `"assistant_turn_complete"` after `"done"`
+
+**Deliverable:** Decision documented in `.squad/decisions.md` by end of Day 1.
+
+---
+
+## Risks & Mitigations
+
+### Risk 1: ntfy.sh Topic Collisions
+**Impact:** Two users pick the same topic name → receive each other's notifications.
+
+**Mitigation:**
+- Default topic generation includes username + GUID suffix: `squad-dash-{username}-{guid:N:8}`
+- Example: `squad-dash-mark003-a7f3c2e1`
+- Extremely low collision probability (8-char hex = 4 billion possibilities)
+
+### Risk 2: Notification Spam
+**Impact:** Loop with 100 iterations → 100 phone pings if `loop_iteration_complete` is enabled.
+
+**Mitigation:**
+- `loop_iteration_complete` defaults to **disabled**
+- Documentation warns users this event is high-frequency
+- Future enhancement: rate-limiting (max 1 notification per event type per 10 seconds)
+
+### Risk 3: HTTP POST Failures
+**Impact:** Notification silently fails to send; user never knows.
+
+**Mitigation:**
+- All HTTP failures logged to SquadDashTrace → visible in Trace window
+- "Test Notification" button in Settings UI validates config before user relies on it
+- Phase 2: Add in-app notification delivery status indicator (toast on failure)
+
+### Risk 4: QRCoder NuGet Package Dependency
+**Impact:** New external dependency increases attack surface, binary size.
+
+**Mitigation:**
+- QRCoder already approved for RC mobile (`.squad/tasks.md`)
+- MIT license, no native dependencies, ~150 KB
+- Well-maintained OSS library (1.4M+ downloads/month on NuGet)
+- Acceptable tradeoff for UX benefit (QR scan vastly easier than manual URL entry)
+
+### Risk 5: Sensitive Data in Settings
+**Impact:** API keys (Pushover, Twilio) stored in plaintext JSON.
+
+**Mitigation:**
+- Phase 1 (ntfy): No API keys, only public topic name (low-sensitivity)
+- Phase 2 (Pushover/Twilio): Use Windows DPAPI to encrypt sensitive fields before writing to JSON
+- Existing pattern: Azure Speech API Key already uses environment variable (`SQUAD_SPEECH_KEY`) → extend to Notification API Keys
+- **Recommendation:** Store Pushover/Twilio secrets in environment variables, not JSON
+
+---
+
+## Consequences
+
+### What Changes
+1. **New NuGet dependency:** QRCoder (~150 KB, MIT)
+2. **ApplicationSettingsSnapshot schema expansion:** +3 properties (`NotificationProvider`, `NotificationEndpoint`, `NotificationEventToggles`)
+3. **PreferencesWindow UI expansion:** +1 section (Notifications)
+4. **MainWindow event handling:** +3–5 notification hooks in `HandleEvent` switch
+5. **New service class:** `PushNotificationService.cs` (~200 lines)
+
+### What Gets Easier
+1. **User awareness:** No need to keep SquadDash window visible to track long-running workflows
+2. **Mobile workflows:** Trigger a multi-hour loop, walk away, get notified on phone when complete
+3. **Debugging async failures:** RC connection drops → instant phone notification rather than discovering it hours later
+
+### What Gets Harder
+1. **Settings complexity:** PreferencesWindow UI now has 6 sections (was 5)
+2. **Event taxonomy maintenance:** Every new event type requires a decision: "notify-worthy or not?"
+3. **Multi-provider testing:** Phase 2 requires manual testing across 4 providers (ntfy, Pushover, Telegram, Twilio)
+
+### Non-Breaking Guarantees
+1. **Notifications are opt-in:** Default state is disabled; user must explicitly configure topic/provider
+2. **Zero impact if unconfigured:** No HTTP calls, no QR rendering, no perf cost
+3. **Backward-compatible settings:** Existing `settings.json` files load normally; new fields are optional
+
+---
+
+## Open Questions for Mark003
+
+1. **Git commit events:** Should we detect commits made **by SquadDash agents** only, or all commits in the workspace (including user manual commits)? Recommend agent-only to reduce noise.
+
+2. **Rate limiting:** Should we implement "max 1 notification per event type per 10 seconds" in Phase 1, or defer to Phase 2 based on user feedback?
+
+3. **Notification message detail:** For `assistant_turn_complete`, should the notification body include:
+   - (a) "AI response complete" (generic)
+   - (b) First 50 chars of response text (preview)
+   - (c) Lead agent name + "turn complete"
+
+   **Recommendation:** Option (c) — agent name provides context without leaking potentially sensitive response text.
+
+4. **Environment variable precedence:** Should notification endpoints (topic, API keys) be overridable via environment variables for CI/test scenarios, or settings-file-only?
+
+---
+
+## References
+
+- `.squad/tasks.md` — QRCoder approval, notification task description
+- `.squad/rc-mobile-architecture.md` — QR code precedent for RC mobile
+- `SquadDash/ApplicationSettingsStore.cs` — Existing settings persistence pattern
+- `SquadDash/SquadSdkEvent.cs` — Event type definitions
+- `SquadDash/MainWindow.xaml.cs` — Event handling entry point (line 1229 `HandleEvent`)
+- `SquadDash/PreferencesWindow.cs` — Existing settings UI
+
+---
+
+## Approval Checklist
+
+- [ ] Mark003: Approve event taxonomy (which events, default on/off)
+- [ ] Arjun Sen: Review `PushNotificationService` interface contracts
+- [ ] Talia Rune: Confirm `assistant_turn_complete` event strategy
+- [ ] Lyra Morn: Review Settings UI wireframe
+- [ ] All: Approve ntfy.sh-first approach vs. multi-provider Phase 1
+
+---
+
+**Author:** Orion Vale (Lead Architect)  
+**Date:** 2026-04-27  
+**Reviewers:** Arjun Sen, Talia Rune, Lyra Morn  
+**Status:** Awaiting approval
+
