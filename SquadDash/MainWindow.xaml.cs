@@ -13362,19 +13362,31 @@ public partial class MainWindow : Window
             if (!walkerByKey.TryGetValue(key, out var walker))
             {
                 var searchFrom = GetSearchFromPointerSync(match, activeThread);
-                if (searchFrom is null) continue;
+                if (searchFrom is null)
+                {
+                    SquadDashTrace.Write(TraceCategory.Performance,
+                        $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} SKIPPED(unrendered)");
+                    continue;
+                }
                 walker = new SearchWalker(searchFrom);
                 walkerByKey[key] = walker;
             }
 
             var range = walker.FindNext(query);
-            if (range is null) continue;
+            if (range is null)
+            {
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} SKIPPED(walker_exhausted) cursor={i == _searchMatchCursor}");
+                continue;
+            }
 
             // Zero-length range = match inside a BlockUIContainer (table / code block).
             // The walker already advanced past it so skip counts stay correct, but we
             // cannot draw a highlight here.
             if (range.Start.CompareTo(range.End) == 0)
             {
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} BUC_MATCH cursor={i == _searchMatchCursor}");
                 if (i == _searchMatchCursor)
                     currentMatchPointer = range.Start; // best-effort BUC position
                 continue;
@@ -13387,6 +13399,8 @@ public partial class MainWindow : Window
             }
 
             var actualText = new TextRange(range.Start, range.End).Text;
+            SquadDashTrace.Write(TraceCategory.Performance,
+                $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} TEXT_MATCH listIdx={pointers.Count} cursor={i == _searchMatchCursor} text='{actualText}'");
             pointers.Add((range.Start, range.End, string.IsNullOrEmpty(actualText) ? query : actualText));
         }
 
@@ -13419,6 +13433,8 @@ public partial class MainWindow : Window
                 {
                     // Only scroll when the match is not already fully within the viewport.
                     var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
+                    SquadDashTrace.Write(TraceCategory.Performance,
+                        $"SEARCH_SCROLL cursor={_searchMatchCursor} rectTop={rect.Top:F0} rectBottom={rect.Bottom:F0} vp={sv.ViewportHeight:F0} offset={sv.VerticalOffset:F0} fullyVisible={isFullyVisible}");
                     if (!isFullyVisible)
                         _scrollController.ScrollToOffset(sv.VerticalOffset + rect.Top);
                 }

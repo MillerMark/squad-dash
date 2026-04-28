@@ -1116,8 +1116,15 @@ internal sealed class TranscriptConversationManager {
                 ct.ThrowIfCancellationRequested();
                 var turn = turns[i];
 
-                ScanField(turn.Prompt       ?? string.Empty, "user",      i, query, cmp, MaxExcerptLength, ExcerptPad, results);
-                ScanField(turn.ResponseText ?? string.Empty, "assistant", i, query, cmp, MaxExcerptLength, ExcerptPad, results);
+                ScanField(turn.Prompt ?? string.Empty, "user", i, query, cmp, MaxExcerptLength, ExcerptPad, results);
+
+                // Strip quick-reply blocks before scanning — the renderer also strips them
+                // (via TryExtractQuickReplyOptionMetadata), so leaving them in causes phantom
+                // match counts that cascade into skip-count errors across all later turns.
+                var responseText = turn.ResponseText ?? string.Empty;
+                if (QuickReplyOptionParser.TryExtractWithMetadata(responseText, out var cleanedResponse, out _))
+                    responseText = cleanedResponse;
+                ScanField(responseText, "assistant", i, query, cmp, MaxExcerptLength, ExcerptPad, results);
             }
 
             return (IReadOnlyList<TurnSearchMatch>)results;
