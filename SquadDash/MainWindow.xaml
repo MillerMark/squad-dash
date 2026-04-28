@@ -906,9 +906,6 @@
                                     Style="{StaticResource ThemedButtonStyle}"
                                     ToolTip="Create or open loop.md for editing"
                                     Click="CreateEditLoopFileButton_Click" />
-                            <Separator DockPanel.Dock="Bottom"
-                                       Margin="0,8,0,6"
-                                       Background="{DynamicResource RosterPanelBorder}" />
                         </DockPanel>
                     </Border>
 
