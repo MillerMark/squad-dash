@@ -928,7 +928,7 @@
 
                             <!-- Title row with close button -->
                             <Grid Grid.Row="0">
-                                <TextBlock Text="Tasks"
+                                <TextBlock Text="Top Tasks"
                                            FontSize="15"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource RosterPanelTitle}"

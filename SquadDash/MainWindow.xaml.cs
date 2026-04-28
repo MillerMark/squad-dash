@@ -1977,8 +1977,13 @@ public partial class MainWindow : Window
 
         TasksEmptyTextBlock.Visibility = Visibility.Collapsed;
 
+        const int MaxTaskItems = 10;
+        var itemsRendered = 0;
+
         foreach (var group in groups)
         {
+            if (itemsRendered >= MaxTaskItems) break;
+
             // Priority heading: colored dot + label text
             var headingRow = new StackPanel
             {
@@ -2007,6 +2012,8 @@ public partial class MainWindow : Window
 
             foreach (var item in group.Items)
             {
+                if (itemsRendered >= MaxTaskItems) break;
+
                 var row = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -2035,6 +2042,7 @@ public partial class MainWindow : Window
                 row.Children.Add(checkbox);
                 row.Children.Add(label);
                 TasksItemsPanel.Children.Add(row);
+                itemsRendered++;
             }
         }
     }
