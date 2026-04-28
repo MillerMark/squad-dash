@@ -860,8 +860,8 @@
                             Grid.Column="4"
                             MinWidth="160"
                             Padding="12"
-                            Background="{DynamicResource SidebarPanelSurface}"
-                            BorderBrush="{DynamicResource SidebarPanelBorder}"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16">
                         <Grid>
@@ -915,8 +915,8 @@
                             MinWidth="200"
                             MaxWidth="280"
                             Padding="12"
-                            Background="{DynamicResource SidebarPanelSurface}"
-                            BorderBrush="{DynamicResource SidebarPanelBorder}"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16"
                             Visibility="Collapsed">
