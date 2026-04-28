@@ -396,7 +396,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         _contentGrid.ColumnDefinitions[1].Width = sourceVisible ? new GridLength(6) : new GridLength(0);
         _contentGrid.ColumnDefinitions[2].Width = sourceVisible ? new GridLength(0.95, GridUnitType.Star) : new GridLength(0);
         _splitter.Visibility = sourceVisible ? Visibility.Visible : Visibility.Collapsed;
-        _sourceBorder.Visibility = sourceVisible ? Visibility.Visible : Visibility.Collapsed;
+        _sourceToolbarBorder.Visibility = sourceVisible ? Visibility.Visible : Visibility.Collapsed;
         _showSourceButton.Content = sourceVisible ? "Hide Source" : "Show Source";
     }
 

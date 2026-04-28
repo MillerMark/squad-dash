@@ -117,6 +117,7 @@
     <Compile Include="..\SquadDash\BackgroundTaskPresenter.cs" Link="Source\BackgroundTaskPresenter.cs" />
     <Compile Include="..\SquadDash\TranscriptConversationManager.cs" Link="Source\TranscriptConversationManager.cs" />
     <Compile Include="..\SquadDash\MarkdownDocumentRenderer.cs" Link="Source\MarkdownDocumentRenderer.cs" />
+    <Compile Include="..\SquadDash\MarkdownEditorCommands.cs" Link="Source\MarkdownEditorCommands.cs" />
   </ItemGroup>
 
 </Project>
