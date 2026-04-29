@@ -2299,6 +2299,7 @@ public partial class MainWindow : Window
     private void HandleLoopStarted(SquadSdkEvent evt)
     {
         _pec.SetIsLoopRunning(true);
+        _settingsSnapshot = _settingsStore.SaveLoopActive(true);
         _loopCurrentIteration = 0;
         _loopQueued = false;
         var label = string.IsNullOrWhiteSpace(evt.LoopMdPath)
@@ -2321,6 +2322,7 @@ public partial class MainWindow : Window
     private void HandleLoopStopped(SquadSdkEvent evt)
     {
         _pec.SetIsLoopRunning(false);
+        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         _loopCurrentIteration = 0;
         AppendLine("✅ Loop stopped");
         SquadDashTrace.Write("UI", $"Loop stopped mdPath={evt.LoopMdPath ?? "(none)"}");
@@ -2330,6 +2332,7 @@ public partial class MainWindow : Window
     private void HandleLoopError(SquadSdkEvent evt)
     {
         _pec.SetIsLoopRunning(false);
+        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         _loopCurrentIteration = 0;
         var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
             ? "❌ Loop error"
@@ -2346,6 +2349,7 @@ public partial class MainWindow : Window
         _loopCurrentIteration = iteration;
         _loopIsWaiting = false;
         _pec.SetIsLoopRunning(true);
+        _settingsSnapshot = _settingsStore.SaveLoopActive(true);
         AppendLine($"↩ Round {iteration}");
         SyncLoopPanel();
     }
@@ -2355,6 +2359,7 @@ public partial class MainWindow : Window
         _pec.SetIsLoopRunning(false);
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
+        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLine("✅ Loop stopped");
         SyncLoopPanel();
     }
@@ -2364,6 +2369,7 @@ public partial class MainWindow : Window
         _pec.SetIsLoopRunning(false);
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
+        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         SyncLoopPanel();
     }
@@ -7063,6 +7069,18 @@ public partial class MainWindow : Window
             _settingsSnapshot = _settingsStore.SaveLoopMode(savedLoopMode);
         if (savedState.LoopContinuousContext is { } savedContinuous)
             _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(savedContinuous);
+
+        // Auto-resume the loop if it was active when the app last exited.
+        // Clear the flag first so a crash-loop can't occur if the loop fails to start.
+        if (_settingsSnapshot.LoopActiveOnExit)
+        {
+            _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+            Dispatcher.InvokeAsync(async () =>
+            {
+                AppendLoopOutputLine("🔄 Resuming loop from previous session…", LoopLifecycleBrush);
+                await StartLoopImmediateAsync();
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
 
         RestoreWorkspaceWindowPlacement();
         _conversationManager.ResetHistoryNavigation();

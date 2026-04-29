@@ -1,0 +1,24 @@
+diff --git a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
+index 3743807..eee2151 100644
+--- a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
++++ b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
+@@ -152,7 +152,9 @@ export class RemoteBridge {
+                     try {
+                         const originUrl = new URL(origin);
+                         const host = originUrl.hostname;
+-                        if (host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.devtunnels.ms')) {
++                        const isLocalhost = host === 'localhost' || host === '127.0.0.1';
++                        const isLanIp = /^(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)$/.test(host);
++                        if (!isLocalhost && !isLanIp && !host.endsWith('.devtunnels.ms')) {
+                             return false;
+                         }
+                     }
+@@ -175,7 +177,7 @@ export class RemoteBridge {
+         });
+         this.wss.on('connection', (ws, req) => this.handleConnection(ws, req));
+         return new Promise((resolve, reject) => {
+-            this.server.listen(this.config.port, '127.0.0.1', () => {
++            this.server.listen(this.config.port, '0.0.0.0', () => {
+                 this.state = 'running';
+                 resolve(this.getPort());
+             });

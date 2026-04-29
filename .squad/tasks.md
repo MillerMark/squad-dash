@@ -9,11 +9,11 @@
 
 ## 🟡 Mid Priority
 
-- [ ] **Loop output log pane** *(Owner: Lyra Morn)*
+- [x] **Loop output log pane** *(Owner: Lyra Morn)*
   The bridge already emits `loop_output_line` events. Add a collapsible scrollable log pane
   to the Loop panel (or a floating window) that displays the live output from the running loop.
 
-- [ ] **RC — LAN access (bind to PC IP, not localhost)** *(Owner: Talia Rune)*
+- [x] **RC — LAN access (bind to PC IP, not localhost)** *(Owner: Talia Rune)*
   Currently the RC server URL is `http://localhost:<port>` — only reachable from the host PC.
   Add a `host` binding option so the server listens on `0.0.0.0` (or the PC's LAN IP).
   SquadDash shows the LAN URL in the transcript alongside the localhost URL when RC starts.
