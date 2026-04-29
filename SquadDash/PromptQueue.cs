@@ -7,6 +7,7 @@ namespace SquadDash;
 internal sealed class PromptQueueItem {
     public string Id             { get; } = Guid.NewGuid().ToString("N");
     public string Text           { get; set; } = "";
+    public bool   IsDictated     { get; set; }
     public bool   IsEditing      { get; set; }
     public int    SequenceNumber { get; set; }
     public int    CaretIndex     { get; set; }
@@ -19,8 +20,8 @@ internal sealed class PromptQueue {
 
     public IReadOnlyList<PromptQueueItem> Items => _items;
 
-    public void Enqueue(string text, int seqNum) =>
-        _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum });
+    public void Enqueue(string text, int seqNum, bool isDictated = false) =>
+        _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum, IsDictated = isDictated });
 
     /// <summary>Removes and returns the first non-editing item, or null if none exists.</summary>
     public PromptQueueItem? DequeueFirstReady() {

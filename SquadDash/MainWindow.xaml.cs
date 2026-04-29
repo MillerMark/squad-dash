@@ -1289,13 +1289,10 @@ public partial class MainWindow : Window
         var text = PromptTextBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        if (_promptHasVoiceInput)
-        {
-            _promptHasVoiceInput = false;
-            text += "\n(some or all of this prompt was dictated by voice)";
-        }
+        var isDictated = _promptHasVoiceInput;
+        _promptHasVoiceInput = false;
 
-        _promptQueue.Enqueue(text, ++_promptQueueSeq);
+        _promptQueue.Enqueue(text, ++_promptQueueSeq, isDictated);
         PromptTextBox.Clear();
         SyncQueuePanel();
     }
@@ -1328,7 +1325,7 @@ public partial class MainWindow : Window
         try
         {
             ResetQueuePausedState();
-            await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: false);
+            await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
         {
@@ -1367,7 +1364,7 @@ public partial class MainWindow : Window
         try
         {
             _pec.PendingQueueItemCount = _promptQueue.Count;
-            await _pec.ExecutePromptAsync(item.Text, addToHistory: true, clearPromptBox: false);
+            await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
         {
@@ -1379,6 +1376,9 @@ public partial class MainWindow : Window
         }
         // Further drain is triggered by setIsPromptRunning(false) callback.
     }
+
+    private static string ApplyDictationAnnotation(PromptQueueItem item) =>
+        item.IsDictated ? item.Text + "\n(some or all of this prompt was dictated by voice)" : item.Text;
 
     private async Task DrainQueueIfNeededAsync()
     {
@@ -1396,7 +1396,7 @@ public partial class MainWindow : Window
             try
             {
                 _pec.PendingQueueItemCount = _promptQueue.Count;
-                await _pec.ExecutePromptAsync(item.Text, addToHistory: true, clearPromptBox: false);
+                await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
             {
@@ -1481,7 +1481,7 @@ public partial class MainWindow : Window
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, $"#{item.SequenceNumber}"));
         }
 
-        _conversationManager.UpdateQueuedPromptsState(items.Select(i => i.Text).ToArray());
+        _conversationManager.UpdateQueuedPromptsState(items);
         SyncSendButton();
     }
 
@@ -6915,11 +6915,21 @@ public partial class MainWindow : Window
         _loopQueued = false;
 
         // Restore queued prompts saved before last shutdown.
-        var savedQueue = _conversationManager.ConversationState.QueuedPrompts;
-        if (savedQueue is { Count: > 0 })
+        var savedEntries = _conversationManager.ConversationState.QueuedPromptEntries;
+        var savedLegacy  = _conversationManager.ConversationState.QueuedPrompts;
+        if (savedEntries is { Count: > 0 })
         {
             _promptQueueSeq = 0;
-            foreach (var text in savedQueue)
+            foreach (var entry in savedEntries)
+                _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated);
+            SyncQueuePanel();
+            Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+        else if (savedLegacy is { Count: > 0 })
+        {
+            _promptQueueSeq = 0;
+            foreach (var text in savedLegacy)
                 _promptQueue.Enqueue(text, ++_promptQueueSeq);
             SyncQueuePanel();
             // Auto-dispatch restored queue items once the UI is fully initialised.

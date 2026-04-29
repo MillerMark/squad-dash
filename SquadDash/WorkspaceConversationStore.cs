@@ -214,7 +214,7 @@ internal sealed class WorkspaceConversationStore {
             PromptDraftCaretIndex    = state.PromptDraftCaretIndex,
             PromptDraftSelectionStart  = state.PromptDraftSelectionStart,
             PromptDraftSelectionLength = state.PromptDraftSelectionLength,
-            QueuedPrompts            = state.QueuedPrompts is { Count: > 0 } q ? q : null,
+            QueuedPromptEntries      = state.QueuedPromptEntries is { Count: > 0 } qe ? qe : null,
             LoopMode                 = state.LoopMode,
             LoopContinuousContext    = state.LoopContinuousContext,
         };
@@ -508,7 +508,10 @@ internal sealed record WorkspaceConversationState(
     public int? PromptDraftCaretIndex { get; init; }
     public int? PromptDraftSelectionStart { get; init; }
     public int? PromptDraftSelectionLength { get; init; }
+    /// <summary>Legacy: plain-text list (no dictation flag). Kept for backward-compatible deserialization only.</summary>
     public IReadOnlyList<string>? QueuedPrompts { get; init; }
+    /// <summary>Current format: preserves dictation flag per item. Takes precedence over <see cref="QueuedPrompts"/>.</summary>
+    public IReadOnlyList<QueuedPromptEntry>? QueuedPromptEntries { get; init; }
     public LoopMode? LoopMode { get; init; }
     public bool? LoopContinuousContext { get; init; }
 
@@ -526,6 +529,8 @@ internal sealed record WorkspaceConversationState(
 
     public IReadOnlyList<string> GetRecentSessionIds() => RecentSessionIds ?? Array.Empty<string>();
 }
+
+internal sealed record QueuedPromptEntry(string Text, bool IsDictated);
 
 internal enum TranscriptThoughtPlacement {
     BeforeTools,

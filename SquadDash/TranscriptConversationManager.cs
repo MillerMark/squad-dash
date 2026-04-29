@@ -833,9 +833,12 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
-    internal void UpdateQueuedPromptsState(IReadOnlyList<string> items) {
+    internal void UpdateQueuedPromptsState(IReadOnlyList<PromptQueueItem> items) {
+        var entries = items.Count > 0
+            ? (IReadOnlyList<QueuedPromptEntry>)items.Select(i => new QueuedPromptEntry(i.Text, i.IsDictated)).ToArray()
+            : null;
         _conversationState = _conversationState with {
-            QueuedPrompts = items.Count > 0 ? items : null
+            QueuedPromptEntries = entries
         };
     }
 
