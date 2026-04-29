@@ -956,6 +956,7 @@
                     <Border x:Name="LoopOutputBorder"
                             Grid.Column="5"
                             MinWidth="160"
+                            MaxHeight="{Binding ActualHeight, ElementName=InactiveAgentsPanelBorder}"
                             Margin="3,0,0,0"
                             Padding="8"
                             Background="{DynamicResource RosterPanelSurface}"

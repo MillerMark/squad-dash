@@ -1329,7 +1329,7 @@ public partial class MainWindow : Window
     private PromptQueueItem? GetAutoDispatchCandidate()
     {
         var items = _promptQueue.Items;
-        for (int i = items.Count - 1; i >= 0; i--)
+        for (int i = 0; i < items.Count; i++)
         {
             if (items[i].Id != _activeTabId)
                 return items[i];
