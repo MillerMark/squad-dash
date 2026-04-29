@@ -1610,7 +1610,7 @@ internal sealed class PromptExecutionController {
                 _maybePublishRoutingIssue("prompt-finished", false);
             }
 
-            if (_getRestartPending()) {
+            if (_getRestartPending() && !_getIsClosing()) {
                 _close();
             }
             else if (!_getIsClosing()) {

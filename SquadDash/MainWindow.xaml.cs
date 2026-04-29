@@ -1347,7 +1347,7 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueAsync()
     {
-        if (_isPromptRunning || IsNativeLoopRunning) return;
+        if (_isPromptRunning || IsNativeLoopRunning || _isClosing || _restartPending) return;
 
         var item = GetAutoDispatchCandidate();
         if (item is null)
