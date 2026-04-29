@@ -121,7 +121,8 @@ internal sealed class LoopController {
                 iterCts.CancelAfter(TimeSpan.FromMinutes(config.TimeoutMinutes));
 
                 try {
-                    await _executePromptAsync(config.Instructions, sessionId);
+                    var prompt = BuildAugmentedPrompt(config.Instructions, config.Commands);
+                    await _executePromptAsync(prompt, sessionId);
                 }
                 catch (OperationCanceledException)
                     when (iterCts.IsCancellationRequested && !ct.IsCancellationRequested) {
@@ -149,5 +150,45 @@ internal sealed class LoopController {
             else
                 _onStopped();
         }
+    }
+
+    /// <summary>
+    /// Appends a SquadDash command reference block to the loop instructions if the
+    /// loop.md frontmatter declared any <c>commands</c>. AI can respond with
+    /// <c>{"squadash": {"command": "stop_loop"}}</c> to invoke a command.
+    /// </summary>
+    internal static string BuildAugmentedPrompt(string instructions, IReadOnlyList<string>? commands) {
+        if (commands is null || commands.Count == 0)
+            return instructions;
+
+        var sb = new System.Text.StringBuilder(instructions);
+        sb.AppendLine();
+        sb.AppendLine();
+        sb.AppendLine("---");
+        sb.AppendLine("## SquadDash loop commands (available this iteration)");
+        sb.AppendLine();
+        sb.AppendLine("To invoke a SquadDash command, include a JSON block anywhere in your response:");
+        sb.AppendLine();
+
+        foreach (var cmd in commands) {
+            switch (cmd.Trim().ToLowerInvariant()) {
+                case "stop_loop":
+                    sb.AppendLine("""- **Stop the loop**: `{"squadash": {"command": "stop_loop"}}`""");
+                    sb.AppendLine("  Stops the loop after this iteration. Combine with a notification:");
+                    sb.AppendLine("""  `{"squadash": {"command": "stop_loop", "notification": "reason"}}`""");
+                    break;
+                case "start_loop":
+                    sb.AppendLine("""- **Start the loop**: `{"squadash": {"command": "start_loop"}}`""");
+                    sb.AppendLine("  Starts (or restarts) the SquadDash native loop.");
+                    break;
+                default:
+                    sb.AppendLine($"- **{cmd}**: `{{\"squadash\": {{\"command\": \"{cmd}\"}}}}` ");
+                    break;
+            }
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("Only emit a command block when the condition for that command has been met. Do not emit commands on every iteration.");
+        return sb.ToString().TrimEnd();
     }
 }

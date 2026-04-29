@@ -1961,7 +1961,9 @@ public partial class MainWindow : Window
                 {
                     var agentName = _leadAgent?.Name ?? "Agent";
                     var rawResponse = doneCurrentTurn?.ResponseTextBuilder.ToString();
-                    var notifSummary = PushNotificationService.ExtractNotificationJson(rawResponse)
+                    var squadashPayload = PushNotificationService.ExtractSquadashPayload(rawResponse);
+                    var notifSummary = (squadashPayload?.Notification is { Length: > 0 } sn ? sn : null)
+                        ?? PushNotificationService.ExtractNotificationJson(rawResponse)
                         ?? PushNotificationService.BuildFallbackSummary(doneCurrentTurn?.Prompt);
                     var notifMessage = string.IsNullOrWhiteSpace(notifSummary)
                         ? $"{agentName} turn complete"
@@ -1972,6 +1974,10 @@ public partial class MainWindow : Window
                     if (commitSha is not null)
                         notifMessage += $" [{commitSha}]";
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
+
+                    // Handle SquadDash loop commands embedded in the AI response.
+                    if (squadashPayload?.Command is string cmd)
+                        HandleSquadashCommand(cmd);
                 }
                 break;
 
@@ -2835,6 +2841,35 @@ public partial class MainWindow : Window
         {
             await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
                 _conversationManager.CurrentSessionId);
+        }
+    }
+
+    /// <summary>
+    /// Handles a <c>{"squadash": {"command": "..."}}</c> payload extracted from an AI response.
+    /// Must be called on the UI thread (invoked from the SDK event dispatcher).
+    /// </summary>
+    private void HandleSquadashCommand(string command)
+    {
+        switch (command.Trim().ToLowerInvariant())
+        {
+            case "stop_loop":
+                if (_loopController.IsRunning)
+                {
+                    AppendLoopOutputLine(
+                        "🤖 AI requested loop stop — finishing current iteration then halting.",
+                        LoopLifecycleBrush);
+                    _loopController.RequestStop();
+                    SyncLoopPanel();
+                }
+                break;
+
+            case "start_loop":
+                if (!_loopController.IsRunning)
+                {
+                    AppendLoopOutputLine("🤖 AI requested loop start.", LoopLifecycleBrush);
+                    _ = StartLoopImmediateAsync();
+                }
+                break;
         }
     }
 

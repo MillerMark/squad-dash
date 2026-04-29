@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -146,5 +147,99 @@ internal sealed class PushNotificationServiceTests {
         var output = "[main abcdef1234567] Fix something";
         var result = PushNotificationService.ExtractGitCommitSha([output]);
         Assert.That(result, Is.EqualTo("abcdef1234567"));
+    }
+
+    // ── ExtractSquadashPayload ────────────────────────────────────────────────
+
+    [Test]
+    public void ExtractSquadashPayload_NullInput_ReturnsNull() {
+        Assert.That(PushNotificationService.ExtractSquadashPayload(null), Is.Null);
+    }
+
+    [Test]
+    public void ExtractSquadashPayload_NoPayload_ReturnsNull() {
+        Assert.That(PushNotificationService.ExtractSquadashPayload("All done, no commands here."), Is.Null);
+    }
+
+    [Test]
+    public void ExtractSquadashPayload_CommandOnly_ParsesCommand() {
+        var result = PushNotificationService.ExtractSquadashPayload(
+            """{"squadash": {"command": "stop_loop"}}""");
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Command, Is.EqualTo("stop_loop"));
+        Assert.That(result.Notification, Is.Null);
+    }
+
+    [Test]
+    public void ExtractSquadashPayload_NotificationOnly_ParsesNotification() {
+        var result = PushNotificationService.ExtractSquadashPayload(
+            """{"squadash": {"notification": "All RC tasks done"}}""");
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Command, Is.Null);
+        Assert.That(result.Notification, Is.EqualTo("All RC tasks done"));
+    }
+
+    [Test]
+    public void ExtractSquadashPayload_CommandAndNotification_ParsesBoth() {
+        var result = PushNotificationService.ExtractSquadashPayload(
+            """{"squadash": {"command": "stop_loop", "notification": "All tasks complete"}}""");
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Command, Is.EqualTo("stop_loop"));
+        Assert.That(result.Notification, Is.EqualTo("All tasks complete"));
+    }
+
+    [Test]
+    public void ExtractSquadashPayload_EmbeddedInLargerText_Parses() {
+        var response = "Work complete.\n{\"squadash\": {\"command\": \"stop_loop\", \"notification\": \"Done\"}}\nThat's all.";
+        var result = PushNotificationService.ExtractSquadashPayload(response);
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Command, Is.EqualTo("stop_loop"));
+        Assert.That(result.Notification, Is.EqualTo("Done"));
+    }
+
+    // ── ExtractNotificationJson handles unified squadash format ───────────────
+
+    [Test]
+    public void ExtractNotificationJson_UnifiedFormat_ReturnsNotificationText() {
+        var result = PushNotificationService.ExtractNotificationJson(
+            """{"squadash": {"command": "stop_loop", "notification": "All done"}}""");
+        Assert.That(result, Is.EqualTo("All done"));
+    }
+
+    [Test]
+    public void ExtractNotificationJson_LegacyFormatStillWorks() {
+        var result = PushNotificationService.ExtractNotificationJson(
+            """{"notification": "Legacy format still works"}""");
+        Assert.That(result, Is.EqualTo("Legacy format still works"));
+    }
+
+    // ── BuildAugmentedPrompt ──────────────────────────────────────────────────
+
+    [Test]
+    public void BuildAugmentedPrompt_NoCommands_ReturnsOriginalInstructions() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", null);
+        Assert.That(result, Is.EqualTo("Do work."));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_EmptyCommands_ReturnsOriginalInstructions() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", new List<string>());
+        Assert.That(result, Is.EqualTo("Do work."));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_StopLoopCommand_InjectsReferenceBlock() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", ["stop_loop"]);
+        Assert.That(result, Does.Contain("Do work."));
+        Assert.That(result, Does.Contain("SquadDash loop commands"));
+        Assert.That(result, Does.Contain("stop_loop"));
+        Assert.That(result, Does.Contain("squadash"));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_MultipleCommands_AllAppear() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", ["stop_loop", "start_loop"]);
+        Assert.That(result, Does.Contain("stop_loop"));
+        Assert.That(result, Does.Contain("start_loop"));
     }
 }

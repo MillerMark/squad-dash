@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -43,6 +44,7 @@ internal static class LoopMdParser {
         double intervalMinutes = 10;
         double timeoutMinutes  = 5;
         string description     = "";
+        var    commands        = new List<string>();
 
         // Read key: value pairs up to the closing ---
         while (i < lines.Length && lines[i].Trim() != "---") {
@@ -76,6 +78,15 @@ internal static class LoopMdParser {
                     case "description":
                         description = value.Trim('"', '\'');
                         break;
+                    case "commands":
+                        // Accepts: [stop_loop, start_loop] or "stop_loop, start_loop"
+                        var raw = value.Trim('[', ']', '"', '\'');
+                        foreach (var cmd in raw.Split(',')) {
+                            var c = cmd.Trim();
+                            if (!string.IsNullOrEmpty(c))
+                                commands.Add(c);
+                        }
+                        break;
                 }
             }
             i++;
@@ -86,7 +97,7 @@ internal static class LoopMdParser {
 
         // Everything after the closing --- is the instructions body.
         if (i >= lines.Length)
-            return new LoopMdConfig(intervalMinutes, timeoutMinutes, description, "");
+            return new LoopMdConfig(intervalMinutes, timeoutMinutes, description, "", commands);
 
         i++; // move past the closing ---
 
@@ -99,6 +110,7 @@ internal static class LoopMdParser {
             intervalMinutes,
             timeoutMinutes,
             description,
-            sb.ToString().Trim());
+            sb.ToString().Trim(),
+            commands);
     }
 }

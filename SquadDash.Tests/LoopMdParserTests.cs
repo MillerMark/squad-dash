@@ -183,4 +183,64 @@ internal sealed class LoopMdParserTests {
         }
         finally { DeleteTempFile(path); }
     }
+
+    // ── commands: frontmatter field ───────────────────────────────────────────
+
+    [Test]
+    public void Parse_CommandsList_ParsedCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            commands: [stop_loop, start_loop]
+            ---
+            Do work.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Commands, Is.Not.Null);
+            Assert.That(config.Commands, Has.Count.EqualTo(2));
+            Assert.That(config.Commands, Does.Contain("stop_loop"));
+            Assert.That(config.Commands, Does.Contain("start_loop"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_SingleCommand_ParsedCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            commands: [stop_loop]
+            ---
+            Do work.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Commands, Has.Count.EqualTo(1));
+            Assert.That(config.Commands![0], Is.EqualTo("stop_loop"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_NoCommandsField_ReturnsEmptyList() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            ---
+            Do work.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Commands, Is.Not.Null);
+            Assert.That(config.Commands, Is.Empty);
+        }
+        finally { DeleteTempFile(path); }
+    }
 }

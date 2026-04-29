@@ -253,7 +253,12 @@ internal sealed class PushNotificationService {
         }
 
         try {
-            // Match {"notification": "..."} with case-insensitive key
+            // First check the new unified format: {"squadash": {"notification": "...", ...}}
+            var squadashPayload = ExtractSquadashPayload(responseText);
+            if (!string.IsNullOrWhiteSpace(squadashPayload?.Notification))
+                return squadashPayload.Notification;
+
+            // Fall back to legacy standalone: {"notification": "..."}
             var pattern = @"\{\s*""notification""\s*:\s*""([^""]*)""\s*\}";
             var match = Regex.Match(responseText, pattern, RegexOptions.IgnoreCase);
 
@@ -266,6 +271,43 @@ internal sealed class PushNotificationService {
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Extracts a <c>{"squadash": {"command": "...", "notification": "..."}}</c> payload
+    /// from an AI response. Either field is optional. Returns null if the pattern is absent.
+    /// </summary>
+    internal static SquadashPayload? ExtractSquadashPayload(string? responseText) {
+        if (string.IsNullOrWhiteSpace(responseText))
+            return null;
+
+        try {
+            // Match {"squadash": { ... }} — capture the inner object content
+            var outerMatch = Regex.Match(
+                responseText,
+                @"\{\s*""squadash""\s*:\s*\{([^}]*)\}\s*\}",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+            if (!outerMatch.Success)
+                return null;
+
+            var inner = outerMatch.Groups[1].Value;
+
+            var cmdMatch = Regex.Match(inner, @"""command""\s*:\s*""([^""]*)""", RegexOptions.IgnoreCase);
+            var notifMatch = Regex.Match(inner, @"""notification""\s*:\s*""([^""]*)""", RegexOptions.IgnoreCase);
+
+            var command      = cmdMatch.Success   ? cmdMatch.Groups[1].Value   : null;
+            var notification = notifMatch.Success ? notifMatch.Groups[1].Value : null;
+
+            if (command is null && notification is null)
+                return null;
+
+            return new SquadashPayload(command, notification);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Notifications", $"ExtractSquadashPayload failed: {ex.Message}");
+            return null;
+        }
     }
 
     // Scans tool output text from a completed turn for a git commit SHA.
@@ -318,3 +360,9 @@ internal sealed class PushNotificationService {
         return char.ToUpperInvariant(summary[0]) + summary[1..];
     }
 }
+
+/// <summary>
+/// Represents the parsed content of a <c>{"squadash": {...}}</c> payload embedded
+/// in an AI response. Either field may be null if not present in the response.
+/// </summary>
+internal sealed record SquadashPayload(string? Command, string? Notification);
