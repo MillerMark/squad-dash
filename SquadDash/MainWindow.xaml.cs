@@ -5372,7 +5372,16 @@ public partial class MainWindow : Window
             // If the window was already maximized before entering fullscreen, leave it maximized.
         }
 
+        // Capture before ApplyViewMode changes the layout (and possibly the scroll extent).
+        bool wasAtBottom = !_scrollController.IsUserScrolledAway;
+
         ApplyViewMode();
+
+        // When exiting fullscreen while at the bottom, re-anchor after layout settles so
+        // the newly-visible status panel / prompt area doesn't leave a gap at the bottom.
+        if (!enabled && wasAtBottom)
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                (Action)(() => _scrollController.ScrollToBottom()));
 
         // Persist fullscreen state per workspace.
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
