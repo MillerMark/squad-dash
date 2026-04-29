@@ -109,6 +109,23 @@ internal static class MarkdownEditorCommands
         }
     }
 
+    internal static void InsertHorizontalRule(TextBox box)
+    {
+        var caret = box.CaretIndex;
+        var text  = box.Text;
+
+        // Determine if caret is already at the start of a line (or beginning of text)
+        var atLineStart = caret == 0 || text[caret - 1] == '\n';
+        // Determine if caret is already at the end of a line (or end of text)
+        var atLineEnd = caret == text.Length || text[caret] == '\n';
+
+        var prefix = atLineStart ? "" : "\n";
+        var suffix = atLineEnd   ? "\n" : "\n\n";
+        var insertion = $"{prefix}---{suffix}";
+        box.Text       = text.Insert(caret, insertion);
+        box.CaretIndex = caret + insertion.Length;
+    }
+
     internal static void InsertCodeBlock(TextBox box)
     {
         var selStart = box.SelectionStart;

@@ -7,7 +7,7 @@
         Height="820"
         Width="1320"
         MinHeight="480"
-        MinWidth="900"
+        MinWidth="680"
         WindowStyle="None"
         Background="{DynamicResource AppSurface}"
         PreviewKeyDown="Window_PreviewKeyDown"
@@ -396,7 +396,7 @@
                         Margin="8,2,0,0"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True">
                 <TextBox x:Name="SearchBox"
-                         Width="154"
+                         Width="110"
                          Height="26"
                          VerticalAlignment="Center"
                          Padding="6,4,6,4"
@@ -920,6 +920,12 @@
                             BorderThickness="1"
                             CornerRadius="16"
                             Visibility="Collapsed">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Edit Tasks"
+                                          Click="EditTasksMenuItem_Click" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />

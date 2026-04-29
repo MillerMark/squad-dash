@@ -197,6 +197,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         var srcTableBtn  = MakeToolbarButton("Table", "Insert table",       enabled: true);
         var srcCodeBtn   = MakeToolbarButton("`code`", "Insert inline code", enabled: true);
         var srcBlockBtn  = MakeToolbarButton("{ }", "Insert code block",    enabled: true);
+        var srcHrBtn     = MakeToolbarButton("—",   "Insert horizontal rule (---)", enabled: true);
 
         foreach (var document in _documents) {
             document.EditorTextBox.SelectionChanged += EditorTextBox_SelectionChanged;
@@ -204,7 +205,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
 
         var tbStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new System.Windows.Thickness(0, 0, 0, 6) };
-        foreach (var btn in new[] { (Button)_srcBoldButton, _srcItalicButton, srcLinkBtn, srcTableBtn, srcCodeBtn, srcBlockBtn })
+        foreach (var btn in new[] { (Button)_srcBoldButton, _srcItalicButton, srcLinkBtn, srcTableBtn, srcCodeBtn, srcBlockBtn, srcHrBtn })
             tbStack.Children.Add(btn);
 
         var sourceColumnPanel = new DockPanel { LastChildFill = true };
@@ -235,14 +236,20 @@ internal sealed class MarkdownDocumentWindow : Window {
         UpdateChrome();
     }
 
-    public static void Show(Window? owner, string title, string filePath) {
-        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)]);
+    public static void Show(Window? owner, string title, string filePath, bool showSource = false) {
+        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource);
     }
 
-    public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents) {
+    public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false) {
         var window = new MarkdownDocumentWindow(title, documents);
         if (owner is not null)
             window.Owner = owner;
+
+        if (showSource) {
+            window._showSource = true;
+            window.UpdateSourcePaneVisibility();
+            window.UpdateEditorFromActiveDocument();
+        }
 
         _openWindows.Add(window);
         window.Closed += (_, _) => _openWindows.Remove(window);
@@ -321,12 +328,13 @@ internal sealed class MarkdownDocumentWindow : Window {
         var tb = _activeDocument?.EditorTextBox;
         if (tb is null) return;
         switch (label) {
-            case "B":       MarkdownEditorCommands.ApplyBold(tb);        break;
-            case "I":       MarkdownEditorCommands.ApplyItalic(tb);      break;
-            case "Link":    MarkdownEditorCommands.InsertLink(tb);       break;
-            case "Table":   MarkdownEditorCommands.InsertTable(tb);      break;
-            case "`code`":  MarkdownEditorCommands.InsertInlineCode(tb); break;
-            case "{ }":     MarkdownEditorCommands.InsertCodeBlock(tb);  break;
+            case "B":       MarkdownEditorCommands.ApplyBold(tb);            break;
+            case "I":       MarkdownEditorCommands.ApplyItalic(tb);          break;
+            case "Link":    MarkdownEditorCommands.InsertLink(tb);           break;
+            case "Table":   MarkdownEditorCommands.InsertTable(tb);          break;
+            case "`code`":  MarkdownEditorCommands.InsertInlineCode(tb);     break;
+            case "{ }":     MarkdownEditorCommands.InsertCodeBlock(tb);      break;
+            case "—":       MarkdownEditorCommands.InsertHorizontalRule(tb); break;
         }
         tb.Focus();
     }
