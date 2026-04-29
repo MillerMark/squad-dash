@@ -778,7 +778,7 @@ internal sealed class MarkdownDocumentTabState {
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontFamily = new FontFamily("Consolas"),
+            FontFamily = new FontFamily("Consolas, Segoe UI Emoji"),
             FontSize = 14,
             BorderThickness = new Thickness(0),
             Visibility = Visibility.Collapsed
@@ -1270,7 +1270,7 @@ internal static class MarkdownFlowDocumentBuilder {
         var tableHeader  = Res("TableHeaderSurface",  DefaultTableHeaderBrush);
 
         var document = new FlowDocument {
-            FontFamily = new FontFamily("Segoe UI"),
+            FontFamily = new FontFamily("Segoe UI, Segoe UI Emoji"),
             FontSize = 14,
             Foreground = foreground,
             PagePadding = new Thickness(18)
