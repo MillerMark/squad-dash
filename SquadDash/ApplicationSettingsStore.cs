@@ -330,6 +330,26 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveLoopMode(LoopMode mode) {
+        using var mutex = AcquireMutex();
+
+        var current = LoadCore();
+        var updated = current with { LoopMode = mode };
+
+        SaveCore(updated);
+        return updated;
+    }
+
+    public ApplicationSettingsSnapshot SaveLoopContinuousContext(bool continuous) {
+        using var mutex = AcquireMutex();
+
+        var current = LoadCore();
+        var updated = current with { LoopContinuousContext = continuous };
+
+        SaveCore(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Saves the documentation panel as explicitly closed, capturing the current
     /// tree expansion state and selected topic for restoration on next startup.
@@ -644,6 +664,18 @@ internal sealed record ApplicationSettingsSnapshot(
     public IReadOnlyDictionary<string, WorkspaceDocsPanelState> DocsPanelStateByWorkspace { get; init; }
         = new Dictionary<string, WorkspaceDocsPanelState>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Whether the loop runs via the native agent controller (NativeAgents) or the
+    /// Squad CLI bridge (SquadCli). Defaults to NativeAgents.
+    /// </summary>
+    public LoopMode LoopMode { get; init; } = LoopMode.NativeAgents;
+
+    /// <summary>
+    /// When true the native loop reuses the active conversation session across iterations.
+    /// When false each iteration gets a fresh session so state does not accumulate.
+    /// </summary>
+    public bool LoopContinuousContext { get; init; } = true;
+
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
             null,
@@ -800,6 +832,8 @@ internal sealed record ApplicationSettingsSnapshot(
             NotificationProvider = string.IsNullOrWhiteSpace(NotificationProvider) ? null : NotificationProvider.Trim(),
             NotificationEndpoint = NotificationEndpoint,
             NotificationEventToggles = NotificationEventToggles,
+            LoopMode = LoopMode,
+            LoopContinuousContext = LoopContinuousContext,
         };
     }
 
@@ -809,6 +843,8 @@ internal sealed record ApplicationSettingsSnapshot(
             : 14;
     }
 }
+
+public enum LoopMode { NativeAgents, SquadCli }
 
 internal enum DeveloperStartupIssueSimulation {
     None,

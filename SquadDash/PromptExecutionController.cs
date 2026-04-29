@@ -1444,7 +1444,8 @@ internal sealed class PromptExecutionController {
     internal async Task ExecutePromptAsync(
         string prompt,
         bool addToHistory,
-        bool clearPromptBox) {
+        bool clearPromptBox,
+        string? sessionIdOverride = null) {
         await ExecuteCoordinatorTurnAsync(
             prompt,
             addToHistory,
@@ -1455,7 +1456,7 @@ internal sealed class PromptExecutionController {
                 await _runPromptAsync(
                     bridgePrompt,
                     workspace.FolderPath,
-                    _conversationManager.CurrentSessionId,
+                    sessionIdOverride ?? _conversationManager.CurrentSessionId,
                     configDirectory);
             });
     }

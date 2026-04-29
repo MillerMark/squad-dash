@@ -94,6 +94,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _statusPresentationTimer;
     private readonly DispatcherTimer _responseRenderTimer;
     private PromptExecutionController _pec = null!; // initialized in constructor after all services
+    private LoopController _loopController = null!; // initialized in constructor after _pec
     private FileSystemWatcher? _inboxWatcher;
     private FileSystemWatcher? _teamFileWatcher;
     private FileSystemWatcher? _restartRequestWatcher;
@@ -737,6 +738,26 @@ public partial class MainWindow : Window
             renderToolEntry: entry => RenderToolEntry(entry),
             updateToolSpinnerState: () => UpdateToolSpinnerState(),
             workspacePaths: _workspacePaths);
+
+        _loopController = new LoopController(
+            // ExecutePromptAsync accesses WPF components — must run on the UI thread.
+            executePromptAsync: (prompt, sessionId) =>
+                Dispatcher.InvokeAsync(() =>
+                    _pec.ExecutePromptAsync(
+                        prompt,
+                        addToHistory: false,
+                        clearPromptBox: false,
+                        sessionIdOverride: sessionId))
+                .Task.Unwrap(),
+            abortPrompt: () => _bridge.AbortPrompt(),
+            onIterationStarted: n =>
+                Dispatcher.Invoke(() => OnNativeLoopIterationStarted(n)),
+            onStopped: () =>
+                Dispatcher.Invoke(OnNativeLoopStopped),
+            onError: msg =>
+                Dispatcher.Invoke(() => OnNativeLoopError(msg)),
+            onIterationCompleted: n =>
+                Dispatcher.Invoke(() => OnNativeLoopIterationCompleted(n)));
 
         _markdownRenderer = new MarkdownDocumentRenderer(
             getFontSize: () => _transcriptFontSize,
@@ -1798,6 +1819,38 @@ public partial class MainWindow : Window
         SyncLoopPanel();
     }
 
+    // ── Native-loop controller callbacks (LoopMode.NativeAgents) ───────────
+
+    private void OnNativeLoopIterationStarted(int iteration)
+    {
+        _loopCurrentIteration = iteration;
+        _pec.SetIsLoopRunning(true);
+        AppendLine($"↩ Round {iteration}");
+        SyncLoopPanel();
+    }
+
+    private void OnNativeLoopStopped()
+    {
+        _pec.SetIsLoopRunning(false);
+        _loopCurrentIteration = 0;
+        AppendLine("✅ Loop stopped");
+        SyncLoopPanel();
+    }
+
+    private void OnNativeLoopError(string msg)
+    {
+        _pec.SetIsLoopRunning(false);
+        _loopCurrentIteration = 0;
+        AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
+        SyncLoopPanel();
+    }
+
+    private void OnNativeLoopIterationCompleted(int iteration)
+    {
+        AppendLine($"  ✓ Round {iteration} complete");
+        SyncLoopPanel();
+    }
+
     private static readonly Regex AnsiEscapeRegex = new(@"\x1B\[[0-9;]*[A-Za-z]", RegexOptions.Compiled);
 
     private void HandleLoopOutput(SquadSdkEvent evt)
@@ -1945,9 +1998,20 @@ public partial class MainWindow : Window
         bool running = _pec.IsLoopRunning;
         StartLoopButton.IsEnabled = !running;
         StopLoopButton.IsEnabled = running;
-        LoopStatusTextBlock.Text = running
-            ? (_loopCurrentIteration > 0 ? $"Running · #{_loopCurrentIteration}" : "Running")
-            : "Idle";
+
+        string status;
+        if (running
+            && _settingsSnapshot.LoopMode == LoopMode.NativeAgents
+            && _loopController.StopState == LoopStopState.StopRequested)
+            status = "Stopping after this iteration…";
+        else if (running)
+            status = _loopCurrentIteration > 0
+                ? $"Running · Round {_loopCurrentIteration}"
+                : "Running";
+        else
+            status = "Idle";
+
+        LoopStatusTextBlock.Text = status;
     }
 
     private void SyncTasksPanel()
@@ -2102,8 +2166,24 @@ public partial class MainWindow : Window
         {
             if (_currentWorkspace is null) return;
             var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
-            await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
-                _conversationManager.CurrentSessionId);
+
+            if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+            {
+                var config = LoopMdParser.Parse(loopMdPath);
+                if (config == null)
+                {
+                    AppendLine(
+                        "❌ Loop not configured — check loop.md has configured: true",
+                        ThemeBrush("SystemErrorText"));
+                    return;
+                }
+                await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext);
+            }
+            else
+            {
+                await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
+                    _conversationManager.CurrentSessionId);
+            }
         }
         catch (Exception ex)
         {
@@ -2115,7 +2195,15 @@ public partial class MainWindow : Window
     {
         try
         {
-            await _bridge.StopLoopAsync();
+            if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+            {
+                _loopController.RequestStop();
+                SyncLoopPanel();
+            }
+            else
+            {
+                await _bridge.StopLoopAsync();
+            }
         }
         catch (Exception ex)
         {
