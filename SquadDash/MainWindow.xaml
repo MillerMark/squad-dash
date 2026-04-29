@@ -932,7 +932,7 @@
                                     Content="⚠ Abort..."
                                     Margin="0,4,0,0"
                                     Visibility="Collapsed"
-                                    Foreground="{DynamicResource SystemErrorText}"
+                                    Foreground="{DynamicResource AbortButtonText}"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="AbortLoopButton_Click" />
                             <Button x:Name="CreateEditLoopFileButton"
@@ -1492,7 +1492,7 @@
                             Height="34"
                             Margin="0,8,0,0"
                             IsEnabled="False"
-                            Foreground="{DynamicResource SystemErrorText}"
+                            Foreground="{DynamicResource AbortButtonText}"
                             Style="{StaticResource ThemedButtonStyle}"
                             Click="AbortButton_Click">
                         ⚠ Abort...
