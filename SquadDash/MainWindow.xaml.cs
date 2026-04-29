@@ -741,6 +741,13 @@ public partial class MainWindow : Window
                         else
                             Close(); // queue exhausted — shut down
                     }
+                    else if (_restartPending)
+                    {
+                        // Rebuild-triggered restart: close immediately after the current turn so
+                        // the launcher can reload the new binary. Queue items will resume in the
+                        // reloaded instance (they are persisted).
+                        Close();
+                    }
                     else
                     {
                         if (_promptQueue.Count > 0 && GetAutoDispatchCandidate() is not null)
@@ -11309,7 +11316,9 @@ public partial class MainWindow : Window
         try
         {
             // If a deferred shutdown was already scheduled and has now fired, honour it — skip dialog.
-            bool isDeferredClose = _deferredShutdown != DeferredShutdownMode.None;
+            // Also skip dialog for rebuild-triggered restarts: the launcher wants to reload the new
+            // binary immediately; queue items will resume in the reloaded instance.
+            bool isDeferredClose = _deferredShutdown != DeferredShutdownMode.None || _restartPending;
 
             if (_pttState == PttState.Active)
             {
