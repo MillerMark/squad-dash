@@ -1998,20 +1998,29 @@ public partial class MainWindow : Window
         bool running = _pec.IsLoopRunning;
         StartLoopButton.IsEnabled = !running;
         StopLoopButton.IsEnabled = running;
+        AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+
+        LoopModeNativeRadio.IsEnabled = !running;
+        LoopModeCliRadio.IsEnabled = !running;
+        LoopModeNativeRadio.IsChecked = _settingsSnapshot.LoopMode == LoopMode.NativeAgents;
+        LoopModeCliRadio.IsChecked = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
+
+        LoopContinuousContextCheckBox.IsEnabled = !running;
+        LoopContinuousContextCheckBox.IsChecked = _settingsSnapshot.LoopContinuousContext;
 
         string status;
         if (running
             && _settingsSnapshot.LoopMode == LoopMode.NativeAgents
             && _loopController.StopState == LoopStopState.StopRequested)
-            status = "Stopping after this iteration…";
+            status = "◌ Stopping after this iteration…";
         else if (running)
             status = _loopCurrentIteration > 0
-                ? $"Running · Round {_loopCurrentIteration}"
-                : "Running";
+                ? $"● Running · Round {_loopCurrentIteration}"
+                : "● Running";
         else
-            status = "Idle";
+            status = "";
 
-        LoopStatusTextBlock.Text = status;
+        LoopStatusLabel.Text = status;
     }
 
     private void SyncTasksPanel()
@@ -2208,6 +2217,40 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(StopLoopButton_Click), ex);
+        }
+    }
+
+    private void LoopModeNativeRadio_Click(object sender, RoutedEventArgs e)
+    {
+        _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.NativeAgents);
+    }
+
+    private void LoopModeCliRadio_Click(object sender, RoutedEventArgs e)
+    {
+        _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.SquadCli);
+    }
+
+    private void LoopContinuousContextCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(
+            LoopContinuousContextCheckBox.IsChecked == true);
+    }
+
+    private void AbortLoopButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var result = MessageBox.Show(
+                "Abort the current agent and stop the loop immediately? The current iteration's work may be incomplete.",
+                "Abort Loop",
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning);
+            if (result == MessageBoxResult.OK)
+                _loopController.RequestAbort();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(AbortLoopButton_Click), ex);
         }
     }
 
