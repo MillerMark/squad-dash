@@ -10993,7 +10993,7 @@ public partial class MainWindow : Window
                 UpdateLoopPanelButtonStates();
             }
 
-            OpenMarkdownFile(loopMdPath, "Loop Instructions");
+            OpenMarkdownFile(loopMdPath, "Loop Instructions", showSource: true);
         }
         catch (Exception ex)
         {
@@ -12237,15 +12237,15 @@ public partial class MainWindow : Window
                PresentationSource.FromVisual(this) is not null;
     }
 
-    private void OpenMarkdownFile(string? filePath, string title)
+    private void OpenMarkdownFile(string? filePath, string title, bool showSource = false)
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
             return;
 
-        OpenMarkdownFiles([new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], title);
+        OpenMarkdownFiles([new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], title, showSource);
     }
 
-    private void OpenMarkdownFiles(IReadOnlyList<MarkdownDocumentSpec> files, string title)
+    private void OpenMarkdownFiles(IReadOnlyList<MarkdownDocumentSpec> files, string title, bool showSource = false)
     {
         if (files.Count == 0)
             return;
@@ -12255,7 +12255,8 @@ public partial class MainWindow : Window
             MarkdownDocumentWindow.Show(
                 CanShowOwnedWindow() ? this : null,
                 title,
-                files);
+                files,
+                showSource);
         }
         catch (Exception ex)
         {
