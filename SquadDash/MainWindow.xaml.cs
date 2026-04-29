@@ -140,6 +140,9 @@ public partial class MainWindow : Window
     private readonly PromptQueue _promptQueue = new();
     private int _promptQueueSeq;
     private string? _queuePreEditDraft;
+    private int _queuePreEditDraftCaretIndex;
+    private int _queuePreEditDraftSelectionStart;
+    private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private bool _restartPending;
     private bool _transcriptFullScreenEnabled;
@@ -1442,33 +1445,47 @@ public partial class MainWindow : Window
     {
         if (_activeTabId == id) return;
 
-        // Save current content before switching.
+        // Save current content + caret before switching.
         if (_activeTabId is null)
         {
-            _queuePreEditDraft = PromptTextBox.Text;
+            _queuePreEditDraft              = PromptTextBox.Text;
+            _queuePreEditDraftCaretIndex    = PromptTextBox.CaretIndex;
+            _queuePreEditDraftSelectionStart  = PromptTextBox.SelectionStart;
+            _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
         }
         else
         {
             var current = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
             if (current is not null)
-                current.Text = PromptTextBox.Text;
+            {
+                current.Text            = PromptTextBox.Text;
+                current.CaretIndex      = PromptTextBox.CaretIndex;
+                current.SelectionStart  = PromptTextBox.SelectionStart;
+                current.SelectionLength = PromptTextBox.SelectionLength;
+            }
         }
 
         _activeTabId = id;
 
         if (id is null)
         {
-            PromptTextBox.Text       = _queuePreEditDraft ?? "";
-            PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
-            _queuePreEditDraft       = null;
+            PromptTextBox.Text           = _queuePreEditDraft ?? "";
+            PromptTextBox.SelectionStart  = _queuePreEditDraftSelectionStart;
+            PromptTextBox.SelectionLength = _queuePreEditDraftSelectionLength;
+            if (_queuePreEditDraftSelectionLength == 0)
+                PromptTextBox.CaretIndex = _queuePreEditDraftCaretIndex;
+            _queuePreEditDraft = null;
         }
         else
         {
             var target = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
             if (target is not null)
             {
-                PromptTextBox.Text       = target.Text;
-                PromptTextBox.CaretIndex = target.Text.Length;
+                PromptTextBox.Text           = target.Text;
+                PromptTextBox.SelectionStart  = target.SelectionStart;
+                PromptTextBox.SelectionLength = target.SelectionLength;
+                if (target.SelectionLength == 0)
+                    PromptTextBox.CaretIndex = target.CaretIndex;
             }
         }
 
@@ -1490,12 +1507,14 @@ public partial class MainWindow : Window
 
     private void SyncSendButton()
     {
+        bool coordinatorBusy = _isPromptRunning || IsNativeLoopRunning;
         if (_activeTabId is not null)
         {
-            RunButton.Content = "Send";
+            // On a queued tab: "Send" only if coordinator is free; "Queue" otherwise (re-saves the edit in place).
+            RunButton.Content = coordinatorBusy ? "Queue" : "Send";
             return;
         }
-        bool queueMode = _isPromptRunning || IsNativeLoopRunning || _promptQueue.Count > 0;
+        bool queueMode = coordinatorBusy || _promptQueue.Count > 0;
         RunButton.Content = queueMode ? "Queue" : "Send";
     }
 

@@ -9,6 +9,9 @@ internal sealed class PromptQueueItem {
     public string Text           { get; set; } = "";
     public bool   IsEditing      { get; set; }
     public int    SequenceNumber { get; set; }
+    public int    CaretIndex     { get; set; }
+    public int    SelectionStart { get; set; }
+    public int    SelectionLength { get; set; }
 }
 
 internal sealed class PromptQueue {
