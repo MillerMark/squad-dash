@@ -5256,14 +5256,27 @@ public partial class MainWindow : Window
             if (_preFullScreenWindowState != WindowState.Maximized)
             {
                 WindowState = _preFullScreenWindowState;
-                // Restore exact bounds if returning to Normal (WPF may have
-                // clobbered them if the window was moved while maximized).
-                if (_preFullScreenWindowState == WindowState.Normal)
+                // Restore exact bounds if returning to Normal, but only if they look valid.
+                if (_preFullScreenWindowState == WindowState.Normal
+                    && _preFullScreenBounds.Width > 100
+                    && _preFullScreenBounds.Height > 100)
                 {
                     Left   = _preFullScreenBounds.X;
                     Top    = _preFullScreenBounds.Y;
                     Width  = _preFullScreenBounds.Width;
                     Height = _preFullScreenBounds.Height;
+
+                    // If the restored position is off-screen, snap to the primary work area.
+                    if (!IsPlacementOnScreen(new WorkspaceWindowPlacement(Left, Top, Width, Height, false)))
+                    {
+                        Left = SystemParameters.WorkArea.Left;
+                        Top  = SystemParameters.WorkArea.Top;
+                    }
+                }
+                else if (_preFullScreenWindowState == WindowState.Normal)
+                {
+                    // Degenerate bounds — fall back to maximized so the window is visible.
+                    WindowState = WindowState.Maximized;
                 }
             }
             // If the window was already maximized before entering fullscreen, leave it maximized.
@@ -13355,6 +13368,16 @@ public partial class MainWindow : Window
         // Restore per-workspace fullscreen transcript state.
         if (_docsPanelState.FullScreenTranscript == true)
         {
+            // Initialize pre-fullscreen fallback from the current window placement so that
+            // exiting fullscreen this session has a valid size/position to return to.
+            _preFullScreenWindowState = WindowState;
+            _preFullScreenBounds = WindowState == WindowState.Maximized
+                ? RestoreBounds
+                : new Rect(Left, Top, Width, Height);
+            // If bounds are degenerate (e.g. not yet laid out), fall back to maximized on exit.
+            if (_preFullScreenBounds.Width <= 0 || _preFullScreenBounds.Height <= 0)
+                _preFullScreenWindowState = WindowState.Maximized;
+
             _transcriptFullScreenEnabled = true;
             ApplyViewMode();
         }
