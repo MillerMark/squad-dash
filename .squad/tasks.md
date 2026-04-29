@@ -8,6 +8,10 @@
 
 ## 🔴 High Priority
 
+- [ ] **Verify task priority icon colors match tasks.md emoji** *(Owner: Lyra Morn)*
+  After Lyra's recent update to circle colors, do a visual check that the high/mid/low priority
+  circle icons in the Tasks panel match the 🔴🟡🟢 emoji colors used in tasks.md (both light and dark theme).
+
 - [x] **`squad loop` support — TypeScript bridge** *(Owner: Talia Rune)*
   Add a new `RunLoop` request type to `runPrompt.ts` / `squadService.ts` that invokes `squad loop`
   with the workspace `loop.md` path. Emit start/stop/iteration events over the NDJSON protocol.
