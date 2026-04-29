@@ -133,7 +133,8 @@ internal static class NativeMethods {
         }
     }
 
-    public static bool TryActivateProcessMainWindow(int processId) {        if (processId <= 0)
+    public static bool TryActivateProcessMainWindow(int processId) {
+        if (processId <= 0)
             return false;
 
         try {
@@ -162,6 +163,22 @@ internal static class NativeMethods {
 
     private const int WM_GETMINMAXINFO = 0x0024;
 
+    internal readonly record struct MaximizedWorkAreaBounds(int X, int Y, int Width, int Height);
+
+    internal static MaximizedWorkAreaBounds ComputeMaximizedWorkAreaBounds(
+        int monitorLeft,
+        int monitorTop,
+        int workLeft,
+        int workTop,
+        int workRight,
+        int workBottom) {
+        return new MaximizedWorkAreaBounds(
+            workLeft - monitorLeft,
+            workTop - monitorTop,
+            workRight - workLeft,
+            workBottom - workTop);
+    }
+
     /// <summary>
     /// WndProc hook that fixes the WindowStyle=None + WindowChrome maximize-over-taskbar bug.
     /// When WM_GETMINMAXINFO fires, constrain the maximized size to the work area of the
@@ -177,10 +194,19 @@ internal static class NativeMethods {
             return nint.Zero;
 
         var wa = info.rcWork;
+        var monitor = info.rcMonitor;
+        var bounds = ComputeMaximizedWorkAreaBounds(
+            monitor.Left,
+            monitor.Top,
+            wa.Left,
+            wa.Top,
+            wa.Right,
+            wa.Bottom);
+
         var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
-        mmi.ptMaxPosition = new POINT { x = wa.Left, y = wa.Top };
-        mmi.ptMaxSize     = new POINT { x = wa.Right - wa.Left, y = wa.Bottom - wa.Top };
-        Marshal.StructureToPtr(mmi, lParam, true);
+        mmi.ptMaxPosition = new POINT { x = bounds.X, y = bounds.Y };
+        mmi.ptMaxSize     = new POINT { x = bounds.Width, y = bounds.Height };
+        Marshal.StructureToPtr(mmi, lParam, false);
         handled = true;
         return nint.Zero;
     }
