@@ -5244,7 +5244,10 @@ public partial class MainWindow : Window
         if (enabled)
         {
             _preFullScreenWindowState = WindowState;
-            _preFullScreenBounds = new Rect(Left, Top, Width, Height);
+            // When already maximized, Left/Top/Width/Height are unreliable — use RestoreBounds.
+            _preFullScreenBounds = WindowState == WindowState.Maximized
+                ? RestoreBounds
+                : new Rect(Left, Top, Width, Height);
             if (WindowState != WindowState.Maximized)
                 WindowState = WindowState.Maximized;
         }
