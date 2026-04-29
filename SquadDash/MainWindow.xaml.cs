@@ -13561,16 +13561,16 @@ public partial class MainWindow : Window
 
             item.IsSelected = true;
 
-            var copyLinkItem = new MenuItem { Header = "Copy markdown link" };
-            copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
-
             var renameItem = new MenuItem { Header = "Rename…" };
             renameItem.Click += (_, _) => RenameDocTopic(item, filePath);
 
+            var copyLinkItem = new MenuItem { Header = "Copy markdown link" };
+            copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
+
             var menu = new ContextMenu();
-            menu.Items.Add(copyLinkItem);
-            menu.Items.Add(new Separator());
             menu.Items.Add(renameItem);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(copyLinkItem);
 
             if (_docStatusStore?.GetStatus(filePath) == DocApprovalStatus.Approved)
             {
