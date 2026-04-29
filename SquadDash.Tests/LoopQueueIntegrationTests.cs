@@ -185,6 +185,21 @@ internal sealed class LoopQueueIntegrationTests {
             $"Current log: [{string.Join(", ", harness.GetLog())}]");
     }
 
+    private static async Task WaitUntilLogContains(
+        ResumeHarness harness,
+        string        entry,
+        int           timeoutMs = 5_000) {
+
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline) {
+            if (harness.ContainsLog(entry)) return;
+            await Task.Delay(10);
+        }
+        Assert.Fail(
+            $"Timed out waiting for log entry '{entry}'. " +
+            $"Current log: [{string.Join(", ", harness.GetLog())}]");
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // Basic ordering
     // ═════════════════════════════════════════════════════════════════════════
@@ -587,5 +602,252 @@ internal sealed class LoopQueueIntegrationTests {
         Assert.That(log, Contains.Item("loop:1"),
             "loop must execute despite pre-start RequestStop (StartAsync resets the flag)");
         Assert.That(log, Contains.Item("stopped"));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // Loop auto-resume after queue interrupt (mirrors MainWindow._loopInterruptedByQueue)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Models the MainWindow coordinator pattern introduced by the
+    /// _loopInterruptedByQueue fix: when a user enqueues a prompt while the
+    /// native loop is running, the loop is expected to resume automatically
+    /// after those queued items have been drained.
+    /// </summary>
+    private sealed class ResumeHarness {
+        private readonly PromptQueue                    _queue  = new();
+        private readonly LoopController                 _controller;
+        private readonly List<string>                   _log    = new();
+        private readonly object                         _logLock = new();
+        private readonly CancellationTokenSource        _abortCts = new();
+
+        // Mirrors MainWindow._loopInterruptedByQueue / _loopQueued
+        private bool _loopInterruptedByQueue;
+        private bool _loopQueued;
+
+        private readonly int _maxTotalIterations;
+        private          int _totalIterationsRun;
+
+        public readonly TaskCompletionSource DoneTcs =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public volatile TaskCompletionSource? IterationBlockTcs;
+
+        public LoopController Controller => _controller;
+
+        public ResumeHarness(int maxTotalIterations = 3) {
+            _maxTotalIterations = maxTotalIterations;
+            _controller = new LoopController(
+                executePromptAsync:   ExecuteAsync,
+                abortPrompt:          () => _abortCts.Cancel(),
+                onIterationStarted:   _ => { },
+                onStopped:            OnStopped,
+                onError:              msg => {
+                    AddLog($"error:{msg}");
+                    _loopInterruptedByQueue = false;
+                    DoneTcs.TrySetResult();
+                },
+                onIterationCompleted: _ => {
+                    // Stop the loop once the total iteration cap is reached.
+                    if (_totalIterationsRun >= _maxTotalIterations)
+                        _controller!.RequestStop();
+                },
+                onWaiting:            _ => { },
+                onBeforeIteration:    DrainAsync,
+                onBeforeWait:         () => Task.CompletedTask);
+        }
+
+        /// <summary>
+        /// Models MainWindow: enqueueing while the loop is running sets
+        /// <c>_loopInterruptedByQueue</c> in addition to adding the item.
+        /// </summary>
+        public void EnqueueWhileRunning(string text, int seqNum) {
+            _loopInterruptedByQueue = true;
+            _queue.Enqueue(text, seqNum);
+        }
+
+        public void RequestStop()  => _controller.RequestStop();
+        public void RequestAbort() => _controller.RequestAbort();
+
+        private async Task ExecuteAsync(string _, string? __) {
+            var n = Interlocked.Increment(ref _totalIterationsRun);
+            AddLog($"loop:{n}");
+            var tcs = IterationBlockTcs;
+            if (tcs != null) {
+                try {
+                    await Task.WhenAny(
+                        tcs.Task,
+                        Task.Delay(Timeout.InfiniteTimeSpan, _abortCts.Token));
+                }
+                catch (OperationCanceledException) { /* abort path — fall through */ }
+                _abortCts.Token.ThrowIfCancellationRequested();
+            }
+        }
+
+        // Models MainWindow.OnNativeLoopStopped
+        private void OnStopped() {
+            AddLog("stopped");
+            bool hasInterrupt = _loopInterruptedByQueue;
+            if ((hasInterrupt || _queue.HasReadyItems) && !_loopQueued)
+                _loopQueued = true;
+            _ = MaybeFireQueuedLoopAsync();
+        }
+
+        // Models MainWindow.MaybeFireQueuedLoopAsync
+        private async Task MaybeFireQueuedLoopAsync() {
+            if (!_loopQueued) { DoneTcs.TrySetResult(); return; }
+            _loopQueued              = false;
+            _loopInterruptedByQueue  = false;
+            await DrainAsync();
+            AddLog("resume");
+            if (_totalIterationsRun >= _maxTotalIterations) { DoneTcs.TrySetResult(); return; }
+            _ = _controller.StartAsync(MakeConfig(), continuousContext: true);
+        }
+
+        private async Task DrainAsync() {
+            while (_queue.HasReadyItems) {
+                var item = _queue.DequeueFirstReady();
+                if (item is null) break;
+                AddLog($"queue:{item.Text}");
+                await Task.Yield();
+            }
+        }
+
+        public Task StartAsync() => _controller.StartAsync(MakeConfig(), continuousContext: true);
+
+        private static LoopMdConfig MakeConfig() => new(0.0001, 5, "", "loop-prompt");
+
+        private void AddLog(string e) { lock (_logLock) _log.Add(e); }
+        public List<string> GetLog() { lock (_logLock) return new List<string>(_log); }
+        public bool ContainsLog(string e) { lock (_logLock) return _log.Contains(e); }
+    }
+
+    [Test]
+    public async Task LoopResume_QueueItemEnqueuedMidRun_LoopRestartAfterQueueDrains() {
+        // Scenario: loop is running, user enqueues a prompt mid-iteration
+        // (sets _loopInterruptedByQueue = true).  The loop is then stopped
+        // gracefully.  Expected: queue item drains, then loop restarts once.
+        var h        = new ResumeHarness(maxTotalIterations: 2);
+        var blockTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.IterationBlockTcs = blockTcs;
+
+        await h.StartAsync();
+        await WaitUntilLogContains(h, "loop:1");
+
+        h.EnqueueWhileRunning("interrupt", 1);
+        h.RequestStop();
+
+        h.IterationBlockTcs = null;
+        blockTcs.SetResult(); // release iteration 1
+
+        await h.DoneTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var log = h.GetLog();
+
+        Assert.That(log, Contains.Item("loop:1"),       "first iteration must run");
+        Assert.That(log, Contains.Item("stopped"),      "loop must stop cleanly");
+        Assert.That(log, Contains.Item("queue:interrupt"), "queued item must drain");
+        Assert.That(log, Contains.Item("resume"),       "resume signal must fire");
+        Assert.That(log, Contains.Item("loop:2"),       "loop must restart after resume");
+
+        int stoppedIdx   = log.IndexOf("stopped");
+        int queueIdx     = log.IndexOf("queue:interrupt");
+        int resumeIdx    = log.IndexOf("resume");
+        int loop2Idx     = log.IndexOf("loop:2");
+
+        Assert.That(queueIdx,  Is.GreaterThan(stoppedIdx),   "queue drain must follow stop");
+        Assert.That(resumeIdx, Is.GreaterThan(queueIdx),     "resume must follow queue drain");
+        Assert.That(loop2Idx,  Is.GreaterThan(resumeIdx),    "loop:2 must follow resume signal");
+    }
+
+    [Test]
+    public async Task LoopResume_MultipleItemsQueuedMidRun_AllDrainBeforeRestart() {
+        // Three items queued while iteration 1 is blocked.  All must drain before
+        // the loop restarts as loop:2.
+        var h        = new ResumeHarness(maxTotalIterations: 2);
+        var blockTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.IterationBlockTcs = blockTcs;
+
+        await h.StartAsync();
+        await WaitUntilLogContains(h, "loop:1");
+
+        h.EnqueueWhileRunning("a", 1);
+        h.EnqueueWhileRunning("b", 2);
+        h.EnqueueWhileRunning("c", 3);
+        h.RequestStop();
+
+        h.IterationBlockTcs = null;
+        blockTcs.SetResult();
+
+        await h.DoneTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var log    = h.GetLog();
+        int loop2  = log.IndexOf("loop:2");
+
+        Assert.That(loop2, Is.GreaterThan(0), "loop:2 must appear");
+        Assert.That(log.IndexOf("queue:a"), Is.LessThan(loop2), "'a' must drain before loop:2");
+        Assert.That(log.IndexOf("queue:b"), Is.LessThan(loop2), "'b' must drain before loop:2");
+        Assert.That(log.IndexOf("queue:c"), Is.LessThan(loop2), "'c' must drain before loop:2");
+    }
+
+    [Test]
+    public async Task LoopResume_AbortWithInterruptFlag_DoesNotResume() {
+        // When the loop is aborted (not stopped), _loopInterruptedByQueue must be
+        // cleared by onError, and the loop must NOT restart.
+        var h        = new ResumeHarness(maxTotalIterations: 99);
+        var blockTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.IterationBlockTcs = blockTcs;
+
+        await h.StartAsync();
+        await WaitUntilLogContains(h, "loop:1");
+
+        h.EnqueueWhileRunning("interrupt", 1);
+        h.RequestAbort(); // abort, not graceful stop
+
+        await h.DoneTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var log = h.GetLog();
+        Assert.That(log, Contains.Item("error:Loop aborted."), "abort error must fire");
+        Assert.That(log, Does.Not.Contain("resume"),  "no resume must happen after abort");
+        Assert.That(log, Does.Not.Contain("loop:2"),  "loop:2 must not fire after abort");
+    }
+
+    [Test]
+    public async Task LoopResume_InterruptFlagSetButQueueAlreadyDrainedByLoop_LoopStillResumes() {
+        // The interrupt item was enqueued, then the loop's onBeforeIteration already
+        // drained it.  _loopInterruptedByQueue stays true.  When the loop subsequently
+        // stops, MaybeFireQueuedLoopAsync must still trigger a resume (even though
+        // HasReadyItems is now false) because the flag signals user intent.
+        var h        = new ResumeHarness(maxTotalIterations: 2);
+        var blockTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.IterationBlockTcs = blockTcs;
+
+        await h.StartAsync();
+        await WaitUntilLogContains(h, "loop:1");
+
+        // Enqueue while loop is running (sets _loopInterruptedByQueue = true)
+        h.EnqueueWhileRunning("interrupt", 1);
+        // Release iteration 1 so onBeforeIteration for iteration 2 runs,
+        // draining "interrupt" before the stop fires.
+        h.IterationBlockTcs = null;
+        blockTcs.SetResult();
+
+        // Wait for the queue item to drain inside the loop's pre-iteration pass.
+        await WaitUntilLogContains(h, "queue:interrupt");
+
+        // Now stop the loop — the queue is empty but _loopInterruptedByQueue was set.
+        h.RequestStop();
+
+        await h.DoneTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var log = h.GetLog();
+        // loop:2 ran during the first loop run (before the stop), not after resume;
+        // the key assertion is that the resume signal fires because _loopInterruptedByQueue
+        // persisted even though the queue was already empty when the loop stopped.
+        Assert.That(log, Contains.Item("stopped"),         "loop must stop cleanly");
+        Assert.That(log, Contains.Item("queue:interrupt"), "interrupt item must have been drained inside the loop");
+        Assert.That(log, Contains.Item("resume"),          "resume must fire even though queue was already empty — the interrupt flag triggered it");
+        Assert.That(log.IndexOf("queue:interrupt"), Is.LessThan(log.IndexOf("stopped")),
+            "'queue:interrupt' must be drained before the stop");
     }
 }
