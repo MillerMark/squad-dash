@@ -247,7 +247,7 @@ internal sealed class PushNotificationService {
         }
     }
 
-    internal static string? ExtractNotificationJson(string responseText) {
+    internal static string? ExtractNotificationJson(string? responseText) {
         if (string.IsNullOrWhiteSpace(responseText)) {
             return null;
         }
@@ -266,5 +266,40 @@ internal sealed class PushNotificationService {
         }
 
         return null;
+    }
+
+    // Returns a best-effort summary of the prompt by stripping common stop words
+    // and joining the first handful of meaningful tokens. Used as a fallback when
+    // the AI response did not include a {"notification": "..."} summary.
+    internal static string? BuildFallbackSummary(string? prompt) {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+
+        var stopWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+            "of", "with", "by", "from", "up", "as", "is", "are", "was", "were",
+            "be", "been", "being", "have", "has", "had", "do", "does", "did",
+            "will", "would", "could", "should", "may", "might", "shall", "can",
+            "that", "this", "these", "those", "it", "its", "i", "you", "we",
+            "they", "he", "she", "my", "your", "our", "their", "his", "her",
+            "me", "us", "him", "them", "not", "no", "so", "if", "then", "than",
+            "just", "also", "even", "very", "some", "any", "all", "each", "both",
+            "uh", "um", "like", "about", "into", "out", "when", "what",
+            "which", "who", "how", "where", "want", "need", "make", "get", "go",
+            "there", "here", "now", "ve", "re", "ll", "d", "m", "s",
+            "probably", "actually", "basically", "really", "quite", "rather",
+            "irregardless", "regardless", "something", "everything", "anything"
+        };
+
+        var words = Regex.Split(prompt.Trim(), @"[^a-zA-Z0-9'-]+")
+            .Where(w => w.Length >= 2 && !stopWords.Contains(w))
+            .Take(7)
+            .ToArray();
+
+        if (words.Length == 0)
+            return null;
+
+        var summary = string.Join(" ", words);
+        return char.ToUpperInvariant(summary[0]) + summary[1..];
     }
 }

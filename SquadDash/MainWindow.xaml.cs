@@ -1902,6 +1902,7 @@ public partial class MainWindow : Window
 
             case "done":
                 _pec.ActiveToolName = null;
+                var doneCurrentTurn = CoordinatorThread.CurrentTurn;
                 FinalizeCurrentTurnResponse();
                 CollapseCurrentTurnThinking();
                 _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
@@ -1909,7 +1910,13 @@ public partial class MainWindow : Window
                 FlushDeferredSystemLines();
                 {
                     var agentName = _leadAgent?.Name ?? "Agent";
-                    _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", $"{agentName} turn complete");
+                    var rawResponse = doneCurrentTurn?.ResponseTextBuilder.ToString();
+                    var notifSummary = PushNotificationService.ExtractNotificationJson(rawResponse)
+                        ?? PushNotificationService.BuildFallbackSummary(doneCurrentTurn?.Prompt);
+                    var notifMessage = string.IsNullOrWhiteSpace(notifSummary)
+                        ? $"{agentName} turn complete"
+                        : notifSummary;
+                    _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
                 }
                 break;
 
