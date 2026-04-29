@@ -124,6 +124,7 @@
     <Compile Include="..\SquadDash\MarkdownEditorCommands.cs" Link="Source\MarkdownEditorCommands.cs" />
     <Compile Include="..\SquadDash\MarkdownHtmlBuilder.cs" Link="Source\MarkdownHtmlBuilder.cs" />
     <Compile Include="..\SquadDash\TasksStatusWindow.cs" Link="Source\TasksStatusWindow.cs" />
+    <Compile Include="..\SquadDash\PushNotificationService.cs" Link="Source\PushNotificationService.cs" />
   </ItemGroup>
 
 </Project>

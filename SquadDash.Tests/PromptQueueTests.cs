@@ -140,6 +140,37 @@ internal sealed class PromptQueueTests {
         Assert.That(queue.DequeueFirstReady(),        Is.Null);
     }
 
+    // ── IsDictated flag ───────────────────────────────────────────────────────
+
+    [Test]
+    public void Enqueue_IsDictated_DefaultsToFalse() {
+        var queue = new PromptQueue();
+        queue.Enqueue("hello", 1);
+
+        Assert.That(queue.Items[0].IsDictated, Is.False);
+    }
+
+    [Test]
+    public void Enqueue_WithIsDictated_True_SetsFlag() {
+        var queue = new PromptQueue();
+        queue.Enqueue("dictated text", 1, isDictated: true);
+
+        Assert.That(queue.Items[0].IsDictated, Is.True);
+    }
+
+    [Test]
+    public void DequeueFirstReady_PreservesIsDictatedFlag() {
+        var queue = new PromptQueue();
+        queue.Enqueue("typed",    1, isDictated: false);
+        queue.Enqueue("dictated", 2, isDictated: true);
+
+        var first  = queue.DequeueFirstReady();
+        var second = queue.DequeueFirstReady();
+
+        Assert.That(first!.IsDictated,  Is.False);
+        Assert.That(second!.IsDictated, Is.True);
+    }
+
     // ── Items is read-only view ───────────────────────────────────────────────
 
     [Test]

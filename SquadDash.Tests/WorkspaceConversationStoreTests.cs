@@ -532,4 +532,51 @@ internal sealed class WorkspaceConversationStoreTests {
 
         Assert.That(saved.GetRecentSessionIds(), Is.EqualTo(new[] { "session-a", "session-b" }));
     }
+
+    // ── QueuedPromptEntries (dictation flag) ──────────────────────────────────
+
+    [Test]
+    public void SaveAndLoad_RoundTripsQueuedPromptEntriesWithDictationFlags() {
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-q",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                Array.Empty<TranscriptTurnRecord>()) {
+                QueuedPromptEntries = [
+                    new QueuedPromptEntry("typed prompt",    IsDictated: false),
+                    new QueuedPromptEntry("dictated prompt", IsDictated: true)
+                ]
+            });
+
+        var loaded = _store.Load(_workspacePath);
+        var entries = loaded.QueuedPromptEntries;
+
+        Assert.Multiple(() => {
+            Assert.That(entries, Is.Not.Null);
+            Assert.That(entries!, Has.Count.EqualTo(2));
+            Assert.That(entries![0].Text,       Is.EqualTo("typed prompt"));
+            Assert.That(entries![0].IsDictated, Is.False);
+            Assert.That(entries![1].Text,       Is.EqualTo("dictated prompt"));
+            Assert.That(entries![1].IsDictated, Is.True);
+        });
+    }
+
+    [Test]
+    public void Save_NullsQueuedPromptEntriesWhenListIsEmpty() {
+        var saved = _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-q",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                Array.Empty<TranscriptTurnRecord>()) {
+                QueuedPromptEntries = []
+            });
+
+        Assert.That(saved.QueuedPromptEntries, Is.Null);
+    }
 }
