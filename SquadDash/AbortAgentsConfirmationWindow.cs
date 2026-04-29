@@ -29,7 +29,8 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
 
     public AbortAgentsConfirmationWindow(
         IReadOnlyList<AbortAgentsConfirmationTarget> targets,
-        Func<IReadOnlyList<AbortAgentsConfirmationTarget>>? getTargets = null) {
+        Func<IReadOnlyList<AbortAgentsConfirmationTarget>>? getTargets = null,
+        Rect anchorScreenRect = default) {
         ArgumentNullException.ThrowIfNull(targets);
 
         _getTargets = getTargets ?? (() => targets);
@@ -39,10 +40,24 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         SizeToContent = SizeToContent.Height;
         MinWidth = 420;
         MaxHeight = 560;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         this.SetResourceReference(BackgroundProperty, "AppSurface");
+
+        if (anchorScreenRect == default)
+        {
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        }
+        else
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            // Position right-bottom corner once actual height is known after render.
+            ContentRendered += (_, _) =>
+            {
+                Left = anchorScreenRect.Right - ActualWidth;
+                Top  = anchorScreenRect.Top - ActualHeight - 6;
+            };
+        }
 
         var root = new Grid {
             Margin = new Thickness(18)

@@ -1507,6 +1507,14 @@ public partial class MainWindow : Window
         SyncQueuePanel();
     }
 
+    /// <summary>Returns the bounding rect of a UI element in screen coordinates.</summary>
+    private static Rect GetScreenRect(FrameworkElement element)
+    {
+        var topLeft     = element.PointToScreen(new Point(0, 0));
+        var bottomRight = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
+        return new Rect(topLeft, bottomRight);
+    }
+
     private void SyncSendButton()
     {
         bool coordinatorBusy = _isPromptRunning || IsNativeLoopRunning;
@@ -1534,7 +1542,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var dialog = new AbortAgentsConfirmationWindow(abortTargets, BuildAbortConfirmationTargets)
+            var dialog = new AbortAgentsConfirmationWindow(
+                abortTargets,
+                BuildAbortConfirmationTargets,
+                GetScreenRect(AbortButton))
             {
                 Owner = this
             };
