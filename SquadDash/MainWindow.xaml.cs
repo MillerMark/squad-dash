@@ -13571,6 +13571,19 @@ public partial class MainWindow : Window
             menu.Items.Add(copyLinkItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(renameItem);
+
+            if (_docStatusStore?.GetStatus(filePath) == DocApprovalStatus.Approved)
+            {
+                menu.Items.Add(new Separator());
+                var resetApprovalItem = new MenuItem { Header = "Reset approval" };
+                resetApprovalItem.Click += (_, _) =>
+                {
+                    _docStatusStore.SetNeedsReview(filePath);
+                    PopulateDocumentationTopics();
+                    UpdateApproveDocButton(filePath);
+                };
+                menu.Items.Add(resetApprovalItem);
+            }
             menu.PlacementTarget = DocTopicsTreeView;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
             menu.IsOpen = true;
