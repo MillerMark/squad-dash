@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import readline from "node:readline";
@@ -629,13 +629,11 @@ function handleRunLoopStop(request) {
     const procWithFlag = activeLoopProc;
     procWithFlag._squadStopRequested?.();
     // On Windows, cmd.exe /c spawns child processes that aren't killed by terminating cmd.exe.
-    // Use taskkill /F /T to kill the entire process tree.
+    // Use taskkill /F /T to kill the entire process tree, then also call proc.kill() as backup.
     if (process.platform === "win32" && activeLoopProc.pid != null) {
-        spawn("taskkill", ["/F", "/T", "/PID", String(activeLoopProc.pid)], { shell: false });
+        spawnSync("taskkill", ["/F", "/T", "/PID", String(activeLoopProc.pid)], { shell: false });
     }
-    else {
-        activeLoopProc.kill("SIGTERM");
-    }
+    activeLoopProc.kill();
 }
 async function handlePrompt(request) {
     await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);

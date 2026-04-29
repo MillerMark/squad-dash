@@ -2268,7 +2268,7 @@ public partial class MainWindow : Window
             LoopContinuousContextCheckBox.IsChecked == true);
     }
 
-    private void AbortLoopButton_Click(object sender, RoutedEventArgs e)
+    private async void AbortLoopButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -2278,7 +2278,12 @@ public partial class MainWindow : Window
                 MessageBoxButton.OKCancel,
                 MessageBoxImage.Warning);
             if (result == MessageBoxResult.OK)
-                _loopController.RequestAbort();
+            {
+                if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+                    _loopController.RequestAbort();
+                else
+                    await _bridge.StopLoopAsync();
+            }
         }
         catch (Exception ex)
         {
