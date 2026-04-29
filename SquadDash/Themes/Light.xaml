@@ -16,6 +16,10 @@
     <SolidColorBrush x:Key="InputSurface" Color="#F8F2E8"/>
     <SolidColorBrush x:Key="QueueCardSurface" Color="#F0EBE4"/>
     <SolidColorBrush x:Key="QueueCardEditingSurface" Color="#EAF4FF"/>
+    <SolidColorBrush x:Key="QueueTabActiveBorder"    Color="#1E88E5"/>
+    <SolidColorBrush x:Key="TaskPriorityHigh"        Color="#E53935"/>
+    <SolidColorBrush x:Key="TaskPriorityMid"         Color="#FFB300"/>
+    <SolidColorBrush x:Key="TaskPriorityLow"         Color="#43A047"/>
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>

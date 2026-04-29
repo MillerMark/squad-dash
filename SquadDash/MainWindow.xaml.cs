@@ -140,6 +140,7 @@ public partial class MainWindow : Window
     private readonly PromptQueue _promptQueue = new();
     private int _promptQueueSeq;
     private string? _queuePreEditDraft;
+    private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private bool _restartPending;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
@@ -717,7 +718,7 @@ public partial class MainWindow : Window
                 {
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     UpdateCompletedTimeFooters();
-                    if (_promptQueue.HasReadyItems)
+                    if (_promptQueue.Count > 0 && GetAutoDispatchCandidate() is not null)
                         _ = DrainQueueAsync();
                 }
                 SyncQueuePanel();
@@ -1202,6 +1203,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // Editing a queued tab → dispatch that specific item directly.
+            if (_activeTabId is not null)
+            {
+                await DispatchQueuedTabAsync(_activeTabId);
+                return;
+            }
+
             var prompt = PromptTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(prompt))
                 return;
@@ -1244,31 +1252,69 @@ public partial class MainWindow : Window
             text += "\n(some or all of this prompt was dictated by voice)";
         }
 
-        // If the user is editing a queued card, update it in-place instead of creating a new item.
-        var editingItem = _promptQueue.Items.FirstOrDefault(i => i.IsEditing);
-        if (editingItem is not null)
+        _promptQueue.Enqueue(text, ++_promptQueueSeq);
+        PromptTextBox.Clear();
+        SyncQueuePanel();
+    }
+
+    private async Task DispatchQueuedTabAsync(string id)
+    {
+        var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
+        if (item is null) return;
+
+        var prompt = PromptTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        item.Text = prompt;
+
+        // Switch back to Active Draft.
+        _activeTabId       = null;
+        PromptTextBox.Text = _queuePreEditDraft ?? "";
+        _queuePreEditDraft = null;
+
+        if (_isPromptRunning || IsNativeLoopRunning)
         {
-            editingItem.Text      = text;
-            editingItem.IsEditing = false;
-            _queuePreEditDraft    = null;
-            PromptTextBox.Clear();
+            // Coordinator busy — item stays in queue with updated text.
             SyncQueuePanel();
             return;
         }
 
-        _promptQueue.Enqueue(text, ++_promptQueueSeq);
-        PromptTextBox.Clear();
+        _promptQueue.Remove(id);
         SyncQueuePanel();
+
+        try
+        {
+            await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: false);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(DispatchQueuedTabAsync), ex);
+        }
+    }
+
+    private PromptQueueItem? GetAutoDispatchCandidate()
+    {
+        var items = _promptQueue.Items;
+        for (int i = items.Count - 1; i >= 0; i--)
+        {
+            if (items[i].Id != _activeTabId)
+                return items[i];
+        }
+        return null;
     }
 
     private async Task DrainQueueAsync()
     {
         if (_isPromptRunning || IsNativeLoopRunning) return;
 
-        var item = _promptQueue.DequeueFirstReady();
+        var item = GetAutoDispatchCandidate();
         if (item is null) return;
 
+        var seqNum = item.SequenceNumber;
+        _promptQueue.Remove(item.Id);
         SyncQueuePanel();
+
+        AppendLine($"📤 Dispatching queued item #{seqNum}…", (Brush)FindResource("SubtleText"));
 
         try
         {
@@ -1283,12 +1329,16 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueIfNeededAsync()
     {
-        while (_promptQueue.HasReadyItems && !_isPromptRunning && !IsNativeLoopRunning)
+        while (!_isPromptRunning && !IsNativeLoopRunning)
         {
-            var item = _promptQueue.DequeueFirstReady();
+            var item = GetAutoDispatchCandidate();
             if (item is null) break;
 
+            var seqNum = item.SequenceNumber;
+            _promptQueue.Remove(item.Id);
             SyncQueuePanel();
+
+            AppendLine($"📤 Dispatching queued item #{seqNum}…", (Brush)FindResource("SubtleText"));
 
             try
             {
@@ -1305,84 +1355,118 @@ public partial class MainWindow : Window
     private void SyncQueuePanel()
     {
         var items = _promptQueue.Items;
-        QueueCardsPanel.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        QueueCardsPanel.Items.Clear();
+        QueueTabBorder.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        QueueTabStrip.Children.Clear();
 
-        // Render newest items at the top; oldest (#1) at the bottom closest to PromptTextBox.
-        for (int i = items.Count - 1; i >= 0; i--)
-            QueueCardsPanel.Items.Add(CreateQueueCard(items[i]));
+        if (items.Count > 0)
+        {
+            QueueTabStrip.Children.Add(CreateQueueTab(null, "Active Draft"));
+            foreach (var item in items)
+                QueueTabStrip.Children.Add(CreateQueueTab(item.Id, $"#{item.SequenceNumber}"));
+        }
 
         _conversationManager.UpdateQueuedPromptsState(items.Select(i => i.Text).ToArray());
         SyncSendButton();
     }
 
-    private Border CreateQueueCard(PromptQueueItem item)
+    private UIElement CreateQueueTab(string? id, string label)
     {
-        var truncated = item.Text.Replace('\n', ' ').Replace('\r', ' ');
-        if (truncated.Length > 60)
-            truncated = truncated[..57] + "…";
+        bool isActive = _activeTabId == id;
 
         var textBlock = new TextBlock
         {
-            Text              = $"#{item.SequenceNumber} Queued: {truncated}",
-            Foreground        = item.IsEditing
+            Text              = label,
+            FontSize          = 12,
+            FontWeight        = isActive ? FontWeights.SemiBold : FontWeights.Normal,
+            Foreground        = isActive
                                     ? (Brush)FindResource("LabelText")
                                     : (Brush)FindResource("SubtleText"),
-            FontSize          = 12,
-            TextTrimming      = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin            = new Thickness(10, 0, 10, 0),
         };
 
-        var border = new Border
+        var tab = new Border
         {
-            CornerRadius = new CornerRadius(8, 8, 0, 0),
-            Height       = 32,
-            Background   = item.IsEditing
-                               ? (Brush)FindResource("QueueCardEditingSurface")
-                               : (Brush)FindResource("QueueCardSurface"),
-            Cursor       = Cursors.Hand,
-            Child        = textBlock,
+            Padding         = new Thickness(12, 6, 12, 6),
+            Margin          = new Thickness(0, 0, 1, 0),
+            Cursor          = Cursors.Hand,
+            BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0),
+            BorderBrush     = isActive ? (Brush)FindResource("QueueTabActiveBorder") : Brushes.Transparent,
+            Background      = Brushes.Transparent,
+            Child           = textBlock,
         };
 
-        var capturedItem = item;
-        border.MouseLeftButtonUp += (_, _) => OnQueueCardClicked(capturedItem);
-        return border;
-    }
-
-    private void OnQueueCardClicked(PromptQueueItem item)
-    {
-        // Toggle editing state: click again to cancel edit and restore draft.
-        if (item.IsEditing)
+        if (id is not null)
         {
-            item.IsEditing = false;
-            if (_queuePreEditDraft is not null)
-            {
-                PromptTextBox.Text       = _queuePreEditDraft;
-                PromptTextBox.CaretIndex = _queuePreEditDraft.Length;
-                _queuePreEditDraft       = null;
-            }
-            SyncQueuePanel();
-            return;
+            var cm         = new ContextMenu();
+            var removeItem = new MenuItem { Header = "Remove" };
+            var capturedId = id;
+            removeItem.Click += (_, _) => OnQueueTabRemove(capturedId);
+            cm.Items.Add(removeItem);
+            tab.ContextMenu = cm;
         }
 
-        // Clear any currently-editing item first.
-        foreach (var other in _promptQueue.Items.Where(i => i.IsEditing).ToList())
-            other.IsEditing = false;
+        tab.MouseLeftButtonUp += (_, _) => OnQueueTabClicked(id);
+        return tab;
+    }
 
-        // Save current prompt text so user can restore it.
-        _queuePreEditDraft = PromptTextBox.Text;
+    private void OnQueueTabClicked(string? id)
+    {
+        if (_activeTabId == id) return;
 
-        PromptTextBox.Text       = item.Text;
-        PromptTextBox.CaretIndex = item.Text.Length;
-        item.IsEditing           = true;
+        // Save current content before switching.
+        if (_activeTabId is null)
+        {
+            _queuePreEditDraft = PromptTextBox.Text;
+        }
+        else
+        {
+            var current = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
+            if (current is not null)
+                current.Text = PromptTextBox.Text;
+        }
+
+        _activeTabId = id;
+
+        if (id is null)
+        {
+            PromptTextBox.Text       = _queuePreEditDraft ?? "";
+            PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+            _queuePreEditDraft       = null;
+        }
+        else
+        {
+            var target = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
+            if (target is not null)
+            {
+                PromptTextBox.Text       = target.Text;
+                PromptTextBox.CaretIndex = target.Text.Length;
+            }
+        }
+
         SyncQueuePanel();
         PromptTextBox.Focus();
     }
 
+    private void OnQueueTabRemove(string id)
+    {
+        if (_activeTabId == id)
+        {
+            _activeTabId       = null;
+            PromptTextBox.Text = _queuePreEditDraft ?? "";
+            _queuePreEditDraft = null;
+        }
+        _promptQueue.Remove(id);
+        SyncQueuePanel();
+    }
+
     private void SyncSendButton()
     {
-        bool queueMode = _isPromptRunning || IsNativeLoopRunning || _promptQueue.HasReadyItems;
+        if (_activeTabId is not null)
+        {
+            RunButton.Content = "Send";
+            return;
+        }
+        bool queueMode = _isPromptRunning || IsNativeLoopRunning || _promptQueue.Count > 0;
         RunButton.Content = queueMode ? "Queue" : "Send";
     }
 
@@ -2430,10 +2514,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private static Brush PriorityDotColor(string emoji) => emoji switch {
-        "🔴" => new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35)), // red
-        "🟡" => new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B)), // amber
-        "🟢" => new SolidColorBrush(Color.FromRgb(0x42, 0xA5, 0xF5)), // light blue
+    private Brush PriorityDotColor(string emoji) => emoji switch {
+        "🔴" => (Brush)FindResource("TaskPriorityHigh"),
+        "🟡" => (Brush)FindResource("TaskPriorityMid"),
+        "🟢" => (Brush)FindResource("TaskPriorityLow"),
         _    => Brushes.Gray
     };
 
