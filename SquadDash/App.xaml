@@ -548,13 +548,15 @@
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="border" Property="Background"
                                             Value="{DynamicResource CaptionCloseHover}"/>
-                                    <Setter TargetName="content" Property="TextElement.Foreground"
+                                    <Setter Property="Foreground"
                                             Value="{DynamicResource CaptionCloseHoverText}"/>
                                 </Trigger>
                                 <Trigger Property="IsPressed" Value="True">
                                     <Setter TargetName="border" Property="Background"
                                             Value="{DynamicResource CaptionCloseHover}"/>
                                     <Setter TargetName="border" Property="Opacity" Value="0.8"/>
+                                    <Setter Property="Foreground"
+                                            Value="{DynamicResource CaptionCloseHoverText}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
