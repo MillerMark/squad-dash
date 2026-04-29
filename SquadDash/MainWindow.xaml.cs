@@ -145,6 +145,7 @@ public partial class MainWindow : Window
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private bool _restartPending;
+    private bool _programmaticExpanderChange;
     private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
@@ -9379,7 +9380,9 @@ public partial class MainWindow : Window
             return;
 
         CollapseCurrentTurnThoughts(thread);
-        GetLatestThinkingBlock(thread.CurrentTurn)?.Expander.SetCurrentValue(Expander.IsExpandedProperty, true);
+        var latestBlock = GetLatestThinkingBlock(thread.CurrentTurn);
+        if (latestBlock is not null)
+            SetExpanderOpen(latestBlock.Expander, true);
     }
 
     private void AppendThinkingText(string text, string? speaker) =>
@@ -9639,6 +9642,8 @@ public partial class MainWindow : Window
         container.Tag = block;
         block.StartedAt = DateTimeOffset.Now;
         turn.ThoughtBlocks.Add(block);
+        expander.Expanded += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = true; };
+        expander.Collapsed += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = false; };
         expander.ContextMenu = CreateThinkingContextMenu(turn);
         return block;
     }
@@ -9807,6 +9812,9 @@ public partial class MainWindow : Window
 
         foreach (var block in thread.CurrentTurn.ThinkingBlocks)
         {
+            if (block.UserPinnedOpen)
+                continue;
+
             if (block.Expander.IsExpanded &&
                 block.LastUpdatedAt is { } lastUpdatedAt &&
                 lastUpdatedAt > block.StartedAt)
@@ -9815,7 +9823,7 @@ public partial class MainWindow : Window
                     StatusTimingPresentation.FormatDuration(lastUpdatedAt - block.StartedAt));
             }
 
-            block.Expander.IsExpanded = false;
+            SetExpanderOpen(block.Expander, false);
         }
 
         CollapseCurrentTurnThoughts(thread);
@@ -9828,6 +9836,9 @@ public partial class MainWindow : Window
 
         foreach (var block in thread.CurrentTurn.ThoughtBlocks)
         {
+            if (block.UserPinnedOpen)
+                continue;
+
             if (block.Expander.IsExpanded &&
                 block.LastUpdatedAt is { } lastUpdatedAt &&
                 lastUpdatedAt > block.StartedAt)
@@ -9836,7 +9847,7 @@ public partial class MainWindow : Window
                     StatusTimingPresentation.FormatDuration(lastUpdatedAt - block.StartedAt));
             }
 
-            block.Expander.IsExpanded = false;
+            SetExpanderOpen(block.Expander, false);
         }
     }
 
@@ -9854,6 +9865,12 @@ public partial class MainWindow : Window
         }
     }
 
+    private void SetExpanderOpen(Expander expander, bool open)
+    {
+        _programmaticExpanderChange = true;
+        try { expander.IsExpanded = open; }
+        finally { _programmaticExpanderChange = false; }
+    }
     private void StartToolExecution(SquadSdkEvent evt) =>
         StartToolExecution(CoordinatorThread, evt);
 
@@ -10223,6 +10240,8 @@ public partial class MainWindow : Window
         container.Tag = block;
         block.StartedAt = DateTimeOffset.Now;
         turn.ThinkingBlocks.Add(block);
+        expander.Expanded += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = true; };
+        expander.Collapsed += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = false; };
         header.ContextMenu = CreateThinkingContextMenu(turn);
         expander.ContextMenu = CreateThinkingContextMenu(turn);
         return block;

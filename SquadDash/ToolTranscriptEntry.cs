@@ -67,6 +67,7 @@ internal sealed class TranscriptThinkingBlockView : ICopyable {
     public List<ToolTranscriptEntry> ToolEntries { get; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? LastUpdatedAt { get; set; }
+    public bool UserPinnedOpen { get; set; }
 
     public string GetCopyText() {
         var sb = new System.Text.StringBuilder();
@@ -103,6 +104,7 @@ internal sealed class TranscriptThoughtBlockView : ICopyable {
     public List<TranscriptThoughtEntry> ThoughtEntries { get; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? LastUpdatedAt { get; set; }
+    public bool UserPinnedOpen { get; set; }
 
     public string GetCopyText() {
         var sb = new System.Text.StringBuilder();
