@@ -1393,7 +1393,9 @@ public partial class MainWindow : Window
         if (items.Count > 0)
         {
             QueueTabStrip.Children.Add(CreateQueueTab(null, "Active Draft"));
-            foreach (var item in items)
+            // Render newest item first (left) → oldest item last (far right).
+            // Queue drains oldest-first so #1 is always the next to dispatch.
+            foreach (var item in items.Reverse())
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, $"#{item.SequenceNumber}"));
         }
 
