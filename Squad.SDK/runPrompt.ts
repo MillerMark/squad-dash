@@ -607,7 +607,9 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
         let proc: ReturnType<typeof spawn>;
 
         try {
-            proc = spawn("cmd.exe", ["/c", "npx", "squad", "loop", "--file", loopMdPath], {
+            // On Windows, `copilot` is a .cmd script that execFile() can't find without a shell.
+            // Passing --agent-cmd bypasses squad's broken preflight and routes via cmd.exe.
+            proc = spawn("cmd.exe", ["/c", "npx", "squad", "loop", "--file", loopMdPath, "--agent-cmd", "cmd /c copilot"], {
                 cwd,
                 shell: false,
                 stdio: ["ignore", "pipe", "pipe"]
@@ -636,6 +638,19 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
         });
 
         const rlOut = readline.createInterface({ input: proc.stdout!, crlfDelay: Infinity });
+
+        const rlErr = readline.createInterface({ input: proc.stderr!, crlfDelay: Infinity });
+        rlErr.on("line", (line: string) => {
+            if (line.trim()) {
+                emit({
+                    type: "loop_output",
+                    requestId,
+                    sessionId,
+                    loopMdPath,
+                    outputLine: `[stderr] ${line}`
+                });
+            }
+        });
 
         rlOut.on("line", (line: string) => {
             emit({

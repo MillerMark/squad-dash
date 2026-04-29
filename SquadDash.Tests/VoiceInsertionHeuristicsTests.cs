@@ -191,22 +191,22 @@ internal sealed class VoiceInsertionHeuristicsTests {
     public void ApplyTrailingPunctuationFixes_EndsWithThisPeriod_ReplacesWithColon() {
         Assert.That(
             VoiceInsertionHeuristics.ApplyTrailingPunctuationFixes("it looks like this."),
-            Is.EqualTo("it looks like this:"));
+            Is.EqualTo("it looks like this: "));
     }
 
     [Test]
-    public void ApplyTrailingPunctuationFixes_EndsWithThisNoPeriod_AppendsColon() {
+    public void ApplyTrailingPunctuationFixes_EndsWithThisNoPeriod_AppendsColonAndSpace() {
         Assert.That(
             VoiceInsertionHeuristics.ApplyTrailingPunctuationFixes("it looks like this"),
-            Is.EqualTo("it looks like this:"));
+            Is.EqualTo("it looks like this: "));
     }
 
     [Test]
-    public void ApplyTrailingPunctuationFixes_EndsWithThisCaseInsensitive_AppliesColon() {
-        // The replacement is always the normalised lowercase "this:" form
+    public void ApplyTrailingPunctuationFixes_EndsWithThisCaseInsensitive_AppliesColonAndSpace() {
+        // The replacement is always the normalised lowercase "this: " form
         Assert.That(
             VoiceInsertionHeuristics.ApplyTrailingPunctuationFixes("like THIS."),
-            Is.EqualTo("like this:"));
+            Is.EqualTo("like this: "));
     }
 
     [Test]
@@ -261,7 +261,7 @@ internal sealed class VoiceInsertionHeuristicsTests {
     public void Apply_MidSentenceContextWithTrailingThis_LowercasesAndFixesPunctuation() {
         // Continuation → lowercases "Here"; punctuation fix → appends colon
         var result = VoiceInsertionHeuristics.Apply("the output is", "Here is this.");
-        Assert.That(result, Is.EqualTo("here is this:"));
+        Assert.That(result, Is.EqualTo("here is this: "));
     }
 
     [Test]

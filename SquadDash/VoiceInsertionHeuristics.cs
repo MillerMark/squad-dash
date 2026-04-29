@@ -195,7 +195,7 @@ internal static class VoiceInsertionHeuristics
         if (string.IsNullOrEmpty(text)) return text;
 
         if (TryMatchTrailingWord(text, "this", out var stemLen))
-            return text[..stemLen] + "this:";
+            return text[..stemLen] + "this: ";
 
         return text;
     }
