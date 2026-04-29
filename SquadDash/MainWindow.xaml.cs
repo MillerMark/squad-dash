@@ -1263,6 +1263,8 @@ public partial class MainWindow : Window
 
             if (_isPromptRunning || IsNativeLoopRunning)
             {
+                if (IsNativeLoopRunning)
+                    _loopInterruptedByQueue = true;
                 EnqueueCurrentPrompt();
                 return;
             }
@@ -1492,8 +1494,10 @@ public partial class MainWindow : Window
 
     private async Task MaybeFireQueuedLoopAsync()
     {
-        if (!_loopQueued || _isPromptRunning || IsLoopRunning) return;
+        bool shouldResume = _loopQueued || _loopInterruptedByQueue;
+        if (!shouldResume || _isPromptRunning || IsLoopRunning) return;
         _loopQueued = false;
+        _loopInterruptedByQueue = false;
         SyncLoopPanel();
         try
         {
@@ -2335,6 +2339,7 @@ public partial class MainWindow : Window
         _pec.SetIsLoopRunning(false);
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         _loopCurrentIteration = 0;
+        _loopInterruptedByQueue = false; // abort — don't auto-resume
         var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
             ? "❌ Loop error"
             : $"❌ Loop error: {evt.Message}";
@@ -2363,10 +2368,11 @@ public partial class MainWindow : Window
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLine("✅ Loop stopped");
 
-        // If queue items arrived while the loop was running, re-queue the loop so it
-        // resumes automatically once those items have drained.  Abort goes through
+        // If queue items arrived while the loop was running (or are still pending),
+        // mark the loop for resume once the queue drains.  Abort goes through
         // OnNativeLoopError and intentionally does NOT re-queue.
-        if (_promptQueue.HasReadyItems && !_loopQueued)
+        bool hasInterrupt = _loopInterruptedByQueue;
+        if ((hasInterrupt || _promptQueue.HasReadyItems) && !_loopQueued)
         {
             _loopQueued = true;
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
@@ -2380,6 +2386,7 @@ public partial class MainWindow : Window
         _pec.SetIsLoopRunning(false);
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
+        _loopInterruptedByQueue = false; // abort — don't auto-resume
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         SyncLoopPanel();
