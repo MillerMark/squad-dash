@@ -6814,6 +6814,9 @@ public partial class MainWindow : Window
             foreach (var text in savedQueue)
                 _promptQueue.Enqueue(text, ++_promptQueueSeq);
             SyncQueuePanel();
+            // Auto-dispatch restored queue items once the UI is fully initialised.
+            Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
+                System.Windows.Threading.DispatcherPriority.Background);
         }
 
         // Restore per-workspace loop settings (override global app settings).
