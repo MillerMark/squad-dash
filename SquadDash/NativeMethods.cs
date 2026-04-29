@@ -30,6 +30,18 @@ internal static class NativeMethods {
         public uint dwFlags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MINMAXINFO {
+        public POINT ptReserved;
+        public POINT ptMaxSize;
+        public POINT ptMaxPosition;
+        public POINT ptMinTrackSize;
+        public POINT ptMaxTrackSize;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromWindow(nint hwnd, uint dwFlags);
+
     [DllImport("user32.dll")]
     private static extern nint MonitorFromRect(ref RECT rect, int dwFlags);
 
@@ -121,8 +133,7 @@ internal static class NativeMethods {
         }
     }
 
-    public static bool TryActivateProcessMainWindow(int processId) {
-        if (processId <= 0)
+    public static bool TryActivateProcessMainWindow(int processId) {        if (processId <= 0)
             return false;
 
         try {
@@ -147,5 +158,30 @@ internal static class NativeMethods {
         catch {
             return false;
         }
+    }
+
+    private const int WM_GETMINMAXINFO = 0x0024;
+
+    /// <summary>
+    /// WndProc hook that fixes the WindowStyle=None + WindowChrome maximize-over-taskbar bug.
+    /// When WM_GETMINMAXINFO fires, constrain the maximized size to the work area of the
+    /// monitor the window is on, so the taskbar is never covered.
+    /// </summary>
+    public static nint MaximizeWorkAreaHook(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled) {
+        if (msg != WM_GETMINMAXINFO)
+            return nint.Zero;
+
+        var hMon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (hMon == nint.Zero || !GetMonitorInfo(hMon, ref info))
+            return nint.Zero;
+
+        var wa = info.rcWork;
+        var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+        mmi.ptMaxPosition = new POINT { x = wa.Left, y = wa.Top };
+        mmi.ptMaxSize     = new POINT { x = wa.Right - wa.Left, y = wa.Bottom - wa.Top };
+        Marshal.StructureToPtr(mmi, lParam, true);
+        handled = true;
+        return nint.Zero;
     }
 }

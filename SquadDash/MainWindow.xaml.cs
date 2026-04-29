@@ -579,6 +579,20 @@ public partial class MainWindow : Window
             }
         };
 
+        SourceInitialized += (_, _) =>
+        {
+            try
+            {
+                var source = System.Windows.Interop.HwndSource.FromHwnd(
+                    new System.Windows.Interop.WindowInteropHelper(this).Handle);
+                source?.AddHook(NativeMethods.MaximizeWorkAreaHook);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException("Window.SourceInitialized", ex);
+            }
+        };
+
         IntelliSensePopup.PreviewMouseDown += (_, _) =>
         {
             try
