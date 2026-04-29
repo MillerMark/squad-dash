@@ -2591,17 +2591,20 @@ public partial class MainWindow : Window
     private void LoopModeNativeRadio_Click(object sender, RoutedEventArgs e)
     {
         _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.NativeAgents);
+        _conversationManager.UpdateLoopSettingsState(LoopMode.NativeAgents, _settingsSnapshot.LoopContinuousContext);
     }
 
     private void LoopModeCliRadio_Click(object sender, RoutedEventArgs e)
     {
         _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.SquadCli);
+        _conversationManager.UpdateLoopSettingsState(LoopMode.SquadCli, _settingsSnapshot.LoopContinuousContext);
     }
 
     private void LoopContinuousContextCheckBox_Click(object sender, RoutedEventArgs e)
     {
         _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(
             LoopContinuousContextCheckBox.IsChecked == true);
+        _conversationManager.UpdateLoopSettingsState(_settingsSnapshot.LoopMode, _settingsSnapshot.LoopContinuousContext);
     }
 
     private async void AbortLoopButton_Click(object sender, RoutedEventArgs e)
@@ -6670,6 +6673,13 @@ public partial class MainWindow : Window
                 _promptQueue.Enqueue(text, ++_promptQueueSeq);
             SyncQueuePanel();
         }
+
+        // Restore per-workspace loop settings (override global app settings).
+        var savedState = _conversationManager.ConversationState;
+        if (savedState.LoopMode is { } savedLoopMode)
+            _settingsSnapshot = _settingsStore.SaveLoopMode(savedLoopMode);
+        if (savedState.LoopContinuousContext is { } savedContinuous)
+            _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(savedContinuous);
 
         RestoreWorkspaceWindowPlacement();
         _conversationManager.ResetHistoryNavigation();

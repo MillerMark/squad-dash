@@ -839,6 +839,13 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
+    internal void UpdateLoopSettingsState(LoopMode mode, bool continuousContext) {
+        _conversationState = _conversationState with {
+            LoopMode              = mode,
+            LoopContinuousContext = continuousContext,
+        };
+    }
+
     internal void NavigateHistory(int direction) {
         var result = PromptHistoryNavigator.Navigate(
             _promptHistory,

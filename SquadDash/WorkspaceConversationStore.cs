@@ -215,6 +215,8 @@ internal sealed class WorkspaceConversationStore {
             PromptDraftSelectionStart  = state.PromptDraftSelectionStart,
             PromptDraftSelectionLength = state.PromptDraftSelectionLength,
             QueuedPrompts            = state.QueuedPrompts is { Count: > 0 } q ? q : null,
+            LoopMode                 = state.LoopMode,
+            LoopContinuousContext    = state.LoopContinuousContext,
         };
     }
 
@@ -507,6 +509,8 @@ internal sealed record WorkspaceConversationState(
     public int? PromptDraftSelectionStart { get; init; }
     public int? PromptDraftSelectionLength { get; init; }
     public IReadOnlyList<string>? QueuedPrompts { get; init; }
+    public LoopMode? LoopMode { get; init; }
+    public bool? LoopContinuousContext { get; init; }
 
     public static WorkspaceConversationState Empty { get; } =
         new(
