@@ -20,6 +20,7 @@ internal sealed class LoopController {
     private readonly Action<string>              _onError;
     private readonly Action<int>                 _onIterationCompleted;
     private readonly Action<DateTimeOffset>      _onWaiting;
+    private readonly Func<Task>                  _onBeforeIteration;
     private readonly Func<Task>                  _onBeforeWait;
 
     private volatile bool         _stopRequested;
@@ -39,7 +40,8 @@ internal sealed class LoopController {
     /// <param name="onError">Fired with a human-readable message on timeout or abort.</param>
     /// <param name="onIterationCompleted">Fired with the 1-based iteration number after success.</param>
     /// <param name="onWaiting">Fired with the target start time of the next iteration when the loop enters the inter-iteration delay.</param>
-    /// <param name="onBeforeWait">Awaited after each iteration completes, before the inter-iteration delay. Use this to drain a prompt queue.</param>
+    /// <param name="onBeforeIteration">Awaited at the top of each cycle, before the loop prompt fires. Use this to drain a prompt queue before each iteration.</param>
+    /// <param name="onBeforeWait">Awaited after each iteration completes, before the inter-iteration delay. Use this to drain a prompt queue after each iteration.</param>
     internal LoopController(
         Func<string, string?, Task> executePromptAsync,
         Action                      abortPrompt,
@@ -48,7 +50,8 @@ internal sealed class LoopController {
         Action<string>              onError,
         Action<int>                 onIterationCompleted,
         Action<DateTimeOffset>      onWaiting,
-        Func<Task>?                 onBeforeWait = null) {
+        Func<Task>?                 onBeforeIteration = null,
+        Func<Task>?                 onBeforeWait      = null) {
 
         _executePromptAsync   = executePromptAsync;
         _abortPrompt          = abortPrompt;
@@ -57,7 +60,8 @@ internal sealed class LoopController {
         _onError              = onError;
         _onIterationCompleted = onIterationCompleted;
         _onWaiting            = onWaiting;
-        _onBeforeWait         = onBeforeWait ?? (() => Task.CompletedTask);
+        _onBeforeIteration    = onBeforeIteration ?? (() => Task.CompletedTask);
+        _onBeforeWait         = onBeforeWait      ?? (() => Task.CompletedTask);
     }
 
     /// <summary>
@@ -101,6 +105,10 @@ internal sealed class LoopController {
 
         try {
             while (!_stopRequested && !ct.IsCancellationRequested) {
+                // Drain any queued prompts before firing this iteration.
+                await _onBeforeIteration();
+                if (_stopRequested) break;
+
                 iteration++;
                 _onIterationStarted(iteration);
 

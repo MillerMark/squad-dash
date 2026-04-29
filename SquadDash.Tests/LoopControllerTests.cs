@@ -203,4 +203,63 @@ internal sealed class LoopControllerTests {
 
         Assert.That(controller.IsRunning, Is.False, "must not be running after stop");
     }
+
+    // ── onBeforeIteration ─────────────────────────────────────────────────────
+
+    [Test]
+    public async Task OnBeforeIteration_IsCalledBeforeEachIteration() {
+        var callOrder       = new System.Collections.Generic.List<string>();
+        var stoppedTcs      = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int iterCount       = 0;
+
+        var controller = new LoopController(
+            executePromptAsync:   (_, __) => { callOrder.Add($"exec{++iterCount}"); return Task.CompletedTask; },
+            abortPrompt:          () => { },
+            onIterationStarted:   n  => callOrder.Add($"started{n}"),
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { },
+            onBeforeIteration:    () => { callOrder.Add("before"); return Task.CompletedTask; });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        // Let it run one iteration then stop.
+        await Task.Delay(100);
+        controller.RequestStop();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // 'before' must appear immediately before each 'started' in the call log.
+        for (int i = 0; i < callOrder.Count - 1; i++) {
+            if (callOrder[i] == "before")
+                Assert.That(callOrder[i + 1], Does.StartWith("started"),
+                    "onBeforeIteration must be followed immediately by onIterationStarted");
+        }
+        Assert.That(callOrder, Does.Contain("before"), "onBeforeIteration must fire at least once");
+    }
+
+    [Test]
+    public async Task OnBeforeIteration_StopRequestedDuringHook_LoopExitsWithoutExecutingIteration() {
+        var stoppedTcs      = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int execCount       = 0;
+
+        LoopController? controller = null;
+        controller = new LoopController(
+            executePromptAsync:   (_, __) => { execCount++; return Task.CompletedTask; },
+            abortPrompt:          () => { },
+            onIterationStarted:   _  => { },
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { },
+            onBeforeIteration: () => {
+                controller!.RequestStop(); // stop during pre-iteration hook
+                return Task.CompletedTask;
+            });
+
+        _ = controller!.StartAsync(MakeConfig(), continuousContext: true);
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(execCount, Is.EqualTo(0), "loop should exit before executing the iteration prompt");
+        Assert.That(controller.IsRunning, Is.False);
+    }
 }

@@ -830,6 +830,9 @@ public partial class MainWindow : Window
                 Dispatcher.Invoke(() => OnNativeLoopIterationCompleted(n)),
             onWaiting: nextAt =>
                 Dispatcher.Invoke(() => OnNativeLoopWaiting(nextAt)),
+            onBeforeIteration: () =>
+                Dispatcher.InvokeAsync(() => DrainQueueBeforeLoopIterationAsync())
+                          .Task.Unwrap(),
             onBeforeWait: () =>
                 Dispatcher.InvokeAsync(() => DrainQueueIfNeededAsync())
                           .Task.Unwrap());
@@ -1413,6 +1416,41 @@ public partial class MainWindow : Window
             HandleQueuePausedForInput();
 
         await MaybeFireQueuedLoopAsync();
+    }
+
+    /// <summary>
+    /// Drains all queued prompts one at a time before a loop iteration fires.
+    /// Unlike the normal drain paths this runs while <see cref="IsNativeLoopRunning"/>
+    /// is true — the loop intentionally pauses to let queued items complete first.
+    /// </summary>
+    private async Task DrainQueueBeforeLoopIterationAsync()
+    {
+        while (!_isPromptRunning && !_isClosing && !_restartPending)
+        {
+            var item = GetAutoDispatchCandidate();
+            if (item is null) break;
+
+            var seqNum = item.SequenceNumber;
+            _promptQueue.Remove(item.Id);
+            SyncQueuePanel();
+
+            AppendLine($"📤 Dispatching queued item #{seqNum} before loop iteration…", (Brush)FindResource("SubtleText"));
+
+            try
+            {
+                _pec.PendingQueueItemCount = _promptQueue.Count;
+                await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(DrainQueueBeforeLoopIterationAsync), ex);
+                break;
+            }
+            finally
+            {
+                _pec.PendingQueueItemCount = 0;
+            }
+        }
     }
 
     private bool LastTurnNeedsInput()
