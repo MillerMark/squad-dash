@@ -181,13 +181,15 @@ internal sealed class TasksContextBuilderTests {
             "- [ ] Item 4",
             "- [ ] Item 5",
             "- [ ] Item 6",
+            "- [ ] Item 7",
+            "- [ ] Item 8",
         ];
 
         var result = TasksContextBuilder.Build(lines);
 
         Assert.Multiple(() => {
-            Assert.That(result, Does.Contain($"showing {TasksContextBuilder.MaxInjectedItems} of 6"));
-            Assert.That(result, Does.Not.Contain("Item 6"));
+            Assert.That(result, Does.Contain($"showing {TasksContextBuilder.MaxInjectedItems} of 8"));
+            Assert.That(result, Does.Not.Contain("Item 8"));
         });
     }
 
@@ -235,23 +237,25 @@ internal sealed class TasksContextBuilderTests {
 
     [Test]
     public void Build_PartialGroupAtCapBoundary_OmitsTrailingItemsFromThatGroup() {
-        // 5-item cap; first group has 4, second has 2 → only 1 item from second group fits
+        // 7-item cap; first group has 6, second has 2 → only 1 item from second group fits
         string[] lines = [
             "## 🔴 High Priority",
             "- [ ] Item 1",
             "- [ ] Item 2",
             "- [ ] Item 3",
             "- [ ] Item 4",
-            "## 🟡 Mid Priority",
             "- [ ] Item 5",
             "- [ ] Item 6",
+            "## 🟡 Mid Priority",
+            "- [ ] Item 7",
+            "- [ ] Item 8",
         ];
 
         var result = TasksContextBuilder.Build(lines);
 
         Assert.Multiple(() => {
-            Assert.That(result, Does.Contain("Item 5"));
-            Assert.That(result, Does.Not.Contain("Item 6"));
+            Assert.That(result, Does.Contain("Item 7"));
+            Assert.That(result, Does.Not.Contain("Item 8"));
         });
     }
 
@@ -265,8 +269,10 @@ internal sealed class TasksContextBuilderTests {
             "- [ ] Item 3",
             "- [ ] Item 4",
             "- [ ] Item 5",
-            "## 🟡 Mid Priority",
             "- [ ] Item 6",
+            "- [ ] Item 7",
+            "## 🟡 Mid Priority",
+            "- [ ] Item 8",
         ];
 
         var result = TasksContextBuilder.Build(lines);

@@ -13,7 +13,7 @@ namespace SquadDash;
 internal static class TasksContextBuilder {
 
     /// <summary>Maximum number of task items shown in a prompt injection block.</summary>
-    internal const int MaxInjectedItems = 5;
+    internal const int MaxInjectedItems = 7;
 
     /// <summary>
     /// Parses <paramref name="lines"/> from tasks.md and returns a prompt-injection

@@ -2639,7 +2639,7 @@ public partial class MainWindow : Window
 
         TasksEmptyTextBlock.Visibility = Visibility.Collapsed;
 
-        const int MaxTaskItems = 10;
+        const int MaxTaskItems = 7;
         var itemsRendered = 0;
 
         foreach (var group in groups)
