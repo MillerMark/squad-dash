@@ -709,8 +709,13 @@ public partial class MainWindow : Window
             getIsPromptRunning: () => _isPromptRunning,
             setIsPromptRunning: v => {
                 _isPromptRunning = v;
-                if (!v && _promptQueue.HasReadyItems)
-                    _ = DrainQueueAsync();
+                if (!v)
+                {
+                    CoordinatorThread.CompletedAt = DateTimeOffset.Now;
+                    UpdateCompletedTimeFooters();
+                    if (_promptQueue.HasReadyItems)
+                        _ = DrainQueueAsync();
+                }
                 SyncQueuePanel();
             },
             getIsClosing: () => _isClosing,
