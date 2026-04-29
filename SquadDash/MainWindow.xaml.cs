@@ -1428,11 +1428,12 @@ public partial class MainWindow : Window
             Text              = label,
             FontSize          = 12,
             FontWeight        = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground        = isActive
-                                    ? (Brush)FindResource("LabelText")
-                                    : (Brush)FindResource("SubtleText"),
             VerticalAlignment = VerticalAlignment.Center,
         };
+        // SetResourceReference keeps the brush live — updates automatically on theme switch.
+        textBlock.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            isActive ? "LabelText" : "QueueTabInactiveText");
 
         var tab = new Border
         {
@@ -1440,10 +1441,13 @@ public partial class MainWindow : Window
             Margin          = new Thickness(0, 0, 1, 0),
             Cursor          = Cursors.Hand,
             BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0),
-            BorderBrush     = isActive ? (Brush)FindResource("QueueTabActiveBorder") : Brushes.Transparent,
             Background      = Brushes.Transparent,
             Child           = textBlock,
         };
+        if (isActive)
+            tab.SetResourceReference(Border.BorderBrushProperty, "QueueTabActiveBorder");
+        else
+            tab.BorderBrush = Brushes.Transparent;
 
         if (id is not null)
         {
@@ -12608,6 +12612,9 @@ public partial class MainWindow : Window
         MarkdownDocumentWindow.RefreshAllOpenWindows();
 
         RefreshDocumentationViewer();
+
+        // Rebuild queue tabs so any newly created elements pick up the new theme tokens.
+        SyncQueuePanel();
 
         UpdateThemeMenuState();
     }
