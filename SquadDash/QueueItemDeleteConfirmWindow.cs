@@ -1,47 +1,36 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Shell;
 
 namespace SquadDash;
 
 /// <summary>
-/// Confirmation dialog anchored above a queue tab — asks the user to confirm
-/// deletion of a queued prompt item.
-/// Uses WindowStyle.None + WindowChrome so the title bar is fully app-themed.
+/// Themed confirmation dialog anchored above a queue tab.
+/// Uses WindowStyle.None so the title bar follows the app active theme
+/// (WindowStyle.ToolWindow uses OS-rendered chrome that ignores app resources).
 /// </summary>
 internal sealed class QueueItemDeleteConfirmWindow : Window {
     private readonly string _fullText;
 
-    public QueueItemDeleteConfirmWindow(string itemLabel, string previewText, Rect anchorScreenRect, string fullText = "") {
+    public QueueItemDeleteConfirmWindow(
+        string itemLabel,
+        string previewText,
+        Rect anchorScreenRect,
+        string fullText = "") {
+
         _fullText = fullText;
 
-        Width             = 400;
-        SizeToContent     = SizeToContent.Height;
-        MinWidth          = 340;
-        ResizeMode        = ResizeMode.NoResize;
-        ShowInTaskbar     = false;
-        WindowStyle       = WindowStyle.None;
-        AllowsTransparency = true;
-        Background        = Brushes.Transparent;
-
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(0),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
+        Width         = 400;
+        SizeToContent = SizeToContent.Height;
+        MinWidth      = 340;
+        ResizeMode    = ResizeMode.NoResize;
+        ShowInTaskbar = false;
+        WindowStyle   = WindowStyle.None;   // custom chrome — follows app theme
+        this.SetResourceReference(BackgroundProperty, "AppSurface");
 
         if (anchorScreenRect == default)
-        {
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        }
         else
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
@@ -52,59 +41,54 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             };
         }
 
-        // ── Outer chrome border ───────────────────────────────────────────────
-        var outerBorder = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4) };
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-        Content = outerBorder;
+        var outer = new DockPanel();
+        Content = outer;
 
-        var root = new StackPanel();
-        outerBorder.Child = root;
+        // ── Custom title bar (ChromeSurface bg, LabelText fg) ──
+        var titleBar = new Grid { Height = 36 };
+        titleBar.SetResourceReference(BackgroundProperty, "ChromeSurface");
+        DockPanel.SetDock(titleBar, Dock.Top);
+        outer.Children.Add(titleBar);
 
-        // ── Title bar ────────────────────────────────────────────────────────
-        var titleBar = new DockPanel
-        {
-            LastChildFill = false,
-            Background    = Brushes.Transparent,
-            Margin        = new Thickness(12, 6, 6, 0),
-        };
-        root.Children.Add(titleBar);
-
-        // Close (×) button — moves up/left 4px per spec (Margin top/right = 4)
-        var closeBtn = new Button
-        {
-            Content = "✕",
-            Width   = 28,
-            Height  = 28,
-            Margin  = new Thickness(0, 0, 2, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = "Cancel",
-        };
-        closeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        WindowChrome.SetIsHitTestVisibleInChrome(closeBtn, true);
-        closeBtn.Click += (_, _) => { DialogResult = false; };
-        DockPanel.SetDock(closeBtn, Dock.Right);
-        titleBar.Children.Add(closeBtn);
+        titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var titleText = new TextBlock
         {
             Text              = "Confirmation required",
-            FontSize          = 13,
-            FontWeight        = FontWeights.SemiBold,
+            FontSize          = 12,
+            FontWeight        = FontWeights.Bold,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(14, 0, 0, 0),
         };
         titleText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        DockPanel.SetDock(titleText, Dock.Left);
+        Grid.SetColumn(titleText, 0);
         titleBar.Children.Add(titleText);
 
-        // ── Separator ────────────────────────────────────────────────────────
-        var sep = new Border { Height = 1, Margin = new Thickness(0, 6, 0, 0) };
-        sep.SetResourceReference(Border.BackgroundProperty, "PanelBorder");
-        root.Children.Add(sep);
+        // Close button: 4px margin from top and right, 28x28 so it's vertically centred in 36px bar
+        var closeBtn = new Button
+        {
+            Content           = "✕",
+            FontSize          = 11,
+            Width             = 28,
+            Height            = 28,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin            = new Thickness(0, 4, 4, 0),
+            BorderThickness   = new Thickness(0),
+            Background        = Brushes.Transparent,
+            Cursor            = Cursors.Hand,
+        };
+        closeBtn.SetResourceReference(Button.ForegroundProperty, "LabelText");
+        closeBtn.Click += (_, _) => { DialogResult = false; };
+        Grid.SetColumn(closeBtn, 1);
+        titleBar.Children.Add(closeBtn);
 
-        // ── Body ─────────────────────────────────────────────────────────────
-        var body = new StackPanel { Margin = new Thickness(18, 14, 18, 16) };
-        root.Children.Add(body);
+        // Allow dragging the window by the title bar
+        titleBar.MouseLeftButtonDown += (_, _) => DragMove();
+
+        // ── Body ──────────────────────────────────────────────────────────
+        var body = new StackPanel { Margin = new Thickness(18, 14, 18, 18) };
+        outer.Children.Add(body);
 
         var heading = new TextBlock
         {
@@ -126,7 +110,7 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(0, 0, 0, 16),
             };
-            preview.SetResourceReference(TextBlock.ForegroundProperty, "QueueTabInactiveText");
+            preview.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             body.Children.Add(preview);
         }
         else
@@ -134,57 +118,50 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             body.Children.Add(new Border { Height = 16 });
         }
 
-        // ── Button row: [Copy]  spacer  [Cancel] [Delete] ───────────────────
+        // Button row: [Copy] ──spacer── [Cancel] [Delete]
         var buttonRow = new Grid();
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Copy
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // spacer
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Cancel
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Delete
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         body.Children.Add(buttonRow);
 
-        // Copy button (bottom left)
         var copyBtn = new Button
         {
             Content = "Copy",
             Height  = 30,
             Padding = new Thickness(12, 0, 12, 0),
+            ToolTip = "Copy full prompt text to clipboard",
         };
-        copyBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         copyBtn.Click += (_, _) =>
         {
-            var text = string.IsNullOrEmpty(_fullText) ? previewText : _fullText;
-            if (!string.IsNullOrEmpty(text))
-                Clipboard.SetText(text);
+            if (!string.IsNullOrEmpty(_fullText))
+                Clipboard.SetText(_fullText);
         };
         Grid.SetColumn(copyBtn, 0);
         buttonRow.Children.Add(copyBtn);
 
-        // Cancel
         var cancelBtn = new Button
         {
             Content = "Cancel",
+            Width   = 80,
             Height  = 30,
-            Padding = new Thickness(12, 0, 12, 0),
             Margin  = new Thickness(0, 0, 8, 0),
         };
-        cancelBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         cancelBtn.Click += (_, _) => { DialogResult = false; };
         Grid.SetColumn(cancelBtn, 2);
         buttonRow.Children.Add(cancelBtn);
 
-        // Delete
         var deleteBtn = new Button
         {
             Content = "Delete",
+            Width   = 80,
             Height  = 30,
-            Padding = new Thickness(12, 0, 12, 0),
         };
-        deleteBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         deleteBtn.Click += (_, _) => { DialogResult = true; };
         Grid.SetColumn(deleteBtn, 3);
         buttonRow.Children.Add(deleteBtn);
 
-        // Keyboard shortcuts
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape) { DialogResult = false; e.Handled = true; }

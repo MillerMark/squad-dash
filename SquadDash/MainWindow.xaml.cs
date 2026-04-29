@@ -748,6 +748,7 @@ public partial class MainWindow : Window
                     }
                 }
                 SyncQueuePanel();
+                SyncLoopPanel();
             },
             getIsClosing: () => _isClosing,
             getRestartPending: () => _restartPending,
@@ -2729,12 +2730,14 @@ public partial class MainWindow : Window
     {
         _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.NativeAgents);
         _conversationManager.UpdateLoopSettingsState(LoopMode.NativeAgents, _settingsSnapshot.LoopContinuousContext);
+        SyncLoopPanel();
     }
 
     private void LoopModeCliRadio_Click(object sender, RoutedEventArgs e)
     {
         _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.SquadCli);
         _conversationManager.UpdateLoopSettingsState(LoopMode.SquadCli, _settingsSnapshot.LoopContinuousContext);
+        SyncLoopPanel();
     }
 
     private void LoopContinuousContextCheckBox_Click(object sender, RoutedEventArgs e)
