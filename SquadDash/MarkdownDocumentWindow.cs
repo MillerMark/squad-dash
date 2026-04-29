@@ -1528,6 +1528,19 @@ internal static class MarkdownFlowDocumentBuilder {
         return line.Length >= 3 && line.All(character => character is '-' or '_' or '*');
     }
 
+    // Colored-circle emoji that WPF cannot render from font glyphs — replaced with drawn ellipses.
+    private static readonly Dictionary<string, Color> CircleEmojiColors = new() {
+        { "🔴", Color.FromRgb(0xE5, 0x39, 0x35) },
+        { "🟠", Color.FromRgb(0xF4, 0x51, 0x1E) },
+        { "🟡", Color.FromRgb(0xFF, 0xB3, 0x00) },
+        { "🟢", Color.FromRgb(0x43, 0xA0, 0x47) },
+        { "🔵", Color.FromRgb(0x1E, 0x88, 0xE5) },
+        { "🟣", Color.FromRgb(0x8E, 0x24, 0xAA) },
+        { "⚫", Color.FromRgb(0x21, 0x21, 0x21) },
+        { "⚪", Color.FromRgb(0xDD, 0xDD, 0xDD) },
+        { "🟤", Color.FromRgb(0x6D, 0x4C, 0x41) },
+    };
+
     private static void AddInlineText(InlineCollection inlines, string text, Brush codeFill) {
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var segments = normalized.Split('`');
@@ -1536,13 +1549,58 @@ internal static class MarkdownFlowDocumentBuilder {
             if (segments[index].Length == 0)
                 continue;
 
-            var run = new Run(segments[index]);
             if (index % 2 == 1) {
-                run.FontFamily = new FontFamily("Consolas");
-                run.Background = codeFill;
+                // Inside backtick code span — emit as-is in monospace.
+                var run = new Run(segments[index]) {
+                    FontFamily = new FontFamily("Consolas"),
+                    Background = codeFill,
+                };
+                inlines.Add(run);
+                continue;
             }
 
-            inlines.Add(run);
+            // Outside code span — split on colored-circle emoji and draw them as Ellipse.
+            AddTextWithCircleEmoji(inlines, segments[index]);
+        }
+    }
+
+    private static void AddTextWithCircleEmoji(InlineCollection inlines, string text) {
+        // Walk through the string, splitting out any known circle emoji.
+        var remaining = text;
+        while (remaining.Length > 0) {
+            // Find the earliest emoji occurrence.
+            var earliestIdx = -1;
+            var earliestEmoji = string.Empty;
+            foreach (var emoji in CircleEmojiColors.Keys) {
+                var idx = remaining.IndexOf(emoji, StringComparison.Ordinal);
+                if (idx >= 0 && (earliestIdx < 0 || idx < earliestIdx)) {
+                    earliestIdx  = idx;
+                    earliestEmoji = emoji;
+                }
+            }
+
+            if (earliestIdx < 0) {
+                // No more emoji — emit the rest as a plain Run.
+                inlines.Add(new Run(remaining));
+                break;
+            }
+
+            // Emit text before the emoji.
+            if (earliestIdx > 0)
+                inlines.Add(new Run(remaining[..earliestIdx]));
+
+            // Emit the emoji as a drawn circle.
+            var color  = CircleEmojiColors[earliestEmoji];
+            var brush  = new SolidColorBrush(color);
+            var ellipse = new System.Windows.Shapes.Ellipse {
+                Width   = 11,
+                Height  = 11,
+                Fill    = brush,
+                Margin  = new Thickness(0, 0, 2, -1),
+            };
+            inlines.Add(new InlineUIContainer(ellipse));
+
+            remaining = remaining[(earliestIdx + earliestEmoji.Length)..];
         }
     }
 }
