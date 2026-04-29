@@ -145,6 +145,7 @@ public partial class MainWindow : Window
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private bool _restartPending;
+    private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
     private bool _documentationModeEnabled;
@@ -728,8 +729,23 @@ public partial class MainWindow : Window
                 {
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     UpdateCompletedTimeFooters();
-                    if (_promptQueue.Count > 0 && GetAutoDispatchCandidate() is not null)
-                        _ = DrainQueueAsync();
+                    if (_deferredShutdown == DeferredShutdownMode.AfterCurrentTurn)
+                    {
+                        // User chose "close after this turn" — don't drain, just close.
+                        Close();
+                    }
+                    else if (_deferredShutdown == DeferredShutdownMode.AfterAllQueued)
+                    {
+                        if (_promptQueue.Count > 0 && GetAutoDispatchCandidate() is not null)
+                            _ = DrainQueueAsync(); // keep draining
+                        else
+                            Close(); // queue exhausted — shut down
+                    }
+                    else
+                    {
+                        if (_promptQueue.Count > 0 && GetAutoDispatchCandidate() is not null)
+                            _ = DrainQueueAsync();
+                    }
                 }
                 SyncQueuePanel();
             },
@@ -11211,14 +11227,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_isPromptRunning)
-            {
-                e.Cancel = true;
-                _restartPending = true;
-                SquadDashTrace.Write("Shutdown", "Close requested while prompt is running. Deferring restart until turn completion.");
-                _conversationManager.EmergencySave();
-                return;
-            }
+            // If a deferred shutdown was already scheduled and has now fired, honour it — skip dialog.
+            bool isDeferredClose = _deferredShutdown != DeferredShutdownMode.None;
 
             if (_pttState == PttState.Active)
             {
@@ -11229,6 +11239,51 @@ public partial class MainWindow : Window
                 return;
             }
 
+            bool isBusy = _isPromptRunning || IsNativeLoopRunning || _promptQueue.Count > 0;
+            if (isBusy && !isDeferredClose)
+            {
+                e.Cancel = true;
+                _conversationManager.EmergencySave();
+
+                var dialog = new ShutdownProtectionWindow(
+                    isRunning:     _isPromptRunning,
+                    hasQueue:      _promptQueue.Count > 0,
+                    isLoopRunning: IsNativeLoopRunning)
+                {
+                    Owner = this
+                };
+
+                if (dialog.ShowDialog() != true)
+                {
+                    SquadDashTrace.Write("Shutdown", "Close cancelled by user.");
+                    return;
+                }
+
+                switch (dialog.Choice)
+                {
+                    case ShutdownChoice.CloseNow:
+                        SquadDashTrace.Write("Shutdown", "User chose Close Now — proceeding immediately.");
+                        e.Cancel = false;
+                        break; // fall through to cleanup below
+
+                    case ShutdownChoice.AfterCurrentTurn:
+                        _deferredShutdown = DeferredShutdownMode.AfterCurrentTurn;
+                        SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after current turn.");
+                        return;
+
+                    case ShutdownChoice.AfterAllQueued:
+                        _deferredShutdown = DeferredShutdownMode.AfterAllQueued;
+                        SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after all queued items.");
+                        return;
+
+                    default:
+                        return;
+                }
+            }
+
+            if (e.Cancel) return;
+
+            _deferredShutdown = DeferredShutdownMode.None;
             _isClosing = true;
             SquadDashTrace.Write("Shutdown", "Main window closing.");
             _instanceActivationChannel.Stop();
