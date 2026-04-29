@@ -1474,18 +1474,25 @@ public partial class MainWindow : Window
 
         if (items.Count > 0)
         {
-            QueueTabStrip.Children.Add(CreateQueueTab(null, "Active Draft"));
+            QueueTabStrip.Children.Add(CreateQueueTab(null, "Active Draft",
+                tooltip: "This prompt has not been queued yet."));
             // Render newest item first (left) → oldest item last (far right).
             // Queue drains oldest-first so #1 is always the next to dispatch.
             foreach (var item in items.Reverse())
-                QueueTabStrip.Children.Add(CreateQueueTab(item.Id, $"#{item.SequenceNumber}"));
+            {
+                bool isNext = item.SequenceNumber == 1;
+                var label   = isNext ? $"Queue #{item.SequenceNumber}" : $"#{item.SequenceNumber}";
+                var tooltip = isNext ? "This prompt is next in the Squad queue."
+                                     : "This item is in the Squad queue.";
+                QueueTabStrip.Children.Add(CreateQueueTab(item.Id, label, tooltip));
+            }
         }
 
         _conversationManager.UpdateQueuedPromptsState(items);
         SyncSendButton();
     }
 
-    private UIElement CreateQueueTab(string? id, string label)
+    private UIElement CreateQueueTab(string? id, string label, string? tooltip = null)
     {
         bool isActive = _activeTabId == id;
 
@@ -1509,6 +1516,7 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0),
             Background      = Brushes.Transparent,
             Child           = textBlock,
+            ToolTip         = tooltip,
         };
         if (isActive)
             tab.SetResourceReference(Border.BorderBrushProperty, "QueueTabActiveBorder");
