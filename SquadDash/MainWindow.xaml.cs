@@ -222,6 +222,7 @@ public partial class MainWindow : Window
     private bool _loopPanelVisible = true;
     private bool _loopOutputHasContent;
     private bool _loopQueued;
+    private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _tasksPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
@@ -2361,6 +2362,16 @@ public partial class MainWindow : Window
         _loopIsWaiting = false;
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLine("✅ Loop stopped");
+
+        // If queue items arrived while the loop was running, re-queue the loop so it
+        // resumes automatically once those items have drained.  Abort goes through
+        // OnNativeLoopError and intentionally does NOT re-queue.
+        if (_promptQueue.HasReadyItems && !_loopQueued)
+        {
+            _loopQueued = true;
+            AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
+        }
+
         SyncLoopPanel();
     }
 
