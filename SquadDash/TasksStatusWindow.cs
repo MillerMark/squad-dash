@@ -160,11 +160,19 @@ internal sealed class TasksStatusWindow : Window {
         foreach (var part in parts) {
             var key = EmojiResourceKey(part);
             if (key is not null) {
-                var run = new Run(part);
-                run.SetResourceReference(Run.ForegroundProperty, key);
-                inlines.Add(run);
+                // Colored emoji glyphs ignore Run.Foreground — use a real Ellipse instead.
+                var ellipse = new System.Windows.Shapes.Ellipse {
+                    Width  = 11,
+                    Height = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 1, -1),
+                };
+                ellipse.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, key);
+                inlines.Add(new InlineUIContainer(ellipse));
             } else {
-                inlines.Add(new Run(part));
+                var run = new Run(part);
+                run.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                inlines.Add(run);
             }
         }
     }
