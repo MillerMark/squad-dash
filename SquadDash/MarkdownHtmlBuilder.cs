@@ -34,8 +34,8 @@ internal static class MarkdownHtmlBuilder {
         var link        = isDark ? "#6890c8"                  : "#2d5ea8";
         var headingColor = isDark ? "#e5d5c0" : "#2a211a";
         var thHeaderBg  = isDark ? "rgba(216,200,176,0.07)"   : "rgba(49,40,31,0.05)";
-        var prioHigh    = isDark ? "#FF5252"                  : "#E53935";
-        var prioMid     = isDark ? "#FFD740"                  : "#F59F00";
+        var prioHigh    = isDark ? "#FF5252"                  : "#DE3333";
+        var prioMid     = isDark ? "#FFD740"                  : "#A06800";
         var prioLow     = isDark ? "#64B5F6"                  : "#1976D2";
 
         return $$"""
