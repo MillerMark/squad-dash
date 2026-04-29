@@ -139,6 +139,7 @@ public partial class MainWindow : Window
     private bool _isPromptRunning;
     private readonly PromptQueue _promptQueue = new();
     private int _promptQueueSeq;
+    private string? _queuePreEditDraft;
     private bool _restartPending;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
@@ -236,6 +237,7 @@ public partial class MainWindow : Window
 
     private TranscriptThreadState CoordinatorThread => _coordinatorThread ??= CreateCoordinatorTranscriptThread();
     private bool IsLoopRunning => _pec is { IsLoopRunning: true };
+    private bool IsNativeLoopRunning => IsLoopRunning && _settingsSnapshot.LoopMode == LoopMode.NativeAgents;
     private TranscriptTurnView? _currentTurn
     {
         get => CoordinatorThread.CurrentTurn;
@@ -1200,7 +1202,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(prompt))
                 return;
 
-            if (_isPromptRunning || IsLoopRunning)
+            if (_isPromptRunning || IsNativeLoopRunning)
             {
                 EnqueueCurrentPrompt();
                 return;
@@ -1238,9 +1240,17 @@ public partial class MainWindow : Window
             text += "\n(some or all of this prompt was dictated by voice)";
         }
 
-        // Remove any editing items (user is re-submitting an edited queue item).
-        foreach (var editing in _promptQueue.Items.Where(i => i.IsEditing).ToList())
-            _promptQueue.Remove(editing.Id);
+        // If the user is editing a queued card, update it in-place instead of creating a new item.
+        var editingItem = _promptQueue.Items.FirstOrDefault(i => i.IsEditing);
+        if (editingItem is not null)
+        {
+            editingItem.Text      = text;
+            editingItem.IsEditing = false;
+            _queuePreEditDraft    = null;
+            PromptTextBox.Clear();
+            SyncQueuePanel();
+            return;
+        }
 
         _promptQueue.Enqueue(text, ++_promptQueueSeq);
         PromptTextBox.Clear();
@@ -1249,7 +1259,7 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueAsync()
     {
-        if (_isPromptRunning || IsLoopRunning) return;
+        if (_isPromptRunning || IsNativeLoopRunning) return;
 
         var item = _promptQueue.DequeueFirstReady();
         if (item is null) return;
@@ -1269,7 +1279,7 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueIfNeededAsync()
     {
-        while (_promptQueue.HasReadyItems && !_isPromptRunning && !IsLoopRunning)
+        while (_promptQueue.HasReadyItems && !_isPromptRunning && !IsNativeLoopRunning)
         {
             var item = _promptQueue.DequeueFirstReady();
             if (item is null) break;
@@ -1338,10 +1348,16 @@ public partial class MainWindow : Window
 
     private void OnQueueCardClicked(PromptQueueItem item)
     {
-        // Toggle editing state: click again to cancel edit.
+        // Toggle editing state: click again to cancel edit and restore draft.
         if (item.IsEditing)
         {
             item.IsEditing = false;
+            if (_queuePreEditDraft is not null)
+            {
+                PromptTextBox.Text       = _queuePreEditDraft;
+                PromptTextBox.CaretIndex = _queuePreEditDraft.Length;
+                _queuePreEditDraft       = null;
+            }
             SyncQueuePanel();
             return;
         }
@@ -1349,6 +1365,9 @@ public partial class MainWindow : Window
         // Clear any currently-editing item first.
         foreach (var other in _promptQueue.Items.Where(i => i.IsEditing).ToList())
             other.IsEditing = false;
+
+        // Save current prompt text so user can restore it.
+        _queuePreEditDraft = PromptTextBox.Text;
 
         PromptTextBox.Text       = item.Text;
         PromptTextBox.CaretIndex = item.Text.Length;
@@ -1359,7 +1378,7 @@ public partial class MainWindow : Window
 
     private void SyncSendButton()
     {
-        bool queueMode = _isPromptRunning || IsLoopRunning || _promptQueue.HasReadyItems;
+        bool queueMode = _isPromptRunning || IsNativeLoopRunning || _promptQueue.HasReadyItems;
         RunButton.Content = queueMode ? "Queue" : "Send";
     }
 
@@ -2047,7 +2066,7 @@ public partial class MainWindow : Window
         var line = AnsiEscapeRegex.Replace(raw, "").Trim();
         if (string.IsNullOrWhiteSpace(line)) return;
         if (line.StartsWith("[stderr]", StringComparison.Ordinal))
-            AppendLoopOutputLine(line, LoopStderrBrush);
+            AppendLoopOutputLine(line, LoopLifecycleBrush);
         else
             AppendLoopOutputLine(line);
     }
@@ -3830,7 +3849,8 @@ public partial class MainWindow : Window
         var leftContext = current[..caretIndex];
         var rightContext = current[selEndIndex..];
         var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
-        var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' ? " " : string.Empty;
+        var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' &&
+                     precedingChar != '\n' && precedingChar != '\r' ? " " : string.Empty;
         var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
         var insert = prefix + processed;
         target.Text = leftContext + insert + rightContext;

@@ -349,6 +349,14 @@ function tryParseRequest(line) {
             return tryParseDelegateRequest(parsed);
         if (parsed.type === "run_loop")
             return tryParseRunLoopRequest(parsed);
+        if (parsed.type === "run_loop_stop") {
+            return {
+                type: "run_loop_stop",
+                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
+                    ? parsed.requestId.trim()
+                    : undefined
+            };
+        }
         if (parsed.type === "rc_start")
             return tryParseRcStartRequest(parsed);
         if (parsed.type === "rc_stop") {
