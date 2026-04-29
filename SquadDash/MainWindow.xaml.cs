@@ -1516,10 +1516,13 @@ public partial class MainWindow : Window
             QueueTabStrip.Children.Add(CreateQueueTab(null, "Active Draft",
                 tooltip: "This prompt has not been queued yet."));
             // Render newest item first (left) → oldest item last (far right).
-            // Queue drains oldest-first so #1 is always the next to dispatch.
+            // The next-to-dispatch item is the first non-editing item in the list,
+            // not necessarily the one with SequenceNumber==1 (items may have been dequeued
+            // leaving gaps, so we identify the candidate by Id rather than by sequence number).
+            var nextReadyId = items.FirstOrDefault(i => !i.IsEditing)?.Id;
             foreach (var item in items.Reverse())
             {
-                bool isNext = item.SequenceNumber == 1;
+                bool isNext = item.Id == nextReadyId;
                 var label   = isNext ? $"Queue #{item.SequenceNumber}" : $"#{item.SequenceNumber}";
                 var tooltip = isNext ? "This prompt is next in the Squad queue."
                                      : "This item is in the Squad queue.";
