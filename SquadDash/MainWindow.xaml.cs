@@ -1011,6 +1011,10 @@ public partial class MainWindow : Window
             _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
             SquadDashTrace.Write("Startup", "Deferred startup initialization completed.");
 
+            // Give the prompt text box focus on startup so the user can type immediately.
+            if (PromptTextBox.IsVisible)
+                _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () => PromptTextBox.Focus());
+
             // Screenshot refresh mode: run the automated pass then shut down.
             if (_screenshotRefreshOptions.Mode != ScreenshotRefreshMode.None)
                 await RunScreenshotRefreshAsync(_screenshotRefreshOptions);
@@ -2484,11 +2488,13 @@ public partial class MainWindow : Window
         {
             if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
             {
+                AppendLoopOutputLine("⏹ Clean loop termination requested — current iteration will finish then stop.", LoopLifecycleBrush);
                 _loopController.RequestStop();
                 SyncLoopPanel();
             }
             else
             {
+                AppendLoopOutputLine("⏹ Clean loop termination requested — current iteration will finish then stop.", LoopLifecycleBrush);
                 await _bridge.StopLoopAsync();
             }
         }
@@ -2525,6 +2531,7 @@ public partial class MainWindow : Window
                 MessageBoxImage.Warning);
             if (result == MessageBoxResult.OK)
             {
+                AppendLoopOutputLine("⚡ Loop abruptly terminated via Abort — current iteration may be incomplete.", new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x44)));
                 if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
                     _loopController.RequestAbort();
                 else
