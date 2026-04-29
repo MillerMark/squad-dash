@@ -137,6 +137,8 @@ public partial class MainWindow : Window
     private bool _isInstallingSquad;
     private bool _isClosing;
     private bool _isPromptRunning;
+    private readonly PromptQueue _promptQueue = new();
+    private int _promptQueueSeq;
     private bool _restartPending;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
@@ -705,7 +707,12 @@ public partial class MainWindow : Window
             getAgents: () => _agents,
             getCurrentSessionState: () => _currentSessionState,
             getIsPromptRunning: () => _isPromptRunning,
-            setIsPromptRunning: v => _isPromptRunning = v,
+            setIsPromptRunning: v => {
+                _isPromptRunning = v;
+                if (!v && _promptQueue.HasReadyItems)
+                    _ = DrainQueueAsync();
+                SyncQueuePanel();
+            },
             getIsClosing: () => _isClosing,
             getRestartPending: () => _restartPending,
             close: () => Close(),
@@ -770,7 +777,10 @@ public partial class MainWindow : Window
             onIterationCompleted: n =>
                 Dispatcher.Invoke(() => OnNativeLoopIterationCompleted(n)),
             onWaiting: nextAt =>
-                Dispatcher.Invoke(() => OnNativeLoopWaiting(nextAt)));
+                Dispatcher.Invoke(() => OnNativeLoopWaiting(nextAt)),
+            onBeforeWait: () =>
+                Dispatcher.InvokeAsync(() => DrainQueueIfNeededAsync())
+                          .Task.Unwrap());
 
         _markdownRenderer = new MarkdownDocumentRenderer(
             getFontSize: () => _transcriptFontSize,
@@ -1183,6 +1193,12 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(prompt))
                 return;
 
+            if (_isPromptRunning || _pec.IsLoopRunning)
+            {
+                EnqueueCurrentPrompt();
+                return;
+            }
+
             if (_promptHasVoiceInput)
             {
                 _promptHasVoiceInput = false;
@@ -1200,6 +1216,143 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException("Run", ex);
         }
+    }
+
+    // ── Prompt Queue ──────────────────────────────────────────────────────────
+
+    private void EnqueueCurrentPrompt()
+    {
+        var text = PromptTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        if (_promptHasVoiceInput)
+        {
+            _promptHasVoiceInput = false;
+            text += "\n(some or all of this prompt was dictated by voice)";
+        }
+
+        // Remove any editing items (user is re-submitting an edited queue item).
+        foreach (var editing in _promptQueue.Items.Where(i => i.IsEditing).ToList())
+            _promptQueue.Remove(editing.Id);
+
+        _promptQueue.Enqueue(text, ++_promptQueueSeq);
+        PromptTextBox.Clear();
+        SyncQueuePanel();
+    }
+
+    private async Task DrainQueueAsync()
+    {
+        if (_isPromptRunning || _pec.IsLoopRunning) return;
+
+        var item = _promptQueue.DequeueFirstReady();
+        if (item is null) return;
+
+        SyncQueuePanel();
+
+        try
+        {
+            await _pec.ExecutePromptAsync(item.Text, addToHistory: true, clearPromptBox: false);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(DrainQueueAsync), ex);
+        }
+        // Further drain is triggered by setIsPromptRunning(false) callback.
+    }
+
+    private async Task DrainQueueIfNeededAsync()
+    {
+        while (_promptQueue.HasReadyItems && !_isPromptRunning && !_pec.IsLoopRunning)
+        {
+            var item = _promptQueue.DequeueFirstReady();
+            if (item is null) break;
+
+            SyncQueuePanel();
+
+            try
+            {
+                await _pec.ExecutePromptAsync(item.Text, addToHistory: true, clearPromptBox: false);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(DrainQueueIfNeededAsync), ex);
+                break;
+            }
+        }
+    }
+
+    private void SyncQueuePanel()
+    {
+        var items = _promptQueue.Items;
+        QueueCardsPanel.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        QueueCardsPanel.Items.Clear();
+
+        // Render newest items at the top; oldest (#1) at the bottom closest to PromptTextBox.
+        for (int i = items.Count - 1; i >= 0; i--)
+            QueueCardsPanel.Items.Add(CreateQueueCard(items[i]));
+
+        SyncSendButton();
+    }
+
+    private Border CreateQueueCard(PromptQueueItem item)
+    {
+        var truncated = item.Text.Replace('\n', ' ').Replace('\r', ' ');
+        if (truncated.Length > 60)
+            truncated = truncated[..57] + "…";
+
+        var textBlock = new TextBlock
+        {
+            Text              = $"#{item.SequenceNumber} Queued: {truncated}",
+            Foreground        = item.IsEditing
+                                    ? (Brush)FindResource("LabelText")
+                                    : (Brush)FindResource("SubtleText"),
+            FontSize          = 12,
+            TextTrimming      = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(10, 0, 10, 0),
+        };
+
+        var border = new Border
+        {
+            CornerRadius = new CornerRadius(8, 8, 0, 0),
+            Height       = 32,
+            Background   = item.IsEditing
+                               ? (Brush)FindResource("QueueCardEditingSurface")
+                               : (Brush)FindResource("QueueCardSurface"),
+            Cursor       = Cursors.Hand,
+            Child        = textBlock,
+        };
+
+        var capturedItem = item;
+        border.MouseLeftButtonUp += (_, _) => OnQueueCardClicked(capturedItem);
+        return border;
+    }
+
+    private void OnQueueCardClicked(PromptQueueItem item)
+    {
+        // Toggle editing state: click again to cancel edit.
+        if (item.IsEditing)
+        {
+            item.IsEditing = false;
+            SyncQueuePanel();
+            return;
+        }
+
+        // Clear any currently-editing item first.
+        foreach (var other in _promptQueue.Items.Where(i => i.IsEditing).ToList())
+            other.IsEditing = false;
+
+        PromptTextBox.Text       = item.Text;
+        PromptTextBox.CaretIndex = item.Text.Length;
+        item.IsEditing           = true;
+        SyncQueuePanel();
+        PromptTextBox.Focus();
+    }
+
+    private void SyncSendButton()
+    {
+        bool queueMode = _isPromptRunning || _pec.IsLoopRunning || _promptQueue.HasReadyItems;
+        RunButton.Content = queueMode ? "Queue" : "Send";
     }
 
     private async void AbortButton_Click(object sender, RoutedEventArgs e)
@@ -2017,6 +2170,7 @@ public partial class MainWindow : Window
     private void SyncLoopPanel()
     {
         if (LoopPanelBorder is null) return;
+        SyncSendButton();
         LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         bool running = _pec.IsLoopRunning;
         StartLoopButton.IsEnabled = !running;
@@ -10364,7 +10518,8 @@ public partial class MainWindow : Window
         InactiveAgentItemsControl.IsEnabled = state.AgentItemsEnabled;
         OutputTextBox.IsEnabled = state.OutputEnabled;
         PromptTextBox.IsEnabled = state.PromptEnabled;
-        RunButton.IsEnabled = state.RunEnabled;
+        RunButton.IsEnabled = state.RunEnabled
+            || ((_isPromptRunning || _pec.IsLoopRunning) && _currentWorkspace is not null);
         AbortButton.IsEnabled = state.AbortEnabled;
         if (RunDoctorMenuItem is not null)
             RunDoctorMenuItem.IsEnabled = state.RunDoctorEnabled;

@@ -1432,20 +1432,27 @@
                     </Button>
                 </StackPanel>
 
-                <TextBox x:Name="PromptTextBox"
-                         Grid.Row="0"
-                         MinHeight="96"
-                         MaxHeight="260"
-                         Padding="10"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Disabled"
-                         Foreground="{DynamicResource LabelText}"
-                         Background="{DynamicResource TextBoxBackground}"
-                         TextChanged="PromptTextBox_TextChanged"
-                         PreviewKeyDown="PromptTextBox_KeyDown"
-                         PreviewMouseWheel="PromptTextBox_PreviewMouseWheel" />
+                <DockPanel Grid.Row="0">
+                    <ItemsControl x:Name="QueueCardsPanel"
+                                  DockPanel.Dock="Top"
+                                  Visibility="Collapsed"
+                                  Margin="0,0,0,-4"
+                                  Panel.ZIndex="0" />
+                    <TextBox x:Name="PromptTextBox"
+                             Panel.ZIndex="1"
+                             MinHeight="96"
+                             MaxHeight="260"
+                             Padding="10"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Disabled"
+                             Foreground="{DynamicResource LabelText}"
+                             Background="{DynamicResource TextBoxBackground}"
+                             TextChanged="PromptTextBox_TextChanged"
+                             PreviewKeyDown="PromptTextBox_KeyDown"
+                             PreviewMouseWheel="PromptTextBox_PreviewMouseWheel" />
+                </DockPanel>
 
                 <Popup x:Name="IntelliSensePopup"
                        Placement="Custom"

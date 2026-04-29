@@ -20,6 +20,7 @@ internal sealed class LoopController {
     private readonly Action<string>              _onError;
     private readonly Action<int>                 _onIterationCompleted;
     private readonly Action<DateTimeOffset>      _onWaiting;
+    private readonly Func<Task>                  _onBeforeWait;
 
     private volatile bool         _stopRequested;
     private CancellationTokenSource? _cts;
@@ -38,6 +39,7 @@ internal sealed class LoopController {
     /// <param name="onError">Fired with a human-readable message on timeout or abort.</param>
     /// <param name="onIterationCompleted">Fired with the 1-based iteration number after success.</param>
     /// <param name="onWaiting">Fired with the target start time of the next iteration when the loop enters the inter-iteration delay.</param>
+    /// <param name="onBeforeWait">Awaited after each iteration completes, before the inter-iteration delay. Use this to drain a prompt queue.</param>
     internal LoopController(
         Func<string, string?, Task> executePromptAsync,
         Action                      abortPrompt,
@@ -45,7 +47,8 @@ internal sealed class LoopController {
         Action                      onStopped,
         Action<string>              onError,
         Action<int>                 onIterationCompleted,
-        Action<DateTimeOffset>      onWaiting) {
+        Action<DateTimeOffset>      onWaiting,
+        Func<Task>?                 onBeforeWait = null) {
 
         _executePromptAsync   = executePromptAsync;
         _abortPrompt          = abortPrompt;
@@ -54,6 +57,7 @@ internal sealed class LoopController {
         _onError              = onError;
         _onIterationCompleted = onIterationCompleted;
         _onWaiting            = onWaiting;
+        _onBeforeWait         = onBeforeWait ?? (() => Task.CompletedTask);
     }
 
     /// <summary>
@@ -120,6 +124,9 @@ internal sealed class LoopController {
                 }
 
                 _onIterationCompleted(iteration);
+                if (_stopRequested) break;
+
+                await _onBeforeWait();
                 if (_stopRequested) break;
 
                 var nextAt = DateTimeOffset.Now + TimeSpan.FromMinutes(config.IntervalMinutes);

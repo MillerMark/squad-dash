@@ -14,6 +14,8 @@
     <SolidColorBrush x:Key="TranscriptSurface" Color="#FFFCF8"/>
     <SolidColorBrush x:Key="TextBoxBackground" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="InputSurface" Color="#F8F2E8"/>
+    <SolidColorBrush x:Key="QueueCardSurface" Color="#F0EBE4"/>
+    <SolidColorBrush x:Key="QueueCardEditingSurface" Color="#EAF4FF"/>
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>

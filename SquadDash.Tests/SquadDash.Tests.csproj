@@ -67,6 +67,7 @@
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />
+    <Compile Include="..\SquadDash\PromptQueue.cs" Link="Source\PromptQueue.cs" />
     <Compile Include="..\SquadDash\PromptInteractionLogic.cs" Link="Source\PromptInteractionLogic.cs" />
     <Compile Include="..\SquadDash\IntelliSenseController.cs" Link="Source\IntelliSenseController.cs" />
     <Compile Include="..\SquadDash\SquadInstallationStateService.cs" Link="Source\SquadInstallationStateService.cs" />
