@@ -949,16 +949,17 @@ internal static class MarkdownHtmlBuilder {
   ::-webkit-scrollbar-thumb:active {
     background: {{(isDark ? "#999" : "#666")}};
   }
-  /* ── Priority section headings and items ────────────────────────── */
-  .prio-high { color: {{prioHigh}}; }
-  .prio-mid  { color: {{prioMid}}; }
-  .prio-low  { color: {{prioLow}}; }
-  .prio-high-list li, .prio-mid-list li, .prio-low-list li {
-    color: inherit;
+  /* ── Priority circle dots (emoji replaced with <span class="pdot">) */
+  .pdot {
+    display: inline-block;
+    width: 0.75em; height: 0.75em;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin: 0 3px 1px 0;
   }
-  .prio-high-list { color: {{prioHigh}}; }
-  .prio-mid-list  { color: {{prioMid}}; }
-  .prio-low-list  { color: {{prioLow}}; }
+  .pdot-high { background: {{prioHigh}}; }
+  .pdot-mid  { background: {{prioMid}}; }
+  .pdot-low  { background: {{prioLow}}; }
 </style>
 </head>
 <body>
@@ -1171,7 +1172,14 @@ document.addEventListener('click', function(e) {
             return string.Empty;
 
         var escaped = EscapeHtml(text);
-        var codePlaceholders = new Dictionary<string, string>();
+
+        // Replace priority circle emoji with themed HTML dots before other inline processing.
+        escaped = escaped
+            .Replace("🔴", "<span class=\"pdot pdot-high\"></span>")
+            .Replace("🟡", "<span class=\"pdot pdot-mid\"></span>")
+            .Replace("🟢", "<span class=\"pdot pdot-low\"></span>");
+
+        var codePlaceholders= new Dictionary<string, string>();
         var placeholderIndex = 0;
 
         escaped = InlineCodeRegex.Replace(escaped, match => {
