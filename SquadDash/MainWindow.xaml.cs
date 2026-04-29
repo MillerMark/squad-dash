@@ -235,6 +235,7 @@ public partial class MainWindow : Window
     // _promptStallWarningShown moved to PromptExecutionController
 
     private TranscriptThreadState CoordinatorThread => _coordinatorThread ??= CreateCoordinatorTranscriptThread();
+    private bool IsLoopRunning => _pec is { IsLoopRunning: true };
     private TranscriptTurnView? _currentTurn
     {
         get => CoordinatorThread.CurrentTurn;
@@ -1199,7 +1200,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(prompt))
                 return;
 
-            if (_isPromptRunning || _pec.IsLoopRunning)
+            if (_isPromptRunning || IsLoopRunning)
             {
                 EnqueueCurrentPrompt();
                 return;
@@ -1248,7 +1249,7 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueAsync()
     {
-        if (_isPromptRunning || _pec.IsLoopRunning) return;
+        if (_isPromptRunning || IsLoopRunning) return;
 
         var item = _promptQueue.DequeueFirstReady();
         if (item is null) return;
@@ -1268,7 +1269,7 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueIfNeededAsync()
     {
-        while (_promptQueue.HasReadyItems && !_isPromptRunning && !_pec.IsLoopRunning)
+        while (_promptQueue.HasReadyItems && !_isPromptRunning && !IsLoopRunning)
         {
             var item = _promptQueue.DequeueFirstReady();
             if (item is null) break;
@@ -1357,7 +1358,7 @@ public partial class MainWindow : Window
 
     private void SyncSendButton()
     {
-        bool queueMode = _isPromptRunning || _pec.IsLoopRunning || _promptQueue.HasReadyItems;
+        bool queueMode = _isPromptRunning || IsLoopRunning || _promptQueue.HasReadyItems;
         RunButton.Content = queueMode ? "Queue" : "Send";
     }
 
@@ -2084,7 +2085,7 @@ public partial class MainWindow : Window
     private void SyncLoopOutputPane()
     {
         if (LoopOutputBorder is null) return;
-        bool show = _loopPanelVisible && (_loopOutputHasContent || _pec.IsLoopRunning);
+        bool show = _loopPanelVisible && (_loopOutputHasContent || IsLoopRunning);
         var vis = show ? Visibility.Visible : Visibility.Collapsed;
         LoopOutputBorder.Visibility = vis;
         LoopOutputSplitter.Visibility = vis;
@@ -2241,7 +2242,7 @@ public partial class MainWindow : Window
         if (LoopPanelBorder is null) return;
         SyncSendButton();
         LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
-        bool running = _pec.IsLoopRunning;
+        bool running = IsLoopRunning;
         StartLoopButton.IsEnabled = !running;
         StopLoopButton.IsEnabled = running;
         AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
@@ -10590,7 +10591,7 @@ public partial class MainWindow : Window
         OutputTextBox.IsEnabled = state.OutputEnabled;
         PromptTextBox.IsEnabled = state.PromptEnabled;
         RunButton.IsEnabled = state.RunEnabled
-            || ((_isPromptRunning || _pec.IsLoopRunning) && _currentWorkspace is not null);
+            || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null);
         AbortButton.IsEnabled = state.AbortEnabled;
         if (RunDoctorMenuItem is not null)
             RunDoctorMenuItem.IsEnabled = state.RunDoctorEnabled;
