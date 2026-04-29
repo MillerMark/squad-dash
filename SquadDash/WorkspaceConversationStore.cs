@@ -210,7 +210,11 @@ internal sealed class WorkspaceConversationStore {
             string.IsNullOrWhiteSpace(state.PromptDraft) &&
             state.PromptHistory.Count == 0
                 ? state.ClearedAt?.ToUniversalTime()
-                : null);
+                : null) {
+            PromptDraftCaretIndex    = state.PromptDraftCaretIndex,
+            PromptDraftSelectionStart  = state.PromptDraftSelectionStart,
+            PromptDraftSelectionLength = state.PromptDraftSelectionLength,
+        };
     }
 
     private static TranscriptTurnRecord NormalizeTurn(
@@ -497,6 +501,10 @@ internal sealed record WorkspaceConversationState(
     IReadOnlyList<TranscriptThreadRecord>? Threads = null,
     IReadOnlyList<string>? RecentSessionIds = null,
     DateTimeOffset? ClearedAt = null) {
+
+    public int? PromptDraftCaretIndex { get; init; }
+    public int? PromptDraftSelectionStart { get; init; }
+    public int? PromptDraftSelectionLength { get; init; }
 
     public static WorkspaceConversationState Empty { get; } =
         new(

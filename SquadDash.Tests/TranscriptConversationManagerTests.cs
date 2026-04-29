@@ -46,7 +46,7 @@ internal sealed class TranscriptConversationManagerTests {
     [Test, Apartment(ApartmentState.STA)]
     public void NavigateHistory_Backward_MovesToLastHistoryEntry() {
         var promptText = "current draft";
-        var manager = MakeManager(getPromptText: () => promptText, setPromptText: t => promptText = t);
+        var manager = MakeManager(getPromptText: () => promptText, setPromptText: (t, _, _, _) => promptText = t);
 
         manager.PromptHistory.Add("first entry");
         manager.PromptHistory.Add("second entry");
@@ -59,7 +59,7 @@ internal sealed class TranscriptConversationManagerTests {
     [Test, Apartment(ApartmentState.STA)]
     public void NavigateHistory_BackwardThenForward_RestoresDraft() {
         var promptText = "my draft";
-        var manager = MakeManager(getPromptText: () => promptText, setPromptText: t => promptText = t);
+        var manager = MakeManager(getPromptText: () => promptText, setPromptText: (t, _, _, _) => promptText = t);
 
         manager.PromptHistory.Add("history entry");
 
@@ -72,7 +72,7 @@ internal sealed class TranscriptConversationManagerTests {
     [Test, Apartment(ApartmentState.STA)]
     public void NavigateHistory_NoHistory_DoesNotChangePrompt() {
         var promptText = "unchanged";
-        var manager = MakeManager(getPromptText: () => promptText, setPromptText: t => promptText = t);
+        var manager = MakeManager(getPromptText: () => promptText, setPromptText: (t, _, _, _) => promptText = t);
 
         manager.NavigateHistory(-1);
 
@@ -251,15 +251,16 @@ internal sealed class TranscriptConversationManagerTests {
 
     private static TranscriptConversationManager MakeManager(
         Func<string>? getPromptText = null,
-        Action<string>? setPromptText = null) {
+        Action<string, int, int, int>? setPromptText = null) {
         var promptText = string.Empty;
         getPromptText ??= () => promptText;
-        setPromptText ??= t => promptText = t;
+        setPromptText ??= (t, _, _, _) => promptText = t;
 
         return new TranscriptConversationManager(
             getWorkspace:             () => null,
             getPromptText:            getPromptText,
             setPromptText:            setPromptText,
+            getPromptCaretState:      () => (0, 0, 0),
             isClosing:                () => false,
             renderPersistedTurn:      (_, _, _) => { },
             coordinatorThread:        () => throw new InvalidOperationException("not needed for this test"),

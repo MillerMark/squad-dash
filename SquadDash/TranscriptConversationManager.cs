@@ -90,7 +90,8 @@ internal sealed class TranscriptConversationManager {
     // ── Injected dependencies ──────────────────────────────────────────────────
     private readonly Func<SessionWorkspace?>                                          _getWorkspace;
     private readonly Func<string>                                                     _getPromptText;
-    private readonly Action<string>                                                   _setPromptText;
+    private readonly Action<string, int, int, int>                                    _setPromptText;
+    private readonly Func<(int caretIndex, int selectionStart, int selectionLength)>  _getPromptCaretState;
     private readonly Func<bool>                                                       _isClosing;
     private readonly Action<TranscriptThreadState, TranscriptTurnRecord, bool>        _renderPersistedTurn;
     private readonly Func<TranscriptThreadState>                                      _coordinatorThread;
@@ -121,7 +122,8 @@ internal sealed class TranscriptConversationManager {
     internal TranscriptConversationManager(
         Func<SessionWorkspace?> getWorkspace,
         Func<string> getPromptText,
-        Action<string> setPromptText,
+        Action<string, int, int, int> setPromptText,
+        Func<(int caretIndex, int selectionStart, int selectionLength)> getPromptCaretState,
         Func<bool> isClosing,
         Action<TranscriptThreadState, TranscriptTurnRecord, bool> renderPersistedTurn,
         Func<TranscriptThreadState> coordinatorThread,
@@ -144,6 +146,7 @@ internal sealed class TranscriptConversationManager {
         _getWorkspace              = getWorkspace;
         _getPromptText             = getPromptText;
         _setPromptText             = setPromptText;
+        _getPromptCaretState       = getPromptCaretState;
         _isClosing                 = isClosing;
         _renderPersistedTurn       = renderPersistedTurn;
         _coordinatorThread         = coordinatorThread;
@@ -203,7 +206,11 @@ internal sealed class TranscriptConversationManager {
         _promptHistory.Clear();
         _promptHistory.AddRange(
             _conversationState.PromptHistory.Where(entry => !string.IsNullOrWhiteSpace(entry)));
-        ApplyPromptText(_conversationState.PromptDraft ?? string.Empty);
+        ApplyPromptText(
+            _conversationState.PromptDraft ?? string.Empty,
+            _conversationState.PromptDraftCaretIndex,
+            _conversationState.PromptDraftSelectionStart ?? 0,
+            _conversationState.PromptDraftSelectionLength ?? 0);
 
         var threadRestoreSw = Stopwatch.StartNew();
         // RestorePersistedAgentThreads now returns pending (thread, turns) pairs instead
@@ -628,13 +635,17 @@ internal sealed class TranscriptConversationManager {
             return;
 
         try {
+            var (caretIndex, selectionStart, selectionLength) = _getPromptCaretState();
             _pendingConversationSave = (
                 workspace.FolderPath,
                 _conversationState with {
-                    SessionId = _currentSessionId,
-                    PromptDraft = _getPromptText(),
-                    PromptHistory = _promptHistory.ToArray(),
-                    Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
+                    SessionId          = _currentSessionId,
+                    PromptDraft        = _getPromptText(),
+                    PromptDraftCaretIndex    = caretIndex,
+                    PromptDraftSelectionStart  = selectionStart,
+                    PromptDraftSelectionLength = selectionLength,
+                    PromptHistory      = _promptHistory.ToArray(),
+                    Threads            = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
                 });
         }
         catch {
@@ -658,12 +669,16 @@ internal sealed class TranscriptConversationManager {
                 turns.Add(partialRecord);
             }
 
+            var (caretIndex, selectionStart, selectionLength) = _getPromptCaretState();
             var state = _conversationState with {
-                SessionId = _currentSessionId,
-                PromptDraft = _getPromptText(),
-                PromptHistory = _promptHistory.ToArray(),
-                Turns = turns,
-                Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: true)
+                SessionId          = _currentSessionId,
+                PromptDraft        = _getPromptText(),
+                PromptDraftCaretIndex    = caretIndex,
+                PromptDraftSelectionStart  = selectionStart,
+                PromptDraftSelectionLength = selectionLength,
+                PromptHistory      = _promptHistory.ToArray(),
+                Turns              = turns,
+                Threads            = BuildPersistedAgentThreadRecords(includeCurrentTurns: true)
             };
 
             var version = RegisterConversationSaveRequest();
@@ -839,11 +854,11 @@ internal sealed class TranscriptConversationManager {
         _historyDraft = null;
     }
 
-    internal void ApplyPromptText(string text) {
+    internal void ApplyPromptText(string text, int? caretIndex = null, int selectionStart = 0, int selectionLength = 0) {
         _isApplyingHistoryEntry = true;
 
         try {
-            _setPromptText(text);
+            _setPromptText(text, caretIndex ?? text.Length, selectionStart, selectionLength);
         }
         finally {
             _isApplyingHistoryEntry = false;

@@ -261,6 +261,7 @@ public partial class MainWindow : Window
 
     private readonly List<SecondaryTranscriptEntry> _secondaryTranscripts = new();
     private DispatcherTimer? _transcriptTitleRefreshTimer;
+    private DispatcherTimer? _completedTimeFooterTimer;
     private TranscriptSelectionController _selectionController = null!; // initialized in constructor
     private HashSet<AgentStatusCard> _prevActiveAgentCards = new();
     private bool _mainTranscriptVisible = true;
@@ -363,7 +364,14 @@ public partial class MainWindow : Window
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
             getPromptText: () => PromptTextBox.Text,
-            setPromptText: text => { PromptTextBox.Text = text; PromptTextBox.CaretIndex = PromptTextBox.Text.Length; },
+            setPromptText: (text, caretIndex, selectionStart, selectionLength) => {
+                PromptTextBox.Text = text;
+                if (selectionLength > 0)
+                    PromptTextBox.Select(selectionStart, selectionLength);
+                else
+                    PromptTextBox.CaretIndex = caretIndex;
+            },
+            getPromptCaretState: () => (PromptTextBox.CaretIndex, PromptTextBox.SelectionStart, PromptTextBox.SelectionLength),
             isClosing: () => _isClosing,
             renderPersistedTurn: (thread, turn, isLast) => RenderPersistedTurn(thread, turn, isLast),
             coordinatorThread: () => CoordinatorThread,
@@ -6477,8 +6485,7 @@ public partial class MainWindow : Window
             candidate.IsSelected = ReferenceEquals(candidate, thread);
 
         UpdateTransientTranscriptFooters(thread);
-
-        // If this document is currently owned by a secondary panel's RichTextBox,
+        UpdateCompletedTimeFooters();
         // close that panel before assigning to OutputTextBox — FlowDocument can only
         // belong to one RichTextBox at a time.
         if (thread.Document.Parent is RichTextBox secondaryOwner && secondaryOwner != OutputTextBox)
@@ -6570,14 +6577,27 @@ public partial class MainWindow : Window
 
     private void EnsureThreadFooterAtEnd(TranscriptThreadState thread)
     {
-        if (thread.TransientFooterParagraph is null)
+        // Determine expected last block.
+        var expectedLast = (Block?)thread.CompletedTimeParagraph ?? thread.TransientFooterParagraph;
+        if (expectedLast is null)
             return;
 
-        if (ReferenceEquals(thread.Document.Blocks.LastBlock, thread.TransientFooterParagraph))
+        if (ReferenceEquals(thread.Document.Blocks.LastBlock, expectedLast) &&
+            (thread.TransientFooterParagraph is null || thread.CompletedTimeParagraph is null ||
+             ReferenceEquals(thread.Document.Blocks.LastBlock.PreviousBlock, thread.TransientFooterParagraph)))
             return;
 
-        thread.Document.Blocks.Remove(thread.TransientFooterParagraph);
-        thread.Document.Blocks.Add(thread.TransientFooterParagraph);
+        // Re-anchor both footers in correct order: TransientFooter then CompletedTime.
+        if (thread.TransientFooterParagraph is not null)
+        {
+            thread.Document.Blocks.Remove(thread.TransientFooterParagraph);
+            thread.Document.Blocks.Add(thread.TransientFooterParagraph);
+        }
+        if (thread.CompletedTimeParagraph is not null)
+        {
+            thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
+            thread.Document.Blocks.Add(thread.CompletedTimeParagraph);
+        }
     }
 
     private void ScrollTranscriptThread(TranscriptThreadState thread, bool scrollToStart)
@@ -6586,7 +6606,84 @@ public partial class MainWindow : Window
         _scrollController.OnThreadSelected(scrollToStart);
     }
 
-    // ── Multi-transcript view mode ───────────────────────────────────────────
+    // ── Completed-time footer ────────────────────────────────────────────────
+
+    private IEnumerable<TranscriptThreadState> GetVisibleTranscriptThreads()
+    {
+        if (_mainTranscriptVisible && _selectedTranscriptThread is not null)
+            yield return _selectedTranscriptThread;
+        foreach (var entry in _secondaryTranscripts)
+            yield return entry.Thread;
+    }
+
+    private Paragraph CreateCompletedTimeParagraph(string text)
+    {
+        var p = CreateTranscriptParagraph(bottomMargin: 0);
+        p.Margin = new Thickness(0, 10, 0, 0);
+        var run = new Run(text) { FontSize = 11 };
+        run.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        p.Inlines.Add(run);
+        return p;
+    }
+
+    private void UpdateCompletedTimeFooters()
+    {
+        var visibleCompleted = GetVisibleTranscriptThreads()
+            .Where(t => t.CompletedAt is not null)
+            .ToHashSet(ReferenceEqualityComparer.Instance);
+
+        foreach (var thread in EnumerateTranscriptThreads())
+        {
+            if (visibleCompleted.Contains(thread))
+            {
+                var text = $"Completed {StatusTimingPresentation.FormatRelativeTimestamp(thread.CompletedAt!.Value)}";
+                if (thread.CompletedTimeParagraph is null)
+                {
+                    var p = CreateCompletedTimeParagraph(text);
+                    thread.Document.Blocks.Add(p);
+                    thread.CompletedTimeParagraph = p;
+                }
+                else
+                {
+                    if (thread.CompletedTimeParagraph.Inlines.FirstInline is Run run)
+                        run.Text = text;
+                    if (!ReferenceEquals(thread.Document.Blocks.LastBlock, thread.CompletedTimeParagraph))
+                    {
+                        thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
+                        thread.Document.Blocks.Add(thread.CompletedTimeParagraph);
+                    }
+                }
+            }
+            else if (thread.CompletedTimeParagraph is not null)
+            {
+                thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
+                thread.CompletedTimeParagraph = null;
+            }
+        }
+
+        if (visibleCompleted.Count > 0)
+            EnsureCompletedTimeFooterTimerRunning();
+        else
+            _completedTimeFooterTimer?.Stop();
+    }
+
+    private void EnsureCompletedTimeFooterTimerRunning()
+    {
+        if (_completedTimeFooterTimer is null)
+        {
+            _completedTimeFooterTimer = new DispatcherTimer(TimeSpan.FromSeconds(60), DispatcherPriority.Background,
+                (_, _) =>
+                {
+                    try { UpdateCompletedTimeFooters(); }
+                    catch (Exception ex) { HandleUiCallbackException("CompletedTimeFooterTimer.Tick", ex); }
+                },
+                Dispatcher);
+        }
+        if (!_completedTimeFooterTimer.IsEnabled)
+            _completedTimeFooterTimer.Start();
+    }
+
+
 
     private void ShowSingleTranscript(AgentStatusCard agent)
     {
@@ -6668,6 +6765,7 @@ public partial class MainWindow : Window
         _secondaryTranscripts.Add(entry);
         EnsureTranscriptTitleRefreshTimerRunning();
         thread.IsSecondaryPanelOpen = true;
+        UpdateCompletedTimeFooters();
         SquadDashTrace.Write(TraceCategory.TranscriptPanels,
             $"OpenSecondaryPanel opened thread={thread.ThreadId} agent={agent.Name} seq={thread.SequenceNumber} auto={isAutoOpenedInMultiMode} title=\"{entry.TitleBlock.Text}\"");
         SyncSelectionControllerWithUiState("OpenSecondaryPanel.opened");
@@ -6692,6 +6790,7 @@ public partial class MainWindow : Window
         entry.Thread.IsSecondaryPanelOpen = false;
         if (_secondaryTranscripts.Count == 0)
             _transcriptTitleRefreshTimer?.Stop();
+        UpdateCompletedTimeFooters();
         SyncSelectionControllerWithUiState("CloseSecondaryPanel.closed");
         SyncTranscriptTargetIndicators();
         RebuildTranscriptPanelsGrid();
