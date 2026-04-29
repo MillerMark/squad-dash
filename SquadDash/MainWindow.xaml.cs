@@ -149,6 +149,8 @@ public partial class MainWindow : Window
     private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
+    private WindowState _preFullScreenWindowState;
+    private Rect _preFullScreenBounds;
     private bool _documentationModeEnabled;
     private string? _currentDocPath;  // tracks currently displayed doc for link resolution
     private bool _activeAgentLaneNudgeScheduled;
@@ -5231,6 +5233,32 @@ public partial class MainWindow : Window
 
         _transcriptFullScreenEnabled = enabled;
         _fullScreenPromptVisible = false; // reset peek state on any fullscreen transition
+
+        if (enabled)
+        {
+            _preFullScreenWindowState = WindowState;
+            _preFullScreenBounds = new Rect(Left, Top, Width, Height);
+            if (WindowState != WindowState.Maximized)
+                WindowState = WindowState.Maximized;
+        }
+        else
+        {
+            if (_preFullScreenWindowState != WindowState.Maximized)
+            {
+                WindowState = _preFullScreenWindowState;
+                // Restore exact bounds if returning to Normal (WPF may have
+                // clobbered them if the window was moved while maximized).
+                if (_preFullScreenWindowState == WindowState.Normal)
+                {
+                    Left   = _preFullScreenBounds.X;
+                    Top    = _preFullScreenBounds.Y;
+                    Width  = _preFullScreenBounds.Width;
+                    Height = _preFullScreenBounds.Height;
+                }
+            }
+            // If the window was already maximized before entering fullscreen, leave it maximized.
+        }
+
         ApplyViewMode();
 
         // Persist fullscreen state per workspace.
@@ -11202,10 +11230,18 @@ public partial class MainWindow : Window
             // This handler catches double-click on the background to maximize/restore.
             if (e.ClickCount == 2 && e.OriginalSource is Grid)
             {
-                if (WindowState == WindowState.Maximized)
+                if (_transcriptFullScreenEnabled)
+                {
+                    SetTranscriptFullScreen(false);
+                }
+                else if (WindowState == WindowState.Maximized)
+                {
                     SystemCommands.RestoreWindow(this);
+                }
                 else
+                {
                     SystemCommands.MaximizeWindow(this);
+                }
                 e.Handled = true;
             }
         }
