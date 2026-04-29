@@ -714,7 +714,13 @@ public partial class MainWindow : Window
             getIsPromptRunning: () => _isPromptRunning,
             setIsPromptRunning: v => {
                 _isPromptRunning = v;
-                if (!v)
+                if (v)
+                {
+                    // Clear stale completion timestamp so it doesn't show "Completed just now"
+                    // while the new turn is still running.
+                    CoordinatorThread.CompletedAt = null;
+                }
+                else
                 {
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     UpdateCompletedTimeFooters();
