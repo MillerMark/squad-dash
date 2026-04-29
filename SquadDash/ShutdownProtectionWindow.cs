@@ -134,12 +134,11 @@ internal sealed class ShutdownProtectionWindow : Window {
         // ⚠ Close Now (danger)
         var closeNowBtn = new Button
         {
-            Content    = BuildCloseNowContent(),
-            Height     = 30,
-            Padding    = new Thickness(10, 0, 12, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)),
-            Foreground = Brushes.White,
+            Content = BuildCloseNowContent(),
+            Height  = 30,
+            Padding = new Thickness(10, 0, 12, 0),
         };
+        closeNowBtn.SetResourceReference(Control.StyleProperty, "DangerButtonStyle");
         closeNowBtn.Click += (_, _) => { Choice = ShutdownChoice.CloseNow; DialogResult = true; };
         Grid.SetColumn(closeNowBtn, canDefer ? 3 : 2);
         buttonRow.Children.Add(closeNowBtn);

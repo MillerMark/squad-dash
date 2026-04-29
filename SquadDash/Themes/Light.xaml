@@ -35,6 +35,11 @@
     <SolidColorBrush x:Key="CaptionButtonHover" Color="#DDD5C8"/>
     <SolidColorBrush x:Key="CaptionCloseHover" Color="#C42B1C"/>
     <SolidColorBrush x:Key="CaptionCloseHoverText" Color="#FFFFFF"/>
+    <!-- Danger Button Tokens (Close Now / destructive actions) -->
+    <SolidColorBrush x:Key="DangerButtonBg"      Color="#C62828"/>
+    <SolidColorBrush x:Key="DangerButtonHover"   Color="#9A1C1C"/>
+    <SolidColorBrush x:Key="DangerButtonPressed" Color="#7B1414"/>
+    <SolidColorBrush x:Key="DangerButtonFg"      Color="#FFFFFF"/>
     <!-- Border / Line Tokens -->
     <SolidColorBrush x:Key="PanelBorder" Color="#D6C8B4"/>
     <SolidColorBrush x:Key="ActivePanelBorder" Color="#C4D8F5"/>
