@@ -839,6 +839,9 @@ internal static class MarkdownHtmlBuilder {
         var link        = isDark ? "#6890c8"                  : "#2d5ea8";
         var headingColor = isDark ? "#e5d5c0" : "#2a211a";
         var thHeaderBg  = isDark ? "rgba(216,200,176,0.07)"   : "rgba(49,40,31,0.05)";
+        var prioHigh    = isDark ? "#FF5252"                  : "#E53935";
+        var prioMid     = isDark ? "#FFD740"                  : "#F59F00";
+        var prioLow     = isDark ? "#64B5F6"                  : "#1976D2";
 
         return $$"""
 <!DOCTYPE html>
@@ -946,6 +949,16 @@ internal static class MarkdownHtmlBuilder {
   ::-webkit-scrollbar-thumb:active {
     background: {{(isDark ? "#999" : "#666")}};
   }
+  /* ── Priority section headings and items ────────────────────────── */
+  .prio-high { color: {{prioHigh}}; }
+  .prio-mid  { color: {{prioMid}}; }
+  .prio-low  { color: {{prioLow}}; }
+  .prio-high-list li, .prio-mid-list li, .prio-low-list li {
+    color: inherit;
+  }
+  .prio-high-list { color: {{prioHigh}}; }
+  .prio-mid-list  { color: {{prioMid}}; }
+  .prio-low-list  { color: {{prioLow}}; }
 </style>
 </head>
 <body>
@@ -1014,6 +1027,7 @@ document.addEventListener('click', function(e) {
     private static string BuildBody(string markdown) {
         var lines = markdown.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var builder = new StringBuilder();
+        string? currentPrioClass = null; // tracks active priority section
 
         for (var index = 0; index < lines.Length; index++) {
             var lineNum = index + 1; // 1-based line numbers
@@ -1050,8 +1064,23 @@ document.addEventListener('click', function(e) {
 
             if (trimmed.StartsWith("#", StringComparison.Ordinal)) {
                 var level = Math.Clamp(trimmed.TakeWhile(character => character == '#').Count(), 1, 4);
-                builder.Append('<').Append('h').Append(level).Append($" data-source-line=\"{lineNum}\">")
-                    .Append(RenderInline(trimmed[level..].Trim()))
+                var headingText = trimmed[level..].Trim();
+
+                // Detect priority headings (## 🔴/🟡/🟢 ...)
+                if (level == 2) {
+                    if (headingText.Contains("🔴"))      currentPrioClass = "prio-high";
+                    else if (headingText.Contains("🟡")) currentPrioClass = "prio-mid";
+                    else if (headingText.Contains("🟢")) currentPrioClass = "prio-low";
+                    else                                  currentPrioClass = null;
+                } else if (level < 2) {
+                    currentPrioClass = null;
+                }
+
+                var classAttr = currentPrioClass is not null && level == 2
+                    ? $" class=\"{currentPrioClass}\""
+                    : string.Empty;
+                builder.Append('<').Append('h').Append(level).Append($"{classAttr} data-source-line=\"{lineNum}\">")
+                    .Append(RenderInline(headingText))
                     .Append("</h").Append(level).AppendLine(">");
                 continue;
             }
@@ -1064,7 +1093,8 @@ document.addEventListener('click', function(e) {
             }
 
             if (trimmed.StartsWith("- ", StringComparison.Ordinal) || trimmed.StartsWith("* ", StringComparison.Ordinal)) {
-                builder.AppendLine($"<ul data-source-line=\"{lineNum}\">");
+                var ulClass = currentPrioClass is not null ? $" class=\"{currentPrioClass}-list\"" : string.Empty;
+                builder.AppendLine($"<ul{ulClass} data-source-line=\"{lineNum}\">");
                 while (index < lines.Length) {
                     var listLine = lines[index].Trim();
                     if (!listLine.StartsWith("- ", StringComparison.Ordinal) &&

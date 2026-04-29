@@ -20,7 +20,7 @@
     <SolidColorBrush x:Key="QueueTabInactiveText"    Color="#7D6853"/>
     <SolidColorBrush x:Key="TaskPriorityHigh"        Color="#E53935"/>
     <SolidColorBrush x:Key="TaskPriorityMid"         Color="#FFB300"/>
-    <SolidColorBrush x:Key="TaskPriorityLow"         Color="#43A047"/>
+    <SolidColorBrush x:Key="TaskPriorityLow"         Color="#1976D2"/>
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>

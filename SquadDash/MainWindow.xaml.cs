@@ -2650,7 +2650,7 @@ public partial class MainWindow : Window
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            headingLabel.SetResourceReference(TextBlock.ForegroundProperty, PriorityResourceKey(group.Emoji));
             headingRow.Children.Add(dot);
             headingRow.Children.Add(headingLabel);
             TasksItemsPanel.Children.Add(headingRow);
@@ -2675,7 +2675,7 @@ public partial class MainWindow : Window
                     Margin = new Thickness(0, 2, 6, 0),
                     IsHitTestVisible = false
                 };
-                checkbox.SetResourceReference(Border.BorderBrushProperty, "BodyText");
+                checkbox.SetResourceReference(Border.BorderBrushProperty, PriorityResourceKey(group.Emoji));
                 var label = new TextBlock
                 {
                     Text = item,
@@ -2697,6 +2697,13 @@ public partial class MainWindow : Window
         "🟡" => (Brush)FindResource("TaskPriorityMid"),
         "🟢" => (Brush)FindResource("TaskPriorityLow"),
         _    => Brushes.Gray
+    };
+
+    private static string PriorityResourceKey(string emoji) => emoji switch {
+        "🔴" => "TaskPriorityHigh",
+        "🟡" => "TaskPriorityMid",
+        "🟢" => "TaskPriorityLow",
+        _    => "LabelText"
     };
 
     private void ShowTasksPanelEmpty(string message)
