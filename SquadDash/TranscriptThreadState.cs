@@ -57,6 +57,7 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public FlowDocument Document { get; }
     public TranscriptTurnView? CurrentTurn { get; set; }
     public Paragraph? TransientFooterParagraph { get; set; }
+    public Paragraph? CompletedTimeParagraph { get; set; }
     public string? AgentId { get; set; }
     public string? ToolCallId { get; set; }
     public string? AgentName { get; set; }
