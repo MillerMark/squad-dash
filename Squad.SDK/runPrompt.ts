@@ -605,6 +605,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
 
     return new Promise<void>((resolve, reject) => {
         let proc: ReturnType<typeof spawn>;
+        let stopRequested = false;
 
         try {
             // On Windows, `copilot` is a .cmd script that execFile() can't find without a shell.
@@ -696,7 +697,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
 
         proc.on("close", (code: number | null) => {
             activeLoopProc = null;
-            if (code === 0 || proc.killed) {
+            if (code === 0 || proc.killed || stopRequested) {
                 emit({
                     type: "loop_stopped",
                     requestId,
@@ -717,6 +718,11 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
             }
             resolve();
         });
+
+        // Expose setter so handleRunLoopStop can signal a clean stop
+        (proc as ReturnType<typeof spawn> & { _squadStopRequested?: () => void })._squadStopRequested = () => {
+            stopRequested = true;
+        };
     });
 }
 
@@ -729,9 +735,18 @@ function handleRunLoopStop(request: RunLoopStopRequest): void {
         });
         return;
     }
-    // Kill the subprocess — the proc.on("close") handler in handleRunLoop
-    // will emit loop_stopped once the process exits.
-    activeLoopProc.kill("SIGTERM");
+    // Signal that the stop was user-requested so the close handler emits loop_stopped not loop_error.
+    const procWithFlag = activeLoopProc as ReturnType<typeof spawn> & { _squadStopRequested?: () => void };
+    procWithFlag._squadStopRequested?.();
+
+    // On Windows, cmd.exe /c spawns child processes that aren't killed by terminating cmd.exe.
+    // Use taskkill /F /T to kill the entire process tree.
+    if (process.platform === "win32" && activeLoopProc.pid != null) {
+        spawn("taskkill", ["/F", "/T", "/PID", String(activeLoopProc.pid)], { shell: false });
+    }
+    else {
+        activeLoopProc.kill("SIGTERM");
+    }
 }
 
 async function handlePrompt(request: PromptRequest) {

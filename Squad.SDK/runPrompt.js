@@ -505,6 +505,7 @@ async function handleRunLoop(request) {
     const { requestId, sessionId, loopMdPath, cwd } = request;
     return new Promise((resolve, reject) => {
         let proc;
+        let stopRequested = false;
         try {
             // On Windows, `copilot` is a .cmd script that execFile() can't find without a shell.
             // Passing --agent-cmd bypasses squad's broken preflight and routes via cmd.exe.
@@ -588,7 +589,7 @@ async function handleRunLoop(request) {
         });
         proc.on("close", (code) => {
             activeLoopProc = null;
-            if (code === 0 || proc.killed) {
+            if (code === 0 || proc.killed || stopRequested) {
                 emit({
                     type: "loop_stopped",
                     requestId,
@@ -609,6 +610,10 @@ async function handleRunLoop(request) {
             }
             resolve();
         });
+        // Expose setter so handleRunLoopStop can signal a clean stop
+        proc._squadStopRequested = () => {
+            stopRequested = true;
+        };
     });
 }
 function handleRunLoopStop(request) {
@@ -620,9 +625,17 @@ function handleRunLoopStop(request) {
         });
         return;
     }
-    // Kill the subprocess — the proc.on("close") handler in handleRunLoop
-    // will emit loop_stopped once the process exits.
-    activeLoopProc.kill("SIGTERM");
+    // Signal that the stop was user-requested so the close handler emits loop_stopped not loop_error.
+    const procWithFlag = activeLoopProc;
+    procWithFlag._squadStopRequested?.();
+    // On Windows, cmd.exe /c spawns child processes that aren't killed by terminating cmd.exe.
+    // Use taskkill /F /T to kill the entire process tree.
+    if (process.platform === "win32" && activeLoopProc.pid != null) {
+        spawn("taskkill", ["/F", "/T", "/PID", String(activeLoopProc.pid)], { shell: false });
+    }
+    else {
+        activeLoopProc.kill("SIGTERM");
+    }
 }
 async function handlePrompt(request) {
     await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);

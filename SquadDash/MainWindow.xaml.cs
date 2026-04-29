@@ -1800,8 +1800,13 @@ public partial class MainWindow : Window
 
     private void HandleLoopOutput(SquadSdkEvent evt)
     {
-        if (!string.IsNullOrWhiteSpace(evt.OutputLine))
-            SquadDashTrace.Write("LoopOutput", evt.OutputLine!);
+        if (string.IsNullOrWhiteSpace(evt.OutputLine)) return;
+        var line = evt.OutputLine!;
+        SquadDashTrace.Write("LoopOutput", line);
+        if (line.StartsWith("[stderr]", StringComparison.Ordinal))
+            AppendLine(line, ThemeBrush("SystemErrorText"));
+        else
+            AppendLine("  " + line);
     }
 
     private void HandleWatchFleetDispatched(SquadSdkEvent evt)
