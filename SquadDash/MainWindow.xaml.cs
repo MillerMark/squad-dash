@@ -12690,8 +12690,11 @@ public partial class MainWindow : Window
 
         RefreshDocumentationViewer();
 
-        // Rebuild queue tabs so any newly created elements pick up the new theme tokens.
-        SyncQueuePanel();
+        // Rebuild queue tabs after the current dispatcher frame so WPF's deferred
+        // InvalidateProperty notifications (triggered by the MergedDictionaries swap)
+        // have fully propagated before new elements establish their SetResourceReference
+        // bindings — otherwise the active tab can render with stale theme brushes.
+        Dispatcher.InvokeAsync(SyncQueuePanel, System.Windows.Threading.DispatcherPriority.Render);
 
         UpdateThemeMenuState();
     }
