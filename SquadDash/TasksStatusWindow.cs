@@ -177,7 +177,7 @@ internal sealed class TasksStatusWindow : Window {
         }
     }
 
-    private static string? EmojiResourceKey(string segment) => segment switch {
+    internal static string? EmojiResourceKey(string segment) => segment switch {
         "🔴" => "TaskPriorityHigh",
         "🟡" => "TaskPriorityMid",
         "🟢" => "TaskPriorityLow",

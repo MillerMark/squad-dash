@@ -69,6 +69,8 @@ internal sealed class TranscriptThinkingBlockView : ICopyable {
     public DateTimeOffset? LastUpdatedAt { get; set; }
     public bool UserPinnedOpen { get; set; }
 
+    internal bool ShouldCollapse() => !UserPinnedOpen;
+
     public string GetCopyText() {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("[Tooling...]");
@@ -105,6 +107,8 @@ internal sealed class TranscriptThoughtBlockView : ICopyable {
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? LastUpdatedAt { get; set; }
     public bool UserPinnedOpen { get; set; }
+
+    internal bool ShouldCollapse() => !UserPinnedOpen;
 
     public string GetCopyText() {
         var sb = new System.Text.StringBuilder();
