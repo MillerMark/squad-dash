@@ -19,6 +19,7 @@ internal sealed class LoopController {
     private readonly Action                      _onStopped;
     private readonly Action<string>              _onError;
     private readonly Action<int>                 _onIterationCompleted;
+    private readonly Action<DateTimeOffset>      _onWaiting;
 
     private volatile bool         _stopRequested;
     private CancellationTokenSource? _cts;
@@ -36,13 +37,15 @@ internal sealed class LoopController {
     /// <param name="onStopped">Fired when the loop exits normally or via RequestStop.</param>
     /// <param name="onError">Fired with a human-readable message on timeout or abort.</param>
     /// <param name="onIterationCompleted">Fired with the 1-based iteration number after success.</param>
+    /// <param name="onWaiting">Fired with the target start time of the next iteration when the loop enters the inter-iteration delay.</param>
     internal LoopController(
         Func<string, string?, Task> executePromptAsync,
         Action                      abortPrompt,
         Action<int>                 onIterationStarted,
         Action                      onStopped,
         Action<string>              onError,
-        Action<int>                 onIterationCompleted) {
+        Action<int>                 onIterationCompleted,
+        Action<DateTimeOffset>      onWaiting) {
 
         _executePromptAsync   = executePromptAsync;
         _abortPrompt          = abortPrompt;
@@ -50,6 +53,7 @@ internal sealed class LoopController {
         _onStopped            = onStopped;
         _onError              = onError;
         _onIterationCompleted = onIterationCompleted;
+        _onWaiting            = onWaiting;
     }
 
     /// <summary>
@@ -118,6 +122,8 @@ internal sealed class LoopController {
                 _onIterationCompleted(iteration);
                 if (_stopRequested) break;
 
+                var nextAt = DateTimeOffset.Now + TimeSpan.FromMinutes(config.IntervalMinutes);
+                _onWaiting(nextAt);
                 await Task.Delay(TimeSpan.FromMinutes(config.IntervalMinutes), ct);
             }
         }

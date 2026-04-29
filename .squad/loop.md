@@ -1,6 +1,6 @@
 ---
 configured: true
-interval: 10
+interval: 0.1
 timeout: 5
 description: "Hello world test loop"
 ---

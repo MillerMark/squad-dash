@@ -925,7 +925,7 @@
                                     Click="StopLoopButton_Click" />
                             <Button x:Name="AbortLoopButton"
                                     DockPanel.Dock="Top"
-                                    Content="⚠ Abort Now"
+                                    Content="⚠ Abort..."
                                     Margin="0,4,0,0"
                                     Visibility="Collapsed"
                                     Foreground="{DynamicResource SystemErrorText}"
@@ -1425,9 +1425,10 @@
                             Height="34"
                             Margin="0,8,0,0"
                             IsEnabled="False"
+                            Foreground="{DynamicResource SystemErrorText}"
                             Style="{StaticResource ThemedButtonStyle}"
                             Click="AbortButton_Click">
-                        Abort...
+                        ⚠ Abort...
                     </Button>
                 </StackPanel>
 

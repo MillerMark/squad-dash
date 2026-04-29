@@ -205,6 +205,8 @@ public partial class MainWindow : Window
     private Shapes.Rectangle? _docSourceHoverHighlight;
     private DispatcherTimer? _docSourceHoverTimer;
     private int _loopCurrentIteration;
+    private DateTimeOffset _loopNextIterationAt;
+    private bool _loopIsWaiting;
     private bool _loopPanelVisible = true;
     private bool _tasksPanelVisible = false;
     private string? _watchCycleId;
@@ -276,6 +278,7 @@ public partial class MainWindow : Window
     private PushToTalkWindow? _pttWindow;
     private TextBox? _pttTargetTextBox;   // resolved at activation; null = PromptTextBox
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
+    private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _promptNavHintTimer;
     private string? _workspaceGitHubUrl;
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
@@ -757,7 +760,9 @@ public partial class MainWindow : Window
             onError: msg =>
                 Dispatcher.Invoke(() => OnNativeLoopError(msg)),
             onIterationCompleted: n =>
-                Dispatcher.Invoke(() => OnNativeLoopIterationCompleted(n)));
+                Dispatcher.Invoke(() => OnNativeLoopIterationCompleted(n)),
+            onWaiting: nextAt =>
+                Dispatcher.Invoke(() => OnNativeLoopWaiting(nextAt)));
 
         _markdownRenderer = new MarkdownDocumentRenderer(
             getFontSize: () => _transcriptFontSize,
@@ -1824,6 +1829,7 @@ public partial class MainWindow : Window
     private void OnNativeLoopIterationStarted(int iteration)
     {
         _loopCurrentIteration = iteration;
+        _loopIsWaiting = false;
         _pec.SetIsLoopRunning(true);
         AppendLine($"↩ Round {iteration}");
         SyncLoopPanel();
@@ -1833,6 +1839,7 @@ public partial class MainWindow : Window
     {
         _pec.SetIsLoopRunning(false);
         _loopCurrentIteration = 0;
+        _loopIsWaiting = false;
         AppendLine("✅ Loop stopped");
         SyncLoopPanel();
     }
@@ -1841,6 +1848,7 @@ public partial class MainWindow : Window
     {
         _pec.SetIsLoopRunning(false);
         _loopCurrentIteration = 0;
+        _loopIsWaiting = false;
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         SyncLoopPanel();
     }
@@ -1848,6 +1856,13 @@ public partial class MainWindow : Window
     private void OnNativeLoopIterationCompleted(int iteration)
     {
         AppendLine($"  ✓ Round {iteration} complete");
+        SyncLoopPanel();
+    }
+
+    private void OnNativeLoopWaiting(DateTimeOffset nextAt)
+    {
+        _loopNextIterationAt = nextAt;
+        _loopIsWaiting = true;
         SyncLoopPanel();
     }
 
@@ -2013,6 +2028,15 @@ public partial class MainWindow : Window
             && _settingsSnapshot.LoopMode == LoopMode.NativeAgents
             && _loopController.StopState == LoopStopState.StopRequested)
             status = "◌ Stopping after this iteration…";
+        else if (running && _loopIsWaiting)
+        {
+            var remaining = _loopNextIterationAt - DateTimeOffset.Now;
+            status = remaining.TotalSeconds > 60
+                ? $"⏳ Waiting · next in {(int)remaining.TotalMinutes}m"
+                : remaining.TotalSeconds > 0
+                    ? $"⏳ Waiting · next in {(int)remaining.TotalSeconds}s"
+                    : "⏳ Waiting…";
+        }
         else if (running)
             status = _loopCurrentIteration > 0
                 ? $"● Running · Round {_loopCurrentIteration}"
@@ -3285,8 +3309,9 @@ public partial class MainWindow : Window
 
                             if (_pttTargetTextBox != null)
                             {
-                                // Capture caret before the PTT panel becomes visible (layout shifts can reset it).
-                                _sessionCaretIndex = _pttTargetTextBox.CaretIndex;
+                                // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
+                                _sessionCaretIndex      = _pttTargetTextBox.SelectionStart;
+                                _sessionSelectionLength = _pttTargetTextBox.SelectionLength;
                                 // Only auto-send when the target is the prompt box.
                                 _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning;
                                 _pttState = PttState.Active;
@@ -3558,13 +3583,17 @@ public partial class MainWindow : Window
         var current = target.Text;
         // Clamp in case text was externally modified since session start.
         var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
+        // If there was a selection when PTT started, replace it on the first insert.
+        var selLength  = _sessionSelectionLength;
+        _sessionSelectionLength = 0; // consume once; subsequent dictation appends
+        var selEndIndex = Math.Min(caretIndex + selLength, current.Length);
         var leftContext = current[..caretIndex];
-        var rightContext = current[caretIndex..];
+        var rightContext = current[selEndIndex..];
         var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
         var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' ? " " : string.Empty;
         var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
         var insert = prefix + processed;
-        target.Text = current[..caretIndex] + insert + current[caretIndex..];
+        target.Text = leftContext + insert + rightContext;
         target.CaretIndex = caretIndex + insert.Length;
         _sessionCaretIndex = caretIndex + insert.Length;
     }

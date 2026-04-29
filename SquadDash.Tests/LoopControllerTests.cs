@@ -40,7 +40,8 @@ internal sealed class LoopControllerTests {
             onIterationStarted:   _ => { },
             onStopped:            () => { stoppedCalled = true; stoppedTcs.TrySetResult(); },
             onError:              msg => { errorMsg = msg; stoppedTcs.TrySetResult(); },
-            onIterationCompleted: _ => completedCount++);
+            onIterationCompleted: _ => completedCount++,
+            onWaiting:            _ => { });
 
         // Act
         _ = controller!.StartAsync(MakeConfig(), continuousContext: true);
@@ -90,7 +91,8 @@ internal sealed class LoopControllerTests {
             onIterationStarted:   _ => { },
             onStopped:            () => { stoppedCalled = true; finishedTcs.TrySetResult(); },
             onError:              msg => { errorMsg = msg; finishedTcs.TrySetResult(); },
-            onIterationCompleted: _ => { });
+            onIterationCompleted: _ => { },
+            onWaiting:            _ => { });
 
         // Act
         _ = controller!.StartAsync(MakeConfig(), continuousContext: true);
@@ -122,7 +124,8 @@ internal sealed class LoopControllerTests {
             onIterationStarted:   _ => { },
             onStopped:            () => stoppedTcs.TrySetResult(),
             onError:              _ => stoppedTcs.TrySetResult(),
-            onIterationCompleted: _ => { });
+            onIterationCompleted: _ => { },
+            onWaiting:            _ => { });
 
         _ = controller!.StartAsync(MakeConfig(), continuousContext: true);
         await iterStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -154,7 +157,8 @@ internal sealed class LoopControllerTests {
             onIterationStarted:   _ => { },
             onStopped:            () => finishedTcs.TrySetResult(),
             onError:              _ => finishedTcs.TrySetResult(),
-            onIterationCompleted: _ => { });
+            onIterationCompleted: _ => { },
+            onWaiting:            _ => { });
 
         Assert.That(controller!.StopState, Is.EqualTo(LoopStopState.None));
 
@@ -183,7 +187,8 @@ internal sealed class LoopControllerTests {
             onIterationStarted:   _ => { },
             onStopped:            () => stoppedTcs.TrySetResult(),
             onError:              _ => stoppedTcs.TrySetResult(),
-            onIterationCompleted: _ => { });
+            onIterationCompleted: _ => { },
+            onWaiting:            _ => { });
 
         Assert.That(controller!.IsRunning, Is.False, "must not be running before start");
 
