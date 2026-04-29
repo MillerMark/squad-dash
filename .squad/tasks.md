@@ -6,6 +6,7 @@
 
 ---
 
+
 ## 🔴 High Priority
 
 - [ ] **Verify task priority icon colors match tasks.md emoji** *(Owner: Lyra Morn)*

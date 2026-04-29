@@ -24,6 +24,21 @@ internal sealed class PromptExecutionController {
     internal bool DocumentationModeActive { get; set; }
 
     /// <summary>
+    /// Number of queued prompts still waiting after this one (set by MainWindow before
+    /// each queue-driven dispatch, reset to 0 for user-typed dispatches).
+    /// When > 0, a notice is injected into the prompt so the AI knows more items are
+    /// coming automatically and can signal if it needs human input first.
+    /// </summary>
+    internal int PendingQueueItemCount { get; set; }
+
+    /// <summary>
+    /// Sentinel the AI must append (verbatim, at the end of its response) to signal that
+    /// it needs a human response before the queue continues.
+    /// SquadDash strips this from the rendered output and pauses the queue drain.
+    /// </summary>
+    internal const string QueueAwaitInputSentinel = "[[AWAITING_INPUT]]";
+
+    /// <summary>
     /// Full path of the documentation file currently open in the docs panel.
     /// Injected into every prompt so agents know which file the user is referring to.
     /// </summary>
@@ -1635,7 +1650,8 @@ internal sealed class PromptExecutionController {
         var pending   = _getPendingSupplementalInstruction();
         var docsCtx   = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
         var tasksCtx  = BuildTasksContextInstruction();
-        var parts = new[] { pending, docsCtx, tasksCtx }.Where(p => p is not null).ToArray();
+        var queueCtx  = PendingQueueItemCount > 0 ? BuildQueueContextInstruction(PendingQueueItemCount) : null;
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = SquadBridgePromptBuilder.Build(
             prompt,
@@ -1646,6 +1662,18 @@ internal sealed class PromptExecutionController {
             _getCurrentWorkspace()?.FolderPath);
         SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary}");
         return buildResult.PromptText;
+    }
+
+    private static string BuildQueueContextInstruction(int pendingCount) {
+        var itemWord = pendingCount == 1 ? "prompt" : "prompts";
+        return
+            $"There {(pendingCount == 1 ? "is" : "are")} {pendingCount} queued {itemWord} " +
+            $"that will dispatch automatically after this turn completes. " +
+            $"If you need a human response before those run — for example if you have a question " +
+            $"or need a decision — end your response with the exact sentinel text on its own line:\n" +
+            $"{QueueAwaitInputSentinel}\n" +
+            $"SquadDash will pause the queue and wait for user input before continuing. " +
+            $"If you do not need human input, do not include the sentinel; the next queued prompt will run automatically.";
     }
 
     private void MarkActiveToolsAsFailed(string errorMessage) {

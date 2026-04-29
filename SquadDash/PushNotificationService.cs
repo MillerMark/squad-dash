@@ -164,7 +164,8 @@ internal sealed class PushNotificationService {
         ["rc_connection_dropped"] = true,
         ["git_commit_pushed"] = false,
         ["loop_iteration_complete"] = false,
-        ["rc_connection_established"] = false
+        ["rc_connection_established"] = false,
+        ["quick_reply_needed"] = true
     };
 
     public PushNotificationService(ApplicationSettingsStore settingsStore) {

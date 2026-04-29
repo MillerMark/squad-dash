@@ -744,7 +744,12 @@ public partial class MainWindow : Window
                     else
                     {
                         if (_promptQueue.Count > 0 && GetAutoDispatchCandidate() is not null)
-                            _ = DrainQueueAsync();
+                        {
+                            if (LastTurnNeedsInput())
+                                HandleQueuePausedForInput();
+                            else
+                                _ = DrainQueueAsync();
+                        }
                     }
                 }
                 SyncQueuePanel();
@@ -1254,6 +1259,7 @@ public partial class MainWindow : Window
             }
 
             _markdownRenderer.DismissKeyboardHint();
+            ResetQueuePausedState();
             await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
 
             // In fullscreen mode the prompt was peeked temporarily — hide it again now.
@@ -1311,6 +1317,7 @@ public partial class MainWindow : Window
 
         try
         {
+            ResetQueuePausedState();
             await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
@@ -1349,18 +1356,23 @@ public partial class MainWindow : Window
 
         try
         {
+            _pec.PendingQueueItemCount = _promptQueue.Count;
             await _pec.ExecutePromptAsync(item.Text, addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(DrainQueueAsync), ex);
         }
+        finally
+        {
+            _pec.PendingQueueItemCount = 0;
+        }
         // Further drain is triggered by setIsPromptRunning(false) callback.
     }
 
     private async Task DrainQueueIfNeededAsync()
     {
-        while (!_isPromptRunning && !IsNativeLoopRunning)
+        while (!_isPromptRunning && !IsNativeLoopRunning && !LastTurnNeedsInput())
         {
             var item = GetAutoDispatchCandidate();
             if (item is null) break;
@@ -1373,6 +1385,7 @@ public partial class MainWindow : Window
 
             try
             {
+                _pec.PendingQueueItemCount = _promptQueue.Count;
                 await _pec.ExecutePromptAsync(item.Text, addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
@@ -1380,10 +1393,52 @@ public partial class MainWindow : Window
                 HandleUiCallbackException(nameof(DrainQueueIfNeededAsync), ex);
                 break;
             }
+            finally
+            {
+                _pec.PendingQueueItemCount = 0;
+            }
         }
+
+        if (LastTurnNeedsInput() && _promptQueue.Count > 0)
+            HandleQueuePausedForInput();
 
         await MaybeFireQueuedLoopAsync();
     }
+
+    private bool LastTurnNeedsInput()
+    {
+        // Quick replies are active (AI gave the user choices to pick from).
+        if (_lastQuickReplyEntry?.AllowQuickReplies == true)
+            return true;
+
+        // AI explicitly signalled it needs human input before the queue continues.
+        var lastResponseText = CoordinatorThread.CurrentTurn?.ResponseTextBuilder.ToString();
+        return lastResponseText?.Contains(PromptExecutionController.QueueAwaitInputSentinel,
+                                          StringComparison.Ordinal) == true;
+    }
+
+    private bool _queuePausedNotificationFired;
+
+    private void HandleQueuePausedForInput()
+    {
+        // Only show the message once per pause to avoid spam.
+        if (_queuePausedNotificationFired) return;
+        _queuePausedNotificationFired = true;
+
+        AppendLine("⏸ Queue paused — AI is waiting for your response before continuing.",
+                   (Brush)FindResource("SubtleText"));
+
+        _ = _pushNotificationService.NotifyEventAsync(
+            "quick_reply_needed",
+            "SquadDash",
+            "AI needs your input before the queue continues.");
+    }
+
+    private void ResetQueuePausedState()
+    {
+        _queuePausedNotificationFired = false;
+    }
+
 
     private async Task MaybeFireQueuedLoopAsync()
     {
@@ -7954,7 +8009,11 @@ public partial class MainWindow : Window
     }
 
     internal static string SanitizeResponseText(string? text) =>
-        ToolTranscriptFormatter.StripSystemNotifications(text).TrimEnd();
+        StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)).TrimEnd();
+
+    private static string StripAwaitInputSentinel(string text) =>
+        text.Replace(PromptExecutionController.QueueAwaitInputSentinel, string.Empty,
+                     StringComparison.Ordinal);
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -9243,6 +9302,7 @@ public partial class MainWindow : Window
             }
 
             _pec.DisableQuickReplies(payload.Entry);
+            ResetQueuePausedState();
             var pendingLaunch = CreatePendingQuickReplyLaunch(payload);
             _pendingQuickReplyLaunch = pendingLaunch;
             var promptText = payload.Option.Trim();
