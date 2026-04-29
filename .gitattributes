@@ -67,6 +67,9 @@
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
 
+# squad loop requires LF line endings so its YAML regex parser ($) can match
+.squad/loop.md text eol=lf
+
 ###############################################################################
 # Screenshot baselines — treat PNGs as binary so git never munges line endings
 ###############################################################################
