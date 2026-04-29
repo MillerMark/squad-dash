@@ -897,13 +897,13 @@
                                              Content="SquadDash Agents"
                                              GroupName="LoopMode"
                                              IsChecked="True"
-                                             Foreground="{DynamicResource BodyText}"
+                                             Style="{StaticResource ThemedRadioButtonStyle}"
                                              Click="LoopModeNativeRadio_Click" />
                                 <RadioButton x:Name="LoopModeCliRadio"
                                              Content="squad CLI"
                                              GroupName="LoopMode"
                                              Margin="0,2,0,0"
-                                             Foreground="{DynamicResource BodyText}"
+                                             Style="{StaticResource ThemedRadioButtonStyle}"
                                              Click="LoopModeCliRadio_Click" />
                             </StackPanel>
                             <CheckBox x:Name="LoopContinuousContextCheckBox"

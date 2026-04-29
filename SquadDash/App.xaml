@@ -562,6 +562,50 @@
                 </Setter>
             </Style>
 
+            <!-- Themed RadioButton: draws a circle glyph using theme colors instead of the
+                 default Windows system RadioButton which ignores app themes. -->
+            <Style x:Key="ThemedRadioButtonStyle" TargetType="RadioButton">
+                <Setter Property="Foreground"      Value="{DynamicResource BodyText}"/>
+                <Setter Property="Background"      Value="Transparent"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Cursor"          Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- Outer ring -->
+                                <Grid Width="14" Height="14"
+                                      VerticalAlignment="Center"
+                                      Margin="0,0,6,0">
+                                    <Ellipse x:Name="OuterRing"
+                                             Width="14" Height="14"
+                                             Stroke="{DynamicResource BodyText}"
+                                             StrokeThickness="1.5"
+                                             Fill="Transparent"/>
+                                    <!-- Inner fill dot (visible when checked) -->
+                                    <Ellipse x:Name="InnerDot"
+                                             Width="7" Height="7"
+                                             Fill="{DynamicResource BodyText}"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             Visibility="Collapsed"/>
+                                </Grid>
+                                <ContentPresenter VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </StackPanel>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="InnerDot" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="OuterRing" Property="Opacity" Value="0.7"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>
