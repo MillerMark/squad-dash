@@ -506,7 +506,7 @@ async function handleRunLoop(request) {
     return new Promise((resolve, reject) => {
         let proc;
         try {
-            proc = spawn("cmd.exe", ["/c", "npx", "squad", "loop", loopMdPath], {
+            proc = spawn("cmd.exe", ["/c", "npx", "squad", "loop", "--file", loopMdPath], {
                 cwd,
                 shell: false,
                 stdio: ["ignore", "pipe", "pipe"]

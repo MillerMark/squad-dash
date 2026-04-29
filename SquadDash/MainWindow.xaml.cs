@@ -1748,7 +1748,7 @@ public partial class MainWindow : Window
         _loopCurrentIteration = 0;
         var label = string.IsNullOrWhiteSpace(evt.LoopMdPath)
             ? "🔁 Loop started"
-            : $"🔁 Loop started: {evt.LoopMdPath}";
+            : $"🔁 Loop started: {evt.LoopMdPath.Replace('\\', '/')}";
         AppendLine(label);
         SquadDashTrace.Write("UI", $"Loop started mdPath={evt.LoopMdPath ?? "(none)"}");
         SyncLoopPanel();

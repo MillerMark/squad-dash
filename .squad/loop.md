@@ -1,3 +1,10 @@
+---
+configured: true
+interval: 10
+timeout: 30
+description: "Work through open tasks in .squad/tasks.md"
+---
+
 # Loop Instructions
 
 You are running in autonomous loop mode. On each iteration:
