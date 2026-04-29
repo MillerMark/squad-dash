@@ -833,6 +833,12 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
+    internal void UpdateQueuedPromptsState(IReadOnlyList<string> items) {
+        _conversationState = _conversationState with {
+            QueuedPrompts = items.Count > 0 ? items : null
+        };
+    }
+
     internal void NavigateHistory(int direction) {
         var result = PromptHistoryNavigator.Navigate(
             _promptHistory,

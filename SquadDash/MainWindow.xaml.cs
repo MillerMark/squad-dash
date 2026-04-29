@@ -1298,6 +1298,7 @@ public partial class MainWindow : Window
         for (int i = items.Count - 1; i >= 0; i--)
             QueueCardsPanel.Items.Add(CreateQueueCard(items[i]));
 
+        _conversationManager.UpdateQueuedPromptsState(items.Select(i => i.Text).ToArray());
         SyncSendButton();
     }
 
@@ -6548,6 +6549,16 @@ public partial class MainWindow : Window
         _conversationManager.LoadWorkspaceConversation();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
+
+        // Restore queued prompts saved before last shutdown.
+        var savedQueue = _conversationManager.ConversationState.QueuedPrompts;
+        if (savedQueue is { Count: > 0 })
+        {
+            _promptQueueSeq = 0;
+            foreach (var text in savedQueue)
+                _promptQueue.Enqueue(text, ++_promptQueueSeq);
+            SyncQueuePanel();
+        }
 
         RestoreWorkspaceWindowPlacement();
         _conversationManager.ResetHistoryNavigation();
