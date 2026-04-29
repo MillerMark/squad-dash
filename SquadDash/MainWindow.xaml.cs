@@ -1916,6 +1916,11 @@ public partial class MainWindow : Window
                     var notifMessage = string.IsNullOrWhiteSpace(notifSummary)
                         ? $"{agentName} turn complete"
                         : notifSummary;
+                    // Append git commit SHA if a commit happened during this turn.
+                    var commitSha = PushNotificationService.ExtractGitCommitSha(
+                        doneCurrentTurn?.ToolEntries.Select(e => e.OutputText) ?? []);
+                    if (commitSha is not null)
+                        notifMessage += $" [{commitSha}]";
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
                 }
                 break;

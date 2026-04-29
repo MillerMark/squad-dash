@@ -105,4 +105,46 @@ internal sealed class PushNotificationServiceTests {
         Assert.That(result, Is.Not.Null);
         Assert.That(result, Does.Contain("README").Or.Contain("update").IgnoreCase);
     }
+
+    // ── ExtractGitCommitSha ───────────────────────────────────────────────────
+
+    [Test]
+    public void ExtractGitCommitSha_NoOutputs_ReturnsNull() {
+        Assert.That(PushNotificationService.ExtractGitCommitSha([]), Is.Null);
+    }
+
+    [Test]
+    public void ExtractGitCommitSha_NullAndEmptyOutputs_ReturnsNull() {
+        Assert.That(PushNotificationService.ExtractGitCommitSha([null, "", "  "]), Is.Null);
+    }
+
+    [Test]
+    public void ExtractGitCommitSha_NoCommitInOutput_ReturnsNull() {
+        Assert.That(PushNotificationService.ExtractGitCommitSha(["Build succeeded\n0 errors"]), Is.Null);
+    }
+
+    [Test]
+    public void ExtractGitCommitSha_TypicalGitCommitOutput_ReturnsSha() {
+        var output = "[main d5ca047] Fix F11 fullscreen disappear\n 1 file changed, 4 insertions(+), 1 deletion(-)";
+        var result = PushNotificationService.ExtractGitCommitSha([output]);
+        Assert.That(result, Is.EqualTo("d5ca047"));
+    }
+
+    [Test]
+    public void ExtractGitCommitSha_MultipleOutputs_ReturnsFirstCommitSha() {
+        string?[] outputs = [
+            "Running tests...\nAll passed.",
+            "[feature/xyz abc1234] Add feature\n 2 files changed",
+            "[main def5678] Follow-up fix\n 1 file changed"
+        ];
+        var result = PushNotificationService.ExtractGitCommitSha(outputs);
+        Assert.That(result, Is.EqualTo("abc1234"));
+    }
+
+    [Test]
+    public void ExtractGitCommitSha_OutputWithLongSha_ReturnsFullMatch() {
+        var output = "[main abcdef1234567] Fix something";
+        var result = PushNotificationService.ExtractGitCommitSha([output]);
+        Assert.That(result, Is.EqualTo("abcdef1234567"));
+    }
 }

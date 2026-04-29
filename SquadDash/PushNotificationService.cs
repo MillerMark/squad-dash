@@ -268,6 +268,21 @@ internal sealed class PushNotificationService {
         return null;
     }
 
+    // Scans tool output text from a completed turn for a git commit SHA.
+    // Git outputs "[branch abc1234] message" on a successful commit. Returns the short
+    // SHA (7+ hex chars) if found, or null if no commit occurred this turn.
+    internal static string? ExtractGitCommitSha(IEnumerable<string?> toolOutputs) {
+        // Pattern: "[anything sha7+] rest of line" — the sha is hex chars only
+        var pattern = new Regex(@"\[\S+\s+([0-9a-f]{7,})\]", RegexOptions.IgnoreCase);
+        foreach (var output in toolOutputs) {
+            if (string.IsNullOrWhiteSpace(output)) continue;
+            var match = pattern.Match(output);
+            if (match.Success)
+                return match.Groups[1].Value;
+        }
+        return null;
+    }
+
     // Returns a best-effort summary of the prompt by stripping common stop words
     // and joining the first handful of meaningful tokens. Used as a fallback when
     // the AI response did not include a {"notification": "..."} summary.
