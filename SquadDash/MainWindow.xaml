@@ -757,6 +757,10 @@
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition x:Name="LoopOutputSplitterColumnDef"
+                                          Width="0" />
+                        <ColumnDefinition x:Name="LoopOutputColumnDef"
+                                          Width="0" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
@@ -940,8 +944,70 @@
                         </DockPanel>
                     </Border>
 
+                    <GridSplitter x:Name="LoopOutputSplitter"
+                                  Grid.Column="4"
+                                  Width="5"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource RosterPanelBorder}"
+                                  Visibility="Collapsed"
+                                  ResizeBehavior="PreviousAndNext" />
+
+                    <Border x:Name="LoopOutputBorder"
+                            Grid.Column="5"
+                            MinWidth="160"
+                            Margin="3,0,0,0"
+                            Padding="8"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Clear"
+                                          Click="LoopOutputClearMenuItem_Click" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0"
+                                  Margin="0,0,0,6">
+                                <TextBlock Text="Loop Output"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="LoopOutputClearButton"
+                                        Content="✕ Clear"
+                                        Padding="4,2"
+                                        FontSize="11"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        ToolTip="Save and clear loop output"
+                                        Click="LoopOutputClearButton_Click" />
+                            </Grid>
+                            <RichTextBox x:Name="LoopOutputTextBox"
+                                         Grid.Row="1"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Disabled"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         IsReadOnly="True"
+                                         IsUndoEnabled="False"
+                                         Foreground="{DynamicResource LabelText}"
+                                         FontSize="11"
+                                         FontFamily="Consolas" />
+                        </Grid>
+                    </Border>
+
                     <Border x:Name="TasksPanelBorder"
-                            Grid.Column="4"
+                            Grid.Column="6"
                             MinWidth="200"
                             MaxWidth="280"
                             Margin="14,0,0,0"
@@ -1002,7 +1068,7 @@
                     </Border>
 
                     <Border x:Name="WatchPanelBorder"
-                            Grid.Column="5"
+                            Grid.Column="7"
                             MinWidth="180"
                             Margin="14,0,0,0"
                             Padding="12"

@@ -210,6 +210,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _loopNextIterationAt;
     private bool _loopIsWaiting;
     private bool _loopPanelVisible = true;
+    private bool _loopOutputHasContent;
     private bool _tasksPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
@@ -2033,6 +2034,8 @@ public partial class MainWindow : Window
     }
 
     private static readonly Regex AnsiEscapeRegex = new(@"\x1B\[[0-9;]*[A-Za-z]", RegexOptions.Compiled);
+    private static readonly SolidColorBrush LoopStderrBrush = new(Color.FromRgb(0xFF, 0x44, 0x44));
+    private static readonly SolidColorBrush LoopLifecycleBrush = new(Color.FromRgb(0x88, 0x88, 0x88));
 
     private void HandleLoopOutput(SquadSdkEvent evt)
     {
@@ -2042,9 +2045,70 @@ public partial class MainWindow : Window
         var line = AnsiEscapeRegex.Replace(raw, "").Trim();
         if (string.IsNullOrWhiteSpace(line)) return;
         if (line.StartsWith("[stderr]", StringComparison.Ordinal))
-            AppendLine(line, ThemeBrush("SystemErrorText"));
+            AppendLoopOutputLine(line, LoopStderrBrush);
         else
-            AppendLine("  " + line);
+            AppendLoopOutputLine(line);
+    }
+
+    private void AppendLoopOutputLine(string text, Brush? brush = null)
+    {
+        var p = new Paragraph { Margin = new Thickness(0, 0, 0, 2) };
+        var run = new Run(text);
+        if (brush is not null)
+            run.Foreground = brush;
+        p.Inlines.Add(run);
+        LoopOutputTextBox.Document.Blocks.Add(p);
+        LoopOutputTextBox.ScrollToEnd();
+        if (!_loopOutputHasContent)
+        {
+            _loopOutputHasContent = true;
+            SyncLoopOutputPane();
+        }
+    }
+
+    private void BackupAndClearLoopOutput()
+    {
+        if (LoopOutputTextBox is null) return;
+        if (LoopOutputTextBox.Document.Blocks.Count > 0)
+        {
+            var range = new TextRange(
+                LoopOutputTextBox.Document.ContentStart,
+                LoopOutputTextBox.Document.ContentEnd);
+            LoopOutputStore.SaveLog(range.Text);
+            LoopOutputTextBox.Document.Blocks.Clear();
+        }
+        _loopOutputHasContent = false;
+        SyncLoopOutputPane();
+    }
+
+    private void SyncLoopOutputPane()
+    {
+        if (LoopOutputBorder is null) return;
+        bool show = _loopPanelVisible && (_loopOutputHasContent || _pec.IsLoopRunning);
+        var vis = show ? Visibility.Visible : Visibility.Collapsed;
+        LoopOutputBorder.Visibility = vis;
+        LoopOutputSplitter.Visibility = vis;
+        if (LoopOutputSplitterColumnDef is not null)
+            LoopOutputSplitterColumnDef.Width = show ? new GridLength(8) : new GridLength(0);
+        if (LoopOutputColumnDef is not null)
+        {
+            if (show && LoopOutputColumnDef.ActualWidth < 1)
+                LoopOutputColumnDef.Width = new GridLength(320);
+            else if (!show)
+                LoopOutputColumnDef.Width = new GridLength(0);
+        }
+    }
+
+    private void LoopOutputClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        try { BackupAndClearLoopOutput(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopOutputClearButton_Click), ex); }
+    }
+
+    private void LoopOutputClearMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { BackupAndClearLoopOutput(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopOutputClearMenuItem_Click), ex); }
     }
 
     private void HandleWatchFleetDispatched(SquadSdkEvent evt)
@@ -2212,6 +2276,7 @@ public partial class MainWindow : Window
             status = "";
 
         LoopStatusLabel.Text = status;
+        SyncLoopOutputPane();
     }
 
     private void SyncTasksPanel()
@@ -2365,6 +2430,7 @@ public partial class MainWindow : Window
         try
         {
             if (_currentWorkspace is null) return;
+            BackupAndClearLoopOutput();
             var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
 
             if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
