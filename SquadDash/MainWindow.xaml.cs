@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -153,6 +153,7 @@ public partial class MainWindow : Window
     private Rect _preFullScreenBounds;
     private bool _documentationModeEnabled;
     private string? _currentDocPath;  // tracks currently displayed doc for link resolution
+    private DocStatusStore? _docStatusStore;
     private bool _activeAgentLaneNudgeScheduled;
     private bool _inactiveAgentLaneNudgeScheduled;
     private int _toolSpinnerFrame;
@@ -5510,7 +5511,9 @@ public partial class MainWindow : Window
         if (DocTopicsTreeView is null)
             return;
 
-        DocTopicsLoader.LoadTopics(DocTopicsTreeView, out var firstItemToSelect, _currentWorkspace?.FolderPath);
+        var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
+        _docStatusStore = !string.IsNullOrEmpty(docsRoot) ? DocStatusStore.Load(docsRoot) : null;
+        DocTopicsLoader.LoadTopics(DocTopicsTreeView, out var firstItemToSelect, _currentWorkspace?.FolderPath, _docStatusStore);
 
         // Wire up selection handler
         DocTopicsTreeView.SelectedItemChanged -= DocTopicsTreeView_SelectedItemChanged;
@@ -5631,7 +5634,10 @@ public partial class MainWindow : Window
 
         var filePath = item.Tag as string;
         if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+        {
+            UpdateApproveDocButton(null);
             return;
+        }
 
         // If the same topic is re-selected (e.g. by a watcher-triggered tree reload)
         // and the source panel has unsaved edits, don't overwrite the user's work.
@@ -5653,6 +5659,7 @@ public partial class MainWindow : Window
             _settingsSnapshot = _settingsSnapshot with { DocsSelectedTopic = filePath };
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { SelectedTopic = filePath };
             _pec.ActiveDocumentPath = filePath;
+            UpdateApproveDocButton(filePath);
 
             if (isSameTopic && sourceVisible)
                 return;  // preview and source are already showing this topic with live edits — leave them alone
@@ -12357,6 +12364,16 @@ public partial class MainWindow : Window
                 && string.Equals(e.FullPath, _currentDocPath, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            if (_docStatusStore != null)
+            {
+                var fullPath = e.FullPath;
+                if (_docStatusStore.GetStatus(fullPath) == DocApprovalStatus.Approved)
+                {
+                    _docStatusStore.SetNeedsReview(fullPath);
+                    // Tree will refresh via ScheduleDebouncedDocsRefresh below
+                }
+            }
+
             ScheduleDebouncedDocsRefresh();
         }
         catch (Exception ex)
@@ -13500,8 +13517,13 @@ public partial class MainWindow : Window
             var copyLinkItem = new MenuItem { Header = "Copy markdown link" };
             copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
 
+            var renameItem = new MenuItem { Header = "Rename…" };
+            renameItem.Click += (_, _) => RenameDocTopic(item, filePath);
+
             var menu = new ContextMenu();
             menu.Items.Add(copyLinkItem);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(renameItem);
             menu.PlacementTarget = DocTopicsTreeView;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
             menu.IsOpen = true;
@@ -13513,6 +13535,235 @@ public partial class MainWindow : Window
         }
     }
 
+
+    private void UpdateApproveDocButton(string? filePath)
+    {
+        if (ApproveDocButton is null) return;
+
+        if (string.IsNullOrEmpty(filePath) || _docStatusStore is null)
+        {
+            ApproveDocButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ApproveDocButton.Visibility = Visibility.Visible;
+        var status = _docStatusStore.GetStatus(filePath);
+        if (status == DocApprovalStatus.Approved)
+        {
+            ApproveDocButton.Content = "✓ Approved";
+            ApproveDocButton.Opacity = 0.55;
+        }
+        else
+        {
+            ApproveDocButton.Content = "✓ Approve";
+            ApproveDocButton.Opacity = 1.0;
+        }
+    }
+
+    private void ApproveDocButton_Click(object sender, RoutedEventArgs e)
+    {
+        var item = DocTopicsTreeView?.SelectedItem as TreeViewItem;
+        var filePath = item?.Tag as string;
+        if (string.IsNullOrEmpty(filePath) || _docStatusStore is null) return;
+
+        _docStatusStore.SetApproved(filePath);
+        PopulateDocumentationTopics();
+        UpdateApproveDocButton(filePath);
+    }
+
+    private void RenameDocTopic(TreeViewItem item, string filePath)
+    {
+        try
+        {
+            string oldName;
+            if (item.Header is System.Windows.Controls.StackPanel sp
+                && sp.Children.Count > 0
+                && sp.Children[0] is System.Windows.Controls.TextBlock tb)
+            {
+                oldName = tb.Text;
+            }
+            else
+            {
+                oldName = item.Header?.ToString() ?? Path.GetFileNameWithoutExtension(filePath);
+            }
+
+            var newName = ShowStringInputDialog("Rename Document", "New name:", oldName);
+            if (string.IsNullOrWhiteSpace(newName) || newName == oldName) return;
+
+            var dir = Path.GetDirectoryName(filePath)!;
+            var ext = Path.GetExtension(filePath);
+            var newFileName = newName + ext;
+            var newFilePath = Path.Combine(dir, newFileName);
+
+            if (File.Exists(newFilePath) && !string.Equals(filePath, newFilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                System.Windows.MessageBox.Show($"A file named '{newFileName}' already exists.", "Rename", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = false;
+
+            try
+            {
+                try
+                {
+                    var fileLines = File.ReadAllLines(filePath).ToList();
+                    for (int i = 0; i < fileLines.Count; i++)
+                    {
+                        if (fileLines[i].StartsWith("# "))
+                        {
+                            var heading = fileLines[i].Substring(2).Trim();
+                            if (string.Equals(heading, oldName, StringComparison.OrdinalIgnoreCase))
+                                fileLines[i] = "# " + newName;
+                            break;
+                        }
+                    }
+                    File.WriteAllLines(filePath, fileLines);
+                }
+                catch { }
+
+                File.Move(filePath, newFilePath);
+
+                if (_docStatusStore != null)
+                {
+                    var oldStatus = _docStatusStore.GetStatus(filePath);
+                    if (_docStatusStore.HasBeenTracked(filePath))
+                    {
+                        if (oldStatus == DocApprovalStatus.Approved)
+                            _docStatusStore.SetApproved(newFilePath);
+                        else
+                            _docStatusStore.SetNeedsReview(newFilePath);
+                    }
+                }
+
+                var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
+                if (!string.IsNullOrEmpty(docsRoot))
+                {
+                    var summaryPath = Path.Combine(docsRoot, "SUMMARY.md");
+                    if (File.Exists(summaryPath))
+                    {
+                        try
+                        {
+                            var summaryContent = File.ReadAllText(summaryPath);
+                            var oldRelPath = Path.GetRelativePath(docsRoot, filePath).Replace('\\', '/');
+                            var newRelPath = Path.GetRelativePath(docsRoot, newFilePath).Replace('\\', '/');
+                            var oldPattern = $"[{oldName}]({oldRelPath})";
+                            var newPattern = $"[{newName}]({newRelPath})";
+                            if (summaryContent.Contains(oldPattern))
+                            {
+                                summaryContent = summaryContent.Replace(oldPattern, newPattern);
+                                File.WriteAllText(summaryPath, summaryContent);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            finally
+            {
+                if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = true;
+            }
+
+            if (string.Equals(_currentDocPath, filePath, StringComparison.OrdinalIgnoreCase))
+                _currentDocPath = newFilePath;
+
+            PopulateDocumentationTopics();
+            var renamedItem = FindDocNodeByTag(DocTopicsTreeView.Items, newFilePath);
+            if (renamedItem != null)
+                renamedItem.IsSelected = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RenameDocTopic), ex);
+        }
+    }
+
+    private string? ShowStringInputDialog(string title, string prompt, string initialValue)
+    {
+        var dialog = new System.Windows.Window
+        {
+            Title = title,
+            Width = 380,
+            Height = 160,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            Background = (System.Windows.Media.Brush)TryFindResource("AppSurface")
+                         ?? System.Windows.Media.Brushes.White,
+        };
+
+        var grid = new System.Windows.Controls.Grid { Margin = new Thickness(16) };
+        grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
+
+        var promptLabel = new System.Windows.Controls.TextBlock
+        {
+            Text = prompt,
+            Margin = new Thickness(0, 0, 0, 6),
+            Foreground = (System.Windows.Media.Brush)TryFindResource("LabelText")
+                         ?? System.Windows.Media.Brushes.Black,
+        };
+        System.Windows.Controls.Grid.SetRow(promptLabel, 0);
+
+        var textBox = new System.Windows.Controls.TextBox
+        {
+            Text = initialValue,
+            Margin = new Thickness(0, 0, 0, 12),
+            Padding = new Thickness(6, 4, 6, 4),
+            Background = (System.Windows.Media.Brush)TryFindResource("InputSurface")
+                         ?? System.Windows.Media.Brushes.White,
+            Foreground = (System.Windows.Media.Brush)TryFindResource("LabelText")
+                         ?? System.Windows.Media.Brushes.Black,
+        };
+        System.Windows.Controls.Grid.SetRow(textBox, 1);
+
+        var buttonPanel = new System.Windows.Controls.StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        System.Windows.Controls.Grid.SetRow(buttonPanel, 2);
+
+        string? result = null;
+
+        var okButton = new System.Windows.Controls.Button
+        {
+            Content = "OK",
+            Width = 72,
+            Height = 28,
+            Margin = new Thickness(0, 0, 8, 0),
+            IsDefault = true,
+        };
+        if (TryFindResource("ThemedButtonStyle") is System.Windows.Style btnStyle)
+            okButton.Style = btnStyle;
+        okButton.Click += (_, _) => { result = textBox.Text; dialog.DialogResult = true; };
+
+        var cancelButton = new System.Windows.Controls.Button
+        {
+            Content = "Cancel",
+            Width = 72,
+            Height = 28,
+            IsCancel = true,
+        };
+        if (TryFindResource("ThemedButtonStyle") is System.Windows.Style cancelStyle)
+            cancelButton.Style = cancelStyle;
+        cancelButton.Click += (_, _) => { dialog.DialogResult = false; };
+
+        buttonPanel.Children.Add(okButton);
+        buttonPanel.Children.Add(cancelButton);
+
+        grid.Children.Add(promptLabel);
+        grid.Children.Add(textBox);
+        grid.Children.Add(buttonPanel);
+        dialog.Content = grid;
+
+        textBox.Loaded += (_, _) => { textBox.SelectAll(); textBox.Focus(); };
+
+        dialog.ShowDialog();
+        return result;
+    }
     private void DocTopicsTreeView_CopyMarkdownLink(TreeViewItem item)
     {
         var filePath = item.Tag as string;

@@ -1,4 +1,4 @@
-<Window x:Class="SquadDash.MainWindow"
+﻿<Window x:Class="SquadDash.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -1329,6 +1329,16 @@
                                 Style="{StaticResource ThemedButtonStyle}"
                                 Click="ViewPagesButton_Click">
                             Pages
+                        </Button>
+                        <Button x:Name="ApproveDocButton"
+                                DockPanel.Dock="Left"
+                                Height="28"
+                                Margin="6,0,0,0"
+                                Padding="12,0,12,0"
+                                Visibility="Collapsed"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Click="ApproveDocButton_Click">
+                            &#10003; Approve
                         </Button>
                         <Button x:Name="ViewSourceButton"
                                 DockPanel.Dock="Right"

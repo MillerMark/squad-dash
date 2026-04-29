@@ -1,9 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace SquadDash;
 
@@ -11,7 +13,7 @@ internal static class DocTopicsLoader
 {
     private static readonly Regex SummaryLineRegex = new(@"^\s*\*\s+\[([^\]]+)\]\(([^)]+)\)\s*$", RegexOptions.Compiled);
 
-    public static void LoadTopics(TreeView treeView, out TreeViewItem? firstItemToSelect, string? workspaceFolder = null)
+    public static void LoadTopics(TreeView treeView, out TreeViewItem? firstItemToSelect, string? workspaceFolder = null, DocStatusStore? statusStore = null)
     {
         firstItemToSelect = null;
         if (treeView is null)
@@ -22,7 +24,6 @@ internal static class DocTopicsLoader
         var docsRoot = FindDocsFolder(workspaceFolder);
         if (string.IsNullOrEmpty(docsRoot) || !Directory.Exists(docsRoot))
         {
-            // Fallback: show error message
             var errorItem = new TreeViewItem { Header = "No docs/ folder in workspace" };
             treeView.Items.Add(errorItem);
             return;
@@ -31,27 +32,24 @@ internal static class DocTopicsLoader
         var summaryPath = Path.Combine(docsRoot, "SUMMARY.md");
         if (File.Exists(summaryPath))
         {
-            firstItemToSelect = LoadFromSummary(treeView, summaryPath, docsRoot);
+            firstItemToSelect = LoadFromSummary(treeView, summaryPath, docsRoot, statusStore);
         }
         else
         {
-            firstItemToSelect = LoadFromFolderScan(treeView, docsRoot);
+            firstItemToSelect = LoadFromFolderScan(treeView, docsRoot, statusStore);
         }
     }
 
     internal static string? FindDocsFolderPath(string? workspaceFolder = null)
     {
-        // 1. Look in the provided workspace folder first
         if (!string.IsNullOrEmpty(workspaceFolder))
         {
             var docsInWorkspace = Path.Combine(workspaceFolder, "docs");
             if (Directory.Exists(docsInWorkspace))
                 return docsInWorkspace;
-            // Workspace exists but has no docs/ — return null (no topics)
             return null;
         }
 
-        // 2. Fallback: walk up from exe (dev-time / no workspace open yet)
         var current = AppDomain.CurrentDomain.BaseDirectory;
         for (int i = 0; i < 5; i++)
         {
@@ -76,7 +74,7 @@ internal static class DocTopicsLoader
 
     private static string? FindDocsFolder(string? workspaceFolder = null) => FindDocsFolderPath(workspaceFolder);
 
-    private static TreeViewItem? LoadFromSummary(TreeView treeView, string summaryPath, string docsRoot)
+    private static TreeViewItem? LoadFromSummary(TreeView treeView, string summaryPath, string docsRoot, DocStatusStore? statusStore)
     {
         var lines = File.ReadAllLines(summaryPath);
         TreeViewItem? lastTopLevel = null;
@@ -95,14 +93,14 @@ internal static class DocTopicsLoader
             var path = match.Groups[2].Value;
             var fullPath = Path.Combine(docsRoot, path.Replace('/', '\\'));
 
-            // Determine indentation level
             var indent = line.TakeWhile(char.IsWhiteSpace).Count();
             var isTopLevel = indent < 2;
 
+            var fileExists = File.Exists(fullPath);
             var item = new TreeViewItem
             {
-                Header = title,
-                Tag = File.Exists(fullPath) ? fullPath : null
+                Header = fileExists ? BuildItemHeader(title, fullPath, statusStore) : (object)title,
+                Tag = fileExists ? fullPath : null
             };
 
             if (isTopLevel)
@@ -118,7 +116,6 @@ internal static class DocTopicsLoader
             }
         }
 
-        // Auto-expand first top-level item
         if (treeView.Items.Count > 0 && treeView.Items[0] is TreeViewItem first)
         {
             first.IsExpanded = true;
@@ -127,7 +124,7 @@ internal static class DocTopicsLoader
         return firstChild;
     }
 
-    private static TreeViewItem? LoadFromFolderScan(TreeView treeView, string docsRoot)
+    private static TreeViewItem? LoadFromFolderScan(TreeView treeView, string docsRoot, DocStatusStore? statusStore)
     {
         TreeViewItem? firstChild = null;
 
@@ -153,7 +150,7 @@ internal static class DocTopicsLoader
                 var title = ExtractMarkdownTitle(file.FullName) ?? Path.GetFileNameWithoutExtension(file.Name);
                 var childItem = new TreeViewItem
                 {
-                    Header = title,
+                    Header = BuildItemHeader(title, file.FullName, statusStore),
                     Tag = file.FullName
                 };
                 parentItem.Items.Add(childItem);
@@ -166,7 +163,6 @@ internal static class DocTopicsLoader
                 treeView.Items.Add(parentItem);
         }
 
-        // Auto-expand first item
         if (treeView.Items.Count > 0 && treeView.Items[0] is TreeViewItem first)
         {
             first.IsExpanded = true;
@@ -175,15 +171,55 @@ internal static class DocTopicsLoader
         return firstChild;
     }
 
+    private static FrameworkElement BuildItemHeader(string title, string filePath, DocStatusStore? statusStore)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        var label = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center };
+        panel.Children.Add(label);
+
+        if (statusStore != null && !string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+        {
+            var status = statusStore.GetStatus(filePath);
+            var needsScreenshots = DocStatusStore.HasScreenshotPlaceholders(filePath);
+
+            if (status == DocApprovalStatus.Approved)
+            {
+                panel.Children.Add(MakeStatusIcon("✓", Brushes.LimeGreen, "Approved"));
+            }
+            else if (statusStore.HasBeenTracked(filePath))
+            {
+                panel.Children.Add(MakeStatusIcon("!", Brushes.Orange, "Needs review"));
+            }
+
+            if (needsScreenshots)
+                panel.Children.Add(MakeStatusIcon("📷", null, "Needs screenshots"));
+        }
+
+        return panel;
+    }
+
+    private static TextBlock MakeStatusIcon(string text, Brush? foreground, string tooltip)
+    {
+        var tb = new TextBlock
+        {
+            Text = " " + text,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11,
+            ToolTip = tooltip,
+        };
+        if (foreground != null)
+            tb.Foreground = foreground;
+        return tb;
+    }
+
     private static string TitleCase(string input)
     {
-        // Convert "getting-started" to "Getting Started"
         var words = input.Split('-', '_');
         return string.Join(" ", words.Select(w =>
             w.Length > 0 ? char.ToUpper(w[0]) + w.Substring(1).ToLower() : w));
     }
 
-    private static string? ExtractMarkdownTitle(string filePath)
+    internal static string? ExtractMarkdownTitle(string filePath)
     {
         try
         {
@@ -196,7 +232,6 @@ internal static class DocTopicsLoader
         }
         catch
         {
-            // Ignore read errors
         }
         return null;
     }
