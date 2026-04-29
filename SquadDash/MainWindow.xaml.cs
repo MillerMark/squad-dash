@@ -1431,11 +1431,15 @@ public partial class MainWindow : Window
 
         if (id is not null)
         {
-            var cm         = new ContextMenu();
-            var removeItem = new MenuItem { Header = "Remove" };
             var capturedId = id;
-            removeItem.Click += (_, _) => OnQueueTabRemove(capturedId);
-            cm.Items.Add(removeItem);
+            var cm         = new ContextMenu();
+
+            // Activate the tab on right-click so user can see what they're deleting.
+            cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
+
+            var deleteItem = new MenuItem { Header = "Delete queued item…" };
+            deleteItem.Click += (_, _) => OnQueueTabDeleteConfirm(capturedId, tab);
+            cm.Items.Add(deleteItem);
             tab.ContextMenu = cm;
         }
 
@@ -1505,6 +1509,21 @@ public partial class MainWindow : Window
         }
         _promptQueue.Remove(id);
         SyncQueuePanel();
+    }
+
+    private void OnQueueTabDeleteConfirm(string id, FrameworkElement anchor)
+    {
+        var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
+        if (item is null) return;
+
+        var preview = item.Text.Length > 60 ? item.Text[..57] + "…" : item.Text;
+
+        var dialog = new QueueItemDeleteConfirmWindow($"#{item.SequenceNumber}", preview, GetScreenRect(anchor))
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() == true)
+            OnQueueTabRemove(id);
     }
 
     /// <summary>Returns the bounding rect of a UI element in screen coordinates.</summary>
