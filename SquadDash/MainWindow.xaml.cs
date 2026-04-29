@@ -1798,11 +1798,15 @@ public partial class MainWindow : Window
         SyncLoopPanel();
     }
 
+    private static readonly Regex AnsiEscapeRegex = new(@"\x1B\[[0-9;]*[A-Za-z]", RegexOptions.Compiled);
+
     private void HandleLoopOutput(SquadSdkEvent evt)
     {
         if (string.IsNullOrWhiteSpace(evt.OutputLine)) return;
-        var line = evt.OutputLine!;
-        SquadDashTrace.Write("LoopOutput", line);
+        var raw = evt.OutputLine!;
+        SquadDashTrace.Write("LoopOutput", raw);
+        var line = AnsiEscapeRegex.Replace(raw, "").Trim();
+        if (string.IsNullOrWhiteSpace(line)) return;
         if (line.StartsWith("[stderr]", StringComparison.Ordinal))
             AppendLine(line, ThemeBrush("SystemErrorText"));
         else
