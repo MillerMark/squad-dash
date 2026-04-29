@@ -6,7 +6,7 @@ A focused view mode that hides everything except the transcript — no agent car
 
 ## Activating Fullscreen Mode
 
-Open the **View** menu and select **Full Screen Transcript**.
+Press **F11**, or open the **View** menu and select **Full Screen Transcript**.
 
 ![Screenshot: View menu with "Full Screen Transcript" highlighted](images/fullscreen-view-menu.png)
 > 📸 *Screenshot needed: The View menu open, with "Full Screen Transcript" highlighted. Show the full menu so other options (Normal, View Documentation) are visible for context.*
@@ -29,23 +29,22 @@ The agent cards, status panel, and prompt bar all disappear. The transcript expa
 
 ---
 
-## Peeking the Prompt Bar
+## Revealing the Prompt Bar
 
-You don't have to exit fullscreen to send a message. Press **any printable key** and the prompt bar slides in at the bottom — just the text input and Send button, nothing else.
+You don't have to exit fullscreen to send a message. Move the mouse to the **bottom of the screen** and the prompt bar slides into view — just the text input and Send button, nothing else.
 
-![Screenshot: Peeked prompt bar in fullscreen mode](images/fullscreen-prompt-peek.png)
-> 📸 *Screenshot needed: Fullscreen transcript with the peeked prompt bar visible at the bottom — show the slim input + send button appearing over the transcript edge. The transcript content should still be clearly visible behind it.*
+![Screenshot: Prompt bar revealed at bottom of fullscreen](images/fullscreen-prompt-peek.png)
+> 📸 *Screenshot needed: Fullscreen transcript with the prompt bar visible at the bottom — show the slim input + send button appearing over the transcript edge. The transcript content should still be clearly visible behind it.*
 
-The key you pressed becomes the first character in the text box. Continue typing normally.
+Move the mouse away from the bottom edge to hide the bar again, or press **Escape** to dismiss it and return to pure fullscreen.
 
-### Dismissing the Peek
+### Dismissing the Prompt Bar
 
 | Action | Result |
 |---|---|
-| **Escape** | Dismiss the peeked prompt, return to pure fullscreen |
-| **Escape** (when prompt not peeked) | Exit fullscreen entirely |
-
-So two Escapes from fullscreen — one to close the prompt peek, one to exit fullscreen — is the keyboard-only exit path.
+| **Move mouse away** | Bar slides back out |
+| **Escape** | Dismiss the prompt bar, return to pure fullscreen |
+| **Escape** (when prompt bar not showing) | Exit fullscreen entirely |
 
 ---
 
@@ -61,7 +60,8 @@ When recording ends, the bar stays visible (peeked state) so you can review the 
 
 Fullscreen exits when you:
 
-- Press **Escape** (with the prompt not peeked)
+- Press **F11** (toggle)
+- Press **Escape** (with the prompt bar not showing)
 - Click certain controls that require the full UI (e.g., agent cards)
 - Select **View → Normal** from the menu
 
@@ -75,14 +75,15 @@ Other workspaces are unaffected — each folder tracks its own view mode indepen
 
 ---
 
-## Keyboard Summary
+## Keyboard & Mouse Summary
 
 | Key / Action | Effect |
 |---|---|
-| **Any printable key** | Peek prompt bar (key becomes first character) |
-| **Double-Ctrl** (PTT) | Peek prompt bar + start voice recording |
-| **Escape** (prompt peeked) | Dismiss prompt peek |
-| **Escape** (prompt not peeked) | Exit fullscreen |
+| **F11** | Toggle fullscreen on/off |
+| **Mouse to bottom edge** | Reveal prompt bar |
+| **Double-Ctrl** (PTT) | Reveal prompt bar + start voice recording |
+| **Escape** (prompt bar showing) | Dismiss prompt bar, stay in fullscreen |
+| **Escape** (prompt bar not showing) | Exit fullscreen |
 
 ---
 

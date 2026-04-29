@@ -14,6 +14,10 @@
 * [Features](features/README.md)
   * [Fullscreen Transcript](features/fullscreen-transcript.md)
   * [Hiring Agents](features/hiring-agents.md)
+  * [Loop Panel](features/loop-panel.md)
+  * [Tasks Panel](features/tasks-panel.md)
+  * [Voice Input](features/voice-input.md)
+  * [Prompt Queue](features/prompt-queue.md)
 
 ## Concepts
 

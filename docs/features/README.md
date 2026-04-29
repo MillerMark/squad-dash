@@ -12,8 +12,12 @@ In-depth guides for SquadDash's view modes and UI features.
 
 ## What You'll Find Here
 
-- **[Fullscreen Transcript](fullscreen-transcript.md)** — Hide everything except the transcript for focused reading or presenting
-- **[View Modes](view-modes.md)** *(coming soon)* — Normal, Fullscreen, and Documentation Mode compared
+- **[Fullscreen Transcript](fullscreen-transcript.md)** — F11 fullscreen mode: hide everything except the transcript
+- **[Hiring Agents](hiring-agents.md)** — Step-by-step guide to the `/hire` workflow
+- **[Loop Panel](loop-panel.md)** — Run agents on a repeating schedule with configurable interval and timeout
+- **[Tasks Panel](tasks-panel.md)** — Surface your `.squad/tasks.md` backlog grouped by priority
+- **[Voice Input](voice-input.md)** — Push-to-talk voice dictation with Azure Speech
+- **[Prompt Queue](prompt-queue.md)** — Queue prompts while an agent is running; they dispatch automatically
 
 ---
 
@@ -23,8 +27,8 @@ SquadDash has three view modes, all accessible from the **View** menu:
 
 | Mode | What's Visible | Best For |
 |---|---|---|
-| **Normal** | Status panel, transcript, prompt | Day-to-day work |
-| **Full Screen Transcript** | Transcript only (prompt peek on keypress) | Focused reading, presenting |
+| **Normal** | Agent cards, transcript, prompt | Day-to-day work |
+| **Full Screen Transcript** | Transcript only (prompt bar on mouse-bottom hover) | Focused reading, presenting |
 | **Documentation** | Transcript + docs panel | Browsing repo docs while working |
 
 ---

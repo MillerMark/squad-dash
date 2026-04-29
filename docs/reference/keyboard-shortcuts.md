@@ -8,6 +8,7 @@ Known keyboard shortcuts and hotkeys in SquadDash.
 
 | Shortcut | Action |
 |---|---|
+| **F11** | Toggle fullscreen transcript mode |
 | **Double-Ctrl** | Activate push-to-talk (voice input) |
 | **Shift-Click** (on agent card) | Open agent transcript panel |
 | **Ctrl+Scroll** (on transcript) | Adjust transcript font size (persisted globally) |
@@ -38,14 +39,15 @@ Requires Azure Cognitive Services Speech key (see **[Configuration](configuratio
 
 ## Fullscreen Transcript Shortcuts
 
-These shortcuts apply when **Full Screen Transcript** mode is active (View → Full Screen Transcript).
+These shortcuts apply when **Full Screen Transcript** mode is active (press **F11** or use View → Full Screen Transcript).
 
 | Key / Action | Effect |
 |---|---|
-| **Any printable key** | Peek prompt bar (key becomes first character) |
-| **Double-Ctrl** (PTT) | Peek prompt bar + start voice recording |
-| **Escape** (prompt peeked) | Dismiss prompt peek, stay in fullscreen |
-| **Escape** (prompt not peeked) | Exit fullscreen |
+| **F11** | Toggle fullscreen on/off |
+| **Mouse to bottom edge** | Reveal prompt bar |
+| **Double-Ctrl** (PTT) | Reveal prompt bar + start voice recording |
+| **Escape** (prompt bar showing) | Dismiss prompt bar, stay in fullscreen |
+| **Escape** (prompt bar not showing) | Exit fullscreen |
 
 See **[Fullscreen Transcript Mode](../features/fullscreen-transcript.md)** for full details.
 
