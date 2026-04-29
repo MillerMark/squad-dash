@@ -23,7 +23,7 @@
 
 ## 🟢 Low Priority
 
-- [ ] **Phone push notifications — architecture & implementation** *(Owner: Arjun Sen + Talia Rune + Lyra Morn — architecture complete, building)*
+- [x] **Phone push notifications — architecture & implementation** *(Owner: Arjun Sen + Talia Rune + Lyra Morn — architecture complete, building)*
   Send push notifications to the user's phone when key SquadDash events occur.
 
   **Architecture decisions (all confirmed):**

@@ -70,6 +70,15 @@
   `QRCoder` is preferred for minimal footprint. **✅ Approved 2026-04-28.**
   See `.squad/rc-mobile-architecture.md` §Key Decisions #3.
 
+## Phone Push Notifications
+
+- [x] **Phone push notifications — architecture & implementation** *(Owner: Arjun Sen + Talia Rune + Lyra Morn)*
+  Full implementation: `PushNotificationService.cs` with `IPushNotificationProvider` / `NtfyNotificationProvider`,
+  cascading rate-limiter, `SQUADASH_NTFY_TOPIC` env-var override. Hooks in `MainWindow.xaml.cs` for
+  `assistant_turn_complete` (via `"done"`), `loop_stopped`, `rc_connection_dropped`, `quick_reply_needed`.
+  Notifications section in `PreferencesWindow` with QR code via QRCoder, per-event toggles, Test button.
+  Decision documented in `decisions.md` ADR-001. Tests in `PushNotificationServiceTests.cs`.
+
 ---
 
 ## Agent & Prompt Infrastructure
