@@ -1,13 +1,19 @@
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Shell;
 
 namespace SquadDash;
 
 internal sealed class TasksStatusWindow : Window {
-    private readonly TextBox _contentTextBox;
+    private readonly RichTextBox _contentRichBox;
+    private string _rawContent = string.Empty;
+
+    private static readonly Regex s_emojiSplitter =
+        new(@"(🔴|🟡|🟢)", RegexOptions.Compiled);
 
     public TasksStatusWindow() {
         Title = "Live Tasks";
@@ -76,9 +82,8 @@ internal sealed class TasksStatusWindow : Window {
         copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         copyButton.Click += (_, _) => {
-            var text = _contentTextBox?.Text;
-            if (!string.IsNullOrEmpty(text))
-                Clipboard.SetText(text);
+            if (!string.IsNullOrEmpty(_rawContent))
+                Clipboard.SetText(_rawContent);
         };
         DockPanel.SetDock(copyButton, Dock.Right);
         header.Children.Add(copyButton);
@@ -111,24 +116,63 @@ internal sealed class TasksStatusWindow : Window {
         Grid.SetRow(contentBorder, 2);
         root.Children.Add(contentBorder);
 
-        _contentTextBox = new TextBox {
+        _contentRichBox = new RichTextBox {
             IsReadOnly = true,
-            AcceptsReturn = true,
-            AcceptsTab = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             BorderThickness = new Thickness(0),
             FontFamily = new FontFamily("Consolas"),
-            FontSize = 13
+            FontSize = 13,
+            Padding = new Thickness(0),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
-        _contentTextBox.SetResourceReference(TextBox.BackgroundProperty, "CardSurface");
-        _contentTextBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
-        contentBorder.Child = _contentTextBox;
+        _contentRichBox.SetResourceReference(RichTextBox.BackgroundProperty, "CardSurface");
+        _contentRichBox.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        contentBorder.Child = _contentRichBox;
     }
 
     public void UpdateContent(string content) {
-        _contentTextBox.Text = content ?? string.Empty;
-        _contentTextBox.ScrollToHome();
+        _rawContent = content ?? string.Empty;
+
+        var doc = new FlowDocument {
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            PagePadding = new Thickness(0),
+        };
+        doc.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
+
+        foreach (var rawLine in _rawContent.Split('\n')) {
+            var line = rawLine.TrimEnd('\r');
+            var para = new Paragraph {
+                Margin = new Thickness(0),
+                LineHeight = 20,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            };
+            AppendColoredInlines(para.Inlines, line);
+            doc.Blocks.Add(para);
+        }
+
+        _contentRichBox.Document = doc;
+        _contentRichBox.ScrollToHome();
     }
+
+    private void AppendColoredInlines(InlineCollection inlines, string text) {
+        var parts = s_emojiSplitter.Split(text);
+        foreach (var part in parts) {
+            var key = EmojiResourceKey(part);
+            if (key is not null) {
+                var run = new Run(part);
+                run.SetResourceReference(Run.ForegroundProperty, key);
+                inlines.Add(run);
+            } else {
+                inlines.Add(new Run(part));
+            }
+        }
+    }
+
+    private static string? EmojiResourceKey(string segment) => segment switch {
+        "🔴" => "TaskPriorityHigh",
+        "🟡" => "TaskPriorityMid",
+        "🟢" => "TaskPriorityLow",
+        _    => null
+    };
 }

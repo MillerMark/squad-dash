@@ -2660,7 +2660,7 @@ public partial class MainWindow : Window
                 FontWeight = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            headingLabel.SetResourceReference(TextBlock.ForegroundProperty, PriorityResourceKey(group.Emoji));
+            headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             headingRow.Children.Add(dot);
             headingRow.Children.Add(headingLabel);
             TasksItemsPanel.Children.Add(headingRow);
@@ -2685,7 +2685,7 @@ public partial class MainWindow : Window
                     Margin = new Thickness(0, 2, 6, 0),
                     IsHitTestVisible = false
                 };
-                checkbox.SetResourceReference(Border.BorderBrushProperty, PriorityResourceKey(group.Emoji));
+                checkbox.SetResourceReference(Border.BorderBrushProperty, "BodyText");
                 var label = new TextBlock
                 {
                     Text = item,
