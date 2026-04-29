@@ -2860,6 +2860,7 @@ public partial class MainWindow : Window
                         LoopLifecycleBrush);
                     _loopController.RequestStop();
                     SyncLoopPanel();
+                    _ = _pushNotificationService.NotifyEventAsync("squadash_command", "SquadDash", "AI command: stop_loop");
                 }
                 break;
 
@@ -2868,6 +2869,7 @@ public partial class MainWindow : Window
                 {
                     AppendLoopOutputLine("🤖 AI requested loop start.", LoopLifecycleBrush);
                     _ = StartLoopImmediateAsync();
+                    _ = _pushNotificationService.NotifyEventAsync("squadash_command", "SquadDash", "AI command: start_loop");
                 }
                 break;
         }
