@@ -213,6 +213,7 @@ public partial class MainWindow : Window
     private bool _loopIsWaiting;
     private bool _loopPanelVisible = true;
     private bool _loopOutputHasContent;
+    private bool _loopQueued;
     private bool _tasksPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
@@ -1314,7 +1315,11 @@ public partial class MainWindow : Window
         if (_isPromptRunning || IsNativeLoopRunning) return;
 
         var item = GetAutoDispatchCandidate();
-        if (item is null) return;
+        if (item is null)
+        {
+            await MaybeFireQueuedLoopAsync();
+            return;
+        }
 
         var seqNum = item.SequenceNumber;
         _promptQueue.Remove(item.Id);
@@ -1355,6 +1360,24 @@ public partial class MainWindow : Window
                 HandleUiCallbackException(nameof(DrainQueueIfNeededAsync), ex);
                 break;
             }
+        }
+
+        await MaybeFireQueuedLoopAsync();
+    }
+
+    private async Task MaybeFireQueuedLoopAsync()
+    {
+        if (!_loopQueued || _isPromptRunning || IsLoopRunning) return;
+        _loopQueued = false;
+        SyncLoopPanel();
+        try
+        {
+            AppendLine("▶ Starting queued loop…", (Brush)FindResource("SubtleText"));
+            await StartLoopImmediateAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(MaybeFireQueuedLoopAsync), ex);
         }
     }
 
@@ -2068,6 +2091,7 @@ public partial class MainWindow : Window
     {
         _pec.SetIsLoopRunning(true);
         _loopCurrentIteration = 0;
+        _loopQueued = false;
         var label = string.IsNullOrWhiteSpace(evt.LoopMdPath)
             ? "🔁 Loop started"
             : $"🔁 Loop started: {evt.LoopMdPath.Replace('\\', '/')}";
@@ -2357,21 +2381,38 @@ public partial class MainWindow : Window
         SyncSendButton();
         LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         bool running = IsLoopRunning;
-        StartLoopButton.IsEnabled = !running;
+
+        bool nativeMode = _settingsSnapshot.LoopMode == LoopMode.NativeAgents;
+        bool busyCoordinator = _isPromptRunning && nativeMode && !running;
+
+        // In Queue Loop state: coordinator is busy in native mode, loop not yet running.
+        if (busyCoordinator || _loopQueued)
+        {
+            StartLoopButton.IsEnabled = !_loopQueued; // disable once already queued
+            StartLoopButton.Content   = _loopQueued ? "Loop Queued" : "Queue Loop";
+        }
+        else
+        {
+            StartLoopButton.IsEnabled = !running;
+            StartLoopButton.Content   = "Start Loop";
+        }
+
         StopLoopButton.IsEnabled = running;
         AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
         LoopModeNativeRadio.IsEnabled = !running;
         LoopModeCliRadio.IsEnabled = !running;
-        LoopModeNativeRadio.IsChecked = _settingsSnapshot.LoopMode == LoopMode.NativeAgents;
+        LoopModeNativeRadio.IsChecked = nativeMode;
         LoopModeCliRadio.IsChecked = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
 
         LoopContinuousContextCheckBox.IsEnabled = !running;
         LoopContinuousContextCheckBox.IsChecked = _settingsSnapshot.LoopContinuousContext;
 
         string status;
-        if (running
-            && _settingsSnapshot.LoopMode == LoopMode.NativeAgents
+        if (_loopQueued)
+            status = "⏸ Loop queued — waiting for coordinator";
+        else if (running
+            && nativeMode
             && _loopController.StopState == LoopStopState.StopRequested)
             status = "◌ Stopping after this iteration…";
         else if (running && _loopIsWaiting)
@@ -2545,30 +2586,45 @@ public partial class MainWindow : Window
         try
         {
             if (_currentWorkspace is null) return;
-            BackupAndClearLoopOutput();
-            var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
 
-            if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+            // In native-agents mode, if the coordinator is busy, queue the loop start.
+            if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
             {
-                var config = LoopMdParser.Parse(loopMdPath);
-                if (config == null)
-                {
-                    AppendLine(
-                        "❌ Loop not configured — check loop.md has configured: true",
-                        ThemeBrush("SystemErrorText"));
-                    return;
-                }
-                await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext);
+                _loopQueued = true;
+                SyncLoopPanel();
+                return;
             }
-            else
-            {
-                await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
-                    _conversationManager.CurrentSessionId);
-            }
+
+            await StartLoopImmediateAsync();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(StartLoopButton_Click), ex);
+        }
+    }
+
+    private async Task StartLoopImmediateAsync()
+    {
+        if (_currentWorkspace is null) return;
+        BackupAndClearLoopOutput();
+        var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
+
+        if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+        {
+            var config = LoopMdParser.Parse(loopMdPath);
+            if (config == null)
+            {
+                AppendLine(
+                    "❌ Loop not configured — check loop.md has configured: true",
+                    ThemeBrush("SystemErrorText"));
+                return;
+            }
+            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext);
+        }
+        else
+        {
+            await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
+                _conversationManager.CurrentSessionId);
         }
     }
 
@@ -6669,6 +6725,8 @@ public partial class MainWindow : Window
         _conversationManager.LoadWorkspaceConversation();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
+
+        _loopQueued = false;
 
         // Restore queued prompts saved before last shutdown.
         var savedQueue = _conversationManager.ConversationState.QueuedPrompts;
