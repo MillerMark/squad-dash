@@ -1538,7 +1538,11 @@ public partial class MainWindow : Window
 
         var preview = item.Text.Length > 60 ? item.Text[..57] + "…" : item.Text;
 
-        var dialog = new QueueItemDeleteConfirmWindow($"#{item.SequenceNumber}", preview, GetScreenRect(anchor))
+        var dialog = new QueueItemDeleteConfirmWindow(
+            $"#{item.SequenceNumber}",
+            preview,
+            GetScreenRect(anchor),
+            item.Text)
         {
             Owner = this
         };
