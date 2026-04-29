@@ -134,6 +134,21 @@ internal sealed class TranscriptScrollController
     /// </summary>
     private bool _pendingLockedViewportReanchor;
 
+    /// <summary>
+    /// Counts genuine user-scroll events that passed all gates in
+    /// <see cref="OnScrollChanged"/>. Used to log the first few scroll events to
+    /// the persistent file log for diagnosing scroll-button issues on remote/VM
+    /// sessions where the live trace window may not be available.
+    /// </summary>
+    private int _scrollEventCount;
+
+    /// <summary>
+    /// Counts <see cref="OnScrollChanged"/> calls blocked by Gate 2
+    /// (<c>ExtentHeightChange != 0</c>). Logged every 20th block to the
+    /// file log so we can detect if content-change events are swallowing user scrolls.
+    /// </summary>
+    private int _gate2BlockCount;
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -162,12 +177,16 @@ internal sealed class TranscriptScrollController
         };
         _autoHideTimer.Tick += OnAutoHideTimerTick;
 
-        // If the control is already loaded (e.g. constructed after the visual tree is
-        // up), wire immediately; otherwise wait for the Loaded event.
+        // Subscribe to Loaded persistently (not one-shot). WPF re-fires Loaded each time
+        // the control's template is re-applied (e.g. after an RDP session reconnect that
+        // causes the visual tree to be rebuilt). That gives us a new PART_ContentHost
+        // ScrollViewer we must re-subscribe to, or all subsequent scroll events are lost.
+        _outputTextBox.Loaded += OnOutputTextBoxLoaded;
+
+        // If the control is already in the visual tree, wire immediately so we don't
+        // wait for the next Loaded event.
         if (_outputTextBox.IsLoaded)
             WireScrollViewer();
-        else
-            _outputTextBox.Loaded += OnOutputTextBoxLoaded;
     }
 
     // -------------------------------------------------------------------------
@@ -481,7 +500,44 @@ internal sealed class TranscriptScrollController
     /// anywhere in the main transcript area (transcript <c>PreviewMouseDown</c>).
     /// </summary>
     public void DismissScrollButton() => HideScrollButton(immediate: false);
-    // -------------------------------------------------------------------------
+
+    public void ScrollPageUp()
+    {
+        var sv = EnsureScrollViewer();
+        sv?.PageUp();
+    }
+
+    public void ScrollPageDown()
+    {
+        var sv = EnsureScrollViewer();
+        sv?.PageDown();
+    }
+
+    /// <summary>
+    /// Re-synchronises the scroll-button visibility to match the current scroll position.
+    /// Call from <c>MainWindow.Window_Activated</c> so that an RDP session reconnect —
+    /// which can leave the viewport scrolled to the top without firing the events that
+    /// normally show/hide the button — is corrected the moment the user sees the window.
+    /// </summary>
+    public void SyncScrollState()
+    {
+        var sv = EnsureScrollViewer();
+        if (sv is null) return;
+
+        double distFromBottom = sv.ScrollableHeight - sv.VerticalOffset;
+        bool wasScrolledAway = IsUserScrolledAway;
+        IsUserScrolledAway = distFromBottom > NearBottomThreshold;
+
+        SquadDashTrace.Write(TraceCategory.Scroll,
+            $"SyncScrollState (window activated): distFromBottom={distFromBottom:0.#}px" +
+            $"  scrollableH={sv.ScrollableHeight:0.#}px  locked={IsUserScrolledAway}" +
+            (wasScrolledAway != IsUserScrolledAway ? "  *** corrected ***" : ""));
+
+        if (IsUserScrolledAway && !wasScrolledAway)
+            ShowScrollButton();
+        else if (!IsUserScrolledAway && wasScrolledAway)
+            HideScrollButton(immediate: true);
+    }
 
     /// <summary>
     /// The lambda enqueued by <see cref="RequestScrollToEnd"/>. Executes after the
@@ -548,21 +604,69 @@ internal sealed class TranscriptScrollController
 
     private void OnOutputTextBoxLoaded(object sender, RoutedEventArgs e)
     {
-        _outputTextBox.Loaded -= OnOutputTextBoxLoaded;
+        // Keep the subscription alive (do NOT unsubscribe here). WPF can re-fire
+        // Loaded after an RDP session reconnect when the visual tree is rebuilt.
         WireScrollViewer();
     }
 
     /// <summary>
     /// Obtains the inner <see cref="ScrollViewer"/> from <c>PART_ContentHost</c> and
     /// subscribes to its <see cref="ScrollViewer.ScrollChanged"/> event.
-    /// Must be called after the control template is applied (i.e., after
-    /// <c>Loaded</c> fires or from a point where <c>IsLoaded</c> is already true).
+    /// Safe to call multiple times: if the template produced a new ScrollViewer (e.g.
+    /// after an RDP reconnect that rebuilt the visual tree), the old subscription is
+    /// removed and a new one is established.  Also corrects <see cref="IsUserScrolledAway"/>
+    /// to match the actual scroll position so the button shows immediately if needed.
     /// </summary>
     private void WireScrollViewer()
     {
-        _sv = _outputTextBox.Template?.FindName("PART_ContentHost", _outputTextBox) as ScrollViewer;
+        var newSv = _outputTextBox.Template?.FindName("PART_ContentHost", _outputTextBox) as ScrollViewer;
+
+        if (newSv is null)
+        {
+            SquadDashTrace.Write(TraceCategory.Scroll, "WireScrollViewer: FAILED — PART_ContentHost not found (template not yet applied?).");
+            return;
+        }
+
+        if (ReferenceEquals(newSv, _sv))
+        {
+            // Same instance — already wired, nothing to do.
+            SquadDashTrace.Write(TraceCategory.Scroll, "WireScrollViewer: same ScrollViewer instance, no rewire needed.");
+            return;
+        }
+
+        // Unsubscribe from the old instance (if any) to avoid duplicate events.
         if (_sv is not null)
-            _sv.ScrollChanged += OnScrollChanged;
+        {
+            _sv.ScrollChanged -= OnScrollChanged;
+            SquadDashTrace.Write(TraceCategory.Scroll, "WireScrollViewer: old ScrollViewer instance detached (template was re-applied).");
+        }
+
+        _sv = newSv;
+        _sv.ScrollChanged += OnScrollChanged;
+
+        // After re-wiring, correct IsUserScrolledAway to match the actual scroll
+        // position. An RDP reconnect can leave the viewport at the top while our flag
+        // still reflects the pre-disconnect state (false = at bottom). Without this
+        // correction the button never appears on the reconnected session.
+        double distFromBottom = _sv.ScrollableHeight - _sv.VerticalOffset;
+        bool wasScrolledAway = IsUserScrolledAway;
+        IsUserScrolledAway = distFromBottom > NearBottomThreshold;
+
+        SquadDashTrace.Write(TraceCategory.Scroll,
+            $"WireScrollViewer: ScrollViewer wired. distFromBottom={distFromBottom:0.#}px" +
+            $"  scrollableH={_sv.ScrollableHeight:0.#}px  verticalOffset={_sv.VerticalOffset:0.#}px" +
+            $"  IsUserScrolledAway={IsUserScrolledAway}" +
+            (wasScrolledAway != IsUserScrolledAway ? "  *** state corrected ***" : ""));
+
+        if (IsUserScrolledAway && !wasScrolledAway)
+        {
+            // Reconnect left us scrolled away — show the button immediately.
+            ShowScrollButton();
+        }
+        else if (!IsUserScrolledAway && wasScrolledAway)
+        {
+            HideScrollButton(immediate: true);
+        }
     }
 
     /// <summary>
@@ -648,6 +752,13 @@ internal sealed class TranscriptScrollController
         // not automatically restored during the re-expand phase.
         if (e.ExtentHeightChange != 0)
         {
+            _gate2BlockCount++;
+            if (_gate2BlockCount <= 5 || _gate2BlockCount % 20 == 0)
+            {
+                SquadDashTrace.Write(TraceCategory.Scroll,
+                    $"OnScrollChanged Gate2 block #{_gate2BlockCount}: ExtentHeightChange={e.ExtentHeightChange:+0.#;-0.#}px" +
+                    $"  VerticalChange={e.VerticalChange:+0.#;-0.#}px  locked={IsUserScrolledAway}");
+            }
             if (e.ExtentHeightChange > 0 && !IsUserScrolledAway)
             {
                 if (_isLoadingTranscript)
@@ -709,6 +820,22 @@ internal sealed class TranscriptScrollController
 
         ScrollTrace("USER SCROLL", $"VerticalChange={e.VerticalChange:+0.#;-0.#}px, distFromBottom={distanceFromBottom:0.#}px, locked={IsUserScrolledAway}");
 
+        // Log the first 10 genuine user-scroll events and all lock-state transitions
+        // to the persistent file so scroll-button issues can be diagnosed on VM/remote
+        // sessions where the live trace window isn't open.
+        _scrollEventCount++;
+        bool lockStateChanged = IsUserScrolledAway != wasScrolledAway;
+        if (_scrollEventCount <= 10 || lockStateChanged)
+        {
+            SquadDashTrace.Write(TraceCategory.Scroll,
+                $"OnScrollChanged #{_scrollEventCount}: VerticalChange={e.VerticalChange:+0.#;-0.#}px" +
+                $"  distFromBottom={distanceFromBottom:0.#}px" +
+                $"  scrollableH={sv.ScrollableHeight:0.#}px" +
+                $"  viewportH={sv.ViewportHeight:0.#}px" +
+                $"  locked={IsUserScrolledAway}" +
+                (lockStateChanged ? "  *** LOCK STATE CHANGED ***" : ""));
+        }
+
         if (IsUserScrolledAway)
         {
             _savedDistanceFromBottom = distanceFromBottom;
@@ -748,9 +875,13 @@ internal sealed class TranscriptScrollController
     private void ShowScrollButton()
     {
         if (_scrollToBottomButton is null)
+        {
+            SquadDashTrace.Write(TraceCategory.Scroll, "ShowScrollButton: SKIPPED — _scrollToBottomButton is null (SetScrollToBottomButton not called?).");
             return;
+        }
 
         ScrollTrace("BUTTON SHOWN", "scroll-to-bottom button made visible");
+        SquadDashTrace.Write(TraceCategory.Scroll, "ShowScrollButton: fading button in.");
         _autoHideTimer.Stop();
 
         var btn = _scrollToBottomButton;
@@ -778,6 +909,7 @@ internal sealed class TranscriptScrollController
             return;
 
         ScrollTrace("BUTTON HIDDEN", immediate ? "immediate (thread switch or forced scroll)" : "fade-out");
+        SquadDashTrace.Write(TraceCategory.Scroll, $"HideScrollButton: {(immediate ? "immediate" : "fade-out")}.");
         _autoHideTimer.Stop();
 
         var btn = _scrollToBottomButton;

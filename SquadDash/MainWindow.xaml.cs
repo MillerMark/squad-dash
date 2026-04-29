@@ -868,6 +868,12 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Re-sync scroll state on every activation so that an RDP reconnect —
+            // which can leave the transcript viewport at the top without firing the
+            // events that normally show/hide the scroll-to-bottom button — is corrected
+            // the moment the user sees the window.
+            _scrollController.SyncScrollState();
+
             if (!_pendingPowerShellInstallRecheck)
                 return;
 
@@ -3073,6 +3079,20 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // ── Page Up / Page Down: scroll main transcript ───────────────────
+            if (e.Key == Key.PageUp && PromptTextBox?.IsFocused != true)
+            {
+                _scrollController.ScrollPageUp();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.PageDown && PromptTextBox?.IsFocused != true)
+            {
+                _scrollController.ScrollPageDown();
+                e.Handled = true;
+                return;
+            }
+
             switch (_pttState)
             {
                 case PttState.Idle:
@@ -4543,6 +4563,25 @@ public partial class MainWindow : Window
             PersistTasksPanelVisible();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelCloseButton_Click), ex); }
+    }
+
+    private void EditTasksMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var workspace = _currentWorkspace;
+            if (workspace is null) return;
+
+            var tasksPath = Path.Combine(workspace.SquadFolderPath, "tasks.md");
+            if (!File.Exists(tasksPath)) return;
+
+            MarkdownDocumentWindow.Show(
+                CanShowOwnedWindow() ? this : null,
+                "Tasks",
+                tasksPath,
+                showSource: true);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(EditTasksMenuItem_Click), ex); }
     }
 
     private void ViewLoopPanelMenuItem_Click(object sender, RoutedEventArgs e)
@@ -10052,14 +10091,17 @@ public partial class MainWindow : Window
 
     private void UpdateWindowTitle()
     {
-        Title = _currentSolutionName is { Length: > 0 }
-            ? $"SquadDash - {_currentSolutionName}"
+        var solutionDisplay = _currentSolutionName is { Length: > 0 }
+            ? Path.GetFileNameWithoutExtension(_currentSolutionName)
+            : null;
+        Title = solutionDisplay is { Length: > 0 }
+            ? $"SquadDash - {solutionDisplay}"
             : _currentWorkspace is { FolderPath.Length: > 0 }
                 ? $"SquadDash - {Path.GetFileName(_currentWorkspace.FolderPath)}"
                 : "SquadDash";
         // Keep the titlebar workspace label in sync
-        WorkspaceTitleDisplay = _currentSolutionName is { Length: > 0 }
-            ? _currentSolutionName
+        WorkspaceTitleDisplay = solutionDisplay is { Length: > 0 }
+            ? solutionDisplay
             : _currentWorkspace is { FolderPath.Length: > 0 }
                 ? Path.GetFileName(_currentWorkspace.FolderPath)
                 : "Squad Dash";
