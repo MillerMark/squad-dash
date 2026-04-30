@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
-import { resolvePersonalSquadDir, ensurePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
+import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
 import { initAgentModeTelemetry } from "@bradygaster/squad-sdk/runtime/otel-init";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -218,6 +218,18 @@ const bridge = new SquadBridgeService({
 });
 function emit(event) {
     console.log(JSON.stringify(event));
+}
+function ensurePersonalSquadDir() {
+    const personalDir = path.join(resolveGlobalSquadPath(), "personal-squad");
+    const agentsDir = path.join(personalDir, "agents");
+    if (!fs.existsSync(agentsDir)) {
+        fs.mkdirSync(agentsDir, { recursive: true });
+    }
+    const configPath = path.join(personalDir, "config.json");
+    if (!fs.existsSync(configPath)) {
+        fs.writeFileSync(configPath, JSON.stringify({ defaultModel: "auto", ghostProtocol: true }, null, 2) + "\n", "utf8");
+    }
+    return personalDir;
 }
 function tryParsePromptRequest(parsed) {
     if (typeof parsed.prompt !== "string" || typeof parsed.cwd !== "string")
@@ -688,18 +700,22 @@ const RC_FIREWALL_RULE_NAME = "SquadDash RC";
 let activeFirewallPort = null;
 function addWindowsFirewallRule(port) {
     if (process.platform !== "win32")
-        return;
+        return true; // non-Windows: no firewall rule needed
     try {
-        spawnSync("netsh", [
+        const result = spawnSync("netsh", [
             "advfirewall", "firewall", "add", "rule",
             `name=${RC_FIREWALL_RULE_NAME}`,
             "dir=in", "action=allow", "protocol=TCP",
             `localport=${port}`,
             "profile=private,domain"
         ], { timeout: 5000 });
-        activeFirewallPort = port;
+        if (result.status === 0) {
+            activeFirewallPort = port;
+            return true;
+        }
+        return false;
     }
-    catch { /* non-fatal — may require elevation */ }
+    catch { return false; }
 }
 function removeWindowsFirewallRule() {
     if (process.platform !== "win32" || activeFirewallPort === null)
@@ -869,7 +885,7 @@ async function handleRcStart(request) {
     try {
         const port = await rcBridge.start();
         activeRemoteBridge = rcBridge;
-        addWindowsFirewallRule(port);
+        const firewallRuleAdded = addWindowsFirewallRule(port);
         const lanIp = getLanIp();
         emit({
             type: "rc_started",
@@ -877,7 +893,8 @@ async function handleRcStart(request) {
             rcPort: port,
             rcToken: rcBridge.getSessionToken(),
             rcUrl: `http://localhost:${port}`,
-            rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null
+            rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null,
+            rcFirewallRuleAdded: firewallRuleAdded
         });
         if (request.tunnelMode && request.tunnelMode !== "none") {
             // Fire-and-forget: tunnel startup is non-blocking; errors are emitted as rc_tunnel_error
@@ -1149,7 +1166,7 @@ async function main() {
             continue;
         }
         if (request.type === "rc_status_broadcast") {
-            activeRemoteBridge?.broadcastEvent({ type: "rc_status", status: request.status });
+            activeRemoteBridge?.broadcastEvent?.({ type: "rc_status", status: request.status });
             continue;
         }
         if (request.type === "subsquads_list") {

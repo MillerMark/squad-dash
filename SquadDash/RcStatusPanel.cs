@@ -131,7 +131,43 @@ internal sealed class RcStatusPanel : Window
 
     // ── Public API ────────────────────────────────────────────────────────
 
-    /// <summary>Updates the primary URL (e.g. LAN URL replacing the initial localhost URL).</summary>
+    /// <summary>
+    /// Shows a warning banner when the Windows Firewall rule could not be
+    /// added automatically (requires elevation). Call from the UI thread.
+    /// </summary>
+    public void ShowFirewallWarning()
+    {
+        // Don't add the banner twice
+        if (_firewallWarningShown) return;
+        _firewallWarningShown = true;
+
+        var banner = new Border
+        {
+            BorderThickness = new Thickness(1),
+            CornerRadius    = new CornerRadius(3),
+            Padding         = new Thickness(10, 8, 10, 8),
+            Margin          = new Thickness(0, 10, 0, 0),
+        };
+        banner.SetResourceReference(Border.BackgroundProperty,  "AlertSurface");
+        banner.SetResourceReference(Border.BorderBrushProperty, "AlertBorder");
+
+        var text = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight   = 18,
+            Text         = "⚠️ Windows Firewall rule could not be added automatically — " +
+                           "run SquadDash as Administrator once, or add an inbound TCP rule " +
+                           "for this port manually in Windows Defender Firewall.",
+        };
+        text.SetResourceReference(TextBlock.ForegroundProperty, "AlertBodyText");
+        banner.Child = text;
+
+        // Insert before the separator + Stop button (last two children)
+        int insertAt = _root.Children.Count - 2;
+        _root.Children.Insert(insertAt, banner);
+    }
+
+    private bool _firewallWarningShown = false;
     public void SetPrimaryUrl(string url)
     {
         _urlBox.Text = url;

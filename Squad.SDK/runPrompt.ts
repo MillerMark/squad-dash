@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
-import { resolvePersonalSquadDir, ensurePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
+import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
 import { initAgentModeTelemetry } from "@bradygaster/squad-sdk/runtime/otel-init";
 
@@ -115,6 +115,16 @@ type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBack
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
 let activeLoopProc: ReturnType<typeof spawn> | null = null;
+
+type RemoteBridgeConfigWithAudio = ConstructorParameters<typeof RemoteBridge>[0] & {
+    onAudioStart?: (connectionId: string) => void;
+    onAudioChunk?: (data: Buffer, connectionId: string) => void;
+    onAudioEnd?: (connectionId: string) => void;
+};
+
+type RemoteBridgeWithBroadcast = RemoteBridge & {
+    broadcastEvent?: (event: Record<string, unknown>) => void;
+};
 
 const bridge = new SquadBridgeService({
     onBackgroundTasksChanged(sessionId, tasks) {
@@ -320,6 +330,19 @@ const bridge = new SquadBridgeService({
 
 function emit(event: unknown) {
     console.log(JSON.stringify(event));
+}
+
+function ensurePersonalSquadDir() {
+    const personalDir = path.join(resolveGlobalSquadPath(), "personal-squad");
+    const agentsDir = path.join(personalDir, "agents");
+    if (!fs.existsSync(agentsDir)) {
+        fs.mkdirSync(agentsDir, { recursive: true });
+    }
+    const configPath = path.join(personalDir, "config.json");
+    if (!fs.existsSync(configPath)) {
+        fs.writeFileSync(configPath, JSON.stringify({ defaultModel: "auto", ghostProtocol: true }, null, 2) + "\n", "utf8");
+    }
+    return personalDir;
 }
 
 function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | null {
@@ -833,19 +856,23 @@ function getLanIp(): string | null {
 const RC_FIREWALL_RULE_NAME = "SquadDash RC";
 let activeFirewallPort: number | null = null;
 
-function addWindowsFirewallRule(port: number): void {
-    if (process.platform !== "win32") return;
+function addWindowsFirewallRule(port: number): boolean {
+    if (process.platform !== "win32") return true; // non-Windows: no firewall rule needed
     try {
-        spawnSync("netsh", [
+        const result = spawnSync("netsh", [
             "advfirewall", "firewall", "add", "rule",
             `name=${RC_FIREWALL_RULE_NAME}`,
             "dir=in", "action=allow", "protocol=TCP",
             `localport=${port}`,
             "profile=private,domain"
         ], { timeout: 5000 });
-        activeFirewallPort = port;
+        if (result.status === 0) {
+            activeFirewallPort = port;
+            return true;
+        }
+        return false;
     }
-    catch { /* non-fatal — may require elevation */ }
+    catch { return false; }
 }
 
 function removeWindowsFirewallRule(): void {
@@ -963,14 +990,14 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
                 rcBridge.sendError(err instanceof Error ? err.message : String(err));
             }
         },
-        onAudioStart: (connectionId) => {
+        onAudioStart: (connectionId: string) => {
             emit({ type: "rc_audio_start", connectionId });
         },
-        onAudioChunk: (data, connectionId) => {
+        onAudioChunk: (data: Buffer, connectionId: string) => {
             // Forward PCM bytes as base64-encoded NDJSON to C# side
-            emit({ type: "rc_audio_chunk", connectionId, audioData: (data as Buffer).toString("base64") });
+            emit({ type: "rc_audio_chunk", connectionId, audioData: data.toString("base64") });
         },
-        onAudioEnd: (connectionId) => {
+        onAudioEnd: (connectionId: string) => {
             emit({ type: "rc_audio_end", connectionId });
         },
         onCommand: async (name, args) => {
@@ -981,7 +1008,7 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
                 args
             });
         }
-    });
+    } as RemoteBridgeConfigWithAudio);
 
     // Serve the RC mobile web client from rc-client/
     const rcClientDir = path.join(__dirname, "rc-client");
@@ -1024,7 +1051,7 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
     try {
         const port = await rcBridge.start();
         activeRemoteBridge = rcBridge;
-        addWindowsFirewallRule(port);
+        const firewallRuleAdded = addWindowsFirewallRule(port);
         const lanIp = getLanIp();
         emit({
             type: "rc_started",
@@ -1032,7 +1059,8 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
             rcPort: port,
             rcToken: rcBridge.getSessionToken(),
             rcUrl: `http://localhost:${port}`,
-            rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null
+            rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null,
+            rcFirewallRuleAdded: firewallRuleAdded
         });
 
         if (request.tunnelMode && request.tunnelMode !== "none") {
@@ -1333,7 +1361,7 @@ async function main() {
         }
 
         if (request.type === "rc_status_broadcast") {
-            activeRemoteBridge?.broadcastEvent({ type: "rc_status", status: request.status });
+            (activeRemoteBridge as RemoteBridgeWithBroadcast | null)?.broadcastEvent?.({ type: "rc_status", status: request.status });
             continue;
         }
 

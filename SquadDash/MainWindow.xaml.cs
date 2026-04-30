@@ -2666,7 +2666,11 @@ public partial class MainWindow : Window
         AppendLine("📡 Remote access started — [Show RC panel](app://show-rc-panel)");
 
         ShowRcPanel();
-        SquadDashTrace.Write("UI", $"RC started port={port} url={_rcPanelUrl}");
+
+        if (evt.RcFirewallRuleAdded == false)
+            _rcPanel?.ShowFirewallWarning();
+
+        SquadDashTrace.Write("UI", $"RC started port={port} url={_rcPanelUrl} firewallRuleAdded={evt.RcFirewallRuleAdded}");
     }
 
     private void HandleRcTunnelStarted(SquadSdkEvent evt)
