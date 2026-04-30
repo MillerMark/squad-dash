@@ -7,6 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>SquadDash.App</AssemblyName>
+    <Company>SquadDash Team</Company>
+    <Product>SquadDash</Product>
+    <Copyright>Copyright © 2025 SquadDash Team</Copyright>
     <ApplicationIcon>Assets\SquadDash.ico</ApplicationIcon>
     <EnableRunSlotDeployment Condition="'$(EnableRunSlotDeployment)' == '' and '$(Configuration)' == 'Debug'">true</EnableRunSlotDeployment>
     <EnableRunSlotDeployment Condition="'$(EnableRunSlotDeployment)' == ''">false</EnableRunSlotDeployment>

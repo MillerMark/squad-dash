@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SquadDash</AssemblyName>
+    <Company>SquadDash Team</Company>
+    <Product>SquadDash</Product>
+    <Copyright>Copyright © 2025 SquadDash Team</Copyright>
     <OutputPath>..\SquadDash\bin\$(Configuration)\$(TargetFramework)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
