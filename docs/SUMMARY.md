@@ -19,6 +19,12 @@
   * [Voice Input](features/voice-input.md)
   * [Prompt Queue](features/prompt-queue.md)
 
+## Panels
+
+* [Loop Panel](panels/loop-panel.md)
+* [Tasks Panel](panels/tasks-panel.md)
+* [Commit Approvals Panel](panels/commit-approvals-panel.md)
+
 ## Concepts
 
 * [Concepts](concepts/README.md)
