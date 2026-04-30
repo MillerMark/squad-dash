@@ -232,6 +232,7 @@ public partial class MainWindow : Window
     private string? _watchPhase;
     private bool _remoteAccessActive;
     private MenuItem? _remoteAccessMenuItem;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RemoteSpeechSession> _remoteSpeechSessions = new();
     private ApplicationSettingsSnapshot _settingsSnapshot = ApplicationSettingsSnapshot.Empty;
     private string _activeThemeName = "Light";
     private readonly long _processStartedAtUtcTicks = ProcessIdentity.GetCurrentProcessStartedAtUtcTicks();
@@ -766,6 +767,8 @@ public partial class MainWindow : Window
                 }
                 SyncQueuePanel();
                 SyncLoopPanel();
+                if (_remoteAccessActive)
+                    _ = _bridge.BroadcastRcStatusAsync(v);
             },
             getIsClosing: () => _isClosing,
             getRestartPending: () => _restartPending,
@@ -1955,6 +1958,18 @@ public partial class MainWindow : Window
                 HandleRcError(evt);
                 break;
 
+            case "rc_audio_start":
+                _ = HandleRcAudioStartAsync(evt);
+                break;
+
+            case "rc_audio_chunk":
+                HandleRcAudioChunk(evt);
+                break;
+
+            case "rc_audio_end":
+                _ = HandleRcAudioEndAsync(evt);
+                break;
+
             case "done":
                 _pec.ActiveToolName = null;
                 var doneCurrentTurn = CoordinatorThread.CurrentTurn;
@@ -2598,6 +2613,91 @@ public partial class MainWindow : Window
             : $"❌ Remote access error: {evt.Message}";
         AppendLine(errorLabel, ThemeBrush("SystemErrorText"));
         SquadDashTrace.Write("UI", $"RC error message={evt.Message ?? "(none)"}");
+    }
+
+    private async Task HandleRcAudioStartAsync(SquadSdkEvent evt)
+    {
+        var connId = evt.ConnectionId;
+        if (string.IsNullOrWhiteSpace(connId)) return;
+
+        var key = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
+        var region = _settingsSnapshot.SpeechRegion;
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(region))
+        {
+            SquadDashTrace.Write("RC", $"rc_audio_start ignored — speech not configured (connId={connId})");
+            return;
+        }
+
+        SquadDashTrace.Write("RC", $"rc_audio_start connId={connId}");
+        try
+        {
+            var phraseHints = Dispatcher.Invoke(BuildSpeechPhraseHints);
+            var session = await RemoteSpeechSession.StartAsync(connId, key, region, [..phraseHints])
+                .ConfigureAwait(false);
+
+            session.PhraseRecognized += (_, text) =>
+                Dispatcher.BeginInvoke(() => HandleRcAudioTranscribed(text));
+
+            session.RecognitionError += (_, msg) =>
+                SquadDashTrace.Write("RC", $"rc_speech_error connId={connId}: {msg}");
+
+            if (!_remoteSpeechSessions.TryAdd(connId, session))
+            {
+                // Duplicate start — discard the new session; old one wins
+                await session.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("RC", $"rc_audio_start failed connId={connId}: {ex.Message}");
+        }
+    }
+
+    private void HandleRcAudioChunk(SquadSdkEvent evt)
+    {
+        var connId = evt.ConnectionId;
+        var b64 = evt.AudioData;
+        if (string.IsNullOrWhiteSpace(connId) || string.IsNullOrWhiteSpace(b64)) return;
+
+        if (!_remoteSpeechSessions.TryGetValue(connId, out var session)) return;
+
+        try
+        {
+            var bytes = Convert.FromBase64String(b64);
+            session.WriteAudioChunk(bytes, bytes.Length);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("RC", $"rc_audio_chunk decode error connId={connId}: {ex.Message}");
+        }
+    }
+
+    private async Task HandleRcAudioEndAsync(SquadSdkEvent evt)
+    {
+        var connId = evt.ConnectionId;
+        if (string.IsNullOrWhiteSpace(connId)) return;
+        SquadDashTrace.Write("RC", $"rc_audio_end connId={connId}");
+
+        if (_remoteSpeechSessions.TryRemove(connId, out var session))
+        {
+            await session.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Called on the UI thread when a remote phone PTT session produces a recognized phrase.
+    /// Injects the text into the prompt box and auto-sends (same as local PTT with send enabled).
+    /// </summary>
+    private void HandleRcAudioTranscribed(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        SquadDashTrace.Write("RC", $"rc_transcribed: {text}");
+
+        // Put text in prompt box and auto-send if the prompt is empty (i.e. no text already there).
+        PromptTextBox.Text = text.Trim();
+        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+        if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) && RunButton.IsEnabled)
+            RunButton_Click(this, new System.Windows.RoutedEventArgs());
     }
 
     private void UpdateRemoteAccessMenuHeader()

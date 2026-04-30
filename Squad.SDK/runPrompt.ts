@@ -1,9 +1,15 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
 import { RemoteBridge } from "@bradygaster/squad-sdk";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 type PromptRequest = {
     type?: "prompt";
@@ -71,7 +77,12 @@ type RcStopRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest;
+type RcStatusBroadcastRequest = {
+    type: "rc_status_broadcast";
+    status: "busy" | "idle";
+};
+
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeLoopProc: ReturnType<typeof spawn> | null = null;
@@ -463,6 +474,13 @@ function tryParseRequest(line: string): BridgeRequest | null {
             };
         }
 
+        if (parsed.type === "rc_status_broadcast") {
+            const req = parsed as Partial<RcStatusBroadcastRequest>;
+            const status = req.status === "busy" || req.status === "idle" ? req.status : null;
+            if (!status) return null;
+            return { type: "rc_status_broadcast", status };
+        }
+
         return tryParsePromptRequest(parsed as Partial<PromptRequest>);
     }
     catch {
@@ -808,6 +826,16 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
                 rcBridge.sendError(err instanceof Error ? err.message : String(err));
             }
         },
+        onAudioStart: (connectionId) => {
+            emit({ type: "rc_audio_start", connectionId });
+        },
+        onAudioChunk: (data, connectionId) => {
+            // Forward PCM bytes as base64-encoded NDJSON to C# side
+            emit({ type: "rc_audio_chunk", connectionId, audioData: (data as Buffer).toString("base64") });
+        },
+        onAudioEnd: (connectionId) => {
+            emit({ type: "rc_audio_end", connectionId });
+        },
         onCommand: async (name, args) => {
             emit({
                 type: "rc_command",
@@ -817,6 +845,44 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
             });
         }
     });
+
+    // Serve the RC mobile web client from rc-client/
+    const rcClientDir = path.join(__dirname, "rc-client");
+    if (fs.existsSync(rcClientDir)) {
+        rcBridge.setStaticHandler((req: http.IncomingMessage, res: http.ServerResponse) => {
+            const urlPath = req.url?.split("?")[0] ?? "/";
+            const relativePath = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
+            const filePath = path.join(rcClientDir, relativePath);
+
+            // Security: ensure file is within rcClientDir
+            const resolved = path.resolve(filePath);
+            if (!resolved.startsWith(path.resolve(rcClientDir))) {
+                res.writeHead(403);
+                res.end("Forbidden");
+                return;
+            }
+
+            if (!fs.existsSync(resolved)) {
+                res.writeHead(404);
+                res.end("Not found");
+                return;
+            }
+
+            const ext = path.extname(resolved).toLowerCase();
+            const mimeTypes: Record<string, string> = {
+                ".html": "text/html; charset=utf-8",
+                ".js":   "application/javascript; charset=utf-8",
+                ".css":  "text/css; charset=utf-8",
+                ".json": "application/json",
+                ".png":  "image/png",
+                ".svg":  "image/svg+xml",
+                ".ico":  "image/x-icon",
+            };
+            const contentType = mimeTypes[ext] ?? "application/octet-stream";
+            res.writeHead(200, { "Content-Type": contentType });
+            fs.createReadStream(resolved).pipe(res);
+        });
+    }
 
     try {
         const port = await rcBridge.start();
@@ -996,6 +1062,11 @@ async function main() {
 
         if (request.type === "rc_stop") {
             await handleRcStop(request);
+            continue;
+        }
+
+        if (request.type === "rc_status_broadcast") {
+            activeRemoteBridge?.broadcastEvent({ type: "rc_status", status: request.status });
             continue;
         }
 

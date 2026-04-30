@@ -1,5 +1,18 @@
+diff --git a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.d.ts b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.d.ts
+index ee5df6a..91c7e4d 100644
+--- a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.d.ts
++++ b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.d.ts
+@@ -31,6 +31,8 @@ export declare class RemoteBridge {
+     constructor(config: RemoteBridgeConfig);
+     /** Set a handler to serve static PWA files */
+     setStaticHandler(handler: (req: http.IncomingMessage, res: http.ServerResponse) => void): void;
++    /** Broadcast a raw event object to all connected WebSocket clients */
++    broadcastEvent(event: Record<string, unknown>): void;
+     /** Get the session token for WebSocket authentication */
+     getSessionToken(): string;
+     /** Get the audit log file path */
 diff --git a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
-index 3743807..eee2151 100644
+index 3743807..97e1c56 100644
 --- a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
 +++ b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
 @@ -152,7 +152,9 @@ export class RemoteBridge {
@@ -22,3 +35,59 @@ index 3743807..eee2151 100644
                  this.state = 'running';
                  resolve(this.getPort());
              });
+@@ -462,7 +464,12 @@ export class RemoteBridge {
+             this.send(ws, { type: 'agents', agents: this.agents });
+         }
+         // Handle incoming messages
+-        ws.on('message', (data) => {
++        ws.on('message', (data, isBinary) => {
++            if (isBinary) {
++                // Binary frame = PCM audio chunk from phone PTT
++                this.config.onAudioChunk?.(data, connId);
++                return;
++            }
+             // Rate limiting: 100 messages per second
+             const now = Date.now();
+             let rate = this.wsRateLimit.get(ws);
+@@ -522,8 +529,11 @@ export class RemoteBridge {
+             }
+             // Otherwise use our protocol
+             const cmd = parseCommand(raw);
+-            if (cmd)
+-                this.handleClientCommand(cmd);
++            if (cmd) {
++                if (cmd.type === 'audio_start') { this.config.onAudioStart?.(connId); }
++                else if (cmd.type === 'audio_end') { this.config.onAudioEnd?.(connId); }
++                else this.handleClientCommand(cmd);
++            }
+         });
+         ws.on('close', () => {
+             this.connections.delete(connId);
+@@ -566,6 +576,10 @@ export class RemoteBridge {
+                 break;
+         }
+     }
++    /** Expose broadcast publicly for sending custom events to all WS clients */
++    broadcastEvent(event) {
++        this.broadcast(event);
++    }
+     broadcast(event) {
+         const data = serializeEvent(event);
+         for (const [, { ws }] of this.connections) {
+diff --git a/node_modules/@bradygaster/squad-sdk/dist/remote/types.d.ts b/node_modules/@bradygaster/squad-sdk/dist/remote/types.d.ts
+index 5bb907b..d665c29 100644
+--- a/node_modules/@bradygaster/squad-sdk/dist/remote/types.d.ts
++++ b/node_modules/@bradygaster/squad-sdk/dist/remote/types.d.ts
+@@ -22,6 +22,12 @@ export interface RemoteBridgeConfig {
+     onCommand?: (name: string, args?: string[]) => void | Promise<void>;
+     /** Callback when a remote user responds to a permission request */
+     onPermissionResponse?: (id: string, approved: boolean) => void | Promise<void>;
++    /** Called when a mobile client starts a PTT audio session */
++    onAudioStart?: (connectionId: string) => void;
++    /** Called when a mobile client sends a binary PCM audio chunk */
++    onAudioChunk?: (data: Buffer, connectionId: string) => void;
++    /** Called when a mobile client ends a PTT audio session */
++    onAudioEnd?: (connectionId: string) => void;
+     /** Whether to enable replay buffer for late-joining clients (default: false) */
+     enableReplay?: boolean;
+ }

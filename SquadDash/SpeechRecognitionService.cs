@@ -58,6 +58,53 @@ internal sealed class SpeechRecognitionService : IDisposable {
         _waveIn.StartRecording();
     }
 
+    /// <summary>
+    /// Variant for RC (remote phone) sessions: accepts an external PushAudioInputStream
+    /// so the caller can write PCM bytes received over WebSocket. No WaveInEvent is created.
+    /// </summary>
+    public async Task StartFromStreamAsync(
+        string subscriptionKey,
+        string region,
+        PushAudioInputStream pushStream,
+        IEnumerable<string>? phraseHints = null) {
+        _stopping = false;
+        _pushStream = pushStream;
+
+        var speechConfig = SpeechConfig.FromSubscription(subscriptionKey, region);
+        var audioConfig = AudioConfig.FromStreamInput(_pushStream);
+
+        _recognizer = new SpeechRecognizer(speechConfig, audioConfig);
+
+        if (phraseHints is not null) {
+            var phraseList = PhraseListGrammar.FromRecognizer(_recognizer);
+            foreach (var phrase in phraseHints)
+                if (!string.IsNullOrWhiteSpace(phrase))
+                    phraseList.AddPhrase(phrase);
+        }
+
+        _recognizer.Recognized += (_, e) => {
+            if (e.Result.Reason == ResultReason.RecognizedSpeech &&
+                !string.IsNullOrWhiteSpace(e.Result.Text))
+                PhraseRecognized?.Invoke(this, e.Result.Text);
+        };
+
+        _recognizer.Canceled += (_, e) => {
+            if (!_stopping && e.Reason == CancellationReason.Error)
+                RecognitionError?.Invoke(this, e.ErrorDetails ?? e.Reason.ToString());
+        };
+
+        await _recognizer.StartContinuousRecognitionAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Write raw PCM bytes (16 kHz / 16-bit / mono LE) from an RC audio chunk.
+    /// Safe to call from any thread.
+    /// </summary>
+    public void WriteAudioData(byte[] buffer, int count) {
+        if (_stopping || _pushStream is null) return;
+        _pushStream.Write(buffer, count);
+    }
+
     public async Task StopAsync() {
         _stopping = true;
         try { _waveIn?.StopRecording(); } catch { }

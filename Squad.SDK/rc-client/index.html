@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>SquadDash RC</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --border: #2e2e3f;
+      --accent: #7c6af5;
+      --accent-hover: #9b8df9;
+      --danger: #e05252;
+      --text: #e8e8f0;
+      --muted: #8888a0;
+      --chat-user: #2d2b4e;
+      --chat-agent: #1e2a1e;
+      --ptt-idle: #7c6af5;
+      --ptt-active: #e05252;
+      --ptt-busy: #555;
+      --ptt-size: min(44vw, 200px);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
+    #status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+    #status-dot.connected { background: #4caf50; }
+    #status-dot.error     { background: var(--danger); }
+
+    /* ── Chat area ── */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .msg {
+      max-width: 85%;
+      padding: 9px 13px;
+      border-radius: 14px;
+      line-height: 1.45;
+      font-size: 14px;
+      word-break: break-word;
+    }
+    .msg.user  { background: var(--chat-user);  align-self: flex-end;  border-bottom-right-radius: 3px; }
+    .msg.agent { background: var(--chat-agent); align-self: flex-start; border-bottom-left-radius: 3px; }
+    .msg .role { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 3px; }
+    .msg.agent .role { color: #7ec87e; }
+
+    /* ── Text input bar ── */
+    #input-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #text-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      color: var(--text);
+      padding: 9px 16px;
+      font-size: 15px;
+      outline: none;
+    }
+    #text-input:focus { border-color: var(--accent); }
+    #send-btn {
+      background: var(--accent);
+      border: none;
+      border-radius: 20px;
+      color: #fff;
+      padding: 9px 18px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    #send-btn:active { background: var(--accent-hover); }
+
+    /* ── PTT area ── */
+    #ptt-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 14px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #ptt-btn {
+      width: var(--ptt-size);
+      height: var(--ptt-size);
+      border-radius: 50%;
+      border: 3px solid transparent;
+      background: var(--ptt-idle);
+      color: #fff;
+      font-size: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.15s, transform 0.1s, border-color 0.15s;
+      touch-action: none;
+    }
+    #ptt-btn.active {
+      background: var(--ptt-active);
+      border-color: rgba(255,255,255,0.35);
+      transform: scale(0.94);
+      animation: pulse 0.9s infinite;
+    }
+    #ptt-btn.busy {
+      background: var(--ptt-busy);
+      cursor: not-allowed;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(224, 82, 82, 0.5); }
+      50%       { box-shadow: 0 0 0 14px rgba(224, 82, 82, 0); }
+    }
+
+    #ptt-hint {
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+    }
+    #ptt-hint.busy-text { color: #f5a623; }
+
+    /* ── Thinking indicator ── */
+    .thinking {
+      align-self: flex-start;
+      background: var(--chat-agent);
+      border-radius: 14px 14px 3px 14px;
+      padding: 9px 13px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .dot-anim span {
+      animation: blink 1.2s infinite;
+      animation-fill-mode: both;
+    }
+    .dot-anim span:nth-child(2) { animation-delay: 0.2s; }
+    .dot-anim span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink { 0%,80%,100% { opacity:0; } 40% { opacity:1; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>SquadDash RC</h1>
+  <div id="status-dot" title="Disconnected"></div>
+</header>
+
+<div id="chat"></div>
+
+<div id="input-bar">
+  <input id="text-input" type="text" placeholder="Type a message…" autocomplete="off" />
+  <button id="send-btn">Send</button>
+</div>
+
+<div id="ptt-area">
+  <button id="ptt-btn" title="Hold to talk">🎤</button>
+  <div id="ptt-hint">Hold to talk</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── WebSocket connection ──────────────────────────────────────────────────
+  const dot         = document.getElementById('status-dot');
+  const chat        = document.getElementById('chat');
+  const textInput   = document.getElementById('text-input');
+  const sendBtn     = document.getElementById('send-btn');
+  const pttBtn      = document.getElementById('ptt-btn');
+  const pttHint     = document.getElementById('ptt-hint');
+
+  let ws = null;
+  let wsReady = false;
+  let isAiBusy = false;
+
+  // Reconnect with exponential back-off
+  let reconnectDelay = 1000;
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      wsReady = true;
+      reconnectDelay = 1000;
+      dot.className = 'connected';
+      dot.title = 'Connected';
+    };
+
+    ws.onclose = ws.onerror = () => {
+      wsReady = false;
+      dot.className = 'error';
+      dot.title = 'Disconnected';
+      stopPtt();
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 16000);
+    };
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== 'string') return;
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      handleServerMessage(msg);
+    };
+  }
+
+  // ── Incoming message dispatch ─────────────────────────────────────────────
+  let thinkingEl = null;
+
+  function handleServerMessage(msg) {
+    switch (msg.type) {
+      case 'message':
+        removeThinking();
+        appendChat(msg.role ?? 'agent', msg.content ?? '');
+        break;
+      case 'token':
+        // Stream tokens into the last agent bubble (or create one)
+        appendToken(msg.token ?? '');
+        break;
+      case 'thinking':
+        showThinking();
+        break;
+      case 'done':
+        removeThinking();
+        break;
+      case 'rc_status':
+        setAiBusy(msg.status === 'busy');
+        break;
+      case 'state':
+        // Full state snapshot on connect — replay messages
+        if (Array.isArray(msg.messages)) {
+          chat.innerHTML = '';
+          msg.messages.forEach(m => appendChat(m.role, m.content));
+        }
+        break;
+    }
+  }
+
+  function setAiBusy(busy) {
+    isAiBusy = busy;
+    if (busy) {
+      pttBtn.className = 'busy';
+      pttHint.textContent = '⏳ AI is responding…';
+      pttHint.className = 'busy-text';
+      stopPtt();
+    } else {
+      pttBtn.className = '';
+      pttHint.textContent = 'Hold to talk';
+      pttHint.className = '';
+    }
+  }
+
+  // ── Chat rendering ────────────────────────────────────────────────────────
+  let streamingBubble = null;
+
+  function appendChat(role, content) {
+    streamingBubble = null;
+    const el = document.createElement('div');
+    el.className = `msg ${role === 'user' ? 'user' : 'agent'}`;
+    const roleLabel = document.createElement('div');
+    roleLabel.className = 'role';
+    roleLabel.textContent = role === 'user' ? 'You' : role;
+    el.appendChild(roleLabel);
+    const text = document.createElement('span');
+    text.textContent = content;
+    el.appendChild(text);
+    chat.appendChild(el);
+    scrollToBottom();
+  }
+
+  function appendToken(token) {
+    removeThinking();
+    if (!streamingBubble) {
+      streamingBubble = document.createElement('div');
+      streamingBubble.className = 'msg agent';
+      const roleLabel = document.createElement('div');
+      roleLabel.className = 'role';
+      roleLabel.textContent = 'agent';
+      streamingBubble.appendChild(roleLabel);
+      const span = document.createElement('span');
+      streamingBubble.appendChild(span);
+      chat.appendChild(streamingBubble);
+    }
+    streamingBubble.querySelector('span').textContent += token;
+    scrollToBottom();
+  }
+
+  function showThinking() {
+    if (thinkingEl) return;
+    thinkingEl = document.createElement('div');
+    thinkingEl.className = 'thinking dot-anim';
+    thinkingEl.innerHTML = '<span>●</span><span>●</span><span>●</span>';
+    chat.appendChild(thinkingEl);
+    scrollToBottom();
+  }
+
+  function removeThinking() {
+    if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+  }
+
+  function scrollToBottom() {
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  // ── Text input ────────────────────────────────────────────────────────────
+  function sendText() {
+    const text = textInput.value.trim();
+    if (!text || !wsReady) return;
+    ws.send(JSON.stringify({ type: 'prompt', text }));
+    appendChat('user', text);
+    textInput.value = '';
+  }
+
+  sendBtn.addEventListener('click', sendText);
+  textInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+  });
+
+  // ── PTT / Audio ───────────────────────────────────────────────────────────
+  let audioContext = null;
+  let workletNode  = null;
+  let sourceNode   = null;
+  let mediaStream  = null;
+  let isPttActive  = false;
+
+  async function startPtt() {
+    if (isPttActive || isAiBusy || !wsReady) return;
+    isPttActive = true;
+    pttBtn.className = 'active';
+    pttHint.textContent = '🔴 Recording…';
+
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1,
+        sampleRate: { ideal: 16000 },
+        echoCancellation: true,
+        noiseSuppression: true,
+      }, video: false });
+
+      audioContext = new AudioContext();
+      await audioContext.audioWorklet.addModule('audio-processor.js');
+
+      workletNode = new AudioWorkletNode(audioContext, 'pcm-capture-processor');
+      workletNode.port.onmessage = (ev) => {
+        if (wsReady && isPttActive) {
+          ws.send(ev.data); // ArrayBuffer — binary frame
+        }
+      };
+
+      sourceNode = audioContext.createMediaStreamSource(mediaStream);
+      sourceNode.connect(workletNode);
+      workletNode.connect(audioContext.destination);
+
+      ws.send(JSON.stringify({ type: 'audio_start' }));
+    } catch (err) {
+      console.error('PTT start error', err);
+      stopPtt();
+    }
+  }
+
+  function stopPtt() {
+    if (!isPttActive) return;
+    isPttActive = false;
+
+    if (wsReady && ws) {
+      ws.send(JSON.stringify({ type: 'audio_end' }));
+    }
+
+    // Clean up audio pipeline
+    if (sourceNode)   { sourceNode.disconnect();   sourceNode = null; }
+    if (workletNode)  { workletNode.disconnect();   workletNode = null; }
+    if (audioContext) { audioContext.close();       audioContext = null; }
+    if (mediaStream)  { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+
+    if (!isAiBusy) {
+      pttBtn.className = '';
+      pttHint.textContent = 'Hold to talk';
+    }
+  }
+
+  // Touch events (primary mobile interaction)
+  pttBtn.addEventListener('touchstart', e => { e.preventDefault(); startPtt(); }, { passive: false });
+  pttBtn.addEventListener('touchend',   e => { e.preventDefault(); stopPtt();  }, { passive: false });
+  pttBtn.addEventListener('touchcancel',e => { e.preventDefault(); stopPtt();  }, { passive: false });
+
+  // Mouse fallback for desktop testing
+  pttBtn.addEventListener('mousedown', startPtt);
+  pttBtn.addEventListener('mouseup',   stopPtt);
+  pttBtn.addEventListener('mouseleave',stopPtt);
+
+  // ── Start ─────────────────────────────────────────────────────────────────
+  connect();
+})();
+</script>
+</body>
+</html>

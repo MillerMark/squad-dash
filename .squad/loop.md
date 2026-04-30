@@ -31,6 +31,8 @@ No unchecked tasks remain (or all remaining tasks are Owner: User). Do the follo
 5. After work is complete, mark the task `[x]` in `.squad/tasks.md` and move it to the "Recently Completed" section at the bottom.
 6. Report a one-line summary of what was done.
 
+## Step 4 — Create comprehensive test cases for what has been built in this turn.
+
 ## Reference material
 
 - `.squad/tasks.md` — the full task backlog

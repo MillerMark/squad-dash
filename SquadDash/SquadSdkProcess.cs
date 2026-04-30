@@ -697,6 +697,16 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             SquadDashTrace.Write("Bridge", $"Failed to send rc_stop request: {ex.Message}");
         }
     }
+
+    public async Task BroadcastRcStatusAsync(bool busy) {
+        try {
+            await SendBridgeRequestAsync(new SquadSdkRcStatusBroadcastRequest(busy ? "busy" : "idle"))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to broadcast rc_status: {ex.Message}");
+        }
+    }
 }
 
 internal enum BridgeRequestOutcome {
@@ -791,6 +801,10 @@ internal sealed record SquadSdkRcStartRequest(
 internal sealed record SquadSdkRcStopRequest(
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("type")] string Type = "rc_stop");
+
+internal sealed record SquadSdkRcStatusBroadcastRequest(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("type")] string Type = "rc_status_broadcast");
 
 internal sealed class RecoverableSessionResetException : InvalidOperationException {
     public RecoverableSessionResetException(string message)

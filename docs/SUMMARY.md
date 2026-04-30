@@ -6,7 +6,7 @@
 
 * [Getting Started](getting-started/README.md)
   * [Installation](getting-started/installation.md)
-  * [Visual Studio External Tool](getting-started/visual-studio-external-tool.md)
+  * [Access Through Visual Studio](getting-started/Access Through Visual Studio.md)
   * [First Run](getting-started/first-run.md)
 
 ## Features

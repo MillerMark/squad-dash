@@ -367,4 +367,89 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(evt.TotalTokens, Is.EqualTo(444));
         });
     }
+
+    [Test]
+    public void RcStatusBroadcastRequest_SerializesCorrectly() {
+        var busyJson = JsonSerializer.Serialize(new SquadSdkRcStatusBroadcastRequest("busy"));
+        var idleJson = JsonSerializer.Serialize(new SquadSdkRcStatusBroadcastRequest("idle"));
+
+        Assert.Multiple(() => {
+            Assert.That(busyJson, Does.Contain("\"type\":\"rc_status_broadcast\""));
+            Assert.That(busyJson, Does.Contain("\"status\":\"busy\""));
+            Assert.That(busyJson, Does.Not.Contain("\"Status\""));
+            Assert.That(busyJson, Does.Not.Contain("\"Type\""));
+
+            Assert.That(idleJson, Does.Contain("\"status\":\"idle\""));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcAudioStartPayload() {
+        const string json = """
+            {
+              "type": "rc_audio_start",
+              "connectionId": "conn-abc-123"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_audio_start"));
+            Assert.That(evt.ConnectionId, Is.EqualTo("conn-abc-123"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcAudioChunkPayload() {
+        // Build a small fake PCM chunk and encode it
+        var fakePcm = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+        var b64 = Convert.ToBase64String(fakePcm);
+
+        var json = $$"""
+            {
+              "type": "rc_audio_chunk",
+              "connectionId": "conn-abc-123",
+              "audioData": "{{b64}}"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_audio_chunk"));
+            Assert.That(evt.ConnectionId, Is.EqualTo("conn-abc-123"));
+            Assert.That(evt.AudioData, Is.EqualTo(b64));
+        });
+
+        // Verify round-trip: base64 → bytes should match original
+        var decoded = Convert.FromBase64String(evt!.AudioData!);
+        Assert.That(decoded, Is.EqualTo(fakePcm));
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcAudioEndPayload() {
+        const string json = """
+            {
+              "type": "rc_audio_end",
+              "connectionId": "conn-abc-123"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_audio_end"));
+            Assert.That(evt.ConnectionId, Is.EqualTo("conn-abc-123"));
+        });
+    }
 }
