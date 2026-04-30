@@ -75,6 +75,7 @@ type RcStartRequest = {
     sessionId?: string;
     tunnelMode?: "none" | "ngrok" | "cloudflare";
     tunnelToken?: string;
+    rcToken?: string;
 };
 
 type RcStopRequest = {
@@ -1042,6 +1043,11 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
             });
         }
     } as RemoteBridgeConfigWithAudio);
+
+    // Restore the persistent token so the phone's saved QR link keeps working across restarts.
+    if (request.rcToken && request.rcToken.trim().length > 0) {
+        (rcBridge as any).sessionToken = request.rcToken.trim();
+    }
 
     // Serve the RC mobile web client from rc-client/
     const rcClientDir = path.join(__dirname, "rc-client");

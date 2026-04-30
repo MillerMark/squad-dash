@@ -390,6 +390,19 @@ internal sealed class ApplicationSettingsStore {
     }
 
     /// <summary>
+    /// Persists the RC session token so the same QR code URL stays valid across restarts.
+    /// </summary>
+    public ApplicationSettingsSnapshot SaveRcToken(string? token) {
+        using var mutex = AcquireMutex();
+
+        var current = LoadCore();
+        var updated = current with { RcPersistentToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim() };
+
+        SaveCore(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Saves the documentation panel as explicitly closed, capturing the current
     /// tree expansion state and selected topic for restoration on next startup.
     /// </summary>
@@ -734,6 +747,13 @@ internal sealed record ApplicationSettingsSnapshot(
     /// </summary>
     public bool RemoteAccessActiveOnExit { get; init; } = false;
 
+    /// <summary>
+    /// The RC session token from the last successful RC start.
+    /// Passed back on the next <c>rc_start</c> so the phone's saved QR link keeps working.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("rcPersistentToken")]
+    public string? RcPersistentToken { get; init; }
+
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
             null,
@@ -896,6 +916,7 @@ internal sealed record ApplicationSettingsSnapshot(
             LoopContinuousContext = LoopContinuousContext,
             LoopActiveOnExit = LoopActiveOnExit,
             RemoteAccessActiveOnExit = RemoteAccessActiveOnExit,
+            RcPersistentToken = string.IsNullOrWhiteSpace(RcPersistentToken) ? null : RcPersistentToken.Trim(),
         };
     }
 

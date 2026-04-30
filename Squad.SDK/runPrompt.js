@@ -888,6 +888,10 @@ async function handleRcStart(request) {
             });
         }
     });
+    // Restore the persistent token so the phone's saved QR link keeps working across restarts.
+    if (request.rcToken && typeof request.rcToken === "string" && request.rcToken.trim().length > 0) {
+        rcBridge.sessionToken = request.rcToken.trim();
+    }
     // Serve the RC mobile web client from rc-client/
     const rcClientDir = path.join(__dirname, "rc-client");
     if (fs.existsSync(rcClientDir)) {

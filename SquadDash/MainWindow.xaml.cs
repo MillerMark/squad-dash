@@ -2670,6 +2670,8 @@ public partial class MainWindow : Window
     {
         _remoteAccessActive = true;
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(true);
+        if (!string.IsNullOrWhiteSpace(evt.RcToken))
+            _settingsSnapshot = _settingsStore.SaveRcToken(evt.RcToken);
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
         var baseUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
@@ -5524,7 +5526,8 @@ public partial class MainWindow : Window
                     cwd: _currentWorkspace.FolderPath,
                     sessionId: _conversationManager.CurrentSessionId,
                     tunnelMode: _settingsSnapshot.TunnelMode,
-                    tunnelToken: _settingsSnapshot.TunnelToken).ConfigureAwait(false);
+                    tunnelToken: _settingsSnapshot.TunnelToken,
+                    rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -7562,7 +7565,8 @@ public partial class MainWindow : Window
                     cwd: _currentWorkspace.FolderPath,
                     sessionId: _conversationManager.CurrentSessionId,
                     tunnelMode: _settingsSnapshot.TunnelMode,
-                    tunnelToken: _settingsSnapshot.TunnelToken).ConfigureAwait(false);
+                    tunnelToken: _settingsSnapshot.TunnelToken,
+                    rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(false);
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
