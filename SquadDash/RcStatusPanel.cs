@@ -19,13 +19,15 @@ internal sealed class RcStatusPanel : Window
     private readonly Action _onStopRemoteAccess;
 
     // LAN / direct URL row
-    private readonly TextBox _urlBox;
-    private readonly Button  _qrToggleButton;
-    private readonly Image   _qrImage;
+    private readonly TextBox    _urlBox;
+    private readonly DockPanel  _urlRow;
+    private readonly Button     _qrToggleButton;
+    private readonly Image      _qrImage;
 
     // Tunnel URL row (added dynamically when tunnel arrives)
     private StackPanel? _tunnelSection;
     private TextBox?    _tunnelUrlBox;
+    private DockPanel?  _tunnelUrlRow;
     private Button?     _tunnelQrToggleButton;
     private Image?      _tunnelQrImage;
 
@@ -105,7 +107,7 @@ internal sealed class RcStatusPanel : Window
         _root.Children.Add(MakeSeparator());
 
         // ── Primary URL section ──────────────────────────────────────────
-        (_urlBox, _qrToggleButton, _qrImage) = BuildUrlSection(primaryUrl, isPrimary: true);
+        (_urlBox, _urlRow, _qrToggleButton, _qrImage) = BuildUrlSection(primaryUrl, isPrimary: true);
 
         // ── Stop button ──────────────────────────────────────────────────
         _root.Children.Add(MakeSeparator());
@@ -133,7 +135,7 @@ internal sealed class RcStatusPanel : Window
     public void SetPrimaryUrl(string url)
     {
         _urlBox.Text = url;
-        ResetQr(_qrImage, ref _qrVisible, _qrToggleButton);
+        ResetQr(_qrImage, _urlRow, ref _qrVisible, _qrToggleButton);
     }
 
     /// <summary>Adds (or updates) a tunnel URL row in the panel.</summary>
@@ -145,7 +147,7 @@ internal sealed class RcStatusPanel : Window
         {
             // Already have a tunnel row — just update it.
             _tunnelUrlBox!.Text = url;
-            ResetQr(_tunnelQrImage!, ref _tunnelQrVisible, _tunnelQrToggleButton!);
+            ResetQr(_tunnelQrImage!, _tunnelUrlRow!, ref _tunnelQrVisible, _tunnelQrToggleButton!);
             return;
         }
 
@@ -164,7 +166,7 @@ internal sealed class RcStatusPanel : Window
         tunnelLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         _tunnelSection.Children.Add(tunnelLabel);
 
-        (_tunnelUrlBox, _tunnelQrToggleButton, _tunnelQrImage) =
+        (_tunnelUrlBox, _tunnelUrlRow, _tunnelQrToggleButton, _tunnelQrImage) =
             BuildUrlSection(url, isPrimary: false, container: _tunnelSection);
 
         _root.Children.Insert(insertAt, _tunnelSection);
@@ -176,7 +178,7 @@ internal sealed class RcStatusPanel : Window
     /// Builds the URL textbox + Copy button + QR toggle + QR image group.
     /// Returns the three key controls for later manipulation.
     /// </summary>
-    private (TextBox urlBox, Button qrToggle, Image qrImage) BuildUrlSection(
+    private (TextBox urlBox, DockPanel urlRow, Button qrToggle, Image qrImage) BuildUrlSection(
         string url, bool isPrimary, StackPanel? container = null)
     {
         container ??= _root;
@@ -192,8 +194,8 @@ internal sealed class RcStatusPanel : Window
             container.Children.Add(label);
         }
 
-        // URL row: TextBox + Copy button
-        var urlRow = new DockPanel { LastChildFill = true };
+        // URL row: TextBox + Copy button — hidden until revealed
+        var urlRow = new DockPanel { LastChildFill = true, Visibility = Visibility.Collapsed };
         WindowChrome.SetIsHitTestVisibleInChrome(urlRow, true);
 
         var copyButton = new Button
@@ -228,10 +230,10 @@ internal sealed class RcStatusPanel : Window
             catch { /* clipboard contention — ignore */ }
         };
 
-        // QR toggle button
+        // QR toggle button — reveals both URL and QR together
         var qrToggleButton = new Button
         {
-            Content             = "Show QR Code ▼",
+            Content             = "Show URL & QR Code ▼",
             HorizontalAlignment = HorizontalAlignment.Left,
             Height              = 28,
             Margin              = new Thickness(0, 6, 0, 0),
@@ -254,7 +256,6 @@ internal sealed class RcStatusPanel : Window
         RenderOptions.SetBitmapScalingMode(qrImage, BitmapScalingMode.NearestNeighbor);
         container.Children.Add(qrImage);
 
-        // Track toggle state locally via closure flag per section
         bool visible = false;
 
         qrToggleButton.Click += (_, _) =>
@@ -264,25 +265,28 @@ internal sealed class RcStatusPanel : Window
             {
                 if (qrImage.Source is null)
                     qrImage.Source = GenerateQrBitmap(urlBox.Text);
-                qrImage.Visibility        = Visibility.Visible;
-                qrToggleButton.Content    = "Hide QR Code ▲";
+                urlRow.Visibility      = Visibility.Visible;
+                qrImage.Visibility     = Visibility.Visible;
+                qrToggleButton.Content = "Hide URL & QR Code ▲";
             }
             else
             {
-                qrImage.Visibility        = Visibility.Collapsed;
-                qrToggleButton.Content    = "Show QR Code ▼";
+                urlRow.Visibility      = Visibility.Collapsed;
+                qrImage.Visibility     = Visibility.Collapsed;
+                qrToggleButton.Content = "Show URL & QR Code ▼";
             }
         };
 
-        return (urlBox, qrToggleButton, qrImage);
+        return (urlBox, urlRow, qrToggleButton, qrImage);
     }
 
-    private static void ResetQr(Image qrImage, ref bool visible, Button toggleButton)
+    private static void ResetQr(Image qrImage, DockPanel urlRow, ref bool visible, Button toggleButton)
     {
-        visible               = false;
-        qrImage.Source        = null;
-        qrImage.Visibility    = Visibility.Collapsed;
-        toggleButton.Content  = "Show QR Code ▼";
+        visible                = false;
+        qrImage.Source         = null;
+        qrImage.Visibility     = Visibility.Collapsed;
+        urlRow.Visibility      = Visibility.Collapsed;
+        toggleButton.Content   = "Show URL & QR Code ▼";
     }
 
     private static FrameworkElement MakeSeparator()
