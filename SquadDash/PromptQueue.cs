@@ -37,6 +37,27 @@ internal sealed class PromptQueue {
             _items.Remove(item);
     }
 
+    /// <summary>
+    /// Moves the item with the given id to the front of the queue (index 0),
+    /// making it the next item to be dispatched.
+    /// </summary>
+    public void MoveToFront(string id) {
+        var index = _items.FindIndex(i => i.Id == id);
+        if (index <= 0) return; // already first or not found
+        var item = _items[index];
+        _items.RemoveAt(index);
+        _items.Insert(0, item);
+    }
+
+    /// <summary>
+    /// Reassigns SequenceNumber values 1..N in current list order.
+    /// Call after any reordering operation.
+    /// </summary>
+    public void RenumberSequentially() {
+        for (int i = 0; i < _items.Count; i++)
+            _items[i].SequenceNumber = i + 1;
+    }
+
     public bool HasReadyItems => _items.Any(i => !i.IsEditing);
 
     public int Count => _items.Count;

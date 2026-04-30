@@ -1587,6 +1587,15 @@ public partial class MainWindow : Window
             // Activate the tab on right-click so user can see what they're deleting.
             cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
 
+            // Only show Prioritize when this item is not already next-to-dispatch (index 0).
+            bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
+            if (!isAlreadyFirst)
+            {
+                var prioritizeItem = new MenuItem { Header = "Prioritize — send this next" };
+                prioritizeItem.Click += (_, _) => OnQueueTabPrioritize(capturedId);
+                cm.Items.Add(prioritizeItem);
+            }
+
             var deleteItem = new MenuItem { Header = "Delete queued item…" };
             deleteItem.Click += (_, _) => OnQueueTabDeleteConfirm(capturedId, tab);
             cm.Items.Add(deleteItem);
@@ -1647,6 +1656,25 @@ public partial class MainWindow : Window
 
         SyncQueuePanel();
         PromptTextBox.Focus();
+    }
+
+    private void OnQueueTabPrioritize(string id)
+    {
+        _promptQueue.MoveToFront(id);
+        _promptQueue.RenumberSequentially();
+        SyncQueuePanel();
+        // _activeTabId is unchanged — restore prompt box to reflect the still-active tab.
+        var activeItem = _activeTabId is not null
+            ? _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId)
+            : null;
+        if (activeItem is not null)
+        {
+            PromptTextBox.Text           = activeItem.Text;
+            PromptTextBox.SelectionStart  = activeItem.SelectionStart;
+            PromptTextBox.SelectionLength = activeItem.SelectionLength;
+            if (activeItem.SelectionLength == 0)
+                PromptTextBox.CaretIndex = activeItem.CaretIndex;
+        }
     }
 
     private void OnQueueTabRemove(string id)
