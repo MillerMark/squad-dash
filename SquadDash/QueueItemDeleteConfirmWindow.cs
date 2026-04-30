@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -36,8 +37,31 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             WindowStartupLocation = WindowStartupLocation.Manual;
             ContentRendered += (_, _) =>
             {
-                Left = anchorScreenRect.Right - ActualWidth;
-                Top  = anchorScreenRect.Top - ActualHeight - 6;
+                double desiredLeft = anchorScreenRect.Right - ActualWidth;
+                double desiredTop  = anchorScreenRect.Top - ActualHeight - 6;
+
+                // Clamp within the owner window's screen bounds so the dialog
+                // doesn't appear partially or fully off-screen.
+                if (Owner is Window owner)
+                {
+                    var ownerLeft   = owner.Left;
+                    var ownerTop    = owner.Top;
+                    var ownerRight  = owner.Left + owner.ActualWidth;
+                    var ownerBottom = owner.Top  + owner.ActualHeight;
+
+                    // Prefer above the anchor; fall back to below if it would clip the top.
+                    if (desiredTop < ownerTop + 4)
+                        desiredTop = anchorScreenRect.Bottom + 6;
+
+                    // Clamp horizontally.
+                    desiredLeft = Math.Max(ownerLeft + 4, Math.Min(desiredLeft, ownerRight - ActualWidth - 4));
+
+                    // Clamp vertically (bottom edge).
+                    desiredTop = Math.Max(ownerTop + 4, Math.Min(desiredTop, ownerBottom - ActualHeight - 4));
+                }
+
+                Left = desiredLeft;
+                Top  = desiredTop;
             };
         }
 
