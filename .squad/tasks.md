@@ -96,11 +96,6 @@
   cross-workspace agent interactions? Note: `squad cross-squad` does not appear in the
   0.9.5-insider CLI — may be a planned future feature.
 
-- [ ] **Capture screenshots for documentation** *(Owner: User)*
-  Documentation pages in `docs/` contain `📸 Screenshot needed` placeholders.
-  Right-click any placeholder in the SquadDash doc viewer to paste a screenshot from clipboard.
-  Screenshots needed for: Loop panel, Tasks panel, Voice input, Prompt queue, Fullscreen mode.
-
 ---
 
 ## ✅ Recently Completed
