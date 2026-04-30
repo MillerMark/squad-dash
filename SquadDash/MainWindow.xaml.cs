@@ -1690,22 +1690,11 @@ public partial class MainWindow : Window
 
     private void SyncSendButton()
     {
-        bool coordinatorBusy = _isPromptRunning || IsNativeLoopRunning;
-        if (_activeTabId is not null)
-        {
-            // On a queued tab: "Send" only if coordinator is free; "Queue" otherwise (re-saves the edit in place).
-            RunButton.Content = coordinatorBusy ? "Queue" : "Send";
-            return;
-        }
-        // Queue is paused waiting for user input: always show "Send" so the user knows
-        // their response goes out immediately rather than being appended to the queue.
-        if (_queuePausedNotificationFired && _promptQueue.Count > 0)
-        {
-            RunButton.Content = "Send";
-            return;
-        }
-        bool queueMode = coordinatorBusy || _promptQueue.Count > 0;
-        RunButton.Content = queueMode ? "Queue" : "Send";
+        RunButton.Content = RunButtonLabelPolicy.Compute(
+            coordinatorBusy:          _isPromptRunning || IsNativeLoopRunning,
+            queuePausedAwaitingInput: _queuePausedNotificationFired,
+            queueCount:               _promptQueue.Count,
+            activeTabId:              _activeTabId);
     }
 
     private async void AbortButton_Click(object sender, RoutedEventArgs e)

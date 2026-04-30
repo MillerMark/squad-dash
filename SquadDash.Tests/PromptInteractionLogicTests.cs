@@ -1,4 +1,4 @@
-namespace SquadDash.Tests;
+﻿namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class PromptInteractionLogicTests {
@@ -175,5 +175,134 @@ internal sealed class PromptInteractionLogicTests {
         Assert.That(
             LocalPromptSubmissionPolicy.ShouldRetainPromptAfterLocalSubmit("/tasks", isPromptRunning: false),
             Is.False);
+    }
+}
+
+// ── RunButtonLabelPolicy tests ────────────────────────────────────────────────
+
+[TestFixture]
+internal sealed class RunButtonLabelPolicyTests {
+
+    // ── Normal mode (no active tab, coordinator idle) ─────────────────────────
+
+    [Test]
+    public void Compute_IdleCoordinator_EmptyQueue_ReturnsSend() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: false,
+            queueCount: 0, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_IdleCoordinator_ItemsInQueue_ReturnsQueue() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: false,
+            queueCount: 3, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
+    }
+
+    [Test]
+    public void Compute_BusyCoordinator_EmptyQueue_ReturnsQueue() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: true, queuePausedAwaitingInput: false,
+            queueCount: 0, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
+    }
+
+    [Test]
+    public void Compute_BusyCoordinator_ItemsInQueue_ReturnsQueue() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: true, queuePausedAwaitingInput: false,
+            queueCount: 2, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
+    }
+
+    // ── Queue-paused state ────────────────────────────────────────────────────
+
+    [Test]
+    public void Compute_QueuePaused_WithItemsInQueue_ReturnsSend() {
+        // Key scenario: AI asked a question, queue has remaining items —
+        // button must show "Send" so user knows their reply fires immediately.
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: true,
+            queueCount: 2, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_QueuePaused_EmptyQueue_ReturnsSend() {
+        // Paused but queue is now empty: coordinator is idle, so "Send".
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: true,
+            queueCount: 0, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_QueuePausedFlag_OnlyActivatesOverride_WhenQueueNonEmpty() {
+        // Paused flag is set but queue is empty → falls through to normal logic → Send.
+        // This is not the special override path, just coincidentally also "Send".
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: true,
+            queueCount: 0, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_QueuePaused_BusyCoordinator_WithItemsInQueue_ReturnsSend() {
+        // Even if coordinator is technically marked busy (e.g. re-entering state),
+        // the paused-queue override fires first.
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: true, queuePausedAwaitingInput: true,
+            queueCount: 1, activeTabId: null);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    // ── Active tab (editing a queued item) ────────────────────────────────────
+
+    [Test]
+    public void Compute_ActiveTab_CoordinatorIdle_ReturnsSend() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: false,
+            queueCount: 1, activeTabId: "tab-42");
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_ActiveTab_CoordinatorBusy_ReturnsQueue() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: true, queuePausedAwaitingInput: false,
+            queueCount: 1, activeTabId: "tab-42");
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
+    }
+
+    [Test]
+    public void Compute_ActiveTab_QueuePaused_CoordinatorIdle_ReturnsSend() {
+        // Active-tab path ignores queuePausedAwaitingInput entirely.
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: true,
+            queueCount: 1, activeTabId: "tab-99");
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_ActiveTab_QueuePaused_CoordinatorBusy_ReturnsQueue() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: true, queuePausedAwaitingInput: true,
+            queueCount: 1, activeTabId: "tab-99");
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
+    }
+
+    // ── Edge: queueCount boundary ─────────────────────────────────────────────
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(10)]
+    public void Compute_Normal_QueueCount_VariousValues(int count) {
+        var expected = count > 0 ? RunButtonLabelPolicy.LabelQueue : RunButtonLabelPolicy.LabelSend;
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: false,
+            queueCount: count, activeTabId: null);
+        Assert.That(label, Is.EqualTo(expected));
     }
 }

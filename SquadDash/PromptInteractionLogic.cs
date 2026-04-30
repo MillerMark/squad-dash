@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace SquadDash;
@@ -207,5 +207,42 @@ internal static class LocalPromptSubmissionPolicy {
         return spaceIndex >= 0
             ? trimmed[..spaceIndex]
             : trimmed;
+    }
+}
+
+/// <summary>
+/// Pure logic for computing the Run/Send button label shown to the user.
+/// Extracted from <c>MainWindow.SyncSendButton()</c> so it can be unit-tested
+/// without a WPF dependency.
+/// </summary>
+internal static class RunButtonLabelPolicy {
+    public const string LabelSend  = "Send";
+    public const string LabelQueue = "Queue";
+
+    /// <summary>
+    /// Computes the label that should appear on the Run button.
+    /// </summary>
+    /// <param name="coordinatorBusy">True when a prompt is running or the native loop is active.</param>
+    /// <param name="queuePausedAwaitingInput">True when <c>_queuePausedNotificationFired</c> is set —
+    /// i.e. the queue has been halted because the last AI turn requested human input.</param>
+    /// <param name="queueCount">Number of items currently in the prompt queue.</param>
+    /// <param name="activeTabId">The currently-active queued-tab ID, or null if on the live tab.</param>
+    public static string Compute(
+        bool coordinatorBusy,
+        bool queuePausedAwaitingInput,
+        int  queueCount,
+        string? activeTabId) {
+
+        // Editing a specific queued tab: "Send" only when coordinator is free.
+        if (activeTabId is not null)
+            return coordinatorBusy ? LabelQueue : LabelSend;
+
+        // Queue is paused for input: bypass the "items in queue → Queue" logic so
+        // the user's reply fires immediately rather than being added to the back.
+        if (queuePausedAwaitingInput && queueCount > 0)
+            return LabelSend;
+
+        bool queueMode = coordinatorBusy || queueCount > 0;
+        return queueMode ? LabelQueue : LabelSend;
     }
 }
