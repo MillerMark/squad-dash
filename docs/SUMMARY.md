@@ -34,4 +34,5 @@
   * [Routing](reference/routing.md)
   * [Keyboard Shortcuts](reference/keyboard-shortcuts.md)
   * [Slash Commands](reference/slash-commands.md)
+  * [Remote Control](reference/remote-control.md)
 

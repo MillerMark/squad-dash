@@ -16,6 +16,7 @@ This section provides technical reference material for SquadDash configuration, 
 - **[Routing](routing.md)** — How routing.md works, table format, label routing
 - **[Keyboard Shortcuts](keyboard-shortcuts.md)** — Known keyboard shortcuts and hotkeys
 - **[Slash Commands](slash-commands.md)** — Complete reference for all `/` commands
+- **[Remote Control](remote-control.md)** — Control SquadDash from your phone browser
 
 ---
 
