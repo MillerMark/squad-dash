@@ -232,6 +232,7 @@ public partial class MainWindow : Window
     private string? _watchPhase;
     private bool _remoteAccessActive;
     private bool _rcRegeneratingToken;
+    private int _rcActivePort;
     private string? _rcPanelUrl;
     private string? _rcTunnelUrl;
     private RcStatusPanel? _rcPanel;
@@ -2675,6 +2676,7 @@ public partial class MainWindow : Window
             _settingsSnapshot = _settingsStore.SaveRcToken(evt.RcToken);
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
+        _rcActivePort = port;
         var baseUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
         _rcPanelUrl = string.IsNullOrEmpty(evt.RcToken) ? baseUrl : $"{baseUrl}?token={Uri.EscapeDataString(evt.RcToken)}";
 
@@ -2884,6 +2886,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _rcActivePort = 0;
         _rcPanel?.Close();
         _rcPanel = null;
         AppendLine("📡 Remote access stopped");
@@ -2901,6 +2904,7 @@ public partial class MainWindow : Window
                 machine:    System.Environment.MachineName,
                 squadDir:   _currentWorkspace.SquadFolderPath,
                 cwd:        _currentWorkspace.FolderPath,
+                port:       _rcActivePort,
                 sessionId:  _conversationManager.CurrentSessionId,
                 tunnelMode: _settingsSnapshot.TunnelMode,
                 tunnelToken: _settingsSnapshot.TunnelToken,
