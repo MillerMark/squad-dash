@@ -3591,10 +3591,12 @@ public partial class MainWindow : Window
 
     // ── CommitApproval helpers ────────────────────────────────────────────────
 
-    // Matches any punctuation char + space + "committed " near the end of a notification summary,
-    // e.g. ", committed abc1234." or ". committed abc1234" or "; committed abc1234".
+    // Matches " committed <sha>" near the end of a notification summary, optionally preceded
+    // by punctuation. Covers: ", committed abc1234.", "; committed abc1234", " committed abc1234."
+    // The SHA is identified as a run of hex characters (5+) so the word "committed" in ordinary
+    // prose is not accidentally stripped.
     private static readonly Regex _committedSuffixRe =
-        new(@"[^\w\s] committed \S+\.?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"[,;.]?\s+committed\s+[0-9a-f]{5,}\S*\.?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
         if (!string.IsNullOrWhiteSpace(notifSummary)) {
