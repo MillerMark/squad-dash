@@ -49,7 +49,7 @@ internal sealed class RcStatusPanel : Window
         WindowStyle         = WindowStyle.None;
         AllowsTransparency  = true;
         Background          = Brushes.Transparent;
-        ResizeMode          = ResizeMode.CanResizeWithGrip;
+        ResizeMode          = ResizeMode.NoResize;
         ShowInTaskbar       = false;
         ShowActivated       = true;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -57,7 +57,7 @@ internal sealed class RcStatusPanel : Window
         WindowChrome.SetWindowChrome(this, new WindowChrome
         {
             CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(4),
+            ResizeBorderThickness = new Thickness(0),
             GlassFrameThickness   = new Thickness(0),
             UseAeroCaptionButtons = false,
         });
@@ -82,7 +82,6 @@ internal sealed class RcStatusPanel : Window
 
         // ── Title row ────────────────────────────────────────────────────
         var titleRow = new DockPanel { LastChildFill = false, Background = Brushes.Transparent };
-        WindowChrome.SetIsHitTestVisibleInChrome(titleRow, true);
         _root.Children.Add(titleRow);
 
         var titleText = new TextBlock
@@ -230,8 +229,8 @@ internal sealed class RcStatusPanel : Window
             container.Children.Add(label);
         }
 
-        // URL row: TextBox + Copy button — hidden until revealed
-        var urlRow = new DockPanel { LastChildFill = true, Visibility = Visibility.Collapsed };
+        // URL row: TextBox + Copy button — always visible
+        var urlRow = new DockPanel { LastChildFill = true };
         WindowChrome.SetIsHitTestVisibleInChrome(urlRow, true);
 
         var copyButton = new Button
@@ -266,10 +265,10 @@ internal sealed class RcStatusPanel : Window
             catch { /* clipboard contention — ignore */ }
         };
 
-        // QR toggle button — reveals both URL and QR together
+        // QR toggle button — reveals QR code only; URL is always visible
         var qrToggleButton = new Button
         {
-            Content             = "Show URL & QR Code ▼",
+            Content             = "Show QR Code ▼",
             HorizontalAlignment = HorizontalAlignment.Left,
             Height              = 28,
             Margin              = new Thickness(0, 6, 0, 0),
@@ -301,15 +300,13 @@ internal sealed class RcStatusPanel : Window
             {
                 if (qrImage.Source is null)
                     qrImage.Source = GenerateQrBitmap(urlBox.Text);
-                urlRow.Visibility      = Visibility.Visible;
                 qrImage.Visibility     = Visibility.Visible;
-                qrToggleButton.Content = "Hide URL & QR Code ▲";
+                qrToggleButton.Content = "Hide QR Code ▲";
             }
             else
             {
-                urlRow.Visibility      = Visibility.Collapsed;
                 qrImage.Visibility     = Visibility.Collapsed;
-                qrToggleButton.Content = "Show URL & QR Code ▼";
+                qrToggleButton.Content = "Show QR Code ▼";
             }
         };
 
@@ -321,8 +318,7 @@ internal sealed class RcStatusPanel : Window
         visible                = false;
         qrImage.Source         = null;
         qrImage.Visibility     = Visibility.Collapsed;
-        urlRow.Visibility      = Visibility.Collapsed;
-        toggleButton.Content   = "Show URL & QR Code ▼";
+        toggleButton.Content   = "Show QR Code ▼";
     }
 
     private static FrameworkElement MakeSeparator()
