@@ -15774,7 +15774,11 @@ public partial class MainWindow : Window
                     MessageBoxImage.Question) == MessageBoxResult.Yes);
 
                 if (push)
-                    await PushToOriginAsync().ConfigureAwait(false);
+                {
+                    var pushed = await PushToOriginAsync().ConfigureAwait(false);
+                    if (pushed)
+                        _squadCliAdapter.OpenExternalLink(url);
+                }
 
                 return;
             }
@@ -15831,13 +15835,13 @@ public partial class MainWindow : Window
             AppendLine(item.Text, item.Brush);
     }
 
-    private async Task PushToOriginAsync()
+    private async Task<bool> PushToOriginAsync()
     {
         var folderPath = _currentWorkspace?.FolderPath;
         if (string.IsNullOrWhiteSpace(folderPath))
         {
             Dispatcher.Invoke(() => AppendSystemLineOrDefer("⚠ No workspace folder — cannot push.", ThemeBrush("SystemErrorText")));
-            return;
+            return false;
         }
 
         Dispatcher.Invoke(() => AppendSystemLineOrDefer("Pushing to origin…"));
@@ -15858,7 +15862,7 @@ public partial class MainWindow : Window
             if (process is null)
             {
                 Dispatcher.Invoke(() => AppendSystemLineOrDefer("⚠ Failed to start git process.", ThemeBrush("SystemErrorText")));
-                return;
+                return false;
             }
 
             var stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
@@ -15872,10 +15876,13 @@ public partial class MainWindow : Window
                 else
                     AppendSystemLineOrDefer($"⚠ git push failed (exit {process.ExitCode}): {stderr.Trim()}", ThemeBrush("SystemErrorText"));
             });
+
+            return process.ExitCode == 0;
         }
         catch (Exception ex)
         {
             Dispatcher.Invoke(() => AppendSystemLineOrDefer($"⚠ Push error: {ex.Message}", ThemeBrush("SystemErrorText")));
+            return false;
         }
     }
 
