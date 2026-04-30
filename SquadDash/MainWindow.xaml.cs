@@ -3225,13 +3225,27 @@ public partial class MainWindow : Window
                 ?? System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
             if (string.IsNullOrEmpty(exePath)) return;
 
+            var workspaceFolder = _currentWorkspace?.FolderPath;
+            var arguments = string.IsNullOrWhiteSpace(workspaceFolder)
+                ? string.Empty
+                : $"--workspace \"{workspaceFolder}\"";
+
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName        = exePath,
+                Arguments       = arguments,
                 Verb            = "runas",
                 UseShellExecute = true,
             });
-            Close();
+
+            // Release workspace resources immediately so the elevated instance doesn't
+            // find us still registered and fail with "Workspace Already Open".
+            RemoveRunningInstanceRegistration();
+            _instanceActivationChannel.Stop();
+            _workspaceOwnershipLease?.Dispose();
+            _workspaceOwnershipLease = null;
+
+            Application.Current.Shutdown();
         }
         catch (System.ComponentModel.Win32Exception)
         {
