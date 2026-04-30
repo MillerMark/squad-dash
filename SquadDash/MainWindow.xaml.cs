@@ -3549,14 +3549,19 @@ public partial class MainWindow : Window
 
     // ── CommitApproval helpers ────────────────────────────────────────────────
 
+    // Matches any punctuation char + space + "committed " near the end of a notification summary,
+    // e.g. ", committed abc1234." or ". committed abc1234" or "; committed abc1234".
+    private static readonly Regex _committedSuffixRe =
+        new(@"[^\w\s] committed \S+\.?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
         if (!string.IsNullOrWhiteSpace(notifSummary)) {
             var s = notifSummary.Trim();
-            // Strip trailing ", committed XXXXXXX." / ", committed XXXXXXX" —
+            // Strip trailing "<punct> committed XXXXXXX." —
             // the commit SHA link is already shown separately in the panel.
-            var commaIdx = s.LastIndexOf(", committed ", StringComparison.OrdinalIgnoreCase);
-            if (commaIdx > 0)
-                s = s[..commaIdx].TrimEnd('.').Trim();
+            var m = _committedSuffixRe.Match(s);
+            if (m.Success)
+                s = s[..m.Index].TrimEnd().TrimEnd('.').Trim();
             return s;
         }
         if (string.IsNullOrWhiteSpace(prompt))
