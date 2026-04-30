@@ -64,18 +64,32 @@
     #activity-icons {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 10px;
       margin-left: auto;
+    }
+    .activity-slot {
+      display: flex;
+      align-items: center;
+      gap: 4px;
     }
     .activity-icon {
       font-size: 18px;
-      display: none;
       line-height: 1;
+      opacity: 0.18;
+      transition: opacity 0.2s;
     }
     .activity-icon.active {
-      display: inline-block;
+      opacity: 1;
       animation: wobble 0.7s ease-in-out infinite;
     }
+    .activity-timer {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      min-width: 1.8em;
+      display: none;
+    }
+    .activity-timer.visible { display: inline; }
     @keyframes wobble {
       0%, 100% { transform: rotate(0deg); }
       20%       { transform: rotate(-9deg); }
@@ -237,8 +251,14 @@
 <header>
   <h1>SquadDash RC</h1>
   <div id="activity-icons">
-    <span id="thinking-icon" class="activity-icon" title="Thinking…">🧠</span>
-    <span id="tool-icon"     class="activity-icon" title="Running tools…">🔨</span>
+    <div class="activity-slot">
+      <span id="thinking-icon" class="activity-icon" title="Thinking…">🧠</span>
+      <span id="thinking-timer" class="activity-timer"></span>
+    </div>
+    <div class="activity-slot">
+      <span id="tool-icon" class="activity-icon" title="Running tools…">🔨</span>
+      <span id="tool-timer" class="activity-timer"></span>
+    </div>
   </div>
   <div id="status-dot" title="Disconnected"></div>
 </header>
@@ -260,14 +280,16 @@
   'use strict';
 
   // ── WebSocket connection ──────────────────────────────────────────────────
-  const dot          = document.getElementById('status-dot');
-  const chat         = document.getElementById('chat');
-  const textInput    = document.getElementById('text-input');
-  const sendBtn      = document.getElementById('send-btn');
-  const pttBtn       = document.getElementById('ptt-btn');
-  const pttHint      = document.getElementById('ptt-hint');
-  const thinkingIcon = document.getElementById('thinking-icon');
-  const toolIcon     = document.getElementById('tool-icon');
+  const dot           = document.getElementById('status-dot');
+  const chat          = document.getElementById('chat');
+  const textInput     = document.getElementById('text-input');
+  const sendBtn       = document.getElementById('send-btn');
+  const pttBtn        = document.getElementById('ptt-btn');
+  const pttHint       = document.getElementById('ptt-hint');
+  const thinkingIcon  = document.getElementById('thinking-icon');
+  const toolIcon      = document.getElementById('tool-icon');
+  const thinkingTimer = document.getElementById('thinking-timer');
+  const toolTimer     = document.getElementById('tool-timer');
 
   let ws = null;
   let wsReady = false;
@@ -275,6 +297,55 @@
   let activeToolCount = 0;
 
   let reconnectDelay = 1000;
+
+  // ── Activity timers ──────────────────────────────────────────────────────
+  let thinkingStartMs = 0;
+  let toolStartMs     = 0;
+  let thinkingTicker  = null;
+  let toolTicker      = null;
+
+  function startActivityTimer(icon, timerEl, startRef, tickerRef, key) {
+    icon.classList.add('active');
+    if (key === 'thinking') {
+      thinkingStartMs = Date.now();
+      if (thinkingTicker) return;
+      thinkingTicker = setInterval(() => {
+        const secs = Math.floor((Date.now() - thinkingStartMs) / 1000);
+        thinkingTimer.textContent = secs + 's';
+        thinkingTimer.classList.add('visible');
+      }, 1000);
+    } else {
+      if (toolStartMs === 0) toolStartMs = Date.now();
+      if (toolTicker) return;
+      toolTicker = setInterval(() => {
+        const secs = Math.floor((Date.now() - toolStartMs) / 1000);
+        toolTimer.textContent = secs + 's';
+        toolTimer.classList.add('visible');
+      }, 1000);
+    }
+  }
+
+  function stopActivityTimer(icon, timerEl, key) {
+    icon.classList.remove('active');
+    if (key === 'thinking') {
+      clearInterval(thinkingTicker);
+      thinkingTicker = null;
+      thinkingStartMs = 0;
+      thinkingTimer.textContent = '';
+      thinkingTimer.classList.remove('visible');
+    } else {
+      clearInterval(toolTicker);
+      toolTicker = null;
+      toolStartMs = 0;
+      toolTimer.textContent = '';
+      toolTimer.classList.remove('visible');
+    }
+  }
+
+  function stopAllTimers() {
+    stopActivityTimer(thinkingIcon, thinkingTimer, 'thinking');
+    stopActivityTimer(toolIcon, toolTimer, 'tool');
+  }
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -298,8 +369,7 @@
       dot.title = 'Disconnected';
       stopPtt();
       activeToolCount = 0;
-      thinkingIcon.classList.remove('active');
-      toolIcon.classList.remove('active');
+      stopAllTimers();
       setTimeout(connect, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 2, 16000);
     };
@@ -333,26 +403,25 @@
           streamingBubble = null;
           streamingRawText = '';
           activeToolCount = 0;
-          thinkingIcon.classList.remove('active');
-          toolIcon.classList.remove('active');
+          stopAllTimers();
           msg.messages.forEach(m => appendChatFinal(m.role, m.content));
         }
         break;
       case 'tool_call':
         if (msg.status === 'running') {
           activeToolCount++;
-          toolIcon.classList.add('active');
+          startActivityTimer(toolIcon, toolTimer, toolStartMs, toolTicker, 'tool');
         } else {
           activeToolCount = Math.max(0, activeToolCount - 1);
-          if (activeToolCount === 0) toolIcon.classList.remove('active');
+          if (activeToolCount === 0) stopActivityTimer(toolIcon, toolTimer, 'tool');
         }
         break;
       // ── Custom broadcast events ──
       case 'thinking_active':
-        thinkingIcon.classList.add('active');
+        startActivityTimer(thinkingIcon, thinkingTimer, thinkingStartMs, thinkingTicker, 'thinking');
         break;
       case 'thinking_done':
-        thinkingIcon.classList.remove('active');
+        stopActivityTimer(thinkingIcon, thinkingTimer, 'thinking');
         break;
       case 'quick_replies':
         if (Array.isArray(msg.replies)) renderQuickReplies(msg.replies);
