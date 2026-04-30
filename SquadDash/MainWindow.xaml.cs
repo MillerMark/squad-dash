@@ -231,6 +231,9 @@ public partial class MainWindow : Window
     private int _watchAgentCount;
     private string? _watchPhase;
     private bool _remoteAccessActive;
+    private string? _rcPanelUrl;
+    private string? _rcTunnelUrl;
+    private RcStatusPanel? _rcPanel;
     private MenuItem? _remoteAccessMenuItem;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RemoteSpeechSession> _remoteSpeechSessions = new();
     private ApplicationSettingsSnapshot _settingsSnapshot = ApplicationSettingsSnapshot.Empty;
@@ -848,6 +851,11 @@ public partial class MainWindow : Window
             getWorkspaceGitHubUrl: () => _workspaceGitHubUrl,
             onLinkClicked: target =>
             {
+                if (target.StartsWith("app://show-rc-panel", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowRcPanel();
+                    return;
+                }
                 if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                     target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                     _ = OpenExternalLinkWithCommitCheckAsync(target);
@@ -2652,26 +2660,42 @@ public partial class MainWindow : Window
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(true);
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
-        var url = evt.RcUrl ?? $"http://localhost:{port}";
-        AppendLine($"📡 Remote access started: {url}");
-        if (!string.IsNullOrWhiteSpace(evt.RcLanUrl))
-        {
-            AppendLine($"  LAN URL: {evt.RcLanUrl}");
-            AppendQrCode(evt.RcLanUrl);
-        }
-        else
-        {
-            AppendQrCode(url);
-        }
-        SquadDashTrace.Write("UI", $"RC started port={port} url={url}");
+        _rcPanelUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
+
+        AppendLine("📡 Remote access started — [Show RC panel](app://show-rc-panel)");
+
+        ShowRcPanel();
+        SquadDashTrace.Write("UI", $"RC started port={port} url={_rcPanelUrl}");
     }
 
     private void HandleRcTunnelStarted(SquadSdkEvent evt)
     {
-        var url = evt.RcTunnelUrl ?? "(unknown)";
-        AppendLine($"  🌐 Tunnel URL: {url}");
-        AppendQrCode(url);
-        SquadDashTrace.Write("UI", $"RC tunnel started url={url}");
+        _rcTunnelUrl = evt.RcTunnelUrl;
+        AppendLine("  🌐 Tunnel active — [Show RC panel](app://show-rc-panel)");
+        _rcPanel?.SetTunnelUrl(_rcTunnelUrl);
+        SquadDashTrace.Write("UI", $"RC tunnel started url={_rcTunnelUrl}");
+    }
+
+    private void ShowRcPanel()
+    {
+        if (_rcPanelUrl is null) return;
+
+        if (_rcPanel is not null && _rcPanel.IsLoaded)
+        {
+            _rcPanel.Activate();
+            return;
+        }
+
+        _rcPanel = new RcStatusPanel(
+            primaryUrl: _rcPanelUrl,
+            onStopRemoteAccess: () => _ = _bridge.StopRemoteAsync());
+        _rcPanel.Owner = this;
+        _rcPanel.Closed += (_, _) => _rcPanel = null;
+
+        if (!string.IsNullOrWhiteSpace(_rcTunnelUrl))
+            _rcPanel.SetTunnelUrl(_rcTunnelUrl);
+
+        _rcPanel.Show();
     }
 
     private void HandleRcTunnelError(SquadSdkEvent evt)
@@ -2800,6 +2824,10 @@ public partial class MainWindow : Window
         _remoteAccessActive = false;
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
         UpdateRemoteAccessMenuHeader();
+        _rcPanel?.Close();
+        _rcPanel = null;
+        _rcPanelUrl = null;
+        _rcTunnelUrl = null;
         AppendLine("📡 Remote access stopped");
         SquadDashTrace.Write("UI", "RC stopped");
     }
@@ -2809,6 +2837,10 @@ public partial class MainWindow : Window
         _remoteAccessActive = false;
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
         UpdateRemoteAccessMenuHeader();
+        _rcPanel?.Close();
+        _rcPanel = null;
+        _rcPanelUrl = null;
+        _rcTunnelUrl = null;
         var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
             ? "❌ Remote access error"
             : $"❌ Remote access error: {evt.Message}";

@@ -652,6 +652,13 @@ internal sealed class MarkdownDocumentRenderer {
             return true;
         }
 
+        if (trimmedTarget.StartsWith("app://", StringComparison.OrdinalIgnoreCase)) {
+            hyperlink = new Hyperlink(new Run(trimmedLabel));
+            hyperlink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            hyperlink.Click += (_, _) => _onLinkClicked(trimmedTarget);
+            return true;
+        }
+
         if (Uri.TryCreate(trimmedTarget, UriKind.Absolute, out var absoluteUri) &&
             (absoluteUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
              absoluteUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))) {
