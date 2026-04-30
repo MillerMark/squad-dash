@@ -56,8 +56,29 @@ internal static class TasksPanelParser {
             }
         }
 
-        return groups;
+        // Merge groups with the same emoji so duplicate priority sections
+        // in the file collapse into a single group in the panel.
+        var merged = new List<TaskPriorityGroup>();
+        foreach (var g in groups) {
+            var existing = merged.FirstOrDefault(m => m.Emoji == g.Emoji);
+            if (existing is not null)
+                existing.Items.AddRange(g.Items);
+            else
+                merged.Add(g);
+        }
+
+        // Sort: High (🔴) → Mid (🟡) → Low (🟢), items within each group keep file order.
+        merged.Sort((a, b) => PriorityOrder(a.Emoji).CompareTo(PriorityOrder(b.Emoji)));
+
+        return merged;
     }
+
+    private static int PriorityOrder(string emoji) => emoji switch {
+        "🔴" => 0,
+        "🟡" => 1,
+        "🟢" => 2,
+        _    => 3
+    };
 }
 
 internal sealed class TaskPriorityGroup(string emoji, string label) {
