@@ -304,6 +304,7 @@ public partial class MainWindow : Window
     // Push-to-talk state
     private enum PttState { Idle, TapDown, TapReleased, Active }
     private PttState _pttState = PttState.Idle;
+    private bool _pttDraining; // true while speech service is draining after PTT release
     private bool _promptHasVoiceInput;
     private bool _pttHadPreexistingText;
     private bool _pttShiftTappedDuringRecording;
@@ -5101,25 +5102,32 @@ public partial class MainWindow : Window
 
         if (service != null)
         {
+            // _pttDraining prevents HandleRestartRequestChanged and Window_Closing from
+            // initiating a restart while Azure is flushing the final phrase recognition.
+            // _pttState is already Idle at this point so without this flag the build watcher
+            // could fire, see Idle state, and Close() before the last phrase arrives.
+            _pttDraining = true;
             try { await service.StopAsync().ConfigureAwait(false); }
             catch { }
             service.Dispose();
         }
 
-        // PhraseRecognized callbacks are queued via Dispatcher.BeginInvoke (Normal priority).
-        // After StopAsync, those callbacks may not have run yet. Awaiting at Background
-        // priority ensures all pending Normal-priority items — including AppendSpeechToPrompt —
-        // execute and write the final phrase into PromptTextBox.Text before we save/close.
-        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
-
-        // Check restart AFTER the speech service has drained AND the dispatcher has flushed
-        // all pending phrase callbacks — so the final dictated text is in PromptTextBox.Text
-        // when EmergencySave captures it during OnClosing.
-        if (_restartPending && !_isPromptRunning)
+        // Yield to the dispatcher at Background priority. All queued Normal-priority
+        // PhraseRecognized → AppendSpeechToPrompt callbacks run first, writing the final
+        // dictated text into PromptTextBox.Text. Then our Background item runs on the
+        // dispatcher thread — we clear _pttDraining and trigger the deferred close if needed.
+        await Dispatcher.InvokeAsync(() =>
         {
-            Close();
-            return;
-        }
+            _pttDraining = false;
+            if (_restartPending && !_isPromptRunning)
+            {
+                _conversationManager.EmergencySave();
+                Close();
+            }
+        }, System.Windows.Threading.DispatcherPriority.Background);
+
+        if (_restartPending && !_isPromptRunning)
+            return; // Close() was initiated inside the dispatcher callback above.
 
         if (send && wasTargetingPrompt)
         {
@@ -12603,11 +12611,11 @@ public partial class MainWindow : Window
             // binary immediately; queue items will resume in the reloaded instance.
             bool isDeferredClose = _deferredShutdown != DeferredShutdownMode.None || _restartPending;
 
-            if (_pttState == PttState.Active)
+            if (_pttState == PttState.Active || _pttDraining)
             {
                 e.Cancel = true;
                 _restartPending = true;
-                SquadDashTrace.Write("Shutdown", "Close requested while PTT voice recording is active. Deferring restart until recording stops.");
+                SquadDashTrace.Write("Shutdown", "Close requested while PTT active or draining. Deferring restart until final phrase is received.");
                 _conversationManager.EmergencySave();
                 return;
             }
@@ -13607,7 +13615,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_pttState == PttState.Active)
+        if (_pttState == PttState.Active || _pttDraining)
         {
             SetInstallStatus("Build finished. Restart will happen after voice recording completes.");
             UpdateSessionState("Restart pending");
