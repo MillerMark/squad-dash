@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -8156,6 +8156,7 @@ public partial class MainWindow : Window
             SyncQueuePanel();
 
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
+            SquadDashTrace.Write("Queue", $"Restore(entries): count={_promptQueue.Count} wasHeld={wasHeld}");
             if (wasHeld && _promptQueue.Count > 0)
             {
                 // Restore the rightmost-tab hold: select the first item's tab so the user
@@ -8177,6 +8178,7 @@ public partial class MainWindow : Window
             SyncQueuePanel();
 
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
+            SquadDashTrace.Write("Queue", $"Restore(legacy): count={_promptQueue.Count} wasHeld={wasHeld}");
             if (wasHeld && _promptQueue.Count > 0)
             {
                 // Restore the rightmost-tab hold: select the first item's tab so the user
@@ -12865,13 +12867,14 @@ public partial class MainWindow : Window
             // draft is stashed in _queuePreEditDraft. Switch back to Active Draft first so that
             // CaptureWorkspaceInputState reads the actual draft — not the queue item's text —
             // preventing a duplicate queue entry on the next launch.
+            bool queueWasRightmostHeld = IsRightmostQueueTabActive();
             if (_activeTabId is not null)
-            {
-                // If rightmost tab is held, persist the flag before switching away.
-                if (IsRightmostQueueTabActive())
-                    _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, queueRightmostHeld: true);
                 OnQueueTabClicked(null);
-            }
+            // Re-apply the hold flag after OnQueueTabClicked: SyncQueuePanel() inside that
+            // call always writes queueRightmostHeld=false (because _activeTabId is now null),
+            // so we must re-persist the true value after the switch completes.
+            if (queueWasRightmostHeld)
+                _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, queueRightmostHeld: true);
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
@@ -16922,3 +16925,5 @@ public sealed class DocViewerScriptingBridge
         _window.Dispatcher.BeginInvoke(() => _window.HighlightDocSourceFromHover(lineHint));
     }
 }
+
+
