@@ -1385,6 +1385,10 @@ public partial class MainWindow : Window
     private PromptQueueItem? GetAutoDispatchCandidate()
     {
         var items = _promptQueue.Items;
+        // If the user is editing the rightmost (first-to-dispatch) tab, hold the entire
+        // queue so they can finish editing before anything fires.
+        if (items.Count > 0 && items[0].Id == _activeTabId)
+            return null;
         for (int i = 0; i < items.Count; i++)
         {
             if (items[i].Id != _activeTabId)
@@ -1400,6 +1404,8 @@ public partial class MainWindow : Window
         var item = GetAutoDispatchCandidate();
         if (item is null)
         {
+            if (IsRightmostQueueTabActive())
+                HandleRightmostTabHold();
             await MaybeFireQueuedLoopAsync();
             return;
         }
@@ -1460,6 +1466,8 @@ public partial class MainWindow : Window
 
         if (LastTurnNeedsInput() && _promptQueue.Count > 0)
             HandleQueuePausedForInput();
+        else if (IsRightmostQueueTabActive())
+            HandleRightmostTabHold();
 
         await MaybeFireQueuedLoopAsync();
     }
@@ -1512,6 +1520,7 @@ public partial class MainWindow : Window
     }
 
     private bool _queuePausedNotificationFired;
+    private bool _rightmostTabHoldNotificationFired;
 
     private void HandleQueuePausedForInput()
     {
@@ -1535,6 +1544,28 @@ public partial class MainWindow : Window
     private void ResetQueuePausedState()
     {
         _queuePausedNotificationFired = false;
+        _rightmostTabHoldNotificationFired = false;
+        SyncSendButton();
+    }
+
+    /// <summary>
+    /// Returns true when the currently active queue tab is the rightmost one —
+    /// i.e. the oldest/first-to-dispatch item (<c>items[0]</c>) is being edited.
+    /// In this state the entire queue is held until the user clicks Send or switches tabs.
+    /// </summary>
+    private bool IsRightmostQueueTabActive() =>
+        _activeTabId is not null &&
+        _promptQueue.Count > 0 &&
+        _promptQueue.Items[0].Id == _activeTabId;
+
+    private void HandleRightmostTabHold()
+    {
+        if (_rightmostTabHoldNotificationFired) return;
+        _rightmostTabHoldNotificationFired = true;
+
+        AppendLine("✋ Queue paused — you're editing the next item to send.", (Brush)FindResource("SubtleText"));
+        AppendLine("Click Send to dispatch it, or select another tab to auto-send.", (Brush)FindResource("SubtleText"));
+
         SyncSendButton();
     }
 
@@ -1660,6 +1691,9 @@ public partial class MainWindow : Window
     {
         if (_activeTabId == id) return;
 
+        // Capture whether we're leaving the rightmost hold tab before the switch.
+        bool wasRightmostHold = IsRightmostQueueTabActive();
+
         // Save current content + caret before switching.
         if (_activeTabId is null)
         {
@@ -1704,8 +1738,16 @@ public partial class MainWindow : Window
             }
         }
 
+        // Switching away from the rightmost hold tab releases the hold.
+        // Reset the notification flag so it can fire again if re-activated, then drain.
+        if (wasRightmostHold)
+            _rightmostTabHoldNotificationFired = false;
+
         SyncQueuePanel();
         PromptTextBox.Focus();
+
+        if (wasRightmostHold && !_isPromptRunning && !IsNativeLoopRunning)
+            _ = DrainQueueIfNeededAsync();
     }
 
     private void OnQueueTabPrioritize(string id)
