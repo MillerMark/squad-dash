@@ -3550,8 +3550,15 @@ public partial class MainWindow : Window
     // ── CommitApproval helpers ────────────────────────────────────────────────
 
     private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
-        if (!string.IsNullOrWhiteSpace(notifSummary))
-            return notifSummary.Trim();
+        if (!string.IsNullOrWhiteSpace(notifSummary)) {
+            var s = notifSummary.Trim();
+            // Strip trailing ", committed XXXXXXX." / ", committed XXXXXXX" —
+            // the commit SHA link is already shown separately in the panel.
+            var commaIdx = s.LastIndexOf(", committed ", StringComparison.OrdinalIgnoreCase);
+            if (commaIdx > 0)
+                s = s[..commaIdx].TrimEnd('.').Trim();
+            return s;
+        }
         if (string.IsNullOrWhiteSpace(prompt))
             return "Commit";
         var words = prompt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
