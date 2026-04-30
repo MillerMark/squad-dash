@@ -513,13 +513,25 @@
   let streamingRawText = '';
 
   const QR_MARKER = 'QUICK_REPLIES_JSON:';
+  const SN_OPEN   = '<system_notification>';
+  const SN_CLOSE  = '</system_notification>';
 
   function visibleText(raw) {
-    const idx = raw.indexOf(QR_MARKER);
-    if (idx === -1) return raw;
-    // strip from the newline before the marker (or just the marker) to end
-    const cut = raw.lastIndexOf('\n', idx);
-    return (cut >= 0 ? raw.slice(0, cut) : raw.slice(0, idx)).trimEnd();
+    let text = raw;
+    // Strip complete <system_notification>...</system_notification> blocks
+    text = text.replace(/<system_notification>[\s\S]*?<\/system_notification>/g, '').trimEnd();
+    // Hide a partial opening tag at the very end (streaming, not yet closed)
+    const openIdx = text.lastIndexOf(SN_OPEN);
+    if (openIdx !== -1 && text.indexOf(SN_CLOSE, openIdx) === -1) {
+      text = text.slice(0, openIdx).trimEnd();
+    }
+    // Strip QUICK_REPLIES_JSON block
+    const idx = text.indexOf(QR_MARKER);
+    if (idx !== -1) {
+      const cut = text.lastIndexOf('\n', idx);
+      text = (cut >= 0 ? text.slice(0, cut) : text.slice(0, idx)).trimEnd();
+    }
+    return text;
   }
 
   /** Create a new fully-settled chat bubble (no streaming) */

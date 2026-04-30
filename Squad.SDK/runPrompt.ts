@@ -581,6 +581,15 @@ function stripQuickRepliesBlock(content: string): string {
     return content;
 }
 
+function stripRcNoise(content: string): string {
+    // Remove <system_notification>...</system_notification> blocks (machine-readable sentinels)
+    return content.replace(/<system_notification>[\s\S]*?<\/system_notification>/g, "").trimEnd();
+}
+
+function cleanForRc(content: string): string {
+    return stripRcNoise(stripQuickRepliesBlock(content));
+}
+
 function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBridge, agentHandle?: string, agentDisplayName?: string): SquadRunHandlers {
     let startedThinking = false;
     let rcAccumulatedContent = "";
@@ -727,7 +736,7 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
             });
             if (remoteBridge && rcAccumulatedContent) {
                 const quickReplies = extractQuickReplies(rcAccumulatedContent);
-                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                const cleanContent = cleanForRc(rcAccumulatedContent);
                 remoteBridge.addMessage("agent", cleanContent || rcAccumulatedContent);
                 if (quickReplies.length > 0) {
                     (remoteBridge as any).broadcast({ type: "quick_replies", replies: quickReplies });
@@ -741,7 +750,7 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                 requestId
             });
             if (remoteBridge && rcAccumulatedContent) {
-                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                const cleanContent = cleanForRc(rcAccumulatedContent);
                 remoteBridge.addMessage("agent", (cleanContent || rcAccumulatedContent) + " [aborted]");
                 rcAccumulatedContent = "";
             }

@@ -432,6 +432,12 @@ function stripQuickRepliesBlock(content) {
         return content.slice(0, idx2).trimEnd();
     return content;
 }
+function stripRcNoise(content) {
+    return content.replace(/<system_notification>[\s\S]*?<\/system_notification>/g, "").trimEnd();
+}
+function cleanForRc(content) {
+    return stripRcNoise(stripQuickRepliesBlock(content));
+}
 function buildRunHandlers(requestId, remoteBridge, agentHandle, agentDisplayName) {
     let startedThinking = false;
     let rcAccumulatedContent = "";
@@ -574,7 +580,7 @@ function buildRunHandlers(requestId, remoteBridge, agentHandle, agentDisplayName
             });
             if (remoteBridge && rcAccumulatedContent) {
                 const quickReplies = extractQuickReplies(rcAccumulatedContent);
-                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                const cleanContent = cleanForRc(rcAccumulatedContent);
                 remoteBridge.addMessage("agent", cleanContent || rcAccumulatedContent);
                 if (quickReplies.length > 0) {
                     remoteBridge.broadcast({ type: "quick_replies", replies: quickReplies });
@@ -588,7 +594,7 @@ function buildRunHandlers(requestId, remoteBridge, agentHandle, agentDisplayName
                 requestId
             });
             if (remoteBridge && rcAccumulatedContent) {
-                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                const cleanContent = cleanForRc(rcAccumulatedContent);
                 remoteBridge.addMessage("agent", (cleanContent || rcAccumulatedContent) + " [aborted]");
                 rcAccumulatedContent = "";
             }
