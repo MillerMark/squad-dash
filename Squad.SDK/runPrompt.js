@@ -285,6 +285,24 @@ function tryParseDelegateRequest(parsed) {
         configDir
     };
 }
+function tryParseNamedAgentRequest(parsed) {
+    if (typeof parsed.targetAgent !== "string" || typeof parsed.selectedOption !== "string" || typeof parsed.cwd !== "string")
+        return null;
+    const targetAgent = parsed.targetAgent.trim();
+    const selectedOption = parsed.selectedOption.trim();
+    const cwd = parsed.cwd.trim();
+    if (!targetAgent || !selectedOption || !cwd)
+        return null;
+    return {
+        type: "named_agent",
+        requestId: typeof parsed.requestId === "string" ? parsed.requestId.trim() || undefined : undefined,
+        targetAgent,
+        selectedOption,
+        cwd,
+        sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId.trim() || undefined : undefined,
+        configDir: typeof parsed.configDir === "string" ? parsed.configDir.trim() || undefined : undefined
+    };
+}
 function tryParseRunLoopRequest(parsed) {
     if (typeof parsed.loopMdPath !== "string" || typeof parsed.cwd !== "string")
         return null;
@@ -374,6 +392,8 @@ function tryParseRequest(line) {
             return { type: "shutdown" };
         if (parsed.type === "delegate")
             return tryParseDelegateRequest(parsed);
+        if (parsed.type === "named_agent")
+            return tryParseNamedAgentRequest(parsed);
         if (parsed.type === "run_loop")
             return tryParseRunLoopRequest(parsed);
         if (parsed.type === "run_loop_stop") {
@@ -762,6 +782,126 @@ async function handleDelegate(request) {
     const handle = request.targetAgent ?? "coordinator";
     const displayName = handle.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
     await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, handle, displayName));
+}
+function buildNamedAgentRunHandlers(requestId, toolCallId, agentHandle, agentDisplayName, coordinatorSessionId) {
+    return {
+        onDelta(chunk) {
+            emit({
+                type: "subagent_message_delta",
+                sessionId: coordinatorSessionId,
+                parentToolCallId: toolCallId,
+                agentName: agentHandle,
+                agentDisplayName,
+                chunk
+            });
+        },
+        onDone() {
+            // subagent_completed is emitted by the caller after runNamedAgent resolves.
+        },
+        onThinking(text) {
+            emit({
+                type: "thinking_delta",
+                requestId,
+                text,
+                speaker: agentHandle
+            });
+        },
+        onToolStart(tool) {
+            emit({
+                type: "subagent_tool_start",
+                sessionId: coordinatorSessionId,
+                parentToolCallId: toolCallId,
+                agentName: agentHandle,
+                agentDisplayName,
+                toolCallId: tool.toolCallId,
+                toolName: tool.toolName,
+                startedAt: tool.startedAt,
+                description: tool.description,
+                intent: tool.intent,
+                skill: tool.skill,
+                args: tool.args
+            });
+        },
+        onToolComplete(tool) {
+            emit({
+                type: "subagent_tool_complete",
+                sessionId: coordinatorSessionId,
+                parentToolCallId: toolCallId,
+                agentName: agentHandle,
+                agentDisplayName,
+                toolCallId: tool.toolCallId,
+                toolName: tool.toolName,
+                finishedAt: tool.finishedAt,
+                success: tool.success,
+                outputText: tool.outputText
+            });
+        },
+        onAborted() {
+            emit({ type: "aborted", requestId });
+        }
+    };
+}
+async function handleNamedAgent(request) {
+    const handle = request.targetAgent.trim().replace(/^@+/, "").toLowerCase();
+    const displayName = handle
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+    const namedAgentSessionId = `named-agent:${handle}`;
+    let charterContent;
+    const charterPath = path.join(request.cwd, ".squad", "agents", handle, "charter.md");
+    try {
+        charterContent = fs.readFileSync(charterPath, "utf-8");
+    }
+    catch { /* no charter, proceed without */ }
+    const toolCallId = request.requestId ?? randomUUID();
+    emit({
+        type: "subagent_started",
+        sessionId: request.sessionId,
+        toolCallId,
+        agentId: handle,
+        agentName: handle,
+        agentDisplayName: displayName,
+        agentDescription: `Named agent: ${displayName}`,
+        prompt: request.selectedOption
+    });
+    try {
+        await bridge.runNamedAgent({
+            cwd: request.cwd,
+            selectedOption: request.selectedOption,
+            targetAgent: handle,
+            namedAgentSessionId,
+            charterContent,
+            configDir: request.configDir
+        }, buildNamedAgentRunHandlers(request.requestId, toolCallId, handle, displayName, request.sessionId));
+    }
+    catch (err) {
+        emit({
+            type: "subagent_failed",
+            sessionId: request.sessionId,
+            toolCallId,
+            agentId: handle,
+            agentName: handle,
+            agentDisplayName: displayName,
+            message: err instanceof Error ? err.message : String(err)
+        });
+        return;
+    }
+    emit({
+        type: "subagent_completed",
+        sessionId: request.sessionId,
+        toolCallId,
+        agentId: handle,
+        agentName: handle,
+        agentDisplayName: displayName,
+        prompt: request.selectedOption
+    });
+    // Signal the C# bridge that this request is fully complete.
+    // Without this, SquadSdkProcess waits indefinitely for a "done" event.
+    emit({
+        type: "done",
+        requestId: request.requestId
+    });
 }
 function getLanIp() {
     const nets = os.networkInterfaces();
@@ -1285,9 +1425,11 @@ async function main() {
             });
             continue;
         }
-        activePromptTask = (request.type === "delegate"
-            ? handleDelegate(request)
-            : handlePrompt(request))
+        activePromptTask = (request.type === "named_agent"
+            ? handleNamedAgent(request)
+            : request.type === "delegate"
+                ? handleDelegate(request)
+                : handlePrompt(request))
             .catch(err => {
             emit({
                 type: "error",

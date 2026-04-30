@@ -1091,6 +1091,13 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
         agentDisplayName: displayName,
         prompt: request.selectedOption
     });
+
+    // Signal the C# bridge that this request is fully complete.
+    // Without this, SquadSdkProcess waits indefinitely for a "done" event.
+    emit({
+        type: "done",
+        requestId: request.requestId
+    });
 }
 
 function getLanIp(): string | null {

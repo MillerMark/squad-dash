@@ -279,6 +279,18 @@ function extractErrorMessage(error) {
 function normalizeAgentHandle(value) {
     return value.trim().replace(/^@+/, "").toLowerCase();
 }
+function buildNamedAgentHiddenContext(targetAgent, charterContent) {
+    const normalizedHandle = normalizeAgentHandle(targetAgent);
+    const lines = [
+        `You are @${normalizedHandle}. SquadDash has launched you directly for this task.`,
+        "Your charter defines your identity, responsibilities, and work style.",
+        "Begin working on the user's request immediately. Do not narrate your launch.",
+    ];
+    if (charterContent?.trim()) {
+        lines.push("", "--- CHARTER ---", charterContent.trim(), "--- END CHARTER ---");
+    }
+    return lines.join("\n");
+}
 function buildDelegationHiddenContext(selectedOption, targetAgent) {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -315,6 +327,14 @@ export class SquadBridgeService {
             configDir: request.configDir,
             requireSameSession: true
         }, buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
+    }
+    async runNamedAgent(request, handlers) {
+        await this.runSessionRequest(request.selectedOption, handlers, {
+            cwd: request.cwd,
+            sessionId: request.namedAgentSessionId,
+            configDir: request.configDir,
+            requireSameSession: false
+        }, buildNamedAgentHiddenContext(request.targetAgent, request.charterContent));
     }
     async runSessionRequest(prompt, handlers, options, hiddenAdditionalContext) {
         const trimmedPrompt = prompt.trim();
