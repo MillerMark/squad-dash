@@ -4783,9 +4783,11 @@ public partial class MainWindow : Window
                         if (gapMs <= PttDoubleClickTime)
                         {
                             // Resolve the target TextBox at activation time.
-                            // DocSourceTextBox focus is still valid here since only Ctrl key was pressed.
-                            _pttTargetTextBox = DocSourceTextBox?.IsFocused == true
-                                ? DocSourceTextBox
+                            // Use Keyboard.FocusedElement so any focused TextBox (not just
+                            // DocSourceTextBox) receives the dictated text.
+                            var focusedTextBox = Keyboard.FocusedElement as TextBox;
+                            _pttTargetTextBox = focusedTextBox != null && focusedTextBox != PromptTextBox
+                                ? focusedTextBox
                                 : PromptTextBox;
 
                             if (_pttTargetTextBox != null)
