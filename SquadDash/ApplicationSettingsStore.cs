@@ -300,12 +300,13 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
-    public ApplicationSettingsSnapshot SaveUtilityWindowState(bool tasksWindowOpen, bool traceWindowOpen) {
+    public ApplicationSettingsSnapshot SaveUtilityWindowState(bool tasksWindowOpen, bool traceWindowOpen, bool approvalWindowOpen = false) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
         var updated = current with {
-            TasksWindowOpen = tasksWindowOpen,
-            TraceWindowOpen = traceWindowOpen
+            TasksWindowOpen    = tasksWindowOpen,
+            TraceWindowOpen    = traceWindowOpen,
+            ApprovalWindowOpen = approvalWindowOpen
         };
         SaveCore(updated);
         return updated;
@@ -622,6 +623,7 @@ internal sealed record ApplicationSettingsSnapshot(
     public string? LastUsedModel { get; init; }
     public bool TasksWindowOpen { get; init; }
     public bool TraceWindowOpen { get; init; }
+    public bool ApprovalWindowOpen { get; init; }
 
     /// <summary>
     /// Whether the documentation panel was open. <c>null</c> (absent) or <c>true</c> = open (default).

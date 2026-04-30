@@ -131,6 +131,10 @@ public partial class MainWindow : Window
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
     private Vector? _traceWindowOffset;
+    private CommitApprovalWindow? _approvalWindow;
+    private Vector? _approvalWindowOffset;
+    private CommitApprovalStore? _approvalStore;
+    private List<CommitApprovalItem> _approvalItems = [];
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
     private bool _movingFloatingWindow;
@@ -254,7 +258,7 @@ public partial class MainWindow : Window
     private WorkspaceOwnershipLease? _workspaceOwnershipLease;
     private bool _startupInitialized;
     private (string FolderPath, WorkspaceWindowPlacement Placement)? _pendingWindowPlacement;
-    private (bool TasksOpen, bool TraceOpen)? _pendingUtilityWindowState;
+    private (bool TasksOpen, bool TraceOpen, bool ApprovalOpen)? _pendingUtilityWindowState;
     private (bool Open, List<string>? ExpandedNodes, string? SelectedTopic, double? DocsPanelWidth, double? DocsTopicsWidth, double? DocsPanelWidthFraction, double? DocsTopicsWidthFraction, bool? DocsSourceOpen, double? DocsSourceWidth)? _pendingDocsPanelState;
     private WorkspaceDocsPanelState? _docsPanelState; // loaded at startup, updated on save
     // _currentPromptStartedAt, _lastPromptActivityAt, _promptNoActivityWarningShown,
@@ -2304,6 +2308,17 @@ public partial class MainWindow : Window
                             ? $"{_workspaceGitHubUrl}/commit/{commitSha}"
                             : null;
                         _ = _bridge.BroadcastRcCommitAsync(commitSha, commitUrl);
+
+                        // ── Approval tracking ─────────────────────────────────────────────
+                        var turnStartedAt = _pec.CurrentPromptStartedAt ?? DateTimeOffset.Now;
+                        var description   = BuildApprovalDescription(notifSummary, doneCurrentTurn?.Prompt);
+                        var hint          = TruncatePromptHint(doneCurrentTurn?.Prompt, maxChars: 60);
+                        var item          = CommitApprovalItem.Create(commitSha, commitUrl, description,
+                                                                      turnStartedAt, hint);
+                        _approvalItems.Add(item);
+                        _approvalStore?.Save(_approvalItems);
+                        _approvalWindow?.AddItem(item);
+                        // ─────────────────────────────────────────────────────────────────
                     }
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
 
@@ -3524,6 +3539,54 @@ public partial class MainWindow : Window
                 _conversationManager.CurrentSessionId);
         }
     }
+
+    // ── CommitApproval helpers ────────────────────────────────────────────────
+
+    private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
+        if (!string.IsNullOrWhiteSpace(notifSummary))
+            return notifSummary.Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+            return "Commit";
+        var words = prompt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length <= 8
+            ? string.Join(' ', words)
+            : string.Join(' ', words[..8]) + "…";
+    }
+
+    private static string? TruncatePromptHint(string? prompt, int maxChars) =>
+        string.IsNullOrWhiteSpace(prompt) ? null
+            : prompt.Length <= maxChars  ? prompt.Trim()
+            : prompt[..maxChars].Trim()  + "…";
+
+    private void OnApprovalItemChanged(CommitApprovalItem updated) {
+        var idx = _approvalItems.FindIndex(i => i.Id == updated.Id);
+        if (idx >= 0) _approvalItems[idx] = updated;
+        _approvalStore?.Save(_approvalItems);
+    }
+
+    private void OnApprovalItemsRemoved(IReadOnlyList<CommitApprovalItem> removed) {
+        foreach (var r in removed)
+            _approvalItems.RemoveAll(i => i.Id == r.Id);
+        _approvalStore?.Save(_approvalItems);
+    }
+
+    private void ScrollToApprovalTurn(DateTimeOffset turnStartedAt) {
+        var entry = CoordinatorThread.PromptParagraphs
+            .FirstOrDefault(e => e.Timestamp == turnStartedAt);
+        if (entry is not null) {
+            ScrollToPromptParagraph(entry.Paragraph);
+            return;
+        }
+        _ = Dispatcher.BeginInvoke(async () => {
+            await _conversationManager.PrependOlderTurnsAsync();
+            var retryEntry = CoordinatorThread.PromptParagraphs
+                .FirstOrDefault(e => e.Timestamp == turnStartedAt);
+            if (retryEntry is not null)
+                ScrollToPromptParagraph(retryEntry.Paragraph);
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Handles a <c>{"squadash": {"command": "..."}}</c> payload extracted from an AI response.
@@ -7780,6 +7843,12 @@ public partial class MainWindow : Window
         _currentSolutionName = _currentWorkspace.SolutionName;
         _workspaceGitHubUrl = TryResolveGitHubUrl(_currentWorkspace.FolderPath);
         ViewPagesButton.Visibility = _workspaceGitHubUrl is not null ? Visibility.Visible : Visibility.Collapsed;
+
+        var workspaceStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+        _approvalStore = new CommitApprovalStore(workspaceStateDir);
+        _approvalItems = _approvalStore.Load();
+        _approvalWindow?.ReplaceAllItems(_approvalItems);
+
         ClearRuntimeIssue();
 
         var repairSw = Stopwatch.StartNew();
@@ -12348,7 +12417,7 @@ public partial class MainWindow : Window
                 Task.Run(() =>
                 {
                     if (pendingUtilityWindowState is { } u)
-                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen);
+                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen, u.ApprovalOpen);
                 }),
                 Task.Run(() =>
                 {
@@ -12465,7 +12534,8 @@ public partial class MainWindow : Window
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
                 _tasksStatusWindow is { IsVisible: true },
-                _traceWindow is { IsVisible: true });
+                _traceWindow is { IsVisible: true },
+                _approvalWindow is { IsVisible: true });
             // Capture docs panel state (only when panel is open; closed state is already
             // written by SetDocumentationMode when the user toggles it off).
             if (_documentationModeEnabled)

@@ -63,7 +63,7 @@ internal sealed class WorkspaceConversationStore {
 
     public string GetSessionConfigDirectory(string workspaceFolder) {
         var normalizedWorkspace = NormalizeWorkspaceFolder(workspaceFolder);
-        var directory = Path.Combine(GetWorkspaceStateDirectory(normalizedWorkspace), "sdk-config");
+        var directory = Path.Combine(GetWorkspaceStateDirectoryCore(normalizedWorkspace), "sdk-config");
         Directory.CreateDirectory(directory);
         return directory;
     }
@@ -446,10 +446,19 @@ internal sealed class WorkspaceConversationStore {
     }
 
     private string GetConversationPath(string normalizedWorkspace) {
-        return Path.Combine(GetWorkspaceStateDirectory(normalizedWorkspace), "conversation.json");
+        return Path.Combine(GetWorkspaceStateDirectoryCore(normalizedWorkspace), "conversation.json");
     }
 
-    private string GetWorkspaceStateDirectory(string normalizedWorkspace) {
+    /// <summary>
+    /// Returns the per-workspace state directory for the given workspace folder path.
+    /// The directory is the same one used by <see cref="Load"/> and <see cref="Save"/>.
+    /// </summary>
+    internal string GetWorkspaceStateDirectory(string workspaceFolder) {
+        var normalized = NormalizeWorkspaceFolder(workspaceFolder);
+        return GetWorkspaceStateDirectoryCore(normalized);
+    }
+
+    private string GetWorkspaceStateDirectoryCore(string normalizedWorkspace) {
         var directoryName = BuildWorkspaceDirectoryName(normalizedWorkspace);
         return Path.Combine(_rootDirectory, directoryName);
     }
