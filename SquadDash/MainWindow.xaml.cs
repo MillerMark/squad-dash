@@ -6111,6 +6111,8 @@ public partial class MainWindow : Window
             ViewLoopPanelMenuItem.IsChecked = _loopPanelVisible;
         if (ViewTasksMenuItem is not null)
             ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
+        if (ViewCommitApprovalsMenuItem is not null)
+            ViewCommitApprovalsMenuItem.IsChecked = _approvalWindow is { IsVisible: true };
     }
 
     private void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)
@@ -6332,6 +6334,17 @@ public partial class MainWindow : Window
                 ViewLoopPanelMenuItem.IsChecked = _loopPanelVisible;
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewLoopPanelMenuItem_Click), ex); }
+    }
+
+    private void ViewCommitApprovalsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ShowApprovalWindow();
+            if (ViewCommitApprovalsMenuItem is not null)
+                ViewCommitApprovalsMenuItem.IsChecked = _approvalWindow is { IsVisible: true };
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ViewCommitApprovalsMenuItem_Click), ex); }
     }
 
     private void SetDocumentationMode(bool enabled, bool persistChange = true)

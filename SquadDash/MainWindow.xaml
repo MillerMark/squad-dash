@@ -372,6 +372,10 @@
                               Header="Tasks Panel"
                               IsCheckable="True"
                               Click="ViewTasksMenuItem_Click" />
+                    <MenuItem x:Name="ViewCommitApprovalsMenuItem"
+                              Header="Commit Approvals"
+                              IsCheckable="True"
+                              Click="ViewCommitApprovalsMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"
