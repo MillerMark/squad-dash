@@ -231,6 +231,7 @@ public partial class MainWindow : Window
     private int _watchAgentCount;
     private string? _watchPhase;
     private bool _remoteAccessActive;
+    private bool _rcRegeneratingToken;
     private string? _rcPanelUrl;
     private string? _rcTunnelUrl;
     private RcStatusPanel? _rcPanel;
@@ -2701,13 +2702,15 @@ public partial class MainWindow : Window
 
         if (_rcPanel is not null && _rcPanel.IsLoaded)
         {
+            _rcPanel.SetPrimaryUrl(_rcPanelUrl);
             _rcPanel.Activate();
             return;
         }
 
         _rcPanel = new RcStatusPanel(
             primaryUrl: _rcPanelUrl,
-            onStopRemoteAccess: () => _ = _bridge.StopRemoteAsync());
+            onStopRemoteAccess: () => _ = _bridge.StopRemoteAsync(),
+            onRegenerateToken: RegenerateRcToken);
         _rcPanel.Owner = this;
         _rcPanel.Closed += (_, _) => _rcPanel = null;
 
@@ -2843,12 +2846,53 @@ public partial class MainWindow : Window
         _remoteAccessActive = false;
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
         UpdateRemoteAccessMenuHeader();
+        _rcPanelUrl  = null;
+        _rcTunnelUrl = null;
+
+        if (_rcRegeneratingToken)
+        {
+            // Keep the panel open; restart RC with the new token immediately.
+            _rcRegeneratingToken = false;
+            _ = RestartRcAfterRegenerateAsync();
+            return;
+        }
+
         _rcPanel?.Close();
         _rcPanel = null;
-        _rcPanelUrl = null;
-        _rcTunnelUrl = null;
         AppendLine("📡 Remote access stopped");
         SquadDashTrace.Write("UI", "RC stopped");
+    }
+
+    private async Task RestartRcAfterRegenerateAsync()
+    {
+        if (_currentWorkspace is null) return;
+        try
+        {
+            await _bridge.StartRemoteAsync(
+                repo:       System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
+                branch:     "main",
+                machine:    System.Environment.MachineName,
+                squadDir:   _currentWorkspace.SquadFolderPath,
+                cwd:        _currentWorkspace.FolderPath,
+                sessionId:  _conversationManager.CurrentSessionId,
+                tunnelMode: _settingsSnapshot.TunnelMode,
+                tunnelToken: _settingsSnapshot.TunnelToken,
+                rcToken:    _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RestartRcAfterRegenerateAsync), ex);
+            _rcPanel?.Close();
+            _rcPanel = null;
+        }
+    }
+
+    private void RegenerateRcToken()
+    {
+        var newToken = Guid.NewGuid().ToString("N");
+        _settingsSnapshot    = _settingsStore.SaveRcToken(newToken);
+        _rcRegeneratingToken = true;
+        _ = _bridge.StopRemoteAsync();
     }
 
     private void HandleRcError(SquadSdkEvent evt)

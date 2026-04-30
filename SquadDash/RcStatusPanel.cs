@@ -17,6 +17,7 @@ namespace SquadDash;
 internal sealed class RcStatusPanel : Window
 {
     private readonly Action _onStopRemoteAccess;
+    private readonly Action? _onRegenerateToken;
 
     // LAN / direct URL row
     private readonly TextBox    _urlBox;
@@ -31,6 +32,9 @@ internal sealed class RcStatusPanel : Window
     private Button?     _tunnelQrToggleButton;
     private Image?      _tunnelQrImage;
 
+    // Regenerate token button (primary URL only)
+    private Button?     _regenerateButton;
+
     private readonly StackPanel _root;
 
     private bool _qrVisible        = false;
@@ -38,9 +42,10 @@ internal sealed class RcStatusPanel : Window
 
     // ── Construction ──────────────────────────────────────────────────────
 
-    public RcStatusPanel(string primaryUrl, Action onStopRemoteAccess)
+    public RcStatusPanel(string primaryUrl, Action onStopRemoteAccess, Action? onRegenerateToken = null)
     {
         _onStopRemoteAccess = onStopRemoteAccess;
+        _onRegenerateToken  = onRegenerateToken;
 
         Title               = "Remote Access";
         Width               = 360;
@@ -107,6 +112,27 @@ internal sealed class RcStatusPanel : Window
 
         // ── Primary URL section ──────────────────────────────────────────
         (_urlBox, _urlRow, _qrToggleButton, _qrImage) = BuildUrlSection(primaryUrl, isPrimary: true);
+
+        // ── Regenerate token button (primary only) ────────────────────────
+        if (onRegenerateToken is not null)
+        {
+            _regenerateButton = new Button
+            {
+                Content             = "↻ Regenerate Token",
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Height              = 28,
+                Margin              = new Thickness(0, 6, 0, 0),
+            };
+            _regenerateButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+            WindowChrome.SetIsHitTestVisibleInChrome(_regenerateButton, true);
+            _regenerateButton.Click += (_, _) =>
+            {
+                _regenerateButton.IsEnabled = false;
+                _regenerateButton.Content   = "↻ Regenerating…";
+                onRegenerateToken();
+            };
+            _root.Children.Add(_regenerateButton);
+        }
 
         // ── Bottom row: Stop (left) + OK/Close (right) ───────────────────
         _root.Children.Add(MakeSeparator());
@@ -189,6 +215,11 @@ internal sealed class RcStatusPanel : Window
     {
         _urlBox.Text = url;
         ResetQr(_qrImage, _urlRow, ref _qrVisible, _qrToggleButton);
+        if (_regenerateButton is not null)
+        {
+            _regenerateButton.IsEnabled = true;
+            _regenerateButton.Content   = "↻ Regenerate Token";
+        }
     }
 
     /// <summary>Adds (or updates) a tunnel URL row in the panel.</summary>
