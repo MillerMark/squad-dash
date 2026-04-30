@@ -757,6 +757,7 @@ public partial class MainWindow : Window
                 {
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     UpdateCompletedTimeFooters();
+                    SquadDashTrace.Write("Queue", $"setIsPromptRunning(false): queueCount={_promptQueue.Count} deferred={_deferredShutdown} restartPending={_restartPending} isClosing={_isClosing}");
                     if (_deferredShutdown == DeferredShutdownMode.AfterCurrentTurn)
                     {
                         // User chose "close after this turn" — don't drain, just close.
@@ -1401,7 +1402,11 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueAsync()
     {
-        if (_isPromptRunning || IsNativeLoopRunning || _isClosing || _restartPending) return;
+        if (_isPromptRunning || IsNativeLoopRunning || _isClosing || _restartPending)
+        {
+            SquadDashTrace.Write("Queue", $"DrainQueueAsync: skipped running={_isPromptRunning} loop={IsNativeLoopRunning} closing={_isClosing} restart={_restartPending}");
+            return;
+        }
 
         var item = GetAutoDispatchCandidate();
         if (item is null)
@@ -1413,6 +1418,7 @@ public partial class MainWindow : Window
         }
 
         var seqNum = item.SequenceNumber;
+        SquadDashTrace.Write("Queue", $"DrainQueueAsync: dispatching #{seqNum} queueCount={_promptQueue.Count}");
         _promptQueue.Remove(item.Id);
         SyncQueuePanel();
 
@@ -1439,12 +1445,13 @@ public partial class MainWindow : Window
 
     private async Task DrainQueueIfNeededAsync()
     {
-        while (!_isPromptRunning && !IsNativeLoopRunning && !LastTurnNeedsInput())
+        while (!_isPromptRunning && !IsNativeLoopRunning && !_isClosing && !_restartPending && !LastTurnNeedsInput())
         {
             var item = GetAutoDispatchCandidate();
             if (item is null) break;
 
             var seqNum = item.SequenceNumber;
+            SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: dispatching #{seqNum} queueCount={_promptQueue.Count}");
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
@@ -1464,6 +1471,12 @@ public partial class MainWindow : Window
             {
                 _pec.PendingQueueItemCount = 0;
             }
+        }
+
+        if (_isClosing || _restartPending)
+        {
+            SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: aborted closing={_isClosing} restart={_restartPending} remaining={_promptQueue.Count}");
+            return;
         }
 
         if (LastTurnNeedsInput() && _promptQueue.Count > 0)
@@ -12875,6 +12888,7 @@ public partial class MainWindow : Window
             // so we must re-persist the true value after the switch completes.
             if (queueWasRightmostHeld)
                 _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, queueRightmostHeld: true);
+            SquadDashTrace.Write("Queue", $"Shutdown save: count={_promptQueue.Count} wasHeld={queueWasRightmostHeld} restartPending={_restartPending}");
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
