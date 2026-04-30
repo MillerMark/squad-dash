@@ -2655,7 +2655,14 @@ public partial class MainWindow : Window
         var url = evt.RcUrl ?? $"http://localhost:{port}";
         AppendLine($"📡 Remote access started: {url}");
         if (!string.IsNullOrWhiteSpace(evt.RcLanUrl))
+        {
             AppendLine($"  LAN URL: {evt.RcLanUrl}");
+            AppendQrCode(evt.RcLanUrl);
+        }
+        else
+        {
+            AppendQrCode(url);
+        }
         SquadDashTrace.Write("UI", $"RC started port={port} url={url}");
     }
 
@@ -2663,6 +2670,7 @@ public partial class MainWindow : Window
     {
         var url = evt.RcTunnelUrl ?? "(unknown)";
         AppendLine($"  🌐 Tunnel URL: {url}");
+        AppendQrCode(url);
         SquadDashTrace.Write("UI", $"RC tunnel started url={url}");
     }
 
@@ -3708,6 +3716,45 @@ public partial class MainWindow : Window
 
         thread.Document.Blocks.Add(paragraph);
         ScrollToEndIfAtBottom(thread);
+    }
+
+    private void AppendQrCode(string url)
+    {
+        try
+        {
+            var qrGenerator = new QRCoder.QRCodeGenerator();
+            var qrData = qrGenerator.CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.Q);
+            var qrCode = new QRCoder.BitmapByteQRCode(qrData);
+            var bitmapBytes = qrCode.GetGraphic(4);
+
+            using var ms = new System.IO.MemoryStream(bitmapBytes);
+            var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
+            bitmapImage.BeginInit();
+            bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmapImage.StreamSource = ms;
+            bitmapImage.EndInit();
+            bitmapImage.Freeze();
+
+            var image = new System.Windows.Controls.Image
+            {
+                Source = bitmapImage,
+                Width = 160,
+                Height = 160,
+                Stretch = System.Windows.Media.Stretch.Uniform,
+                Margin = new Thickness(0, 6, 0, 6),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                SnapsToDevicePixels = true
+            };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.NearestNeighbor);
+
+            var container = new BlockUIContainer(image) { Margin = new Thickness(0, 2, 0, 6) };
+            CoordinatorThread.Document.Blocks.Add(container);
+            ScrollToEndIfAtBottom(CoordinatorThread);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("UI", $"QR code generation failed: {ex.Message}");
+        }
     }
 
     private void AppendText(string text) =>
