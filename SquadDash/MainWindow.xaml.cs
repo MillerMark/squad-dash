@@ -144,6 +144,14 @@ public partial class MainWindow : Window
     private int _queuePreEditDraftSelectionStart;
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
+
+    // ── Queue tab drag-to-reorder ────────────────────────────────────────────
+    private string? _dragTabId;               // Id of the tab currently being dragged
+    private Point   _dragStartPoint;          // Mouse-down position in QueueTabStrip coords
+    private bool    _isDragging;              // True once movement exceeds DragThreshold
+    private string? _dragInsertBeforeTabId;   // Id of tab to drop before (visually); null = rightmost
+    private Border? _dropIndicator;           // Narrow vertical bar shown between tabs during drag
+    private const double DragThreshold = 4.0; // px of movement before drag mode activates
     private bool _restartPending;
     private bool _programmaticExpanderChange;
     private DeferredShutdownMode _deferredShutdown;
@@ -1618,9 +1626,21 @@ public partial class MainWindow : Window
             deleteItem.Click += (_, _) => OnQueueTabDeleteConfirm(capturedId, tab);
             cm.Items.Add(deleteItem);
             tab.ContextMenu = cm;
+
+            // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
+            // then wire up the four mouse events needed for the drag lifecycle.
+            tab.Tag = capturedId;
+            tab.MouseLeftButtonDown += (_, e)  => OnQueueTabMouseDown(capturedId, tab, e);
+            tab.MouseMove           += (_, e)  => OnQueueTabMouseMove(e);
+            tab.MouseLeftButtonUp   += (_, e)  => OnQueueTabMouseUp(capturedId, e);
+            tab.LostMouseCapture    += (_, _)  => CancelDrag();
+        }
+        else
+        {
+            // Active Draft tab: simple click only — never draggable.
+            tab.MouseLeftButtonUp += (_, _) => OnQueueTabClicked(null);
         }
 
-        tab.MouseLeftButtonUp += (_, _) => OnQueueTabClicked(id);
         return tab;
     }
 
@@ -1724,6 +1744,203 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog() == true)
             OnQueueTabRemove(id);
+    }
+
+    // ── Queue tab drag-to-reorder ────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the shared drop-indicator <see cref="Border"/> (a narrow vertical bar),
+    /// creating it on first call.  Uses a themed brush so it updates on theme switch.
+    /// </summary>
+    private Border GetOrCreateDropIndicator()
+    {
+        if (_dropIndicator is not null) return _dropIndicator;
+
+        _dropIndicator = new Border
+        {
+            Width             = 2,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            IsHitTestVisible  = false,
+            Margin            = new Thickness(0, 4, 0, 4),
+        };
+        _dropIndicator.SetResourceReference(Border.BackgroundProperty, "QueueTabActiveBorder");
+        return _dropIndicator;
+    }
+
+    private void OnQueueTabMouseDown(string id, Border tab, MouseButtonEventArgs e)
+    {
+        _dragTabId      = id;
+        _dragStartPoint = e.GetPosition(QueueTabStrip);
+        _isDragging     = false;
+        tab.CaptureMouse();
+    }
+
+    private void OnQueueTabMouseMove(MouseEventArgs e)
+    {
+        if (_dragTabId is null) return;
+
+        var pos = e.GetPosition(QueueTabStrip);
+
+        // Cancel if the cursor leaves the strip's bounds (with a small forgiveness margin).
+        const double margin = 12.0;
+        if (pos.X < -margin || pos.X > QueueTabStrip.ActualWidth  + margin ||
+            pos.Y < -margin || pos.Y > QueueTabStrip.ActualHeight + margin)
+        {
+            CancelDrag();
+            return;
+        }
+
+        // Allow Escape to abort without dropping.
+        if (Keyboard.IsKeyDown(Key.Escape))
+        {
+            CancelDrag();
+            return;
+        }
+
+        if (!_isDragging)
+        {
+            var delta = pos - _dragStartPoint;
+            if (Math.Abs(delta.X) < DragThreshold && Math.Abs(delta.Y) < DragThreshold)
+                return;   // haven't moved far enough — still treating as potential click
+            _isDragging = true;
+        }
+
+        UpdateDropIndicator(pos.X);
+    }
+
+    private void OnQueueTabMouseUp(string id, MouseButtonEventArgs e)
+    {
+        if (_dragTabId != id)
+        {
+            CancelDrag();
+            return;
+        }
+
+        bool    wasDragging    = _isDragging;
+        string? insertBeforeId = _dragInsertBeforeTabId;
+
+        // Clear drag state (and release capture) before doing any work.
+        CancelDrag();
+
+        if (wasDragging)
+            CommitQueueDrop(id, insertBeforeId);
+        else
+            OnQueueTabClicked(id);   // short press with no drag movement → treat as click
+    }
+
+    /// <summary>
+    /// Clears all drag state, removes the drop indicator, and releases mouse capture.
+    /// Safe to call multiple times (idempotent).  Called from LostMouseCapture,
+    /// MouseLeftButtonUp, and the Escape / leave-strip cancel paths.
+    /// </summary>
+    private void CancelDrag()
+    {
+        // Capture the element reference before clearing state so the release below
+        // doesn't attempt to re-enter via the LostMouseCapture handler when _dragTabId
+        // has already been nulled out.
+        var captured = Mouse.Captured as UIElement;
+
+        _dragTabId             = null;
+        _isDragging            = false;
+        _dragInsertBeforeTabId = null;
+
+        if (_dropIndicator is not null && QueueTabStrip.Children.Contains(_dropIndicator))
+            QueueTabStrip.Children.Remove(_dropIndicator);
+
+        // Releasing capture fires LostMouseCapture, which calls CancelDrag again —
+        // but at that point _dragTabId is null and Mouse.Captured is null, so the
+        // second call is a harmless no-op.
+        captured?.ReleaseMouseCapture();
+    }
+
+    /// <summary>
+    /// Repositions the drop indicator inside <see cref="QueueTabStrip"/> based on the
+    /// current mouse X coordinate.  Also updates <see cref="_dragInsertBeforeTabId"/>.
+    /// </summary>
+    private void UpdateDropIndicator(double mouseX)
+    {
+        var indicator = GetOrCreateDropIndicator();
+
+        // Remove the indicator first so the remaining children reflect the real tab order.
+        QueueTabStrip.Children.Remove(indicator);
+
+        // Walk queue tabs (children 1…N; child 0 is the pinned Active Draft tab).
+        // Find the first non-dragged tab whose horizontal mid-point is to the right of
+        // the cursor — the indicator (and the eventual drop) go *before* that tab.
+        int     insertAt       = QueueTabStrip.Children.Count; // default: after all tabs
+        string? insertBeforeId = null;
+
+        for (int i = 1; i < QueueTabStrip.Children.Count; i++)
+        {
+            if (QueueTabStrip.Children[i] is not FrameworkElement child) continue;
+
+            var tagId = child.Tag as string;
+            if (tagId == _dragTabId) continue; // skip the tab that is being dragged
+
+            var childLeft = child.TranslatePoint(new Point(0, 0), QueueTabStrip).X;
+            var midX      = childLeft + child.ActualWidth / 2;
+
+            if (mouseX < midX)
+            {
+                insertBeforeId = tagId;
+                insertAt       = i;
+                break;
+            }
+        }
+
+        _dragInsertBeforeTabId = insertBeforeId;
+        QueueTabStrip.Children.Insert(insertAt, indicator);
+    }
+
+    /// <summary>
+    /// Called on mouse-up after an actual drag gesture.  Maps the visual drop position
+    /// back to a logical <see cref="PromptQueue"/> index and performs the reorder.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The strip renders <c>_items.Reverse()</c>, so visual-left = high logical index
+    /// (dispatched last) and visual-right = low logical index (dispatched first).
+    /// </para>
+    /// <para>
+    /// "Drop visually LEFT of tab X" means the dragged item is placed AFTER X in
+    /// <c>_items</c> (higher logical index, dispatched later).
+    /// </para>
+    /// </remarks>
+    private void CommitQueueDrop(string draggedId, string? insertBeforeId)
+    {
+        var items = _promptQueue.Items;
+
+        // Locate the dragged item and the right-neighbour in the logical list.
+        int dIdx = -1, rIdx = -1;
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].Id == draggedId)    dIdx = i;
+            if (items[i].Id == insertBeforeId) rIdx = i;
+        }
+
+        if (dIdx < 0) return; // dragged item no longer in queue — nothing to do
+
+        int newIndex;
+        if (insertBeforeId is null || rIdx < 0)
+        {
+            // No right-neighbour → drop at rightmost visual = logical index 0
+            // (the item becomes the next to be dispatched).
+            newIndex = 0;
+        }
+        else
+        {
+            // After removing the dragged item the right-neighbour's index shifts down
+            // by 1 if it was logically after (= visually left of) the dragged item.
+            int adjRIdx = rIdx > dIdx ? rIdx - 1 : rIdx;
+
+            // Insert dragged AFTER right-neighbour in _items so it lands visually
+            // to the LEFT of right-neighbour in the strip.
+            newIndex = adjRIdx + 1;
+        }
+
+        _promptQueue.Reorder(draggedId, newIndex);
+        _promptQueue.RenumberSequentially();
+        SyncQueuePanel();
     }
 
     /// <summary>Returns the bounding rect of a UI element in screen coordinates.</summary>

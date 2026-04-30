@@ -50,10 +50,24 @@ internal sealed class PromptQueue {
     }
 
     /// <summary>
+    /// Moves the item with <paramref name="id"/> to <paramref name="newIndex"/> within the
+    /// internal list.  The index is applied <em>after</em> the item has been removed, so
+    /// valid values are 0 … Count-1.  Out-of-range values are clamped automatically.
+    /// </summary>
+    public void Reorder(string id, int newIndex)
+    {
+        var item = _items.FirstOrDefault(i => i.Id == id);
+        if (item is null) return;
+        _items.Remove(item);
+        newIndex = Math.Clamp(newIndex, 0, _items.Count);
+        _items.Insert(newIndex, item);
+    }
+
+    /// <summary>
     /// Reassigns SequenceNumber values 1..N in current list order.
     /// Call after any reordering operation.
     /// </summary>
-    public void RenumberSequentially() {
+    public void RenumberSequentially(){
         for (int i = 0; i < _items.Count; i++)
             _items[i].SequenceNumber = i + 1;
     }
