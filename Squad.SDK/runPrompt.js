@@ -1,10 +1,19 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService } from "./squadService.js";
-import { RemoteBridge } from "@bradygaster/squad-sdk";
+import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
+import { resolvePersonalSquadDir, ensurePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
+import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
+import { initAgentModeTelemetry } from "@bradygaster/squad-sdk/runtime/otel-init";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let activeRemoteBridge = null;
+let activeTunnelProc = null;
 let activeLoopProc = null;
 const bridge = new SquadBridgeService({
     onBackgroundTasksChanged(sessionId, tasks) {
@@ -310,6 +319,12 @@ function tryParseRcStartRequest(parsed) {
         cwd,
         sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
             ? parsed.sessionId.trim()
+            : undefined,
+        tunnelMode: parsed.tunnelMode === "ngrok" || parsed.tunnelMode === "cloudflare"
+            ? parsed.tunnelMode
+            : "none",
+        tunnelToken: typeof parsed.tunnelToken === "string" && parsed.tunnelToken.trim().length > 0
+            ? parsed.tunnelToken.trim()
             : undefined
     };
 }
@@ -366,6 +381,13 @@ function tryParseRequest(line) {
                     ? parsed.requestId.trim()
                     : undefined
             };
+        }
+        if (parsed.type === "rc_status_broadcast") {
+            const req = parsed;
+            const status = req.status === "busy" || req.status === "idle" ? req.status : null;
+            if (!status)
+                return null;
+            return { type: "rc_status_broadcast", status };
         }
         return tryParsePromptRequest(parsed);
     }
@@ -662,6 +684,109 @@ function getLanIp() {
     }
     return null;
 }
+const RC_FIREWALL_RULE_NAME = "SquadDash RC";
+let activeFirewallPort = null;
+function addWindowsFirewallRule(port) {
+    if (process.platform !== "win32")
+        return;
+    try {
+        spawnSync("netsh", [
+            "advfirewall", "firewall", "add", "rule",
+            `name=${RC_FIREWALL_RULE_NAME}`,
+            "dir=in", "action=allow", "protocol=TCP",
+            `localport=${port}`,
+            "profile=private,domain"
+        ], { timeout: 5000 });
+        activeFirewallPort = port;
+    }
+    catch { /* non-fatal — may require elevation */ }
+}
+function removeWindowsFirewallRule() {
+    if (process.platform !== "win32" || activeFirewallPort === null)
+        return;
+    try {
+        spawnSync("netsh", [
+            "advfirewall", "firewall", "delete", "rule",
+            `name=${RC_FIREWALL_RULE_NAME}`
+        ], { timeout: 5000 });
+    }
+    catch { /* ignore */ }
+    activeFirewallPort = null;
+}
+async function startTunnel(mode, token, port, requestId) {
+    if (mode === "ngrok") {
+        const args = ["http", String(port)];
+        if (token)
+            args.push("--authtoken", token);
+        const proc = spawn("ngrok", args, { stdio: ["ignore", "pipe", "pipe"] });
+        activeTunnelProc = proc;
+        // Poll the ngrok local API for the public URL (up to 12 s)
+        const url = await new Promise((resolve) => {
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                const req = http.get("http://localhost:4040/api/tunnels", (res) => {
+                    let body = "";
+                    res.on("data", (chunk) => { body += chunk.toString(); });
+                    res.on("end", () => {
+                        try {
+                            const parsed = JSON.parse(body);
+                            const httpsUrl = parsed.tunnels
+                                ?.map(t => t.public_url)
+                                .find(u => u?.startsWith("https://"));
+                            if (httpsUrl) {
+                                clearInterval(interval);
+                                resolve(httpsUrl);
+                            }
+                        }
+                        catch { /* not ready yet */ }
+                    });
+                });
+                req.on("error", () => { });
+                if (attempts >= 24) {
+                    clearInterval(interval);
+                    resolve(null);
+                }
+            }, 500);
+        });
+        if (url) {
+            emit({ type: "rc_tunnel_started", requestId, rcTunnelUrl: url });
+        }
+        else {
+            emit({ type: "rc_tunnel_error", requestId, message: "ngrok tunnel did not surface a public URL within 12 s. Is ngrok installed and authenticated?" });
+        }
+    }
+    else {
+        // cloudflared — ephemeral trycloudflare.com tunnel (no login required)
+        const args = ["tunnel", "--url", `http://localhost:${port}`];
+        const proc = spawn("cloudflared", args, { stdio: ["ignore", "pipe", "pipe"] });
+        activeTunnelProc = proc;
+        const url = await new Promise((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => { if (!resolved) {
+                resolved = true;
+                resolve(null);
+            } }, 20_000);
+            const handleChunk = (chunk) => {
+                const text = chunk.toString();
+                const match = /https:\/\/[\w-]+\.trycloudflare\.com/.exec(text);
+                if (match && !resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    resolve(match[0]);
+                }
+            };
+            proc.stdout?.on("data", handleChunk);
+            proc.stderr?.on("data", handleChunk);
+        });
+        if (url) {
+            emit({ type: "rc_tunnel_started", requestId, rcTunnelUrl: url });
+        }
+        else {
+            emit({ type: "rc_tunnel_error", requestId, message: "cloudflared tunnel did not surface a public URL within 20 s. Is cloudflared installed?" });
+        }
+    }
+}
 async function handleRcStart(request) {
     if (activeRemoteBridge) {
         emit({
@@ -688,6 +813,16 @@ async function handleRcStart(request) {
                 rcBridge.sendError(err instanceof Error ? err.message : String(err));
             }
         },
+        onAudioStart: (connectionId) => {
+            emit({ type: "rc_audio_start", connectionId });
+        },
+        onAudioChunk: (data, connectionId) => {
+            // Forward PCM bytes as base64-encoded NDJSON to C# side
+            emit({ type: "rc_audio_chunk", connectionId, audioData: data.toString("base64") });
+        },
+        onAudioEnd: (connectionId) => {
+            emit({ type: "rc_audio_end", connectionId });
+        },
         onCommand: async (name, args) => {
             emit({
                 type: "rc_command",
@@ -697,9 +832,44 @@ async function handleRcStart(request) {
             });
         }
     });
+    // Serve the RC mobile web client from rc-client/
+    const rcClientDir = path.join(__dirname, "rc-client");
+    if (fs.existsSync(rcClientDir)) {
+        rcBridge.setStaticHandler((req, res) => {
+            const urlPath = req.url?.split("?")[0] ?? "/";
+            const relativePath = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
+            const filePath = path.join(rcClientDir, relativePath);
+            // Security: ensure file is within rcClientDir
+            const resolved = path.resolve(filePath);
+            if (!resolved.startsWith(path.resolve(rcClientDir))) {
+                res.writeHead(403);
+                res.end("Forbidden");
+                return;
+            }
+            if (!fs.existsSync(resolved)) {
+                res.writeHead(404);
+                res.end("Not found");
+                return;
+            }
+            const ext = path.extname(resolved).toLowerCase();
+            const mimeTypes = {
+                ".html": "text/html; charset=utf-8",
+                ".js": "application/javascript; charset=utf-8",
+                ".css": "text/css; charset=utf-8",
+                ".json": "application/json",
+                ".png": "image/png",
+                ".svg": "image/svg+xml",
+                ".ico": "image/x-icon",
+            };
+            const contentType = mimeTypes[ext] ?? "application/octet-stream";
+            res.writeHead(200, { "Content-Type": contentType });
+            fs.createReadStream(resolved).pipe(res);
+        });
+    }
     try {
         const port = await rcBridge.start();
         activeRemoteBridge = rcBridge;
+        addWindowsFirewallRule(port);
         const lanIp = getLanIp();
         emit({
             type: "rc_started",
@@ -709,6 +879,12 @@ async function handleRcStart(request) {
             rcUrl: `http://localhost:${port}`,
             rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null
         });
+        if (request.tunnelMode && request.tunnelMode !== "none") {
+            // Fire-and-forget: tunnel startup is non-blocking; errors are emitted as rc_tunnel_error
+            startTunnel(request.tunnelMode, request.tunnelToken, port, request.requestId).catch((err) => {
+                emit({ type: "rc_tunnel_error", requestId: request.requestId, message: err instanceof Error ? err.message : String(err) });
+            });
+        }
     }
     catch (err) {
         emit({
@@ -719,6 +895,14 @@ async function handleRcStart(request) {
     }
 }
 async function handleRcStop(request) {
+    // Kill the tunnel process if one is running
+    if (activeTunnelProc) {
+        try {
+            activeTunnelProc.kill();
+        }
+        catch { /* ignore */ }
+        activeTunnelProc = null;
+    }
     if (!activeRemoteBridge) {
         emit({
             type: "rc_stopped",
@@ -732,13 +916,118 @@ async function handleRcStop(request) {
     catch {
         // ignore stop errors — bridge may already be closed
     }
+    removeWindowsFirewallRule();
     activeRemoteBridge = null;
     emit({
         type: "rc_stopped",
         requestId: request.requestId
     });
 }
+async function handleSubSquadsList(request) {
+    try {
+        const config = loadSubSquadsConfig(request.cwd);
+        const resolved = resolveSubSquad(request.cwd);
+        if (!config) {
+            emit({
+                type: "subsquads_listed",
+                requestId: request.requestId,
+                subsquadsConfigured: false,
+                subsquadsCount: 0,
+                workstreamsJson: null,
+                activeSubsquadName: null,
+                activeSubsquadSource: null
+            });
+            return;
+        }
+        emit({
+            type: "subsquads_listed",
+            requestId: request.requestId,
+            subsquadsConfigured: true,
+            subsquadsCount: config.workstreams.length,
+            workstreamsJson: JSON.stringify(config.workstreams),
+            activeSubsquadName: resolved?.name ?? null,
+            activeSubsquadSource: resolved?.source ?? null
+        });
+    }
+    catch (err) {
+        emit({
+            type: "subsquads_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+async function handleSubSquadsActivate(request) {
+    try {
+        const workstreamFilePath = path.join(request.cwd, ".squad-workstream");
+        fs.writeFileSync(workstreamFilePath, request.subSquadName + "\n", "utf8");
+        emit({
+            type: "subsquads_activated",
+            requestId: request.requestId,
+            subSquadName: request.subSquadName
+        });
+    }
+    catch (err) {
+        emit({
+            type: "subsquads_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+async function handlePersonalList(request) {
+    try {
+        const personalDir = resolvePersonalSquadDir();
+        if (!personalDir) {
+            emit({
+                type: "personal_agents_listed",
+                requestId: request.requestId,
+                personalInitialized: false,
+                personalAgentsCount: 0,
+                personalAgentsJson: null,
+                personalDir: null
+            });
+            return;
+        }
+        const agents = await resolvePersonalAgents();
+        emit({
+            type: "personal_agents_listed",
+            requestId: request.requestId,
+            personalInitialized: true,
+            personalAgentsCount: agents.length,
+            personalAgentsJson: JSON.stringify(agents.map(a => ({ name: a.name, role: a.role }))),
+            personalDir
+        });
+    }
+    catch (err) {
+        emit({
+            type: "personal_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+async function handlePersonalInit(request) {
+    try {
+        const personalDir = ensurePersonalSquadDir();
+        emit({
+            type: "personal_init_done",
+            requestId: request.requestId,
+            personalDir
+        });
+    }
+    catch (err) {
+        emit({
+            type: "personal_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
 async function main() {
+    // Activate OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set (e.g. by `squad aspire`).
+    // No-op when env var is absent — zero runtime cost.
+    const _telemetry = initAgentModeTelemetry();
     const directPrompt = process.argv.slice(2).join(" ").trim();
     if (directPrompt) {
         const directRequest = {
@@ -857,6 +1146,26 @@ async function main() {
         }
         if (request.type === "rc_stop") {
             await handleRcStop(request);
+            continue;
+        }
+        if (request.type === "rc_status_broadcast") {
+            activeRemoteBridge?.broadcastEvent({ type: "rc_status", status: request.status });
+            continue;
+        }
+        if (request.type === "subsquads_list") {
+            await handleSubSquadsList(request);
+            continue;
+        }
+        if (request.type === "subsquads_activate") {
+            await handleSubSquadsActivate(request);
+            continue;
+        }
+        if (request.type === "personal_list") {
+            await handlePersonalList(request);
+            continue;
+        }
+        if (request.type === "personal_init") {
+            await handlePersonalInit(request);
             continue;
         }
         if (activePromptTask) {

@@ -830,6 +830,36 @@ function getLanIp(): string | null {
     return null;
 }
 
+const RC_FIREWALL_RULE_NAME = "SquadDash RC";
+let activeFirewallPort: number | null = null;
+
+function addWindowsFirewallRule(port: number): void {
+    if (process.platform !== "win32") return;
+    try {
+        spawnSync("netsh", [
+            "advfirewall", "firewall", "add", "rule",
+            `name=${RC_FIREWALL_RULE_NAME}`,
+            "dir=in", "action=allow", "protocol=TCP",
+            `localport=${port}`,
+            "profile=private,domain"
+        ], { timeout: 5000 });
+        activeFirewallPort = port;
+    }
+    catch { /* non-fatal — may require elevation */ }
+}
+
+function removeWindowsFirewallRule(): void {
+    if (process.platform !== "win32" || activeFirewallPort === null) return;
+    try {
+        spawnSync("netsh", [
+            "advfirewall", "firewall", "delete", "rule",
+            `name=${RC_FIREWALL_RULE_NAME}`
+        ], { timeout: 5000 });
+    }
+    catch { /* ignore */ }
+    activeFirewallPort = null;
+}
+
 async function startTunnel(mode: "ngrok" | "cloudflare", token: string | undefined, port: number, requestId: string | undefined): Promise<void> {
     if (mode === "ngrok") {
         const args = ["http", String(port)];
@@ -994,6 +1024,7 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
     try {
         const port = await rcBridge.start();
         activeRemoteBridge = rcBridge;
+        addWindowsFirewallRule(port);
         const lanIp = getLanIp();
         emit({
             type: "rc_started",
@@ -1044,6 +1075,7 @@ async function handleRcStop(request: RcStopRequest): Promise<void> {
     catch {
         // ignore stop errors — bridge may already be closed
     }
+    removeWindowsFirewallRule();
     activeRemoteBridge = null;
     emit({
         type: "rc_stopped",

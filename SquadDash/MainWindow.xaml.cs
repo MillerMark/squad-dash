@@ -2660,7 +2660,8 @@ public partial class MainWindow : Window
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(true);
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
-        _rcPanelUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
+        var baseUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
+        _rcPanelUrl = string.IsNullOrEmpty(evt.RcToken) ? baseUrl : $"{baseUrl}?token={Uri.EscapeDataString(evt.RcToken)}";
 
         AppendLine("📡 Remote access started — [Show RC panel](app://show-rc-panel)");
 

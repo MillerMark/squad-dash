@@ -224,7 +224,11 @@
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}`);
+    const token = new URLSearchParams(location.search).get('token');
+    const wsUrl = token
+      ? `${proto}://${location.host}?token=${encodeURIComponent(token)}`
+      : `${proto}://${location.host}`;
+    ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
