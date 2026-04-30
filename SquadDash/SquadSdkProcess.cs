@@ -123,6 +123,44 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    public async Task RunNamedAgentDirectAsync(
+        string targetAgentHandle,
+        string selectedOption,
+        string workingDirectory,
+        string? coordinatorSessionId,
+        string? configDirectory = null) {
+        if (string.IsNullOrWhiteSpace(targetAgentHandle))
+            throw new ArgumentException("Target agent handle cannot be empty.", nameof(targetAgentHandle));
+        if (string.IsNullOrWhiteSpace(selectedOption))
+            throw new ArgumentException("Selected option cannot be empty.", nameof(selectedOption));
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            throw new ArgumentException("Working directory cannot be empty.", nameof(workingDirectory));
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"RunNamedAgentDirectAsync targetAgent={targetAgentHandle} option={selectedOption} cwd={workingDirectory}");
+
+        await _promptLock.WaitAsync().ConfigureAwait(false);
+        try {
+            var requestId = Guid.NewGuid().ToString("N");
+            var request = new SquadSdkNamedAgentRequest(
+                targetAgentHandle,
+                selectedOption,
+                workingDirectory,
+                coordinatorSessionId,
+                configDirectory,
+                requestId);
+            await RunBridgeRequestOnceAsync(
+                request,
+                requestId,
+                sessionId: coordinatorSessionId,
+                allowRecoverableSessionReset: false).ConfigureAwait(false);
+        }
+        finally {
+            _promptLock.Release();
+        }
+    }
+
     private async Task RunPromptWithSessionRecoveryAsync(
         string prompt,
         string workingDirectory,
@@ -839,6 +877,15 @@ internal sealed record SquadSdkDelegateRequest(
     [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "delegate");
+
+internal sealed record SquadSdkNamedAgentRequest(
+    [property: JsonPropertyName("targetAgent")] string TargetAgent,
+    [property: JsonPropertyName("selectedOption")] string SelectedOption,
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("sessionId")] string? SessionId = null,
+    [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
+    [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
+    [property: JsonPropertyName("type")] string Type = "named_agent");
 
 internal sealed record SquadSdkAbortRequest(
     [property: JsonPropertyName("requestId")] string RequestId,

@@ -119,6 +119,7 @@ internal sealed class PromptExecutionController {
     // ── Injected — Bridge ─────────────────────────────────────────────────
     private readonly Func<string, string, string?, string?, Task> _runPromptAsync;
     private readonly Func<string, string, string, string?, string?, Task> _runNamedAgentDelegationAsync;
+    private readonly Func<string, string, string, string?, string?, Task> _runNamedAgentDirectAsync;
 
     // ── Injected — Workspace ──────────────────────────────────────────────
     private readonly Func<SessionWorkspace?>            _getCurrentWorkspace;
@@ -288,6 +289,7 @@ internal sealed class PromptExecutionController {
         // Bridge
         Func<string, string, string?, string?, Task> runPromptAsync,
         Func<string, string, string, string?, string?, Task> runNamedAgentDelegationAsync,
+        Func<string, string, string, string?, string?, Task> runNamedAgentDirectAsync,
         // Workspace
         Func<SessionWorkspace?> getCurrentWorkspace,
         Func<ApplicationSettingsSnapshot> getSettingsSnapshot,
@@ -365,6 +367,7 @@ internal sealed class PromptExecutionController {
 
         _runPromptAsync                        = runPromptAsync;
         _runNamedAgentDelegationAsync          = runNamedAgentDelegationAsync;
+        _runNamedAgentDirectAsync              = runNamedAgentDirectAsync;
         _getCurrentWorkspace                   = getCurrentWorkspace;
         _getSettingsSnapshot                   = getSettingsSnapshot;
         _conversationManager                   = conversationManager;
@@ -1521,6 +1524,30 @@ internal sealed class PromptExecutionController {
                 await _runNamedAgentDelegationAsync(
                     selectedOption,
                     targetAgentHandle,
+                    workspace.FolderPath,
+                    currentSessionId,
+                    configDirectory);
+            });
+    }
+
+    internal async Task ExecuteNamedAgentDirectAsync(
+        string targetAgentHandle,
+        string selectedOption,
+        bool addToHistory,
+        bool clearPromptBox) {
+        if (string.IsNullOrWhiteSpace(targetAgentHandle))
+            throw new ArgumentException("Target agent handle cannot be empty.", nameof(targetAgentHandle));
+
+        await ExecuteCoordinatorTurnAsync(
+            selectedOption,
+            addToHistory,
+            clearPromptBox,
+            allowLocalCommandHandling: false,
+            async (workspace, configDirectory) => {
+                var currentSessionId = _conversationManager.CurrentSessionId;
+                await _runNamedAgentDirectAsync(
+                    targetAgentHandle,
+                    selectedOption,
                     workspace.FolderPath,
                     currentSessionId,
                     configDirectory);
