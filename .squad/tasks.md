@@ -91,7 +91,7 @@
   (aliases: `workstreams`, `streams`). Investigate the updated API for sub-squad creation
   and management. Prototype wrapping once the API stabilises.
 
-- [ ] **`squad cross-squad` integration** *(Owner: Orion Vale — architecture first)*
+- [x] **`squad cross-squad` integration** *(Owner: Orion Vale — architecture first)*
   Architectural review needed before any implementation. How should SquadDash surface
   cross-workspace agent interactions? Note: `squad cross-squad` does not appear in the
   0.9.5-insider CLI — may be a planned future feature.
@@ -123,6 +123,7 @@
 - [x] RC — phone voice input via PTT bridge — ✅ Implemented 2026-04-30 (Option B PCM/AudioWorklet; bridge.js patched for binary frames; rc-client PWA; RemoteSpeechSession; rc_status broadcast)
 - [x] RC — ngrok/Cloudflare tunnel auto-start — ✅ Implemented 2026-04-30 (commit 69e8900; ngrok+cloudflared support; Preferences UI; 14 new tests; 1002 pass)
 - [x] `squad streams` / `subsquads` management — ✅ Prototyped bridge (subsquads_list/activate requests; Workspace > SubSquads menu; 7 new tests; 1009 pass)
+- [x] `squad cross-squad` integration — ✅ Architecture decided 2026-04-30 (Phase 1 = discovery-only read bridge; Phase 2 = gh delegation deferred; decision in decisions.md)
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel

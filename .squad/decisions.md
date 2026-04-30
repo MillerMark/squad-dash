@@ -4,6 +4,76 @@
 
 ---
 
+### 2026-04-30 — `squad cross-squad` integration architecture
+
+**Context:** The task asked how SquadDash should surface cross-workspace agent interactions. `squad cross-squad` does NOT exist as a CLI command in the 0.9.5-insider release. The functionality lives entirely in the `@bradygaster/squad-sdk` module `runtime/cross-squad.js`.
+
+**What cross-squad actually is (SDK investigation findings):**
+
+Cross-squad is a **manifest-based discovery + GitHub issue delegation** system. No real-time agent-to-agent RPC exists. The mechanism is:
+
+1. **Manifest** — each squad can publish `.squad/manifest.json`:
+   ```json
+   {
+     "name": "my-squad",
+     "capabilities": ["feature-A", "feature-B"],
+     "accepts": ["issues", "prs"],
+     "contact": { "repo": "owner/repo" },
+     "description": "optional human description"
+   }
+   ```
+
+2. **Discovery** — other squads find this squad via:
+   - `.squad/upstream.json` — lists upstream repos (type: `"local"` with path, or `"git"`)
+   - `.squad/squad-registry.json` — flat list `[{ "name": "...", "path": "..." }]`
+   - SDK: `discoverSquads(squadDir)` merges upstreams + registry, deduplicates by name
+
+3. **Delegation** — creates a GitHub issue in the target repo:
+   - Title gets `[cross-squad]` prefix
+   - Labels: `squad:cross-squad` + any caller-supplied labels
+   - SDK: `buildDelegationArgs(options)` returns `gh issue create` args; caller executes `gh`
+
+4. **Status** — queries a delegated issue's state:
+   - SDK: `buildStatusCheckArgs(issueUrl)` → `gh issue view --repo owner/repo 123 --json state,title`
+   - SDK: `parseIssueStatus(jsonOutput, issueUrl)` → `{ url, state: "open"|"closed"|"unknown", title }`
+
+**Current state of this workspace:** No `.squad/manifest.json`, `.squad/upstream.json`, or `.squad/squad-registry.json` exist. This workspace is not yet participating in any cross-squad network.
+
+**Architecture decision:**
+
+SquadDash should support cross-squad in **two phases**, with Phase 1 being the right scope for now:
+
+**Phase 1 — Discovery + status (read-only, no CLI required):**
+- Add a `cross_squad_discover` NDJSON bridge request
+- Call `discoverSquads(squadDir)` synchronously inside `runPrompt.ts`, emit a `cross_squad_discovered` event with the discovered squads as JSON
+- Surface as a "Cross-Squad" menu item under Workspace (similar to SubSquads)
+- If no manifest/upstream config exists: show instructional message with the config schema
+- If squads are discovered: display name, capabilities, repo, accepts fields, source
+- No `gh` CLI execution needed for Phase 1
+
+**Phase 2 — Delegation (requires `gh` CLI, deferred):**
+- Add `cross_squad_delegate` bridge request: title, body, targetRepo, labels
+- In `runPrompt.ts`: call `buildDelegationArgs(options)`, spawn `gh` with those args, emit `cross_squad_delegated` or `cross_squad_delegate_error`
+- Add UI for composing delegation: prompt box pre-filled from selected issue or freeform
+- Add status polling: `cross_squad_status_check` request → runs `gh issue view`, emits result
+- Deferred because: (a) requires `gh` CLI present, (b) requires auth, (c) UX needs more design
+
+**Rationale for deferring Phase 2:**
+- Phase 1 has zero external dependencies — pure SDK file reads, no auth, no network
+- Phase 2 delegation creates real GitHub issues — accidental delegation would be hard to undo
+- The CLI doesn't expose `squad cross-squad` yet, suggesting the feature isn't polished enough for casual use
+- Phase 1 (discovery) gives SquadDash users insight into their cross-squad topology without risk
+
+**Not building now:** Any manifest editor UI or upstream config wizard — these belong to the squad CLI's `squad upstream` commands (`add|remove|list|sync`), which already handle upstream config management.
+
+**Files to create/modify when Phase 1 is implemented:**
+- `Squad.SDK/runPrompt.ts`: `CrossSquadDiscoverRequest` type, `handleCrossSquadDiscover()`, dispatch case
+- `SquadDash/SquadSdkEvent.cs`: `CrossSquadDiscoveredJson`, `CrossSquadCount` fields
+- `SquadDash/SquadSdkProcess.cs`: `SquadSdkCrossSquadDiscoverRequest` record, `DiscoverCrossSquadsAsync()`
+- `SquadDash/MainWindow.xaml.cs`: `cross_squad_discovered` event handler, Workspace → "Cross-Squad" menu item
+
+---
+
 ### 2026-05-01 — SubSquads bridge prototype approach
 
 **Context:** The squad CLI 0.9.5-insider replaced `squad streams` with `squad subsquads` (aliases: `workstreams`, `streams`). The API stabilised in `@bradygaster/squad-sdk` which exports `loadSubSquadsConfig(cwd)` and `resolveSubSquad(cwd)`. The CLI only supports `list`, `status`, and `activate <name>` — no create/add/remove subcommands exist.
