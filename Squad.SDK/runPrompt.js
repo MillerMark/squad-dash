@@ -702,12 +702,14 @@ function addWindowsFirewallRule(port) {
     if (process.platform !== "win32")
         return true; // non-Windows: no firewall rule needed
     try {
+        // Delete any stale rule first (port may differ each session)
+        spawnSync("netsh", ["advfirewall", "firewall", "delete", "rule", `name=${RC_FIREWALL_RULE_NAME}`], { timeout: 5000 });
         const result = spawnSync("netsh", [
             "advfirewall", "firewall", "add", "rule",
             `name=${RC_FIREWALL_RULE_NAME}`,
             "dir=in", "action=allow", "protocol=TCP",
-            `localport=${port}`,
-            "profile=private,domain"
+            "localport=any",
+            "profile=any"
         ], { timeout: 5000 });
         if (result.status === 0) {
             activeFirewallPort = port;
