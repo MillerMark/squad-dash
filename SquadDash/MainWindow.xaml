@@ -853,7 +853,8 @@
                                        Text="Inactive teammates and completed threads"
                                        Margin="0,4,0,10"
                                        Foreground="{DynamicResource BodyText}"
-                                       TextWrapping="Wrap" />
+                                       TextTrimming="CharacterEllipsis"
+                                       TextWrapping="NoWrap" />
                             <ScrollViewer x:Name="InactiveAgentsScrollViewer"
                                           Grid.Row="2"
                                           HorizontalScrollBarVisibility="Auto"

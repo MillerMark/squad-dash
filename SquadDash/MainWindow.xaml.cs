@@ -134,6 +134,7 @@ public partial class MainWindow : Window
     private CommitApprovalPanel? _approvalPanel;
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
+    private System.Windows.Controls.Primitives.Popup? _approvalNotFoundPopup;
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
     private bool _movingFloatingWindow;
@@ -3686,6 +3687,9 @@ public partial class MainWindow : Window
     private void ScrollToApprovalTurn(CommitApprovalItem item) {
         var turnStartedAt = item.TurnStartedAt;
 
+        // Dismiss any previous not-found popup immediately.
+        DismissApprovalNotFoundPopup();
+
         // Capture mouse position now (on the UI thread during click handling) so the popup
         // can be positioned correctly even after the async retry completes.
         var relPos    = Mouse.GetPosition(this);
@@ -3722,7 +3726,17 @@ public partial class MainWindow : Window
         });
     }
 
+    private void DismissApprovalNotFoundPopup() {
+        if (_approvalNotFoundPopup is { IsOpen: true } p) {
+            p.IsOpen = false;
+            _approvalNotFoundPopup = null;
+        }
+    }
+
     private void ShowApprovalNotFoundPopup(System.Windows.Point screenPoint, string? promptText) {
+        // Dismiss any prior popup before showing a new one.
+        DismissApprovalNotFoundPopup();
+
         // SetResourceReference doesn't work on Popup children that aren't in the logical tree.
         // Resolve brushes directly from the window's live merged resource dictionaries instead.
         var bgBrush     = (TryFindResource("PopupSurface")  as Brush) ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
@@ -3774,8 +3788,9 @@ public partial class MainWindow : Window
             StaysOpen          = true,
             IsOpen             = true,
         };
+        _approvalNotFoundPopup = popup;
 
-        // Hold fully visible for 4 seconds, then fade out over 1.5 seconds.
+        // Hold fully visible for 4 seconds, then fade out over 0.75 seconds.
         var timer = new System.Windows.Threading.DispatcherTimer {
             Interval = TimeSpan.FromSeconds(4)
         };
@@ -3784,9 +3799,13 @@ public partial class MainWindow : Window
             var fade = new System.Windows.Media.Animation.DoubleAnimation(
                 fromValue:    1.0,
                 toValue:      0.0,
-                duration:     new Duration(TimeSpan.FromSeconds(1.5)),
+                duration:     new Duration(TimeSpan.FromSeconds(0.75)),
                 fillBehavior: System.Windows.Media.Animation.FillBehavior.Stop);
-            fade.Completed += (_, _) => { popup.IsOpen = false; };
+            fade.Completed += (_, _) => {
+                popup.IsOpen = false;
+                if (ReferenceEquals(_approvalNotFoundPopup, popup))
+                    _approvalNotFoundPopup = null;
+            };
             border.BeginAnimation(UIElement.OpacityProperty, fade);
         };
         timer.Start();
