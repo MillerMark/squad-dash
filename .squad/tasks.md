@@ -86,7 +86,7 @@
   URL in the transcript. Enables phone access from outside the home network without router
   port-forwarding. Requires tunnel binary detection and token configuration.
 
-- [ ] **`squad streams` / `subsquads` management** *(Owner: Talia Rune)*
+- [x] **`squad streams` / `subsquads` management** *(Owner: Talia Rune)*
   `squad streams` is deprecated in 0.9.5-insider; the replacement is `squad subsquads`
   (aliases: `workstreams`, `streams`). Investigate the updated API for sub-squad creation
   and management. Prototype wrapping once the API stabilises.
@@ -122,6 +122,7 @@
 - [x] RC mobile — define session isolation policy for multi-phone connections — ✅ Decided 2026-04-30 (shared session; phones are input devices; no code change needed)
 - [x] RC — phone voice input via PTT bridge — ✅ Implemented 2026-04-30 (Option B PCM/AudioWorklet; bridge.js patched for binary frames; rc-client PWA; RemoteSpeechSession; rc_status broadcast)
 - [x] RC — ngrok/Cloudflare tunnel auto-start — ✅ Implemented 2026-04-30 (commit 69e8900; ngrok+cloudflared support; Preferences UI; 14 new tests; 1002 pass)
+- [x] `squad streams` / `subsquads` management — ✅ Prototyped bridge (subsquads_list/activate requests; Workspace > SubSquads menu; 7 new tests; 1009 pass)
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel
