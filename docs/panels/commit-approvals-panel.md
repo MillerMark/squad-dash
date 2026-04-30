@@ -39,7 +39,7 @@ Entries persist across SquadDash restarts (stored in `commit-approvals.json` in 
 │  ☐  Fix login timeout logic          abc1234          │
 │  ☐  Add dark mode preference key     def5678          │
 │                                                       │
-│  Approved                                    [Clear All]
+│  Approved                                    [Clear Approved]
 │  ☑  Update README screenshots        9ab0cd2          │
 │                                                       │
 └───────────────────────────────────────────────────────┘
@@ -73,7 +73,7 @@ This is useful for reviewing exactly what the agent was asked and what it did be
 
 ## Clearing Approved Entries
 
-Click **Clear All** in the Approved section to remove all approved entries permanently. Only approved entries are removed; pending entries are unaffected.
+Click **Clear Approved** in the Approved section to remove all approved entries permanently. Only approved entries are removed; pending entries are unaffected.
 
 ---
 
@@ -82,7 +82,7 @@ Click **Clear All** in the Approved section to remove all approved entries perma
 - The SHA link only appears when `workspaceGitHubUrl` is configured. If you see no SHA links, check your workspace GitHub URL setting in Preferences.
 - The panel is per-workspace. Switching workspaces replaces the entry list with that workspace's `commit-approvals.json`.
 - Entries survive SquadDash restarts — you can review and approve commits from a previous session.
-- If the panel is cluttered, approve everything you've already reviewed and then use **Clear All** to reset it.
+- If the panel is cluttered, approve everything you've already reviewed and then use **Clear Approved** to reset it.
 
 ---
 
@@ -91,3 +91,4 @@ Click **Clear All** in the Approved section to remove all approved entries perma
 - **[Loop Panel](loop-panel.md)** — Commit entries accumulate quickly during loop runs; the approvals panel is the review checkpoint
 - **[Transcripts](../concepts/transcripts.md)** — Jump-to-turn lands in the coordinator transcript
 - **[Configuration](../reference/configuration.md)** — Setting the workspace GitHub URL
+

@@ -1157,7 +1157,7 @@
                                 <StackPanel x:Name="ApprovalNeedsPanel" />
                             </ScrollViewer>
 
-                            <!-- "Approved" header + Clear All button -->
+                            <!-- "Approved" header + Clear Approved button -->
                             <DockPanel Grid.Row="3"
                                        LastChildFill="False"
                                        Margin="0,8,0,4">
@@ -1168,7 +1168,7 @@
                                            Foreground="{DynamicResource SubtleText}" />
                                 <Button x:Name="ApprovalClearAllButton"
                                         DockPanel.Dock="Right"
-                                        Content="Clear All"
+                                        Content="Clear Approved"
                                         Height="20"
                                         Padding="6,0"
                                         FontSize="11"

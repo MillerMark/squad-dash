@@ -48,7 +48,7 @@ internal sealed class CommitApprovalPanel {
         }
     }
 
-    public void OnClearAllClicked() {
+    public void OnClearApprovedClicked() {
         var removed = new List<CommitApprovalItem>(_approvedPanel.Children.Count);
         foreach (Border row in _approvedPanel.Children) {
             if (row.Tag is CommitApprovalItem item)

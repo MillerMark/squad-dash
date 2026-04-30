@@ -15232,7 +15232,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            _approvalPanel?.OnClearAllClicked();
+            _approvalPanel?.OnClearApprovedClicked();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalClearAllButton_Click), ex); }
     }
