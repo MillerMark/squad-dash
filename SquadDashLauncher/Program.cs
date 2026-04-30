@@ -214,6 +214,10 @@ internal static class Program {
         if (IsPayloadDeploymentComplete(localPayload))
             return localPayload;
 
+        var installedPayload = Path.Combine(AppContext.BaseDirectory, "app", RuntimeSlotNames.PayloadFileName);
+        if (IsPayloadDeploymentComplete(installedPayload))
+            return installedPayload;
+
         return localPayload;
     }
 
