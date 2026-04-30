@@ -3035,7 +3035,8 @@ public partial class MainWindow : Window
         _rcPanel = new RcStatusPanel(
             primaryUrl: _rcPanelUrl,
             onStopRemoteAccess: () => _ = _bridge.StopRemoteAsync(),
-            onRegenerateToken: RegenerateRcToken);
+            onRegenerateToken: RegenerateRcToken,
+            onRestartAsAdmin: RestartAsAdministrator);
         _rcPanel.Owner = this;
         _rcPanel.Closed += (_, _) => _rcPanel = null;
 
@@ -3213,6 +3214,28 @@ public partial class MainWindow : Window
             HandleUiCallbackException(nameof(RestartRcAfterRegenerateAsync), ex);
             _rcPanel?.Close();
             _rcPanel = null;
+        }
+    }
+
+    private void RestartAsAdministrator()
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath
+                ?? System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrEmpty(exePath)) return;
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = exePath,
+                Verb            = "runas",
+                UseShellExecute = true,
+            });
+            Close();
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // User declined UAC — do nothing.
         }
     }
 

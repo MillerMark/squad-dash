@@ -18,6 +18,7 @@ internal sealed class RcStatusPanel : Window
 {
     private readonly Action _onStopRemoteAccess;
     private readonly Action? _onRegenerateToken;
+    private readonly Action? _onRestartAsAdmin;
 
     // LAN / direct URL row
     private readonly TextBox    _urlBox;
@@ -42,10 +43,11 @@ internal sealed class RcStatusPanel : Window
 
     // ── Construction ──────────────────────────────────────────────────────
 
-    public RcStatusPanel(string primaryUrl, Action onStopRemoteAccess, Action? onRegenerateToken = null)
+    public RcStatusPanel(string primaryUrl, Action onStopRemoteAccess, Action? onRegenerateToken = null, Action? onRestartAsAdmin = null)
     {
         _onStopRemoteAccess = onStopRemoteAccess;
         _onRegenerateToken  = onRegenerateToken;
+        _onRestartAsAdmin   = onRestartAsAdmin;
 
         Title               = "Remote Access";
         Width               = 360;
@@ -203,7 +205,31 @@ internal sealed class RcStatusPanel : Window
                            "for this port manually in Windows Defender Firewall.",
         };
         text.SetResourceReference(TextBlock.ForegroundProperty, "AlertBodyText");
-        banner.Child = text;
+
+        var bannerContent = new StackPanel { Margin = new Thickness(0) };
+        bannerContent.Children.Add(text);
+
+        if (_onRestartAsAdmin is not null)
+        {
+            var restartButton = new Button
+            {
+                Content             = "↑ Restart as Administrator",
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Height              = 26,
+                Margin              = new Thickness(0, 8, 0, 0),
+            };
+            restartButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+            WindowChrome.SetIsHitTestVisibleInChrome(restartButton, true);
+            restartButton.Click += (_, _) =>
+            {
+                restartButton.IsEnabled = false;
+                restartButton.Content   = "Restarting…";
+                _onRestartAsAdmin();
+            };
+            bannerContent.Children.Add(restartButton);
+        }
+
+        banner.Child = bannerContent;
 
         // Insert before the separator + bottom row (last two children)
         int insertAt = _root.Children.Count - 2;
