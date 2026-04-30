@@ -879,13 +879,12 @@
                                            VerticalAlignment="Center" />
                                 <Button x:Name="LoopPanelCloseButton"
                                         Content="×"
-                                        Width="18"
-                                        Height="18"
-                                        Padding="0,0,0,3"
+                                        Width="22"
+                                        Height="22"
                                         FontSize="13"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
-                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Loop panel"
                                         Click="LoopPanelCloseButton_Click" />
                             </Grid>
@@ -1043,13 +1042,12 @@
                                            VerticalAlignment="Center" />
                                 <Button x:Name="TasksPanelCloseButton"
                                         Content="×"
-                                        Width="18"
-                                        Height="18"
-                                        Padding="0,0,0,3"
+                                        Width="22"
+                                        Height="22"
                                         FontSize="13"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
-                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Tasks panel"
                                         Click="TasksPanelCloseButton_Click" />
                             </Grid>
