@@ -158,6 +158,9 @@ internal static class VoiceInsertionHeuristics
     /// A word is special if:
     /// <list type="bullet">
     ///   <item>It is in the <see cref="PreservedWords"/> set (e.g. <c>"I"</c>).</item>
+    ///   <item>It is a first-person contraction starting with <c>I'</c>
+    ///         (e.g. <c>"I'm"</c>, <c>"I've"</c>, <c>"I'll"</c>, <c>"I'd"</c>) —
+    ///         the pronoun must stay capitalised even mid-sentence.</item>
     ///   <item>It contains two or more uppercase letters — indicating an acronym
     ///         (<c>API</c>, <c>URL</c>) or a CamelCase identifier
     ///         (<c>JavaScript</c>, <c>iPhone</c>).</item>
@@ -167,6 +170,10 @@ internal static class VoiceInsertionHeuristics
     {
         if (string.IsNullOrEmpty(word)) return false;
         if (PreservedWords.Contains(word)) return true;
+
+        // First-person contractions: I'm, I've, I'll, I'd, I'd, etc.
+        if (word.Length >= 3 && word[0] == 'I' && word[1] == '\'')
+            return true;
 
         var upperCount = 0;
         foreach (var ch in word)
