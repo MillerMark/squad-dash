@@ -18,6 +18,8 @@ internal sealed class CommitApprovalPanel {
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
 
+    private Border? _selectedRow;
+
     public CommitApprovalPanel(
         StackPanel                               needsApprovalPanel,
         StackPanel                               approvedPanel,
@@ -40,6 +42,7 @@ internal sealed class CommitApprovalPanel {
     }
 
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
+        _selectedRow = null;
         _needsApprovalPanel.Children.Clear();
         _approvedPanel.Children.Clear();
         foreach (var item in items) {
@@ -64,7 +67,12 @@ internal sealed class CommitApprovalPanel {
     private Border BuildRow(CommitApprovalItem item) {
         var row = new Border { Background = Brushes.Transparent, Tag = item };
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+        row.MouseLeave += (_, _) => {
+            if (row == _selectedRow)
+                row.SetResourceReference(Border.BackgroundProperty, "ApprovalSelectedSurface");
+            else
+                row.Background = Brushes.Transparent;
+        };
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -86,7 +94,13 @@ internal sealed class CommitApprovalPanel {
             Cursor            = Cursors.Hand,
         };
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        descBlock.MouseLeftButtonUp += (_, e) => { e.Handled = true; _scrollToTurn(item); };
+        descBlock.MouseLeftButtonUp += (_, e) => {
+            e.Handled = true;
+            if (_selectedRow != null && _selectedRow != row)
+                _selectedRow.Background = Brushes.Transparent;
+            _selectedRow = row;
+            _scrollToTurn(item);
+        };
         Grid.SetColumn(descBlock, 1);
         grid.Children.Add(descBlock);
 
@@ -114,6 +128,7 @@ internal sealed class CommitApprovalPanel {
     }
 
     private void HandleCheckChanged(Border row, CommitApprovalItem item, bool isApproved) {
+        if (_selectedRow == row) _selectedRow = null;
         var updated     = item with { IsApproved = isApproved };
         var sourcePanel = isApproved ? _needsApprovalPanel : _approvedPanel;
         var targetPanel = isApproved ? _approvedPanel      : _needsApprovalPanel;

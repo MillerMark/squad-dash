@@ -11,6 +11,7 @@
     <SolidColorBrush x:Key="WorkspaceSurface" Color="#F7F4EE"/>
     <SolidColorBrush x:Key="CardSurface" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="HoverSurface" Color="#E8E0D4"/>
+    <SolidColorBrush x:Key="ApprovalSelectedSurface" Color="#80E8E0D4"/>
     <SolidColorBrush x:Key="TranscriptSurface" Color="#FFFCF8"/>
     <SolidColorBrush x:Key="TextBoxBackground" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="InputSurface" Color="#F8F2E8"/>
