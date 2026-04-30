@@ -45,6 +45,21 @@ internal sealed class WorkspacePathsProvider : IWorkspacePaths {
     /// <c>SquadDash\</c> and <c>Squad.SDK\</c> is found.
     /// Use this overload in the launcher where the root is not passed as an argument.
     /// </summary>
+    /// <remarks>
+    /// If the walk-up fails (e.g. running from the WinGet/Inno Setup installed layout),
+    /// a fallback checks the well-known installed location:
+    /// <c>%LocalAppData%\SquadDash\</c>.
+    /// <para>
+    /// Expected installed layout (coordinate with Jae Min / Inno Setup script):
+    /// <code>
+    ///   %LocalAppData%\SquadDash\          ← ApplicationRoot (this fallback)
+    ///     SquadDashLauncher.exe
+    ///     app\                             ← payload folder (SquadDash.exe + DLLs)
+    ///     Squad.SDK\                       ← node runtime
+    /// </code>
+    /// The fallback is valid when the folder contains both <c>app\</c> and <c>Squad.SDK\</c>.
+    /// </para>
+    /// </remarks>
     public static WorkspacePathsProvider Discover() {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
 
@@ -55,6 +70,16 @@ internal sealed class WorkspacePathsProvider : IWorkspacePaths {
             }
 
             directory = directory.Parent;
+        }
+
+        // Fallback: check the well-known installed location used by the WinGet/Inno Setup
+        // installer. The installed layout places SquadDash.exe inside an `app\` subdirectory
+        // rather than a `SquadDash\` subdirectory, so the walk-up above never matches.
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var installedRoot = Path.Combine(localAppData, "SquadDash");
+        if (Directory.Exists(Path.Combine(installedRoot, "app")) &&
+            Directory.Exists(Path.Combine(installedRoot, "Squad.SDK"))) {
+            return new WorkspacePathsProvider(installedRoot);
         }
 
         throw new DirectoryNotFoundException(
