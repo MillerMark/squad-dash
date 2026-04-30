@@ -157,6 +157,7 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             Padding = new Thickness(12, 0, 12, 0),
             ToolTip = "Copy full prompt text to clipboard",
         };
+        copyBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         copyBtn.Click += (_, _) =>
         {
             if (!string.IsNullOrEmpty(_fullText))
@@ -172,6 +173,7 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             Height  = 30,
             Margin  = new Thickness(0, 0, 8, 0),
         };
+        cancelBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         cancelBtn.Click += (_, _) => { DialogResult = false; };
         Grid.SetColumn(cancelBtn, 2);
         buttonRow.Children.Add(cancelBtn);
@@ -182,6 +184,7 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             Width   = 80,
             Height  = 30,
         };
+        deleteBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         deleteBtn.Click += (_, _) => { DialogResult = true; };
         Grid.SetColumn(deleteBtn, 3);
         buttonRow.Children.Add(deleteBtn);
