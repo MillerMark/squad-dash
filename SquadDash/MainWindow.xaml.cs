@@ -811,6 +811,7 @@ public partial class MainWindow : Window
             clearSessionView: () => ClearSessionView(),
             showTasksStatusWindow: () => ShowTasksStatusWindow(),
             hideTasksStatusWindow: () => HideTasksStatusWindow(),
+            showApprovalWindow: () => ShowApprovalWindow(),
             showLiveTraceWindow: () => ShowTraceWindow(),
             runDoctor: () => RunDoctorButton_Click(null!, null!),
             showHireAgentWindow: () => ShowHireAgentWindow(),
@@ -3691,7 +3692,7 @@ public partial class MainWindow : Window
 
 
     private static readonly string[] SlashCommands = [
-        "/activate", "/add-dir", "/agents", "/allow-all", "/changelog", "/clear",
+        "/activate", "/add-dir", "/agents", "/allow-all", "/approval", "/changelog", "/clear",
         "/context", "/copy", "/delegate", "/deactivate", "/diff", "/doctor", "/experimental", "/feedback",
         "/fleet", "/dropTasks", "/help", "/hire", "/ide", "/init", "/instructions", "/login", "/logout",
         "/lsp", "/mcp", "/model", "/new", "/plan", "/pr", "/research", "/restart",
@@ -14456,6 +14457,12 @@ public partial class MainWindow : Window
             ShowTraceWindow();
         }
 
+        if (_settingsSnapshot.ApprovalWindowOpen)
+        {
+            SquadDashTrace.Write("Startup", "Restoring approval window from previous session.");
+            ShowApprovalWindow();
+        }
+
         RestoreDocsPanelState();
     }
 
@@ -15076,6 +15083,40 @@ public partial class MainWindow : Window
         _tasksStatusWindow?.Close();
     }
 
+    private void ShowApprovalWindow()
+    {
+        if (_approvalWindow is { IsVisible: true })
+        {
+            HideApprovalWindow();
+            return;
+        }
+
+        if (_approvalWindow is null)
+        {
+            SquadDashTrace.Write("UI", "Showing commit approval window.");
+            _approvalWindow = new CommitApprovalWindow(
+                navigateUrl:    url  => _ = OpenExternalLinkWithCommitCheckAsync(url),
+                scrollToTurn:   ts   => ScrollToApprovalTurn(ts),
+                onItemChanged:  item => OnApprovalItemChanged(item),
+                onItemsRemoved: items => OnApprovalItemsRemoved(items));
+            if (CanShowOwnedWindow())
+                _approvalWindow.Owner = this;
+            _approvalWindow.Closed += (_, _) => { _approvalWindow = null; _approvalWindowOffset = null; };
+            _approvalWindow.LocationChanged += (_, _) => OnApprovalWindowMoved();
+            _approvalWindow.ReplaceAllItems(_approvalItems);
+            _approvalWindow.Show();
+        }
+
+        PositionApprovalWindow();
+    }
+
+    private void HideApprovalWindow()
+    {
+        if (_approvalWindow is not null)
+            SquadDashTrace.Write("UI", "Hiding commit approval window.");
+        _approvalWindow?.Close();
+    }
+
     private void RefreshTasksStatusWindow(DateTimeOffset now)
     {
         if (_tasksStatusWindow is null)
@@ -15096,8 +15137,10 @@ public partial class MainWindow : Window
     {
         PositionTasksStatusWindow();
         PositionTraceWindow();
+        PositionApprovalWindow();
         ValidateFloatingWindowPosition(ref _tasksWindowOffset, _tasksStatusWindow);
         ValidateFloatingWindowPosition(ref _traceWindowOffset, _traceWindow);
+        ValidateFloatingWindowPosition(ref _approvalWindowOffset, _approvalWindow);
     }
 
     /// <summary>
@@ -15205,6 +15248,20 @@ public partial class MainWindow : Window
     {
         if (_traceWindow is not null)
             OnFloatingWindowMoved(_traceWindow, ref _traceWindowOffset);
+    }
+
+    private void PositionApprovalWindow()
+    {
+        if (_approvalWindow is not { IsLoaded: true } || WindowState == WindowState.Minimized)
+            return;
+
+        ApplyFloatingWindowPosition(_approvalWindow, _approvalWindowOffset);
+    }
+
+    private void OnApprovalWindowMoved()
+    {
+        if (_approvalWindow is not null)
+            OnFloatingWindowMoved(_approvalWindow, ref _approvalWindowOffset);
     }
 
     private void ShowScreenshotOverlay()

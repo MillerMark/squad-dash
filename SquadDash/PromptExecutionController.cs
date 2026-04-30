@@ -176,6 +176,7 @@ internal sealed class PromptExecutionController {
     private readonly Action                     _clearSessionView;
     private readonly Action                     _showTasksStatusWindow;
     private readonly Action                     _hideTasksStatusWindow;
+    private readonly Action                     _showApprovalWindow;
     private readonly Action                     _showLiveTraceWindow;
     private readonly Action                     _runDoctor;
     private readonly Func<HireAgentWindow.HireAgentSubmission?> _showHireAgentWindow;
@@ -334,6 +335,7 @@ internal sealed class PromptExecutionController {
         Action clearSessionView,
         Action showTasksStatusWindow,
         Action hideTasksStatusWindow,
+        Action showApprovalWindow,
         Action showLiveTraceWindow,
         Action runDoctor,
         Func<HireAgentWindow.HireAgentSubmission?> showHireAgentWindow,
@@ -400,6 +402,7 @@ internal sealed class PromptExecutionController {
         _clearSessionView                      = clearSessionView;
         _showTasksStatusWindow                 = showTasksStatusWindow;
         _hideTasksStatusWindow                 = hideTasksStatusWindow;
+        _showApprovalWindow                    = showApprovalWindow;
         _showLiveTraceWindow                   = showLiveTraceWindow;
         _runDoctor                             = runDoctor;
         _showHireAgentWindow                   = showHireAgentWindow;
@@ -734,6 +737,9 @@ internal sealed class PromptExecutionController {
         if (string.Equals(trimmed, "/tasks", StringComparison.OrdinalIgnoreCase))
             return HandleLocalTasksCommand(prompt, addToHistory, clearPromptBox);
 
+        if (string.Equals(trimmed, "/approval", StringComparison.OrdinalIgnoreCase))
+            return HandleLocalApprovalCommand(prompt, addToHistory, clearPromptBox);
+
         if (string.Equals(trimmed, "/dropTasks", StringComparison.OrdinalIgnoreCase))
             return HandleLocalDropTasksCommand(prompt, addToHistory, clearPromptBox);
 
@@ -789,6 +795,16 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             _showTasksStatusWindow);
+    }
+
+    private bool HandleLocalApprovalCommand(string prompt, bool addToHistory, bool clearPromptBox) {
+        SquadDashTrace.Write("UI", "Local command intercepted prompt=/approval");
+
+        return ExecuteLocalUiCommand(
+            prompt,
+            addToHistory,
+            clearPromptBox,
+            _showApprovalWindow);
     }
 
     private bool HandleLocalDropTasksCommand(string prompt, bool addToHistory, bool clearPromptBox) {

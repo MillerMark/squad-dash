@@ -890,6 +890,7 @@ internal sealed record ApplicationSettingsSnapshot(
             LastUsedModel = string.IsNullOrWhiteSpace(LastUsedModel) ? null : LastUsedModel.Trim(),
             TasksWindowOpen = TasksWindowOpen,
             TraceWindowOpen = TraceWindowOpen,
+            ApprovalWindowOpen = ApprovalWindowOpen,
             DisabledTraceCategories = (DisabledTraceCategories ?? Enum.GetNames<TraceCategory>())
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)

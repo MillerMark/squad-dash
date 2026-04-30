@@ -176,6 +176,7 @@ internal static class LocalPromptSubmissionPolicy {
     private static readonly HashSet<string> BusySafeCommands = new(StringComparer.OrdinalIgnoreCase) {
         "/activate",
         "/agents",
+        "/approval",
         "/deactivate",
         "/doctor",
         "/dropTasks",
