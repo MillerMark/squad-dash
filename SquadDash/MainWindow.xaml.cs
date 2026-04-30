@@ -2685,7 +2685,34 @@ public partial class MainWindow : Window
         if (evt.RcFirewallRuleAdded == false)
             _rcPanel?.ShowFirewallWarning();
 
+        _ = BroadcastRcAgentRosterToClientsAsync();
+
         SquadDashTrace.Write("UI", $"RC started port={port} url={_rcPanelUrl} firewallRuleAdded={evt.RcFirewallRuleAdded}");
+    }
+
+    private async Task BroadcastRcAgentRosterToClientsAsync()
+    {
+        var roster = _agents
+            .Select(card => (
+                Handle: card.IsLeadAgent ? "coordinator" : card.AccentStorageKey,
+                DisplayName: card.IsLeadAgent ? "Coordinator" : card.Name,
+                AccentHex: NormalizeCssHex(card.AccentColorHex)))
+            .ToList();
+
+        await _bridge.BroadcastRcAgentRosterAsync(roster).ConfigureAwait(false);
+    }
+
+    private static string NormalizeCssHex(string hex)
+    {
+        // Strip WPF ARGB alpha prefix: #FFRRGGBB → #RRGGBB
+        if (!string.IsNullOrWhiteSpace(hex) &&
+            hex.StartsWith('#') &&
+            hex.Length == 9 &&
+            hex.Substring(1, 2).Equals("FF", StringComparison.OrdinalIgnoreCase))
+        {
+            return "#" + hex.Substring(3);
+        }
+        return hex;
     }
 
     private void HandleRcTunnelStarted(SquadSdkEvent evt)

@@ -88,6 +88,11 @@ type RcStatusBroadcastRequest = {
     status: "busy" | "idle";
 };
 
+type RcAgentRosterBroadcastRequest = {
+    type: "rc_agent_roster_broadcast";
+    agents: Array<{ handle: string; displayName: string; accentHex: string }>;
+};
+
 type SubSquadsListRequest = {
     type: "subsquads_list";
     requestId?: string;
@@ -111,7 +116,7 @@ type PersonalInitRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -540,6 +545,12 @@ function tryParseRequest(line: string): BridgeRequest | null {
             return { type: "rc_status_broadcast", status };
         }
 
+        if (parsed.type === "rc_agent_roster_broadcast") {
+            const req = parsed as Partial<RcAgentRosterBroadcastRequest>;
+            if (!Array.isArray(req.agents)) return null;
+            return { type: "rc_agent_roster_broadcast", agents: req.agents };
+        }
+
         return tryParsePromptRequest(parsed as Partial<PromptRequest>);
     }
     catch {
@@ -570,11 +581,22 @@ function stripQuickRepliesBlock(content: string): string {
     return content;
 }
 
-function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBridge): SquadRunHandlers {
+function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBridge, agentHandle?: string, agentDisplayName?: string): SquadRunHandlers {
     let startedThinking = false;
     let rcAccumulatedContent = "";
     let rcThinkingActive = false;
+    let rcAgentContextSent = false;
     const rcSessionId = requestId ?? randomUUID();
+
+    function maybeBroadcastAgentContext() {
+        if (rcAgentContextSent || !remoteBridge) return;
+        rcAgentContextSent = true;
+        (remoteBridge as any).broadcast({
+            type: "agent_context",
+            handle: agentHandle ?? "coordinator",
+            displayName: agentDisplayName ?? "Coordinator"
+        });
+    }
 
     return {
         onSessionReady(session) {
@@ -616,6 +638,7 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
 
             if (remoteBridge && !rcThinkingActive) {
                 rcThinkingActive = true;
+                maybeBroadcastAgentContext();
                 (remoteBridge as any).broadcast({ type: "thinking_active" });
             }
         },
@@ -692,6 +715,7 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                     rcThinkingActive = false;
                     (remoteBridge as any).broadcast({ type: "thinking_done" });
                 }
+                maybeBroadcastAgentContext();
                 rcAccumulatedContent += chunk;
                 remoteBridge.sendDelta(rcSessionId, "copilot", chunk);
             }
@@ -873,11 +897,13 @@ function handleRunLoopStop(request: RunLoopStopRequest): void {
 }
 
 async function handlePrompt(request: PromptRequest) {
-    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined), request);
+    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, "coordinator", "Coordinator"), request);
 }
 
 async function handleDelegate(request: DelegateRequest) {
-    await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined));
+    const handle = request.targetAgent ?? "coordinator";
+    const displayName = handle.split("-").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, handle, displayName));
 }
 
 function getLanIp(): string | null {
@@ -1401,6 +1427,11 @@ async function main() {
 
         if (request.type === "rc_status_broadcast") {
             (activeRemoteBridge as any)?.broadcast?.({ type: "rc_status", status: request.status });
+            continue;
+        }
+
+        if (request.type === "rc_agent_roster_broadcast") {
+            (activeRemoteBridge as any)?.broadcast?.({ type: "agent_roster", agents: request.agents });
             continue;
         }
 

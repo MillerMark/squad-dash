@@ -714,6 +714,19 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    public async Task BroadcastRcAgentRosterAsync(IReadOnlyList<(string Handle, string DisplayName, string AccentHex)> agents) {
+        try {
+            var agentDtos = agents
+                .Select(a => new RcAgentRosterEntry(a.Handle, a.DisplayName, a.AccentHex))
+                .ToList();
+            await SendBridgeRequestAsync(new SquadSdkRcAgentRosterBroadcastRequest(agentDtos))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to broadcast rc_agent_roster: {ex.Message}");
+        }
+    }
+
     public async Task ListSubSquadsAsync(string cwd) {
         SquadDashTrace.Write("Bridge", $"ListSubSquadsAsync cwd={cwd}");
         var requestId = Guid.NewGuid().ToString("N");
@@ -862,6 +875,15 @@ internal sealed record SquadSdkRcStopRequest(
 internal sealed record SquadSdkRcStatusBroadcastRequest(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("type")] string Type = "rc_status_broadcast");
+
+internal sealed record RcAgentRosterEntry(
+    [property: JsonPropertyName("handle")] string Handle,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("accentHex")] string AccentHex);
+
+internal sealed record SquadSdkRcAgentRosterBroadcastRequest(
+    [property: JsonPropertyName("agents")] List<RcAgentRosterEntry> Agents,
+    [property: JsonPropertyName("type")] string Type = "rc_agent_roster_broadcast");
 
 internal sealed record SquadSdkSubSquadsListRequest(
     [property: JsonPropertyName("cwd")] string Cwd,

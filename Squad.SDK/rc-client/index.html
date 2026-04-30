@@ -20,7 +20,6 @@
       --text: #e8e8f0;
       --muted: #8888a0;
       --chat-user: #2d2b4e;
-      --chat-agent: #1e2a1e;
       --ptt-idle: #7c6af5;
       --ptt-active: #e05252;
       --ptt-busy: #555;
@@ -118,7 +117,7 @@
       white-space: pre-wrap;
     }
     .msg.user  { background: var(--chat-user);  align-self: flex-end;  border-bottom-right-radius: 3px; }
-    .msg.agent { background: var(--chat-agent); align-self: flex-start; border-bottom-left-radius: 3px; }
+    .msg.agent { background: #1b2227; align-self: flex-start; border-bottom-left-radius: 3px; }
     .msg .role { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 3px; }
     .msg.agent .role { color: #7ec87e; }
 
@@ -298,6 +297,52 @@
 
   let reconnectDelay = 1000;
 
+  // ── Agent roster & current speaker ───────────────────────────────────────
+  // handle → { displayName, accentHex }
+  let agentRoster = {
+    coordinator: { displayName: 'Coordinator', accentHex: '#3E63B8' }
+  };
+  let currentAgent = agentRoster.coordinator;
+
+  function hexToHsl(hex) {
+    let r = 0, g = 0, b = 0;
+    const h = hex.replace('#', '');
+    if (h.length === 6) {
+      r = parseInt(h.slice(0,2),16)/255;
+      g = parseInt(h.slice(2,4),16)/255;
+      b = parseInt(h.slice(4,6),16)/255;
+    }
+    const max = Math.max(r,g,b), min = Math.min(r,g,b);
+    let hue = 0, sat = 0;
+    const light = (max+min)/2;
+    if (max !== min) {
+      const d = max - min;
+      sat = light > 0.5 ? d/(2-max-min) : d/(max+min);
+      switch(max) {
+        case r: hue = ((g-b)/d + (g<b?6:0))/6; break;
+        case g: hue = ((b-r)/d + 2)/6; break;
+        case b: hue = ((r-g)/d + 4)/6; break;
+      }
+    }
+    return [Math.round(hue*360), Math.round(sat*100), Math.round(light*100)];
+  }
+
+  function agentBubbleBg(accentHex) {
+    const [h, s] = hexToHsl(accentHex);
+    return `hsl(${h}, ${Math.round(s*0.45)}%, 14%)`;
+  }
+
+  function agentNameColor(accentHex) {
+    const [h, s] = hexToHsl(accentHex);
+    return `hsl(${h}, ${Math.min(100, Math.round(s*1.1))}%, 68%)`;
+  }
+
+  function applyAgentStyle(el, agent) {
+    el.style.background = agentBubbleBg(agent.accentHex);
+    const roleEl = el.querySelector('.role');
+    if (roleEl) roleEl.style.color = agentNameColor(agent.accentHex);
+  }
+
   // ── Activity timers ──────────────────────────────────────────────────────
   let thinkingStartMs = 0;
   let toolStartMs     = 0;
@@ -429,6 +474,21 @@
       case 'rc_status':
         setAiBusy(msg.status === 'busy');
         break;
+      case 'agent_roster':
+        if (Array.isArray(msg.agents)) {
+          msg.agents.forEach(a => {
+            if (a.handle && a.displayName && a.accentHex) {
+              agentRoster[a.handle] = { displayName: a.displayName, accentHex: a.accentHex };
+            }
+          });
+        }
+        break;
+      case 'agent_context':
+        currentAgent = agentRoster[msg.handle] ?? {
+          displayName: msg.displayName ?? msg.handle ?? 'Agent',
+          accentHex: '#4472C4'
+        };
+        break;
     }
   }
 
@@ -463,14 +523,22 @@
   }
 
   /** Create a new fully-settled chat bubble (no streaming) */
-  function appendChatFinal(role, content) {
+  function appendChatFinal(role, content, agent) {
     streamingBubble = null;
     streamingRawText = '';
     const el = document.createElement('div');
     el.className = `msg ${role === 'user' ? 'user' : 'agent'}`;
     const roleLabel = document.createElement('div');
     roleLabel.className = 'role';
-    roleLabel.textContent = role === 'user' ? 'You' : 'SquadDash';
+    if (role === 'user') {
+      roleLabel.textContent = 'You';
+    } else {
+      const agt = agent ?? currentAgent;
+      const firstName = agt.displayName.split(' ')[0];
+      roleLabel.textContent = firstName;
+      el.style.background = agentBubbleBg(agt.accentHex);
+      roleLabel.style.color = agentNameColor(agt.accentHex);
+    }
     el.appendChild(roleLabel);
     const text = document.createElement('span');
     text.textContent = content;
@@ -485,11 +553,14 @@
     streamingRawText += token;
     const display = visibleText(streamingRawText);
     if (!streamingBubble) {
+      const agt = currentAgent;
       streamingBubble = document.createElement('div');
       streamingBubble.className = 'msg agent';
+      streamingBubble.style.background = agentBubbleBg(agt.accentHex);
       const roleLabel = document.createElement('div');
       roleLabel.className = 'role';
-      roleLabel.textContent = 'SquadDash';
+      roleLabel.textContent = agt.displayName.split(' ')[0];
+      roleLabel.style.color = agentNameColor(agt.accentHex);
       streamingBubble.appendChild(roleLabel);
       const span = document.createElement('span');
       streamingBubble.appendChild(span);

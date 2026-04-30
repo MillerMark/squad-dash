@@ -432,11 +432,21 @@ function stripQuickRepliesBlock(content) {
         return content.slice(0, idx2).trimEnd();
     return content;
 }
-function buildRunHandlers(requestId, remoteBridge) {
+function buildRunHandlers(requestId, remoteBridge, agentHandle, agentDisplayName) {
     let startedThinking = false;
     let rcAccumulatedContent = "";
     let rcThinkingActive = false;
+    let rcAgentContextSent = false;
     const rcSessionId = requestId ?? randomUUID();
+    function maybeBroadcastAgentContext() {
+        if (rcAgentContextSent || !remoteBridge) return;
+        rcAgentContextSent = true;
+        remoteBridge.broadcast({
+            type: "agent_context",
+            handle: agentHandle ?? "coordinator",
+            displayName: agentDisplayName ?? "Coordinator"
+        });
+    }
     return {
         onSessionReady(session) {
             emit({
@@ -475,6 +485,7 @@ function buildRunHandlers(requestId, remoteBridge) {
             });
             if (remoteBridge && !rcThinkingActive) {
                 rcThinkingActive = true;
+                maybeBroadcastAgentContext();
                 remoteBridge.broadcast({ type: "thinking_active" });
             }
         },
@@ -551,6 +562,7 @@ function buildRunHandlers(requestId, remoteBridge) {
                     rcThinkingActive = false;
                     remoteBridge.broadcast({ type: "thinking_done" });
                 }
+                maybeBroadcastAgentContext();
                 rcAccumulatedContent += chunk;
                 remoteBridge.sendDelta(rcSessionId, "copilot", chunk);
             }
@@ -718,10 +730,12 @@ function handleRunLoopStop(request) {
     activeLoopProc.kill();
 }
 async function handlePrompt(request) {
-    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined), request);
+    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, "coordinator", "Coordinator"), request);
 }
 async function handleDelegate(request) {
-    await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined));
+    const handle = request.targetAgent ?? "coordinator";
+    const displayName = handle.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, handle, displayName));
 }
 function getLanIp() {
     const nets = os.networkInterfaces();
@@ -1211,6 +1225,10 @@ async function main() {
         }
         if (request.type === "rc_status_broadcast") {
             activeRemoteBridge?.broadcast?.({ type: "rc_status", status: request.status });
+            continue;
+        }
+        if (request.type === "rc_agent_roster_broadcast") {
+            activeRemoteBridge?.broadcast?.({ type: "agent_roster", agents: request.agents });
             continue;
         }
         if (request.type === "subsquads_list") {
