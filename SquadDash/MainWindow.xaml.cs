@@ -12544,6 +12544,12 @@ public partial class MainWindow : Window
             if (_settingsSnapshot.RemoteAccessActiveOnExit && !_restartPending)
                 _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
             _instanceActivationChannel.Stop();
+            // If a queued item is selected, the prompt box shows that item's text while the real
+            // draft is stashed in _queuePreEditDraft. Switch back to Active Draft first so that
+            // CaptureWorkspaceInputState reads the actual draft — not the queue item's text —
+            // preventing a duplicate queue entry on the next launch.
+            if (_activeTabId is not null)
+                OnQueueTabClicked(null);
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
