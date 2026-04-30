@@ -8231,6 +8231,10 @@ public partial class MainWindow : Window
         if (_settingsSnapshot.RemoteAccessActiveOnExit)
         {
             _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
+            // Optimistically show "Stop" immediately — HandleRcStarted will confirm,
+            // HandleRcError will revert if startup fails.
+            _remoteAccessActive = true;
+            UpdateRemoteAccessMenuHeader();
             Dispatcher.InvokeAsync(async () =>
             {
                 if (_currentWorkspace is null) return;
@@ -13307,7 +13311,7 @@ public partial class MainWindow : Window
 
         _remoteAccessMenuItem = new MenuItem
         {
-            Header = "Start _Remote Access",
+            Header = _settingsSnapshot.RemoteAccessActiveOnExit ? "Stop _Remote Access" : "Start _Remote Access",
             Style = (Style)FindResource("ThemedMenuItemStyle")
         };
         _remoteAccessMenuItem.Click += RemoteAccessMenuItem_Click;
