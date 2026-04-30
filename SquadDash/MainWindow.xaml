@@ -566,9 +566,13 @@
                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
                        Text="{Binding WorkspaceTitleDisplay, RelativeSource={RelativeSource AncestorType=Window}}" />
 
-            <!-- Far right: caption buttons -->
-            <StackPanel Grid.Column="6"
+            <!-- Far right: caption buttons — span all columns so HorizontalAlignment="Right"
+                 anchors them to the grid's arrange-slot right edge even when Auto columns
+                 overflow (i.e. * spacer reaches 0 at narrow widths). -->
+            <StackPanel Grid.Column="0"
+                        Grid.ColumnSpan="7"
                         Orientation="Horizontal"
+                        HorizontalAlignment="Right"
                         VerticalAlignment="Stretch"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True">
                 <Button x:Name="MinimizeButton"
