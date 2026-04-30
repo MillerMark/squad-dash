@@ -63,7 +63,7 @@
   1.49.0 and works with browser-sourced audio. If it does, use Option C (simpler, lower bandwidth).
   Fall back to Option B only if Option C fails. See `.squad/rc-mobile-architecture.md` §Key Decisions #2.
 
-- [ ] **RC mobile — define PTT-during-LLM-run policy** *(Owner: Orion Vale)*
+- [x] **RC mobile — define PTT-during-LLM-run policy** *(Owner: Orion Vale)*
   What happens when the user initiates PTT on the phone while an LLM response is already streaming?
   Options: (a) queue prompt, (b) abort current run, (c) reject with error.
   Recommendation: show "⏳ Wait for response to complete" on phone; auto-unblock when `complete` fires.
@@ -118,6 +118,7 @@
 - [x] Verify task priority icon colors — ✅ Verified 2026-04-29
 - [x] RC mobile — decide SDK PR ownership for binary audio frames — ✅ Decided 2026-04-30 (Talia Rune submits PR after Option C spike)
 - [x] RC mobile — spike Option C audio format (WEBM_OPUS) — ✅ Spiked 2026-04-30 (WEBM_OPUS absent from SDK 1.49.0; proceed with Option B PCM/AudioWorklet)
+- [x] RC mobile — define PTT-during-LLM-run policy — ✅ Decided 2026-04-30 (Option C: reject+feedback; C# broadcasts rc_status busy/idle; auto-unblocks on "done")
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel

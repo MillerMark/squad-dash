@@ -549,8 +549,10 @@ The following require explicit owner sign-off before implementation starts:
 3. **QR code NuGet package.**  
    Two candidates: `QRCoder` (MIT, ~150 KB, no native deps) and `ZXing.Net` (Apache 2.0, larger). Neither is in the project today. Owner should approve adding one. `QRCoder` is preferred for its minimal footprint.
 
-4. **Audio-during-LLM-run policy.**  
-   What should happen if the user initiates PTT while an LLM response is already streaming? Options: (a) queue the voice prompt, (b) abort the current run first, (c) reject with an error message on the phone. The desktop `_isPromptRunning` guard prevents PTT during a run — apply the same guard remotely (recommended: show "⏳ Wait for response to complete" on the phone, auto-unblock when `complete` fires).
+4. **Audio-during-LLM-run policy.** ✅ **Decided 2026-04-30 — Option (c): reject with graceful feedback**  
+   When PTT is initiated on the phone while `_isPromptRunning` is true, the phone shows **"⏳ AI is responding — wait before speaking"** and disables the PTT button. Auto-unblocks when the `"done"` event fires. No audio is captured during the blocked window.  
+   C# broadcasts `{ "type": "rc_status", "status": "busy"|"idle" }` over WebSocket when `_isPromptRunning` changes; phone PTT button listens and enables/disables accordingly.  
+   See `.squad/decisions.md` §RC Mobile — PTT-During-LLM-Run Policy (2026-04-30).
 
 5. **Session isolation for multi-phone connections.**  
    `RemoteBridge` allows multiple simultaneous connections. If two phones are connected and both submit prompts, they share the same SquadBridge session and the same `addMessage` history. Is this the desired behaviour, or should each phone connection have an isolated session? This decision affects how `onPrompt` is wired in `handleRcStart`.

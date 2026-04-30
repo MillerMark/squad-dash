@@ -1262,3 +1262,58 @@ The WebAudio AudioWorklet pipeline (Option B) is confirmed as the required path:
 - C# side: no new Azure SDK dependency needed — existing PushAudioInputStream + SpeechRecognitionService pattern works unchanged.
 
 **References:** .squad/rc-mobile-architecture.md §Key Decisions #2, §Option B
+
+
+---
+
+## RC Mobile — PTT-During-LLM-Run Policy (2026-04-30)
+
+**By:** Orion Vale (Lead Architect)
+**Status:** Decided
+
+### Context
+
+When a user initiates PTT (push-to-talk) on the phone while an LLM response is already streaming, the three options were:
+
+- **(a) Queue the voice prompt** — record and hold; submit when the current run completes.
+- **(b) Abort the current run** — interrupt the in-flight LLM response and start the new voice prompt.
+- **(c) Reject with feedback** — block PTT initiation and show the user a status message; auto-unblock when the run ends.
+
+### Decision: Option (c) — Reject with graceful feedback, auto-unblock
+
+**Policy:** When PTT is initiated on the phone while _isPromptRunning is true, the phone UI:
+
+1. Shows **"⏳ AI is responding — wait before speaking"** (or equivalent localized copy).
+2. **Disables the PTT button** (visual feedback: greyed out or pulsing).
+3. **Auto-unblocks** when the "done" event fires from unPrompt.ts — the same event used for push notification turn-complete hooks.
+4. Clears the status message and re-enables the PTT button once unblocked.
+
+**Audio is never captured during the blocked window** — the AudioWorklet is not started until PTT is unblocked. This avoids wasted bandwidth and confusing UX where audio is captured but the prompt is silently dropped.
+
+### Why not the other options
+
+- **Option (a) — Queue:** Queuing voice audio on the phone adds significant complexity (buffer management, timeout handling if recording is long, stale audio problem if the LLM run takes >30s). The desktop does not queue PTT either; the _isPromptRunning guard simply prevents PTT from starting. Consistency with desktop behavior argues against queuing on mobile.
+- **Option (b) — Abort:** Aborting an in-flight LLM run is destructive — partial tool calls may be abandoned, the AI may be mid-sentence. This option is reserved for explicit user action (the Abort button), not for accidental PTT on a phone.
+
+### Implementation notes
+
+**TypeScript/RC bridge side (Talia):**
+- When handleRcStart wires the RemoteBridgeConfig, it should expose a "busy" status push mechanism to each connected phone.
+- When _isPromptRunning transitions true → false (i.e., "done" event received in C#), C# pushes an "rc_status" message over the WebSocket with { status: "idle" }.
+- Complementary: when _isPromptRunning transitions false → true, push { status: "busy" }.
+
+**Phone browser side (Talia):**
+- PTT button listens for c_status messages.
+- On { status: "busy" }: disable button, show "⏳ AI is responding…" overlay.
+- On { status: "idle" }: re-enable button, clear overlay.
+- On PTT hold-start while already usy: show message and swallow the event (do not open AudioWorklet).
+
+**C# side (Arjun):**
+- setIsPromptRunning in MainWindow.xaml.cs already fires when _isPromptRunning changes. Add a call to RcBridge.BroadcastStatus(busy) in that setter alongside the existing UI refresh.
+- RcBridge.BroadcastStatus(bool busy) sends { "type": "rc_status", "status": busy ? "busy" : "idle" } to all connected WebSocket clients.
+
+### Alignment with desktop PTT behavior
+
+Desktop: _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning — voice capture starts but "send on release" is disabled if a run is in progress. The mobile policy is strictly more conservative (no capture at all during a run), which is appropriate given the higher latency and lack of visual context on a phone.
+
+**References:** .squad/rc-mobile-architecture.md §Key Decisions #4
