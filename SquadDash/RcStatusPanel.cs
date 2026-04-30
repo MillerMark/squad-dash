@@ -108,15 +108,17 @@ internal sealed class RcStatusPanel : Window
         // ── Primary URL section ──────────────────────────────────────────
         (_urlBox, _urlRow, _qrToggleButton, _qrImage) = BuildUrlSection(primaryUrl, isPrimary: true);
 
-        // ── Stop button ──────────────────────────────────────────────────
+        // ── Bottom row: Stop (left) + OK/Close (right) ───────────────────
         _root.Children.Add(MakeSeparator());
+
+        var bottomRow = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 8, 0, 0) };
+        WindowChrome.SetIsHitTestVisibleInChrome(bottomRow, true);
 
         var stopButton = new Button
         {
             Content             = "Stop Remote Access",
             Height              = 30,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Margin              = new Thickness(0, 8, 0, 0),
         };
         stopButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(stopButton, true);
@@ -125,7 +127,23 @@ internal sealed class RcStatusPanel : Window
             _onStopRemoteAccess();
             Close();
         };
-        _root.Children.Add(stopButton);
+        DockPanel.SetDock(stopButton, Dock.Left);
+        bottomRow.Children.Add(stopButton);
+
+        var okButton = new Button
+        {
+            Content             = "OK",
+            Width               = 60,
+            Height              = 30,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        okButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        WindowChrome.SetIsHitTestVisibleInChrome(okButton, true);
+        okButton.Click += (_, _) => Close();
+        DockPanel.SetDock(okButton, Dock.Right);
+        bottomRow.Children.Add(okButton);
+
+        _root.Children.Add(bottomRow);
     }
 
     // ── Public API ────────────────────────────────────────────────────────
@@ -161,7 +179,7 @@ internal sealed class RcStatusPanel : Window
         text.SetResourceReference(TextBlock.ForegroundProperty, "AlertBodyText");
         banner.Child = text;
 
-        // Insert before the separator + Stop button (last two children)
+        // Insert before the separator + bottom row (last two children)
         int insertAt = _root.Children.Count - 2;
         _root.Children.Insert(insertAt, banner);
     }
@@ -186,8 +204,8 @@ internal sealed class RcStatusPanel : Window
             return;
         }
 
-        // Insert the tunnel section before the separator + Stop button.
-        // The last two children are the separator and the stop button.
+        // Insert the tunnel section before the separator + bottom row.
+        // The last two children are the separator and the bottom row.
         // We insert before the separator (index = count - 2).
         int insertAt = _root.Children.Count - 2;
 
