@@ -3943,8 +3943,17 @@ public partial class MainWindow : Window
         foreach (var block in document.Blocks.OfType<Section>())
         {
             foreach (var inner in block.Blocks.OfType<BlockUIContainer>())
-                if (inner.Child is TextBox { Tag: "codeblock" } codeBox)
+            {
+                // Code block is now: BlockUIContainer > StackPanel > [DockPanel header, TextBox]
+                var codeBox = inner.Child switch {
+                    TextBox tb when tb.Tag is "codeblock" => tb,
+                    System.Windows.Controls.StackPanel sp =>
+                        sp.Children.OfType<TextBox>().FirstOrDefault(tb => tb.Tag is "codeblock"),
+                    _ => null
+                };
+                if (codeBox is not null)
                     codeBox.FontSize = codeBlockFontSize;
+            }
 
             foreach (var para in block.Blocks.OfType<Paragraph>())
             {
@@ -9370,7 +9379,46 @@ public partial class MainWindow : Window
         };
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
-        return new BlockUIContainer(textBox) { Margin = new Thickness(0, 2, 0, 10) };
+
+        var copiedTip = new System.Windows.Controls.ToolTip {
+            Content   = "Copied!",
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+        };
+        var copyBtn = new Button {
+            Content             = "📋",
+            ToolTip             = copiedTip,
+            FontSize            = 13,
+            Width               = 26,
+            Height              = 22,
+            Padding             = new Thickness(0),
+            Margin              = new Thickness(4, 2, 4, 2),
+            BorderThickness     = new Thickness(0),
+            Background          = Brushes.Transparent,
+            Cursor              = Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment   = VerticalAlignment.Center,
+        };
+        copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
+        copyBtn.Click += (_, _) => {
+            try { Clipboard.SetText(code); } catch { }
+            copiedTip.PlacementTarget = copyBtn;
+            copiedTip.IsOpen          = true;
+            var timer = new System.Windows.Threading.DispatcherTimer {
+                Interval = TimeSpan.FromSeconds(1.5)
+            };
+            timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
+            timer.Start();
+        };
+
+        var header = new DockPanel { LastChildFill = false };
+        header.SetResourceReference(DockPanel.BackgroundProperty, "CodeSurface");
+        DockPanel.SetDock(copyBtn, Dock.Right);
+        header.Children.Add(copyBtn);
+
+        var container = new StackPanel();
+        container.Children.Add(header);
+        container.Children.Add(textBox);
+        return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }
 
     private sealed record QuickReplyButtonPayload(

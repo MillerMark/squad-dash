@@ -4,9 +4,11 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -377,7 +379,53 @@ internal sealed class MarkdownDocumentRenderer {
         };
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
-        return new BlockUIContainer(textBox) { Margin = new Thickness(0, 2, 0, 10) };
+
+        // ── Copy button with "Copied!" feedback ──────────────────────────
+        var copiedTip = new ToolTip {
+            Content   = "Copied!",
+            Placement = PlacementMode.Bottom,
+        };
+
+        var copyBtn = new Button {
+            Content             = "📋",
+            ToolTip             = copiedTip,
+            FontSize            = 13,
+            Width               = 26,
+            Height              = 22,
+            Padding             = new Thickness(0),
+            Margin              = new Thickness(4, 2, 4, 2),
+            BorderThickness     = new Thickness(0),
+            Background          = Brushes.Transparent,
+            Cursor              = Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment   = VerticalAlignment.Center,
+        };
+        copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
+
+        copyBtn.Click += (_, _) => {
+            try { Clipboard.SetText(code); }
+            catch { /* clipboard contention — ignore */ }
+
+            copiedTip.PlacementTarget = copyBtn;
+            copiedTip.IsOpen          = true;
+
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
+            timer.Start();
+        };
+
+        // ── Header row: copy button pinned right ─────────────────────────
+        var header = new DockPanel { LastChildFill = false };
+        header.SetResourceReference(DockPanel.BackgroundProperty, "CodeSurface");
+        DockPanel.SetDock(copyBtn, Dock.Right);
+        header.Children.Add(copyBtn);
+
+        // ── Outer container ───────────────────────────────────────────────
+        var container = new StackPanel();
+        container.Children.Add(header);
+        container.Children.Add(textBox);
+
+        return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }
 
     // ── Quick-reply block ──────────────────────────────────────────────────
