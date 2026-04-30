@@ -714,6 +714,16 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    public async Task BroadcastRcCommitAsync(string sha, string? commitUrl) {
+        try {
+            await SendBridgeRequestAsync(new SquadSdkRcCommitBroadcastRequest(sha, commitUrl))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to broadcast rc_commit: {ex.Message}");
+        }
+    }
+
     public async Task BroadcastRcAgentRosterAsync(IReadOnlyList<(string Handle, string DisplayName, string AccentHex)> agents) {
         try {
             var agentDtos = agents
@@ -871,6 +881,11 @@ internal sealed record SquadSdkRcStartRequest(
 internal sealed record SquadSdkRcStopRequest(
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("type")] string Type = "rc_stop");
+
+internal sealed record SquadSdkRcCommitBroadcastRequest(
+    [property: JsonPropertyName("sha")] string Sha,
+    [property: JsonPropertyName("url")] string? Url,
+    [property: JsonPropertyName("type")] string Type = "rc_commit_broadcast");
 
 internal sealed record SquadSdkRcStatusBroadcastRequest(
     [property: JsonPropertyName("status")] string Status,

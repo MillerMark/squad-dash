@@ -2076,7 +2076,13 @@ public partial class MainWindow : Window
                     var commitSha = PushNotificationService.ExtractGitCommitSha(
                         doneCurrentTurn?.ToolEntries.Select(e => e.OutputText) ?? []);
                     if (commitSha is not null)
+                    {
                         notifMessage += $" [{commitSha}]";
+                        var commitUrl = _workspaceGitHubUrl is not null
+                            ? $"{_workspaceGitHubUrl}/commit/{commitSha}"
+                            : null;
+                        _ = _bridge.BroadcastRcCommitAsync(commitSha, commitUrl);
+                    }
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
 
                     // Handle SquadDash loop commands embedded in the AI response.

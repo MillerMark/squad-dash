@@ -173,6 +173,34 @@
     .md-content strong { font-weight: 600; }
     .md-content em { font-style: italic; }
 
+    /* ── Commit chip ── */
+    .commit-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 10px;
+      padding: 6px 12px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      font-size: 0.8em;
+      font-family: monospace;
+      color: #aaa;
+    }
+    .commit-chip .commit-label {
+      color: #888;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-family: sans-serif;
+    }
+    .commit-chip a {
+      color: #58a6ff;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .commit-chip a:hover { text-decoration: underline; }
+
     /* ── Quick reply buttons ── */
     .quick-replies {
       display: flex;
@@ -563,6 +591,9 @@
           accentHex: '#4472C4'
         };
         break;
+      case 'commit':
+        appendCommitChip(msg.sha, msg.url);
+        break;
     }
   }
 
@@ -742,6 +773,30 @@
       chat.appendChild(streamingBubble);
     }
     streamingBubble.querySelector('.streaming-text').textContent = display;
+    scrollToBottom();
+  }
+
+  /** Append a commit chip row — standalone, not a chat bubble */
+  function appendCommitChip(sha, url) {
+    const chip = document.createElement('div');
+    chip.className = 'commit-chip';
+    const label = document.createElement('span');
+    label.className = 'commit-label';
+    label.textContent = 'Commit:';
+    chip.appendChild(label);
+    if (url) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = sha.slice(0, 7);
+      chip.appendChild(a);
+    } else {
+      const s = document.createElement('span');
+      s.textContent = sha.slice(0, 7);
+      chip.appendChild(s);
+    }
+    chat.appendChild(chip);
     scrollToBottom();
   }
 

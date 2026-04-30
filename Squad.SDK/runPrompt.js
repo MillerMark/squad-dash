@@ -401,6 +401,18 @@ function tryParseRequest(line) {
                 return null;
             return { type: "rc_status_broadcast", status };
         }
+        if (parsed.type === "rc_agent_roster_broadcast") {
+            const req = parsed;
+            if (!Array.isArray(req.agents))
+                return null;
+            return { type: "rc_agent_roster_broadcast", agents: req.agents };
+        }
+        if (parsed.type === "rc_commit_broadcast") {
+            const req = parsed;
+            if (typeof req.sha !== "string" || !req.sha)
+                return null;
+            return { type: "rc_commit_broadcast", sha: req.sha, url: req.url };
+        }
         return tryParsePromptRequest(parsed);
     }
     catch {
@@ -433,10 +445,13 @@ function stripQuickRepliesBlock(content) {
     return content;
 }
 function stripRcNoise(content) {
+    // Remove <system_notification>...</system_notification> blocks (machine-readable sentinels)
     return content.replace(/<system_notification>[\s\S]*?<\/system_notification>/g, "").trimEnd();
 }
 function stripLetMeSentences(content) {
     // Remove any sentence containing the phrase "let me" (whole-word, case-insensitive).
+    // A sentence is bounded by .!? or newline; the trailing whitespace is consumed to avoid
+    // double-spacing when the sentence is mid-paragraph.
     return content.replace(/[^.!?\n]*\blet\s+me\b[^.!?\n]*(?:[.!?]+\s*|\n|$)/gi, "").trimEnd();
 }
 function cleanForRc(content) {
@@ -449,7 +464,8 @@ function buildRunHandlers(requestId, remoteBridge, agentHandle, agentDisplayName
     let rcAgentContextSent = false;
     const rcSessionId = requestId ?? randomUUID();
     function maybeBroadcastAgentContext() {
-        if (rcAgentContextSent || !remoteBridge) return;
+        if (rcAgentContextSent || !remoteBridge)
+            return;
         rcAgentContextSent = true;
         remoteBridge.broadcast({
             type: "agent_context",
@@ -744,7 +760,7 @@ async function handlePrompt(request) {
 }
 async function handleDelegate(request) {
     const handle = request.targetAgent ?? "coordinator";
-    const displayName = handle.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    const displayName = handle.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
     await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, handle, displayName));
 }
 function getLanIp() {
@@ -913,7 +929,7 @@ async function handleRcStart(request) {
         }
     });
     // Restore the persistent token so the phone's saved QR link keeps working across restarts.
-    if (request.rcToken && typeof request.rcToken === "string" && request.rcToken.trim().length > 0) {
+    if (request.rcToken && request.rcToken.trim().length > 0) {
         rcBridge.sessionToken = request.rcToken.trim();
     }
     // Serve the RC mobile web client from rc-client/
@@ -1239,6 +1255,10 @@ async function main() {
         }
         if (request.type === "rc_agent_roster_broadcast") {
             activeRemoteBridge?.broadcast?.({ type: "agent_roster", agents: request.agents });
+            continue;
+        }
+        if (request.type === "rc_commit_broadcast") {
+            activeRemoteBridge?.broadcast?.({ type: "commit", sha: request.sha, url: request.url });
             continue;
         }
         if (request.type === "subsquads_list") {

@@ -93,6 +93,12 @@ type RcAgentRosterBroadcastRequest = {
     agents: Array<{ handle: string; displayName: string; accentHex: string }>;
 };
 
+type RcCommitBroadcastRequest = {
+    type: "rc_commit_broadcast";
+    sha: string;
+    url?: string;
+};
+
 type SubSquadsListRequest = {
     type: "subsquads_list";
     requestId?: string;
@@ -116,7 +122,7 @@ type PersonalInitRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -549,6 +555,12 @@ function tryParseRequest(line: string): BridgeRequest | null {
             const req = parsed as Partial<RcAgentRosterBroadcastRequest>;
             if (!Array.isArray(req.agents)) return null;
             return { type: "rc_agent_roster_broadcast", agents: req.agents };
+        }
+
+        if (parsed.type === "rc_commit_broadcast") {
+            const req = parsed as Partial<RcCommitBroadcastRequest>;
+            if (typeof req.sha !== "string" || !req.sha) return null;
+            return { type: "rc_commit_broadcast", sha: req.sha, url: req.url };
         }
 
         return tryParsePromptRequest(parsed as Partial<PromptRequest>);
@@ -1448,6 +1460,11 @@ async function main() {
 
         if (request.type === "rc_agent_roster_broadcast") {
             (activeRemoteBridge as any)?.broadcast?.({ type: "agent_roster", agents: request.agents });
+            continue;
+        }
+
+        if (request.type === "rc_commit_broadcast") {
+            (activeRemoteBridge as any)?.broadcast?.({ type: "commit", sha: request.sha, url: request.url });
             continue;
         }
 
