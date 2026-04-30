@@ -1,8 +1,19 @@
 diff --git a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
-index bf0b370..0ef93a3 100644
+index bf0b370..9f434c5 100644
 --- a/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
 +++ b/node_modules/@bradygaster/squad-sdk/dist/remote/bridge.js
-@@ -175,7 +175,7 @@ export class RemoteBridge {
+@@ -152,7 +152,9 @@ export class RemoteBridge {
+                     try {
+                         const originUrl = new URL(origin);
+                         const host = originUrl.hostname;
+-                        if (host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.devtunnels.ms')) {
++                        const isLocalhost = host === 'localhost' || host === '127.0.0.1';
++                        const isLanIp = /^(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)/.test(host);
++                        if (!isLocalhost && !isLanIp && !host.endsWith('.devtunnels.ms')) {
+                             return false;
+                         }
+                     }
+@@ -175,7 +177,7 @@ export class RemoteBridge {
          });
          this.wss.on('connection', (ws, req) => this.handleConnection(ws, req));
          return new Promise((resolve, reject) => {
