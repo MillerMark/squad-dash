@@ -19,6 +19,52 @@
   SquadDash shows the LAN URL in the transcript alongside the localhost URL when RC starts.
   Prerequisite for phone access on the same WiFi network.
 
+- [ ] **RC browser UI — review and improvement pass** *(Owner: Lyra Morn)*
+  Review the RC mobile web client (`Squad.SDK/rc-client/index.html`) with fresh eyes and identify
+  opportunities to improve the experience: layout, typography, spacing, readability of markdown
+  content, chat bubble polish, activity indicators, input bar ergonomics, color/contrast, and
+  anything else that feels rough. Propose and implement the best improvements. Focus on the phone
+  viewport (small screen, touch targets).
+
+---
+
+## 🔴 High Priority
+
+- [ ] **WinGet — smoke-test installer on clean VM** *(Owner: you — manual step)*
+  Run `.\installer\build-installer.ps1 -Version 1.0.0` (requires Inno Setup 6 installed locally),
+  then install on a clean Windows VM with only Node.js pre-installed. Verify: launcher starts,
+  SDK bridge connects, workspaces resolve correctly from `%LocalAppData%\SquadDash\app\`.
+  **Blocks:** GitHub Release, WinGet submission.
+
+---
+
+## 🟡 Mid Priority
+
+- [ ] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
+  After smoke-test passes: create GitHub Release `v1.0.0`, attach the installer `.exe` and its
+  SHA256 hash. The public download URL is required for `wingetcreate`.
+  **Blocked by:** smoke-test passing.
+
+- [ ] **WinGet — generate and submit manifest** *(Owner: Jae Min — automated once release exists)*
+  Run `wingetcreate new <installer-url>`, add `OpenJS.NodeJS` as a `PackageDependencies` entry
+  in the installer manifest YAML, open PR to `microsoft/winget-pkgs`.
+  **Blocked by:** GitHub Release v1.0.0 existing with a stable download URL.
+
+- [ ] **WinGet — document Node.js prerequisite** *(Owner: Jae Min)*
+  `runPrompt.js` calls `node` from PATH — Node.js is required but not bundled.
+  Update `README.md` to document this prerequisite clearly. The WinGet manifest will list
+  `OpenJS.NodeJS` as a dependency but a README callout helps users who install manually.
+
+- [ ] **WinGet — Phase 2: release automation** *(Owner: Jae Min)*
+  Create `.github/workflows/release.yml`: on `v*` tag push, run `dotnet publish`, bundle
+  installer, upload to GitHub Release, run `wingetcreate update`, open PR to winget-pkgs
+  automatically. Requires `WINGET_PKGS_PAT` repo secret.
+  **Blocked by:** Phase 1 (manual release) succeeding at least once.
+
+- [ ] **WinGet — write RELEASING.md runbook** *(Owner: Jae Min)*
+  Document the full release checklist: bump version, tag, let automation run, verify winget PR.
+  Include manual fallback steps. Useful for the first few releases before automation is trusted.
+
 ---
 
 ## 🟢 Low Priority
