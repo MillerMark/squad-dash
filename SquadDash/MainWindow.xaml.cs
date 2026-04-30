@@ -1563,8 +1563,7 @@ public partial class MainWindow : Window
         if (_rightmostTabHoldNotificationFired) return;
         _rightmostTabHoldNotificationFired = true;
 
-        AppendLine("✋ Queue paused — you're editing the next item to send.", (Brush)FindResource("SubtleText"));
-        AppendLine("Click Send to dispatch it, or select another tab to auto-send.", (Brush)FindResource("SubtleText"));
+        AppendLine("✋ Queued prompt is active — paused for edits. Click **Send** (or click another tab) to submit immediately.");
 
         SyncSendButton();
     }
@@ -5102,16 +5101,20 @@ public partial class MainWindow : Window
 
         if (service != null)
         {
-            // StopAsync flushes any in-flight Azure recognition — the final PhraseRecognized
-            // callback fires before this returns, so dictated text is fully written to the
-            // target TextBox before we check _restartPending below.
             try { await service.StopAsync().ConfigureAwait(false); }
             catch { }
             service.Dispose();
         }
 
-        // Check restart AFTER the speech service has drained — ensures the last phrase
-        // is inserted into the prompt/editor before the app closes.
+        // PhraseRecognized callbacks are queued via Dispatcher.BeginInvoke (Normal priority).
+        // After StopAsync, those callbacks may not have run yet. Awaiting at Background
+        // priority ensures all pending Normal-priority items — including AppendSpeechToPrompt —
+        // execute and write the final phrase into PromptTextBox.Text before we save/close.
+        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+
+        // Check restart AFTER the speech service has drained AND the dispatcher has flushed
+        // all pending phrase callbacks — so the final dictated text is in PromptTextBox.Text
+        // when EmergencySave captures it during OnClosing.
         if (_restartPending && !_isPromptRunning)
         {
             Close();
