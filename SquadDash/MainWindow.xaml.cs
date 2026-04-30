@@ -4667,8 +4667,11 @@ public partial class MainWindow : Window
             await Task.Delay(220).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
             {
-                if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) && RunButton.IsEnabled)
-                    RunButton_Click(this, new RoutedEventArgs());
+                if (!string.IsNullOrWhiteSpace(PromptTextBox.Text))
+                {
+                    EnqueueCurrentPrompt();
+                    _ = DrainQueueIfNeededAsync();
+                }
             });
         }
     }
