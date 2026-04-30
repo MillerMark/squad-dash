@@ -401,6 +401,7 @@ internal sealed class MarkdownDocumentRenderer {
             VerticalAlignment   = VerticalAlignment.Center,
         };
         copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
+        copyBtn.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
 
         copyBtn.Click += (_, _) => {
             try { Clipboard.SetText(code); }
