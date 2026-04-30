@@ -317,6 +317,9 @@ internal sealed class MarkdownDocumentWindow : Window {
         } else if (e.Key == System.Windows.Input.Key.I) {
             MarkdownEditorCommands.ApplyItalic(tb);
             e.Handled = true;
+        } else if (e.Key == System.Windows.Input.Key.S && _activeDocument is not null) {
+            SaveDocument(_activeDocument);
+            e.Handled = true;
         }
     }
 
