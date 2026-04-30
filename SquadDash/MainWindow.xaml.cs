@@ -810,6 +810,11 @@ public partial class MainWindow : Window
             showLiveTraceWindow: () => ShowTraceWindow(),
             runDoctor: () => RunDoctorButton_Click(null!, null!),
             showHireAgentWindow: () => ShowHireAgentWindow(),
+            enqueuePrompt: text => {
+                _promptQueue.Enqueue(text, ++_promptQueueSeq);
+                SyncQueuePanel();
+                _ = DrainQueueIfNeededAsync();
+            },
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
             showRuntimeIssue: msg => ShowRuntimeIssue(msg),
             clearRuntimeIssue: () => ClearRuntimeIssue(),

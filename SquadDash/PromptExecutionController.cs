@@ -179,6 +179,7 @@ internal sealed class PromptExecutionController {
     private readonly Action                     _showLiveTraceWindow;
     private readonly Action                     _runDoctor;
     private readonly Func<HireAgentWindow.HireAgentSubmission?> _showHireAgentWindow;
+    private readonly Action<string>             _enqueuePrompt;
     private readonly Action                     _showScreenshotOverlay;
 
     // ── Injected — Runtime Issue ──────────────────────────────────────────
@@ -336,6 +337,7 @@ internal sealed class PromptExecutionController {
         Action showLiveTraceWindow,
         Action runDoctor,
         Func<HireAgentWindow.HireAgentSubmission?> showHireAgentWindow,
+        Action<string> enqueuePrompt,
         Action showScreenshotOverlay,
         // Runtime Issue
         Func<string, WorkspaceIssuePresentation> showRuntimeIssue,
@@ -401,6 +403,7 @@ internal sealed class PromptExecutionController {
         _showLiveTraceWindow                   = showLiveTraceWindow;
         _runDoctor                             = runDoctor;
         _showHireAgentWindow                   = showHireAgentWindow;
+        _enqueuePrompt                         = enqueuePrompt;
         _showScreenshotOverlay                 = showScreenshotOverlay;
         _showRuntimeIssue                      = showRuntimeIssue;
         _clearRuntimeIssue                     = clearRuntimeIssue;
@@ -848,12 +851,8 @@ internal sealed class PromptExecutionController {
         }
 
         if (_getIsPromptRunning()) {
-            return ExecuteLocalCoordinatorCommand(
-                prompt,
-                addToHistory: false,
-                clearPromptBox: false,
-                () => _appendLine("Finish the current prompt before hiring a new agent.", null),
-                refreshLeadAgentBackgroundStatusAfterCompletion: true);
+            _enqueuePrompt(submission.PromptText);
+            return true;
         }
 
         _ = ExecutePromptAsync(submission.PromptText, addToHistory: false, clearPromptBox: false);
