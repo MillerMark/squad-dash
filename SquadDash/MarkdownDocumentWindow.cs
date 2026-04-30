@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -56,6 +57,14 @@ internal sealed class MarkdownDocumentWindow : Window {
     private Canvas? _sourceOverlayCanvas;
     private System.Windows.Shapes.Rectangle? _sourceHoverHighlight;
     private DispatcherTimer? _sourceHoverTimer;
+
+    // ── Editor voice / PTT ─────────────────────────────────────────────────
+    private SpeechRecognitionService? _editorVoiceService;
+    private PushToTalkWindow?         _editorPttWindow;
+    private bool                      _editorVoiceStopOnCtrlRelease;
+    private int                       _editorVoiceCaretIndex;
+    private readonly CtrlDoubleTapGestureTracker _editorPttGesture =
+        new(maxTapHoldMs: 250, doubleTapGapMs: 350);
 
     private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents) {
         if (documents.Count == 0)
@@ -227,7 +236,10 @@ internal sealed class MarkdownDocumentWindow : Window {
             SetupFileWatcher(document);
 
         Closed += (_, _) => DisposeAllFileWatchers();
+        Closed += (_, _) => _ = StopEditorVoiceAsync();
 
+        PreviewKeyDown += MarkdownDocumentWindow_PreviewKeyDown;
+        PreviewKeyUp   += MarkdownDocumentWindow_PreviewKeyUp;
         PreviewMouseDown += MarkdownDocumentWindow_PreviewMouseDown;
 
         ActivateDocument(_documents[0], preserveCurrentState: false);
@@ -307,6 +319,126 @@ internal sealed class MarkdownDocumentWindow : Window {
             e.Handled = true;
         }
     }
+
+    // ── Editor PTT (double-tap Ctrl voice) ────────────────────────────────
+
+    private void MarkdownDocumentWindow_PreviewKeyDown(object sender, KeyEventArgs e) {
+        if (!_showSource) return;
+        var editorTb = _activeDocument?.EditorTextBox;
+        if (editorTb is null || !editorTb.IsKeyboardFocusWithin) return;
+
+        var action = _editorPttGesture.HandleKeyDown(e.Key, e.IsRepeat, DateTime.UtcNow);
+        if (action != CtrlDoubleTapGestureAction.Triggered) return;
+
+        if (_editorVoiceService is null) {
+            _editorVoiceStopOnCtrlRelease = true;
+            _ = StartEditorVoiceAsync();
+        } else {
+            _ = StopEditorVoiceAsync();
+        }
+        e.Handled = true;
+    }
+
+    private void MarkdownDocumentWindow_PreviewKeyUp(object sender, KeyEventArgs e) {
+        if (!CtrlDoubleTapGestureTracker.IsCtrlKey(e.Key)) return;
+
+        if (_editorVoiceStopOnCtrlRelease && _editorVoiceService is not null) {
+            _ = StopEditorVoiceAsync();
+            e.Handled = true;
+            return;
+        }
+
+        _editorPttGesture.HandleKeyUp(e.Key, DateTime.UtcNow);
+    }
+
+    private async Task StartEditorVoiceAsync() {
+        var key    = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
+        var region = new ApplicationSettingsStore().Load().SpeechRegion;
+
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(region)) {
+            _editorVoiceStopOnCtrlRelease = false;
+            _editorPttGesture.Reset();
+            return;
+        }
+
+        var editorTb = _activeDocument?.EditorTextBox;
+        if (editorTb is null) return;
+
+        _editorVoiceCaretIndex = editorTb.SelectionStart;
+
+        _editorVoiceService = new SpeechRecognitionService();
+
+        _editorVoiceService.PhraseRecognized += (_, text) =>
+            Dispatcher.BeginInvoke(() => AppendSpeechToEditor(text));
+
+        _editorVoiceService.VolumeChanged += (_, level) =>
+            Dispatcher.BeginInvoke(() => {
+                if (_editorPttWindow is not null)
+                    _editorPttWindow.VolumeBar.Height = Math.Max(2, level * 36);
+            });
+
+        _editorVoiceService.RecognitionError += (_, _) =>
+            Dispatcher.BeginInvoke(() => _ = StopEditorVoiceAsync());
+
+        try {
+            _editorPttWindow = new PushToTalkWindow(this, showHint: false);
+            var caretRect = editorTb.GetRectFromCharacterIndex(_editorVoiceCaretIndex);
+            var screenPt  = editorTb.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
+            var workArea  = System.Windows.SystemParameters.WorkArea;
+            _editorPttWindow.PositionUnderCaret(
+                screenPt,
+                new System.Windows.Rect(workArea.X, workArea.Y, workArea.Width, workArea.Height));
+            _editorPttWindow.Show();
+            editorTb.Focus();
+
+            await _editorVoiceService.StartAsync(key, region).ConfigureAwait(false);
+        }
+        catch {
+            await Dispatcher.InvokeAsync(() => {
+                _editorPttWindow?.Close();
+                _editorPttWindow = null;
+            });
+            _editorVoiceService?.Dispose();
+            _editorVoiceService = null;
+            _editorVoiceStopOnCtrlRelease = false;
+            _editorPttGesture.Reset();
+        }
+    }
+
+    private async Task StopEditorVoiceAsync() {
+        await Dispatcher.InvokeAsync(() => {
+            _editorPttWindow?.Close();
+            _editorPttWindow = null;
+        });
+
+        var service = _editorVoiceService;
+        _editorVoiceService = null;
+
+        if (service is not null) {
+            try { await service.StopAsync().ConfigureAwait(false); } catch { }
+            service.Dispose();
+        }
+
+        _editorVoiceStopOnCtrlRelease = false;
+        _editorPttGesture.Reset();
+    }
+
+    private void AppendSpeechToEditor(string text) {
+        var editorTb = _activeDocument?.EditorTextBox;
+        if (editorTb is null) return;
+
+        var current   = editorTb.Text;
+        var caretIndex = Math.Min(_editorVoiceCaretIndex, current.Length);
+        var left       = current[..caretIndex];
+        var right      = current[caretIndex..];
+        var prefix     = caretIndex > 0 && current[caretIndex - 1] != ' ' ? " " : string.Empty;
+        var processed  = VoiceInsertionHeuristics.Apply(left, text, right);
+        var insert     = prefix + processed;
+        editorTb.Text       = left + insert + right;
+        editorTb.CaretIndex = caretIndex + insert.Length;
+        _editorVoiceCaretIndex = caretIndex + insert.Length;
+    }
+
 
     private Button MakeToolbarButton(string label, string tooltip, bool bold = false, bool italic = false, bool enabled = true) {
         var btn = new Button {
