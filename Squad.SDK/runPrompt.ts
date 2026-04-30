@@ -109,6 +109,11 @@ type RcCommitBroadcastRequest = {
     url?: string;
 };
 
+type RcPromptBroadcastRequest = {
+    type: "rc_prompt_broadcast";
+    text: string;
+};
+
 type SubSquadsListRequest = {
     type: "subsquads_list";
     requestId?: string;
@@ -132,7 +137,7 @@ type PersonalInitRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | NamedAgentRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
+type BridgeRequest = PromptRequest | DelegateRequest | NamedAgentRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | RcPromptBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -592,6 +597,12 @@ function tryParseRequest(line: string): BridgeRequest | null {
             const req = parsed as Partial<RcCommitBroadcastRequest>;
             if (typeof req.sha !== "string" || !req.sha) return null;
             return { type: "rc_commit_broadcast", sha: req.sha, url: req.url };
+        }
+
+        if (parsed.type === "rc_prompt_broadcast") {
+            const req = parsed as Partial<RcPromptBroadcastRequest>;
+            if (typeof req.text !== "string") return null;
+            return { type: "rc_prompt_broadcast", text: req.text };
         }
 
         return tryParsePromptRequest(parsed as Partial<PromptRequest>);
@@ -1631,6 +1642,11 @@ async function main() {
 
         if (request.type === "rc_commit_broadcast") {
             (activeRemoteBridge as any)?.broadcast?.({ type: "commit", sha: request.sha, url: request.url });
+            continue;
+        }
+
+        if (request.type === "rc_prompt_broadcast") {
+            activeRemoteBridge?.addMessage("user", request.text);
             continue;
         }
 

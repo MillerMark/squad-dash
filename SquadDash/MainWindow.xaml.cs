@@ -1314,6 +1314,8 @@ public partial class MainWindow : Window
 
             _markdownRenderer.DismissKeyboardHint();
             ResetQueuePausedState();
+            if (_remoteAccessActive)
+                _ = _bridge.BroadcastRcPromptAsync(prompt);
             await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
 
             // In fullscreen mode the prompt was peeked temporarily — hide it again now.
@@ -1344,7 +1346,7 @@ public partial class MainWindow : Window
     private void EnqueueRcPrompt(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
-        _promptQueue.Enqueue(text, ++_promptQueueSeq);
+        _promptQueue.Enqueue(text, ++_promptQueueSeq, isFromRemote: true);
         SyncQueuePanel();
         _ = DrainQueueIfNeededAsync();
     }
@@ -1426,6 +1428,8 @@ public partial class MainWindow : Window
 
         try
         {
+            if (_remoteAccessActive && !item.IsFromRemote)
+                _ = _bridge.BroadcastRcPromptAsync(item.Text);
             _pec.PendingQueueItemCount = _promptQueue.Count;
             await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
         }
@@ -1459,6 +1463,8 @@ public partial class MainWindow : Window
 
             try
             {
+                if (_remoteAccessActive && !item.IsFromRemote)
+                    _ = _bridge.BroadcastRcPromptAsync(item.Text);
                 _pec.PendingQueueItemCount = _promptQueue.Count;
                 await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
             }
@@ -1507,6 +1513,8 @@ public partial class MainWindow : Window
 
             try
             {
+                if (_remoteAccessActive && !item.IsFromRemote)
+                    _ = _bridge.BroadcastRcPromptAsync(item.Text);
                 _pec.PendingQueueItemCount = _promptQueue.Count;
                 await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
             }

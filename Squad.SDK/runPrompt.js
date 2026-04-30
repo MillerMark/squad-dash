@@ -433,6 +433,12 @@ function tryParseRequest(line) {
                 return null;
             return { type: "rc_commit_broadcast", sha: req.sha, url: req.url };
         }
+        if (parsed.type === "rc_prompt_broadcast") {
+            const req = parsed;
+            if (typeof req.text !== "string")
+                return null;
+            return { type: "rc_prompt_broadcast", text: req.text };
+        }
         return tryParsePromptRequest(parsed);
     }
     catch {
@@ -1399,6 +1405,10 @@ async function main() {
         }
         if (request.type === "rc_commit_broadcast") {
             activeRemoteBridge?.broadcast?.({ type: "commit", sha: request.sha, url: request.url });
+            continue;
+        }
+        if (request.type === "rc_prompt_broadcast") {
+            activeRemoteBridge?.addMessage("user", request.text);
             continue;
         }
         if (request.type === "subsquads_list") {

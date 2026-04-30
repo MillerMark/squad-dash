@@ -775,6 +775,16 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    public async Task BroadcastRcPromptAsync(string text) {
+        try {
+            await SendBridgeRequestAsync(new SquadSdkRcPromptBroadcastRequest(text))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to broadcast rc_prompt: {ex.Message}");
+        }
+    }
+
     public async Task ListSubSquadsAsync(string cwd) {
         SquadDashTrace.Write("Bridge", $"ListSubSquadsAsync cwd={cwd}");
         var requestId = Guid.NewGuid().ToString("N");
@@ -946,6 +956,10 @@ internal sealed record RcAgentRosterEntry(
 internal sealed record SquadSdkRcAgentRosterBroadcastRequest(
     [property: JsonPropertyName("agents")] List<RcAgentRosterEntry> Agents,
     [property: JsonPropertyName("type")] string Type = "rc_agent_roster_broadcast");
+
+internal sealed record SquadSdkRcPromptBroadcastRequest(
+    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("type")] string Type = "rc_prompt_broadcast");
 
 internal sealed record SquadSdkSubSquadsListRequest(
     [property: JsonPropertyName("cwd")] string Cwd,
