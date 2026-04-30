@@ -180,4 +180,109 @@ internal sealed class ApplicationSettingsStoreTests {
 
         Assert.That(store.Load().LoopActiveOnExit, Is.True);
     }
+
+    [Test]
+    public void SaveTunnelSettings_NgrokMode_PersistsModeAndToken() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveTunnelSettings("ngrok", "my-auth-token");
+
+        var loaded = store.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.TunnelMode, Is.EqualTo("ngrok"));
+            Assert.That(loaded.TunnelToken, Is.EqualTo("my-auth-token"));
+        });
+    }
+
+    [Test]
+    public void SaveTunnelSettings_CloudflareMode_Persists() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveTunnelSettings("cloudflare", "cf-token-abc");
+
+        var loaded = store.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.TunnelMode, Is.EqualTo("cloudflare"));
+            Assert.That(loaded.TunnelToken, Is.EqualTo("cf-token-abc"));
+        });
+    }
+
+    [Test]
+    public void SaveTunnelSettings_NullMode_ClearsTunnelModeAndToken() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveTunnelSettings("ngrok", "token");
+        store.SaveTunnelSettings(null, null);
+
+        var loaded = store.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.TunnelMode, Is.Null);
+            Assert.That(loaded.TunnelToken, Is.Null);
+        });
+    }
+
+    [Test]
+    public void SaveTunnelSettings_InvalidMode_IsNormalisedToNull() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveTunnelSettings("localtunnel", "token");
+
+        Assert.That(store.Load().TunnelMode, Is.Null);
+    }
+
+    [Test]
+    public void SaveTunnelSettings_BlankToken_IsNormalisedToNull() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveTunnelSettings("ngrok", "   ");
+
+        Assert.That(store.Load().TunnelToken, Is.Null);
+    }
+
+    [Test]
+    public void SaveTunnelSettings_SurvivesSubsequentSaves() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveTunnelSettings("ngrok", "persistme");
+        store.RememberFolder(repo);
+        store.SaveSpeechRegion("eastus");
+        store.SavePromptFontSize(16);
+
+        var loaded = store.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.TunnelMode, Is.EqualTo("ngrok"));
+            Assert.That(loaded.TunnelToken, Is.EqualTo("persistme"));
+        });
+    }
+
+    [Test]
+    public void Normalize_TunnelMode_NgrokRoundTrips() {
+        var snapshot = ApplicationSettingsSnapshot.Empty with {
+            TunnelMode = "ngrok",
+            TunnelToken = "  tok  "
+        };
+
+        var normalized = snapshot.Normalize();
+
+        Assert.Multiple(() => {
+            Assert.That(normalized.TunnelMode, Is.EqualTo("ngrok"));
+            Assert.That(normalized.TunnelToken, Is.EqualTo("tok"));
+        });
+    }
+
+    [Test]
+    public void Normalize_TunnelMode_UnknownValueBecomesNull() {
+        var snapshot = ApplicationSettingsSnapshot.Empty with { TunnelMode = "zerotier" };
+
+        Assert.That(snapshot.Normalize().TunnelMode, Is.Null);
+    }
 }

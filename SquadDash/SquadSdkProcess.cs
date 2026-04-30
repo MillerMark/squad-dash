@@ -673,17 +673,21 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string squadDir,
         string cwd,
         int port = 0,
-        string? sessionId = null) {
+        string? sessionId = null,
+        string? tunnelMode = null,
+        string? tunnelToken = null) {
         if (string.IsNullOrWhiteSpace(repo))
             throw new ArgumentException("Repo name cannot be empty.", nameof(repo));
         if (string.IsNullOrWhiteSpace(cwd))
             throw new ArgumentException("Working directory cannot be empty.", nameof(cwd));
 
         var requestId = Guid.NewGuid().ToString("N");
-        SquadDashTrace.Write("Bridge", $"StartRemoteAsync repo={repo} branch={branch} port={port}");
+        SquadDashTrace.Write("Bridge", $"StartRemoteAsync repo={repo} branch={branch} port={port} tunnelMode={tunnelMode ?? "none"}");
 
         await SendBridgeRequestWithRestartAsync(
-            new SquadSdkRcStartRequest(port, repo, branch, machine, squadDir, cwd, requestId, sessionId))
+            new SquadSdkRcStartRequest(port, repo, branch, machine, squadDir, cwd, requestId, sessionId,
+                string.IsNullOrWhiteSpace(tunnelMode) ? null : tunnelMode,
+                string.IsNullOrWhiteSpace(tunnelToken) ? null : tunnelToken))
             .ConfigureAwait(false);
     }
 
@@ -796,6 +800,8 @@ internal sealed record SquadSdkRcStartRequest(
     [property: JsonPropertyName("cwd")] string Cwd,
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId = null,
+    [property: JsonPropertyName("tunnelMode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TunnelMode = null,
+    [property: JsonPropertyName("tunnelToken"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TunnelToken = null,
     [property: JsonPropertyName("type")] string Type = "rc_start");
 
 internal sealed record SquadSdkRcStopRequest(

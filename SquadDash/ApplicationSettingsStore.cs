@@ -254,6 +254,17 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveTunnelSettings(string? mode, string? token) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            TunnelMode = mode is "ngrok" or "cloudflare" ? mode : null,
+            TunnelToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim()
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveDeveloperIssueSimulation(
         DeveloperStartupIssueSimulation startupIssueSimulation,
         DeveloperRuntimeIssueSimulation runtimeIssueSimulation) {
@@ -645,6 +656,13 @@ internal sealed record ApplicationSettingsSnapshot(
     /// <summary>Per-event notification toggles. Keys are event names, values are on/off booleans.</summary>
     public IReadOnlyDictionary<string, bool>? NotificationEventToggles { get; init; }
 
+    // ── Tunnel ────────────────────────────────────────────────────────────
+    /// <summary>Tunnel provider for public RC access. "ngrok", "cloudflare", or null (disabled).</summary>
+    public string? TunnelMode { get; init; }
+
+    /// <summary>Auth token for the tunnel provider (ngrok authtoken or cloudflare tunnel token).</summary>
+    public string? TunnelToken { get; init; }
+
     /// <summary>
     /// Names of <see cref="TraceCategory"/> values that should be suppressed in
     /// the live trace window.  Stored as strings so the JSON round-trips cleanly
@@ -852,6 +870,8 @@ internal sealed record ApplicationSettingsSnapshot(
             NotificationProvider = string.IsNullOrWhiteSpace(NotificationProvider) ? null : NotificationProvider.Trim(),
             NotificationEndpoint = NotificationEndpoint,
             NotificationEventToggles = NotificationEventToggles,
+            TunnelMode = TunnelMode is "ngrok" or "cloudflare" ? TunnelMode : null,
+            TunnelToken = string.IsNullOrWhiteSpace(TunnelToken) ? null : TunnelToken.Trim(),
             LoopMode = LoopMode,
             LoopContinuousContext = LoopContinuousContext,
             LoopActiveOnExit = LoopActiveOnExit,

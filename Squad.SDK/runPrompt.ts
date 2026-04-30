@@ -70,6 +70,8 @@ type RcStartRequest = {
     squadDir: string;
     cwd: string;
     sessionId?: string;
+    tunnelMode?: "none" | "ngrok" | "cloudflare";
+    tunnelToken?: string;
 };
 
 type RcStopRequest = {
@@ -85,6 +87,7 @@ type RcStatusBroadcastRequest = {
 type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
+let activeTunnelProc: ReturnType<typeof spawn> | null = null;
 let activeLoopProc: ReturnType<typeof spawn> | null = null;
 
 const bridge = new SquadBridgeService({
@@ -407,6 +410,12 @@ function tryParseRcStartRequest(parsed: Partial<RcStartRequest>): RcStartRequest
         cwd,
         sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
             ? parsed.sessionId.trim()
+            : undefined,
+        tunnelMode: parsed.tunnelMode === "ngrok" || parsed.tunnelMode === "cloudflare"
+            ? parsed.tunnelMode
+            : "none",
+        tunnelToken: typeof parsed.tunnelToken === "string" && parsed.tunnelToken.trim().length > 0
+            ? parsed.tunnelToken.trim()
             : undefined
     };
 }
@@ -795,6 +804,78 @@ function getLanIp(): string | null {
     return null;
 }
 
+async function startTunnel(mode: "ngrok" | "cloudflare", token: string | undefined, port: number, requestId: string | undefined): Promise<void> {
+    if (mode === "ngrok") {
+        const args = ["http", String(port)];
+        if (token) args.push("--authtoken", token);
+        const proc = spawn("ngrok", args, { stdio: ["ignore", "pipe", "pipe"] });
+        activeTunnelProc = proc;
+
+        // Poll the ngrok local API for the public URL (up to 12 s)
+        const url = await new Promise<string | null>((resolve) => {
+            let attempts = 0;
+            const interval = setInterval(() => {
+                attempts++;
+                const req = http.get("http://localhost:4040/api/tunnels", (res) => {
+                    let body = "";
+                    res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+                    res.on("end", () => {
+                        try {
+                            const parsed = JSON.parse(body) as { tunnels?: Array<{ public_url?: string }> };
+                            const httpsUrl = parsed.tunnels
+                                ?.map(t => t.public_url)
+                                .find(u => u?.startsWith("https://"));
+                            if (httpsUrl) {
+                                clearInterval(interval);
+                                resolve(httpsUrl);
+                            }
+                        }
+                        catch { /* not ready yet */ }
+                    });
+                });
+                req.on("error", () => { /* not up yet */ });
+                if (attempts >= 24) {
+                    clearInterval(interval);
+                    resolve(null);
+                }
+            }, 500);
+        });
+
+        if (url) {
+            emit({ type: "rc_tunnel_started", requestId, rcTunnelUrl: url });
+        } else {
+            emit({ type: "rc_tunnel_error", requestId, message: "ngrok tunnel did not surface a public URL within 12 s. Is ngrok installed and authenticated?" });
+        }
+    } else {
+        // cloudflared — ephemeral trycloudflare.com tunnel (no login required)
+        const args = ["tunnel", "--url", `http://localhost:${port}`];
+        const proc = spawn("cloudflared", args, { stdio: ["ignore", "pipe", "pipe"] });
+        activeTunnelProc = proc;
+
+        const url = await new Promise<string | null>((resolve) => {
+            let resolved = false;
+            const timeout = setTimeout(() => { if (!resolved) { resolved = true; resolve(null); } }, 20_000);
+            const handleChunk = (chunk: Buffer) => {
+                const text = chunk.toString();
+                const match = /https:\/\/[\w-]+\.trycloudflare\.com/.exec(text);
+                if (match && !resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    resolve(match[0]);
+                }
+            };
+            proc.stdout?.on("data", handleChunk);
+            proc.stderr?.on("data", handleChunk);
+        });
+
+        if (url) {
+            emit({ type: "rc_tunnel_started", requestId, rcTunnelUrl: url });
+        } else {
+            emit({ type: "rc_tunnel_error", requestId, message: "cloudflared tunnel did not surface a public URL within 20 s. Is cloudflared installed?" });
+        }
+    }
+}
+
 async function handleRcStart(request: RcStartRequest): Promise<void> {
     if (activeRemoteBridge) {
         emit({
@@ -896,6 +977,13 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
             rcUrl: `http://localhost:${port}`,
             rcLanUrl: lanIp ? `http://${lanIp}:${port}` : null
         });
+
+        if (request.tunnelMode && request.tunnelMode !== "none") {
+            // Fire-and-forget: tunnel startup is non-blocking; errors are emitted as rc_tunnel_error
+            startTunnel(request.tunnelMode, request.tunnelToken, port, request.requestId).catch((err) => {
+                emit({ type: "rc_tunnel_error", requestId: request.requestId, message: err instanceof Error ? err.message : String(err) });
+            });
+        }
     }
     catch (err) {
         emit({
@@ -907,6 +995,15 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
 }
 
 async function handleRcStop(request: RcStopRequest): Promise<void> {
+    // Kill the tunnel process if one is running
+    if (activeTunnelProc) {
+        try {
+            activeTunnelProc.kill();
+        }
+        catch { /* ignore */ }
+        activeTunnelProc = null;
+    }
+
     if (!activeRemoteBridge) {
         emit({
             type: "rc_stopped",

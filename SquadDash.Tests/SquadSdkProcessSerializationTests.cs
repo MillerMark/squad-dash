@@ -88,6 +88,49 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(json, Does.Not.Contain("\"Repo\""));
             Assert.That(json, Does.Not.Contain("\"Branch\""));
             Assert.That(json, Does.Not.Contain("\"sessionId\""));
+            Assert.That(json, Does.Not.Contain("\"tunnelMode\""));
+            Assert.That(json, Does.Not.Contain("\"tunnelToken\""));
+        });
+    }
+
+    [Test]
+    public void RcStartRequest_WithTunnelMode_NgrokIncludesFields() {
+        var json = JsonSerializer.Serialize(new SquadSdkRcStartRequest(
+            3000, "my-repo", "main", "my-machine",
+            "C:\\workspace\\.squad", "C:\\workspace", "req-1",
+            null, "ngrok", "my-authtoken"));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"tunnelMode\":\"ngrok\""));
+            Assert.That(json, Does.Contain("\"tunnelToken\":\"my-authtoken\""));
+            Assert.That(json, Does.Not.Contain("\"TunnelMode\""));
+            Assert.That(json, Does.Not.Contain("\"TunnelToken\""));
+        });
+    }
+
+    [Test]
+    public void RcStartRequest_WithTunnelMode_CloudflareIncludesField() {
+        var json = JsonSerializer.Serialize(new SquadSdkRcStartRequest(
+            3000, "my-repo", "main", "my-machine",
+            "C:\\workspace\\.squad", "C:\\workspace", "req-1",
+            null, "cloudflare", null));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"tunnelMode\":\"cloudflare\""));
+            Assert.That(json, Does.Not.Contain("\"tunnelToken\""));
+        });
+    }
+
+    [Test]
+    public void RcStartRequest_WithNullTunnelMode_OmitsTunnelFields() {
+        var json = JsonSerializer.Serialize(new SquadSdkRcStartRequest(
+            3000, "my-repo", "main", "my-machine",
+            "C:\\workspace\\.squad", "C:\\workspace", "req-1",
+            null, null, null));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Not.Contain("\"tunnelMode\""));
+            Assert.That(json, Does.Not.Contain("\"tunnelToken\""));
         });
     }
 
@@ -450,6 +493,66 @@ internal sealed class SquadSdkProcessSerializationTests {
         Assert.Multiple(() => {
             Assert.That(evt!.Type, Is.EqualTo("rc_audio_end"));
             Assert.That(evt.ConnectionId, Is.EqualTo("conn-abc-123"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcTunnelStartedPayload() {
+        const string json = """
+            {
+              "type": "rc_tunnel_started",
+              "rcTunnelUrl": "https://abc123.ngrok-free.app"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_tunnel_started"));
+            Assert.That(evt.RcTunnelUrl, Is.EqualTo("https://abc123.ngrok-free.app"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcTunnelErrorPayload() {
+        const string json = """
+            {
+              "type": "rc_tunnel_error",
+              "message": "ngrok tunnel did not surface a public URL within 12 s."
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_tunnel_error"));
+            Assert.That(evt.Message, Does.Contain("ngrok tunnel"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRcTunnelStartedPayload_Cloudflare() {
+        const string json = """
+            {
+              "type": "rc_tunnel_started",
+              "rcTunnelUrl": "https://sleek-river-xyz.trycloudflare.com"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("rc_tunnel_started"));
+            Assert.That(evt.RcTunnelUrl, Does.Contain("trycloudflare.com"));
         });
     }
 }

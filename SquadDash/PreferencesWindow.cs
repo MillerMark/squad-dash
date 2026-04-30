@@ -27,6 +27,9 @@ internal sealed class PreferencesWindow : Window {
     private readonly CheckBox _notifyLoopStoppedCheckBox;
     private readonly CheckBox _notifyRcEstablishedCheckBox;
     private readonly CheckBox _notifyRcDroppedCheckBox;
+    private readonly ComboBox _tunnelModeComboBox;
+    private readonly PasswordBox _tunnelTokenPasswordBox;
+    private readonly TextBox _tunnelTokenRevealBox;
 
     private PreferencesWindow(
         ApplicationSettingsStore settingsStore,
@@ -174,6 +177,93 @@ internal sealed class PreferencesWindow : Window {
         };
         regionHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         form.Children.Add(regionHint);
+
+        // ── Tunnel Section ────────────────────────────────────────────────
+        form.Children.Add(new Separator { Margin = new Thickness(0, 22, 0, 18) });
+
+        var tunnelSectionLabel = new TextBlock {
+            Text = "Remote Access Tunnel",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        tunnelSectionLabel.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        form.Children.Add(tunnelSectionLabel);
+
+        var tunnelHint = new TextBlock {
+            Text = "Optionally auto-start a public tunnel when Remote Access starts, for access from outside your local network.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        tunnelHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        form.Children.Add(tunnelHint);
+
+        var tunnelModeLabel = new TextBlock {
+            Text = "Tunnel Provider:",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        tunnelModeLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        form.Children.Add(tunnelModeLabel);
+
+        _tunnelModeComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
+        _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "None", Tag = (string?)null });
+        _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "ngrok", Tag = "ngrok" });
+        _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "Cloudflare", Tag = "cloudflare" });
+        // Select current mode
+        var savedTunnelMode = currentSettings.TunnelMode;
+        foreach (ComboBoxItem item in _tunnelModeComboBox.Items)
+            if (string.Equals(item.Tag as string, savedTunnelMode, StringComparison.OrdinalIgnoreCase))
+                item.IsSelected = true;
+        if (_tunnelModeComboBox.SelectedItem is null)
+            ((ComboBoxItem)_tunnelModeComboBox.Items[0]).IsSelected = true;
+        form.Children.Add(_tunnelModeComboBox);
+
+        var tunnelTokenLabel = new TextBlock {
+            Text = "Tunnel Auth Token (optional — leave blank if tunnel binary is pre-configured)",
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        tunnelTokenLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        form.Children.Add(tunnelTokenLabel);
+
+        var currentTunnelToken = currentSettings.TunnelToken ?? string.Empty;
+        var tunnelTokenHost = new Grid();
+        _tunnelTokenPasswordBox = new PasswordBox {
+            Password = currentTunnelToken,
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30
+        };
+        _tunnelTokenRevealBox = new TextBox {
+            Text = currentTunnelToken,
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30,
+            Visibility = Visibility.Collapsed
+        };
+        tunnelTokenHost.Children.Add(_tunnelTokenPasswordBox);
+        tunnelTokenHost.Children.Add(_tunnelTokenRevealBox);
+        form.Children.Add(tunnelTokenHost);
+
+        var revealTunnelLink = new TextBlock {
+            Margin = new Thickness(0, 6, 0, 0),
+            Cursor = Cursors.Hand
+        };
+        var revealTunnelRun = new System.Windows.Documents.Run("(reveal token)");
+        revealTunnelRun.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "ActionLinkText");
+        revealTunnelLink.Inlines.Add(revealTunnelRun);
+        revealTunnelLink.MouseLeftButtonDown += (_, _) => {
+            _tunnelTokenRevealBox.Text = _tunnelTokenPasswordBox.Password;
+            _tunnelTokenPasswordBox.Visibility = Visibility.Collapsed;
+            _tunnelTokenRevealBox.Visibility = Visibility.Visible;
+        };
+        revealTunnelLink.MouseLeftButtonUp += (_, _) => {
+            _tunnelTokenPasswordBox.Password = _tunnelTokenRevealBox.Text;
+            _tunnelTokenRevealBox.Visibility = Visibility.Collapsed;
+            _tunnelTokenPasswordBox.Visibility = Visibility.Visible;
+        };
+        form.Children.Add(revealTunnelLink);
 
         if (showDevOptions)
         {
@@ -405,6 +495,9 @@ internal sealed class PreferencesWindow : Window {
                 ["rc_connection_dropped"]     = _notifyRcDroppedCheckBox.IsChecked == true,
             });
         _pushNotificationService.ReloadProvider();
+        var tunnelMode = (_tunnelModeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        var tunnelToken = _tunnelTokenRevealBox.IsVisible ? _tunnelTokenRevealBox.Text : _tunnelTokenPasswordBox.Password;
+        updated = _settingsStore.SaveTunnelSettings(tunnelMode, string.IsNullOrWhiteSpace(tunnelToken) ? null : tunnelToken);
         _onSaved(updated);
         Close();
 

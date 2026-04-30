@@ -1,7 +1,7 @@
 ---
 configured: true
 interval: 1
-timeout: 30
+timeout: 60
 description: "General task backlog runner — picks the top open task, implements it, marks it done, repeats"
 commands: [stop_loop]
 ---

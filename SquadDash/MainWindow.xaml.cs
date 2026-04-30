@@ -1949,6 +1949,14 @@ public partial class MainWindow : Window
                 HandleRcStarted(evt);
                 break;
 
+            case "rc_tunnel_started":
+                HandleRcTunnelStarted(evt);
+                break;
+
+            case "rc_tunnel_error":
+                HandleRcTunnelError(evt);
+                break;
+
             case "rc_stopped":
                 HandleRcStopped(evt);
                 _ = _pushNotificationService.NotifyEventAsync("rc_connection_dropped", "SquadDash", "Remote connection dropped");
@@ -2594,6 +2602,20 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(evt.RcLanUrl))
             AppendLine($"  LAN URL: {evt.RcLanUrl}");
         SquadDashTrace.Write("UI", $"RC started port={port} url={url}");
+    }
+
+    private void HandleRcTunnelStarted(SquadSdkEvent evt)
+    {
+        var url = evt.RcTunnelUrl ?? "(unknown)";
+        AppendLine($"  🌐 Tunnel URL: {url}");
+        SquadDashTrace.Write("UI", $"RC tunnel started url={url}");
+    }
+
+    private void HandleRcTunnelError(SquadSdkEvent evt)
+    {
+        var msg = string.IsNullOrWhiteSpace(evt.Message) ? "Tunnel failed to start" : evt.Message;
+        AppendLine($"  ⚠️ Tunnel: {msg}", ThemeBrush("SystemErrorText"));
+        SquadDashTrace.Write("UI", $"RC tunnel error message={msg}");
     }
 
     private void HandleRcStopped(SquadSdkEvent evt)
@@ -5208,7 +5230,9 @@ public partial class MainWindow : Window
                     machine: machine,
                     squadDir: _currentWorkspace.SquadFolderPath,
                     cwd: _currentWorkspace.FolderPath,
-                    sessionId: _conversationManager.CurrentSessionId).ConfigureAwait(false);
+                    sessionId: _conversationManager.CurrentSessionId,
+                    tunnelMode: _settingsSnapshot.TunnelMode,
+                    tunnelToken: _settingsSnapshot.TunnelToken).ConfigureAwait(false);
             }
         }
         catch (Exception ex)

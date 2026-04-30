@@ -94,6 +94,7 @@ public sealed class SquadSdkEvent {
     public string? RcToken { get; set; }
     public string? RcUrl { get; set; }
     public string? RcLanUrl { get; set; }
+    public string? RcTunnelUrl { get; set; }
     // Remote audio event fields
     public string? ConnectionId { get; set; }
     public string? AudioData { get; set; }
