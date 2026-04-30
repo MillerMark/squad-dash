@@ -2616,6 +2616,7 @@ public partial class MainWindow : Window
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
         _agentThreadRegistry.FinalizeAgentThread(thread);
         AppendAgentSessionFooter(thread, isError: false);
+        UpdateCompletedTimeFooters();
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
 
@@ -2639,6 +2640,7 @@ public partial class MainWindow : Window
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Failed", detailText: summary);
         _agentThreadRegistry.FinalizeAgentThread(thread);
         AppendAgentSessionFooter(thread, isError: true);
+        UpdateCompletedTimeFooters();
         SquadDashTrace.Write("UI", $"Subagent failed {summary}");
 
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
