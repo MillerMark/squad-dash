@@ -11584,6 +11584,38 @@ public partial class MainWindow : Window
         SquadUpdateBadge.Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
         if (hasUpdate)
             SquadUpdateBadge.ToolTip = $"Squad CLI v{latestVersion} available — click to update";
+        UpdateTitleBarResponsiveLayout();
+    }
+
+    private void TitlebarGrid_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        UpdateTitleBarResponsiveLayout();
+
+    private void UpdateTitleBarResponsiveLayout()
+    {
+        if (TitlebarGrid is null)
+            return;
+
+        double w = TitlebarGrid.ActualWidth;
+
+        // Priority 6 — drop first: SquadDash version + Squad version panel
+        bool showVersions = w >= 900;
+        SquadDashVersionTextBlock.Visibility = showVersions ? Visibility.Visible : Visibility.Collapsed;
+        SquadVersionPanel.Visibility = showVersions ? Visibility.Visible : Visibility.Collapsed;
+
+        // Priority 5 — drop second: workspace folder name
+        WorkspaceTitleText.Visibility = w >= 700 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Priority 4 — drop third: search panel (only when no search is active)
+        if (w < 550)
+        {
+            bool searchActive = SearchBox.Text.Length > 0 || FindNextButton.Visibility == Visibility.Visible;
+            if (!searchActive)
+                SearchStackPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            SearchStackPanel.Visibility = Visibility.Visible;
+        }
     }
 
     private void RunSquadCliUpdate(string targetVersion)

@@ -303,7 +303,8 @@
               Grid.ColumnSpan="3"
               Margin="-12,-14,-14,6"
               Background="{DynamicResource ChromeSurface}"
-              MouseLeftButtonDown="TitlebarGrid_MouseLeftButtonDown">
+              MouseLeftButtonDown="TitlebarGrid_MouseLeftButtonDown"
+              SizeChanged="TitlebarGrid_SizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -389,7 +390,8 @@
             </Menu>
 
             <!-- Center: search box + find navigation (Phase 2) -->
-            <StackPanel Grid.Column="1"
+            <StackPanel x:Name="SearchStackPanel"
+                        Grid.Column="1"
                         Orientation="Horizontal"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
@@ -524,7 +526,8 @@
                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
 
             <!-- Squad version + update badge -->
-            <StackPanel Grid.Column="4"
+            <StackPanel x:Name="SquadVersionPanel"
+                        Grid.Column="4"
                         Orientation="Horizontal"
                         VerticalAlignment="Center"
                         Margin="0,0,8,0"
