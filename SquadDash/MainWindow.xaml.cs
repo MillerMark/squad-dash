@@ -3585,6 +3585,11 @@ public partial class MainWindow : Window
     }
 
     private void ScrollToApprovalTurn(DateTimeOffset turnStartedAt) {
+        // Ensure the coordinator transcript is visible in the main panel —
+        // the prompt paragraphs live in CoordinatorThread's document.
+        if (!ReferenceEquals(_selectedTranscriptThread, CoordinatorThread))
+            SelectTranscriptThread(CoordinatorThread);
+
         var entry = CoordinatorThread.PromptParagraphs
             .FirstOrDefault(e => e.Timestamp == turnStartedAt);
         if (entry is not null) {
