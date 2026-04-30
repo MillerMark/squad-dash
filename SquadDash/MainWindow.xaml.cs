@@ -2613,6 +2613,7 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
         _agentThreadRegistry.FinalizeAgentThread(thread);
+        AppendAgentSessionFooter(thread, isError: false);
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
 
@@ -2635,6 +2636,7 @@ public partial class MainWindow : Window
         var summary = BackgroundTaskPresenter.BuildThreadFailureSummary(thread, evt.Message);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Failed", detailText: summary);
         _agentThreadRegistry.FinalizeAgentThread(thread);
+        AppendAgentSessionFooter(thread, isError: true);
         SquadDashTrace.Write("UI", $"Subagent failed {summary}");
 
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
@@ -8264,6 +8266,36 @@ public partial class MainWindow : Window
         run.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         p.Inlines.Add(run);
         return p;
+    }
+
+    private void AppendAgentSessionFooter(TranscriptThreadState thread, bool isError)
+    {
+        if (thread.SessionFooterAppended)
+            return;
+        thread.SessionFooterAppended = true;
+
+        var sep = new string('─', 33);
+
+        var topSep = CreateTranscriptParagraph(bottomMargin: 0);
+        topSep.Margin = new Thickness(0, 10, 0, 0);
+        var topSepRun = new Run(sep) { FontSize = 11 };
+        topSepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        topSep.Inlines.Add(topSepRun);
+        thread.Document.Blocks.Add(topSep);
+
+        var statusParagraph = CreateTranscriptParagraph(bottomMargin: 0);
+        var statusRun = new Run(isError ? "✕  Session ended with error" : "✓  Session complete") { FontSize = 11 };
+        statusRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        statusParagraph.Inlines.Add(statusRun);
+        thread.Document.Blocks.Add(statusParagraph);
+
+        var botSep = CreateTranscriptParagraph(bottomMargin: 4);
+        var botSepRun = new Run(sep) { FontSize = 11 };
+        botSepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        botSep.Inlines.Add(botSepRun);
+        thread.Document.Blocks.Add(botSep);
+
+        ScrollToEndIfAtBottom(thread);
     }
 
     private void UpdateCompletedTimeFooters()
