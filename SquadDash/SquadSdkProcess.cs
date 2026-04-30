@@ -711,6 +711,30 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             SquadDashTrace.Write("Bridge", $"Failed to broadcast rc_status: {ex.Message}");
         }
     }
+
+    public async Task ListSubSquadsAsync(string cwd) {
+        SquadDashTrace.Write("Bridge", $"ListSubSquadsAsync cwd={cwd}");
+        var requestId = Guid.NewGuid().ToString("N");
+        try {
+            await SendBridgeRequestAsync(new SquadSdkSubSquadsListRequest(cwd, requestId))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send subsquads_list request: {ex.Message}");
+        }
+    }
+
+    public async Task ActivateSubSquadAsync(string cwd, string subSquadName) {
+        SquadDashTrace.Write("Bridge", $"ActivateSubSquadAsync cwd={cwd} subSquadName={subSquadName}");
+        var requestId = Guid.NewGuid().ToString("N");
+        try {
+            await SendBridgeRequestAsync(new SquadSdkSubSquadsActivateRequest(subSquadName, cwd, requestId))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send subsquads_activate request: {ex.Message}");
+        }
+    }
 }
 
 internal enum BridgeRequestOutcome {
@@ -811,6 +835,17 @@ internal sealed record SquadSdkRcStopRequest(
 internal sealed record SquadSdkRcStatusBroadcastRequest(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("type")] string Type = "rc_status_broadcast");
+
+internal sealed record SquadSdkSubSquadsListRequest(
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "subsquads_list");
+
+internal sealed record SquadSdkSubSquadsActivateRequest(
+    [property: JsonPropertyName("subSquadName")] string SubSquadName,
+    [property: JsonPropertyName("cwd")] string Cwd,
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "subsquads_activate");
 
 internal sealed class RecoverableSessionResetException : InvalidOperationException {
     public RecoverableSessionResetException(string message)

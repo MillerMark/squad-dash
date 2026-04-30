@@ -4,6 +4,31 @@
 
 ---
 
+### 2026-05-01 — SubSquads bridge prototype approach
+
+**Context:** The squad CLI 0.9.5-insider replaced `squad streams` with `squad subsquads` (aliases: `workstreams`, `streams`). The API stabilised in `@bradygaster/squad-sdk` which exports `loadSubSquadsConfig(cwd)` and `resolveSubSquad(cwd)`. The CLI only supports `list`, `status`, and `activate <name>` — no create/add/remove subcommands exist.
+
+**Decision:** Wrap `loadSubSquadsConfig` and `resolveSubSquad` in the existing NDJSON bridge via two new request types: `subsquads_list` and `subsquads_activate`. Surface via a "SubSquads" menu item in the Workspace menu that displays config + active state in the transcript.
+
+**Rationale:**
+- No new process or shell-out needed — SDK functions are synchronous and imported directly into `runPrompt.ts`.
+- Fire-and-forget pattern (same as `rc_start`) keeps the bridge simple.
+- `subsquads_activate` writes the `.squad-workstream` file directly, which is the same mechanism used by the CLI.
+- Config file is `.squad/workstreams.json` (note: CLI's "not configured" message mistakenly says `streams.json`).
+
+**API notes:**
+- Config: `.squad/workstreams.json` — `{ defaultWorkflow, workstreams: [{ name, labelFilter, workflow?, folderScope?, description? }] }`
+- Active subsquad resolution order: `SQUAD_TEAM` env var → `.squad-workstream` file → auto-select if exactly one → null
+- `resolveSubSquad` returns `{ name, definition, source }` where `source` is `"env"`, `"file"`, or `"config"`
+
+**Implemented:**
+- `Squad.SDK/runPrompt.ts`: `handleSubSquadsList`, `handleSubSquadsActivate`, `SubSquadsListRequest`, `SubSquadsActivateRequest` types
+- `SquadDash/SquadSdkEvent.cs`: `SubSquadsConfigured`, `SubSquadsCount`, `WorkstreamsJson`, `ActiveSubsquadName`, `ActiveSubsquadSource`, `SubSquadName`
+- `SquadDash/SquadSdkProcess.cs`: `SquadSdkSubSquadsListRequest`, `SquadSdkSubSquadsActivateRequest`, `ListSubSquadsAsync`, `ActivateSubSquadAsync`
+- `SquadDash/MainWindow.xaml.cs`: event handlers for `subsquads_listed`/`subsquads_activated`/`subsquads_error`; Workspace > SubSquads menu item
+
+---
+
 ### 2026-04-17 — MainWindow decomposition approach
 
 **Context:** `MainWindow.xaml.cs` had grown to 8,305 lines with 71 fields and 20+ distinct responsibility domains. Orion Vale's architectural audit graded it C. The class was a classic god-object: UI event handlers, agent thread lifecycle, background task tracking, PTT state machine, markdown rendering, prompt execution, conversation persistence, and OS/CLI integration all co-located.

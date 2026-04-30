@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
-import { RemoteBridge } from "@bradygaster/squad-sdk";
+import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,7 +84,20 @@ type RcStatusBroadcastRequest = {
     status: "busy" | "idle";
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest;
+type SubSquadsListRequest = {
+    type: "subsquads_list";
+    requestId?: string;
+    cwd: string;
+};
+
+type SubSquadsActivateRequest = {
+    type: "subsquads_activate";
+    requestId?: string;
+    cwd: string;
+    subSquadName: string;
+};
+
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -1025,6 +1038,62 @@ async function handleRcStop(request: RcStopRequest): Promise<void> {
     });
 }
 
+async function handleSubSquadsList(request: SubSquadsListRequest): Promise<void> {
+    try {
+        const config = loadSubSquadsConfig(request.cwd);
+        const resolved = resolveSubSquad(request.cwd);
+
+        if (!config) {
+            emit({
+                type: "subsquads_listed",
+                requestId: request.requestId,
+                subsquadsConfigured: false,
+                subsquadsCount: 0,
+                workstreamsJson: null,
+                activeSubsquadName: null,
+                activeSubsquadSource: null
+            });
+            return;
+        }
+
+        emit({
+            type: "subsquads_listed",
+            requestId: request.requestId,
+            subsquadsConfigured: true,
+            subsquadsCount: config.workstreams.length,
+            workstreamsJson: JSON.stringify(config.workstreams),
+            activeSubsquadName: resolved?.name ?? null,
+            activeSubsquadSource: resolved?.source ?? null
+        });
+    }
+    catch (err) {
+        emit({
+            type: "subsquads_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+
+async function handleSubSquadsActivate(request: SubSquadsActivateRequest): Promise<void> {
+    try {
+        const workstreamFilePath = path.join(request.cwd, ".squad-workstream");
+        fs.writeFileSync(workstreamFilePath, request.subSquadName + "\n", "utf8");
+        emit({
+            type: "subsquads_activated",
+            requestId: request.requestId,
+            subSquadName: request.subSquadName
+        });
+    }
+    catch (err) {
+        emit({
+            type: "subsquads_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+
 async function main() {
     const directPrompt = process.argv.slice(2).join(" ").trim();
 
@@ -1164,6 +1233,16 @@ async function main() {
 
         if (request.type === "rc_status_broadcast") {
             activeRemoteBridge?.broadcastEvent({ type: "rc_status", status: request.status });
+            continue;
+        }
+
+        if (request.type === "subsquads_list") {
+            await handleSubSquadsList(request);
+            continue;
+        }
+
+        if (request.type === "subsquads_activate") {
+            await handleSubSquadsActivate(request);
             continue;
         }
 

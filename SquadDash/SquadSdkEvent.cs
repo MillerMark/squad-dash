@@ -98,6 +98,13 @@ public sealed class SquadSdkEvent {
     // Remote audio event fields
     public string? ConnectionId { get; set; }
     public string? AudioData { get; set; }
+    // SubSquads event fields
+    public bool? SubSquadsConfigured { get; set; }
+    public int? SubSquadsCount { get; set; }
+    public string? WorkstreamsJson { get; set; }
+    public string? ActiveSubsquadName { get; set; }
+    public string? ActiveSubsquadSource { get; set; }
+    public string? SubSquadName { get; set; }
 }
 
 public sealed class SquadBackgroundAgentInfo {

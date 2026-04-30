@@ -555,4 +555,166 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(evt.RcTunnelUrl, Does.Contain("trycloudflare.com"));
         });
     }
+
+    [Test]
+    public void SubSquadsListRequest_SerializesCorrectly() {
+        var json = JsonSerializer.Serialize(new SquadSdkSubSquadsListRequest(
+            @"D:\Drive\Source\MyRepo",
+            "req-abc-001"));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"type\":\"subsquads_list\""));
+            Assert.That(json, Does.Contain("\"cwd\":\"D:\\\\Drive\\\\Source\\\\MyRepo\""));
+            Assert.That(json, Does.Contain("\"requestId\":\"req-abc-001\""));
+            Assert.That(json, Does.Not.Contain("\"Type\""));
+            Assert.That(json, Does.Not.Contain("\"Cwd\""));
+            Assert.That(json, Does.Not.Contain("\"RequestId\""));
+        });
+    }
+
+    [Test]
+    public void SubSquadsActivateRequest_SerializesCorrectly() {
+        var json = JsonSerializer.Serialize(new SquadSdkSubSquadsActivateRequest(
+            "ui-team",
+            @"D:\Drive\Source\MyRepo",
+            "req-abc-002"));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"type\":\"subsquads_activate\""));
+            Assert.That(json, Does.Contain("\"subSquadName\":\"ui-team\""));
+            Assert.That(json, Does.Contain("\"cwd\":\"D:\\\\Drive\\\\Source\\\\MyRepo\""));
+            Assert.That(json, Does.Contain("\"requestId\":\"req-abc-002\""));
+            Assert.That(json, Does.Not.Contain("\"SubSquadName\""));
+            Assert.That(json, Does.Not.Contain("\"Type\""));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesSubSquadsListedPayload_Configured() {
+        const string json = """
+            {
+              "type": "subsquads_listed",
+              "requestId": "req-abc-001",
+              "subsquadsConfigured": true,
+              "subsquadsCount": 2,
+              "workstreamsJson": "[{\"name\":\"ui\",\"labelFilter\":\"team:ui\",\"workflow\":\"branch-per-issue\"},{\"name\":\"api\",\"labelFilter\":\"team:api\",\"workflow\":\"direct\"}]",
+              "activeSubsquadName": "ui",
+              "activeSubsquadSource": "file"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("subsquads_listed"));
+            Assert.That(evt.RequestId, Is.EqualTo("req-abc-001"));
+            Assert.That(evt.SubSquadsConfigured, Is.True);
+            Assert.That(evt.SubSquadsCount, Is.EqualTo(2));
+            Assert.That(evt.WorkstreamsJson, Does.Contain("\"name\":\"ui\""));
+            Assert.That(evt.ActiveSubsquadName, Is.EqualTo("ui"));
+            Assert.That(evt.ActiveSubsquadSource, Is.EqualTo("file"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesSubSquadsListedPayload_NotConfigured() {
+        const string json = """
+            {
+              "type": "subsquads_listed",
+              "requestId": "req-abc-002",
+              "subsquadsConfigured": false,
+              "subsquadsCount": 0,
+              "workstreamsJson": null,
+              "activeSubsquadName": null,
+              "activeSubsquadSource": null
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("subsquads_listed"));
+            Assert.That(evt.SubSquadsConfigured, Is.False);
+            Assert.That(evt.SubSquadsCount, Is.EqualTo(0));
+            Assert.That(evt.WorkstreamsJson, Is.Null);
+            Assert.That(evt.ActiveSubsquadName, Is.Null);
+            Assert.That(evt.ActiveSubsquadSource, Is.Null);
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesSubSquadsActivatedPayload() {
+        const string json = """
+            {
+              "type": "subsquads_activated",
+              "requestId": "req-abc-003",
+              "subSquadName": "api-team"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("subsquads_activated"));
+            Assert.That(evt.RequestId, Is.EqualTo("req-abc-003"));
+            Assert.That(evt.SubSquadName, Is.EqualTo("api-team"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesSubSquadsErrorPayload() {
+        const string json = """
+            {
+              "type": "subsquads_error",
+              "requestId": "req-abc-004",
+              "message": "Cannot read .squad/workstreams.json: permission denied"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("subsquads_error"));
+            Assert.That(evt.RequestId, Is.EqualTo("req-abc-004"));
+            Assert.That(evt.Message, Does.Contain("permission denied"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesSubSquadsListedPayload_EnvSourceActive() {
+        const string json = """
+            {
+              "type": "subsquads_listed",
+              "subsquadsConfigured": true,
+              "subsquadsCount": 1,
+              "workstreamsJson": "[{\"name\":\"backend\",\"labelFilter\":\"team:backend\",\"workflow\":\"branch-per-issue\"}]",
+              "activeSubsquadName": "backend",
+              "activeSubsquadSource": "env"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.SubSquadsConfigured, Is.True);
+            Assert.That(evt.SubSquadsCount, Is.EqualTo(1));
+            Assert.That(evt.ActiveSubsquadName, Is.EqualTo("backend"));
+            Assert.That(evt.ActiveSubsquadSource, Is.EqualTo("env"));
+        });
+    }
 }

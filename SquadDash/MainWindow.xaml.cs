@@ -1962,6 +1962,18 @@ public partial class MainWindow : Window
                 _ = _pushNotificationService.NotifyEventAsync("rc_connection_dropped", "SquadDash", "Remote connection dropped");
                 break;
 
+            case "subsquads_listed":
+                HandleSubSquadsListed(evt);
+                break;
+
+            case "subsquads_activated":
+                HandleSubSquadsActivated(evt);
+                break;
+
+            case "subsquads_error":
+                HandleSubSquadsError(evt);
+                break;
+
             case "rc_error":
                 HandleRcError(evt);
                 break;
@@ -2616,6 +2628,60 @@ public partial class MainWindow : Window
         var msg = string.IsNullOrWhiteSpace(evt.Message) ? "Tunnel failed to start" : evt.Message;
         AppendLine($"  ⚠️ Tunnel: {msg}", ThemeBrush("SystemErrorText"));
         SquadDashTrace.Write("UI", $"RC tunnel error message={msg}");
+    }
+
+    private void HandleSubSquadsListed(SquadSdkEvent evt)
+    {
+        if (evt.SubSquadsConfigured != true)
+        {
+            AppendLine("📦 SubSquads: not configured (.squad/workstreams.json not found)");
+            AppendLine("  Create .squad/workstreams.json to define SubSquads for this workspace.");
+            return;
+        }
+
+        var count = evt.SubSquadsCount ?? 0;
+        AppendLine($"📦 SubSquads ({count} configured)");
+
+        if (!string.IsNullOrWhiteSpace(evt.WorkstreamsJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(evt.WorkstreamsJson);
+                foreach (var ws in doc.RootElement.EnumerateArray())
+                {
+                    var name = ws.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                    var label = ws.TryGetProperty("labelFilter", out var l) ? l.GetString() ?? "" : "";
+                    var workflow = ws.TryGetProperty("workflow", out var w) ? w.GetString() ?? "" : "";
+                    var isActive = string.Equals(name, evt.ActiveSubsquadName, StringComparison.OrdinalIgnoreCase);
+                    var marker = isActive ? "●" : "○";
+                    var suffix = isActive ? $"  ← active ({evt.ActiveSubsquadSource})" : string.Empty;
+                    AppendLine($"  {marker} {name,-20} label:{label,-20} {workflow}{suffix}");
+                }
+            }
+            catch
+            {
+                AppendLine($"  (could not parse workstreams list)");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(evt.ActiveSubsquadName))
+            AppendLine("  No SubSquad is currently active.");
+
+        SquadDashTrace.Write("UI", $"SubSquads listed count={count} active={evt.ActiveSubsquadName ?? "(none)"}");
+    }
+
+    private void HandleSubSquadsActivated(SquadSdkEvent evt)
+    {
+        var name = evt.SubSquadName ?? "(unknown)";
+        AppendLine($"📦 SubSquad activated: {name}");
+        SquadDashTrace.Write("UI", $"SubSquad activated name={name}");
+    }
+
+    private void HandleSubSquadsError(SquadSdkEvent evt)
+    {
+        var msg = string.IsNullOrWhiteSpace(evt.Message) ? "SubSquads operation failed" : evt.Message;
+        AppendLine($"📦 SubSquads error: {msg}", ThemeBrush("SystemErrorText"));
+        SquadDashTrace.Write("UI", $"SubSquads error message={msg}");
     }
 
     private void HandleRcStopped(SquadSdkEvent evt)
@@ -5238,6 +5304,21 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(RemoteAccessMenuItem_Click), ex);
+        }
+    }
+
+    private async void SubSquadsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                return;
+
+            await _bridge.ListSubSquadsAsync(_currentWorkspace.FolderPath).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SubSquadsMenuItem_Click), ex);
         }
     }
 
@@ -12161,6 +12242,14 @@ public partial class MainWindow : Window
         };
         _remoteAccessMenuItem.Click += RemoteAccessMenuItem_Click;
         WorkspaceMenuItem.Items.Add(_remoteAccessMenuItem);
+
+        var subSquadsMenuItem = new MenuItem
+        {
+            Header = "Sub_Squads",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        subSquadsMenuItem.Click += SubSquadsMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(subSquadsMenuItem);
 
         ConfigureInboxWatcher(Path.Combine(squadRoot, "decisions", "inbox"));
         UpdateInteractiveControlState();
