@@ -1316,6 +1316,14 @@ public partial class MainWindow : Window
         SyncQueuePanel();
     }
 
+    private void EnqueueRcPrompt(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        _promptQueue.Enqueue(text, ++_promptQueueSeq);
+        SyncQueuePanel();
+        _ = DrainQueueIfNeededAsync();
+    }
+
     private async Task DispatchQueuedTabAsync(string id)
     {
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
@@ -1984,7 +1992,7 @@ public partial class MainWindow : Window
                 break;
 
             case "rc_prompt":
-                BeginTranscriptTurn(evt.Text ?? string.Empty);
+                EnqueueRcPrompt(evt.Text ?? string.Empty);
                 break;
 
             case "rc_started":

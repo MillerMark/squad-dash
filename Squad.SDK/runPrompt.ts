@@ -979,19 +979,10 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
         machine: request.machine,
         squadDir: request.squadDir,
         onPrompt: async (text) => {
-            const remoteRequestId = randomUUID();
             rcBridge.addMessage("user", text);
             emit({ type: "rc_prompt", text });
-            try {
-                await bridge.runPrompt(
-                    text,
-                    buildRunHandlers(remoteRequestId, rcBridge),
-                    { cwd: request.cwd, sessionId: request.sessionId }
-                );
-            }
-            catch (err) {
-                rcBridge.sendError(err instanceof Error ? err.message : String(err));
-            }
+            // Execution is handled by SquadDash — it queues the prompt and drains
+            // when the coordinator is free, preserving the normal queue ordering.
         },
         onAudioStart: (connectionId: string) => {
             emit({ type: "rc_audio_start", connectionId });
