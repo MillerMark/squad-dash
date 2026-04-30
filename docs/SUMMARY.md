@@ -14,8 +14,6 @@
 * [Features](features/README.md)
   * [Fullscreen Transcript](features/fullscreen-transcript.md)
   * [Hiring Agents](features/hiring-agents.md)
-  * [Loop Panel](features/loop-panel.md)
-  * [Tasks Panel](features/tasks-panel.md)
   * [Voice Input](features/voice-input.md)
   * [Prompt Queue](features/prompt-queue.md)
 
@@ -23,7 +21,7 @@
 
 * [Loop Panel](panels/loop-panel.md)
 * [Tasks Panel](panels/tasks-panel.md)
-* [Commit Approvals Panel](panels/commit-approvals-panel.md)
+* [Approvals Panel](panels/approvals-panel.md)
 
 ## Concepts
 

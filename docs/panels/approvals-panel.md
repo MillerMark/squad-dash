@@ -1,17 +1,17 @@
 ---
-title: Commit Approvals Panel
+title: Approvals Panel
 nav_order: 3
 ---
 
-# Commit Approvals Panel
+# Approvals Panel
 
-The Commit Approvals Panel provides a running list of every git commit an agent has made during the session. Each entry starts in the **Needs Approval** section; you check it off to move it to **Approved**. The panel lets you review agent commits at your own pace, jump directly to the transcript turn where the commit happened, and open the commit on GitHub — all without leaving SquadDash.
+The Approvals Panel provides a running list of every git commit an agent has made during the session. Each entry starts in the **Needs Approval** section; you check it off to move it to **Approved**. The panel lets you review agent commits at your own pace, jump directly to the transcript turn where the commit happened, and open the commit on GitHub — all without leaving SquadDash.
 
 ---
 
 ## Opening the Panel
 
-**View** menu → **Commit Approvals** (toggles visibility). The menu item has a checkmark when the panel is open. Visibility is persisted per workspace.
+**View** menu → **Approvals Panel** (toggles visibility). The menu item has a checkmark when the panel is open. Visibility is persisted per workspace.
 
 Close the panel with its **×** button.
 
@@ -33,7 +33,7 @@ Entries persist across SquadDash restarts (stored in `commit-approvals.json` in 
 ## Panel Layout
 
 ```
-┌─ Commit Approvals ───────────────────────────────[×]─┐
+┌─ Approvals Panel ────────────────────────────────[×]─┐
 │                                                       │
 │  Needs Approval                                       │
 │  ☐  Fix login timeout logic          abc1234          │
@@ -91,4 +91,3 @@ Click **Clear Approved** in the Approved section to remove all approved entries 
 - **[Loop Panel](loop-panel.md)** — Commit entries accumulate quickly during loop runs; the approvals panel is the review checkpoint
 - **[Transcripts](../concepts/transcripts.md)** — Jump-to-turn lands in the coordinator transcript
 - **[Configuration](../reference/configuration.md)** — Setting the workspace GitHub URL
-

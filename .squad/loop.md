@@ -33,6 +33,8 @@ No unchecked tasks remain (or all remaining tasks are Owner: User). Do the follo
 
 ## Step 4 — Create comprehensive test cases for what has been built in this turn.
 
+## Step 5 - if there are any important decisions that need to be made by a human at this point, put those up as quick reply buttons.
+
 ## Reference material
 
 - `.squad/tasks.md` — the full task backlog

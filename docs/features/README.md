@@ -14,8 +14,8 @@ In-depth guides for SquadDash's view modes and UI features.
 
 - **[Fullscreen Transcript](fullscreen-transcript.md)** — F11 fullscreen mode: hide everything except the transcript
 - **[Hiring Agents](hiring-agents.md)** — Step-by-step guide to the `/hire` workflow
-- **[Loop Panel](loop-panel.md)** — Run agents on a repeating schedule with configurable interval and timeout
-- **[Tasks Panel](tasks-panel.md)** — Surface your `.squad/tasks.md` backlog grouped by priority
+- **[Loop Panel](../panels/loop-panel.md)** — Run agents on a repeating schedule with configurable interval and timeout
+- **[Tasks Panel](../panels/tasks-panel.md)** — Surface your `.squad/tasks.md` backlog grouped by priority
 - **[Voice Input](voice-input.md)** — Push-to-talk voice dictation with Azure Speech
 - **[Prompt Queue](prompt-queue.md)** — Queue prompts while an agent is running; they dispatch automatically
 

@@ -373,7 +373,7 @@
                               IsCheckable="True"
                               Click="ViewTasksMenuItem_Click" />
                     <MenuItem x:Name="ViewCommitApprovalsMenuItem"
-                              Header="Commit Approvals"
+                              Header="Approvals Panel"
                               IsCheckable="True"
                               Click="ViewCommitApprovalsMenuItem_Click" />
                 </MenuItem>
@@ -1125,7 +1125,7 @@
 
                             <!-- Title row with close button -->
                             <Grid Grid.Row="0">
-                                <TextBlock Text="Commit Approvals"
+                                <TextBlock Text="Approvals Panel"
                                            FontSize="15"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource RosterPanelTitle}"

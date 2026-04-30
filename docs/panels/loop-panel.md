@@ -7,7 +7,7 @@ nav_order: 1
 
 The Loop Panel lets you run SquadDash agents in a repeating loop — executing a prompt on a schedule — without staying at the keyboard. You configure the iteration interval, per-iteration timeout, and the instructions body in a `loop.md` file at the workspace root; the panel shows live status and lets you start, stop, or abort the loop at any time.
 
-> **Note:** The Loop Panel drives SquadDash's own *native loop* mechanism (agents run inside SquadDash) or the `squad` CLI's loop mode, depending on the mode radio selected. These are two distinct execution paths.
+> **Note:** The Loop Panel drives SquadDash's own *native loop* mechanism (agents run inside SquadDash) or the `squad` CLI's loop mode, depending on which radio button is selected. These are two distinct execution paths.
 
 ---
 
