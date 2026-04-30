@@ -2359,7 +2359,8 @@ public partial class MainWindow : Window
                         var description   = BuildApprovalDescription(notifSummary, doneCurrentTurn?.Prompt);
                         var hint          = TruncatePromptHint(doneCurrentTurn?.Prompt, maxChars: 60);
                         var item          = CommitApprovalItem.Create(commitSha, commitUrl, description,
-                                                                      turnStartedAt, hint);
+                                                                      turnStartedAt, hint,
+                                                                      originalPrompt: doneCurrentTurn?.Prompt?.Trim());
                         _approvalItems.Add(item);
                         _approvalStore?.Save(_approvalItems);
                         _approvalPanel?.AddItem(item);
@@ -3633,7 +3634,14 @@ public partial class MainWindow : Window
         _approvalStore?.Save(_approvalItems);
     }
 
-    private void ScrollToApprovalTurn(DateTimeOffset turnStartedAt) {
+    private void ScrollToApprovalTurn(CommitApprovalItem item) {
+        var turnStartedAt = item.TurnStartedAt;
+
+        // Capture mouse position now (on the UI thread during click handling) so the popup
+        // can be positioned correctly even after the async retry completes.
+        var relPos    = Mouse.GetPosition(this);
+        var screenPos = PointToScreen(relPos);
+
         // Ensure the coordinator transcript is visible in the main panel —
         // the prompt paragraphs live in CoordinatorThread's document.
         if (!ReferenceEquals(_selectedTranscriptThread, CoordinatorThread))
@@ -3651,7 +3659,54 @@ public partial class MainWindow : Window
                 .FirstOrDefault(e => e.Timestamp == turnStartedAt);
             if (retryEntry is not null)
                 ScrollToPromptParagraph(retryEntry.Paragraph);
+            else
+                ShowApprovalNotFoundPopup(screenPos, item.OriginalPrompt ?? item.TurnPromptHint);
         });
+    }
+
+    private void ShowApprovalNotFoundPopup(System.Windows.Point screenPoint, string? promptText) {
+        var stack = new StackPanel { Margin = new Thickness(10, 7, 10, 7) };
+
+        var msgBlock = new TextBlock { Text = "Entry not found in transcript." };
+        msgBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        stack.Children.Add(msgBlock);
+
+        if (!string.IsNullOrWhiteSpace(promptText)) {
+            var hintBlock = new TextBlock {
+                Text            = promptText,
+                TextWrapping    = TextWrapping.Wrap,
+                MaxWidth        = 320,
+                Margin          = new Thickness(0, 5, 0, 0),
+                Opacity         = 0.75,
+                FontStyle       = FontStyles.Italic,
+            };
+            hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            stack.Children.Add(hintBlock);
+        }
+
+        var border = new Border {
+            Child           = stack,
+            CornerRadius    = new CornerRadius(5),
+            BorderThickness = new Thickness(1),
+        };
+        border.SetResourceReference(Border.BackgroundProperty, "MainBackground");
+        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+
+        var popup = new System.Windows.Controls.Primitives.Popup {
+            Child             = border,
+            Placement         = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint,
+            HorizontalOffset  = screenPoint.X,
+            VerticalOffset    = screenPoint.Y + 18,
+            AllowsTransparency = true,
+            StaysOpen         = true,
+            IsOpen            = true,
+        };
+
+        var timer = new System.Windows.Threading.DispatcherTimer {
+            Interval = TimeSpan.FromSeconds(4)
+        };
+        timer.Tick += (_, _) => { popup.IsOpen = false; timer.Stop(); };
+        timer.Start();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -15260,7 +15315,7 @@ public partial class MainWindow : Window
                 ApprovalNeedsPanel!,
                 ApprovalApprovedPanel!,
                 navigateUrl:    url  => _ = OpenExternalLinkWithCommitCheckAsync(url),
-                scrollToTurn:   ts   => ScrollToApprovalTurn(ts),
+                scrollToTurn:   item => ScrollToApprovalTurn(item),
                 onItemChanged:  item => OnApprovalItemChanged(item),
                 onItemsRemoved: items => OnApprovalItemsRemoved(items));
             _approvalPanel.ReplaceAllItems(_approvalItems);

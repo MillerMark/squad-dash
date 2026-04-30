@@ -11,7 +11,7 @@ using System.Windows.Media;
 /// <summary>Manages content in the inline Commit Approvals panel.</summary>
 internal sealed class CommitApprovalPanel {
     private readonly Action<string>                               _navigateUrl;
-    private readonly Action<DateTimeOffset>                       _scrollToTurn;
+    private readonly Action<CommitApprovalItem>                   _scrollToTurn;
     private readonly Action<CommitApprovalItem>                   _onItemChanged;
     private readonly Action<IReadOnlyList<CommitApprovalItem>>    _onItemsRemoved;
 
@@ -22,7 +22,7 @@ internal sealed class CommitApprovalPanel {
         StackPanel                               needsApprovalPanel,
         StackPanel                               approvedPanel,
         Action<string>                            navigateUrl,
-        Action<DateTimeOffset>                    scrollToTurn,
+        Action<CommitApprovalItem>                scrollToTurn,
         Action<CommitApprovalItem>                onItemChanged,
         Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved) {
         _needsApprovalPanel = needsApprovalPanel;
@@ -86,7 +86,7 @@ internal sealed class CommitApprovalPanel {
             Cursor            = Cursors.Hand,
         };
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        descBlock.MouseLeftButtonUp += (_, e) => { e.Handled = true; _scrollToTurn(item.TurnStartedAt); };
+        descBlock.MouseLeftButtonUp += (_, e) => { e.Handled = true; _scrollToTurn(item); };
         Grid.SetColumn(descBlock, 1);
         grid.Children.Add(descBlock);
 
