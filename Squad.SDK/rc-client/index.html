@@ -368,15 +368,37 @@
   });
 
   // ── PTT / Audio ───────────────────────────────────────────────────────────
-  let audioContext = null;
-  let workletNode  = null;
-  let sourceNode   = null;
-  let mediaStream  = null;
-  let isPttActive  = false;
+  let audioContext   = null;
+  let workletNode    = null;
+  let sourceNode     = null;
+  let mediaStream    = null;
+  let isPttActive    = false;
+  let audioStartSent = false; // true only after audio_start WS frame is sent
+
+  function showPttError(msg) {
+    pttBtn.className = '';
+    pttHint.textContent = msg;
+    pttHint.className = 'busy-text';
+    setTimeout(() => {
+      if (!isAiBusy) {
+        pttHint.textContent = 'Hold to talk';
+        pttHint.className = '';
+      }
+    }, 3500);
+  }
 
   async function startPtt() {
     if (isPttActive || isAiBusy || !wsReady) return;
-    isPttActive = true;
+
+    // getUserMedia is only available in secure contexts (HTTPS or localhost).
+    // Over plain HTTP on a LAN IP, navigator.mediaDevices is undefined on iOS/Safari.
+    if (!window.isSecureContext || !navigator.mediaDevices) {
+      showPttError('⚠️ Mic needs HTTPS — use a tunnel');
+      return;
+    }
+
+    isPttActive    = true;
+    audioStartSent = false;
     pttBtn.className = 'active';
     pttHint.textContent = '🔴 Recording…';
 
@@ -403,9 +425,19 @@
       workletNode.connect(audioContext.destination);
 
       ws.send(JSON.stringify({ type: 'audio_start' }));
+      audioStartSent = true;
     } catch (err) {
       console.error('PTT start error', err);
-      stopPtt();
+      isPttActive = false; // prevent stopPtt sending orphaned audio_end
+      const msg = err.name === 'NotAllowedError' ? '⚠️ Mic permission denied'
+                : err.name === 'NotFoundError'   ? '⚠️ No microphone found'
+                : '⚠️ Mic unavailable';
+      showPttError(msg);
+      // Clean up any partial state
+      if (sourceNode)   { sourceNode.disconnect();   sourceNode = null; }
+      if (workletNode)  { workletNode.disconnect();   workletNode = null; }
+      if (audioContext) { audioContext.close();       audioContext = null; }
+      if (mediaStream)  { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
     }
   }
 
@@ -413,8 +445,10 @@
     if (!isPttActive) return;
     isPttActive = false;
 
-    if (wsReady && ws) {
+    // Only send audio_end if we successfully sent audio_start
+    if (audioStartSent && wsReady && ws) {
       ws.send(JSON.stringify({ type: 'audio_end' }));
+      audioStartSent = false;
     }
 
     // Clean up audio pipeline
