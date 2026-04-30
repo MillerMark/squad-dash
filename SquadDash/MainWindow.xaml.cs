@@ -2355,7 +2355,10 @@ public partial class MainWindow : Window
                         _ = _bridge.BroadcastRcCommitAsync(commitSha, commitUrl);
 
                         // ── Approval tracking ─────────────────────────────────────────────
-                        var turnStartedAt = _pec.CurrentPromptStartedAt ?? DateTimeOffset.Now;
+                        // Use doneCurrentTurn.StartedAt — same value that BeginTranscriptTurn stored
+                        // in PromptParagraphs. _pec.CurrentPromptStartedAt is already null here because
+                        // the PEC finally-block runs before this Dispatcher.BeginInvoke callback fires.
+                        var turnStartedAt = doneCurrentTurn?.StartedAt ?? DateTimeOffset.Now;
                         var description   = BuildApprovalDescription(notifSummary, doneCurrentTurn?.Prompt);
                         var hint          = TruncatePromptHint(doneCurrentTurn?.Prompt, maxChars: 60);
                         var item          = CommitApprovalItem.Create(commitSha, commitUrl, description,
@@ -3599,6 +3602,11 @@ public partial class MainWindow : Window
     private static readonly Regex _committedSuffixRe =
         new(@"[,;.]?\s+committed\s+[0-9a-f]{5,}\S*\.?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Matches " as <commit-code><punctuation>" at the end of a notification summary.
+    // e.g. "Fixed the login bug as abc1234.", "Refactored auth as 3f9a2bc,"
+    private static readonly Regex _asCommitSuffixRe =
+        new(@"\s+as\s+[0-9a-f]{5,}\S*[.,;:!?]*\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
         if (!string.IsNullOrWhiteSpace(notifSummary)) {
             var s = notifSummary.Trim();
@@ -3607,6 +3615,10 @@ public partial class MainWindow : Window
             var m = _committedSuffixRe.Match(s);
             if (m.Success)
                 s = s[..m.Index].TrimEnd().TrimEnd('.').Trim();
+            // Strip trailing " as <sha><punct>" — same reason.
+            var m2 = _asCommitSuffixRe.Match(s);
+            if (m2.Success)
+                s = s[..m2.Index].TrimEnd().TrimEnd('.').Trim();
             return s;
         }
         if (string.IsNullOrWhiteSpace(prompt))
