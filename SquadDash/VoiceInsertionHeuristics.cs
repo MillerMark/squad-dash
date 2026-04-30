@@ -229,14 +229,21 @@ internal static class VoiceInsertionHeuristics
 
     /// <summary>
     /// Returns <c>true</c> when the character immediately to the right of the
-    /// caret is any non-whitespace character other than <c>')'</c>.
+    /// caret is any non-whitespace character other than <c>')'</c> or a
+    /// punctuation mark that naturally hugs the preceding word
+    /// (<c>. , ; ! ? :</c>).
     /// When true, a trailing space should be appended to the inserted text so
     /// it doesn't run into the next token.
     /// The <c>')'</c> exception prevents a spurious space inside empty parens
     /// like <c>"(|)"</c> → <c>"(done)"</c> rather than <c>"(done )"</c>.
+    /// The punctuation exception prevents <c>"word ,rest"</c> — punctuation
+    /// attaches to the word on its left, not the word on its right.
     /// </summary>
     internal static bool IsRightContextRequiresTrailingSpace(string rightContext) =>
-        rightContext.Length > 0 && rightContext[0] != ')' && !char.IsWhiteSpace(rightContext[0]);
+        rightContext.Length > 0
+        && rightContext[0] != ')'
+        && ".,;!?:".IndexOf(rightContext[0]) < 0
+        && !char.IsWhiteSpace(rightContext[0]);
 
     /// <summary>
     /// Returns <c>true</c> when the first character of <paramref name="rightContext"/>
