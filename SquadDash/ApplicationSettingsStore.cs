@@ -376,6 +376,20 @@ internal sealed class ApplicationSettingsStore {
     }
 
     /// <summary>
+    /// Saves whether Remote Access was active at the time of the call.
+    /// Used to auto-resume RC on the next startup if it was running when the app exited.
+    /// </summary>
+    public ApplicationSettingsSnapshot SaveRemoteAccessActive(bool active) {
+        using var mutex = AcquireMutex();
+
+        var current = LoadCore();
+        var updated = current with { RemoteAccessActiveOnExit = active };
+
+        SaveCore(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Saves the documentation panel as explicitly closed, capturing the current
     /// tree expansion state and selected topic for restoration on next startup.
     /// </summary>
@@ -714,6 +728,12 @@ internal sealed record ApplicationSettingsSnapshot(
     /// </summary>
     public bool LoopActiveOnExit { get; init; } = false;
 
+    /// <summary>
+    /// When true, Remote Access was active when the app last exited.
+    /// SquadDash uses this to auto-resume RC after an unexpected shutdown or restart.
+    /// </summary>
+    public bool RemoteAccessActiveOnExit { get; init; } = false;
+
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
             null,
@@ -875,6 +895,7 @@ internal sealed record ApplicationSettingsSnapshot(
             LoopMode = LoopMode,
             LoopContinuousContext = LoopContinuousContext,
             LoopActiveOnExit = LoopActiveOnExit,
+            RemoteAccessActiveOnExit = RemoteAccessActiveOnExit,
         };
     }
 

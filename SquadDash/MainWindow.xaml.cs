@@ -2621,6 +2621,7 @@ public partial class MainWindow : Window
     private void HandleRcStarted(SquadSdkEvent evt)
     {
         _remoteAccessActive = true;
+        _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(true);
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
         var url = evt.RcUrl ?? $"http://localhost:{port}";
@@ -2761,6 +2762,7 @@ public partial class MainWindow : Window
     private void HandleRcStopped(SquadSdkEvent evt)
     {
         _remoteAccessActive = false;
+        _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
         UpdateRemoteAccessMenuHeader();
         AppendLine("📡 Remote access stopped");
         SquadDashTrace.Write("UI", "RC stopped");
@@ -2769,6 +2771,7 @@ public partial class MainWindow : Window
     private void HandleRcError(SquadSdkEvent evt)
     {
         _remoteAccessActive = false;
+        _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
         UpdateRemoteAccessMenuHeader();
         var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
             ? "❌ Remote access error"
@@ -7391,6 +7394,29 @@ public partial class MainWindow : Window
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
+        // Auto-resume Remote Access if it was active when the app last exited.
+        // Clear the flag first to prevent crash-loops.
+        if (_settingsSnapshot.RemoteAccessActiveOnExit)
+        {
+            _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
+            Dispatcher.InvokeAsync(async () =>
+            {
+                if (_currentWorkspace is null) return;
+                AppendLine("📡 Resuming Remote Access from previous session…");
+                var repo = System.IO.Path.GetFileName(_currentWorkspace.FolderPath);
+                var machine = System.Environment.MachineName;
+                await _bridge.StartRemoteAsync(
+                    repo: repo,
+                    branch: "main",
+                    machine: machine,
+                    squadDir: _currentWorkspace.SquadFolderPath,
+                    cwd: _currentWorkspace.FolderPath,
+                    sessionId: _conversationManager.CurrentSessionId,
+                    tunnelMode: _settingsSnapshot.TunnelMode,
+                    tunnelToken: _settingsSnapshot.TunnelToken).ConfigureAwait(false);
+            }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
         RestoreWorkspaceWindowPlacement();
         _conversationManager.ResetHistoryNavigation();
         UpdateWindowTitle();
@@ -11936,6 +11962,8 @@ public partial class MainWindow : Window
             // A crash or kill signal never reaches this handler, so the flag also stays true there.
             if (_settingsSnapshot.LoopActiveOnExit && !_restartPending)
                 _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+            if (_settingsSnapshot.RemoteAccessActiveOnExit && !_restartPending)
+                _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
             _instanceActivationChannel.Stop();
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
