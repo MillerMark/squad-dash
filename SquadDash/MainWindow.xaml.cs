@@ -585,11 +585,12 @@ public partial class MainWindow : Window
                 HandleUiCallbackException("Window.LocationChanged", ex);
             }
         };
-        SizeChanged += (_, _) =>
+        SizeChanged += (_, e) =>
         {
             try
             {
                 OnMainWindowMoved();
+                UpdateAgentCardImageVisibility(e.NewSize.Height);
             }
             catch (Exception ex)
             {
@@ -13000,6 +13001,7 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("AgentCards", $"RefreshAgentCards: total cards={_agents.Count}");
         UpdateAgentCardVisibility();
         SyncAgentCardsWithThreads();
+        UpdateAgentCardImageVisibility(ActualHeight);
 
         // Walk up the visual tree logging heights at each level
         SquadDashTrace.Write("AgentCards",
@@ -13026,6 +13028,13 @@ public partial class MainWindow : Window
         _leadAgent.StatusText = status;
         _leadAgent.BubbleText = bubble;
         _leadAgent.DetailText = detail;
+    }
+
+    private void UpdateAgentCardImageVisibility(double windowHeight)
+    {
+        bool hide = windowHeight < 650;
+        foreach (var card in _agents)
+            card.HideImage = hide;
     }
 
     private void UpdateAgentCardVisibility()

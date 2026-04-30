@@ -9,6 +9,25 @@ namespace SquadDash;
 
 internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName {
     private static bool _isDarkTheme = false;
+    private static bool _imagesVisible = true;
+    private static readonly List<WeakReference<AgentStatusCard>> _liveInstances = [];
+
+    public static bool ImagesVisible {
+        get => _imagesVisible;
+        set {
+            if (_imagesVisible == value) return;
+            _imagesVisible = value;
+            lock (_liveInstances) {
+                foreach (var weakRef in _liveInstances) {
+                    if (weakRef.TryGetTarget(out var card)) {
+                        card.OnPropertyChanged(nameof(AvatarImageVisibility));
+                        card.OnPropertyChanged(nameof(InitialVisibility));
+                    }
+                }
+            }
+        }
+    }
+
     private string _displayName;
     private string _roleText;
     private string _statusText;
@@ -26,6 +45,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     private ImageSource? _agentImageSource;
     private double _avatarDiameter = 58;
     private double _initialFontSize = 20;
+    private bool _hideImage;
 
     public AgentStatusCard(
         string name,
@@ -67,6 +87,13 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
         _threadChipsVisibility = Visibility.Collapsed;
         _overflowChipVisibility = Visibility.Collapsed;
         _overflowChipText = string.Empty;
+        lock (_liveInstances)
+            _liveInstances.Add(new WeakReference<AgentStatusCard>(this));
+    }
+
+    ~AgentStatusCard() {
+        lock (_liveInstances)
+            _liveInstances.RemoveAll(w => !w.TryGetTarget(out _));
     }
 
     public string Name { get; }
@@ -196,8 +223,19 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
         }
     }
 
-    public Visibility AvatarImageVisibility => _agentImageSource is not null ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility InitialVisibility => _agentImageSource is null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility AvatarImageVisibility =>
+        _imagesVisible && !_hideImage && _agentImageSource is not null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility InitialVisibility =>
+        !_imagesVisible || _hideImage || _agentImageSource is null ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool HideImage {
+        get => _hideImage;
+        set {
+            if (_hideImage == value) return;
+            _hideImage = value;
+            OnPropertyChanged(nameof(AvatarImageVisibility));
+        }
+    }
 
     public double AvatarDiameter {
         get => _avatarDiameter;
