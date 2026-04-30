@@ -1317,3 +1317,49 @@ When a user initiates PTT (push-to-talk) on the phone while an LLM response is a
 Desktop: _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning — voice capture starts but "send on release" is disabled if a run is in progress. The mobile policy is strictly more conservative (no capture at all during a run), which is appropriate given the higher latency and lack of visual context on a phone.
 
 **References:** .squad/rc-mobile-architecture.md §Key Decisions #4
+
+
+---
+
+## RC Mobile — Session Isolation Policy for Multi-Phone Connections (2026-04-30)
+
+**By:** Orion Vale (Lead Architect)
+**Status:** Decided
+
+### Context
+
+RemoteBridge allows multiple simultaneous WebSocket connections. When two phones are connected and both submit prompts, the question is whether they share one SquadBridge session (shared ddMessage history) or each get an isolated session.
+
+The current handleRcStart implementation already answers this implicitly: onPrompt calls ridge.runPrompt(text, ..., { cwd: request.cwd, sessionId: request.sessionId }) using the **single ridge (SquadBridgeService singleton)** and the **single sessionId from the c_start request**. All phones share one session today.
+
+### Decision: Shared session — intentional, no isolation needed
+
+**All phone connections share a single SquadBridge session and conversation history.** This is the correct policy for SquadDash's use case and requires no code change to handleRcStart.
+
+### Rationale
+
+1. **Mental model: input devices, not independent users.** RC phones are remote controls for the same SquadDash instance. They are additional input surfaces for the same person, not separate users with separate contexts. Two phones connecting simultaneously means the same user switched devices or is testing — not two users having independent conversations.
+
+2. **Consistent with the PTT-during-LLM-run policy.** The reject-with-feedback policy (Key Decision #4) already serialises prompts: only one prompt runs at a time. Shared session history is coherent because the AI always sees a sequential conversation thread, never concurrent interleaved prompts.
+
+3. **ddMessage broadcast goes to all connected phones.** When a prompt comes in from any phone, cBridge.addMessage("user", text) broadcasts to all connected clients. The AI's response via ddMessage("agent", ...) also broadcasts to all. This creates a natural "shared screen" experience — all phones see the same conversation — which is the correct UX for a collaborative or multi-device household scenario.
+
+4. **Isolated sessions would require significant architectural complexity for no benefit.** Per-connection isolation would require: a Map<connId, SquadBridgeSession>, per-connection session lifecycle (create on connect, destroy on disconnect with cleanup), per-connection message history (cannot broadcast ddMessage to all), and coordination with the _isPromptRunning guard across sessions. None of this aligns with the "phone as remote control" mental model.
+
+### Implementation note
+
+No code change is needed. The existing onPrompt wiring in handleRcStart correctly implements this policy:
+
+`	s
+onPrompt: async (text) => {
+    rcBridge.addMessage("user", text);         // broadcast to ALL phones
+    await bridge.runPrompt(text, handlers, {    // shared session
+        cwd: request.cwd,
+        sessionId: request.sessionId
+    });
+}
+`
+
+The only future consideration: if RemoteBridge gains a connId parameter on onPrompt, the handler should continue to ignore it (treat all connections as shared) unless a future explicit policy change is made.
+
+**References:** .squad/rc-mobile-architecture.md §Key Decisions #5

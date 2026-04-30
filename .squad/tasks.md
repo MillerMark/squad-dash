@@ -69,7 +69,7 @@
   Recommendation: show "⏳ Wait for response to complete" on phone; auto-unblock when `complete` fires.
   Decision needed before wiring PTT UX. See `.squad/rc-mobile-architecture.md` §Key Decisions #4.
 
-- [ ] **RC mobile — define session isolation policy for multi-phone connections** *(Owner: Orion Vale)*
+- [x] **RC mobile — define session isolation policy for multi-phone connections** *(Owner: Orion Vale)*
   `RemoteBridge` allows multiple simultaneous phone connections. If two phones connect and submit
   prompts, do they share one SquadBridge session (shared history) or get isolated sessions?
   Decision affects how `onPrompt` is wired in `handleRcStart`. See `.squad/rc-mobile-architecture.md` §Key Decisions #5.
@@ -119,6 +119,7 @@
 - [x] RC mobile — decide SDK PR ownership for binary audio frames — ✅ Decided 2026-04-30 (Talia Rune submits PR after Option C spike)
 - [x] RC mobile — spike Option C audio format (WEBM_OPUS) — ✅ Spiked 2026-04-30 (WEBM_OPUS absent from SDK 1.49.0; proceed with Option B PCM/AudioWorklet)
 - [x] RC mobile — define PTT-during-LLM-run policy — ✅ Decided 2026-04-30 (Option C: reject+feedback; C# broadcasts rc_status busy/idle; auto-unblocks on "done")
+- [x] RC mobile — define session isolation policy for multi-phone connections — ✅ Decided 2026-04-30 (shared session; phones are input devices; no code change needed)
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel

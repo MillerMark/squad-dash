@@ -554,5 +554,6 @@ The following require explicit owner sign-off before implementation starts:
    C# broadcasts `{ "type": "rc_status", "status": "busy"|"idle" }` over WebSocket when `_isPromptRunning` changes; phone PTT button listens and enables/disables accordingly.  
    See `.squad/decisions.md` §RC Mobile — PTT-During-LLM-Run Policy (2026-04-30).
 
-5. **Session isolation for multi-phone connections.**  
-   `RemoteBridge` allows multiple simultaneous connections. If two phones are connected and both submit prompts, they share the same SquadBridge session and the same `addMessage` history. Is this the desired behaviour, or should each phone connection have an isolated session? This decision affects how `onPrompt` is wired in `handleRcStart`.
+5. **Session isolation for multi-phone connections.** ✅ **Decided 2026-04-30 — shared session, no isolation**  
+   All phone connections intentionally share one SquadBridge session and conversation history. Phones are "input devices" for the same user, not independent users. `addMessage` broadcasts to all connected clients; the PTT-during-LLM-run reject policy serialises prompts. No code change needed — current `handleRcStart` `onPrompt` wiring is correct.  
+   See `.squad/decisions.md` §RC Mobile — Session Isolation Policy (2026-04-30).
