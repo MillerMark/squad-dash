@@ -8,7 +8,8 @@
         "test": "echo \"Error: no test specified\" && exit 1",
         "build": "tsc --build",
         "clean": "tsc --build --clean",
-        "runprompt": "tsx runPrompt.ts"
+        "runprompt": "tsx runPrompt.ts",
+        "postinstall": "patch-package"
     },
     "keywords": [],
     "author": "",
@@ -16,6 +17,7 @@
     "devDependencies": {
         "@types/node": "^25.5.2",
         "eslint": "^10.1.0",
+        "patch-package": "^8.0.1",
         "tsx": "^4.21.0",
         "typescript": "^6.0.2"
     },
