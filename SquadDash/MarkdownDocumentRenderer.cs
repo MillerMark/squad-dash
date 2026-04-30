@@ -149,6 +149,12 @@ internal sealed class MarkdownDocumentRenderer {
         };
     }
 
+    /// <summary>Returns a heading font size proportional to the base transcript size.</summary>
+    internal static double HeadingFontSize(int level, double baseFontSize) =>
+        level == 1 ? baseFontSize * (18.0 / 14.0)
+        : level == 2 ? baseFontSize * (16.0 / 14.0)
+        : baseFontSize; // H3+ = same as body; bold weight provides the visual distinction
+
     // ── Response block builder ─────────────────────────────────────────────
 
     internal IEnumerable<Block> BuildResponseBlocks(
@@ -239,10 +245,9 @@ internal sealed class MarkdownDocumentRenderer {
                 while (level < trimmed.Length && trimmed[level] == '#') level++;
                 var headingText = trimmed[level..].TrimStart();
                 var p = CreateTranscriptParagraph(bottomMargin: level <= 2 ? 6 : 4);
-                p.Inlines.Add(new Run(headingText) {
-                    FontWeight = FontWeights.Bold,
-                    FontSize = level == 1 ? 18 : level == 2 ? 16 : 14
-                });
+                p.FontSize = HeadingFontSize(level, _getFontSize());
+                p.Tag = level == 1 ? "h1" : level == 2 ? "h2" : "h3";
+                p.Inlines.Add(new Run(headingText) { FontWeight = FontWeights.Bold });
                 yield return p;
                 i++;
                 continue;

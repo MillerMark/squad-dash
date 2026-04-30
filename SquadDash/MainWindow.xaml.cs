@@ -3904,9 +3904,20 @@ public partial class MainWindow : Window
 
         var codeBlockFontSize = _transcriptFontSize * 0.9;
         foreach (var block in document.Blocks.OfType<Section>())
+        {
             foreach (var inner in block.Blocks.OfType<BlockUIContainer>())
                 if (inner.Child is TextBox { Tag: "codeblock" } codeBox)
                     codeBox.FontSize = codeBlockFontSize;
+
+            foreach (var para in block.Blocks.OfType<Paragraph>())
+            {
+                if (para.Tag is string headingTag)
+                {
+                    var level = headingTag switch { "h1" => 1, "h2" => 2, _ => 3 };
+                    para.FontSize = MarkdownDocumentRenderer.HeadingFontSize(level, _transcriptFontSize);
+                }
+            }
+        }
     }
 
     private ContextMenu CreateThinkingContextMenu(TranscriptTurnView view)
@@ -9177,11 +9188,9 @@ public partial class MainWindow : Window
                 while (level < trimmed.Length && trimmed[level] == '#') level++;
                 var headingText = trimmed[level..].TrimStart();
                 var p = CreateTranscriptParagraph(bottomMargin: level <= 2 ? 6 : 4);
-                p.Inlines.Add(new Run(headingText)
-                {
-                    FontWeight = FontWeights.Bold,
-                    FontSize = level == 1 ? 18 : level == 2 ? 16 : 14
-                });
+                p.FontSize = MarkdownDocumentRenderer.HeadingFontSize(level, _transcriptFontSize);
+                p.Tag = level == 1 ? "h1" : level == 2 ? "h2" : "h3";
+                p.Inlines.Add(new Run(headingText) { FontWeight = FontWeights.Bold });
                 yield return p;
                 i++;
                 continue;
