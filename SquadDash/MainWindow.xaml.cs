@@ -4409,8 +4409,10 @@ public partial class MainWindow : Window
                                 // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
                                 _sessionCaretIndex      = _pttTargetTextBox.SelectionStart;
                                 _sessionSelectionLength = _pttTargetTextBox.SelectionLength;
-                                // Only auto-send when the target is the prompt box.
-                                _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox && !_isPromptRunning;
+                                // Queue whenever the target is the prompt box.
+                                // EnqueueCurrentPrompt works whether or not a prompt is currently running,
+                                // so we no longer need to gate on !_isPromptRunning.
+                                _voiceStartedWithSendEnabled = _pttTargetTextBox == PromptTextBox;
                                 _pttState = PttState.Active;
                                 _ = StartPushToTalkAsync();
                             }

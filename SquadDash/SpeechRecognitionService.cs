@@ -108,6 +108,11 @@ internal sealed class SpeechRecognitionService : IDisposable {
     public async Task StopAsync() {
         _stopping = true;
         try { _waveIn?.StopRecording(); } catch { }
+        // Explicitly close the push stream so Azure sees EOF immediately.
+        // RecordingStopped also closes it, but fires asynchronously after the last
+        // WaveIn buffer is returned — which may be after StopContinuousRecognitionAsync
+        // has already started, causing the final phrase to be silently dropped.
+        try { _pushStream?.Close(); } catch { }
         if (_recognizer is not null) {
             try { await _recognizer.StopContinuousRecognitionAsync().ConfigureAwait(false); } catch { }
         }
