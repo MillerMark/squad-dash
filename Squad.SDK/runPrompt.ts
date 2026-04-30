@@ -10,6 +10,7 @@ import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolvePersonalSquadDir, ensurePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
+import { initAgentModeTelemetry } from "@bradygaster/squad-sdk/runtime/otel-init";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1159,6 +1160,10 @@ async function handlePersonalInit(request: PersonalInitRequest): Promise<void> {
 }
 
 async function main() {
+    // Activate OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set (e.g. by `squad aspire`).
+    // No-op when env var is absent — zero runtime cost.
+    const _telemetry = initAgentModeTelemetry();
+
     const directPrompt = process.argv.slice(2).join(" ").trim();
 
     if (directPrompt) {

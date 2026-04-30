@@ -96,10 +96,6 @@
   cross-workspace agent interactions? Note: `squad cross-squad` does not appear in the
   0.9.5-insider CLI — may be a planned future feature.
 
-- [ ] **`squad aspire` integration** *(Owner: Orion Vale — architecture first)*
-  `squad aspire` exists in 0.9.5-insider — launches .NET Aspire dashboard for observability.
-  Explore integration hooks. Likely a separate milestone.
-
 - [ ] **Capture screenshots for documentation** *(Owner: User)*
   Documentation pages in `docs/` contain `📸 Screenshot needed` placeholders.
   Right-click any placeholder in the SquadDash doc viewer to paste a screenshot from clipboard.
@@ -121,6 +117,7 @@
 - [x] `squad streams` / `subsquads` management — ✅ Prototyped bridge (subsquads_list/activate requests; Workspace > SubSquads menu; 7 new tests; 1009 pass)
 - [x] `squad cross-squad` integration — ✅ Architecture decided 2026-04-30 (Phase 1 = discovery-only read bridge; Phase 2 = gh delegation deferred; decision in decisions.md)
 - [x] `squad personal` support — ✅ Implemented personal_list/personal_init bridge; Workspace → Personal Squad menu; 7 new tests; 1016 total pass
+- [x] `squad aspire` integration — ✅ Phase 1 implemented (OTel auto-activation via initAgentModeTelemetry in runPrompt.ts); Phase 2 (in-app dashboard launch) deferred; architecture in decisions.md
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel

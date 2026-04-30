@@ -1024,6 +1024,51 @@ case "rc_stopped":
 
 **File:** `SquadDash/PreferencesWindow.cs` (extend existing)
 
+---
+
+### 2026-04-30 — `squad aspire` integration architecture
+
+**Owner:** Orion Vale  
+**Status:** Phase 1 implemented; Phase 2 deferred
+
+**Context:** `squad aspire` is a CLI command in 0.9.5-insider that launches a .NET Aspire/OpenTelemetry dashboard. The task asked how SquadDash should integrate.
+
+**What `squad aspire` does (investigation findings):**
+
+- Launches `mcr.microsoft.com/dotnet/aspire-dashboard:latest` via Docker (preferred) or `dotnet workload aspire`
+- Dashboard UI: `http://localhost:18888`; OTLP gRPC endpoint: `localhost:4317`
+- Sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` in the calling process before spawning the dashboard
+- The Squad SDK (`@bradygaster/squad-sdk`) has full OTel instrumentation — `initSquadTelemetry()` / `initAgentModeTelemetry()` are no-ops unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+
+**Integration phases:**
+
+#### Phase 1 — OTel auto-activation in the bridge process (✅ implemented 2026-04-30)
+
+**Decision:** Call `initAgentModeTelemetry()` at the start of `runPrompt.ts main()`. This auto-activates tracing and metrics export when `OTEL_EXPORTER_OTLP_ENDPOINT` is present in the environment (set by `squad aspire` or any external OTel collector). When the env var is absent, the call is a proven no-op — zero runtime cost.
+
+**User workflow enabled by Phase 1:**
+1. In a terminal: `npx squad aspire` (starts Dashboard + sets env var)
+2. In the terminal where SquadDash is launched: set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`
+3. SquadDash bridge auto-exports spans and metrics to the Aspire dashboard
+
+**Files changed:**
+- `Squad.SDK/runPrompt.ts` — added `import { initAgentModeTelemetry }` + call at `main()` start
+
+#### Phase 2 — In-app Aspire dashboard launch (deferred)
+
+**Decision:** Deferred to a separate milestone. Requires Docker or `dotnet workload aspire` to be installed on the user's machine — a significant external dependency. Blocked by:
+1. No Docker/Aspire workload in the CI environment
+2. UX questions: should SquadDash show a status indicator while Aspire runs? How does it detect when Docker is available?
+
+**Planned implementation (for Phase 2 when ready):**
+- NDJSON request type `aspire_start` — spawns Docker container, sets `OTEL_EXPORTER_OTLP_ENDPOINT`, emits `aspire_started`/`aspire_error`
+- NDJSON request type `aspire_stop` — kills container, emits `aspire_stopped`
+- C# `SquadSdkProcess`: `StartAspireAsync()` / `StopAspireAsync()` methods
+- `MainWindow.xaml.cs`: Workspace → "🔭 Aspire Dashboard" toggle menu item
+- Prerequisite check: emit `aspire_error` with install instructions if Docker is absent
+
+**Risk note for Phase 2:** Spawning Docker from the bridge process is similar to the tunnel auto-start pattern (which uses ngrok/cloudflared), but Docker pull could be slow on first run and the container name collision case needs handling.
+
 **Tasks:**
 1. Add "Notifications" section to PreferencesWindow form stack
 2. Add provider dropdown (initially single option: "ntfy.sh")
