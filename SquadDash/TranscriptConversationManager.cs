@@ -833,12 +833,13 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
-    internal void UpdateQueuedPromptsState(IReadOnlyList<PromptQueueItem> items) {
+    internal void UpdateQueuedPromptsState(IReadOnlyList<PromptQueueItem> items, bool queueRightmostHeld = false) {
         var entries = items.Count > 0
             ? (IReadOnlyList<QueuedPromptEntry>)items.Select(i => new QueuedPromptEntry(i.Text, i.IsDictated)).ToArray()
             : null;
         _conversationState = _conversationState with {
-            QueuedPromptEntries = entries
+            QueuedPromptEntries = entries,
+            QueueRightmostHeld  = queueRightmostHeld ? true : null,
         };
     }
 

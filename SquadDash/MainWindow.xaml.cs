@@ -1613,7 +1613,7 @@ public partial class MainWindow : Window
             }
         }
 
-        _conversationManager.UpdateQueuedPromptsState(items);
+        _conversationManager.UpdateQueuedPromptsState(items, queueRightmostHeld: IsRightmostQueueTabActive());
         SyncSendButton();
     }
 
@@ -8089,8 +8089,20 @@ public partial class MainWindow : Window
             foreach (var entry in savedEntries)
                 _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated);
             SyncQueuePanel();
-            Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
-                System.Windows.Threading.DispatcherPriority.Background);
+
+            bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
+            if (wasHeld && _promptQueue.Count > 0)
+            {
+                // Restore the rightmost-tab hold: select the first item's tab so the user
+                // must explicitly Send or switch away before it dispatches.
+                Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
+                    System.Windows.Threading.DispatcherPriority.Background);
+            }
+            else
+            {
+                Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
+                    System.Windows.Threading.DispatcherPriority.Background);
+            }
         }
         else if (savedLegacy is { Count: > 0 })
         {
@@ -8098,9 +8110,21 @@ public partial class MainWindow : Window
             foreach (var text in savedLegacy)
                 _promptQueue.Enqueue(text, ++_promptQueueSeq);
             SyncQueuePanel();
-            // Auto-dispatch restored queue items once the UI is fully initialised.
-            Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
-                System.Windows.Threading.DispatcherPriority.Background);
+
+            bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
+            if (wasHeld && _promptQueue.Count > 0)
+            {
+                // Restore the rightmost-tab hold: select the first item's tab so the user
+                // must explicitly Send or switch away before it dispatches.
+                Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
+                    System.Windows.Threading.DispatcherPriority.Background);
+            }
+            else
+            {
+                // Auto-dispatch restored queue items once the UI is fully initialised.
+                Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
+                    System.Windows.Threading.DispatcherPriority.Background);
+            }
         }
 
         // Restore per-workspace loop settings (override global app settings).
@@ -12777,7 +12801,12 @@ public partial class MainWindow : Window
             // CaptureWorkspaceInputState reads the actual draft — not the queue item's text —
             // preventing a duplicate queue entry on the next launch.
             if (_activeTabId is not null)
+            {
+                // If rightmost tab is held, persist the flag before switching away.
+                if (IsRightmostQueueTabActive())
+                    _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, queueRightmostHeld: true);
                 OnQueueTabClicked(null);
+            }
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
