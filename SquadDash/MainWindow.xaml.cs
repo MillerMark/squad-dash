@@ -3665,41 +3665,56 @@ public partial class MainWindow : Window
     }
 
     private void ShowApprovalNotFoundPopup(System.Windows.Point screenPoint, string? promptText) {
+        // SetResourceReference doesn't work on Popup children that aren't in the logical tree.
+        // Resolve brushes directly from the window's live merged resource dictionaries instead.
+        var bgBrush     = (TryFindResource("PopupSurface")  as Brush) ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
+        var borderBrush = (TryFindResource("PopupBorder")   as Brush) ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
+        var fgBrush     = (TryFindResource("LabelText")     as Brush) ?? Brushes.White;
+        var subtleBrush = (TryFindResource("SubtleText")    as Brush) ?? Brushes.LightGray;
+
         var stack = new StackPanel { Margin = new Thickness(10, 7, 10, 7) };
 
-        var msgBlock = new TextBlock { Text = "Entry not found in transcript." };
-        msgBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        var msgBlock = new TextBlock {
+            Text       = "Entry not found in transcript.",
+            Foreground = fgBrush,
+            FontWeight = FontWeights.SemiBold,
+        };
         stack.Children.Add(msgBlock);
 
         if (!string.IsNullOrWhiteSpace(promptText)) {
             var hintBlock = new TextBlock {
-                Text            = promptText,
-                TextWrapping    = TextWrapping.Wrap,
-                MaxWidth        = 320,
-                Margin          = new Thickness(0, 5, 0, 0),
-                Opacity         = 0.75,
-                FontStyle       = FontStyles.Italic,
+                Text         = promptText,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth     = 320,
+                Margin       = new Thickness(0, 5, 0, 0),
+                Foreground   = subtleBrush,
+                FontStyle    = FontStyles.Italic,
             };
-            hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             stack.Children.Add(hintBlock);
         }
 
         var border = new Border {
             Child           = stack,
+            Background      = bgBrush,
+            BorderBrush     = borderBrush,
             CornerRadius    = new CornerRadius(5),
             BorderThickness = new Thickness(1),
+            Effect          = new System.Windows.Media.Effects.DropShadowEffect {
+                BlurRadius  = 8,
+                ShadowDepth = 2,
+                Opacity     = 0.35,
+                Color       = Colors.Black,
+            },
         };
-        border.SetResourceReference(Border.BackgroundProperty, "MainBackground");
-        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
         var popup = new System.Windows.Controls.Primitives.Popup {
-            Child             = border,
-            Placement         = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint,
-            HorizontalOffset  = screenPoint.X,
-            VerticalOffset    = screenPoint.Y + 18,
+            Child              = border,
+            Placement          = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint,
+            HorizontalOffset   = screenPoint.X,
+            VerticalOffset     = screenPoint.Y + 18,
             AllowsTransparency = true,
-            StaysOpen         = true,
-            IsOpen            = true,
+            StaysOpen          = true,
+            IsOpen             = true,
         };
 
         var timer = new System.Windows.Threading.DispatcherTimer {
