@@ -770,6 +770,7 @@
                                           Width="0" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <Border x:Name="ActiveAgentsPanelBorder"
@@ -1095,6 +1096,87 @@
                             <StackPanel x:Name="WatchStatusStack"
                                         Grid.Row="1"
                                         Margin="0,6,0,0" />
+                        </Grid>
+                    </Border>
+
+                    <Border x:Name="ApprovalPanelBorder"
+                            Grid.Column="8"
+                            MinWidth="220"
+                            Margin="14,0,0,0"
+                            Padding="12"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Title row with close button -->
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="Commit Approvals"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="ApprovalPanelCloseButton"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="13"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Approvals panel"
+                                        Click="ApprovalPanelCloseButton_Click" />
+                            </Grid>
+
+                            <!-- "Needs Approval" header -->
+                            <TextBlock Grid.Row="1"
+                                       Text="Needs Approval"
+                                       FontSize="11"
+                                       Margin="0,8,0,4"
+                                       Foreground="{DynamicResource SubtleText}" />
+
+                            <!-- Needs Approval items -->
+                            <ScrollViewer Grid.Row="2"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="ApprovalNeedsPanel" />
+                            </ScrollViewer>
+
+                            <!-- "Approved" header + Clear All button -->
+                            <DockPanel Grid.Row="3"
+                                       LastChildFill="False"
+                                       Margin="0,8,0,4">
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="Approved"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource SubtleText}" />
+                                <Button x:Name="ApprovalClearAllButton"
+                                        DockPanel.Dock="Right"
+                                        Content="Clear All"
+                                        Height="20"
+                                        Padding="6,0"
+                                        FontSize="11"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Click="ApprovalClearAllButton_Click" />
+                            </DockPanel>
+
+                            <!-- Approved items -->
+                            <ScrollViewer Grid.Row="4"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="ApprovalApprovedPanel" />
+                            </ScrollViewer>
                         </Grid>
                     </Border>
                 </Grid>

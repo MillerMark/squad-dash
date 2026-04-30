@@ -6,11 +6,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Shell;
 
-internal sealed class CommitApprovalWindow : Window {
+/// <summary>Manages content in the inline Commit Approvals panel.</summary>
+internal sealed class CommitApprovalPanel {
     private readonly Action<string>                               _navigateUrl;
     private readonly Action<DateTimeOffset>                       _scrollToTurn;
     private readonly Action<CommitApprovalItem>                   _onItemChanged;
@@ -19,148 +18,19 @@ internal sealed class CommitApprovalWindow : Window {
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
 
-    public CommitApprovalWindow(
+    public CommitApprovalPanel(
+        StackPanel                               needsApprovalPanel,
+        StackPanel                               approvedPanel,
         Action<string>                            navigateUrl,
         Action<DateTimeOffset>                    scrollToTurn,
         Action<CommitApprovalItem>                onItemChanged,
         Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved) {
-        _navigateUrl    = navigateUrl;
-        _scrollToTurn   = scrollToTurn;
-        _onItemChanged  = onItemChanged;
-        _onItemsRemoved = onItemsRemoved;
-
-        Title          = "Commit Approvals";
-        Width          = 560;
-        Height         = 480;
-        MinWidth       = 420;
-        MinHeight      = 300;
-        WindowStyle    = WindowStyle.None;
-        AllowsTransparency = true;
-        Background     = Brushes.Transparent;
-        ResizeMode     = ResizeMode.CanResizeWithGrip;
-        ShowInTaskbar  = false;
-        ShowActivated  = false;
-        Topmost        = false;
-
-        WindowChrome.SetWindowChrome(this, new WindowChrome {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(4),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
-        var outerBorder = new Border {
-            BorderThickness = new Thickness(1.5),
-            CornerRadius    = new CornerRadius(4),
-        };
-        outerBorder.SetResourceReference(Border.BackgroundProperty,   "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty,  "PanelBorder");
-
-        // Outer layout: title bar row + content area row
-        var outerGrid = new Grid();
-        outerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        outerGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        outerBorder.Child = outerGrid;
-
-        // ── Title bar ────────────────────────────────────────────────────────
-        var titleBar = new DockPanel {
-            LastChildFill = false,
-            Background    = Brushes.Transparent,
-            Height        = 36,
-        };
-        Grid.SetRow(titleBar, 0);
-        outerGrid.Children.Add(titleBar);
-
-        var closeButton = new Button { Width = 30, Height = 30 };
-        closeButton.SetResourceReference(Control.StyleProperty, "PanelCloseButtonStyle");
-        WindowChrome.SetIsHitTestVisibleInChrome(closeButton, true);
-        closeButton.Click += (_, _) => Close();
-        DockPanel.SetDock(closeButton, Dock.Right);
-        titleBar.Children.Add(closeButton);
-
-        var titleBlock = new TextBlock {
-            Text                = "Commit Approvals",
-            FontSize            = 16,
-            FontWeight          = FontWeights.SemiBold,
-            VerticalAlignment   = VerticalAlignment.Center,
-            Margin              = new Thickness(12, 0, 0, 0),
-        };
-        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-        titleBar.Children.Add(titleBlock);
-
-        // ── Content area (wrapped in Border with Margin=12) ──────────────────
-        var contentBorder = new Border { Margin = new Thickness(12) };
-        Grid.SetRow(contentBorder, 1);
-        outerGrid.Children.Add(contentBorder);
-
-        var sectionGrid = new Grid();
-        sectionGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        sectionGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        sectionGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        sectionGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        contentBorder.Child = sectionGrid;
-
-        // Row 0: "Needs Approval" header
-        var needsApprovalHeader = new TextBlock {
-            Text   = "Needs Approval",
-            Margin = new Thickness(8, 4, 8, 4),
-        };
-        needsApprovalHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        Grid.SetRow(needsApprovalHeader, 0);
-        sectionGrid.Children.Add(needsApprovalHeader);
-
-        // Row 1: Needs Approval scroll view
-        _needsApprovalPanel = new StackPanel();
-        var needsApprovalScroll = new ScrollViewer {
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content                       = _needsApprovalPanel,
-        };
-        Grid.SetRow(needsApprovalScroll, 1);
-        sectionGrid.Children.Add(needsApprovalScroll);
-
-        // Row 2: "Approved" section DockPanel header
-        var approvedHeaderPanel = new DockPanel {
-            LastChildFill = false,
-            Margin        = new Thickness(0, 8, 0, 0),
-        };
-        Grid.SetRow(approvedHeaderPanel, 2);
-        sectionGrid.Children.Add(approvedHeaderPanel);
-
-        var clearAllButton = new Button {
-            Content = "Clear All",
-            Height  = 24,
-            Margin  = new Thickness(0, 0, 8, 0),
-        };
-        clearAllButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        WindowChrome.SetIsHitTestVisibleInChrome(clearAllButton, true);
-        clearAllButton.Click += OnClearAllClicked;
-        DockPanel.SetDock(clearAllButton, Dock.Right);
-        approvedHeaderPanel.Children.Add(clearAllButton);
-
-        var approvedHeader = new TextBlock {
-            Text              = "Approved",
-            Margin            = new Thickness(8, 4, 8, 4),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        approvedHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        DockPanel.SetDock(approvedHeader, Dock.Left);
-        approvedHeaderPanel.Children.Add(approvedHeader);
-
-        // Row 3: Approved scroll view
-        _approvedPanel = new StackPanel();
-        var approvedScroll = new ScrollViewer {
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Content                       = _approvedPanel,
-        };
-        Grid.SetRow(approvedScroll, 3);
-        sectionGrid.Children.Add(approvedScroll);
-
-        Content = outerBorder;
+        _needsApprovalPanel = needsApprovalPanel;
+        _approvedPanel      = approvedPanel;
+        _navigateUrl        = navigateUrl;
+        _scrollToTurn       = scrollToTurn;
+        _onItemChanged      = onItemChanged;
+        _onItemsRemoved     = onItemsRemoved;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -176,6 +46,17 @@ internal sealed class CommitApprovalWindow : Window {
             var target = item.IsApproved ? _approvedPanel : _needsApprovalPanel;
             target.Children.Add(BuildRow(item));
         }
+    }
+
+    public void OnClearAllClicked() {
+        var removed = new List<CommitApprovalItem>(_approvedPanel.Children.Count);
+        foreach (Border row in _approvedPanel.Children) {
+            if (row.Tag is CommitApprovalItem item)
+                removed.Add(item);
+        }
+        _approvedPanel.Children.Clear();
+        if (removed.Count > 0)
+            _onItemsRemoved(removed);
     }
 
     // ── Row construction ─────────────────────────────────────────────────────
@@ -194,7 +75,6 @@ internal sealed class CommitApprovalWindow : Window {
             IsChecked         = item.IsApproved,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        WindowChrome.SetIsHitTestVisibleInChrome(checkBox, true);
         Grid.SetColumn(checkBox, 0);
         grid.Children.Add(checkBox);
 
@@ -206,7 +86,6 @@ internal sealed class CommitApprovalWindow : Window {
             Cursor            = Cursors.Hand,
         };
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        WindowChrome.SetIsHitTestVisibleInChrome(descBlock, true);
         descBlock.MouseLeftButtonUp += (_, e) => { e.Handled = true; _scrollToTurn(item.TurnStartedAt); };
         Grid.SetColumn(descBlock, 1);
         grid.Children.Add(descBlock);
@@ -221,7 +100,6 @@ internal sealed class CommitApprovalWindow : Window {
             var shaRun = new Run(shaDisplay) { TextDecorations = TextDecorations.Underline };
             shaRun.SetResourceReference(Run.ForegroundProperty, "SubtleText");
             shaBlock.Inlines.Add(shaRun);
-            WindowChrome.SetIsHitTestVisibleInChrome(shaBlock, true);
             shaBlock.MouseLeftButtonUp += (_, e) => { e.Handled = true; _navigateUrl(item.CommitUrl); };
             Grid.SetColumn(shaBlock, 2);
             grid.Children.Add(shaBlock);
@@ -244,16 +122,5 @@ internal sealed class CommitApprovalWindow : Window {
         targetPanel.Children.Add(BuildRow(updated));
 
         _onItemChanged(updated);
-    }
-
-    private void OnClearAllClicked(object sender, RoutedEventArgs e) {
-        var removed = new List<CommitApprovalItem>(_approvedPanel.Children.Count);
-        foreach (Border row in _approvedPanel.Children) {
-            if (row.Tag is CommitApprovalItem item)
-                removed.Add(item);
-        }
-        _approvedPanel.Children.Clear();
-        if (removed.Count > 0)
-            _onItemsRemoved(removed);
     }
 }

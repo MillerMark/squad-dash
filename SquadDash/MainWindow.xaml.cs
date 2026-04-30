@@ -131,8 +131,7 @@ public partial class MainWindow : Window
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
     private Vector? _traceWindowOffset;
-    private CommitApprovalWindow? _approvalWindow;
-    private Vector? _approvalWindowOffset;
+    private CommitApprovalPanel? _approvalPanel;
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
     // Set true while we are programmatically moving a floating window so its
@@ -236,6 +235,7 @@ public partial class MainWindow : Window
     private bool _loopQueued;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _tasksPanelVisible = false;
+    private bool _approvalPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
     private int _watchWaveIndex;
@@ -258,7 +258,7 @@ public partial class MainWindow : Window
     private WorkspaceOwnershipLease? _workspaceOwnershipLease;
     private bool _startupInitialized;
     private (string FolderPath, WorkspaceWindowPlacement Placement)? _pendingWindowPlacement;
-    private (bool TasksOpen, bool TraceOpen, bool ApprovalOpen)? _pendingUtilityWindowState;
+    private (bool TasksOpen, bool TraceOpen)? _pendingUtilityWindowState;
     private (bool Open, List<string>? ExpandedNodes, string? SelectedTopic, double? DocsPanelWidth, double? DocsTopicsWidth, double? DocsPanelWidthFraction, double? DocsTopicsWidthFraction, bool? DocsSourceOpen, double? DocsSourceWidth)? _pendingDocsPanelState;
     private WorkspaceDocsPanelState? _docsPanelState; // loaded at startup, updated on save
     // _currentPromptStartedAt, _lastPromptActivityAt, _promptNoActivityWarningShown,
@@ -811,7 +811,7 @@ public partial class MainWindow : Window
             clearSessionView: () => ClearSessionView(),
             showTasksStatusWindow: () => ShowTasksStatusWindow(),
             hideTasksStatusWindow: () => HideTasksStatusWindow(),
-            showApprovalWindow: () => ShowApprovalWindow(),
+            showApprovalWindow: () => ShowApprovalPanel(),
             showLiveTraceWindow: () => ShowTraceWindow(),
             runDoctor: () => RunDoctorButton_Click(null!, null!),
             showHireAgentWindow: () => ShowHireAgentWindow(),
@@ -2318,7 +2318,7 @@ public partial class MainWindow : Window
                                                                       turnStartedAt, hint);
                         _approvalItems.Add(item);
                         _approvalStore?.Save(_approvalItems);
-                        _approvalWindow?.AddItem(item);
+                        _approvalPanel?.AddItem(item);
                         // ─────────────────────────────────────────────────────────────────
                     }
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
@@ -6114,7 +6114,7 @@ public partial class MainWindow : Window
         if (ViewTasksMenuItem is not null)
             ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
         if (ViewCommitApprovalsMenuItem is not null)
-            ViewCommitApprovalsMenuItem.IsChecked = _approvalWindow is { IsVisible: true };
+            ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
     }
 
     private void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)
@@ -6342,9 +6342,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            ShowApprovalWindow();
-            if (ViewCommitApprovalsMenuItem is not null)
-                ViewCommitApprovalsMenuItem.IsChecked = _approvalWindow is { IsVisible: true };
+            ShowApprovalPanel();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewCommitApprovalsMenuItem_Click), ex); }
     }
@@ -7863,7 +7861,7 @@ public partial class MainWindow : Window
         var workspaceStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         _approvalStore = new CommitApprovalStore(workspaceStateDir);
         _approvalItems = _approvalStore.Load();
-        _approvalWindow?.ReplaceAllItems(_approvalItems);
+        _approvalPanel?.ReplaceAllItems(_approvalItems);
 
         ClearRuntimeIssue();
 
@@ -12463,7 +12461,7 @@ public partial class MainWindow : Window
                 Task.Run(() =>
                 {
                     if (pendingUtilityWindowState is { } u)
-                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen, u.ApprovalOpen);
+                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen);
                 }),
                 Task.Run(() =>
                 {
@@ -12586,8 +12584,7 @@ public partial class MainWindow : Window
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
                 _tasksStatusWindow is { IsVisible: true },
-                _traceWindow is { IsVisible: true },
-                _approvalWindow is { IsVisible: true });
+                _traceWindow is { IsVisible: true });
             // Capture docs panel state (only when panel is open; closed state is already
             // written by SetDocumentationMode when the user toggles it off).
             if (_documentationModeEnabled)
@@ -14508,12 +14505,6 @@ public partial class MainWindow : Window
             ShowTraceWindow();
         }
 
-        if (_settingsSnapshot.ApprovalWindowOpen)
-        {
-            SquadDashTrace.Write("Startup", "Restoring approval window from previous session.");
-            ShowApprovalWindow();
-        }
-
         RestoreDocsPanelState();
     }
 
@@ -14545,6 +14536,15 @@ public partial class MainWindow : Window
             SyncTasksPanel();
             if (ViewTasksMenuItem is not null)
                 ViewTasksMenuItem.IsChecked = true;
+        }
+
+        // Restore approval panel visibility.
+        if (_docsPanelState.ApprovalPanelVisible == true)
+        {
+            _approvalPanelVisible = true;
+            SyncApprovalPanel();
+            if (ViewCommitApprovalsMenuItem is not null)
+                ViewCommitApprovalsMenuItem.IsChecked = true;
         }
 
         // Open: null (absent) or true = open (the default). false = explicitly closed.
@@ -15134,38 +15134,59 @@ public partial class MainWindow : Window
         _tasksStatusWindow?.Close();
     }
 
-    private void ShowApprovalWindow()
+    private void ShowApprovalPanel()
     {
-        if (_approvalWindow is { IsVisible: true })
-        {
-            HideApprovalWindow();
-            return;
-        }
+        _approvalPanelVisible = !_approvalPanelVisible;
+        SyncApprovalPanel();
+        if (ViewCommitApprovalsMenuItem is not null)
+            ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
+        PersistApprovalPanelVisible();
+    }
 
-        if (_approvalWindow is null)
+    private void SyncApprovalPanel()
+    {
+        if (ApprovalPanelBorder is null) return;
+        ApprovalPanelBorder.Visibility = _approvalPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+        if (_approvalPanelVisible && _approvalPanel is null)
         {
-            SquadDashTrace.Write("UI", "Showing commit approval window.");
-            _approvalWindow = new CommitApprovalWindow(
+            _approvalPanel = new CommitApprovalPanel(
+                ApprovalNeedsPanel!,
+                ApprovalApprovedPanel!,
                 navigateUrl:    url  => _ = OpenExternalLinkWithCommitCheckAsync(url),
                 scrollToTurn:   ts   => ScrollToApprovalTurn(ts),
                 onItemChanged:  item => OnApprovalItemChanged(item),
                 onItemsRemoved: items => OnApprovalItemsRemoved(items));
-            if (CanShowOwnedWindow())
-                _approvalWindow.Owner = this;
-            _approvalWindow.Closed += (_, _) => { _approvalWindow = null; _approvalWindowOffset = null; };
-            _approvalWindow.LocationChanged += (_, _) => OnApprovalWindowMoved();
-            _approvalWindow.ReplaceAllItems(_approvalItems);
-            _approvalWindow.Show();
+            _approvalPanel.ReplaceAllItems(_approvalItems);
         }
-
-        PositionApprovalWindow();
     }
 
-    private void HideApprovalWindow()
+    private void PersistApprovalPanelVisible()
     {
-        if (_approvalWindow is not null)
-            SquadDashTrace.Write("UI", "Hiding commit approval window.");
-        _approvalWindow?.Close();
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { ApprovalPanelVisible = _approvalPanelVisible };
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    private void ApprovalPanelCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _approvalPanelVisible = false;
+            SyncApprovalPanel();
+            if (ViewCommitApprovalsMenuItem is not null)
+                ViewCommitApprovalsMenuItem.IsChecked = false;
+            PersistApprovalPanelVisible();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalPanelCloseButton_Click), ex); }
+    }
+
+    private void ApprovalClearAllButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _approvalPanel?.OnClearAllClicked();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalClearAllButton_Click), ex); }
     }
 
     private void RefreshTasksStatusWindow(DateTimeOffset now)
@@ -15188,10 +15209,8 @@ public partial class MainWindow : Window
     {
         PositionTasksStatusWindow();
         PositionTraceWindow();
-        PositionApprovalWindow();
         ValidateFloatingWindowPosition(ref _tasksWindowOffset, _tasksStatusWindow);
         ValidateFloatingWindowPosition(ref _traceWindowOffset, _traceWindow);
-        ValidateFloatingWindowPosition(ref _approvalWindowOffset, _approvalWindow);
     }
 
     /// <summary>
@@ -15299,20 +15318,6 @@ public partial class MainWindow : Window
     {
         if (_traceWindow is not null)
             OnFloatingWindowMoved(_traceWindow, ref _traceWindowOffset);
-    }
-
-    private void PositionApprovalWindow()
-    {
-        if (_approvalWindow is not { IsLoaded: true } || WindowState == WindowState.Minimized)
-            return;
-
-        ApplyFloatingWindowPosition(_approvalWindow, _approvalWindowOffset);
-    }
-
-    private void OnApprovalWindowMoved()
-    {
-        if (_approvalWindow is not null)
-            OnFloatingWindowMoved(_approvalWindow, ref _approvalWindowOffset);
     }
 
     private void ShowScreenshotOverlay()
