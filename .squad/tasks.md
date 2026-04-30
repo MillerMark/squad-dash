@@ -57,7 +57,7 @@
   the PR and confirm expected merge timeline. This is the critical-path scheduling risk for
   RC phone voice input. See `.squad/rc-mobile-architecture.md` §Key Decisions #1.
 
-- [ ] **RC mobile — spike Option C audio format (WEBM_OPUS) before building Option B** *(Owner: Talia Rune)*
+- [x] **RC mobile — spike Option C audio format (WEBM_OPUS) before building Option B** *(Owner: Talia Rune)*
   Before building the full WebAudio AudioWorklet PCM pipeline (Option B), spend ½ day verifying
   whether `AudioStreamContainerFormat.WEBM_OPUS` is available in Azure Cognitive Services SDK
   1.49.0 and works with browser-sourced audio. If it does, use Option C (simpler, lower bandwidth).
@@ -117,6 +117,7 @@
 
 - [x] Verify task priority icon colors — ✅ Verified 2026-04-29
 - [x] RC mobile — decide SDK PR ownership for binary audio frames — ✅ Decided 2026-04-30 (Talia Rune submits PR after Option C spike)
+- [x] RC mobile — spike Option C audio format (WEBM_OPUS) — ✅ Spiked 2026-04-30 (WEBM_OPUS absent from SDK 1.49.0; proceed with Option B PCM/AudioWorklet)
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel

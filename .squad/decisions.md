@@ -1208,3 +1208,57 @@ Merge is contingent on Brady Gaster (upstream maintainer). Talia should:
 This is the **critical-path scheduling risk** for RC phone voice input. If the upstream PR stalls, the patched-SDK approach is the mitigation — Talia maintains the local patch until merge lands.
 
 **References:** .squad/rc-mobile-architecture.md §Key Decisions #1
+
+
+---
+
+## RC Mobile — Audio Format Spike: Option C (WEBM_OPUS) vs Option B (PCM) (2026-04-30)
+
+**By:** Talia Rune (TypeScript & SDK Bridge Specialist)
+**Status:** Decided — spike complete
+
+### Spike Result
+
+**Option C (WEBM_OPUS) is NOT available in Microsoft.CognitiveServices.Speech 1.49.0.**
+
+Verified by reflecting on the installed NuGet DLL (
+etstandard2.0 target):
+
+`
+AudioStreamContainerFormat enum values in SDK 1.49.0:
+  OGG_OPUS  = 257
+  MP3       = 258
+  FLAC      = 259
+  ALAW      = 260
+  MULAW     = 261
+  AMRNB     = 262
+  AMRWB     = 263
+  ANY       = 264
+`
+
+WEBM_OPUS is absent. No CreatePushStream overload accepting a compressed container format for WebM exists.
+
+### Why OGG_OPUS is also ruled out
+
+OGG_OPUS (257) is present in the SDK. However, browser MediaRecorder support for OGG container is unreliable:
+- Firefox supports OGG_OPUS recording natively.
+- Chrome and Safari do **not** — MediaRecorder in those browsers only outputs udio/webm;codecs=opus.
+
+Using OGG_OPUS would produce a Chrome/Safari failure, which is unacceptable for a mobile feature targeting phone browsers.
+
+### Decision: Proceed with Option B (PCM via AudioWorklet + NAudio transcoding)
+
+The WebAudio AudioWorklet pipeline (Option B) is confirmed as the required path:
+
+1. **Phone side:** AudioWorklet extracts raw PCM frames (16-bit, 16 kHz, mono) from the browser microphone and sends them over the WebSocket as binary frames.
+2. **C# side:** SquadDash receives binary frames and writes them directly into the existing PushAudioInputStream (configured with AudioStreamFormat.GetWaveFormatPCM(16000, 16, 1)), which is already the format used by desktop PTT.
+3. **No NAudio transcoding required** — if the AudioWorklet resamples to 16 kHz/16-bit/mono natively, the PCM frames can be written directly. NAudio is only needed if the phone sends a different sample rate.
+
+### Implementation notes for Talia / Arjun
+
+- The onAudioChunk callback in RemoteBridgeConfig must carry ArrayBuffer (binary PCM frames).
+- The SDK PR (see SDK PR Ownership decision, 2026-04-30) should define onAudioChunk(data: ArrayBuffer): void.
+- AudioWorklet processor target format: 16 kHz, 16-bit signed little-endian, mono.
+- C# side: no new Azure SDK dependency needed — existing PushAudioInputStream + SpeechRecognitionService pattern works unchanged.
+
+**References:** .squad/rc-mobile-architecture.md §Key Decisions #2, §Option B

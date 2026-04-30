@@ -541,8 +541,10 @@ The following require explicit owner sign-off before implementation starts:
 1. **SDK PR ownership for binary audio frames.** ✅ **Decided 2026-04-30**  
    **Owner: Talia Rune** will author and submit the PR. PR submission is gated on the Option C audio format spike (Key Decision #2) — the callback interface surface differs between WEBM_OPUS and PCM paths. Mitigation for upstream merge delay: maintain a local patch in `patches/` (existing pattern). See `.squad/decisions.md` §RC Mobile — SDK PR Ownership for Binary Audio Frames (2026-04-30).
 
-2. **Option B vs. Option C for audio format.**  
-   Before building the AudioWorklet pipeline, spend ½ day verifying whether `AudioStreamContainerFormat.WEBM_OPUS` is available in SDK 1.49.0 and actually works with browser-sourced audio. If it does, Option C is strictly better (lower bandwidth, simpler phone code). The recommended path is: **spike Option C first; fall back to Option B if it fails.**
+2. **Option B vs. Option C for audio format.** ✅ **Decided 2026-04-30 — use Option B**  
+   Spike confirmed: `AudioStreamContainerFormat.WEBM_OPUS` does **not exist** in SDK 1.49.0. Available compressed formats are OGG_OPUS, MP3, FLAC, ALAW, MULAW, AMRNB, AMRWB, ANY. OGG_OPUS is also ruled out — Chrome/Safari `MediaRecorder` does not support OGG container output.  
+   **Decision: Proceed with Option B** — `AudioWorklet` extracts PCM (16 kHz/16-bit/mono) on the phone; binary frames sent over WebSocket; written directly into existing `PushAudioInputStream`. No new Azure SDK dependency required.  
+   See `.squad/decisions.md` §RC Mobile — Audio Format Spike (2026-04-30).
 
 3. **QR code NuGet package.**  
    Two candidates: `QRCoder` (MIT, ~150 KB, no native deps) and `ZXing.Net` (Apache 2.0, larger). Neither is in the project today. Owner should approve adding one. `QRCoder` is preferred for its minimal footprint.
