@@ -11346,6 +11346,7 @@ public partial class MainWindow : Window
         _pendingSupplementalPromptInstruction = null;
         _pendingRoutingRepairRecheck = false;
         _conversationManager.ConversationState = WorkspaceConversationState.Empty;
+        _conversationManager.ResetVirtualWindow();
         _toolSpinnerTimer.Stop();
         _toolSpinnerFrame = 0;
         SelectTranscriptThread(CoordinatorThread);

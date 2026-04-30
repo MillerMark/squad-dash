@@ -870,6 +870,19 @@ internal sealed class TranscriptConversationManager {
         _historyDraft = null;
     }
 
+    /// <summary>
+    /// Resets the virtual-window state so that stale coordinator turns and
+    /// pending agent renders from a previous session can never reappear after
+    /// a /clear.  Must be called from ClearSessionView() alongside the
+    /// FlowDocument and ConversationState resets.
+    /// </summary>
+    internal void ResetVirtualWindow()
+    {
+        _allCoordinatorTurns          = [];
+        _coordinatorRenderedFromIndex = 0;
+        _pendingAgentRenders.Clear();
+    }
+
     internal void ApplyPromptText(string text, int? caretIndex = null, int selectionStart = 0, int selectionLength = 0) {
         _isApplyingHistoryEntry = true;
 
