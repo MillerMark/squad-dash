@@ -11707,9 +11707,11 @@ public partial class MainWindow : Window
             _deferredShutdown = DeferredShutdownMode.None;
             _isClosing = true;
             SquadDashTrace.Write("Shutdown", "Main window closing.");
-            // User-initiated close — clear the loop resume flag so we don't auto-resume next launch.
-            // A crash or kill signal won't reach here, so the flag stays true and the loop resumes.
-            if (_settingsSnapshot.LoopActiveOnExit)
+            // Clear the loop resume flag on a user-initiated close so we don't auto-resume next
+            // launch. On a build-triggered restart (_restartPending) we preserve the flag so the
+            // new instance picks up where we left off and shows Stop/Abort instead of Start Loop.
+            // A crash or kill signal never reaches this handler, so the flag also stays true there.
+            if (_settingsSnapshot.LoopActiveOnExit && !_restartPending)
                 _settingsSnapshot = _settingsStore.SaveLoopActive(false);
             _instanceActivationChannel.Stop();
             _conversationManager.CaptureWorkspaceInputState();

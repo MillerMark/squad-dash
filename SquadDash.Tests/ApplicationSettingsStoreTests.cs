@@ -142,4 +142,42 @@ internal sealed class ApplicationSettingsStoreTests {
             loaded.IgnoredRoutingIssueFingerprintsByWorkspace[repo],
             Is.EqualTo("ABC123"));
     }
+
+    [Test]
+    public void SaveLoopActive_True_PersistsLoopActiveOnExit() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveLoopActive(true);
+
+        Assert.That(store.Load().LoopActiveOnExit, Is.True);
+    }
+
+    [Test]
+    public void SaveLoopActive_FalseAfterTrue_ClearsFlag() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveLoopActive(true);
+        store.SaveLoopActive(false);
+
+        Assert.That(store.Load().LoopActiveOnExit, Is.False);
+    }
+
+    [Test]
+    public void SaveLoopActive_True_SurvivesOtherSaves() {
+        // Regression guard: unrelated saves must not reset LoopActiveOnExit.
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveLoopActive(true);
+        store.RememberFolder(repo);
+        store.SavePromptFontSize(16);
+        store.SaveWindowPlacement(repo, new WorkspaceWindowPlacement(0, 0, 1280, 800, false));
+
+        Assert.That(store.Load().LoopActiveOnExit, Is.True);
+    }
 }
