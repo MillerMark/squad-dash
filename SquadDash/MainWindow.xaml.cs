@@ -13032,9 +13032,7 @@ public partial class MainWindow : Window
 
     private void UpdateAgentCardImageVisibility(double windowHeight)
     {
-        bool hide = windowHeight < 650;
-        foreach (var card in _agents)
-            card.HideImage = hide;
+        AgentStatusCard.ImagesVisible = windowHeight >= 650;
     }
 
     private void UpdateAgentCardVisibility()
