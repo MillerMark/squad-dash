@@ -67,6 +67,11 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string? AgentCardKey { get; set; }
     public string? OriginAgentDisplayName { get; set; }
     public string? OriginParentToolCallId { get; set; }
+    public string? RequestedAgentHandle { get; set; }
+    public string DisplayTitle =>
+        !string.IsNullOrWhiteSpace(RequestedAgentHandle) && Title != AgentNameHumanizer.Humanize(RequestedAgentHandle)
+            ? $"{AgentNameHumanizer.Humanize(RequestedAgentHandle)} (unverified)"
+            : Title;
     public DateTimeOffset? LastObservedActivityAt { get; set; }
     public bool IsPlaceholderThread { get; set; }
     public string? Prompt { get; set; }

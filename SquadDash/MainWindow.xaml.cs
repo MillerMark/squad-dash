@@ -4044,7 +4044,10 @@ public partial class MainWindow : Window
 
     private void SyncThreadChip(TranscriptThreadState thread)
     {
-        thread.ChipLabel = thread.SequenceNumber > 0 ? $"#{thread.SequenceNumber}" : "#";
+        var chipLabel = thread.SequenceNumber > 0 ? $"#{thread.SequenceNumber}" : "#";
+        if (!string.IsNullOrWhiteSpace(thread.RequestedAgentHandle))
+            chipLabel += "*";
+        thread.ChipLabel = chipLabel;
         thread.ChipToolTip = BuildThreadChipToolTip(thread);
         thread.ChipFontWeight = thread.IsSelected ? FontWeights.SemiBold : FontWeights.Normal;
 
@@ -4100,6 +4103,12 @@ public partial class MainWindow : Window
             lines.Add(thread.DetailText);
         if (!string.IsNullOrWhiteSpace(thread.AgentId))
             lines.Add("Agent: " + thread.AgentId);
+        if (!string.IsNullOrWhiteSpace(thread.RequestedAgentHandle))
+        {
+            var requestedName = AgentThreadRegistry.HumanizeAgentName(thread.RequestedAgentHandle);
+            var actualName = string.IsNullOrWhiteSpace(thread.Title) ? "unknown" : thread.Title;
+            lines.Add($"{requestedName} was requested but the launched agent was identified as '{actualName}'. Response may not reflect {requestedName}'s charter.");
+        }
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -8176,7 +8185,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var title = thread.Title?.Trim();
+        var title = thread.DisplayTitle?.Trim();
         var displayTitle = string.IsNullOrWhiteSpace(title) ? "Agent" : AbbreviateAgentName(title);
         var possessive = $"{displayTitle}'s transcript";
         TranscriptTitleTextBlock.ToolTip = BuildGpaTooltip(displayTitle);
@@ -10154,6 +10163,16 @@ public partial class MainWindow : Window
                 pendingLaunch.ExpectedAgentLabel,
                 evt))
         {
+            // Generic agent launched for a named-agent request — tag thread for honest labeling.
+            if (!string.IsNullOrWhiteSpace(pendingLaunch.ExpectedAgentHandle) &&
+                !string.IsNullOrWhiteSpace(evt.ToolCallId) &&
+                _agentThreadRegistry.ThreadsByToolCallId.TryGetValue(evt.ToolCallId.Trim(), out var mismatchThread))
+            {
+                mismatchThread.RequestedAgentHandle = pendingLaunch.ExpectedAgentHandle;
+                SyncThreadChip(mismatchThread);
+                UpdateAgentCardFromThread(mismatchThread);
+            }
+
             return;
         }
 
