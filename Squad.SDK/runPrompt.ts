@@ -981,6 +981,7 @@ async function handleRcStart(request: RcStartRequest): Promise<void> {
         onPrompt: async (text) => {
             const remoteRequestId = randomUUID();
             rcBridge.addMessage("user", text);
+            emit({ type: "rc_prompt", text });
             try {
                 await bridge.runPrompt(
                     text,

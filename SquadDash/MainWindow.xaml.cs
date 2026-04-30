@@ -1983,6 +1983,10 @@ public partial class MainWindow : Window
                 HandleWatchMonitorNotification(evt);
                 break;
 
+            case "rc_prompt":
+                BeginTranscriptTurn(evt.Text ?? string.Empty);
+                break;
+
             case "rc_started":
                 HandleRcStarted(evt);
                 break;

@@ -824,6 +824,7 @@ async function handleRcStart(request) {
         onPrompt: async (text) => {
             const remoteRequestId = randomUUID();
             rcBridge.addMessage("user", text);
+            emit({ type: "rc_prompt", text });
             try {
                 await bridge.runPrompt(text, buildRunHandlers(remoteRequestId, rcBridge), { cwd: request.cwd, sessionId: request.sessionId });
             }
