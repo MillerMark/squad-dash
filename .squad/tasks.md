@@ -96,10 +96,6 @@
   cross-workspace agent interactions? Note: `squad cross-squad` does not appear in the
   0.9.5-insider CLI — may be a planned future feature.
 
-- [ ] **`squad personal` support** *(Owner: Talia Rune)*
-  `squad personal` exists in 0.9.5-insider: `init | list | add | remove` subcommands plus
-  `consult` mode for ambient personal agents. Determine what SquadDash should surface.
-
 - [ ] **`squad aspire` integration** *(Owner: Orion Vale — architecture first)*
   `squad aspire` exists in 0.9.5-insider — launches .NET Aspire dashboard for observability.
   Explore integration hooks. Likely a separate milestone.
@@ -124,6 +120,7 @@
 - [x] RC — ngrok/Cloudflare tunnel auto-start — ✅ Implemented 2026-04-30 (commit 69e8900; ngrok+cloudflared support; Preferences UI; 14 new tests; 1002 pass)
 - [x] `squad streams` / `subsquads` management — ✅ Prototyped bridge (subsquads_list/activate requests; Workspace > SubSquads menu; 7 new tests; 1009 pass)
 - [x] `squad cross-squad` integration — ✅ Architecture decided 2026-04-30 (Phase 1 = discovery-only read bridge; Phase 2 = gh delegation deferred; decision in decisions.md)
+- [x] `squad personal` support — ✅ Implemented personal_list/personal_init bridge; Workspace → Personal Squad menu; 7 new tests; 1016 total pass
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel

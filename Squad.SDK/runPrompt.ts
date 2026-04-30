@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService, type SquadRunHandlers } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
+import { resolvePersonalSquadDir, ensurePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
+import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -97,7 +99,17 @@ type SubSquadsActivateRequest = {
     subSquadName: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest;
+type PersonalListRequest = {
+    type: "personal_list";
+    requestId?: string;
+};
+
+type PersonalInitRequest = {
+    type: "personal_init";
+    requestId?: string;
+};
+
+type BridgeRequest = PromptRequest | DelegateRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -1094,6 +1106,58 @@ async function handleSubSquadsActivate(request: SubSquadsActivateRequest): Promi
     }
 }
 
+async function handlePersonalList(request: PersonalListRequest): Promise<void> {
+    try {
+        const personalDir = resolvePersonalSquadDir();
+        if (!personalDir) {
+            emit({
+                type: "personal_agents_listed",
+                requestId: request.requestId,
+                personalInitialized: false,
+                personalAgentsCount: 0,
+                personalAgentsJson: null,
+                personalDir: null
+            });
+            return;
+        }
+
+        const agents = await resolvePersonalAgents();
+        emit({
+            type: "personal_agents_listed",
+            requestId: request.requestId,
+            personalInitialized: true,
+            personalAgentsCount: agents.length,
+            personalAgentsJson: JSON.stringify(agents.map(a => ({ name: a.name, role: a.role }))),
+            personalDir
+        });
+    }
+    catch (err) {
+        emit({
+            type: "personal_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+
+async function handlePersonalInit(request: PersonalInitRequest): Promise<void> {
+    try {
+        const personalDir = ensurePersonalSquadDir();
+        emit({
+            type: "personal_init_done",
+            requestId: request.requestId,
+            personalDir
+        });
+    }
+    catch (err) {
+        emit({
+            type: "personal_error",
+            requestId: request.requestId,
+            message: err instanceof Error ? err.message : String(err)
+        });
+    }
+}
+
 async function main() {
     const directPrompt = process.argv.slice(2).join(" ").trim();
 
@@ -1243,6 +1307,16 @@ async function main() {
 
         if (request.type === "subsquads_activate") {
             await handleSubSquadsActivate(request);
+            continue;
+        }
+
+        if (request.type === "personal_list") {
+            await handlePersonalList(request);
+            continue;
+        }
+
+        if (request.type === "personal_init") {
+            await handlePersonalInit(request);
             continue;
         }
 

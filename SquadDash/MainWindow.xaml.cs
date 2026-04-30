@@ -1974,6 +1974,18 @@ public partial class MainWindow : Window
                 HandleSubSquadsError(evt);
                 break;
 
+            case "personal_agents_listed":
+                HandlePersonalAgentsListed(evt);
+                break;
+
+            case "personal_init_done":
+                HandlePersonalInitDone(evt);
+                break;
+
+            case "personal_error":
+                HandlePersonalError(evt);
+                break;
+
             case "rc_error":
                 HandleRcError(evt);
                 break;
@@ -2682,6 +2694,66 @@ public partial class MainWindow : Window
         var msg = string.IsNullOrWhiteSpace(evt.Message) ? "SubSquads operation failed" : evt.Message;
         AppendLine($"📦 SubSquads error: {msg}", ThemeBrush("SystemErrorText"));
         SquadDashTrace.Write("UI", $"SubSquads error message={msg}");
+    }
+
+    private void HandlePersonalAgentsListed(SquadSdkEvent evt)
+    {
+        if (evt.PersonalInitialized != true)
+        {
+            AppendLine("👤 Personal squad is not initialized. Use Workspace → Personal Squad → Initialize to set it up.");
+            SquadDashTrace.Write("UI", "Personal squad not initialized");
+            return;
+        }
+
+        var count = evt.PersonalAgentsCount ?? 0;
+        AppendLine($"👤 Personal agents ({count}):");
+
+        if (!string.IsNullOrWhiteSpace(evt.PersonalAgentsJson))
+        {
+            try
+            {
+                var agents = System.Text.Json.JsonSerializer.Deserialize<PersonalAgentInfo[]>(evt.PersonalAgentsJson);
+                if (agents != null)
+                {
+                    foreach (var agent in agents)
+                        AppendLine($"  • {agent.Name} — {agent.Role}");
+                }
+            }
+            catch
+            {
+                AppendLine("  (could not parse agents list)");
+            }
+        }
+
+        if (count == 0)
+            AppendLine("  No personal agents configured. Run Workspace → Personal Squad → Initialize to add agents.");
+
+        if (!string.IsNullOrWhiteSpace(evt.PersonalDir))
+            AppendLine($"  Directory: {evt.PersonalDir}");
+
+        SquadDashTrace.Write("UI", $"Personal agents listed count={count}");
+    }
+
+    private sealed class PersonalAgentInfo
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("role")]
+        public string Role { get; set; } = string.Empty;
+    }
+
+    private void HandlePersonalInitDone(SquadSdkEvent evt)
+    {
+        var dir = evt.PersonalDir ?? "(unknown path)";
+        AppendLine($"👤 Personal squad initialized at: {dir}");
+        SquadDashTrace.Write("UI", $"Personal squad initialized dir={dir}");
+    }
+
+    private void HandlePersonalError(SquadSdkEvent evt)
+    {
+        var msg = string.IsNullOrWhiteSpace(evt.Message) ? "Personal squad operation failed" : evt.Message;
+        AppendLine($"👤 Personal squad error: {msg}", ThemeBrush("SystemErrorText"));
+        SquadDashTrace.Write("UI", $"Personal squad error message={msg}");
     }
 
     private void HandleRcStopped(SquadSdkEvent evt)
@@ -5319,6 +5391,18 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(SubSquadsMenuItem_Click), ex);
+        }
+    }
+
+    private async void PersonalSquadMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _bridge.ListPersonalAgentsAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(PersonalSquadMenuItem_Click), ex);
         }
     }
 
@@ -12250,6 +12334,14 @@ public partial class MainWindow : Window
         };
         subSquadsMenuItem.Click += SubSquadsMenuItem_Click;
         WorkspaceMenuItem.Items.Add(subSquadsMenuItem);
+
+        var personalSquadMenuItem = new MenuItem
+        {
+            Header = "_Personal Squad",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        personalSquadMenuItem.Click += PersonalSquadMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(personalSquadMenuItem);
 
         ConfigureInboxWatcher(Path.Combine(squadRoot, "decisions", "inbox"));
         UpdateInteractiveControlState();

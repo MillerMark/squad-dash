@@ -105,6 +105,11 @@ public sealed class SquadSdkEvent {
     public string? ActiveSubsquadName { get; set; }
     public string? ActiveSubsquadSource { get; set; }
     public string? SubSquadName { get; set; }
+    // Personal squad event fields
+    public bool? PersonalInitialized { get; set; }
+    public int? PersonalAgentsCount { get; set; }
+    public string? PersonalAgentsJson { get; set; }
+    public string? PersonalDir { get; set; }
 }
 
 public sealed class SquadBackgroundAgentInfo {

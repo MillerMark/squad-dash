@@ -717,4 +717,156 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(evt.ActiveSubsquadSource, Is.EqualTo("env"));
         });
     }
+
+    [Test]
+    public void PersonalListRequest_SerializesCorrectly() {
+        var req = new SquadSdkPersonalListRequest("req-personal-001");
+        var json = JsonSerializer.Serialize(req);
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"type\":\"personal_list\""));
+            Assert.That(json, Does.Contain("\"requestId\":\"req-personal-001\""));
+            Assert.That(json, Does.Not.Contain("\"Type\""));
+            Assert.That(json, Does.Not.Contain("\"RequestId\""));
+        });
+    }
+
+    [Test]
+    public void PersonalInitRequest_SerializesCorrectly() {
+        var req = new SquadSdkPersonalInitRequest("req-personal-002");
+        var json = JsonSerializer.Serialize(req);
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"type\":\"personal_init\""));
+            Assert.That(json, Does.Contain("\"requestId\":\"req-personal-002\""));
+            Assert.That(json, Does.Not.Contain("\"Type\""));
+            Assert.That(json, Does.Not.Contain("\"RequestId\""));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesPersonalAgentsListedPayload_WithAgents() {
+        const string json = """
+            {
+              "type": "personal_agents_listed",
+              "requestId": "req-personal-003",
+              "personalInitialized": true,
+              "personalAgentsCount": 2,
+              "personalAgentsJson": "[{\"name\":\"aria\",\"role\":\"Assistant\"},{\"name\":\"rex\",\"role\":\"Reviewer\"}]",
+              "personalDir": "C:\\Users\\Mark\\AppData\\Roaming\\squad\\personal-squad"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("personal_agents_listed"));
+            Assert.That(evt.RequestId, Is.EqualTo("req-personal-003"));
+            Assert.That(evt.PersonalInitialized, Is.True);
+            Assert.That(evt.PersonalAgentsCount, Is.EqualTo(2));
+            Assert.That(evt.PersonalAgentsJson, Does.Contain("\"name\":\"aria\""));
+            Assert.That(evt.PersonalDir, Does.Contain("personal-squad"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesPersonalAgentsListedPayload_NotInitialized() {
+        const string json = """
+            {
+              "type": "personal_agents_listed",
+              "requestId": "req-personal-004",
+              "personalInitialized": false,
+              "personalAgentsCount": 0,
+              "personalAgentsJson": null,
+              "personalDir": null
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("personal_agents_listed"));
+            Assert.That(evt.PersonalInitialized, Is.False);
+            Assert.That(evt.PersonalAgentsCount, Is.EqualTo(0));
+            Assert.That(evt.PersonalAgentsJson, Is.Null);
+            Assert.That(evt.PersonalDir, Is.Null);
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesPersonalInitDonePayload() {
+        const string json = """
+            {
+              "type": "personal_init_done",
+              "requestId": "req-personal-005",
+              "personalDir": "C:\\Users\\Mark\\AppData\\Roaming\\squad\\personal-squad"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("personal_init_done"));
+            Assert.That(evt.RequestId, Is.EqualTo("req-personal-005"));
+            Assert.That(evt.PersonalDir, Does.Contain("personal-squad"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesPersonalErrorPayload() {
+        const string json = """
+            {
+              "type": "personal_error",
+              "requestId": "req-personal-006",
+              "message": "SQUAD_NO_PERSONAL is set — personal squad is disabled"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("personal_error"));
+            Assert.That(evt.RequestId, Is.EqualTo("req-personal-006"));
+            Assert.That(evt.Message, Does.Contain("SQUAD_NO_PERSONAL"));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesPersonalAgentsListedPayload_EmptyList() {
+        const string json = """
+            {
+              "type": "personal_agents_listed",
+              "requestId": "req-personal-007",
+              "personalInitialized": true,
+              "personalAgentsCount": 0,
+              "personalAgentsJson": "[]",
+              "personalDir": "C:\\Users\\Mark\\AppData\\Roaming\\squad\\personal-squad"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("personal_agents_listed"));
+            Assert.That(evt.PersonalInitialized, Is.True);
+            Assert.That(evt.PersonalAgentsCount, Is.EqualTo(0));
+            Assert.That(evt.PersonalAgentsJson, Is.EqualTo("[]"));
+            Assert.That(evt.PersonalDir, Is.Not.Null);
+        });
+    }
 }

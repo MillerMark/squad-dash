@@ -735,6 +735,30 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             SquadDashTrace.Write("Bridge", $"Failed to send subsquads_activate request: {ex.Message}");
         }
     }
+
+    public async Task ListPersonalAgentsAsync() {
+        SquadDashTrace.Write("Bridge", "ListPersonalAgentsAsync");
+        var requestId = Guid.NewGuid().ToString("N");
+        try {
+            await SendBridgeRequestAsync(new SquadSdkPersonalListRequest(requestId))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send personal_list request: {ex.Message}");
+        }
+    }
+
+    public async Task InitPersonalSquadAsync() {
+        SquadDashTrace.Write("Bridge", "InitPersonalSquadAsync");
+        var requestId = Guid.NewGuid().ToString("N");
+        try {
+            await SendBridgeRequestAsync(new SquadSdkPersonalInitRequest(requestId))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"Failed to send personal_init request: {ex.Message}");
+        }
+    }
 }
 
 internal enum BridgeRequestOutcome {
@@ -846,6 +870,14 @@ internal sealed record SquadSdkSubSquadsActivateRequest(
     [property: JsonPropertyName("cwd")] string Cwd,
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("type")] string Type = "subsquads_activate");
+
+internal sealed record SquadSdkPersonalListRequest(
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "personal_list");
+
+internal sealed record SquadSdkPersonalInitRequest(
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "personal_init");
 
 internal sealed class RecoverableSessionResetException : InvalidOperationException {
     public RecoverableSessionResetException(string message)
