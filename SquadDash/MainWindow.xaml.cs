@@ -3702,14 +3702,23 @@ public partial class MainWindow : Window
             ScrollToPromptParagraph(entry.Paragraph);
             return;
         }
+
+        // The turn may exist but not yet be rendered (virtual window only shows recent turns).
+        // Find its index in the full list and use EnsureTurnRenderedAsync to load batches until
+        // it becomes visible, then scroll to it.
         _ = Dispatcher.BeginInvoke(async () => {
-            await _conversationManager.PrependOlderTurnsAsync();
-            var retryEntry = CoordinatorThread.PromptParagraphs
-                .FirstOrDefault(e => e.Timestamp == turnStartedAt);
-            if (retryEntry is not null)
-                ScrollToPromptParagraph(retryEntry.Paragraph);
-            else
-                ShowApprovalNotFoundPopup(screenPos, item.OriginalPrompt ?? item.TurnPromptHint);
+            var turnIndex = _conversationManager.FindCoordinatorTurnIndexByTimestamp(turnStartedAt);
+            if (turnIndex >= 0) {
+                await _conversationManager.EnsureTurnRenderedAsync(turnIndex);
+                var retryEntry = CoordinatorThread.PromptParagraphs
+                    .FirstOrDefault(e => e.Timestamp == turnStartedAt);
+                if (retryEntry is not null) {
+                    ScrollToPromptParagraph(retryEntry.Paragraph);
+                    return;
+                }
+            }
+            // Only show the not-found popup if the turn truly doesn't exist in the transcript.
+            ShowApprovalNotFoundPopup(screenPos, item.OriginalPrompt ?? item.TurnPromptHint);
         });
     }
 

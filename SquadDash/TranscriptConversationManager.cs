@@ -1111,6 +1111,19 @@ internal sealed class TranscriptConversationManager {
         return _allCoordinatorTurns[turnIndex].StartedAt;
     }
 
+    /// <summary>
+    /// Returns the 0-based index of the coordinator turn whose <c>StartedAt</c>
+    /// matches <paramref name="timestamp"/>, or -1 if no such turn exists.
+    /// </summary>
+    internal int FindCoordinatorTurnIndexByTimestamp(DateTimeOffset timestamp) {
+        var turns = _allCoordinatorTurns;
+        for (var i = 0; i < turns.Count; i++) {
+            if (turns[i].StartedAt == timestamp)
+                return i;
+        }
+        return -1;
+    }
+
     internal string GetTurnText(int turnIndex) {
         if (turnIndex < 0 || turnIndex >= _allCoordinatorTurns.Count)
             throw new ArgumentOutOfRangeException(nameof(turnIndex),
