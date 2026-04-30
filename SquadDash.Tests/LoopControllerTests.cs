@@ -204,6 +204,89 @@ internal sealed class LoopControllerTests {
         Assert.That(controller.IsRunning, Is.False, "must not be running after stop");
     }
 
+    // ── Timeout ───────────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task Timeout_ExceedingIterationLimit_AbortsPromptAndReportsError() {
+        // Arrange
+        var promptStartedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errorTcs         = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppedTcs       = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var promptCts        = new CancellationTokenSource();
+        bool abortCalled     = false;
+        string? errorMsg     = null;
+        bool stoppedCalled   = false;
+
+        var controller = new LoopController(
+            executePromptAsync: async (_, __) => {
+                promptStartedTcs.TrySetResult();
+                // Simulate a prompt that only ends when externally aborted.
+                await Task.Delay(Timeout.InfiniteTimeSpan, promptCts.Token);
+            },
+            abortPrompt: () => {
+                abortCalled = true;
+                promptCts.Cancel(); // unblocks executePromptAsync
+            },
+            onIterationStarted:   _ => { },
+            onStopped:            () => { stoppedCalled = true; stoppedTcs.TrySetResult(); },
+            onError:              msg => { errorMsg = msg; errorTcs.TrySetResult(); },
+            onIterationCompleted: _ => { },
+            onWaiting:            _ => { });
+
+        // Use a very short timeout (≈ 60 ms) so the test completes quickly.
+        var config = new LoopMdConfig(
+            IntervalMinutes: 0.0001,
+            TimeoutMinutes:  1.0 / 1000,   // ≈ 60 ms
+            Description:     "",
+            Instructions:    "test prompt");
+
+        // Act
+        _ = controller.StartAsync(config, continuousContext: true);
+        await promptStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Wait for both onError (timeout message) and onStopped (loop reset) to fire.
+        await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Assert
+        Assert.That(abortCalled,   Is.True,                       "abortPrompt must be called on timeout");
+        Assert.That(errorMsg,      Does.Contain("timed out"),     "onError must report timeout");
+        Assert.That(stoppedCalled, Is.True,                       "onStopped fires in finally to reset loop state");
+        Assert.That(controller.IsRunning, Is.False);
+    }
+
+    [Test]
+    public async Task Timeout_PromptCompletesBeforeDeadline_LoopContinues() {
+        // Arrange — prompt completes instantly; timeout is generous; loop should run 2+ iterations
+        var stoppedTcs  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int execCount   = 0;
+
+        var controller = new LoopController(
+            executePromptAsync:   (_, __) => { execCount++; return Task.CompletedTask; },
+            abortPrompt:          () => { },
+            onIterationStarted:   _ => { },
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { });
+
+        var config = new LoopMdConfig(
+            IntervalMinutes: 0.0001,
+            TimeoutMinutes:  5,
+            Description:     "",
+            Instructions:    "test prompt");
+
+        // Act
+        _ = controller.StartAsync(config, continuousContext: true);
+        await Task.Delay(150); // let it run a few fast iterations
+        controller.RequestStop();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Assert — must have run at least 2 iterations with no abort
+        Assert.That(execCount, Is.GreaterThanOrEqualTo(2));
+        Assert.That(controller.IsRunning, Is.False);
+    }
+
     // ── onBeforeIteration ─────────────────────────────────────────────────────
 
     [Test]

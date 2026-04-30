@@ -116,21 +116,26 @@ internal sealed class LoopController {
                 // agent state does not accumulate across rounds.
                 var sessionId = continuousContext ? null : Guid.NewGuid().ToString("N");
 
-                using var iterCts =
-                    CancellationTokenSource.CreateLinkedTokenSource(ct);
-                iterCts.CancelAfter(TimeSpan.FromMinutes(config.TimeoutMinutes));
+                var prompt     = BuildAugmentedPrompt(config.Instructions, config.Commands);
+                var promptTask = _executePromptAsync(prompt, sessionId);
 
-                try {
-                    var prompt = BuildAugmentedPrompt(config.Instructions, config.Commands);
-                    await _executePromptAsync(prompt, sessionId);
-                }
-                catch (OperationCanceledException)
-                    when (iterCts.IsCancellationRequested && !ct.IsCancellationRequested) {
-                    // Timeout on this iteration only — report and stop the loop.
+                // Race the prompt against the per-iteration wall-clock timeout.
+                // Task.Delay with a dedicated CTS fires independently of the outer ct,
+                // so we can distinguish a true timeout from a user-requested abort.
+                using var timeoutCts = new CancellationTokenSource(
+                    TimeSpan.FromMinutes(config.TimeoutMinutes));
+                var timeoutExpired = Task.Delay(Timeout.InfiniteTimeSpan, timeoutCts.Token);
+
+                if (await Task.WhenAny(promptTask, timeoutExpired) != promptTask) {
+                    // Timeout fired before the prompt finished — abort it, then report.
+                    _abortPrompt();
+                    try { await promptTask; } catch { /* swallow post-abort exception */ }
                     _onError(
                         $"Iteration {iteration} timed out after {config.TimeoutMinutes} min");
                     break;
                 }
+
+                await promptTask; // propagate any exception thrown by the prompt itself
 
                 _onIterationCompleted(iteration);
                 if (_stopRequested) break;
