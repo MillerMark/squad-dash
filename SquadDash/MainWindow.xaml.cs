@@ -3717,10 +3717,20 @@ public partial class MainWindow : Window
             IsOpen             = true,
         };
 
+        // Hold fully visible for 4 seconds, then fade out over 1.5 seconds.
         var timer = new System.Windows.Threading.DispatcherTimer {
             Interval = TimeSpan.FromSeconds(4)
         };
-        timer.Tick += (_, _) => { popup.IsOpen = false; timer.Stop(); };
+        timer.Tick += (_, _) => {
+            timer.Stop();
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(
+                fromValue:    1.0,
+                toValue:      0.0,
+                duration:     new Duration(TimeSpan.FromSeconds(1.5)),
+                fillBehavior: System.Windows.Media.Animation.FillBehavior.Stop);
+            fade.Completed += (_, _) => { popup.IsOpen = false; };
+            border.BeginAnimation(UIElement.OpacityProperty, fade);
+        };
         timer.Start();
     }
 
