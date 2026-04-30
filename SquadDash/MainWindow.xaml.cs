@@ -5053,20 +5053,25 @@ public partial class MainWindow : Window
         _pttTargetTextBox = null;
         ClosePttWindow();
 
-        if (_restartPending && !_isPromptRunning)
-        {
-            Close();
-            return;
-        }
-
         var service = _speechService;
         _speechService = null;
 
         if (service != null)
         {
+            // StopAsync flushes any in-flight Azure recognition — the final PhraseRecognized
+            // callback fires before this returns, so dictated text is fully written to the
+            // target TextBox before we check _restartPending below.
             try { await service.StopAsync().ConfigureAwait(false); }
             catch { }
             service.Dispose();
+        }
+
+        // Check restart AFTER the speech service has drained — ensures the last phrase
+        // is inserted into the prompt/editor before the app closes.
+        if (_restartPending && !_isPromptRunning)
+        {
+            Close();
+            return;
         }
 
         if (send && wasTargetingPrompt)
