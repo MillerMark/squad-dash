@@ -538,8 +538,8 @@ If it works, abandon Option B and ship Option C instead. If it doesn't, Option B
 
 The following require explicit owner sign-off before implementation starts:
 
-1. **SDK PR ownership for binary audio frames.**  
-   The `onAudioChunk` / `onAudioStart` / `onAudioEnd` additions to `RemoteBridgeConfig` must be merged into `@bradygaster/squad-sdk` before the audio path can work end-to-end. Who submits the PR and what is the expected merge timeline? This is the critical-path risk.
+1. **SDK PR ownership for binary audio frames.** ✅ **Decided 2026-04-30**  
+   **Owner: Talia Rune** will author and submit the PR. PR submission is gated on the Option C audio format spike (Key Decision #2) — the callback interface surface differs between WEBM_OPUS and PCM paths. Mitigation for upstream merge delay: maintain a local patch in `patches/` (existing pattern). See `.squad/decisions.md` §RC Mobile — SDK PR Ownership for Binary Audio Frames (2026-04-30).
 
 2. **Option B vs. Option C for audio format.**  
    Before building the AudioWorklet pipeline, spend ½ day verifying whether `AudioStreamContainerFormat.WEBM_OPUS` is available in SDK 1.49.0 and actually works with browser-sourced audio. If it does, Option C is strictly better (lower bandwidth, simpler phone code). The recommended path is: **spike Option C first; fall back to Option B if it fails.**

@@ -1173,3 +1173,38 @@ All three events exist in the TypeScript SDK, are emitted at the correct lifecyc
 - `SquadDash/MainWindow.xaml.cs` — lines 1403 (`done`), 1359 (`loop_stopped`), 1395 (`rc_stopped`)
 - `SquadDash/SquadSdkEvent.cs` — event model definitions (LoopStatus, LoopMdPath, etc.)
 
+
+
+---
+
+## RC Mobile — SDK PR Ownership for Binary Audio Frames (2026-04-30)
+
+**By:** Orion Vale (Lead Architect)
+**Status:** Decided
+
+### Decision
+
+**Talia Rune** will author and submit the PR to @bradygaster/squad-sdk adding onAudioChunk, onAudioStart, and onAudioEnd to RemoteBridgeConfig.
+
+**Rationale:** Talia owns the TypeScript/SDK bridge and event protocol layer (routing.md). The audio frame additions are SDK bridge protocol changes — new callback hooks on RemoteBridgeConfig that flow through the NDJSON event stream. This squarely falls within her domain, and she already has the deepest context on how RemoteBridgeConfig is shaped and consumed.
+
+### Timeline constraint
+
+The PR should **not be submitted until the audio format spike (Option C vs B) is resolved.** The callback interface may differ slightly depending on format:
+- Option C (WEBM_OPUS): onAudioChunk carries raw WebM container frames — no chunking metadata needed beyond onAudioStart / onAudioEnd bookends.
+- Option B (PCM/AudioWorklet): onAudioChunk must also carry sample-rate and channel metadata to support the NAudio resampling step on the C# side.
+
+Submitting before that's known risks a follow-up breaking change to the PR.
+
+### Expected merge timeline
+
+Merge is contingent on Brady Gaster (upstream maintainer). Talia should:
+1. Open the spike on Option C first (see RC mobile — spike Option C task).
+2. Submit the PR within one session after the format is confirmed.
+3. Treat the merge date as an external dependency — unblock local development by running a patched local copy of the SDK in the meantime (consistent with the existing patches/ pattern in this repo).
+
+### Risk
+
+This is the **critical-path scheduling risk** for RC phone voice input. If the upstream PR stalls, the patched-SDK approach is the mitigation — Talia maintains the local patch until merge lands.
+
+**References:** .squad/rc-mobile-architecture.md §Key Decisions #1

@@ -51,7 +51,7 @@
     confirm `"loop_stopped"` / `"rc_stopped"` hooks
   - Lyra: Notifications section in PreferencesWindow, QRCoder QR display, Test button
 
-- [ ] **RC mobile — decide SDK PR ownership for binary audio frames** *(Owner: Orion Vale)*
+- [x] **RC mobile — decide SDK PR ownership for binary audio frames** *(Owner: Orion Vale)*
   `onAudioChunk` / `onAudioStart` / `onAudioEnd` additions to `RemoteBridgeConfig` must land in
   `@bradygaster/squad-sdk` before the PTT audio path can work end-to-end. Identify who submits
   the PR and confirm expected merge timeline. This is the critical-path scheduling risk for
@@ -116,6 +116,7 @@
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
 
 - [x] Verify task priority icon colors — ✅ Verified 2026-04-29
+- [x] RC mobile — decide SDK PR ownership for binary audio frames — ✅ Decided 2026-04-30 (Talia Rune submits PR after Option C spike)
 - [x] Loop panel — Stop button + open/edit loop.md
 - [x] `squad loop` TypeScript bridge + WPF panel
 - [x] Watch capability event parsing + status panel
