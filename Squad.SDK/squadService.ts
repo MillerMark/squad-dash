@@ -20,6 +20,15 @@ export type SquadDelegationRequest = {
     targetAgent: string;
 };
 
+export type SquadNamedAgentRequest = {
+    cwd: string;
+    selectedOption: string;
+    targetAgent: string;
+    namedAgentSessionId?: string;
+    charterContent?: string;
+    configDir?: string;
+};
+
 export type SessionReadyInfo = {
     sessionId: string;
     resumed: boolean;
@@ -562,6 +571,19 @@ function normalizeAgentHandle(value: string): string {
     return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
+function buildNamedAgentHiddenContext(targetAgent: string, charterContent?: string): string {
+    const normalizedHandle = normalizeAgentHandle(targetAgent);
+    const lines = [
+        `You are @${normalizedHandle}. SquadDash has launched you directly for this task.`,
+        "Your charter defines your identity, responsibilities, and work style.",
+        "Begin working on the user's request immediately. Do not narrate your launch.",
+    ];
+    if (charterContent?.trim()) {
+        lines.push("", "--- CHARTER ---", charterContent.trim(), "--- END CHARTER ---");
+    }
+    return lines.join("\n");
+}
+
 function buildDelegationHiddenContext(selectedOption: string, targetAgent: string): string {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -615,6 +637,22 @@ export class SquadBridgeService {
                 requireSameSession: true
             },
             buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
+    }
+
+    public async runNamedAgent(
+        request: SquadNamedAgentRequest,
+        handlers: SquadRunHandlers
+    ) {
+        await this.runSessionRequest(
+            request.selectedOption,
+            handlers,
+            {
+                cwd: request.cwd,
+                sessionId: request.namedAgentSessionId,
+                configDir: request.configDir,
+                requireSameSession: false
+            },
+            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent));
     }
 
     private async runSessionRequest(
