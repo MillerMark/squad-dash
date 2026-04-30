@@ -586,8 +586,15 @@ function stripRcNoise(content: string): string {
     return content.replace(/<system_notification>[\s\S]*?<\/system_notification>/g, "").trimEnd();
 }
 
+function stripLetMeSentences(content: string): string {
+    // Remove any sentence containing the phrase "let me" (whole-word, case-insensitive).
+    // A sentence is bounded by .!? or newline; the trailing whitespace is consumed to avoid
+    // double-spacing when the sentence is mid-paragraph.
+    return content.replace(/[^.!?\n]*\blet\s+me\b[^.!?\n]*(?:[.!?]+\s*|\n|$)/gi, "").trimEnd();
+}
+
 function cleanForRc(content: string): string {
-    return stripRcNoise(stripQuickRepliesBlock(content));
+    return stripLetMeSentences(stripRcNoise(stripQuickRepliesBlock(content)));
 }
 
 function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBridge, agentHandle?: string, agentDisplayName?: string): SquadRunHandlers {

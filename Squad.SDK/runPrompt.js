@@ -435,8 +435,12 @@ function stripQuickRepliesBlock(content) {
 function stripRcNoise(content) {
     return content.replace(/<system_notification>[\s\S]*?<\/system_notification>/g, "").trimEnd();
 }
+function stripLetMeSentences(content) {
+    // Remove any sentence containing the phrase "let me" (whole-word, case-insensitive).
+    return content.replace(/[^.!?\n]*\blet\s+me\b[^.!?\n]*(?:[.!?]+\s*|\n|$)/gi, "").trimEnd();
+}
 function cleanForRc(content) {
-    return stripRcNoise(stripQuickRepliesBlock(content));
+    return stripLetMeSentences(stripRcNoise(stripQuickRepliesBlock(content)));
 }
 function buildRunHandlers(requestId, remoteBridge, agentHandle, agentDisplayName) {
     let startedThinking = false;

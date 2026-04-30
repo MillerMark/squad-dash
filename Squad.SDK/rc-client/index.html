@@ -531,6 +531,8 @@
       const cut = text.lastIndexOf('\n', idx);
       text = (cut >= 0 ? text.slice(0, cut) : text.slice(0, idx)).trimEnd();
     }
+    // Strip sentences containing "let me" (whole-word, case-insensitive)
+    text = text.replace(/[^.!?\n]*\blet\s+me\b[^.!?\n]*(?:[.!?]+\s*|\n|$)/gi, '').trimEnd();
     return text;
   }
 
