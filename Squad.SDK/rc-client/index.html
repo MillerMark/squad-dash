@@ -482,6 +482,26 @@
   // ── Incoming message dispatch ─────────────────────────────────────────────
   let thinkingEl = null;
 
+  /** Seal whatever is currently streaming into a settled bubble, without waiting for 'complete'.
+   *  Called when a tool_call or thinking break interrupts the response. */
+  function sealStreamingBubble() {
+    if (!streamingBubble) return;
+    const raw = visibleText(streamingRawText).trim();
+    if (raw) {
+      const existing = streamingBubble.querySelector('.streaming-text');
+      const body = document.createElement('div');
+      body.className = 'md-content';
+      body.innerHTML = renderMarkdown(raw);
+      if (existing) existing.replaceWith(body);
+      else streamingBubble.appendChild(body);
+    } else {
+      // Nothing visible yet — remove the empty placeholder bubble
+      streamingBubble.remove();
+    }
+    streamingBubble = null;
+    streamingRawText = '';
+  }
+
   function handleServerMessage(msg) {
     switch (msg.type) {
       // ── Bridge protocol events (correct names) ──
@@ -506,6 +526,7 @@
         break;
       case 'tool_call':
         if (msg.status === 'running') {
+          sealStreamingBubble();   // break any in-progress bubble before tooling
           activeToolCount++;
           startActivityTimer(toolIcon, toolTimer, toolStartMs, toolTicker, 'tool');
         } else {
@@ -515,6 +536,7 @@
         break;
       // ── Custom broadcast events ──
       case 'thinking_active':
+        sealStreamingBubble();   // break any in-progress bubble before thinking
         startActivityTimer(thinkingIcon, thinkingTimer, thinkingStartMs, thinkingTicker, 'thinking');
         break;
       case 'thinking_done':
