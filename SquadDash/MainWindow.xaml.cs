@@ -13002,7 +13002,7 @@ public partial class MainWindow : Window
             Style = (Style)FindResource("ThemedMenuItemStyle")
         };
         _remoteAccessMenuItem.Click += RemoteAccessMenuItem_Click;
-        WorkspaceMenuItem.Items.Add(_remoteAccessMenuItem);
+        RemoteMenuItem.Items.Add(_remoteAccessMenuItem);
 
         var subSquadsMenuItem = new MenuItem
         {
@@ -13030,6 +13030,7 @@ public partial class MainWindow : Window
         // WorkspaceMenuItem has no static XAML children — every item is dynamic,
         // so a full clear is both correct and simpler than tag-filtering.
         WorkspaceMenuItem.Items.Clear();
+        RemoteMenuItem.Items.Clear();
     }
 
     private void AddWorkspaceFileMenuItem(string relativePath)

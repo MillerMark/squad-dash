@@ -382,6 +382,11 @@
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
                 </MenuItem>
+                <MenuItem x:Name="RemoteMenuItem"
+                          Header="_Remote"
+                          Style="{StaticResource TopLevelMenuItemStyle}"
+                          ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                </MenuItem>
                 <MenuItem Header="_Cleanup"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
