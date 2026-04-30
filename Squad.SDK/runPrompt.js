@@ -407,9 +407,35 @@ function tryParseRequest(line) {
         return null;
     }
 }
+function extractQuickReplies(content) {
+    const idx = content.indexOf("QUICK_REPLIES_JSON:");
+    if (idx === -1)
+        return [];
+    const jsonPart = content.slice(idx + "QUICK_REPLIES_JSON:".length).trim();
+    try {
+        const parsed = JSON.parse(jsonPart);
+        if (Array.isArray(parsed)) {
+            return parsed
+                .filter((r) => r && typeof r.label === "string")
+                .map(r => ({ label: r.label }));
+        }
+    }
+    catch { /* ignore malformed */ }
+    return [];
+}
+function stripQuickRepliesBlock(content) {
+    const idx = content.indexOf("\nQUICK_REPLIES_JSON:");
+    if (idx !== -1)
+        return content.slice(0, idx).trimEnd();
+    const idx2 = content.indexOf("QUICK_REPLIES_JSON:");
+    if (idx2 !== -1)
+        return content.slice(0, idx2).trimEnd();
+    return content;
+}
 function buildRunHandlers(requestId, remoteBridge) {
     let startedThinking = false;
     let rcAccumulatedContent = "";
+    let rcThinkingActive = false;
     const rcSessionId = requestId ?? randomUUID();
     return {
         onSessionReady(session) {
@@ -447,6 +473,10 @@ function buildRunHandlers(requestId, remoteBridge) {
                 text,
                 speaker
             });
+            if (remoteBridge && !rcThinkingActive) {
+                rcThinkingActive = true;
+                remoteBridge.broadcast({ type: "thinking_active" });
+            }
         },
         onUsage(usage) {
             emit({
@@ -517,6 +547,10 @@ function buildRunHandlers(requestId, remoteBridge) {
                 chunk
             });
             if (remoteBridge) {
+                if (rcThinkingActive) {
+                    rcThinkingActive = false;
+                    remoteBridge.broadcast({ type: "thinking_done" });
+                }
                 rcAccumulatedContent += chunk;
                 remoteBridge.sendDelta(rcSessionId, "copilot", chunk);
             }
@@ -527,7 +561,12 @@ function buildRunHandlers(requestId, remoteBridge) {
                 requestId
             });
             if (remoteBridge && rcAccumulatedContent) {
-                remoteBridge.addMessage("agent", rcAccumulatedContent);
+                const quickReplies = extractQuickReplies(rcAccumulatedContent);
+                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                remoteBridge.addMessage("agent", cleanContent || rcAccumulatedContent);
+                if (quickReplies.length > 0) {
+                    remoteBridge.broadcast({ type: "quick_replies", replies: quickReplies });
+                }
                 rcAccumulatedContent = "";
             }
         },
@@ -537,7 +576,8 @@ function buildRunHandlers(requestId, remoteBridge) {
                 requestId
             });
             if (remoteBridge && rcAccumulatedContent) {
-                remoteBridge.addMessage("agent", rcAccumulatedContent + " [aborted]");
+                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                remoteBridge.addMessage("agent", (cleanContent || rcAccumulatedContent) + " [aborted]");
                 rcAccumulatedContent = "";
             }
         }
@@ -678,10 +718,10 @@ function handleRunLoopStop(request) {
     activeLoopProc.kill();
 }
 async function handlePrompt(request) {
-    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);
+    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined), request);
 }
 async function handleDelegate(request) {
-    await bridge.runDelegation(request, buildRunHandlers(request.requestId));
+    await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined));
 }
 function getLanIp() {
     const nets = os.networkInterfaces();
@@ -717,7 +757,9 @@ function addWindowsFirewallRule(port) {
         }
         return false;
     }
-    catch { return false; }
+    catch {
+        return false;
+    }
 }
 function removeWindowsFirewallRule() {
     if (process.platform !== "win32" || activeFirewallPort === null)
@@ -1164,7 +1206,7 @@ async function main() {
             continue;
         }
         if (request.type === "rc_status_broadcast") {
-            activeRemoteBridge?.broadcastEvent?.({ type: "rc_status", status: request.status });
+            activeRemoteBridge?.broadcast?.({ type: "rc_status", status: request.status });
             continue;
         }
         if (request.type === "subsquads_list") {

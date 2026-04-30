@@ -546,9 +546,33 @@ function tryParseRequest(line: string): BridgeRequest | null {
     }
 }
 
+function extractQuickReplies(content: string): Array<{ label: string }> {
+    const idx = content.indexOf("QUICK_REPLIES_JSON:");
+    if (idx === -1) return [];
+    const jsonPart = content.slice(idx + "QUICK_REPLIES_JSON:".length).trim();
+    try {
+        const parsed = JSON.parse(jsonPart);
+        if (Array.isArray(parsed)) {
+            return parsed
+                .filter((r): r is { label: string } => r && typeof r.label === "string")
+                .map(r => ({ label: r.label }));
+        }
+    } catch { /* ignore malformed */ }
+    return [];
+}
+
+function stripQuickRepliesBlock(content: string): string {
+    const idx = content.indexOf("\nQUICK_REPLIES_JSON:");
+    if (idx !== -1) return content.slice(0, idx).trimEnd();
+    const idx2 = content.indexOf("QUICK_REPLIES_JSON:");
+    if (idx2 !== -1) return content.slice(0, idx2).trimEnd();
+    return content;
+}
+
 function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBridge): SquadRunHandlers {
     let startedThinking = false;
     let rcAccumulatedContent = "";
+    let rcThinkingActive = false;
     const rcSessionId = requestId ?? randomUUID();
 
     return {
@@ -588,6 +612,11 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                 text,
                 speaker
             });
+
+            if (remoteBridge && !rcThinkingActive) {
+                rcThinkingActive = true;
+                (remoteBridge as any).broadcast({ type: "thinking_active" });
+            }
         },
         onUsage(usage) {
             emit({
@@ -658,6 +687,10 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                 chunk
             });
             if (remoteBridge) {
+                if (rcThinkingActive) {
+                    rcThinkingActive = false;
+                    (remoteBridge as any).broadcast({ type: "thinking_done" });
+                }
                 rcAccumulatedContent += chunk;
                 remoteBridge.sendDelta(rcSessionId, "copilot", chunk);
             }
@@ -668,7 +701,12 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                 requestId
             });
             if (remoteBridge && rcAccumulatedContent) {
-                remoteBridge.addMessage("agent", rcAccumulatedContent);
+                const quickReplies = extractQuickReplies(rcAccumulatedContent);
+                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                remoteBridge.addMessage("agent", cleanContent || rcAccumulatedContent);
+                if (quickReplies.length > 0) {
+                    (remoteBridge as any).broadcast({ type: "quick_replies", replies: quickReplies });
+                }
                 rcAccumulatedContent = "";
             }
         },
@@ -678,7 +716,8 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                 requestId
             });
             if (remoteBridge && rcAccumulatedContent) {
-                remoteBridge.addMessage("agent", rcAccumulatedContent + " [aborted]");
+                const cleanContent = stripQuickRepliesBlock(rcAccumulatedContent);
+                remoteBridge.addMessage("agent", (cleanContent || rcAccumulatedContent) + " [aborted]");
                 rcAccumulatedContent = "";
             }
         }
@@ -833,11 +872,11 @@ function handleRunLoopStop(request: RunLoopStopRequest): void {
 }
 
 async function handlePrompt(request: PromptRequest) {
-    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId), request);
+    await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined), request);
 }
 
 async function handleDelegate(request: DelegateRequest) {
-    await bridge.runDelegation(request, buildRunHandlers(request.requestId));
+    await bridge.runDelegation(request, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined));
 }
 
 function getLanIp(): string | null {
@@ -1355,7 +1394,7 @@ async function main() {
         }
 
         if (request.type === "rc_status_broadcast") {
-            (activeRemoteBridge as RemoteBridgeWithBroadcast | null)?.broadcastEvent?.({ type: "rc_status", status: request.status });
+            (activeRemoteBridge as any)?.broadcast?.({ type: "rc_status", status: request.status });
             continue;
         }
 
