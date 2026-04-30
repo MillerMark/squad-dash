@@ -2898,6 +2898,8 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null) return;
         try
         {
+            // Brief pause to let the OS release the TCP port before we rebind it.
+            await Task.Delay(500).ConfigureAwait(false);
             await _bridge.StartRemoteAsync(
                 repo:       System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
                 branch:     "main",
