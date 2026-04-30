@@ -5094,7 +5094,10 @@ public partial class MainWindow : Window
     {
         _pttState = PttState.Idle;
         var wasTargetingPrompt = _pttTargetTextBox is null || _pttTargetTextBox == PromptTextBox;
-        _pttTargetTextBox = null;
+        // Do NOT null _pttTargetTextBox here — pending AppendSpeechToPrompt BeginInvoke
+        // callbacks in the dispatcher queue still need it to route text to the correct target.
+        // It is cleared inside the Background-priority dispatcher callback below, after all
+        // Normal-priority phrase callbacks have drained.
         ClosePttWindow();
 
         var service = _speechService;
@@ -5118,6 +5121,7 @@ public partial class MainWindow : Window
         // dispatcher thread — we clear _pttDraining and trigger the deferred close if needed.
         await Dispatcher.InvokeAsync(() =>
         {
+            _pttTargetTextBox = null;  // Clear after all Normal-priority phrase callbacks have run.
             _pttDraining = false;
             if (_restartPending && !_isPromptRunning)
             {
