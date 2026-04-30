@@ -342,7 +342,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     private void MarkdownDocumentWindow_PreviewKeyUp(object sender, KeyEventArgs e) {
         if (!CtrlDoubleTapGestureTracker.IsCtrlKey(e.Key)) return;
 
-        if (_editorVoiceStopOnCtrlRelease && _editorVoiceService is not null) {
+        if (_editorVoiceStopOnCtrlRelease && (_editorVoiceService is not null || _editorPttWindow is not null)) {
             _ = StopEditorVoiceAsync();
             e.Handled = true;
             return;
@@ -381,13 +381,26 @@ internal sealed class MarkdownDocumentWindow : Window {
             Dispatcher.BeginInvoke(() => _ = StopEditorVoiceAsync());
 
         try {
+            // Get caret position in physical screen pixels (PointToScreen returns physical coords).
+            System.Windows.Point physicalPt;
+            try {
+                var caretRect = editorTb.GetRectFromCharacterIndex(_editorVoiceCaretIndex);
+                physicalPt = editorTb.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
+            } catch {
+                physicalPt = editorTb.PointToScreen(new System.Windows.Point(0, editorTb.ActualHeight + 4));
+            }
+
+            // Get the work area for the monitor containing the caret (physical pixels).
+            var physWa = NativeMethods.GetWorkAreaForPhysicalPoint((int)physicalPt.X, (int)physicalPt.Y);
+
+            // Convert to WPF logical DIPs before passing to PositionUnderCaret.
+            var logicalPt       = DpiHelper.PhysicalToLogical(editorTb, physicalPt);
+            var logicalWaOrigin = DpiHelper.PhysicalToLogical(editorTb, new System.Windows.Point(physWa.Left, physWa.Top));
+            var logicalWaCorner = DpiHelper.PhysicalToLogical(editorTb, new System.Windows.Point(physWa.Right, physWa.Bottom));
+            var logicalWorkArea = new System.Windows.Rect(logicalWaOrigin, logicalWaCorner);
+
             _editorPttWindow = new PushToTalkWindow(this, showHint: false);
-            var caretRect = editorTb.GetRectFromCharacterIndex(_editorVoiceCaretIndex);
-            var screenPt  = editorTb.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
-            var workArea  = System.Windows.SystemParameters.WorkArea;
-            _editorPttWindow.PositionUnderCaret(
-                screenPt,
-                new System.Windows.Rect(workArea.X, workArea.Y, workArea.Width, workArea.Height));
+            _editorPttWindow.PositionUnderCaret(logicalPt, logicalWorkArea);
             _editorPttWindow.Show();
             editorTb.Focus();
 
