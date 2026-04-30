@@ -184,7 +184,8 @@ internal static class DocTopicsLoader
 
             if (status == DocApprovalStatus.Approved)
             {
-                panel.Children.Add(MakeStatusIcon("✓", Brushes.LimeGreen, "Approved"));
+                // LimeGreen (#00FF00) is too low-contrast in light theme; use a darker muted green.
+                panel.Children.Add(MakeStatusIcon("✓", new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)), "Approved"));
             }
             else if (statusStore.HasBeenTracked(filePath))
             {
