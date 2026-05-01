@@ -2,6 +2,7 @@ namespace SquadDash;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -50,7 +51,8 @@ internal sealed class CommitApprovalPanel {
     // ── Public API ───────────────────────────────────────────────────────────
 
     public void AddItem(CommitApprovalItem item) {
-        _needsApprovalPanel.Children.Add(BuildRow(item));
+        // Newest items go to the top
+        _needsApprovalPanel.Children.Insert(0, BuildRow(item));
     }
 
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
@@ -58,7 +60,8 @@ internal sealed class CommitApprovalPanel {
         _needsApprovalPanel.Children.Clear();
         _approvedPanel.Children.Clear();
         _rejectedPanel.Children.Clear();
-        foreach (var item in items) {
+        // Newest first in every section
+        foreach (var item in items.OrderByDescending(i => i.TurnStartedAt)) {
             if (item.IsRejected)
                 _rejectedPanel.Children.Add(BuildRejectedRow(item));
             else if (item.IsApproved)
@@ -236,7 +239,7 @@ internal sealed class CommitApprovalPanel {
         var targetPanel = isApproved ? _approvedPanel      : _needsApprovalPanel;
 
         sourcePanel.Children.Remove(row);
-        targetPanel.Children.Add(BuildRow(updated));
+        InsertSorted(targetPanel, BuildRow(updated), updated);
 
         _onItemChanged(updated);
     }
@@ -247,7 +250,7 @@ internal sealed class CommitApprovalPanel {
         var sourcePanel = item.IsApproved ? _approvedPanel : _needsApprovalPanel;
 
         sourcePanel.Children.Remove(row);
-        _rejectedPanel.Children.Add(BuildRejectedRow(updated));
+        InsertSorted(_rejectedPanel, BuildRejectedRow(updated), updated);
 
         _onItemChanged(updated);
     }
@@ -255,7 +258,21 @@ internal sealed class CommitApprovalPanel {
     private void HandleUnrejectClicked(Border row, CommitApprovalItem item) {
         var updated = item with { IsRejected = false, IsApproved = false };
         _rejectedPanel.Children.Remove(row);
-        _needsApprovalPanel.Children.Add(BuildRow(updated));
+        InsertSorted(_needsApprovalPanel, BuildRow(updated), updated);
         _onItemChanged(updated);
+    }
+
+    /// <summary>Inserts <paramref name="row"/> into <paramref name="panel"/> so that items remain
+    /// ordered newest-first by <see cref="CommitApprovalItem.TurnStartedAt"/>.</summary>
+    private static void InsertSorted(StackPanel panel, Border row, CommitApprovalItem item) {
+        for (int i = 0; i < panel.Children.Count; i++) {
+            if (panel.Children[i] is Border existing &&
+                existing.Tag is CommitApprovalItem existingItem &&
+                existingItem.TurnStartedAt < item.TurnStartedAt) {
+                panel.Children.Insert(i, row);
+                return;
+            }
+        }
+        panel.Children.Add(row);
     }
 }
