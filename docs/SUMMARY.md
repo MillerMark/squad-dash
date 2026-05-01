@@ -20,9 +20,9 @@
 ## Panels
 
 * [Panels](panels/README.md)
-  * [Loop Panel](panels/loop-panel.md)
-  * [Tasks Panel](panels/tasks-panel.md)
-  * [Approvals Panel](panels/approvals-panel.md)
+  * [Tasks](panels/Tasks.md)
+  * [Loop](panels/Loop.md)
+  * [Approvals](panels/Approvals.md)
 
 ## Concepts
 
