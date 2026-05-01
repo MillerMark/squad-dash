@@ -32,6 +32,10 @@
 
 - [x] **`loop.md` entry in workspace menu** — appears when file exists at workspace root
 
+- [x] **Loop output log pane** *(Owner: Lyra Morn)*
+  The bridge emits `loop_output_line` events. Added a collapsible scrollable log pane to the
+  Loop panel that displays live output from the running loop.
+
 ---
 
 ## Watch
