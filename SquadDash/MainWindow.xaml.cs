@@ -3004,6 +3004,8 @@ public partial class MainWindow : Window
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
         _rcActivePort = port;
+        if (port > 0)
+            _settingsSnapshot = _settingsStore.SaveRcPort(port);
         var baseUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
         _rcPanelUrl = string.IsNullOrEmpty(evt.RcToken) ? baseUrl : $"{baseUrl}?token={Uri.EscapeDataString(evt.RcToken)}";
 
@@ -8204,7 +8206,9 @@ public partial class MainWindow : Window
             Dispatcher.InvokeAsync(async () =>
             {
                 if (_currentWorkspace is null) return;
+                var savedPort = _settingsSnapshot.RcPersistentPort;
                 AppendLine("📡 Resuming Remote Access from previous session…");
+                SquadDashTrace.Write("UI", $"RC auto-resume: requesting port={savedPort} (0=OS-assigned)");
                 var repo = System.IO.Path.GetFileName(_currentWorkspace.FolderPath);
                 var machine = System.Environment.MachineName;
                 await _bridge.StartRemoteAsync(
@@ -8213,6 +8217,7 @@ public partial class MainWindow : Window
                     machine: machine,
                     squadDir: _currentWorkspace.SquadFolderPath,
                     cwd: _currentWorkspace.FolderPath,
+                    port: savedPort,
                     sessionId: _conversationManager.CurrentSessionId,
                     tunnelMode: _settingsSnapshot.TunnelMode,
                     tunnelToken: _settingsSnapshot.TunnelToken,

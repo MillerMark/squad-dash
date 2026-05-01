@@ -486,6 +486,7 @@
       reconnectDelay = 1000;
       dot.className = 'connected';
       dot.title = 'Connected';
+      console.log('[RC] WebSocket connected to', wsUrl);
     };
 
     ws.onclose = ws.onerror = () => {
@@ -495,6 +496,9 @@
       stopPtt();
       activeToolCount = 0;
       stopAllTimers();
+      // Clear the in-progress thinking dots bubble so it doesn't persist after reconnect.
+      if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+      console.log(`[RC] WebSocket disconnected from ${wsUrl} — reconnecting in ${reconnectDelay}ms`);
       setTimeout(connect, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 2, 16000);
     };

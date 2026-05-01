@@ -404,6 +404,19 @@ internal sealed class ApplicationSettingsStore {
     }
 
     /// <summary>
+    /// Persists the active RC port so the same browser URL stays valid across restarts.
+    /// </summary>
+    public ApplicationSettingsSnapshot SaveRcPort(int port) {
+        using var mutex = AcquireMutex();
+
+        var current = LoadCore();
+        var updated = current with { RcPersistentPort = port };
+
+        SaveCore(updated);
+        return updated;
+    }
+
+    /// <summary>
     /// Saves the documentation panel as explicitly closed, capturing the current
     /// tree expansion state and selected topic for restoration on next startup.
     /// </summary>
@@ -762,6 +775,14 @@ internal sealed record ApplicationSettingsSnapshot(
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("rcPersistentToken")]
     public string? RcPersistentToken { get; init; }
+
+    /// <summary>
+    /// The TCP port the RC WebSocket server was last listening on.
+    /// Passed back on the next <c>rc_start</c> so the phone's browser (which has the port
+    /// baked into its URL) can reconnect without re-scanning the QR code.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("rcPersistentPort")]
+    public int RcPersistentPort { get; init; }
 
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
