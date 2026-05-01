@@ -962,7 +962,7 @@
                                     Click="AbortLoopButton_Click" />
                             <Button x:Name="CreateEditLoopFileButton"
                                     DockPanel.Dock="Bottom"
-                                    Content="📝 Create Loop File"
+                                    Content="📝 Edit Loop"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     ToolTip="Create or open loop.md for editing"
                                     Click="CreateEditLoopFileButton_Click" />
@@ -1056,21 +1056,17 @@
                                 <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
                             </MultiBinding>
                         </Border.Height>
-                        <Border.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="Edit Tasks"
-                                          Click="EditTasksMenuItem_Click" />
-                            </ContextMenu>
-                        </Border.ContextMenu>
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <!-- Title row with close button -->
+                            <!-- Row 0: Title + close button -->
                             <Grid Grid.Row="0">
-                                <TextBlock Text="Top Tasks"
+                                <TextBlock Text="Tasks"
                                            FontSize="15"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource RosterPanelTitle}"
@@ -1088,20 +1084,34 @@
                                         Click="TasksPanelCloseButton_Click" />
                             </Grid>
 
-                            <!-- Task items content -->
-                            <ScrollViewer x:Name="TasksItemsScrollViewer"
-                                          Grid.Row="1"
-                                          Margin="0,8,0,0"
+                            <!-- Row 1: "Open Tasks" subheader -->
+                            <TextBlock Grid.Row="1"
+                                       Text="Open Tasks"
+                                       FontSize="11"
+                                       Margin="0,8,0,4"
+                                       Foreground="{DynamicResource SubtleText}" />
+
+                            <!-- Row 2: Active tasks scrollviewer (unbounded, fills remaining space) -->
+                            <ScrollViewer Grid.Row="2"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel x:Name="TasksItemsPanel">
-                                    <TextBlock x:Name="TasksEmptyTextBlock"
-                                               Text="No open tasks"
-                                               FontSize="12"
-                                               Foreground="{DynamicResource BodyText}"
-                                               Visibility="Collapsed" />
-                                </StackPanel>
+                                <StackPanel x:Name="TasksActivePanel" />
                             </ScrollViewer>
+
+                            <!-- Row 3: Completed section (collapsed by default, shown via context menu) -->
+                            <StackPanel Grid.Row="3"
+                                        x:Name="TasksCompletedSection"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="Completed"
+                                           FontSize="11"
+                                           Margin="0,8,0,4"
+                                           Foreground="{DynamicResource SubtleText}" />
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              MaxHeight="{Binding ActualHeight, ElementName=TasksPanelBorder, Converter={StaticResource FractionConverter}, ConverterParameter=0.4}">
+                                    <StackPanel x:Name="TasksCompletedPanel" />
+                                </ScrollViewer>
+                            </StackPanel>
                         </Grid>
                     </Border>
 

@@ -131,7 +131,8 @@ public partial class MainWindow : Window
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
     private Vector? _traceWindowOffset;
-    private CommitApprovalPanel? _approvalPanel;
+    private CommitApprovalPanel?   _approvalPanel;
+    private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
     private System.Windows.Controls.Primitives.Popup? _approvalNotFoundPopup;
@@ -245,6 +246,7 @@ public partial class MainWindow : Window
     private string? _watchPhase;
     private bool _remoteAccessActive;
     private bool _rcRegeneratingToken;
+    private bool _pendingRcRestartAfterReset;
     private int _rcActivePort;
     private string? _rcPanelUrl;
     private string? _rcTunnelUrl;
@@ -2397,6 +2399,10 @@ public partial class MainWindow : Window
                     if (squadashPayload?.Command is string cmd)
                         HandleSquadashCommand(cmd);
                 }
+                if (_pendingRcRestartAfterReset) {
+                    _pendingRcRestartAfterReset = false;
+                    _ = RestartRcAfterSessionResetAsync();
+                }
                 break;
 
             case "error":
@@ -2504,6 +2510,9 @@ public partial class MainWindow : Window
             ThemeBrush("SystemInfoText"));
         UpdateLeadAgent("Recovering", string.Empty, "Resetting the active Squad session and retrying the prompt.");
         UpdateSessionState("Recovering");
+
+        if (_remoteAccessActive)
+            _pendingRcRestartAfterReset = true;
     }
 
     private void HandleBackgroundTasksChanged(SquadSdkEvent evt)
@@ -3212,6 +3221,31 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("UI", "RC stopped");
     }
 
+    private async Task RestartRcAfterSessionResetAsync()
+    {
+        if (_currentWorkspace is null) return;
+        try
+        {
+            // Brief pause to let the OS release the TCP port before we rebind it.
+            await Task.Delay(500).ConfigureAwait(false);
+            await _bridge.StartRemoteAsync(
+                repo:       System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
+                branch:     "main",
+                machine:    System.Environment.MachineName,
+                squadDir:   _currentWorkspace.SquadFolderPath,
+                cwd:        _currentWorkspace.FolderPath,
+                port:       _rcActivePort,
+                sessionId:  _conversationManager.CurrentSessionId,
+                tunnelMode: _settingsSnapshot.TunnelMode,
+                tunnelToken: _settingsSnapshot.TunnelToken,
+                rcToken:    _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RestartRcAfterSessionResetAsync), ex);
+        }
+    }
+
     private async Task RestartRcAfterRegenerateAsync()
     {
         if (_currentWorkspace is null) return;
@@ -3469,113 +3503,31 @@ public partial class MainWindow : Window
 
     private void LoadTasksPanel()
     {
-        if (TasksItemsPanel is null) return;
+        if (TasksActivePanel is null) return;
+
+        _tasksPanelController ??= new TasksPanelController(
+            activePanel:       TasksActivePanel,
+            completedPanel:    TasksCompletedPanel,
+            completedSection:  TasksCompletedSection,
+            outerBorder:       TasksPanelBorder,
+            getTasksPath:      () => _currentWorkspace is null
+                                     ? null
+                                     : Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"),
+            editTasksAction:   () => EditTasksMenuItem_Click(this, new RoutedEventArgs()),
+            priorityDotColor:  PriorityDotColor,
+            reloadPanel:       () => Dispatcher.BeginInvoke(LoadTasksPanel));
+
         var workspace = _currentWorkspace;
-        if (workspace is null)
-        {
-            ShowTasksPanelEmpty("No workspace open");
-            return;
-        }
+        if (workspace is null) { _tasksPanelController.ShowEmpty("No workspace open"); return; }
 
         var tasksPath = Path.Combine(workspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath))
-        {
-            ShowTasksPanelEmpty("No tasks.md found");
-            return;
-        }
+        if (!File.Exists(tasksPath)) { _tasksPanelController.ShowEmpty("No tasks.md found"); return; }
 
         string[] lines;
         try { lines = File.ReadAllLines(tasksPath); }
-        catch { ShowTasksPanelEmpty("Could not read tasks.md"); return; }
+        catch { _tasksPanelController.ShowEmpty("Could not read tasks.md"); return; }
 
-        var groups = TasksPanelParser.Parse(lines)
-            .Where(g => g.Items.Count > 0)
-            .ToList();
-
-        // Clear existing content (keep the empty TextBlock)
-        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--)
-        {
-            var child = TasksItemsPanel.Children[i];
-            if (child == TasksEmptyTextBlock) continue;
-            TasksItemsPanel.Children.RemoveAt(i);
-        }
-
-        if (groups.Count == 0)
-        {
-            ShowTasksPanelEmpty("No open tasks");
-            return;
-        }
-
-        TasksEmptyTextBlock.Visibility = Visibility.Collapsed;
-
-        const int MaxTaskItems = 7;
-        var itemsRendered = 0;
-
-        foreach (var group in groups)
-        {
-            if (itemsRendered >= MaxTaskItems) break;
-
-            // Priority heading: colored dot + label text
-            var headingRow = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 8, 0, 3)
-            };
-            var dot = new System.Windows.Shapes.Ellipse
-            {
-                Width = 9,
-                Height = 9,
-                Fill = PriorityDotColor(group.Emoji),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 5, 0)
-            };
-            var headingLabel = new TextBlock
-            {
-                Text = group.Label,
-                FontSize = 11,
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-            headingRow.Children.Add(dot);
-            headingRow.Children.Add(headingLabel);
-            TasksItemsPanel.Children.Add(headingRow);
-
-            foreach (var item in group.Items)
-            {
-                if (itemsRendered >= MaxTaskItems) break;
-
-                var row = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(0, 2, 0, 0)
-                };
-                var checkbox = new Border
-                {
-                    Width = 10,
-                    Height = 10,
-                    BorderThickness = new Thickness(1.5),
-                    CornerRadius = new CornerRadius(1),
-                    Background = Brushes.Transparent,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 2, 6, 0),
-                    IsHitTestVisible = false
-                };
-                checkbox.SetResourceReference(Border.BorderBrushProperty, "BodyText");
-                var label = new TextBlock
-                {
-                    Text = item,
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 220
-                };
-                label.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-                row.Children.Add(checkbox);
-                row.Children.Add(label);
-                TasksItemsPanel.Children.Add(row);
-                itemsRendered++;
-            }
-        }
+        _tasksPanelController.Refresh(TasksPanelParser.Parse(lines));
     }
 
     private Brush PriorityDotColor(string emoji) => emoji switch {
@@ -3591,19 +3543,6 @@ public partial class MainWindow : Window
         "🟢" => "TaskPriorityLow",
         _    => "LabelText"
     };
-
-    private void ShowTasksPanelEmpty(string message)
-    {
-        if (TasksEmptyTextBlock is null) return;
-        // Remove all non-empty-text children
-        for (int i = TasksItemsPanel.Children.Count - 1; i >= 0; i--)
-        {
-            if (TasksItemsPanel.Children[i] != TasksEmptyTextBlock)
-                TasksItemsPanel.Children.RemoveAt(i);
-        }
-        TasksEmptyTextBlock.Text = message;
-        TasksEmptyTextBlock.Visibility = Visibility.Visible;
-    }
 
     private async void StartLoopButton_Click(object sender, RoutedEventArgs e)
     {
@@ -13444,7 +13383,7 @@ public partial class MainWindow : Window
             StartLoopButton.IsEnabled = loopExists;
 
         if (CreateEditLoopFileButton is not null)
-            CreateEditLoopFileButton.Content = loopExists ? "📝 Edit Loop File" : "📝 Create Loop File";
+            CreateEditLoopFileButton.Content = "📝 Edit Loop";
     }
 
     private void CreateEditLoopFileButton_Click(object sender, RoutedEventArgs e)
