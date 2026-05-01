@@ -1,4 +1,4 @@
-# Squad Decisions
+﻿# Squad Decisions
 
 ## Active Decisions
 
@@ -1503,3 +1503,789 @@ onPrompt: async (text) => {
 The only future consideration: if RemoteBridge gains a connId parameter on onPrompt, the handler should continue to ignore it (treat all connections as shared) unless a future explicit policy change is made.
 
 **References:** .squad/rc-mobile-architecture.md §Key Decisions #5
+
+
+# SquadDash Architectural Review — April 2026
+
+**Reviewer:** Orion Vale, Lead Architect  
+**Date:** 2026-04-17  
+**Codebase Version:** Post-mainwindow decomposition (v0.9.1 era)  
+**Test Suite Status:** 1,133 tests passing (all green)
+
+---
+
+## Executive Summary
+
+SquadDash is a **Windows WPF desktop application** that provides a native UI for the Squad CLI — an AI agent coordination platform. The architecture is **sound and pragmatic**, with clear separation between the WPF presentation layer, C# backend services, and a TypeScript SDK bridge that shells out to the Node.js-based Squad CLI runtime.
+
+**Overall Grade: B+**
+
+The codebase has undergone significant **architectural refactoring** (MainWindow decomposition from 8,305 → 5,605 lines via extraction of 9 helper classes). The result is a well-organized, testable system with solid engineering discipline. Key strengths include comprehensive test coverage (1,133 passing tests), robust persistence patterns, and a clean bridge architecture between .NET and Node.js.
+
+**Critical concerns:** MainWindow.xaml.cs remains large (5,605 lines), and the WPF code-behind pattern inherently limits testability for UI-intensive logic. The TypeScript bridge (`runPrompt.ts`) is also growing (700+ lines) and would benefit from decomposition. No major technical debt blockers exist, but continued vigilance on file size and responsibility boundaries is required.
+
+---
+
+## 1. Repository Structure & Organization
+
+### Top-Level Layout
+
+```
+SquadDash-public/
+├── SquadDash/              # Main WPF app (net10.0-windows) — 79,158 lines across 143 .cs files
+├── SquadDash.Tests/        # NUnit test suite — 1,133 tests passing
+├── SquadDashLauncher/      # Runtime slot launcher (hot-reload for debug builds)
+├── Squad.SDK/              # TypeScript SDK bridge (@bradygaster/squad-sdk wrapper)
+├── .squad/                 # Squad AI team config (agents, decisions, routing)
+├── Run/                    # A/B runtime slot directories (deployment target)
+├── installer/              # Inno Setup installer scripts
+├── .github/workflows/      # CI/CD (build, test, squad heartbeat, triage)
+├── global.json             # .NET 10 SDK pinning
+├── squad-dash.slnx         # Solution file (3 projects)
+└── package.json            # Root npm config (Squad CLI dev tooling)
+```
+
+**Assessment:** ✅ **Excellent.** Clear separation between app, tests, launcher, and SDK. The `.squad/` directory is a thoughtful convention for storing AI team metadata. The `Run/` slot system (A/B deployment) enables seamless hot-reload during development.
+
+### Project Breakdown
+
+| Project | Framework | Lines | Responsibility |
+|---------|-----------|-------|----------------|
+| `SquadDash` | net10.0-windows, WPF | 79,158 | Main UI, services, Squad CLI integration |
+| `SquadDash.Tests` | net10.0-windows, NUnit | ~20,000 | Unit tests (1,133 tests) |
+| `SquadDashLauncher` | net10.0-windows, console | <500 | Slot deployment & launcher |
+| `Squad.SDK` | TypeScript (ESM) | ~1,500 | Node.js bridge to Squad CLI |
+
+**Observations:**
+- SquadDash is **by far the largest project** (143 .cs files, 79K lines). This is expected for a WPF application.
+- SquadDash.Tests **links source files** from the main project (see `.csproj` `<Compile Include="...">`). This is a **pragmatic pattern** to avoid DLL boundary issues for internal classes but creates maintenance overhead (new files must be manually added to the test project).
+- No shared libraries or cross-project references beyond the launcher. Each project is self-contained.
+
+**Grade: A-**  
+*Deduction: Test project file-linking is fragile and error-prone (easy to forget to add new files).*
+
+---
+
+## 2. Technology Stack & Dependencies
+
+### .NET / C# Stack
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| .NET SDK | 10.0.200-preview | Bleeding-edge (preview build); pinned via `global.json` |
+| WPF | Built-in | Native Windows UI framework |
+| NUnit | 4.4.0 | Test framework (modern, active) |
+| Microsoft.CognitiveServices.Speech | 1.49.0 | Azure Speech SDK for push-to-talk |
+| NAudio | 2.3.0 | Audio processing library |
+| QRCoder | 1.6.0 | QR code generation (MIT license, approved for RC mobile) |
+
+**Assessment:** ✅ **Modern and well-maintained.** The choice of .NET 10 preview is **aggressive but defensible** — the team is clearly comfortable with early adopter risk. All NuGet packages are recent and actively maintained.
+
+**Concern:** .NET 10 is still in preview. The `rollForward: latestMinor` policy in `global.json` helps but may introduce breaking changes. Consider a **migration plan to .NET 10 RTM** once available.
+
+### TypeScript / Node.js Stack
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| TypeScript | 6.0.2 | Bleeding-edge (major version jump from 5.x) |
+| @bradygaster/squad-sdk | 0.9.1 | Core Squad CLI SDK (external dependency) |
+| Node.js | 20 LTS | Required at runtime (checked on startup) |
+| ESLint | 10.1.0 | Linting (configured) |
+| patch-package | 8.0.1 | Runtime patching for Windows compatibility |
+
+**Assessment:** ⚠️ **Bleeding-edge with risks.** TypeScript 6.0.2 is **very new** (released 2024). The Squad SDK is at 0.9.1 (pre-1.0), signaling **API instability**. The use of `patch-package` indicates the team has already encountered compatibility issues with the upstream SDK.
+
+**Concern:** The Squad SDK is a **hard external dependency** outside the team's control. The 0.9.x version suggests the API is not yet stable. A breaking change in the SDK would require immediate response.
+
+**Recommendation:** Pin the Squad SDK to a **specific patch version** (e.g., `0.9.1` not `^0.9.1`) to prevent unexpected breakage. Monitor the Squad CLI release notes closely.
+
+### Package Management
+
+- **NuGet:** Standard .NET package management. No `packages.config` (modern PackageReference style). ✅
+- **npm:** Two `package.json` files (root + Squad.SDK). Root is for tooling only (dev dependencies). SDK has 50+ transitive dependencies. ✅
+- **Overrides:** `protobufjs: ^7.5.5` override in both package.json files (security fix for CVE-2023-36665). ✅ **Good hygiene.**
+
+**Grade: B+**  
+*Strengths: Modern package management, security awareness. Deductions: Bleeding-edge TypeScript and .NET versions, pre-1.0 external SDK dependency.*
+
+---
+
+## 3. Architecture Patterns
+
+### Primary Pattern: WPF Code-Behind with Service Delegation
+
+SquadDash **explicitly avoids MVVM** in favor of a **code-behind pattern with service extraction**. This is documented in `decisions.md` (2026-04-17):
+
+> **Decision:** Extract into focused helper classes using constructor injection with `Action<>`/`Func<>` delegates. Preserve the existing code-behind pattern — no MVVM migration.
+>
+> **Rationale:** No ICommand/ViewModel infrastructure exists in the project. Introducing MVVM would multiply the change surface and require a parallel refactor of every data binding and event handler. Plain C# service objects with delegate injection achieve the same structural clarity (single responsibility, testable units) at a fraction of the risk.
+
+**Pattern in Practice:**
+
+```csharp
+// MainWindow owns all state
+private bool _isPromptRunning;
+private AgentThreadRegistry _agentThreadRegistry;
+
+// Helper class receives delegates, not state copies
+var pec = new PromptExecutionController(
+    executePrompt:    ExecutePromptAsync,
+    getIsRunning:     () => _isPromptRunning,
+    setIsRunning:     (val) => _isPromptRunning = val,
+    syncAgentCards:   SyncAgentCards,
+    // ... 40+ parameters
+);
+```
+
+**Assessment:** This is a **pragmatic architectural decision**. MVVM introduces significant overhead (RelayCommand, ViewModels, PropertyChanged boilerplate) for a project that started as a simple UI wrapper. The delegate pattern achieves **testability** without the MVVM tax.
+
+**Concerns:**
+1. **PromptExecutionController has 40+ constructor parameters** (acknowledged as a code smell in history.md). This is a symptom of **incomplete decomposition** — the class still owns too many concerns.
+2. **MainWindow remains at 5,605 lines** (down from 8,305, but still large). Many responsibilities remain in the god-object.
+
+**Patterns Observed:**
+
+| Pattern | Usage | Example |
+|---------|-------|---------|
+| Service Locator (legacy) | Being phased out | `WorkspacePaths` static (replaced by `IWorkspacePaths`) |
+| Constructor Injection | Modern classes | `PromptExecutionController`, `AgentThreadRegistry` |
+| Delegate Callbacks | UI orchestration | `Action<>`, `Func<>` for MainWindow sync |
+| Observer (events) | SDK bridge | `SquadSdkProcess.EventReceived` |
+| Repository (store pattern) | Persistence | `ApplicationSettingsStore`, `WorkspaceConversationStore` |
+| Command Pattern | Host commands | `HostCommandRegistry`, `IHostCommandHandler` |
+
+**Grade: B**  
+*Strengths: Clear rationale for avoiding MVVM, service extraction underway. Deductions: MainWindow still too large, 40-parameter constructor anti-pattern.*
+
+---
+
+## 4. Layer Boundaries & Contracts
+
+### Architectural Layers
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  WPF Presentation Layer (MainWindow, XAML, Controls)         │
+│  - Event handlers, data binding, UI state                     │
+│  - Delegates to service classes for business logic            │
+└───────────────────────────────────────────────────────────────┘
+                          ↓
+┌───────────────────────────────────────────────────────────────┐
+│  C# Service Layer (Helper Classes, Stores)                    │
+│  - PromptExecutionController, AgentThreadRegistry             │
+│  - ApplicationSettingsStore, WorkspaceConversationStore       │
+│  - PushNotificationService, LoopController                    │
+└───────────────────────────────────────────────────────────────┘
+                          ↓
+┌───────────────────────────────────────────────────────────────┐
+│  Bridge Layer (SquadSdkProcess)                               │
+│  - NDJSON stdin/stdout communication with Node.js process     │
+│  - Request/response serialization (JSON)                      │
+│  - Event stream parsing                                       │
+└───────────────────────────────────────────────────────────────┘
+                          ↓
+┌───────────────────────────────────────────────────────────────┐
+│  Squad.SDK (TypeScript, Node.js)                              │
+│  - runPrompt.ts — request dispatcher                          │
+│  - Wraps @bradygaster/squad-sdk API                           │
+│  - Emits NDJSON events back to SquadSdkProcess                │
+└───────────────────────────────────────────────────────────────┘
+                          ↓
+┌───────────────────────────────────────────────────────────────┐
+│  Squad CLI (@bradygaster/squad-sdk)                           │
+│  - External npm package (0.9.1)                               │
+│  - AI agent coordination, conversation management             │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### Key Contracts
+
+#### 1. **IWorkspacePaths** (Infrastructure Contract)
+
+```csharp
+internal interface IWorkspacePaths {
+    string ApplicationRoot { get; }
+    string SquadSdkDirectory { get; }
+    string RunRootDirectory { get; }
+    string AgentImageAssetsDirectory { get; }
+    string RoleIconAssetsDirectory { get; }
+    string ScreenshotsDirectory { get; }
+}
+```
+
+**Status:** ✅ **Well-designed.** Replaces the legacy `WorkspacePaths` static service locator. Migration is **partially complete** (20+ call sites remain on the static class per history.md).
+
+#### 2. **SquadSdkProcess Bridge API**
+
+- **Request Types:** `PromptRequest`, `DelegateRequest`, `NamedAgentRequest`, `AbortRequest`, `RunLoopRequest`, etc. (15+ types)
+- **Event Stream:** `SquadSdkEvent` with 100+ properties (covers all event types from the SDK)
+- **Communication:** Stdin/stdout via NDJSON (newline-delimited JSON)
+
+**Assessment:** ⚠️ **Event class is a God Object.** `SquadSdkEvent.cs` has **142 lines and 114 properties**. This is a **discriminated union masquerading as a POCO**. Different event types use different subsets of properties (e.g., `RcPort` only for `rc_started`, `LoopIteration` only for `loop_iteration`).
+
+**Alternative:** Use a **base class + derived event types** or a **union type** (requires C# 10+ discriminated unions proposal). The current design works but is **semantically unclear**.
+
+#### 3. **Host Command System**
+
+```csharp
+internal sealed class HostCommandRegistry {
+    IReadOnlyList<HostCommandDescriptor> GetCommands(string? workspaceFolder);
+    ValidationResult Validate(HostCommandInvocation, HostCommandDescriptor);
+    string BuildCatalogInstruction(string? workspaceFolder);
+}
+
+internal interface IHostCommandHandler {
+    Task<HostCommandResult> ExecuteAsync(HostCommandInvocation invocation);
+}
+```
+
+**Status:** ✅ **Excellent.** Clean extensibility model. Built-in commands (start_loop, stop_loop, open_panel, etc.) + optional workspace-specific extensions loaded from `.squad/host-commands.json`. Commands can inject results back into the AI context (e.g., `get_queue_status`).
+
+#### 4. **Store Persistence Contracts**
+
+All stores follow the **same atomic-write pattern**:
+
+```csharp
+// 1. Acquire cross-process mutex
+using var mutex = AcquireMutex();
+
+// 2. Load current state
+var current = LoadCore();
+
+// 3. Modify snapshot
+var updated = current with { ... };
+
+// 4. Atomic write via temp file
+JsonFileStorage.AtomicWrite(path, updated);
+```
+
+**Stores:** `ApplicationSettingsStore`, `WorkspaceConversationStore`, `PromptHistoryStore`, `RestartCoordinatorStateStore`, `RuntimeSlotStateStore`.
+
+**Assessment:** ✅ **Robust and consistent.** The pattern is **duplicated 5 times** (noted in history.md as technical debt) but is correct. The use of **mutex-protected atomic writes** prevents corruption in multi-instance scenarios.
+
+**Concern (from history.md):**
+> 5 store classes each duplicate the same atomic-write boilerplate. Pattern: write .tmp → copy/move to final. Mutex strategy varies by store.
+
+**Recommendation:** Extract a **generic `AtomicStore<T>` base class** to eliminate duplication. The `JsonFileStorage.AtomicWrite` helper is a good start but doesn't cover the mutex logic.
+
+### Layer Violations
+
+**Found 1 violation (already fixed):**
+
+> Layer violation: WorkspaceConversationStore.NormalizeTurn called ToolTranscriptFormatter.BuildDetailContent in the inferred-completion branch. Root cause: DetailContent is persisted to JSON, so the store needed to build it, but reached into the display layer to do so.
+
+**Fix applied:** Created `ToolTranscriptData.cs` (data layer) with `ToolTranscriptDetailContent.Build()` method. Both store and formatter now call the data-layer method. ✅
+
+**Grade: A-**  
+*Strengths: Clean layering, well-defined contracts, robust bridge architecture. Deductions: SquadSdkEvent god-object, store pattern duplication.*
+
+---
+
+## 5. Code Quality Signals
+
+### Structural Quality
+
+**Positive Signals:**
+- ✅ **Nullable reference types enabled** (`<Nullable>enable</Nullable>`) — reduces null-reference bugs
+- ✅ **Implicit usings enabled** — reduces boilerplate
+- ✅ **Consistent naming conventions** (PascalCase for public, _camelCase for private fields)
+- ✅ **XML doc comments on public APIs** (e.g., `PromptExecutionController`, `IWorkspacePaths`)
+- ✅ **Minimal file-scoped namespaces** in newer files (e.g., `namespace SquadDash;`)
+- ✅ **Constants for magic values** (e.g., `MultiLineHintCooldown`, `MaxRecentFolders`)
+
+**Negative Signals:**
+- ⚠️ **Large files:** MainWindow.xaml.cs (5,605 lines), runPrompt.ts (~700 lines)
+- ⚠️ **40-parameter constructor** in PromptExecutionController (acknowledged code smell)
+- ⚠️ **Mutable public collections** in extracted classes (partially fixed per DEL-2 completion in history.md)
+
+### Error Handling
+
+**Pattern observed:**
+
+```csharp
+// App.xaml.cs — Global exception handlers
+DispatcherUnhandledException += App_DispatcherUnhandledException;
+AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+
+// Emergency save on crash
+private void TryEmergencySave() {
+    try {
+        if (MainWindow is MainWindow w)
+            w.Dispatcher.Invoke(w.EmergencySave);
+    }
+    catch (Exception ex) {
+        SquadDashTrace.Write("Unhandled", $"TryEmergencySave failed: {ex.Message}");
+    }
+}
+```
+
+**Assessment:** ✅ **Excellent.** The app has **comprehensive crash recovery**:
+- Global exception handlers at 3 levels (Dispatcher, AppDomain, TaskScheduler)
+- **Emergency save** on unhandled exceptions (prevents data loss)
+- **Graceful degradation** (e.g., swallow `ObjectDisposedException` from disposed CancellationTokenSources)
+
+**Logging:** All critical paths log to `SquadDashTrace.Write(category, message)`. Trace window available in UI for live diagnostics. ✅
+
+### Security
+
+**Positive:**
+- ✅ **No hardcoded credentials** (Azure Speech keys stored in user settings, not source)
+- ✅ **Cross-process locking** via named mutexes (prevents workspace corruption)
+- ✅ **Atomic file writes** (prevents partial-write corruption)
+- ✅ **Security overrides** in package.json (`protobufjs: ^7.5.5` for CVE fix)
+
+**Concerns:**
+- ⚠️ **Push notification secrets** (Phase 2) will need DPAPI or environment variables (already flagged in history.md)
+- ⚠️ **No input sanitization** visible for file paths (assumes Windows path validation is sufficient)
+
+**Grade: A-**  
+*Strengths: Robust error handling, comprehensive logging, crash recovery. Deductions: Large files, 40-param constructor.*
+
+---
+
+## 6. Testing Architecture
+
+### Test Suite Structure
+
+```
+SquadDash.Tests/
+├── 1,133 tests (all passing)
+├── NUnit 4.4.0
+├── File linking pattern (136 linked source files from SquadDash/)
+└── Test coverage for:
+    - Helper classes: ✅ ColorUtilities, AgentThreadRegistry, BackgroundTaskPresenter, TranscriptConversationManager
+    - Stores: ✅ ApplicationSettingsStore, WorkspaceConversationStore, PromptHistoryStore
+    - Services: ✅ LoopController, PromptQueue, HostCommandExecutor, IntelliSenseController
+    - Parsers: ✅ LoopMdParser, TasksPanelParser, QuickReplyOptionParser
+    - Policies: ✅ AgentRosterVisibilityPolicy, RoutingIssueWorkflow, BackgroundWorkClassifier
+```
+
+**Test Metrics:**
+- **1,133 tests passing** (0 failures)
+- **Suite runtime:** ~6 seconds (fast)
+- **Coverage gaps (known):** MarkdownDocumentRenderer, PromptExecutionController (require WPF dispatcher — noted in history.md as deferred)
+
+**Assessment:** ✅ **Excellent test discipline.** The suite is **comprehensive, fast, and green**. The team **added 46 tests** for the 9 extracted helper classes immediately after refactoring (per DEL-1 in history.md).
+
+### Testability Patterns
+
+**Observed patterns:**
+
+1. **Constructor injection** — Helper classes accept all dependencies via constructor, making them trivially mockable
+2. **Pure functions** — Utilities like `ColorUtilities`, parsers, and policies are side-effect-free
+3. **Abstraction via delegates** — Helper classes don't depend on MainWindow (they receive `Action<>`/`Func<>` instead)
+4. **Test fixtures** — `TestWorkspace.cs` provides isolated temp directories for file-based tests
+
+**Example (from ColorUtilitiesTests.cs):**
+
+```csharp
+[Test]
+public void RgbToHsl_Red_ReturnsZeroHue() {
+    var (h, s, l) = ColorUtilities.RgbToHsl(255, 0, 0);
+    Assert.That(h, Is.EqualTo(0).Within(0.01));
+    Assert.That(s, Is.EqualTo(1).Within(0.01));
+    Assert.That(l, Is.EqualTo(0.5).Within(0.01));
+}
+```
+
+**Concerns:**
+- ⚠️ **Test project requires manual file linking** (every new source file must be added to `.csproj`). This is error-prone.
+- ⚠️ **WPF-dependent logic is hard to test** (MarkdownDocumentRenderer, PromptExecutionController). The team deferred these tests but acknowledged the gap.
+
+**Grade: A**  
+*Strengths: Comprehensive coverage, fast suite, disciplined test-first culture. Deduction: WPF test gaps.*
+
+---
+
+## 7. Deployment & Configuration
+
+### Build & Deployment
+
+**Build System:**
+- **.NET SDK 10.0** (preview)
+- **MSBuild targets:** Custom targets in `SquadDash.csproj` for:
+  - Git commit count → version number (`AppVersion.g.cs`)
+  - Speech SDK native DLL flattening (P/Invoke fix)
+  - Run-slot deployment (Debug builds only)
+
+**Hot-Reload System:**
+
+```
+SquadDash.App.exe (main binary)
+      ↓
+SquadDash.exe (launcher)
+      ↓ reads Run/active-slot.json
+      ↓ spawns Run/A/SquadDash.App.exe or Run/B/SquadDash.App.exe
+      
+On rebuild:
+1. Build writes to inactive slot (B)
+2. Launcher exe calls --deploy-build-output
+3. Launcher updates active-slot.json → B
+4. Next launch uses Run/B/
+```
+
+**Assessment:** ✅ **Innovative.** The A/B slot system enables **zero-downtime rebuilds** during development. This is a **non-standard but effective pattern** for desktop apps.
+
+### Configuration Management
+
+**Configuration Layers:**
+
+1. **Global (machine-wide):** `%LocalAppData%\SquadDash\settings.json`
+   - User name, API keys, theme, recent folders
+   - Managed by `ApplicationSettingsStore`
+
+2. **Workspace-specific:** `%LocalAppData%\SquadDash\workspaces\<hash>\conversation.json`
+   - Conversation history, session state, turn records
+   - Managed by `WorkspaceConversationStore`
+
+3. **Squad SDK session config:** `%LocalAppData%\SquadDash\workspaces\<hash>\sdk-config\`
+   - Squad CLI runtime state (opaque to SquadDash)
+
+**Assessment:** ✅ **Well-organized.** Clear separation between global and workspace-specific settings. The use of **hashed workspace paths** prevents collisions.
+
+### Installer
+
+```
+installer/
+├── SquadDash.iss    (Inno Setup script)
+└── build-installer.ps1
+```
+
+**Assessment:** ⚠️ **Minimal but functional.** Inno Setup is a standard choice for Windows installers. No Chocolatey, WinGet, or MSI installer observed. Acceptable for early-stage project.
+
+### CI/CD
+
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - Checkout
+      - Setup .NET 10.0.x
+      - Setup Node 20 (with npm cache)
+      - dotnet restore
+      - dotnet build --no-incremental
+      - dotnet test --verbosity normal
+```
+
+**Assessment:** ✅ **Simple and effective.** The CI pipeline is **minimal but sufficient**:
+- Runs on every push/PR to `main`
+- Verifies build + test suite (1,133 tests)
+- Caches npm dependencies
+
+**Additional workflows:**
+- `squad-heartbeat.yml` — Squad AI team health check
+- `squad-issue-assign.yml` — Auto-assign issues to Squad agents
+- `squad-triage.yml` — Auto-triage new issues
+- `sync-squad-labels.yml` — Sync GitHub labels with Squad team structure
+
+**Grade: B+**  
+*Strengths: Innovative hot-reload, robust config management, functional CI. Deductions: No MSI/Chocolatey installer, minimal CI (no code coverage metrics, no publish step).*
+
+---
+
+## 8. Risks & Concerns
+
+### Critical Risks
+
+| # | Risk | Severity | Mitigation Status |
+|---|------|----------|-------------------|
+| **R1** | **.NET 10 preview instability** | HIGH | Pin SDK version via `global.json`; monitor for RTM |
+| **R2** | **Squad SDK 0.9.x breaking changes** | HIGH | Pin to patch version (`0.9.1` not `^0.9.1`) |
+| **R3** | **MainWindow still 5,605 lines** | MEDIUM | Ongoing decomposition (40% reduction achieved) |
+| **R4** | **PromptExecutionController 40-param constructor** | MEDIUM | Deferred pending DEL-2/3/4 completion |
+| **R5** | **No test coverage for WPF-heavy classes** | MEDIUM | Deferred (requires dispatcher seam) |
+| **R6** | **Store pattern duplication (5 classes)** | LOW | Acknowledged tech debt; low priority |
+| **R7** | **SquadSdkEvent god-object (114 properties)** | LOW | Works but semantically unclear |
+
+### Technical Debt (from history.md)
+
+**Backlog items:**
+
+1. **DEL-3:** Migrate `_isPromptRunning` ownership to `PromptExecutionController` (assigned to Lyra Morn) — **IN PROGRESS**
+2. **DEL-5:** Reduce `TranscriptConversationManager` leaky setters (assigned to Lyra Morn) — **IN PROGRESS**
+3. **Store boilerplate extraction** (no owner assigned) — **DEFERRED**
+4. **Markdown duplication cleanup** (MainWindow still has AppendInlineMarkdown, TryReadMarkdownLink, etc.) — **DEFERRED**
+
+**Assessment:** ✅ Technical debt is **documented and tracked**. The team uses a **squad-driven workflow** (.squad/decisions.md, .squad/agents/, .squad/tasks.md) to manage architectural evolution.
+
+### Security Concerns
+
+1. **Push notification secrets (Phase 2):** Ntfy.sh requires no secrets, but Pushover/Twilio will. Recommendation: Use **DPAPI** or **Azure Key Vault** (flagged in history.md). ⚠️
+2. **No code signing:** Installer is unsigned (Windows SmartScreen warnings). ⚠️
+3. **Node.js dependency:** App shells out to `node`, `npm`, `npx` at runtime — requires user trust in Node.js supply chain. ⚠️
+
+### Performance Concerns
+
+**None observed.** The architecture is **async-first** (`Task`-based APIs everywhere), and the test suite runs in 6 seconds. No evidence of performance bottlenecks.
+
+### Scalability Concerns
+
+**Conversation store limits:**
+- Max turns: 200
+- Max agent threads: 80
+- Retention: 14 days
+
+**Assessment:** ✅ These limits are **reasonable for a desktop app**. The store will auto-prune old data to prevent unbounded growth.
+
+**Grade: B**  
+*Strengths: Well-documented risks, tracked tech debt. Deductions: High-severity external dependencies (.NET 10 preview, Squad SDK pre-1.0).*
+
+---
+
+## 9. Recommendations
+
+### Immediate (Next Sprint)
+
+1. **Pin Squad SDK to exact version** (`"@bradygaster/squad-sdk": "0.9.1"` not `^0.9.1`)  
+   **Rationale:** Pre-1.0 dependency; API instability risk is high.
+
+2. **Extract generic `AtomicStore<T>` base class**  
+   **Rationale:** Eliminate boilerplate duplication across 5 store classes.  
+   **Files:** `ApplicationSettingsStore`, `WorkspaceConversationStore`, `PromptHistoryStore`, `RestartCoordinatorStateStore`, `RuntimeSlotStateStore`
+
+3. **Complete DEL-3 (migrate `_isPromptRunning` to PEC)**  
+   **Rationale:** Already assigned to Lyra Morn; reduces MainWindow field count.
+
+### Short-Term (Next 3 Months)
+
+4. **Decompose `runPrompt.ts` (700+ lines)**  
+   **Rationale:** TypeScript bridge is growing; extract request handlers into separate modules.  
+   **Suggestion:** `handlers/promptHandler.ts`, `handlers/loopHandler.ts`, `handlers/rcHandler.ts`
+
+5. **Replace `SquadSdkEvent` god-object with discriminated union**  
+   **Rationale:** 114 properties in a single class obscures which properties are valid for each event type.  
+   **Suggestion:** Use C# 10+ discriminated unions or base + derived event classes.
+
+6. **Add code coverage metrics to CI**  
+   **Rationale:** 1,133 tests but no visibility into actual coverage percentage.  
+   **Tool:** `dotnet test --collect:"XPlat Code Coverage"` + Coverlet + Codecov.io
+
+7. **Migrate to .NET 10 RTM when available**  
+   **Rationale:** Preview SDK is a deployment risk; RTM will be more stable.
+
+### Long-Term (Next 6-12 Months)
+
+8. **Extract WPF-specific logic into testable presenters**  
+   **Rationale:** MarkdownDocumentRenderer and PromptExecutionController are untested due to WPF dispatcher dependency.  
+   **Pattern:** MVP (Model-View-Presenter) or thin WPF adapter over testable business logic.
+
+9. **Consider MVVM migration for new features**  
+   **Rationale:** Code-behind is pragmatic for legacy code but limits testability. New features (e.g., preferences panels) would benefit from MVVM.  
+   **Constraint:** Do not retrofit existing code; apply MVVM only to greenfield work.
+
+10. **Add code signing certificate**  
+    **Rationale:** Eliminate Windows SmartScreen warnings for installer.
+
+11. **Publish to Chocolatey and/or WinGet**  
+    **Rationale:** Improve discoverability and installation experience.
+
+### Research Items
+
+12. **Evaluate TypeScript 5.x LTS** (downgrade from 6.0.2)  
+    **Rationale:** TypeScript 6.0 is very new; 5.x has broader ecosystem support.  
+    **Action:** Assess breaking changes before deciding.
+
+13. **Monitor Squad CLI roadmap**  
+    **Rationale:** SquadDash is tightly coupled to Squad SDK API. A major Squad CLI refactor would impact SquadDash.  
+    **Action:** Establish communication channel with Squad CLI maintainers.
+
+---
+
+## 10. Final Assessment
+
+### Strengths
+
+1. ✅ **Comprehensive test suite** (1,133 tests, all green)
+2. ✅ **Clean layer separation** (WPF → Services → Bridge → Squad SDK)
+3. ✅ **Robust persistence** (atomic writes, mutex-protected, crash recovery)
+4. ✅ **Pragmatic architectural decisions** (code-behind over MVVM, documented rationale)
+5. ✅ **Strong engineering discipline** (nullable types, logging, error handling, CI)
+6. ✅ **Innovative hot-reload system** (A/B slots for zero-downtime rebuilds)
+
+### Weaknesses
+
+1. ⚠️ **External dependency risk** (.NET 10 preview, Squad SDK 0.9.x pre-1.0)
+2. ⚠️ **Large files** (MainWindow 5,605 lines, runPrompt.ts ~700 lines)
+3. ⚠️ **Constructor parameter explosion** (PromptExecutionController 40 params)
+4. ⚠️ **Test gaps** (WPF-heavy classes deferred)
+5. ⚠️ **Store pattern duplication** (5 classes with identical mutex/atomic-write logic)
+
+### Overall Grade: **B+**
+
+**Summary:** SquadDash is a **well-architected, pragmatic system** with solid engineering practices. The recent decomposition effort (MainWindow 8,305 → 5,605 lines) demonstrates **architectural hygiene and discipline**. The test suite is exemplary. The bridge architecture is clean and extensible.
+
+**Primary risk:** External dependency on pre-1.0 Squad CLI and .NET 10 preview. These are **manageable but require vigilance**.
+
+**Recommended trajectory:** Continue decomposition (MainWindow target: <4,000 lines), extract store boilerplate, pin Squad SDK version, and add code coverage metrics. The system is **production-ready** for early adopters but should stabilize external dependencies before general release.
+
+---
+
+**End of Report**
+
+**Next Steps:**
+1. Review this document with the team
+2. Prioritize recommendations (Immediate > Short-Term > Long-Term)
+3. Create work items for actionable recommendations
+4. Schedule follow-up review in 3 months
+
+**Reviewer Signature:**  
+Orion Vale, Lead Architect  
+2026-04-17
+
+
+# Decision: AI Command System Architecture
+
+**Proposed By:** Orion Vale (Lead Architect)  
+**Date:** 2026-05-01  
+**Status:** Inbox - Awaiting Review  
+**Impact:** High (affects command extension, AI integration reliability)
+
+## Problem
+
+The SquadDash AI-to-app command system has no centralized architecture:
+
+1. **Documentation Injection (Loop-Only)**: Commands documented only within loop execution context (LoopController.cs:160-198 BuildAugmentedPrompt), not globally available to AI
+2. **Fragile Parsing**: ExtractSquadashPayload uses regex instead of System.Text.Json for command extraction
+3. **No Command Registry**: No discoverable registry, no metadata structure, no scope management
+4. **Single Command Per Response**: Can only extract first matching command; multiple commands not supported
+5. **Scattered Implementation**: Commands hardcoded in MainWindow.xaml.cs (stop_loop, start_loop at lines 3842, 3854)
+
+## Recommended Solution
+
+Implement **Unified CommandRegistry Pattern**:
+
+```csharp
+public enum CommandScope { Global, LoopOnly, BatchOnly }
+
+public class CommandDefinition
+{
+    public string Name { get; set; }
+    public CommandScope Scope { get; set; }
+    public List<CommandParameter> Parameters { get; set; }
+    public string Documentation { get; set; }
+}
+
+public interface ICommandRegistry
+{
+    void Register(CommandDefinition definition, Func<CommandContext, Task> handler);
+    IEnumerable<CommandDefinition> GetDiscoverableCommands(CommandScope scope);
+    Task<IEnumerable<CommandResult>> ExtractAndExecuteCommands(string aiResponse, CommandContext context);
+}
+```
+
+## Benefits
+
+- **Discoverability**: AI can query available commands per scope at loop start
+- **Robustness**: JSON-based extraction replaces fragile regex
+- **Extensibility**: Unified interface for new command addition
+- **Multi-Command**: Support multiple commands per AI response
+- **Documentation**: Commands self-document via registry metadata
+
+## Related Items
+
+- Command locations: MainWindow.xaml.cs:3842, MainWindow.xaml.cs:3854
+- Parser: PushNotificationService.ExtractSquadashPayload (uses regex)
+- Doc injection: LoopController.cs:160-198
+
+
+# Test Suite Analysis — 2026-05-01
+
+**Author:** Vesper Knox  
+**Date:** 2026-05-01  
+**Status:** Two test failures identified; no production code bugs
+
+---
+
+## Test Run Summary
+
+**Total:** 1041 tests  
+**Passed:** 1038  
+**Failed:** 2  
+**Skipped:** 0  
+**Duration:** ~7.3 seconds
+
+---
+
+## Failures
+
+### 1. VoiceInsertionHeuristicsTests.IsRightContextRequiresTrailingSpace_StartsWithComma_ReturnsTrue
+
+**Location:** `SquadDash.Tests\VoiceInsertionHeuristicsTests.cs:328`
+
+**Failure:**
+```
+Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(", which"), Is.True)
+  Expected: True
+  But was:  False
+```
+
+**Root Cause:**  
+Production code (`VoiceInsertionHeuristics.cs:252`) explicitly excludes commas from requiring trailing space:
+```csharp
+return rightContext.Length > 0
+    && rightContext[0] != ')'
+    && ".,;!?:".IndexOf(rightContext[0]) < 0  // comma is in the exclusion list
+    && !char.IsWhiteSpace(rightContext[0]);
+```
+
+This is **intentional behavior** documented in the method's XML comment: "The punctuation exception prevents `"word ,rest"` — punctuation attaches to the word on its left, not the word on its right."
+
+**Diagnosis:** Test is wrong. Production code correctly implements the documented specification.
+
+**Recommended Action:** Update test to expect `false`, or if requirements changed, remove comma from the exclusion list and update the doc comment.
+
+---
+
+### 2. WorkspaceConversationStoreTests.Save_SortsTurnsChronologicallyBeforePersisting
+
+**Location:** `SquadDash.Tests\WorkspaceConversationStoreTests.cs:228`
+
+**Failure:**
+```
+Multiple failures or warnings in test:
+  1) Assert.That(savedPrompts, Is.EqualTo(new[] { "Show me Lyra's full plan", "/tasks" }))
+     Expected is <System.String[2]>, actual is <System.String[0]>
+     Missing:  < "Show me Lyra's full plan", "/tasks" >
+
+  2) Assert.That(loadedPrompts, Is.EqualTo(new[] { "Show me Lyra's full plan", "/tasks" }))
+     Expected is <System.String[2]>, actual is <System.String[0]>
+     Missing:  < "Show me Lyra's full plan", "/tasks" >
+```
+
+**Root Cause:**  
+Test creates turn records with a hardcoded timestamp from April 16, 2026:
+```csharp
+var promptStartedAt = new DateTimeOffset(2026, 4, 16, 17, 45, 0, TimeSpan.FromHours(-4));
+```
+
+`WorkspaceConversationStore.NormalizeState` applies a **14-day retention window**:
+```csharp
+var cutoff = now - RetentionPeriod;  // RetentionPeriod = TimeSpan.FromDays(14)
+var turns = state.Turns.Where(turn => turn.Timestamp >= cutoff) // ...
+```
+
+Since the test runs in late 2024/early 2025, the April 2026 date is **in the past** relative to `now`, making the turns more than 14 days old. They're filtered out during normalization, resulting in an empty `Turns` array.
+
+**Diagnosis:** Test data is stale. This is a test hygiene issue, not a production code bug.
+
+**Recommended Action:** Replace hardcoded 2026 timestamps with relative dates:
+```csharp
+var promptStartedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+var localCommandStartedAt = promptStartedAt.AddMinutes(1);
+```
+
+---
+
+## Pattern Identified
+
+Both failures are **test maintenance issues**, not production code defects:
+1. Test expectations out of sync with documented production behavior
+2. Test fixtures using stale hardcoded dates instead of relative timestamps
+
+**Recommendation for Vesper Knox workflow:**
+- When writing new tests, prefer `DateTimeOffset.UtcNow.Add*` over hardcoded future dates
+- Keep test assertions aligned with production code doc comments
+- Run the full suite periodically (e.g., before major releases) to catch drift

@@ -30,7 +30,7 @@
 
 ## 🟡 Mid Priority
 
-- [ ] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
+- [x] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
   After smoke-test passes: create GitHub Release `v1.0.0`, attach the installer `.exe` and its
   SHA256 hash. The public download URL is required for `wingetcreate`.
   **Blocked by:** smoke-test passing.
