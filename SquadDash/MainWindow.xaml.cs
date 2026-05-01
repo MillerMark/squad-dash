@@ -6087,6 +6087,25 @@ public partial class MainWindow : Window
         }
     }
 
+    private void PowerShellMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string workingDir = _currentWorkspace?.FolderPath ?? _workspacePaths.ApplicationRoot;
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-NoExit",
+                WorkingDirectory = workingDir,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(PowerShellMenuItem_Click), ex);
+        }
+    }
+
     private async void RemoteAccessMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -13279,6 +13298,16 @@ public partial class MainWindow : Window
         };
         personalSquadMenuItem.Click += PersonalSquadMenuItem_Click;
         WorkspaceMenuItem.Items.Add(personalSquadMenuItem);
+
+        AddWorkspaceMenuSeparator();
+
+        var powershellMenuItem = new MenuItem
+        {
+            Header = "PowerShell",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        powershellMenuItem.Click += PowerShellMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(powershellMenuItem);
 
         ConfigureInboxWatcher(Path.Combine(squadRoot, "decisions", "inbox"));
         UpdateInteractiveControlState();
