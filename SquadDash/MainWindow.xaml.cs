@@ -13010,8 +13010,10 @@ public partial class MainWindow : Window
             // A crash or kill signal never reaches this handler, so the flag also stays true there.
             if (_settingsSnapshot.LoopActiveOnExit && !_restartPending)
                 _settingsSnapshot = _settingsStore.SaveLoopActive(false);
-            if (_settingsSnapshot.RemoteAccessActiveOnExit && !_restartPending)
-                _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
+            // RC is intentionally NOT cleared on clean shutdown — we always want RC to auto-resume
+            // on the next launch with the same token so the phone's saved link keeps working.
+            // Users who want to stop RC should use "Stop Remote Access" explicitly (which clears
+            // RemoteAccessActiveOnExit via HandleRcStopped).
             _instanceActivationChannel.Stop();
             // If a queued item is selected, the prompt box shows that item's text while the real
             // draft is stashed in _queuePreEditDraft. Switch back to Active Draft first so that
