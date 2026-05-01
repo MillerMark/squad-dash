@@ -115,7 +115,7 @@ internal sealed class CommitApprovalPanel {
         };
 
         var menu = new ContextMenu();
-        var rejectItem = new MenuItem { Header = "Reject" };
+        var rejectItem = new MenuItem { Header = $"Reject {DescriptionPreview(item.Description)}" };
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
         row.ContextMenu = menu;
@@ -260,6 +260,17 @@ internal sealed class CommitApprovalPanel {
         _rejectedPanel.Children.Remove(row);
         InsertSorted(_needsApprovalPanel, BuildRow(updated), updated);
         _onItemChanged(updated);
+    }
+
+    /// <summary>Returns the first 3 words of <paramref name="text"/> followed by "…",
+    /// capped at 35 characters total (including the ellipsis).</summary>
+    private static string DescriptionPreview(string text) {
+        const int maxLen = 35;
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var preview = string.Join(" ", words.Take(3));
+        if (preview.Length > maxLen - 1)
+            preview = preview[..(maxLen - 1)];
+        return preview + "…";
     }
 
     /// <summary>Inserts <paramref name="row"/> into <paramref name="panel"/> so that items remain
