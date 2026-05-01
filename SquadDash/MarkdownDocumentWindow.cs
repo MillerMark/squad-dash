@@ -296,7 +296,7 @@ internal sealed class MarkdownDocumentWindow : Window {
 
         document.WorkingText = editorTextBox.Text;
         document.IsDirty = !string.Equals(document.WorkingText, document.SavedText, StringComparison.Ordinal);
-        RenderPreview(document);
+        RenderPreview(document, preserveScroll: true);
         UpdateChrome();
     }
 
@@ -579,7 +579,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         File.WriteAllText(document.FilePath, document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         document.SavedText = document.WorkingText;
         document.IsDirty = false;
-        RenderPreview(document);
+        RenderPreview(document, preserveScroll: true);
         UpdateChrome($"Saved {document.FileName} at {DateTime.Now:t}");
     }
 
