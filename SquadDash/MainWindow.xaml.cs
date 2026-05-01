@@ -3658,6 +3658,12 @@ public partial class MainWindow : Window
     private static readonly Regex _committedSuffixRe =
         new(@"[,;.]?\s+committed\s+[0-9a-f]{5,}\S*\.?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Matches "Committed <sha><punct> " at the START of an approval description.
+    // e.g. "Committed d2d48a8: Fixed login bug" → "Fixed login bug"
+    // SHA is [0-9a-f]{5,}; followed by optional punctuation and a space.
+    private static readonly Regex _committedPrefixRe =
+        new(@"^committed\s+[0-9a-f]{5,}[^\w\s]*\s+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     // Matches " as <commit-code><punctuation>" at the end of a notification summary.
     // e.g. "Fixed the login bug as abc1234.", "Refactored auth as 3f9a2bc,"
     private static readonly Regex _asCommitSuffixRe =
@@ -3666,6 +3672,8 @@ public partial class MainWindow : Window
     private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
         if (!string.IsNullOrWhiteSpace(notifSummary)) {
             var s = notifSummary.Trim();
+            // Strip leading "Committed <sha><punct> " — the SHA is shown separately in the panel.
+            s = _committedPrefixRe.Replace(s, string.Empty);
             // Strip trailing "<punct> committed XXXXXXX." —
             // the commit SHA link is already shown separately in the panel.
             var m = _committedSuffixRe.Match(s);
