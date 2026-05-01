@@ -15474,6 +15474,9 @@ public partial class MainWindow : Window
             _approvalPanel = new CommitApprovalPanel(
                 ApprovalNeedsPanel!,
                 ApprovalApprovedPanel!,
+                ApprovalRejectedPanel!,
+                ApprovalRejectedSection!,
+                ApprovalPanelBorder!,
                 navigateUrl:    url  => _ = OpenExternalLinkWithCommitCheckAsync(url),
                 scrollToTurn:   item => ScrollToApprovalTurn(item),
                 onItemChanged:  item => OnApprovalItemChanged(item),

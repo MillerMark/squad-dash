@@ -1155,6 +1155,7 @@
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <!-- Title row with close button -->
@@ -1217,6 +1218,21 @@
                                           MaxHeight="{Binding ActualHeight, ElementName=ApprovalPanelBorder, Converter={StaticResource FractionConverter}, ConverterParameter=0.5}">
                                 <StackPanel x:Name="ApprovalApprovedPanel" />
                             </ScrollViewer>
+
+                            <!-- Rejected section (hidden until user toggles Show Rejected) -->
+                            <StackPanel Grid.Row="5"
+                                        x:Name="ApprovalRejectedSection"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="Rejected"
+                                           FontSize="11"
+                                           Margin="0,8,0,4"
+                                           Foreground="{DynamicResource SubtleText}" />
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              MaxHeight="{Binding ActualHeight, ElementName=ApprovalPanelBorder, Converter={StaticResource FractionConverter}, ConverterParameter=0.4}">
+                                    <StackPanel x:Name="ApprovalRejectedPanel" />
+                                </ScrollViewer>
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </Grid>

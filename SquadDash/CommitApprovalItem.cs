@@ -8,7 +8,8 @@ internal sealed record CommitApprovalItem(
     DateTimeOffset TurnStartedAt,   // Turn's startedAt value — used as scroll-to-turn lookup key
     string?        TurnPromptHint,  // First ~60 chars of prompt for display only
     bool           IsApproved,      // false = Needs Approval, true = Approved
-    string?        OriginalPrompt = null  // Full prompt text; null for entries from older versions
+    string?        OriginalPrompt = null,  // Full prompt text; null for entries from older versions
+    bool           IsRejected      = false // true = rejected; mutually exclusive with IsApproved
 ) {
     public static CommitApprovalItem Create(
         string         sha,
