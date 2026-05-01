@@ -1196,7 +1196,8 @@
                                        Foreground="{DynamicResource SubtleText}" />
 
                             <!-- Needs Approval items -->
-                            <ScrollViewer Grid.Row="2"
+                            <ScrollViewer x:Name="ApprovalNeedsScrollViewer"
+                                          Grid.Row="2"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="ApprovalNeedsPanel" />

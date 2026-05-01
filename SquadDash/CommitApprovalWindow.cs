@@ -22,6 +22,7 @@ internal sealed class CommitApprovalPanel {
     private readonly StackPanel _rejectedPanel;
     private readonly UIElement  _rejectedSection;
     private readonly UIElement  _approvedSection;
+    private readonly ScrollViewer _needsApprovalScrollViewer;
 
     private Border?    _selectedRow;
     private bool       _showRejected;
@@ -34,19 +35,21 @@ internal sealed class CommitApprovalPanel {
         UIElement                                rejectedSection,
         UIElement                                approvedSection,
         Border                                   outerBorder,
+        ScrollViewer                             needsApprovalScrollViewer,
         Action<string>                            navigateUrl,
         Action<CommitApprovalItem>                scrollToTurn,
         Action<CommitApprovalItem>                onItemChanged,
         Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved) {
-        _needsApprovalPanel = needsApprovalPanel;
-        _approvedPanel      = approvedPanel;
-        _rejectedPanel      = rejectedPanel;
-        _rejectedSection    = rejectedSection;
-        _approvedSection    = approvedSection;
-        _navigateUrl        = navigateUrl;
-        _scrollToTurn       = scrollToTurn;
-        _onItemChanged      = onItemChanged;
-        _onItemsRemoved     = onItemsRemoved;
+        _needsApprovalPanel        = needsApprovalPanel;
+        _approvedPanel             = approvedPanel;
+        _rejectedPanel             = rejectedPanel;
+        _rejectedSection           = rejectedSection;
+        _approvedSection           = approvedSection;
+        _needsApprovalScrollViewer = needsApprovalScrollViewer;
+        _navigateUrl               = navigateUrl;
+        _scrollToTurn              = scrollToTurn;
+        _onItemChanged             = onItemChanged;
+        _onItemsRemoved            = onItemsRemoved;
 
         AttachPanelContextMenu(outerBorder);
     }
@@ -243,11 +246,31 @@ internal sealed class CommitApprovalPanel {
         var sourcePanel = isApproved ? _needsApprovalPanel : _approvedPanel;
         var targetPanel = isApproved ? _approvedPanel      : _needsApprovalPanel;
 
+        // When approving a near-bottom item while the list is already scrolled to the bottom,
+        // the "Approved" header appearing shrinks the ScrollViewer and hides the remaining
+        // bottom items. Detect this before modifying the panel, then re-scroll after layout.
+        bool shouldScrollNeedsToBottom = false;
+        if (isApproved) {
+            int idx   = _needsApprovalPanel.Children.IndexOf(row);
+            int count = _needsApprovalPanel.Children.Count;
+            bool isNearBottom = idx >= 0 && idx >= count - 3;
+            bool wasAtBottom  = _needsApprovalScrollViewer.ScrollableHeight > 0 &&
+                                _needsApprovalScrollViewer.VerticalOffset >=
+                                    _needsApprovalScrollViewer.ScrollableHeight - 2.0;
+            shouldScrollNeedsToBottom = isNearBottom && wasAtBottom;
+        }
+
         sourcePanel.Children.Remove(row);
         InsertSorted(targetPanel, BuildRow(updated), updated);
         SyncApprovedSectionVisibility();
 
         _onItemChanged(updated);
+
+        if (shouldScrollNeedsToBottom) {
+            _needsApprovalScrollViewer.Dispatcher.InvokeAsync(
+                () => _needsApprovalScrollViewer.ScrollToBottom(),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
     }
 
     private void HandleRejectClicked(Border row, CommitApprovalItem item) {
