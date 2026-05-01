@@ -1701,7 +1701,10 @@ internal sealed class PromptExecutionController {
         var docsCtx   = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
         var tasksCtx  = BuildTasksContextInstruction();
         var queueCtx  = PendingQueueItemCount > 0 ? BuildQueueContextInstruction(PendingQueueItemCount) : null;
-        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, TurnSummaryInstruction }.Where(p => p is not null).ToArray();
+
+        var triggeredCtx = BuildTriggeredInjections(prompt);
+
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, triggeredCtx, TurnSummaryInstruction }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = SquadBridgePromptBuilder.Build(
             prompt,
@@ -1712,6 +1715,19 @@ internal sealed class PromptExecutionController {
             _getCurrentWorkspace()?.FolderPath);
         SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary}");
         return buildResult.PromptText;
+    }
+
+    private string? BuildTriggeredInjections(string prompt) {
+        var workspaceFolder = _getCurrentWorkspace()?.FolderPath;
+        var variables = TriggeredInjectionEvaluator.BuildVariables(workspaceFolder);
+        var fired = TriggeredInjectionEvaluator.Evaluate(prompt, BuiltInPromptInjections.All, variables);
+        if (fired.Count == 0)
+            return null;
+
+        foreach (var (injection, _) in fired)
+            SquadDashTrace.Write("PromptInjection", $"Triggered injection fired: '{injection.Id}'");
+
+        return string.Join("\n\n", fired.Select(f => f.ResolvedText));
     }
 
     private static string BuildQueueContextInstruction(int pendingCount) {

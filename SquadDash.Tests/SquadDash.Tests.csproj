@@ -125,6 +125,8 @@
     <Compile Include="..\SquadDash\MarkdownHtmlBuilder.cs" Link="Source\MarkdownHtmlBuilder.cs" />
     <Compile Include="..\SquadDash\TasksStatusWindow.cs" Link="Source\TasksStatusWindow.cs" />
     <Compile Include="..\SquadDash\PushNotificationService.cs" Link="Source\PushNotificationService.cs" />
+    <Compile Include="..\SquadDash\TriggeredPromptInjection.cs" Link="Source\TriggeredPromptInjection.cs" />
+    <Compile Include="..\SquadDash\BuiltInPromptInjections.cs" Link="Source\BuiltInPromptInjections.cs" />
   </ItemGroup>
 
 </Project>
