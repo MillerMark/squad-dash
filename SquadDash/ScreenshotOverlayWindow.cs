@@ -682,8 +682,7 @@ internal sealed class ScreenshotOverlayWindow : Window
         UpdateAnchorIndicators();
         if (_modeHintBorder?.Visibility == Visibility.Visible)
             PositionModeHint();
-        if (_inAnnotationMode)
-            PositionSelHitRect();
+        PositionSelHitRect();
     }
 
     private static void PlaceRect(Rectangle r, double left, double top, double width, double height)
@@ -1229,9 +1228,6 @@ internal sealed class ScreenshotOverlayWindow : Window
 
         _inAnnotationMode = true;
 
-        // Make the near-zero-alpha hit-rect visible so the OS routes mouse events
-        // inside _sel to this overlay window rather than the window below.
-        _selHitRect.Visibility = Visibility.Visible;
         PositionSelHitRect();   // size the rect immediately (UpdateLayout hasn't run yet)
 
         // Show unified panel, hide capture toolbar
@@ -1980,12 +1976,20 @@ internal sealed class ScreenshotOverlayWindow : Window
     }
 
     /// <summary>
-    /// Sizes and positions <see cref="_selHitRect"/> to exactly cover <see cref="_sel"/>.
-    /// Must only be called while <see cref="_inAnnotationMode"/> is true.
+    /// Sizes and positions <see cref="_selHitRect"/> to exactly cover <see cref="_sel"/>,
+    /// and shows or hides it based on whether a non-empty selection exists.
+    /// Works in both initial-selection and annotation modes; the near-zero-alpha fill
+    /// ensures the OS routes mouse events into the selection interior in all modes.
     /// </summary>
     private void PositionSelHitRect()
     {
-        if (_selHitRect == null || !_inAnnotationMode) return;
+        if (_selHitRect == null) return;
+        if (_sel.Width <= 0 || _sel.Height <= 0)
+        {
+            _selHitRect.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _selHitRect.Visibility = Visibility.Visible;
         Canvas.SetLeft(_selHitRect, _sel.Left);
         Canvas.SetTop (_selHitRect, _sel.Top);
         _selHitRect.Width  = _sel.Width;
