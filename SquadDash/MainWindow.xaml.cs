@@ -104,6 +104,11 @@ public partial class MainWindow : Window
     private Point _docsDragStartPoint;
     private TreeViewItem? _docsDragItem;
     private bool _docsDragInProgress;
+    private TreeViewItem? _docsRenameItem;
+    private TextBlock? _docsRenameOriginalTextBlock;
+    private DateTime _docsRenameClickTime;
+    private TreeViewItem? _docsRenameLastClickedItem;
+    private bool _docsRenameIsFromAdd;
     private SessionWorkspace? _currentWorkspace;
     private SquadInstallationState? _currentInstallationState;
     private SquadRoutingDocumentAssessment? _currentRoutingAssessment;
@@ -6988,7 +6993,169 @@ public partial class MainWindow : Window
 
     private void AddDocumentButton_Click(object sender, RoutedEventArgs e)
     {
-        // Placeholder — Add Document functionality not yet implemented
+        try
+        {
+            var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
+            if (string.IsNullOrEmpty(docsRoot))
+            {
+                System.Windows.MessageBox.Show("No docs/ folder found in the current workspace.", "Add Document", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var selectedItem = DocTopicsTreeView?.SelectedItem as TreeViewItem;
+            var selectedTag = selectedItem?.Tag as string;
+
+            // Determine target folder and anchor info for SUMMARY.md
+            string targetFolder;
+            string? anchorFilePath = null;   // sibling anchor (doc leaf)
+            TreeViewItem? parentGroupItem = null; // group header item (child placement)
+
+            if (selectedItem is null)
+            {
+                targetFolder = docsRoot;
+            }
+            else if (!string.IsNullOrEmpty(selectedTag))
+            {
+                // Selected item is a document leaf → place as sibling
+                targetFolder = Path.GetDirectoryName(selectedTag)!;
+                anchorFilePath = selectedTag;
+            }
+            else
+            {
+                // Selected item is a group/folder header → place as child
+                parentGroupItem = selectedItem;
+                // Infer folder from first child that has a file tag
+                string? childFolder = null;
+                foreach (var child in selectedItem.Items.OfType<TreeViewItem>())
+                {
+                    if (child.Tag is string ct && !string.IsNullOrEmpty(ct))
+                    {
+                        childFolder = Path.GetDirectoryName(ct);
+                        break;
+                    }
+                }
+                targetFolder = childFolder ?? docsRoot;
+            }
+
+            // Generate unique filename
+            var newFilePath = Path.Combine(targetFolder, "new-document.md");
+            int counter = 2;
+            while (File.Exists(newFilePath))
+                newFilePath = Path.Combine(targetFolder, $"new-document-{counter++}.md");
+
+            var newFileName = Path.GetFileNameWithoutExtension(newFilePath);
+            const string newTitle = "New Document";
+
+            if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = false;
+            try
+            {
+                File.WriteAllText(newFilePath, $"# {newTitle}\n\nWrite your content here.\n");
+
+                var summaryPath = Path.Combine(docsRoot, "SUMMARY.md");
+                if (File.Exists(summaryPath))
+                {
+                    var newRelPath = Path.GetRelativePath(docsRoot, newFilePath).Replace('\\', '/');
+                    var newLine = $"  * [{newTitle}]({newRelPath})";
+
+                    var summaryLines = File.ReadAllLines(summaryPath).ToList();
+
+                    if (anchorFilePath is not null)
+                    {
+                        // Insert as sibling: find anchor line and insert after it
+                        var anchorRelPath = Path.GetRelativePath(docsRoot, anchorFilePath).Replace('\\', '/');
+                        int insertAfter = -1;
+                        for (int i = 0; i < summaryLines.Count; i++)
+                        {
+                            if (summaryLines[i].Contains($"({anchorRelPath})"))
+                            {
+                                insertAfter = i;
+                                break;
+                            }
+                        }
+                        // Preserve sibling indentation
+                        if (insertAfter >= 0)
+                        {
+                            var anchorIndent = new string(' ', summaryLines[insertAfter].TakeWhile(char.IsWhiteSpace).Count());
+                            summaryLines.Insert(insertAfter + 1, anchorIndent + $"* [{newTitle}]({newRelPath})");
+                        }
+                        else
+                        {
+                            summaryLines.Add(newLine);
+                        }
+                    }
+                    else if (parentGroupItem is not null)
+                    {
+                        // Insert as child at end of parent group
+                        // Find the group header line by its title text
+                        string? groupTitle = null;
+                        if (parentGroupItem.Header is string hs) groupTitle = hs;
+                        else if (parentGroupItem.Header is System.Windows.Controls.StackPanel gsp
+                            && gsp.Children.Count > 0
+                            && gsp.Children[0] is System.Windows.Controls.TextBlock gtb)
+                            groupTitle = gtb.Text;
+
+                        int groupHeaderLine = -1;
+                        if (!string.IsNullOrEmpty(groupTitle))
+                        {
+                            for (int i = 0; i < summaryLines.Count; i++)
+                            {
+                                var m = System.Text.RegularExpressions.Regex.Match(
+                                    summaryLines[i], @"^\s*\*\s+\[([^\]]+)\]");
+                                if (m.Success && string.Equals(m.Groups[1].Value, groupTitle, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    groupHeaderLine = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (groupHeaderLine >= 0)
+                        {
+                            // Find last child line of this group (indented lines after the group header)
+                            int lastChildLine = groupHeaderLine;
+                            for (int i = groupHeaderLine + 1; i < summaryLines.Count; i++)
+                            {
+                                if (string.IsNullOrWhiteSpace(summaryLines[i])) continue;
+                                var indent = summaryLines[i].TakeWhile(char.IsWhiteSpace).Count();
+                                if (indent >= 2)
+                                    lastChildLine = i;
+                                else
+                                    break;
+                            }
+                            summaryLines.Insert(lastChildLine + 1, newLine);
+                        }
+                        else
+                        {
+                            summaryLines.Add(newLine);
+                        }
+                    }
+                    else
+                    {
+                        summaryLines.Add(newLine);
+                    }
+
+                    File.WriteAllLines(summaryPath, summaryLines);
+                }
+            }
+            finally
+            {
+                if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = true;
+            }
+
+            PopulateDocumentationTopics();
+
+            var newItem = FindDocNodeByTag(DocTopicsTreeView.Items, newFilePath);
+            if (newItem is not null)
+            {
+                newItem.IsSelected = true;
+                _docsRenameIsFromAdd = true;
+                EnterInPlaceRename(newItem, newFilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(AddDocumentButton_Click), ex);
+        }
     }
 
     private void ViewPagesButton_Click(object sender, RoutedEventArgs e)
@@ -14933,7 +15100,7 @@ public partial class MainWindow : Window
             item.IsSelected = true;
 
             var renameItem = new MenuItem { Header = "Rename…" };
-            renameItem.Click += (_, _) => RenameDocTopic(item, filePath);
+            renameItem.Click += (_, _) => EnterInPlaceRename(item, filePath);
 
             var copyLinkItem = new MenuItem { Header = "Copy markdown link" };
             copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
@@ -15003,24 +15170,126 @@ public partial class MainWindow : Window
     }
 
     private void RenameDocTopic(TreeViewItem item, string filePath)
+        => EnterInPlaceRename(item, filePath);
+
+    private void EnterInPlaceRename(TreeViewItem item, string filePath)
+    {
+        CancelInPlaceRename();
+
+        if (item.Header is not System.Windows.Controls.StackPanel sp || sp.Children.Count == 0)
+            return;
+        if (sp.Children[0] is not System.Windows.Controls.TextBlock tb)
+            return;
+
+        _docsRenameItem = item;
+        _docsRenameOriginalTextBlock = tb;
+
+        var textBox = new System.Windows.Controls.TextBox
+        {
+            Text = tb.Text,
+            MinWidth = 80,
+            MaxWidth = 220,
+            FontSize = tb.FontSize,
+            FontWeight = tb.FontWeight,
+            Margin = new System.Windows.Thickness(0),
+            Padding = new System.Windows.Thickness(2, 0, 2, 0),
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            BorderThickness = new System.Windows.Thickness(1),
+        };
+
+        sp.Children.RemoveAt(0);
+        sp.Children.Insert(0, textBox);
+
+        textBox.Focus();
+        textBox.SelectAll();
+
+        textBox.KeyDown += (_, ke) =>
+        {
+            if (ke.Key == System.Windows.Input.Key.Enter)
+            {
+                ke.Handled = true;
+                CommitInPlaceRename(item, filePath, textBox.Text.Trim());
+            }
+            else if (ke.Key == System.Windows.Input.Key.Escape)
+            {
+                ke.Handled = true;
+                CancelInPlaceRename();
+            }
+        };
+
+        textBox.LostFocus += (_, _) =>
+        {
+            if (_docsRenameItem == item)
+                CommitInPlaceRename(item, filePath, textBox.Text.Trim());
+        };
+    }
+
+    private void CancelInPlaceRename()
+    {
+        if (_docsRenameItem is null) return;
+        var item = _docsRenameItem;
+        var originalTb = _docsRenameOriginalTextBlock;
+        _docsRenameItem = null;
+        _docsRenameIsFromAdd = false;
+        _docsRenameOriginalTextBlock = null;
+
+        if (item.Header is System.Windows.Controls.StackPanel sp
+            && sp.Children.Count > 0
+            && sp.Children[0] is System.Windows.Controls.TextBox
+            && originalTb is not null)
+        {
+            sp.Children.RemoveAt(0);
+            sp.Children.Insert(0, originalTb);
+        }
+    }
+
+    private void CommitInPlaceRename(TreeViewItem item, string filePath, string newName)
+    {
+        if (_docsRenameItem != item) return;
+
+        bool isFromAdd = _docsRenameIsFromAdd;
+        var oldTb = _docsRenameOriginalTextBlock;
+        var oldName = oldTb?.Text ?? Path.GetFileNameWithoutExtension(filePath);
+
+        // Clear state before any async/UI work to prevent re-entry from LostFocus
+        _docsRenameItem = null;
+        _docsRenameIsFromAdd = false;
+        _docsRenameOriginalTextBlock = null;
+
+        // Restore original TextBlock regardless of outcome
+        if (item.Header is System.Windows.Controls.StackPanel sp
+            && sp.Children.Count > 0
+            && sp.Children[0] is System.Windows.Controls.TextBox
+            && oldTb is not null)
+        {
+            sp.Children.RemoveAt(0);
+            sp.Children.Insert(0, oldTb);
+        }
+
+        if (string.IsNullOrWhiteSpace(newName)) return;
+
+        if (isFromAdd)
+            newName = SlugifyDocName(newName);
+
+        if (string.Equals(newName, oldName, StringComparison.Ordinal)) return;
+
+        CommitDocRename(item, filePath, oldName, newName);
+    }
+
+    private static string SlugifyDocName(string name)
+    {
+        name = name.Trim().ToLowerInvariant();
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", "-");
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-z0-9\-]", "");
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"-+", "-");
+        name = name.Trim('-');
+        return string.IsNullOrEmpty(name) ? "new-document" : name;
+    }
+
+    private void CommitDocRename(TreeViewItem item, string filePath, string oldName, string newName)
     {
         try
         {
-            string oldName;
-            if (item.Header is System.Windows.Controls.StackPanel sp
-                && sp.Children.Count > 0
-                && sp.Children[0] is System.Windows.Controls.TextBlock tb)
-            {
-                oldName = tb.Text;
-            }
-            else
-            {
-                oldName = item.Header?.ToString() ?? Path.GetFileNameWithoutExtension(filePath);
-            }
-
-            var newName = ShowStringInputDialog("Rename Document", "New name:", oldName);
-            if (string.IsNullOrWhiteSpace(newName) || newName == oldName) return;
-
             var dir = Path.GetDirectoryName(filePath)!;
             var ext = Path.GetExtension(filePath);
             var newFileName = newName + ext;
@@ -15105,7 +15374,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            HandleUiCallbackException(nameof(RenameDocTopic), ex);
+            HandleUiCallbackException(nameof(CommitDocRename), ex);
         }
     }
 
@@ -15222,12 +15491,33 @@ public partial class MainWindow : Window
     private void DocTopicsTreeView_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         _docsDragStartPoint = e.GetPosition(null);
-        _docsDragItem = FindAncestorTreeViewItem(e.OriginalSource as DependencyObject);
+        var clickedItem = FindAncestorTreeViewItem(e.OriginalSource as DependencyObject);
+        _docsDragItem = clickedItem;
         _docsDragInProgress = false;
+
+        if (clickedItem is not null && clickedItem.IsSelected && clickedItem == _docsRenameLastClickedItem)
+        {
+            var elapsed = (DateTime.Now - _docsRenameClickTime).TotalMilliseconds;
+            if (elapsed >= 400 && elapsed <= 1200)
+            {
+                var filePath = clickedItem.Tag as string;
+                if (!string.IsNullOrEmpty(filePath))
+                {
+                    e.Handled = true;
+                    _docsDragItem = null;
+                    EnterInPlaceRename(clickedItem, filePath);
+                    return;
+                }
+            }
+        }
+
+        _docsRenameClickTime = DateTime.Now;
+        _docsRenameLastClickedItem = clickedItem;
     }
 
     private void DocTopicsTreeView_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        if (_docsRenameItem is not null) return;
         if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed || _docsDragItem is null || _docsDragInProgress)
             return;
 

@@ -1422,12 +1422,21 @@
                     CornerRadius="18"
                     Padding="10">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="Topics"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource LabelText}"
-                               Margin="2,0,0,8" />
+                    <DockPanel DockPanel.Dock="Top" Margin="2,0,0,8">
+                        <Button x:Name="AddDocumentButton"
+                                DockPanel.Dock="Right"
+                                Content="+"
+                                Height="20"
+                                Padding="6,0,6,0"
+                                FontSize="13"
+                                FontWeight="Bold"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Click="AddDocumentButton_Click" />
+                        <TextBlock Text="Topics"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource LabelText}" />
+                    </DockPanel>
                     <Grid>
                         <TreeView x:Name="DocTopicsTreeView"
                                   Background="Transparent"
@@ -1467,14 +1476,6 @@
                     <DockPanel DockPanel.Dock="Top"
                                Margin="14,10,14,8"
                                LastChildFill="False">
-                        <Button x:Name="AddDocumentButton"
-                                DockPanel.Dock="Left"
-                                Height="28"
-                                Padding="12,0,12,0"
-                                Style="{StaticResource ThemedButtonStyle}"
-                                Click="AddDocumentButton_Click">
-                            Add Document
-                        </Button>
                         <Button x:Name="ViewPagesButton"
                                 DockPanel.Dock="Left"
                                 Height="28"
