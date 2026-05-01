@@ -1833,6 +1833,13 @@ public partial class MainWindow : Window
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
         if (item is null) return;
 
+        // Empty items have nothing to confirm — delete immediately.
+        if (string.IsNullOrWhiteSpace(item.Text))
+        {
+            OnQueueTabRemove(id);
+            return;
+        }
+
         var preview = item.Text.Length > 60 ? item.Text[..57] + "…" : item.Text;
 
         var dialog = new QueueItemDeleteConfirmWindow(
