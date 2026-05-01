@@ -605,16 +605,9 @@ internal sealed class TranscriptConversationManager {
     }
 
     internal void PersistConversationState(WorkspaceConversationState state) {
-        var workspace = _getWorkspace();
-        if (workspace is null) {
-            _conversationState = state;
-            return;
-        }
-
-        var version = RegisterConversationSaveRequest();
-        _conversationState = state;
-        var savedState = SaveConversationStateSerially(workspace.FolderPath, state, version, skipIfStale: false);
-        ApplySavedConversationStateIfCurrent(version, savedState);
+        // Always use the background queue — never block the UI thread with synchronous file I/O.
+        // EmergencySave() calls SaveConversationStateSerially() directly for shutdown safety.
+        PersistConversationStateInBackground(state);
     }
 
     internal void SaveWorkspaceInputState() {
