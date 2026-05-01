@@ -13,9 +13,9 @@ namespace SquadDash;
 /// </summary>
 internal static class TasksPanelParser {
 
-    // Matches: ## 🔴 High Priority, ## 🟡 Mid Priority, ## 🟢 Low Priority, etc.
+    // Matches: ## 🔴 High Priority, ## 🟡 Mid Priority, ## 🟢/🔵 Low Priority, etc.
     private static readonly Regex PriorityHeadingRegex =
-        new(@"^##\s+(🔴|🟡|🟢)\s+(.+)$", RegexOptions.Compiled);
+        new(@"^##\s+(🔴|🟡|🟢|🔵)\s+(.+)$", RegexOptions.Compiled);
 
     private const string OwnerMarker = " *(Owner:";
 
@@ -38,7 +38,11 @@ internal static class TasksPanelParser {
                         inCompletedSection  = true;
                     } else {
                         inCompletedSection = false;
-                        current = new TaskPriorityGroup(m.Groups[1].Value, m.Groups[2].Value.Trim());
+                        // Normalize 🔵 → 🟢 so blue-circle low-priority sections
+                        // merge with green-circle ones into the same panel group.
+                        var rawEmoji = m.Groups[1].Value;
+                        var emoji    = rawEmoji == "🔵" ? "🟢" : rawEmoji;
+                        current = new TaskPriorityGroup(emoji, m.Groups[2].Value.Trim());
                         groups.Add(current);
                     }
                 } else if (line.Contains("✅", StringComparison.Ordinal)) {
@@ -205,6 +209,7 @@ internal static class TasksPanelParser {
         "🔴" => 0,
         "🟡" => 1,
         "🟢" => 2,
+        "🔵" => 2,
         _    => 3
     };
 }

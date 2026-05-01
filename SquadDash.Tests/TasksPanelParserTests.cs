@@ -376,4 +376,35 @@ internal sealed class TasksPanelParserTests {
         Assert.That(result.OpenGroups[0].Items[0].Description, Does.Contain("Description text"));
         Assert.That(result.OpenGroups[0].Items[0].Description, Does.Not.Contain("Other"));
     }
+
+    [Test]
+    public void Parse_BlueCircle_TreatedAsLowPriority_SameAsGreenCircle() {
+        string[] lines = [
+            "## 🔵 Low Priority",
+            "- [ ] Blue task",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+
+        Assert.That(result.OpenGroups, Has.Count.EqualTo(1));
+        Assert.That(result.OpenGroups[0].Emoji, Is.EqualTo("🟢"));
+        Assert.That(result.OpenGroups[0].Items[0].Text, Is.EqualTo("Blue task"));
+        Assert.That(result.OpenGroups[0].Items[0].Emoji, Is.EqualTo("🟢"));
+    }
+
+    [Test]
+    public void Parse_BlueCircleAndGreenCircle_MergeIntoSingleLowPriorityGroup() {
+        string[] lines = [
+            "## 🟢 Low Priority",
+            "- [ ] Green task",
+            "## 🔵 Low Priority",
+            "- [ ] Blue task",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+
+        Assert.That(result.OpenGroups, Has.Count.EqualTo(1));
+        Assert.That(result.OpenGroups[0].Emoji, Is.EqualTo("🟢"));
+        Assert.That(result.OpenGroups[0].Items, Has.Count.EqualTo(2));
+    }
 }

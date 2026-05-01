@@ -3572,6 +3572,7 @@ public partial class MainWindow : Window
         "🔴" => (Brush)FindResource("TaskPriorityHigh"),
         "🟡" => (Brush)FindResource("TaskPriorityMid"),
         "🟢" => (Brush)FindResource("TaskPriorityLow"),
+        "🔵" => (Brush)FindResource("TaskPriorityLow"),
         _    => Brushes.Gray
     };
 
@@ -3579,6 +3580,7 @@ public partial class MainWindow : Window
         "🔴" => "TaskPriorityHigh",
         "🟡" => "TaskPriorityMid",
         "🟢" => "TaskPriorityLow",
+        "🔵" => "TaskPriorityLow",
         _    => "LabelText"
     };
 
