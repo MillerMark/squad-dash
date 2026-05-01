@@ -152,4 +152,45 @@ MainWindow at 4,634 lines (down from 8,305) via 9 extracted helper classes.
 
 ---
 
+## Command System Audit — 2026-05-01
+
+**Context:** Mark003 requested architectural audit of AI-to-app command system (how AI tells SquadDash to execute actions).
+
+**Findings:**
+
+1. **Command Documentation (Loop-Only Scope)**
+   - Location: `LoopController.cs:160-198` (BuildAugmentedPrompt method)
+   - Scope: Commands injected only during loop execution, not globally available to AI
+   - Impact: AI has no command knowledge except in active loop context
+
+2. **Command Implementation Locations**
+   - `stop_loop` command: MainWindow.xaml.cs:3842
+   - `start_loop` command: MainWindow.xaml.cs:3854
+   - Pattern: Hardcoded, scattered across application
+
+3. **Parser Implementation (Fragile)**
+   - Service: `PushNotificationService.ExtractSquadashPayload`
+   - Method: Uses regex pattern matching instead of structured JSON parsing
+   - Limitation: Only extracts first matching command per AI response
+   - Risk: Regex fragility, no multi-command support
+
+4. **Missing Registry Architecture**
+   - No centralized command definition store
+   - No command discoverability mechanism (AI cannot query available commands)
+   - No scope management (global vs. loop-only distinction implicit, not explicit)
+   - No command parameter metadata or documentation registry
+
+**Architectural Recommendation:**
+
+Implement **Unified CommandRegistry** pattern:
+- `CommandRegistry` interface with command discovery, registration, and multi-command extraction
+- `CommandDefinition` with metadata: name, scope (Global/LoopOnly/BatchOnly), parameters, documentation
+- `CommandContext` for execution context awareness
+- Replace regex extraction with `System.Text.Json` structured parsing
+- Enable multiple commands per AI response
+
+**Deliverable:** Decision written to `.squad/decisions/inbox/orion-vale-command-audit-findings.md` with full recommendation, problem statement, and implementation sketch.
+
+---
+
 
