@@ -21,6 +21,7 @@
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <local:MaxValueConverter x:Key="MaxValueConverter" />
+        <local:FractionConverter x:Key="FractionConverter" />
         <Style x:Key="TranscriptExpanderToggleStyle" TargetType="ToggleButton">
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Cursor" Value="Arrow" />
@@ -1153,7 +1154,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <!-- Title row with close button -->
@@ -1212,7 +1213,8 @@
                             <!-- Approved items -->
                             <ScrollViewer Grid.Row="4"
                                           VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Disabled">
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          MaxHeight="{Binding ActualHeight, ElementName=ApprovalPanelBorder, Converter={StaticResource FractionConverter}, ConverterParameter=0.5}">
                                 <StackPanel x:Name="ApprovalApprovedPanel" />
                             </ScrollViewer>
                         </Grid>
