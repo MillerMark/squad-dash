@@ -61,6 +61,10 @@ internal static class NativeMethods {
     private static extern bool ShowWindowAsync(nint hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(nint hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
     private static extern bool IsIconic(nint hWnd);
 
     [DllImport("user32.dll")]
@@ -131,6 +135,24 @@ internal static class NativeMethods {
         catch {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Returns the actual on-screen bounds of <paramref name="window"/> in WPF logical (DIP) units.
+    /// Unlike <see cref="Window.Left"/>/<see cref="Window.Top"/>, this is correct when the window
+    /// is maximized — WPF's Left/Top return the restore position in that state.
+    /// </summary>
+    public static Rect GetActualWindowBoundsLogical(System.Windows.Window window) {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (hwnd != nint.Zero && GetWindowRect(hwnd, out RECT r)) {
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(window);
+            return new Rect(
+                r.Left   / dpi.DpiScaleX,
+                r.Top    / dpi.DpiScaleY,
+                (r.Right  - r.Left) / dpi.DpiScaleX,
+                (r.Bottom - r.Top)  / dpi.DpiScaleY);
+        }
+        return new Rect(window.Left, window.Top, window.ActualWidth, window.ActualHeight);
     }
 
     public static bool TryActivateProcessMainWindow(int processId) {

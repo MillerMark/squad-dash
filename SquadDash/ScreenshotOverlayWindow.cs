@@ -615,20 +615,27 @@ internal sealed class ScreenshotOverlayWindow : Window
 
     private void SyncBoundsToOwner()
     {
-        Left   = _mainWindow.Left;
-        Top    = _mainWindow.Top;
-        Width  = _mainWindow.ActualWidth;
-        Height = _mainWindow.ActualHeight;
+        // When _mainWindow is maximized, Window.Left/Top return the restore (non-maximized)
+        // position rather than the actual screen position.  Use GetWindowRect via NativeMethods
+        // to get the true screen bounds regardless of window state.
+        var bounds = NativeMethods.GetActualWindowBoundsLogical(_mainWindow);
+        Left   = bounds.Left;
+        Top    = bounds.Top;
+        Width  = bounds.Width;
+        Height = bounds.Height;
     }
 
     private void Owner_GeometryChanged(object? sender, EventArgs e) => SyncBoundsToOwner();
 
     private void Owner_SizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        Width          = _mainWindow.ActualWidth;
-        Height         = _mainWindow.ActualHeight;
-        _canvas.Width  = _mainWindow.ActualWidth;
-        _canvas.Height = _mainWindow.ActualHeight;
+        var bounds     = NativeMethods.GetActualWindowBoundsLogical(_mainWindow);
+        Left           = bounds.Left;
+        Top            = bounds.Top;
+        Width          = bounds.Width;
+        Height         = bounds.Height;
+        _canvas.Width  = bounds.Width;
+        _canvas.Height = bounds.Height;
         _sel           = ClampRect(_sel, _canvas.Width, _canvas.Height);
         UpdateLayout();
     }
