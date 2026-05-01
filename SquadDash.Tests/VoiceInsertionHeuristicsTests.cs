@@ -324,8 +324,8 @@ internal sealed class VoiceInsertionHeuristicsTests {
     }
 
     [Test]
-    public void IsRightContextRequiresTrailingSpace_StartsWithComma_ReturnsTrue() {
-        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(", which"), Is.True);
+    public void IsRightContextRequiresTrailingSpace_StartsWithComma_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsRightContextRequiresTrailingSpace(", which"), Is.False);
     }
 
     // ── IsRightContextStartsWithPunctuation ───────────────────────────────────

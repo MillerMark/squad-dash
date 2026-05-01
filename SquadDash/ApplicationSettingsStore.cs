@@ -948,6 +948,7 @@ internal sealed record ApplicationSettingsSnapshot(
             LoopActiveOnExit = LoopActiveOnExit,
             RemoteAccessActiveOnExit = RemoteAccessActiveOnExit,
             RcPersistentToken = string.IsNullOrWhiteSpace(RcPersistentToken) ? null : RcPersistentToken.Trim(),
+            RcPersistentPort = RcPersistentPort,
         };
     }
 

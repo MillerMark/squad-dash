@@ -193,7 +193,7 @@ internal sealed class WorkspaceConversationStoreTests {
 
     [Test]
     public void Save_SortsTurnsChronologicallyBeforePersisting() {
-        var promptStartedAt = new DateTimeOffset(2026, 4, 16, 17, 45, 0, TimeSpan.FromHours(-4));
+        var promptStartedAt = DateTimeOffset.UtcNow.AddDays(-1);
         var localCommandStartedAt = promptStartedAt.AddMinutes(1);
         var promptTurn = new TranscriptTurnRecord(
             promptStartedAt,

@@ -285,4 +285,36 @@ internal sealed class ApplicationSettingsStoreTests {
 
         Assert.That(snapshot.Normalize().TunnelMode, Is.Null);
     }
+
+    [Test]
+    public void SaveRcPort_PersistsPort() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveRcPort(51234);
+
+        Assert.That(store.Load().RcPersistentPort, Is.EqualTo(51234));
+    }
+
+    [Test]
+    public void SaveRcPort_OverwritesPreviousPort() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveRcPort(51234);
+        store.SaveRcPort(52000);
+
+        Assert.That(store.Load().RcPersistentPort, Is.EqualTo(52000));
+    }
+
+    [Test]
+    public void SaveRcPort_SurvivesSubsequentSaves() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveRcPort(51234);
+        store.SavePromptFontSize(16);
+
+        Assert.That(store.Load().RcPersistentPort, Is.EqualTo(51234));
+    }
 }
