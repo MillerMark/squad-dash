@@ -1203,9 +1203,11 @@
                             </ScrollViewer>
 
                             <!-- "Approved" header + Clear Approved button -->
-                            <DockPanel Grid.Row="3"
+                            <DockPanel x:Name="ApprovalApprovedSection"
+                                       Grid.Row="3"
                                        LastChildFill="False"
-                                       Margin="0,8,0,4">
+                                       Margin="0,8,0,4"
+                                       Visibility="Collapsed">
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Approved"
                                            FontSize="11"

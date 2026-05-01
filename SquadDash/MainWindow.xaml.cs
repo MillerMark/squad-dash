@@ -15454,6 +15454,7 @@ public partial class MainWindow : Window
                 ApprovalApprovedPanel!,
                 ApprovalRejectedPanel!,
                 ApprovalRejectedSection!,
+                ApprovalApprovedSection!,
                 ApprovalPanelBorder!,
                 navigateUrl:    url  => _ = OpenExternalLinkWithCommitCheckAsync(url),
                 scrollToTurn:   item => ScrollToApprovalTurn(item),

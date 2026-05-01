@@ -21,6 +21,7 @@ internal sealed class CommitApprovalPanel {
     private readonly StackPanel _approvedPanel;
     private readonly StackPanel _rejectedPanel;
     private readonly UIElement  _rejectedSection;
+    private readonly UIElement  _approvedSection;
 
     private Border?    _selectedRow;
     private bool       _showRejected;
@@ -31,6 +32,7 @@ internal sealed class CommitApprovalPanel {
         StackPanel                               approvedPanel,
         StackPanel                               rejectedPanel,
         UIElement                                rejectedSection,
+        UIElement                                approvedSection,
         Border                                   outerBorder,
         Action<string>                            navigateUrl,
         Action<CommitApprovalItem>                scrollToTurn,
@@ -40,6 +42,7 @@ internal sealed class CommitApprovalPanel {
         _approvedPanel      = approvedPanel;
         _rejectedPanel      = rejectedPanel;
         _rejectedSection    = rejectedSection;
+        _approvedSection    = approvedSection;
         _navigateUrl        = navigateUrl;
         _scrollToTurn       = scrollToTurn;
         _onItemChanged      = onItemChanged;
@@ -69,6 +72,7 @@ internal sealed class CommitApprovalPanel {
             else
                 _needsApprovalPanel.Children.Add(BuildRow(item));
         }
+        SyncApprovedSectionVisibility();
     }
 
     public void OnClearApprovedClicked() {
@@ -78,6 +82,7 @@ internal sealed class CommitApprovalPanel {
                 removed.Add(item);
         }
         _approvedPanel.Children.Clear();
+        SyncApprovedSectionVisibility();
         if (removed.Count > 0)
             _onItemsRemoved(removed);
     }
@@ -240,6 +245,7 @@ internal sealed class CommitApprovalPanel {
 
         sourcePanel.Children.Remove(row);
         InsertSorted(targetPanel, BuildRow(updated), updated);
+        SyncApprovedSectionVisibility();
 
         _onItemChanged(updated);
     }
@@ -251,6 +257,7 @@ internal sealed class CommitApprovalPanel {
 
         sourcePanel.Children.Remove(row);
         InsertSorted(_rejectedPanel, BuildRejectedRow(updated), updated);
+        SyncApprovedSectionVisibility();
 
         _onItemChanged(updated);
     }
@@ -260,6 +267,12 @@ internal sealed class CommitApprovalPanel {
         _rejectedPanel.Children.Remove(row);
         InsertSorted(_needsApprovalPanel, BuildRow(updated), updated);
         _onItemChanged(updated);
+    }
+
+    private void SyncApprovedSectionVisibility() {
+        _approvedSection.Visibility = _approvedPanel.Children.Count > 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     /// <summary>Returns the first 3 words of <paramref name="text"/> followed by "…",
