@@ -9,16 +9,6 @@
 
 ## 🟡 Mid Priority
 
-- [x] **Loop output log pane** *(Owner: Lyra Morn)*
-  The bridge already emits `loop_output_line` events. Add a collapsible scrollable log pane
-  to the Loop panel (or a floating window) that displays the live output from the running loop.
-
-- [x] **RC — LAN access (bind to PC IP, not localhost)** *(Owner: Talia Rune)*
-  Currently the RC server URL is `http://localhost:<port>` — only reachable from the host PC.
-  Add a `host` binding option so the server listens on `0.0.0.0` (or the PC's LAN IP).
-  SquadDash shows the LAN URL in the transcript alongside the localhost URL when RC starts.
-  Prerequisite for phone access on the same WiFi network.
-
 - [ ] **RC browser UI — review and improvement pass** *(Owner: Lyra Morn)*
   Review the RC mobile web client (`Squad.SDK/rc-client/index.html`) with fresh eyes and identify
   opportunities to improve the experience: layout, typography, spacing, readability of markdown
@@ -67,80 +57,21 @@
 
 ---
 
-## 🟢 Low Priority
+## 🔵 Low Priority
 
-- [x] **Phone push notifications — architecture & implementation** *(Owner: Arjun Sen + Talia Rune + Lyra Morn — architecture complete, building)*
-  Send push notifications to the user's phone when key SquadDash events occur.
+- [ ] **SubSquads — investigate and expose in UI** *(Owner: Orion Vale → Lyra Morn)*
+  The `squad streams` / workstreams feature was bridged (subsquads_list/activate) but the
+  Workspace menu items were removed because they only printed to the transcript with no visible
+  feedback. Investigate what `squad streams` / `.squad/workstreams.json` enables in the current
+  Squad SDK version, then design and implement proper UI (e.g. a dynamic submenu showing
+  configured workstreams, the active one highlighted, click to activate).
 
-  **Architecture decisions (all confirmed):**
-  - **Delivery:** ntfy.sh Phase 1; pluggable `IPushNotificationProvider` for Pushover in Phase 2
-  - **Events on by default:** AI turn complete, loop stopped, RC connection dropped
-  - **Events off by default:** git commit (agent-only, not manual), loop iteration, RC established
-  - **Git commits:** notify for agent-authored commits only (not user's manual commits)
-  - **Rate limiting (cascading backpressure):**
-    - Normal: max 1 notification per event per 10 seconds
-    - If rate exceeds 3/min: consolidate into "N events in the last minute" digest, send once/min
-    - If still exceeding: escalate to once/10 min, then once/hour, then once/day
-    - Escalation resets when traffic drops back below threshold
-  - **Message content:** AI composes its own notification summary — SquadDash injects into each
-    prompt: "When done, include `{\"notification\": \"one-sentence summary\"}` in your response."
-    C# extracts this JSON block and sends it. Fallback: "[AgentName] turn complete."
-  - **Config:** Global/machine-wide in `ApplicationSettingsStore` (not per-workspace)
-  - **Settings UI:** New "Notifications" section in PreferencesWindow with QR code display
-  - **QRCoder NuGet:** ✅ Approved (MIT, ~150 KB, no native deps)
-  - **Env var override:** `SQUADASH_NTFY_TOPIC` for test/CI redirect — Arjun implements
-
-  **Build ownership:**
-  - Arjun: `PushNotificationService.cs`, `IPushNotificationProvider`, `NtfyNotificationProvider`,
-    settings store methods, rate limiter, commit event hook (agent-authored filter)
-  - Talia: confirm `"done"` event is used for turn-complete hook (document in decisions.md);
-    confirm `"loop_stopped"` / `"rc_stopped"` hooks
-  - Lyra: Notifications section in PreferencesWindow, QRCoder QR display, Test button
-
-- [x] **RC mobile — decide SDK PR ownership for binary audio frames** *(Owner: Orion Vale)*
-  `onAudioChunk` / `onAudioStart` / `onAudioEnd` additions to `RemoteBridgeConfig` must land in
-  `@bradygaster/squad-sdk` before the PTT audio path can work end-to-end. Identify who submits
-  the PR and confirm expected merge timeline. This is the critical-path scheduling risk for
-  RC phone voice input. See `.squad/rc-mobile-architecture.md` §Key Decisions #1.
-
-- [x] **RC mobile — spike Option C audio format (WEBM_OPUS) before building Option B** *(Owner: Talia Rune)*
-  Before building the full WebAudio AudioWorklet PCM pipeline (Option B), spend ½ day verifying
-  whether `AudioStreamContainerFormat.WEBM_OPUS` is available in Azure Cognitive Services SDK
-  1.49.0 and works with browser-sourced audio. If it does, use Option C (simpler, lower bandwidth).
-  Fall back to Option B only if Option C fails. See `.squad/rc-mobile-architecture.md` §Key Decisions #2.
-
-- [x] **RC mobile — define PTT-during-LLM-run policy** *(Owner: Orion Vale)*
-  What happens when the user initiates PTT on the phone while an LLM response is already streaming?
-  Options: (a) queue prompt, (b) abort current run, (c) reject with error.
-  Recommendation: show "⏳ Wait for response to complete" on phone; auto-unblock when `complete` fires.
-  Decision needed before wiring PTT UX. See `.squad/rc-mobile-architecture.md` §Key Decisions #4.
-
-- [x] **RC mobile — define session isolation policy for multi-phone connections** *(Owner: Orion Vale)*
-  `RemoteBridge` allows multiple simultaneous phone connections. If two phones connect and submit
-  prompts, do they share one SquadBridge session (shared history) or get isolated sessions?
-  Decision affects how `onPrompt` is wired in `handleRcStart`. See `.squad/rc-mobile-architecture.md` §Key Decisions #5.
-
-- [x] **RC — phone voice input via PTT bridge** *(Owner: Orion Vale — architecture first, then Talia + Arjun)*
-  Allow a phone browser to stream microphone audio over WebSocket to SquadDash, which pipes
-  it into the existing Azure Cognitive Services `PushAudioInputStream`. The transcribed text
-  follows the same PTT completion path as desktop mic input. Key challenges: audio format
-  (browser exports WebM/Opus; Azure expects PCM — needs transcoding via NAudio or FFmpeg),
-  latency, and auth. Architecture review needed before implementation.
-
-- [x] **RC — ngrok/Cloudflare tunnel auto-start** *(Owner: Talia Rune + Orion Vale)*
-  When RC starts, optionally auto-launch an ngrok or Cloudflare tunnel and surface the public
-  URL in the transcript. Enables phone access from outside the home network without router
-  port-forwarding. Requires tunnel binary detection and token configuration.
-
-- [x] **`squad streams` / `subsquads` management** *(Owner: Talia Rune)*
-  `squad streams` is deprecated in 0.9.5-insider; the replacement is `squad subsquads`
-  (aliases: `workstreams`, `streams`). Investigate the updated API for sub-squad creation
-  and management. Prototype wrapping once the API stabilises.
-
-- [x] **`squad cross-squad` integration** *(Owner: Orion Vale — architecture first)*
-  Architectural review needed before any implementation. How should SquadDash surface
-  cross-workspace agent interactions? Note: `squad cross-squad` does not appear in the
-  0.9.5-insider CLI — may be a planned future feature.
+- [ ] **Personal Squad — investigate and expose in UI** *(Owner: Orion Vale → Lyra Morn)*
+  The `squad personal` feature was bridged (personal_list/personal_init) but the Workspace menu
+  item was removed — it printed to transcript only with no visible feedback. Investigate what
+  "personal squad" means in the current Squad SDK version (cross-workspace personal agents stored
+  in the global Squad data dir), then design and implement useful UI if the feature has real value
+  for SquadDash users.
 
 ---
 
@@ -148,6 +79,9 @@
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
 
+- [x] Loop output log pane — ✅ Implemented (collapsible log pane in Loop panel wired to loop_output_line events)
+- [x] RC — LAN access (bind to PC IP, not localhost) — ✅ Implemented (0.0.0.0 binding via patch-package; LAN URL shown in transcript)
+- [x] Phone push notifications — ✅ Implemented (NtfyNotificationProvider; cascading rate-limiter; Preferences UI; QR code; per-event toggles)
 - [x] Verify task priority icon colors — ✅ Verified 2026-04-29
 - [x] RC mobile — decide SDK PR ownership for binary audio frames — ✅ Decided 2026-04-30 (Talia Rune submits PR after Option C spike)
 - [x] RC mobile — spike Option C audio format (WEBM_OPUS) — ✅ Spiked 2026-04-30 (WEBM_OPUS absent from SDK 1.49.0; proceed with Option B PCM/AudioWorklet)

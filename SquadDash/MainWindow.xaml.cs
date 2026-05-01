@@ -6177,33 +6177,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void SubSquadsMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (_currentWorkspace is null)
-                return;
-
-            await _bridge.ListSubSquadsAsync(_currentWorkspace.FolderPath).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(SubSquadsMenuItem_Click), ex);
-        }
-    }
-
-    private async void PersonalSquadMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            await _bridge.ListPersonalAgentsAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(PersonalSquadMenuItem_Click), ex);
-        }
-    }
-
     private async void InstallSquadButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -13476,22 +13449,6 @@ public partial class MainWindow : Window
         };
         _remoteAccessMenuItem.Click += RemoteAccessMenuItem_Click;
         RemoteMenuItem.Items.Add(_remoteAccessMenuItem);
-
-        var subSquadsMenuItem = new MenuItem
-        {
-            Header = "Sub_Squads",
-            Style = (Style)FindResource("ThemedMenuItemStyle")
-        };
-        subSquadsMenuItem.Click += SubSquadsMenuItem_Click;
-        WorkspaceMenuItem.Items.Add(subSquadsMenuItem);
-
-        var personalSquadMenuItem = new MenuItem
-        {
-            Header = "_Personal Squad",
-            Style = (Style)FindResource("ThemedMenuItemStyle")
-        };
-        personalSquadMenuItem.Click += PersonalSquadMenuItem_Click;
-        WorkspaceMenuItem.Items.Add(personalSquadMenuItem);
 
         AddWorkspaceMenuSeparator();
 
