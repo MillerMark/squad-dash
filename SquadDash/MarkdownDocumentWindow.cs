@@ -13,6 +13,10 @@ using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Threading;
+using System.Windows.Media.Imaging;
+using SquadDash.Screenshots;
 
 namespace SquadDash;
 
@@ -65,6 +69,8 @@ internal sealed class MarkdownDocumentWindow : Window {
     private int                       _editorVoiceCaretIndex;
     private readonly CtrlDoubleTapGestureTracker _editorPttGesture =
         new(maxTapHoldMs: 250, doubleTapGapMs: 350);
+
+    private MarkdownDocumentCaptureContext? _captureContext;
 
     private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents) {
         if (documents.Count == 0)
@@ -248,12 +254,15 @@ internal sealed class MarkdownDocumentWindow : Window {
         UpdateChrome();
     }
 
-    public static void Show(Window? owner, string title, string filePath, bool showSource = false) {
-        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource);
+    public static void Show(Window? owner, string title, string filePath, bool showSource = false,
+        MarkdownDocumentCaptureContext? captureContext = null) {
+        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext);
     }
 
-    public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false) {
+    public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false,
+        MarkdownDocumentCaptureContext? captureContext = null) {
         var window = new MarkdownDocumentWindow(title, documents);
+        window._captureContext = captureContext;
         if (owner is not null)
             window.Owner = owner;
 
@@ -606,7 +615,9 @@ internal sealed class MarkdownDocumentWindow : Window {
     private void SetupWebBrowser(WebBrowser browser) {
         browser.ObjectForScripting = new MarkdownDocumentScriptingBridge(
             HandleLinkNavigation,
-            lineHint => Dispatcher.BeginInvoke(new Action(() => HighlightSourceFromHover(lineHint))));
+            lineHint  => Dispatcher.BeginInvoke(new Action(() => HighlightSourceFromHover(lineHint))),
+            imagePath => Dispatcher.BeginInvoke(new Action(() => HandleShowScreenshotMenu(imagePath))),
+            imagePath => Dispatcher.BeginInvoke(new Action(() => HandleShowImageMenu(imagePath))));
         browser.Navigating += WebBrowser_Navigating;
         browser.LoadCompleted += WebBrowser_LoadCompleted;
     }
@@ -628,6 +639,286 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void BackButton_Click(object sender, RoutedEventArgs e) => NavigateBack();
+
+    // ── Screenshot / image context menus ───────────────────────────────────
+
+    private void HandleShowScreenshotMenu(string imagePath) {
+        var menu = new ContextMenu();
+
+        var pasteItem = new MenuItem { Header = "Paste screenshot from clipboard" };
+        pasteItem.IsEnabled = Clipboard.ContainsImage();
+        pasteItem.Click += (_, _) => PasteScreenshotFromClipboard(imagePath);
+        menu.Items.Add(pasteItem);
+
+        var captureItem = new MenuItem { Header = "Capture image" };
+        captureItem.Click += (_, _) => _ = CaptureImageAsync(imagePath);
+        menu.Items.Add(captureItem);
+
+        menu.PlacementTarget = _activeDocument?.WebBrowser;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        menu.IsOpen = true;
+    }
+
+    private void HandleShowImageMenu(string imagePath) {
+        var menu = new ContextMenu();
+
+        var pasteItem = new MenuItem { Header = "Replace with clipboard image" };
+        pasteItem.IsEnabled = Clipboard.ContainsImage();
+        pasteItem.Click += (_, _) => ReplaceImageFromClipboard(imagePath);
+        menu.Items.Add(pasteItem);
+
+        menu.PlacementTarget = _activeDocument?.WebBrowser;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        menu.IsOpen = true;
+    }
+
+    private void PasteScreenshotFromClipboard(string imagePath) {
+        var doc = _activeDocument;
+        if (doc is null) return;
+
+        if (!Clipboard.ContainsImage()) {
+            MessageBox.Show("No image found on clipboard.", "Screenshot",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(imagePath)) {
+            MessageBox.Show(
+                "Could not determine the image file path for this placeholder.\n\n" +
+                "Make sure the markdown has an ![alt](path/to/image.png) line immediately before the 📸 blockquote.",
+                "Screenshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(Path.GetExtension(imagePath))) {
+            MessageBox.Show(
+                $"The image path \"{imagePath}\" has no file extension. Expected a path like images/screenshot.png.",
+                "Screenshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var docDir        = Path.GetDirectoryName(doc.FilePath)!;
+        var fullImagePath = Path.Combine(docDir, imagePath.Replace('/', '\\'));
+        Directory.CreateDirectory(Path.GetDirectoryName(fullImagePath)!);
+
+        var clipImg = Clipboard.GetImage()!;
+        var editor  = new ClipboardImageEditorWindow(this, clipImg);
+        editor.ShowDialog();
+        if (editor.Result is not { } image) return;
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        using var stream = File.OpenWrite(fullImagePath);
+        encoder.Save(stream);
+
+        RemoveScreenshotPlaceholder(doc, imagePath);
+        SaveDocument(doc);
+    }
+
+    private void ReplaceImageFromClipboard(string imagePath) {
+        var doc = _activeDocument;
+        if (doc is null) return;
+
+        if (!Clipboard.ContainsImage()) {
+            MessageBox.Show("No image found on clipboard.", "Replace Screenshot",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(imagePath) || string.IsNullOrEmpty(Path.GetExtension(imagePath))) {
+            MessageBox.Show($"Cannot determine image file path from \"{imagePath}\".",
+                "Replace Screenshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var docDir        = Path.GetDirectoryName(doc.FilePath)!;
+        var fullImagePath = Path.Combine(docDir, imagePath.Replace('/', '\\'));
+        Directory.CreateDirectory(Path.GetDirectoryName(fullImagePath)!);
+
+        var clipImg = Clipboard.GetImage()!;
+        var editor  = new ClipboardImageEditorWindow(this, clipImg);
+        editor.ShowDialog();
+        if (editor.Result is not { } image) return;
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        using (var stream = File.OpenWrite(fullImagePath)) {
+            stream.SetLength(0);
+            encoder.Save(stream);
+        }
+
+        // Remove the 📸 placeholder if present immediately after the image line.
+        RemoveScreenshotPlaceholderAfterImage(doc, imagePath);
+        SaveDocument(doc);
+    }
+
+    /// <summary>
+    /// Removes the 📸 placeholder blockquote that immediately precedes or follows the
+    /// image tag for <paramref name="imagePath"/> in the document.
+    /// </summary>
+    private static void RemoveScreenshotPlaceholder(MarkdownDocumentTabState doc, string imagePath) {
+        var text         = doc.EditorTextBox.Text.Replace("\r\n", "\n");
+        var lines        = text.Split('\n').ToList();
+        var fwdSlashPath = imagePath.Replace('\\', '/');
+
+        // Search from the bottom so removing a line doesn't skew earlier indices.
+        for (var i = lines.Count - 1; i >= 0; i--) {
+            if ((lines[i].Contains("📸") || lines[i].Contains("Screenshot needed")) &&
+                i > 0 && lines[i - 1].Replace('\\', '/').Contains(fwdSlashPath)) {
+                lines.RemoveAt(i);
+                // Drop any blank line that now occupies the same position.
+                if (i < lines.Count && string.IsNullOrWhiteSpace(lines[i]))
+                    lines.RemoveAt(i);
+                break;
+            }
+        }
+
+        doc.EditorTextBox.Text = string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Removes the 📸 placeholder blockquote that immediately follows the image tag
+    /// for <paramref name="imagePath"/> (used when replacing an existing image).
+    /// </summary>
+    private static void RemoveScreenshotPlaceholderAfterImage(MarkdownDocumentTabState doc, string imagePath) {
+        var text         = doc.EditorTextBox.Text.Replace("\r\n", "\n");
+        var lines        = text.Split('\n').ToList();
+        var fwdSlashPath = imagePath.Replace('\\', '/');
+
+        for (var i = 0; i < lines.Count - 1; i++) {
+            if (!lines[i].Replace('\\', '/').Contains(fwdSlashPath))
+                continue;
+
+            var nextI = i + 1;
+            if (nextI < lines.Count &&
+                (lines[nextI].Contains("📸") || lines[nextI].Contains("Screenshot needed"))) {
+                lines.RemoveAt(nextI);
+                if (nextI < lines.Count && string.IsNullOrWhiteSpace(lines[nextI]))
+                    lines.RemoveAt(nextI);
+                break;
+            }
+        }
+
+        doc.EditorTextBox.Text = string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Opens <see cref="ScreenshotOverlayWindow"/> targeting <paramref name="imagePath"/>
+    /// (resolved relative to the active document's directory).  If a matching
+    /// <see cref="ScreenshotDefinition"/> exists in <see cref="MarkdownDocumentCaptureContext.ScreenshotsDirectory"/>
+    /// and declares a fixture or replay action, those are applied before the overlay opens
+    /// and restored in a <c>finally</c> block regardless of capture outcome.
+    /// </summary>
+    private async Task CaptureImageAsync(string imagePath) {
+        var doc = _activeDocument;
+        if (doc is null) return;
+
+        if (string.IsNullOrWhiteSpace(imagePath) || string.IsNullOrEmpty(Path.GetExtension(imagePath))) {
+            MessageBox.Show(
+                $"Cannot determine the image file path from \"{imagePath}\".\n\n" +
+                "Make sure the markdown placeholder has a valid image path like images/screenshot.png.",
+                "Capture Image", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var docDir        = Path.GetDirectoryName(doc.FilePath)!;
+        var fullImagePath = Path.Combine(docDir, imagePath.Replace('/', '\\'));
+        var imageDir      = Path.GetDirectoryName(fullImagePath)!;
+
+        // Try to find a matching screenshot definition by filename stem.
+        ScreenshotDefinition? definition = null;
+        if (_captureContext?.ScreenshotsDirectory is { } screenshotsDir) {
+            try {
+                var registry = await ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir).ConfigureAwait(true);
+                var stem     = Path.GetFileNameWithoutExtension(imagePath);
+                definition   = registry.TryGet(stem);
+            }
+            catch { /* registry unavailable — proceed without fixture */ }
+        }
+
+        var fixtureApplied = false;
+        IReplayableUiAction? replayAction = null;
+
+        try {
+            // Apply fixture if the definition specifies one.
+            if (definition is not null && _captureContext?.FixtureRegistry is { } fixtureReg) {
+                var fixture = ScreenshotFixture.Empty;
+
+                if (!string.IsNullOrWhiteSpace(definition.FixturePath)) {
+                    var fixturePath = Path.IsPathRooted(definition.FixturePath)
+                        ? definition.FixturePath
+                        : Path.Combine(docDir, definition.FixturePath);
+
+                    if (File.Exists(fixturePath)) {
+                        var json    = await File.ReadAllTextAsync(fixturePath).ConfigureAwait(true);
+                        var opts    = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        fixture     = JsonSerializer.Deserialize<ScreenshotFixture>(json, opts)
+                                      ?? ScreenshotFixture.Empty;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(definition.FixturePath)
+                    || !string.IsNullOrWhiteSpace(definition.ReplayActionId)) {
+                    await fixtureReg.ApplyAllAsync(fixture, CancellationToken.None).ConfigureAwait(true);
+                    fixtureApplied = true;
+                }
+            }
+
+            // Execute replay action if available.
+            if (definition is not null
+                && !string.IsNullOrWhiteSpace(definition.ReplayActionId)
+                && _captureContext?.ActionRegistry is { } actionReg
+                && actionReg.TryGet(definition.ReplayActionId, out replayAction)
+                && replayAction is not null
+                && replayAction.IsSideEffectFree) {
+                await replayAction.ExecuteAsync(CancellationToken.None).ConfigureAwait(true);
+
+                // Poll up to 10 s for the action to report ready.
+                const int MaxWaitMs      = 10_000;
+                const int PollIntervalMs = 100;
+                var elapsed = 0;
+                while (elapsed < MaxWaitMs && !await replayAction.IsReadyAsync().ConfigureAwait(true)) {
+                    await Task.Delay(PollIntervalMs).ConfigureAwait(true);
+                    elapsed += PollIntervalMs;
+                }
+            }
+
+            // Open the capture overlay.
+            Directory.CreateDirectory(imageDir);
+
+            var targetWindow = Owner ?? Application.Current.MainWindow;
+            var themeName    = _captureContext?.ThemeName    ?? "Light";
+            var speechRegion = _captureContext?.SpeechRegion ?? string.Empty;
+
+            var tcs     = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var overlay = new ScreenshotOverlayWindow(targetWindow, imageDir, themeName, speechRegion);
+            overlay.ScreenshotSaved  += (_, e) => tcs.TrySetResult(e.PngPath);
+            overlay.ScreenshotFailed += (_, _) => tcs.TrySetResult(null);
+            overlay.Closed           += (_, _) => tcs.TrySetResult(null); // cancelled
+            overlay.Show();
+
+            var savedPath = await tcs.Task.ConfigureAwait(true);
+            if (savedPath is null) return; // user cancelled or capture failed
+
+            // Move the provisional PNG to the intended image path.
+            File.Move(savedPath, fullImagePath, overwrite: true);
+
+            // Remove the 📸 placeholder and save the document.
+            RemoveScreenshotPlaceholder(doc, imagePath);
+            SaveDocument(doc);
+        }
+        finally {
+            // Undo any replay action.
+            if (replayAction is not null) {
+                try { await replayAction.UndoAsync().ConfigureAwait(true); } catch { }
+            }
+
+            // Always restore fixture state, even on cancellation or error.
+            if (fixtureApplied && _captureContext?.FixtureRegistry is { } f) {
+                try { await f.RestoreAllAsync(CancellationToken.None).ConfigureAwait(true); } catch { }
+            }
+        }
+    }
 
     private void MarkdownDocumentWindow_PreviewMouseDown(object sender, MouseButtonEventArgs e) {
         if (e.ChangedButton == MouseButton.XButton1) {
@@ -1319,17 +1610,26 @@ internal static class MarkdownFlowDocumentBuilder {
 
 [System.Runtime.InteropServices.ComVisible(true)]
 public sealed class MarkdownDocumentScriptingBridge {
-    private readonly Action<string> _navigate;
+    private readonly Action<string>  _navigate;
     private readonly Action<string>? _hoverElement;
+    private readonly Action<string>? _showScreenshotMenu;
+    private readonly Action<string>? _showImageMenu;
 
-    public MarkdownDocumentScriptingBridge(Action<string> navigate, Action<string>? hoverElement = null) {
-        _navigate = navigate;
-        _hoverElement = hoverElement;
+    public MarkdownDocumentScriptingBridge(
+        Action<string>  navigate,
+        Action<string>? hoverElement       = null,
+        Action<string>? showScreenshotMenu = null,
+        Action<string>? showImageMenu      = null) {
+        _navigate           = navigate;
+        _hoverElement       = hoverElement;
+        _showScreenshotMenu = showScreenshotMenu;
+        _showImageMenu      = showImageMenu;
     }
 
-    public void Navigate(string href) => _navigate(href);
-
-    public void HoverElement(string lineHint) => _hoverElement?.Invoke(lineHint);
+    public void Navigate(string href)            => _navigate(href);
+    public void HoverElement(string lineHint)    => _hoverElement?.Invoke(lineHint);
+    public void ShowScreenshotMenu(string path)  => _showScreenshotMenu?.Invoke(path);
+    public void ShowImageMenu(string path)       => _showImageMenu?.Invoke(path);
 }
 
 internal static class MarkdownDocumentScripts {
@@ -1356,3 +1656,29 @@ internal static class MarkdownDocumentScripts {
 })();
 ";
 }
+
+/// <summary>
+/// Optional services passed to <see cref="MarkdownDocumentWindow.Show"/> to enable
+/// the "Capture image" context-menu action on screenshot placeholders.
+/// </summary>
+/// <param name="FixtureRegistry">
+///   Applies and restores fixture state before and after interactive capture.
+///   When <c>null</c>, fixture loading is skipped.
+/// </param>
+/// <param name="ActionRegistry">
+///   Registry of <see cref="IReplayableUiAction"/> instances used to replay UI state
+///   before capture.  When <c>null</c>, replay actions are skipped.
+/// </param>
+/// <param name="ScreenshotsDirectory">
+///   Full path to the <c>docs/screenshots</c> directory; used to load
+///   <see cref="ScreenshotDefinitionRegistry"/> on demand.
+///   When <c>null</c>, definition lookup is skipped.
+/// </param>
+/// <param name="ThemeName">Current UI theme name passed to <see cref="ScreenshotOverlayWindow"/>.</param>
+/// <param name="SpeechRegion">Azure speech region for overlay voice dictation, or empty string.</param>
+internal sealed record MarkdownDocumentCaptureContext(
+    Screenshots.FixtureLoaderRegistry?  FixtureRegistry,
+    Screenshots.UiActionReplayRegistry? ActionRegistry,
+    string?                             ScreenshotsDirectory,
+    string                              ThemeName,
+    string                              SpeechRegion);

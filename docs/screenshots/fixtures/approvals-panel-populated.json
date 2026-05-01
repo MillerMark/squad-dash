@@ -1,0 +1,12 @@
+{
+  "fixtureId": "approvals-panel-populated",
+  "data": {
+    "needsApproval": [
+      { "description": "Fix login timeout logic", "sha": "abc1234" },
+      { "description": "Add dark mode preference key", "sha": "def5678" }
+    ],
+    "approved": [
+      { "description": "Update README screenshots", "sha": "9ab0cd2" }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "fixtureId": "loop-panel-running",
+  "data": {
+    "loopRunning": true,
+    "currentIteration": 3,
+    "totalIterations": 10
+  }
+}

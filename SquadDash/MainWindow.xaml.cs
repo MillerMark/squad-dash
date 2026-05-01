@@ -993,6 +993,29 @@ public partial class MainWindow : Window
         _fixtureLoaderRegistry.Register("promptText", new PromptTextFixtureLoader(
             promptTextBox: PromptTextBox,
             dispatcher: Dispatcher));
+
+        _fixtureLoaderRegistry.Register("tasksPanel", new Screenshots.Fixtures.TasksFixtureLoader(
+            activePanel:    TasksActivePanel,
+            completedPanel: TasksCompletedPanel,
+            refreshPanel:   result => _tasksPanelController?.Refresh(result),
+            dispatcher:     Dispatcher));
+
+        _fixtureLoaderRegistry.Register("loopPanel", new Screenshots.Fixtures.LoopPanelFixtureLoader(
+            getStatusText:      () => LoopStatusLabel.Text,
+            setStatusText:      v  => LoopStatusLabel.Text = v,
+            getStopEnabled:     () => StopLoopButton.IsEnabled,
+            setStopEnabled:     v  => StopLoopButton.IsEnabled = v,
+            getStartEnabled:    () => StartLoopButton.IsEnabled,
+            setStartEnabled:    v  => StartLoopButton.IsEnabled = v,
+            getAbortVisibility: () => AbortLoopButton.Visibility,
+            setAbortVisibility: v  => AbortLoopButton.Visibility = v,
+            dispatcher:         Dispatcher));
+
+        _fixtureLoaderRegistry.Register("approvalsPanel", new Screenshots.Fixtures.ApprovalsPanelFixtureLoader(
+            getApprovalItems:  () => _approvalItems,
+            setApprovalItems:  items => _approvalItems = items,
+            replaceAllInPanel: items => _approvalPanel?.ReplaceAllItems(items),
+            dispatcher:        Dispatcher));
     }
 
     private void AddWorkspaceMenuSeparator()
@@ -6669,7 +6692,8 @@ public partial class MainWindow : Window
                 CanShowOwnedWindow() ? this : null,
                 "Tasks",
                 tasksPath,
-                showSource: true);
+                showSource: true,
+                BuildMarkdownCaptureContext());
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EditTasksMenuItem_Click), ex); }
     }
@@ -14947,7 +14971,8 @@ public partial class MainWindow : Window
                 CanShowOwnedWindow() ? this : null,
                 title,
                 files,
-                showSource);
+                showSource,
+                BuildMarkdownCaptureContext());
         }
         catch (Exception ex)
         {
@@ -14958,6 +14983,14 @@ public partial class MainWindow : Window
                 MessageBoxImage.Error);
         }
     }
+
+    private MarkdownDocumentCaptureContext BuildMarkdownCaptureContext() =>
+        new MarkdownDocumentCaptureContext(
+            FixtureRegistry:      _fixtureLoaderRegistry,
+            ActionRegistry:       _uiActionReplayRegistry,
+            ScreenshotsDirectory: _workspacePaths.ScreenshotsDirectory,
+            ThemeName:            _activeThemeName,
+            SpeechRegion:         _settingsSnapshot.SpeechRegion ?? string.Empty);
 
     private void ShowTextWindow(string title, string content)
     {

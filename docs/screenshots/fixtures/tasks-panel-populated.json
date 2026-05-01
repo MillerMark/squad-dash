@@ -1,0 +1,10 @@
+{
+  "fixtureId": "tasks-panel-populated",
+  "data": {
+    "tasks": [
+      "- [ ] Fix login timeout logic  *(Owner: arjun-sen)*",
+      "- [ ] Add dark mode preference key",
+      "- [x] Update README screenshots"
+    ]
+  }
+}
