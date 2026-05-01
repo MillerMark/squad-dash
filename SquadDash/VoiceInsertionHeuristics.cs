@@ -77,6 +77,23 @@ internal static class VoiceInsertionHeuristics
         if (IsRightContextRequiresTrailingSpace(rightContext) && !result.EndsWith(' '))
             result += ' ';
 
+        // 5. Left context ends with a digit and incoming text starts with an uppercase
+        //    letter that is not a special-case token (pronoun "I", acronym, CamelCase):
+        //    lowercase the first word and prepend a separating space if needed.
+        //    Speech recognisers capitalise the first word of a recognised phrase, but
+        //    after a number that capitalisation is wrong.
+        //    Examples:
+        //      left="step 6"   incoming="And then"   → " and then"
+        //      left="items: 3" incoming="I've seen"  → " I've seen"  (space, no lowercase)
+        //      left="count: 3 " incoming="And"       → "and"         (space already present)
+        if (IsLeftContextEndsWithDigit(leftContext) && result.Length > 0)
+        {
+            if (char.IsUpper(result[0]))
+                result = LowercaseFirstWordIfNotSpecial(result);
+            if (leftContext.Length > 0 && !char.IsWhiteSpace(leftContext[^1]) && !result.StartsWith(' '))
+                result = ' ' + result;
+        }
+
         return result;
     }
 
@@ -283,6 +300,24 @@ internal static class VoiceInsertionHeuristics
     }
 
 
+
+    /// <summary>
+    /// Returns <c>true</c> when the last non-whitespace character of
+    /// <paramref name="leftContext"/> is an ASCII digit (0–9).
+    /// Used to detect patterns like <c>"step 6"</c> or <c>"items: 3"</c> where
+    /// the speech recogniser's auto-capitalisation of the next word is incorrect.
+    /// </summary>
+    internal static bool IsLeftContextEndsWithDigit(string leftContext)
+    {
+        if (string.IsNullOrEmpty(leftContext)) return false;
+        for (var i = leftContext.Length - 1; i >= 0; i--)
+        {
+            var ch = leftContext[i];
+            if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') continue;
+            return char.IsDigit(ch);
+        }
+        return false;
+    }
 
     /// <summary>
     /// Checks whether <paramref name="text"/> ends with <paramref name="targetWord"/>

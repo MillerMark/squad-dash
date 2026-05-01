@@ -427,4 +427,85 @@ internal sealed class VoiceInsertionHeuristicsTests {
         var result = VoiceInsertionHeuristics.Apply("(", "For today.", ")");
         Assert.That(result, Is.EqualTo("for today"));
     }
+
+    // ── IsLeftContextEndsWithDigit ────────────────────────────────────────────
+
+    [Test]
+    public void IsLeftContextEndsWithDigit_EmptyString_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsLeftContextEndsWithDigit(""), Is.False);
+    }
+
+    [Test]
+    public void IsLeftContextEndsWithDigit_EndsWithDigit_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsLeftContextEndsWithDigit("step 6"), Is.True);
+    }
+
+    [Test]
+    public void IsLeftContextEndsWithDigit_EndsWithDigitAndTrailingSpace_ReturnsTrue() {
+        Assert.That(VoiceInsertionHeuristics.IsLeftContextEndsWithDigit("step 6 "), Is.True);
+    }
+
+    [Test]
+    public void IsLeftContextEndsWithDigit_EndsWithLetter_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsLeftContextEndsWithDigit("hello"), Is.False);
+    }
+
+    [Test]
+    public void IsLeftContextEndsWithDigit_EndsWithPunct_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsLeftContextEndsWithDigit("hello."), Is.False);
+    }
+
+    // ── Apply: digit-left heuristic (heuristic 5) ────────────────────────────
+
+    [Test]
+    public void Apply_DigitLeft_UppercaseWord_LowercasesAndAddsSpace() {
+        // "6" + "And" → " and"  (space prepended, A lowercased)
+        var result = VoiceInsertionHeuristics.Apply("6", "And");
+        Assert.That(result, Is.EqualTo(" and"));
+    }
+
+    [Test]
+    public void Apply_DigitLeftWithTrailingSpace_UppercaseWord_LowercasesNoExtraSpace() {
+        // "6 " + "And" → "and"  (space already in left context, no double-space)
+        var result = VoiceInsertionHeuristics.Apply("6 ", "And");
+        Assert.That(result, Is.EqualTo("and"));
+    }
+
+    [Test]
+    public void Apply_DigitLeft_PronounI_AddsSpaceNoLowercase() {
+        // "3" + "I've" → " I've"  (space added, but "I've" preserved)
+        var result = VoiceInsertionHeuristics.Apply("3", "I've seen it");
+        Assert.That(result, Does.StartWith(" I"));
+    }
+
+    [Test]
+    public void Apply_DigitLeft_Acronym_AddsSpaceNoLowercase() {
+        // "2" + "API" → " API"  (acronym preserved)
+        var result = VoiceInsertionHeuristics.Apply("2", "API calls");
+        Assert.That(result, Does.StartWith(" API"));
+    }
+
+    [Test]
+    public void Apply_DigitLeft_AlreadyLowercase_OnlyAddsSpace() {
+        // "6" + "and" — already lowercase, just space prepended
+        var result = VoiceInsertionHeuristics.Apply("6", "and then");
+        Assert.That(result, Is.EqualTo(" and then"));
+    }
+
+    [Test]
+    public void Apply_LetterLeft_UppercaseWord_NoDigitHeuristic() {
+        // "word" + "And" — letter on left, heuristic 5 does NOT fire
+        // heuristic 1 (IsSentenceContinuation) fires instead → lowercased, no prefix space
+        var result = VoiceInsertionHeuristics.Apply("word", "And");
+        Assert.That(result, Is.EqualTo("and"));
+        Assert.That(result, Does.Not.StartWith(" "));
+    }
+
+    [Test]
+    public void Apply_EndToEnd_NumberInSentence() {
+        // Full scenario: "There are 6" + "And more items" → "There are 6 and more items"
+        var left = "There are 6";
+        var inserted = VoiceInsertionHeuristics.Apply(left, "And more items");
+        Assert.That(left + inserted, Is.EqualTo("There are 6 and more items"));
+    }
 }
