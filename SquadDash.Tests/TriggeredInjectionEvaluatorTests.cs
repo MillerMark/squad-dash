@@ -129,6 +129,11 @@ internal sealed class TriggeredInjectionEvaluatorTests {
     [TestCase("Show me the todos")]
     [TestCase("I want a checklist")]
     [TestCase("create a to-do")]
+    // Voice-dictated variants (compound words split by speech recognition)
+    [TestCase("I need to add a to do item")]
+    [TestCase("Show me the to dos please")]
+    [TestCase("Let's update the back log")]
+    [TestCase("Add a check list for me")]
     public void BuiltIn_Tasks_FiresOnTaskRelatedPrompts(string prompt) {
         var vars = TriggeredInjectionEvaluator.BuildVariables(@"C:\Source\MyProject");
         var result = TriggeredInjectionEvaluator.Evaluate(

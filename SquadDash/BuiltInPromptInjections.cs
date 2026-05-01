@@ -19,7 +19,8 @@ internal static class BuiltInPromptInjections {
     /// </summary>
     internal static readonly TriggeredPromptInjection Tasks = new(
         Id:      "builtin:tasks-guidance",
-        Pattern: @"\b(task|tasks|todo|todos|to-do|to-dos|backlog|checklist|task\s+list|add\s+a\s+task|new\s+task|create\s+a\s+task)\b",
+        // Voice dictation can split compound words: "to do", "to dos", "check list", "back log"
+        Pattern: @"\b(task|tasks|todo|todos|to[\s\-]do|to[\s\-]dos|backlog|back\s+log|checklist|check\s+list|task\s+list|add\s+a\s+task|new\s+task|create\s+a\s+task)\b",
         InjectionText:
             """
             If the user is asking to create, add, update, view, or manage tasks or a task list:
