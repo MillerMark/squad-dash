@@ -49,6 +49,7 @@
     <SolidColorBrush x:Key="LineColor" Color="#3E3730"/>
     <SolidColorBrush x:Key="TranscriptBorder" Color="#38322A"/>
     <SolidColorBrush x:Key="InputBorder" Color="#3A342C"/>
+    <SolidColorBrush x:Key="CheckBoxBorder" Color="#746858"/><!-- ~2× InputBorder for dark-theme contrast -->
     <SolidColorBrush x:Key="AlertBorder" Color="#5A4820"/>
     <SolidColorBrush x:Key="BadgeBorder" Color="#5A4830"/>
     <SolidColorBrush x:Key="HireAgentImageBorder" Color="#3A342C"/>

@@ -154,7 +154,7 @@
             <Style TargetType="CheckBox">
                 <Setter Property="Foreground"               Value="{DynamicResource LabelText}"/>
                 <Setter Property="Background"               Value="{DynamicResource InputSurface}"/>
-                <Setter Property="BorderBrush"              Value="{DynamicResource InputBorder}"/>
+                <Setter Property="BorderBrush"              Value="{DynamicResource CheckBoxBorder}"/>
                 <Setter Property="BorderThickness"          Value="1"/>
                 <Setter Property="VerticalContentAlignment" Value="Center"/>
                 <Setter Property="Cursor"                   Value="Hand"/>
