@@ -96,7 +96,16 @@ if ($LASTEXITCODE -ne 0) { Write-Error "ISCC compilation failed."; exit 1 }
 # ---------------------------------------------------------------------------
 $output = "$artifacts\SquadDash-$Version-Setup.exe"
 if (Test-Path $output) {
-    $hash = (Get-FileHash $output -Algorithm SHA256).Hash
+    # Get-FileHash requires PowerShell 4+; fall back to .NET SHA256 if unavailable
+    if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) {
+        $hash = (Get-FileHash $output -Algorithm SHA256).Hash
+    } else {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $stream = [System.IO.File]::OpenRead($output)
+        try   { $bytes = $sha256.ComputeHash($stream) }
+        finally { $stream.Dispose(); $sha256.Dispose() }
+        $hash = ($bytes | ForEach-Object { $_.ToString("X2") }) -join ""
+    }
     Write-Host ""
     Write-Host "✅ Installer built: $output"
     Write-Host "   SHA256: $hash"
