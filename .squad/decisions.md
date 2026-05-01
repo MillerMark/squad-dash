@@ -2289,3 +2289,94 @@ Both failures are **test maintenance issues**, not production code defects:
 - When writing new tests, prefer `DateTimeOffset.UtcNow.Add*` over hardcoded future dates
 - Keep test assertions aligned with production code doc comments
 - Run the full suite periodically (e.g., before major releases) to catch drift
+
+
+---
+
+# Quality Audit Results — 2025-01-18
+
+**Auditor:** Vesper Knox (Testing & Quality Specialist)  
+**Scope:** Full SquadDash-public repository verification (build, test, code quality, coverage)
+
+---
+
+## Executive Summary
+
+**Build:** SquadDash.Tests compiles successfully. Main SquadDash project has non-critical deployment step failure (not C# compilation error).  
+**Tests:** 1133 passed, 0 failed, 1 skipped (1134 total) — all critical tests passing.  
+**Code Quality:** Generally strong. 1 nullable warning (false positive), 34 bare catch blocks (mostly acceptable cleanup paths), 1 TODO comment.  
+**Coverage:** Strong core coverage (stores, parsers, policies). Notable gaps in newer features (CommitApprovalStore, DocStatusStore, DocTopicsLoader, LoopOutputStore) and UI/Windows layers.
+
+---
+
+## Critical Findings
+
+### 🔴 High Priority — Missing Test Coverage
+
+**CommitApprovalStore** (`SquadDash\CommitApprovalStore.cs`)  
+- **Risk:** JSON persistence + capping logic (200 items, ordered by TurnStartedAt) untested
+- **Impact:** Approval tracking is a user-visible feature; data loss/corruption would require manual recovery
+- **Recommendation:** Create `CommitApprovalStoreTests.cs` covering Load (empty file, malformed JSON, cap overflow), Save (atomic write, ordering)
+
+**DocStatusStore** (`SquadDash\DocStatusStore.cs`)  
+- **Risk:** Case-insensitive key lookup, "was ever approved" tracking, approval/unapproval state transitions untested
+- **Impact:** Documentation approval workflow correctness; edge cases in path normalization could cause status loss
+- **Recommendation:** Create `DocStatusStoreTests.cs` covering GetStatus, SetApproved/SetNeedsReview, WasEverApproved, case-insensitivity, forward-slash normalization
+
+**DocTopicsLoader** (`SquadDash\DocTopicsLoader.cs`)  
+- **Risk:** SUMMARY.md parsing (regex-based link extraction), folder scanning fallback, first-item selection untested
+- **Impact:** Broken parsing could hide documentation; incorrect first-item selection affects UX
+- **Recommendation:** Create `DocTopicsLoaderTests.cs` covering SUMMARY.md line parsing, folder scan, null/missing docs folder handling
+
+**LoopOutputStore** (`SquadDash\LoopOutputStore.cs`)  
+- **Risk:** Sequential log numbering (loop-output-001.log, 002, ...) untested
+- **Impact:** Log collisions or gaps would confuse debugging; disk-full scenarios unhandled
+- **Recommendation:** Create `LoopOutputStoreTests.cs` covering SaveLog (sequential numbering, whitespace-only content rejection, directory creation)
+
+---
+
+## Medium Priority
+
+### ⚠️ Code Quality Issues
+
+**Nullable Warning (False Positive)**  
+- **Location:** `MainWindow.xaml.cs:7250` — CS8602: Dereference of a possibly null reference
+- **Analysis:** `newFilePath` assigned at line 7144 (`Path.Combine(...)`) and never reassigned; guaranteed non-null at usage sites (7250, 7255)
+- **Action:** Suppress warning with `#pragma warning disable CS8602` or use null-forgiving operator `newFilePath!` if preferred
+
+**Bare Catch Blocks**  
+- **Count:** 34 instances across codebase
+- **Analysis:** Majority are in cleanup/disposal paths (SpeechRecognitionService, RemoteSpeechSession, ScreenshotOverlayWindow) where exceptions are non-critical. Three instances in DocStatusStore (lines 39, 87, 106) silently swallow JSON parse failures and file write errors — acceptable for best-effort persistence but should be logged if diagnosing issues.
+- **Action:** Consider adding trace logging to DocStatusStore catch blocks to aid debugging without changing behavior
+
+**TODO Comment**  
+- **Location:** `ScreenshotRefreshRunner.cs:172` — "TODO: iterate twice for Both (capture -light and -dark variants separately)"
+- **Analysis:** Screenshot system deferred feature; not blocking
+- **Action:** Track as future enhancement (not urgent)
+
+---
+
+## What's Working Well ✅
+
+- **Test Suite Health:** 1134 tests, 99.9% pass rate (1 skipped assumption in SquadInstallationStateServiceTests is acceptable)
+- **Test Quality:** No empty test bodies, no TODO markers in tests, strong NUnit 4.4.0 compliance
+- **Core Coverage:** Excellent coverage of stores (ApplicationSettings, PromptHistory, RuntimeSlotState, WorkspaceConversation), parsers (LoopMd, QuickReplyOption, StartupFolder, TasksPanel), policies (AgentThreadIdentity, QuickReplyAgentLaunch, SilentBackgroundAgent)
+- **SDK Bridge:** SquadSdkProcess serialization/deserialization fully tested
+- **Error Handling:** Generally defensive; most bare catch blocks are in non-critical cleanup paths
+
+---
+
+## Recommended Actions (Prioritized)
+
+1. **URGENT:** Create test coverage for `CommitApprovalStore` (user-visible feature, data persistence risk)
+2. **HIGH:** Create test coverage for `DocStatusStore` (approval workflow correctness)
+3. **HIGH:** Create test coverage for `DocTopicsLoader` (documentation navigation UX)
+4. **MEDIUM:** Create test coverage for `LoopOutputStore` (debugging aid, log integrity)
+5. **LOW:** Suppress or annotate nullable warning at MainWindow.xaml.cs:7250 (compiler false-positive)
+6. **LOW:** Consider adding trace logging to DocStatusStore catch blocks (aid debugging without behavior change)
+7. **DEFERRED:** Track ScreenshotRefreshRunner TODO as future enhancement
+
+---
+
+**Conclusion:** Codebase is in good overall health. Test suite is robust and well-maintained. Primary risk area is newer features (commit approvals, doc status tracking, doc topics loading) lacking test coverage. Recommend prioritizing test coverage for data-persistence components before production release.
+
