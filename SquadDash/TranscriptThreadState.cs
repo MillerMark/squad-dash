@@ -150,8 +150,6 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
         set => _responseStreamed = value;
     }
 
-    public bool SessionFooterAppended { get; set; }
-
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null) {

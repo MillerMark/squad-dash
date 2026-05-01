@@ -2586,6 +2586,7 @@ public partial class MainWindow : Window
             return;
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
         thread.StatusText = "Streaming";
         thread.IsCurrentBackgroundRun = true;
@@ -2610,6 +2611,7 @@ public partial class MainWindow : Window
             return;
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
         thread.IsCurrentBackgroundRun = true;
 
@@ -2639,6 +2641,7 @@ public partial class MainWindow : Window
             return;
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
         StartToolExecution(thread, evt);
         thread.StatusText = "Tooling";
@@ -2697,7 +2700,6 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
         _agentThreadRegistry.FinalizeAgentThread(thread);
-        AppendAgentSessionFooter(thread, isError: false);
         UpdateCompletedTimeFooters();
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
@@ -2721,7 +2723,6 @@ public partial class MainWindow : Window
         var summary = BackgroundTaskPresenter.BuildThreadFailureSummary(thread, evt.Message);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Failed", detailText: summary);
         _agentThreadRegistry.FinalizeAgentThread(thread);
-        AppendAgentSessionFooter(thread, isError: true);
         UpdateCompletedTimeFooters();
         SquadDashTrace.Write("UI", $"Subagent failed {summary}");
 
@@ -8733,34 +8734,20 @@ public partial class MainWindow : Window
         return p;
     }
 
-    private void AppendAgentSessionFooter(TranscriptThreadState thread, bool isError)
+    /// <summary>
+    /// Clears completion state on a thread that has received new activity after previously
+    /// being marked complete (e.g. a resumed session).  Removes the "Completed N minutes ago"
+    /// footer so it does not appear mid-session.
+    /// </summary>
+    private void MaybeReactivateThread(TranscriptThreadState thread)
     {
-        if (thread.SessionFooterAppended)
-            return;
-        thread.SessionFooterAppended = true;
-
-        var sep = new string('─', 33);
-
-        var topSep = CreateTranscriptParagraph(bottomMargin: 0);
-        topSep.Margin = new Thickness(0, 10, 0, 0);
-        var topSepRun = new Run(sep) { FontSize = 11 };
-        topSepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        topSep.Inlines.Add(topSepRun);
-        thread.Document.Blocks.Add(topSep);
-
-        var statusParagraph = CreateTranscriptParagraph(bottomMargin: 0);
-        var statusRun = new Run(isError ? "✕  Session ended with error" : "✓  Session complete") { FontSize = 11 };
-        statusRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        statusParagraph.Inlines.Add(statusRun);
-        thread.Document.Blocks.Add(statusParagraph);
-
-        var botSep = CreateTranscriptParagraph(bottomMargin: 4);
-        var botSepRun = new Run(sep) { FontSize = 11 };
-        botSepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        botSep.Inlines.Add(botSepRun);
-        thread.Document.Blocks.Add(botSep);
-
-        ScrollToEndIfAtBottom(thread);
+        if (thread.CompletedAt is null) return;
+        thread.CompletedAt = null;
+        if (thread.CompletedTimeParagraph is not null)
+        {
+            thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
+            thread.CompletedTimeParagraph = null;
+        }
     }
 
     private void UpdateCompletedTimeFooters()
