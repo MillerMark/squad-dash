@@ -7548,6 +7548,7 @@ public partial class MainWindow : Window
             Padding = new Thickness(0),
             Margin = new Thickness(0, 0, 2, 0)
         };
+        prevBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         prevBtn.Click += (s, e) => DocSourceFind_NavigatePrevious();
 
         var nextBtn = new Button
@@ -7557,6 +7558,7 @@ public partial class MainWindow : Window
             Padding = new Thickness(0),
             Margin = new Thickness(0, 0, 6, 0)
         };
+        nextBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         nextBtn.Click += (s, e) => DocSourceFind_NavigateNext();
 
         _docSourceFindMatchCount = new TextBlock
@@ -7573,6 +7575,7 @@ public partial class MainWindow : Window
             Width = 24,
             Padding = new Thickness(0)
         };
+        closeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         closeBtn.Click += (s, e) => HideDocSourceFindBar();
 
         findPanel.Children.Add(_docSourceFindTextBox);
@@ -10104,6 +10107,7 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment   = VerticalAlignment.Center,
         };
+        copyBtn.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
         copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
         copyBtn.Click += (_, _) => {
             try { Clipboard.SetText(code); } catch { }
@@ -11490,8 +11494,8 @@ public partial class MainWindow : Window
             Padding = new Thickness(8, 2, 8, 2),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
-            Background = Brushes.Transparent
         };
+        transcriptButton.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
         transcriptButton.SetResourceReference(Control.ForegroundProperty, "ToolActionLink");
         transcriptButton.SetResourceReference(Control.BorderBrushProperty, "ToolActionLinkBorder");
         headerPanel.Children.Add(transcriptButton);
@@ -11561,6 +11565,7 @@ public partial class MainWindow : Window
             Padding = new Thickness(8, 2, 8, 2),
             Tag = entry
         };
+        openButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         openButton.Click += OpenToolDetailsButton_Click;
 
         detailPanel.Children.Add(openButton);
