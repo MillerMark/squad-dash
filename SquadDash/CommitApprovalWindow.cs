@@ -270,7 +270,7 @@ internal sealed class CommitApprovalPanel {
         var preview = string.Join(" ", words.Take(3));
         if (preview.Length > maxLen - 1)
             preview = preview[..(maxLen - 1)];
-        return preview + "…";
+        return "\u201c" + preview + "\u2026\u201d";
     }
 
     /// <summary>Inserts <paramref name="row"/> into <paramref name="panel"/> so that items remain
