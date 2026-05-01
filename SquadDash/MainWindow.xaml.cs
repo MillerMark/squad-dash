@@ -3529,7 +3529,37 @@ public partial class MainWindow : Window
         try { lines = File.ReadAllLines(tasksPath); }
         catch { _tasksPanelController.ShowEmpty("Could not read tasks.md"); return; }
 
-        _tasksPanelController.Refresh(TasksPanelParser.Parse(lines));
+        var parseResult = TasksPanelParser.Parse(lines);
+
+        // Also gather completed items from completed-tasks.md (most-recent-first by file order)
+        var completedTasksPath = Path.Combine(workspace.SquadFolderPath, "completed-tasks.md");
+        IReadOnlyList<TaskItem> extraCompleted = [];
+        if (File.Exists(completedTasksPath)) {
+            try {
+                var completedLines = File.ReadAllLines(completedTasksPath);
+                extraCompleted = TasksPanelParser.ParseCompletedFile(completedLines);
+            }
+            catch { /* ignore — best-effort */ }
+        }
+
+        // tasks.md ✅ section first (most recent), then completed-tasks.md items.
+        // Deduplicate: skip completed-tasks.md items whose text already appears in the tasks.md set.
+        List<TaskItem> allCompleted;
+        if (parseResult.CompletedItems.Count == 0 && extraCompleted.Count == 0) {
+            allCompleted = [];
+        } else {
+            allCompleted = [.. parseResult.CompletedItems];
+            var seenTexts = new System.Collections.Generic.HashSet<string>(
+                parseResult.CompletedItems.Select(i => i.Text.Trim()),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var item in extraCompleted) {
+                if (seenTexts.Add(item.Text.Trim()))
+                    allCompleted.Add(item);
+            }
+        }
+
+        var combined = new TaskParseResult(parseResult.OpenGroups, allCompleted);
+        _tasksPanelController.Refresh(combined);
     }
 
     private Brush PriorityDotColor(string emoji) => emoji switch {

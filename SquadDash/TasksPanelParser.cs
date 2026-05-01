@@ -20,9 +20,10 @@ internal static class TasksPanelParser {
     private const string OwnerMarker = " *(Owner:";
 
     internal static TaskParseResult Parse(string[] lines) {
-        var groups         = new List<TaskPriorityGroup>();
-        var completedItems = new List<TaskItem>();
-        TaskPriorityGroup? current = null;
+        var groups              = new List<TaskPriorityGroup>();
+        var completedItems      = new List<TaskItem>();
+        TaskPriorityGroup? current   = null;
+        bool inCompletedSection      = false;
 
         foreach (var rawLine in lines) {
             var line = rawLine.TrimEnd();
@@ -30,26 +31,52 @@ internal static class TasksPanelParser {
             if (line.StartsWith("## ", StringComparison.Ordinal)) {
                 var m = PriorityHeadingRegex.Match(line);
                 if (m.Success) {
-                    // Stop at the ✅ Done section
-                    if (line.Contains("✅", StringComparison.Ordinal))
-                        break;
-                    current = new TaskPriorityGroup(m.Groups[1].Value, m.Groups[2].Value.Trim());
-                    groups.Add(current);
+                    if (line.Contains("✅", StringComparison.Ordinal)) {
+                        // Enter the completed section — collect [x] items from here
+                        current             = null;
+                        inCompletedSection  = true;
+                    } else {
+                        inCompletedSection = false;
+                        current = new TaskPriorityGroup(m.Groups[1].Value, m.Groups[2].Value.Trim());
+                        groups.Add(current);
+                    }
                 } else if (line.Contains("✅", StringComparison.Ordinal)) {
-                    break;
+                    current            = null;
+                    inCompletedSection = true;
                 } else {
-                    current = null; // non-priority heading resets group
+                    current            = null;
+                    inCompletedSection = false;
+                }
+                continue;
+            }
+
+            var trimmed   = line.TrimStart();
+            bool isOpen    = trimmed.StartsWith("- [ ]", StringComparison.Ordinal);
+            bool isChecked = trimmed.StartsWith("- [x]", StringComparison.Ordinal);
+
+            if (!isOpen && !isChecked) continue;
+
+            // Items in the ✅ completed section
+            if (inCompletedSection) {
+                if (isChecked) {
+                    var rawText = trimmed[5..].Trim();
+                    // Strip "— ✅ Implemented/Decided/Verified …" annotation
+                    var annot = rawText.IndexOf("— ✅", StringComparison.Ordinal);
+                    if (annot < 0) annot = rawText.IndexOf("—✅", StringComparison.Ordinal);
+                    if (annot > 0) rawText = rawText[..annot].Trim();
+                    var text    = StripBoldAndOwner(rawText, out _);
+                    completedItems.Add(new TaskItem(
+                        Text:        text,
+                        Owner:       null,
+                        IsUserOwned: false,
+                        IsChecked:   true,
+                        Emoji:       "✅",
+                        RawLine:     line));
                 }
                 continue;
             }
 
             if (current is not null) {
-                var trimmed   = line.TrimStart();
-                bool isOpen    = trimmed.StartsWith("- [ ]", StringComparison.Ordinal);
-                bool isChecked = trimmed.StartsWith("- [x]", StringComparison.Ordinal);
-
-                if (!isOpen && !isChecked) continue;
-
                 // Raw text after the checkbox marker
                 var rawText = trimmed[5..].Trim();
 
@@ -103,6 +130,56 @@ internal static class TasksPanelParser {
         merged.Sort((a, b) => PriorityOrder(a.Emoji).CompareTo(PriorityOrder(b.Emoji)));
 
         return new TaskParseResult(merged, completedItems);
+    }
+
+    /// <summary>
+    /// Parses completed-tasks.md: extracts every <c>- [x]</c> line and returns the
+    /// bold task title (text between the first pair of <c>**</c> markers) as a
+    /// <see cref="TaskItem"/>.  Multi-line descriptions are ignored — only the header
+    /// line is relevant.  File order is preserved (most-recent-first by convention).
+    /// </summary>
+    internal static IReadOnlyList<TaskItem> ParseCompletedFile(string[] lines) {
+        var items = new List<TaskItem>();
+        foreach (var rawLine in lines) {
+            var trimmed = rawLine.TrimStart();
+            if (!trimmed.StartsWith("- [x]", StringComparison.Ordinal)) continue;
+            var rawText = trimmed[5..].Trim();
+            var text    = StripBoldAndOwner(rawText, out _);
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            items.Add(new TaskItem(
+                Text:        text,
+                Owner:       null,
+                IsUserOwned: false,
+                IsChecked:   true,
+                Emoji:       "✅",
+                RawLine:     rawLine.TrimEnd()));
+        }
+        return items;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /// <summary>Strips <c>**bold**</c> wrapper and trailing <c>*(Owner: …)*</c> suffix.</summary>
+    private static string StripBoldAndOwner(string rawText, out string? owner) {
+        owner = null;
+        var text = rawText;
+
+        // Strip owner suffix first (before bold so the marker is still visible)
+        var ownerIdx = text.IndexOf(OwnerMarker, StringComparison.Ordinal);
+        if (ownerIdx > 0) {
+            var after    = text[(ownerIdx + OwnerMarker.Length)..];
+            var closeIdx = after.IndexOf(')', StringComparison.Ordinal);
+            if (closeIdx >= 0)
+                owner = after[..closeIdx].Trim();
+            text = text[..ownerIdx].Trim();
+        }
+
+        // Strip **bold** wrapper
+        var boldEnd = text.IndexOf("**", 2, StringComparison.Ordinal);
+        if (text.StartsWith("**", StringComparison.Ordinal) && boldEnd > 2)
+            text = text[2..boldEnd].Trim();
+
+        return text;
     }
 
     private static int PriorityOrder(string emoji) => emoji switch {
