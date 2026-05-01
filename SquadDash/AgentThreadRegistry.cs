@@ -738,6 +738,11 @@ internal sealed class AgentThreadRegistry {
             else {
                 thread.LastObservedActivityAt = null;
                 thread.StatusText = string.Empty;
+                // Reset StartedAt so the card doesn't briefly show a stale elapsed time
+                // (e.g. "Running (8h 12m 32s)") from the previous session. The first
+                // SDK snapshot for a new run will overwrite this with the real start time
+                // within a few seconds.
+                thread.StartedAt = DateTimeOffset.Now;
             }
 
             NormalizeThreadAgentIdentity(thread);
