@@ -3790,16 +3790,16 @@ public partial class MainWindow : Window
         };
         _approvalNotFoundPopup = popup;
 
-        // Hold fully visible for 4 seconds, then fade out over 0.75 seconds.
-        var timer = new System.Windows.Threading.DispatcherTimer {
-            Interval = TimeSpan.FromSeconds(4)
-        };
-        timer.Tick += (_, _) => {
-            timer.Stop();
+        bool dismissed        = false;
+        bool mouseEnteredPopup = false;
+
+        void FadeAndClose() {
+            if (dismissed) return;
+            dismissed = true;
             var fade = new System.Windows.Media.Animation.DoubleAnimation(
                 fromValue:    1.0,
                 toValue:      0.0,
-                duration:     new Duration(TimeSpan.FromSeconds(0.75)),
+                duration:     new Duration(TimeSpan.FromSeconds(0.4)),
                 fillBehavior: System.Windows.Media.Animation.FillBehavior.Stop);
             fade.Completed += (_, _) => {
                 popup.IsOpen = false;
@@ -3807,8 +3807,26 @@ public partial class MainWindow : Window
                     _approvalNotFoundPopup = null;
             };
             border.BeginAnimation(UIElement.OpacityProperty, fade);
+        }
+
+        // Mouse left the popup content — dismiss immediately.
+        border.MouseLeave += (_, _) => FadeAndClose();
+
+        // If the mouse enters the popup, cancel the fallback auto-dismiss timer.
+        // The popup will then stay open until the mouse leaves.
+        var fallbackTimer = new System.Windows.Threading.DispatcherTimer {
+            Interval = TimeSpan.FromSeconds(4)
         };
-        timer.Start();
+        fallbackTimer.Tick += (_, _) => {
+            fallbackTimer.Stop();
+            if (!mouseEnteredPopup)
+                FadeAndClose();
+        };
+        border.MouseEnter += (_, _) => {
+            mouseEnteredPopup = true;
+            fallbackTimer.Stop();
+        };
+        fallbackTimer.Start();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
