@@ -39,12 +39,23 @@ internal sealed class WorkspaceConversationStore {
         return LoadStateWithRecovery(normalizedWorkspace, repairPrimary: true);
     }
 
-    public WorkspaceConversationState Save(string workspaceFolder, WorkspaceConversationState state) {
+    public WorkspaceConversationState Save(
+        string workspaceFolder,
+        WorkspaceConversationState state,
+        CancellationToken ct = default) {
         var normalizedWorkspace = NormalizeWorkspaceFolder(workspaceFolder);
         using var mutex = AcquireMutex(normalizedWorkspace);
 
+        // Yield point 1: after acquiring the mutex but before any file I/O.
+        // Lets EmergencySave interrupt an in-flight background save cleanly.
+        ct.ThrowIfCancellationRequested();
+
         var normalized = NormalizeState(state);
         var existing = LoadCore(normalizedWorkspace);
+
+        // Yield point 2: after reading the existing state but before writing.
+        ct.ThrowIfCancellationRequested();
+
         if (WouldOverwriteNonEmptyState(existing, normalized)) {
             CreateBackup(normalizedWorkspace, existing);
             return existing;

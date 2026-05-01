@@ -30,6 +30,7 @@ internal sealed class TranscriptConversationManager {
     private readonly object _conversationStoreSaveGate = new();
     private (string FolderPath, WorkspaceConversationState State, long Version)? _queuedConversationSave;
     private bool _backgroundSaveLoopRunning;
+    private volatile CancellationTokenSource? _backgroundSaveCts;
     private long _nextConversationSaveVersion;
     private long _latestRequestedConversationSaveVersion;
     private readonly DispatcherTimer _agentThreadSnapshotPersistTimer;
@@ -651,6 +652,16 @@ internal sealed class TranscriptConversationManager {
             return;
 
         try {
+            // Signal any in-flight background save to abort after it acquires the named mutex.
+            // This prevents a 5-7 second UI-thread freeze when EmergencySave races with an
+            // ongoing background save that is holding _conversationStoreSaveGate.
+            var cts = _backgroundSaveCts;
+            if (cts is not null) {
+                _backgroundSaveCts = null;
+                cts.Cancel();
+                cts.Dispose();
+            }
+
             var turns = _conversationState.Turns.ToList();
 
             if (_getCurrentTurn() is not null) {
@@ -948,6 +959,7 @@ internal sealed class TranscriptConversationManager {
             _queuedConversationSave = (folderPath, state, version);
             if (!_backgroundSaveLoopRunning) {
                 _backgroundSaveLoopRunning = true;
+                _backgroundSaveCts = new CancellationTokenSource();
                 shouldStartWorker = true;
             }
         }
@@ -961,48 +973,63 @@ internal sealed class TranscriptConversationManager {
     }
 
     private Task ProcessQueuedConversationSavesAsync() {
-        while (true) {
-            (string FolderPath, WorkspaceConversationState State, long Version)? nextSave;
-            lock (_backgroundSaveGate) {
-                nextSave = _queuedConversationSave;
-                _queuedConversationSave = null;
-                if (nextSave is null) {
-                    _backgroundSaveLoopRunning = false;
-                    SquadDashTrace.Write("Persistence", "ProcessQueuedConversationSavesAsync: queue drained");
-                    return Task.CompletedTask;
+        // Snapshot the token once for the lifetime of this worker loop.
+        // EmergencySave can cancel it to interrupt any in-flight background save.
+        var ct = _backgroundSaveCts?.Token ?? CancellationToken.None;
+        try {
+            while (true) {
+                (string FolderPath, WorkspaceConversationState State, long Version)? nextSave;
+                lock (_backgroundSaveGate) {
+                    nextSave = _queuedConversationSave;
+                    _queuedConversationSave = null;
+                    if (nextSave is null) {
+                        _backgroundSaveLoopRunning = false;
+                        SquadDashTrace.Write("Persistence", "ProcessQueuedConversationSavesAsync: queue drained");
+                        return Task.CompletedTask;
+                    }
                 }
-            }
 
-            try {
-                var saveSw = Stopwatch.StartNew();
-                if (HasNewerConversationSaveRequest(nextSave.Value.Version)) {
+                try {
+                    var saveSw = Stopwatch.StartNew();
+                    if (HasNewerConversationSaveRequest(nextSave.Value.Version)) {
+                        SquadDashTrace.Write(
+                            "Persistence",
+                            $"ProcessQueuedConversationSavesAsync: skipped stale background save version={nextSave.Value.Version}");
+                        continue;
+                    }
+
                     SquadDashTrace.Write(
                         "Persistence",
-                        $"ProcessQueuedConversationSavesAsync: skipped stale background save version={nextSave.Value.Version}");
-                    continue;
+                        $"ProcessQueuedConversationSavesAsync: starting background save version={nextSave.Value.Version} turns={nextSave.Value.State.Turns.Count} threads={nextSave.Value.State.GetThreads().Count}");
+                    var savedState = SaveConversationStateSerially(
+                        nextSave.Value.FolderPath,
+                        nextSave.Value.State,
+                        nextSave.Value.Version,
+                        skipIfStale: true,
+                        ct: ct);
+                    saveSw.Stop();
+                    ApplySavedConversationStateIfCurrent(nextSave.Value.Version, savedState);
+                    var moreQueued = false;
+                    lock (_backgroundSaveGate)
+                        moreQueued = _queuedConversationSave is not null;
+                    SquadDashTrace.Write(
+                        "Persistence",
+                        $"ProcessQueuedConversationSavesAsync: finished background save version={nextSave.Value.Version} elapsedMs={saveSw.ElapsedMilliseconds} newerSaveQueued={moreQueued}");
                 }
-
-                SquadDashTrace.Write(
-                    "Persistence",
-                    $"ProcessQueuedConversationSavesAsync: starting background save version={nextSave.Value.Version} turns={nextSave.Value.State.Turns.Count} threads={nextSave.Value.State.GetThreads().Count}");
-                var savedState = SaveConversationStateSerially(
-                    nextSave.Value.FolderPath,
-                    nextSave.Value.State,
-                    nextSave.Value.Version,
-                    skipIfStale: true);
-                saveSw.Stop();
-                ApplySavedConversationStateIfCurrent(nextSave.Value.Version, savedState);
-                var moreQueued = false;
-                lock (_backgroundSaveGate)
-                    moreQueued = _queuedConversationSave is not null;
-                SquadDashTrace.Write(
-                    "Persistence",
-                    $"ProcessQueuedConversationSavesAsync: finished background save version={nextSave.Value.Version} elapsedMs={saveSw.ElapsedMilliseconds} newerSaveQueued={moreQueued}");
-            }
-            catch (Exception ex) {
-                SquadDashTrace.Write("Persistence", $"Background conversation save failed: {ex.Message}");
+                catch (OperationCanceledException) {
+                    // EmergencySave canceled us — exit immediately so the UI-thread save can proceed.
+                    SquadDashTrace.Write("Persistence", "ProcessQueuedConversationSavesAsync: canceled by EmergencySave, yielding to shutdown save.");
+                    break;
+                }
+                catch (Exception ex) {
+                    SquadDashTrace.Write("Persistence", $"Background conversation save failed: {ex.Message}");
+                }
             }
         }
+        finally {
+            lock (_backgroundSaveGate) _backgroundSaveLoopRunning = false;
+        }
+        return Task.CompletedTask;
     }
 
     private long RegisterConversationSaveRequest() {
@@ -1022,7 +1049,8 @@ internal sealed class TranscriptConversationManager {
         string folderPath,
         WorkspaceConversationState state,
         long version,
-        bool skipIfStale) {
+        bool skipIfStale,
+        CancellationToken ct = default) {
         lock (_conversationStoreSaveGate) {
             if (skipIfStale && HasNewerConversationSaveRequest(version)) {
                 SquadDashTrace.Write(
@@ -1031,7 +1059,7 @@ internal sealed class TranscriptConversationManager {
                 return state;
             }
 
-            return _conversationStore.Save(folderPath, state);
+            return _conversationStore.Save(folderPath, state, ct);
         }
     }
 
