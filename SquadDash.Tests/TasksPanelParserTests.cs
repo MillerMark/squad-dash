@@ -289,4 +289,91 @@ internal sealed class TasksPanelParserTests {
 
         Assert.That(result.OpenGroups[0].Items[0].RawLine, Is.EqualTo("    - [ ] Indented task"));
     }
+
+    [Test]
+    public void Parse_Description_CapturedFromIndentedLinesAfterItem() {
+        string[] lines = [
+            "## 🔴 High Priority",
+            "- [ ] **Fix the crash** *(Owner: Arjun Sen)*",
+            "  Crash occurs on startup when config is missing.",
+            "  **Blocked by:** config migration PR.",
+            "---",
+            "- [ ] Other task",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+        var desc = result.OpenGroups[0].Items[0].Description;
+
+        Assert.That(desc, Does.Contain("Crash occurs on startup"));
+        Assert.That(desc, Does.Contain("Blocked by"));
+    }
+
+    [Test]
+    public void Parse_Description_IsNull_WhenNoDescriptionLines() {
+        string[] lines = [
+            "## 🟡 Mid Priority",
+            "- [ ] Task with no description",
+            "---",
+            "- [ ] Next task",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+
+        Assert.That(result.OpenGroups[0].Items[0].Description, Is.Null);
+    }
+
+    [Test]
+    public void Parse_Description_DoesNotLeakIntoNextItem() {
+        string[] lines = [
+            "## 🔴 High Priority",
+            "- [ ] **Task A** *(Owner: you)*",
+            "  Description of A.",
+            "---",
+            "- [ ] **Task B** *(Owner: you)*",
+            "  Description of B.",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+        var items  = result.OpenGroups[0].Items;
+
+        Assert.Multiple(() => {
+            Assert.That(items[0].Description, Does.Contain("Description of A"));
+            Assert.That(items[0].Description, Does.Not.Contain("Description of B"));
+            Assert.That(items[1].Description, Does.Contain("Description of B"));
+        });
+    }
+
+    [Test]
+    public void Parse_Description_StopsAtNextListItem_WhenNoSeparator() {
+        string[] lines = [
+            "## 🟡 Mid Priority",
+            "- [ ] Task A",
+            "  Some description.",
+            "- [ ] Task B",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+        var items  = result.OpenGroups[0].Items;
+
+        Assert.Multiple(() => {
+            Assert.That(items[0].Description, Does.Contain("Some description"));
+            Assert.That(items[1].Description, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Parse_Description_StopsAtNextHeading() {
+        string[] lines = [
+            "## 🔴 High Priority",
+            "- [ ] Task",
+            "  Description text.",
+            "## 🟡 Mid Priority",
+            "- [ ] Other",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+
+        Assert.That(result.OpenGroups[0].Items[0].Description, Does.Contain("Description text"));
+        Assert.That(result.OpenGroups[0].Items[0].Description, Does.Not.Contain("Other"));
+    }
 }

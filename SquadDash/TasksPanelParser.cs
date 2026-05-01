@@ -25,8 +25,9 @@ internal static class TasksPanelParser {
         TaskPriorityGroup? current   = null;
         bool inCompletedSection      = false;
 
-        foreach (var rawLine in lines) {
-            var line = rawLine.TrimEnd();
+        for (int i = 0; i < lines.Length; i++) {
+            var line    = lines[i].TrimEnd();
+            var trimmed = line.TrimStart();
 
             if (line.StartsWith("## ", StringComparison.Ordinal)) {
                 var m = PriorityHeadingRegex.Match(line);
@@ -50,7 +51,6 @@ internal static class TasksPanelParser {
                 continue;
             }
 
-            var trimmed   = line.TrimStart();
             bool isOpen    = trimmed.StartsWith("- [ ]", StringComparison.Ordinal);
             bool isChecked = trimmed.StartsWith("- [x]", StringComparison.Ordinal);
 
@@ -71,7 +71,8 @@ internal static class TasksPanelParser {
                         IsUserOwned: false,
                         IsChecked:   true,
                         Emoji:       "✅",
-                        RawLine:     line));
+                        RawLine:     line,
+                        Description: null));
                 }
                 continue;
             }
@@ -98,6 +99,23 @@ internal static class TasksPanelParser {
                 if (text.StartsWith("**", StringComparison.Ordinal) && boldEnd > 2)
                     text = text[2..boldEnd].Trim();
 
+                // Collect description lines that follow the task item line
+                var descLines = new List<string>();
+                while (i + 1 < lines.Length) {
+                    var next        = lines[i + 1].TrimEnd();
+                    var nextTrimmed = next.TrimStart();
+                    // Stop at a new list item, section heading, or horizontal rule
+                    if (nextTrimmed.StartsWith("- [ ]", StringComparison.Ordinal) ||
+                        nextTrimmed.StartsWith("- [x]", StringComparison.Ordinal) ||
+                        next.StartsWith("## ",          StringComparison.Ordinal) ||
+                        next.StartsWith("---",          StringComparison.Ordinal))
+                        break;
+                    i++;
+                    descLines.Add(nextTrimmed);
+                }
+                var desc = descLines.Count > 0 ? string.Join("\n", descLines).Trim() : null;
+                if (string.IsNullOrWhiteSpace(desc)) desc = null;
+
                 var item = new TaskItem(
                     Text:        text,
                     Owner:       owner,
@@ -105,7 +123,8 @@ internal static class TasksPanelParser {
                                  owner.Contains("you", StringComparison.OrdinalIgnoreCase),
                     IsChecked:   isChecked,
                     Emoji:       current.Emoji,
-                    RawLine:     line
+                    RawLine:     line,
+                    Description: desc
                 );
 
                 if (isChecked)
@@ -197,7 +216,8 @@ internal sealed record TaskItem(
     bool    IsUserOwned,
     bool    IsChecked,
     string  Emoji,
-    string  RawLine);
+    string  RawLine,
+    string? Description = null);
 
 /// <summary>Result of parsing tasks.md: open priority groups and completed items.</summary>
 internal sealed class TaskParseResult(

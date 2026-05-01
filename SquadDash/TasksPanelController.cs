@@ -160,6 +160,20 @@ internal sealed class TasksPanelController {
         checkBox.Checked += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
 
         row.Child = grid;
+
+        if (!string.IsNullOrEmpty(item.Description)) {
+            var viewer = new FlowDocumentScrollViewer {
+                Document                    = MarkdownFlowDocumentBuilder.Build(item.Description),
+                Width                       = 320,
+                MaxHeight                   = 220,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                IsHitTestVisible            = false,
+            };
+            ToolTipService.SetInitialShowDelay(row, 600);
+            ToolTipService.SetShowDuration(row, 20000);
+            row.ToolTip = new ToolTip { Content = viewer, Padding = new Thickness(0) };
+        }
+
         return row;
     }
 
