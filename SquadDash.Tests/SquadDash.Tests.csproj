@@ -114,6 +114,13 @@
     <Compile Include="..\SquadDash\TranscriptCopyService.cs" Link="Source\TranscriptCopyService.cs" />
     <Compile Include="..\SquadDash\TranscriptThreadState.cs" Link="Source\TranscriptThreadState.cs" />
     <Compile Include="..\SquadDash\ToolTranscriptEntry.cs" Link="Source\ToolTranscriptEntry.cs" />
+    <Compile Include="..\SquadDash\HostCommandDescriptor.cs" Link="Source\HostCommandDescriptor.cs" />
+    <Compile Include="..\SquadDash\HostCommandInvocation.cs" Link="Source\HostCommandInvocation.cs" />
+    <Compile Include="..\SquadDash\HostCommandResult.cs" Link="Source\HostCommandResult.cs" />
+    <Compile Include="..\SquadDash\IHostCommandHandler.cs" Link="Source\IHostCommandHandler.cs" />
+    <Compile Include="..\SquadDash\HostCommandRegistry.cs" Link="Source\HostCommandRegistry.cs" />
+    <Compile Include="..\SquadDash\HostCommandExecutor.cs" Link="Source\HostCommandExecutor.cs" />
+    <Compile Include="..\SquadDash\HostCommandParser.cs" Link="Source\HostCommandParser.cs" />
     <Compile Include="..\SquadDash\PostedUiActionTracker.cs" Link="Source\PostedUiActionTracker.cs" />
     <Compile Include="..\SquadDash\AgentStatusCard.cs" Link="Source\AgentStatusCard.cs" />
     <Compile Include="..\SquadDash\TranscriptSelectionController.cs" Link="Source\TranscriptSelectionController.cs" />

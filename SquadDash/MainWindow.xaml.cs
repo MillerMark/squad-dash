@@ -149,6 +149,8 @@ public partial class MainWindow : Window
     private bool _isPromptRunning;
     private readonly PromptQueue _promptQueue = new();
     private int _promptQueueSeq;
+    private readonly HostCommandRegistry  _hostCommandRegistry  = new();
+    private HostCommandExecutor? _hostCommandExecutor;
     private string? _queuePreEditDraft;
     private int _queuePreEditDraftCaretIndex;
     private int _queuePreEditDraftSelectionStart;
@@ -849,6 +851,8 @@ public partial class MainWindow : Window
             renderToolEntry: entry => RenderToolEntry(entry),
             updateToolSpinnerState: () => UpdateToolSpinnerState(),
             workspacePaths: _workspacePaths);
+
+        InitializeHostCommands();
 
         _loopController = new LoopController(
             // ExecutePromptAsync accesses WPF components — must run on the UI thread.
@@ -2428,6 +2432,24 @@ public partial class MainWindow : Window
                     // Handle SquadDash loop commands embedded in the AI response.
                     if (squadashPayload?.Command is string cmd)
                         HandleSquadashCommand(cmd);
+
+                    // Process HOST_COMMAND_JSON commands from this turn's response.
+                    if (_hostCommandExecutor is not null && rawResponse is not null) {
+                        var commandResults = _hostCommandExecutor.TryParseAndExecute(
+                            rawResponse, _hostCommandRegistry, _currentWorkspace?.FolderPath, out _);
+                        if (commandResults is not null) {
+                            foreach (var (invocation, descriptor, result) in commandResults) {
+                                doneCurrentTurn?.HostCommandEntries.Add(new HostCommandTranscriptEntry(
+                                    doneCurrentTurn, invocation, descriptor, result, DateTimeOffset.Now));
+
+                                if (descriptor.ResultBehavior == HostCommandResultBehavior.InjectResultAsContext && result.HasOutput) {
+                                    _promptQueue.EnqueueAtFront(result.Output!, ++_promptQueueSeq);
+                                    SyncQueuePanel();
+                                    SyncSendButton();
+                                }
+                            }
+                        }
+                    }
                 }
                 if (_pendingRcRestartAfterReset) {
                     _pendingRcRestartAfterReset = false;
@@ -3863,6 +3885,36 @@ public partial class MainWindow : Window
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+
+    private void InitializeHostCommands() {
+        _hostCommandExecutor = new HostCommandExecutor();
+        _hostCommandExecutor.Register(new Commands.StartLoopCommandHandler(() => {
+            if (!_loopController.IsRunning)
+                _ = StartLoopImmediateAsync();
+        }));
+        _hostCommandExecutor.Register(new Commands.StopLoopCommandHandler(() => {
+            _loopController.RequestStop();
+        }));
+        _hostCommandExecutor.Register(new Commands.GetQueueStatusCommandHandler(() => _promptQueue.Items));
+        _hostCommandExecutor.Register(new Commands.OpenPanelCommandHandler(panelName => {
+            switch (panelName.Trim().ToLowerInvariant()) {
+                case "approvals": ShowApprovalPanel(); break;
+                case "tasks":     ShowTasksStatusWindow(); break;
+                case "trace":     ShowTraceWindow(); break;
+            }
+        }));
+        _hostCommandExecutor.Register(new Commands.InjectTextCommandHandler(_ => {
+            // Text injection is handled by the done-event handler via InjectResultAsContext behavior.
+        }));
+        _hostCommandExecutor.Register(new Commands.ClearApprovedCommandHandler(() => {
+            _approvalItems.Clear();
+            _approvalStore?.Save(_approvalItems);
+            _approvalPanel?.ReplaceAllItems(_approvalItems);
+        }));
+
+        _pec.GetHostCommandCatalogInstruction = () =>
+            _hostCommandRegistry.BuildCatalogInstruction(_currentWorkspace?.FolderPath);
+    }
 
     /// <summary>
     /// Handles a <c>{"squadash": {"command": "..."}}</c> payload extracted from an AI response.
@@ -9596,7 +9648,13 @@ public partial class MainWindow : Window
     }
 
     internal static string SanitizeResponseText(string? text) =>
-        StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)).TrimEnd();
+        StripHostCommandBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))).TrimEnd();
+
+    private static string StripHostCommandBlock(string text) {
+        if (HostCommandParser.TryExtract(text, out var body, out _))
+            return body;
+        return text;
+    }
 
     private static string StripAwaitInputSentinel(string text) =>
         text.Replace(PromptExecutionController.QueueAwaitInputSentinel, string.Empty,
@@ -9976,6 +10034,10 @@ public partial class MainWindow : Window
 
         foreach (var entry in thread.CurrentTurn.ResponseEntries)
             FlushResponseEntryRender(entry, force: true);
+
+        // Render host command invocations after response text
+        if (thread.CurrentTurn.HostCommandEntries.Count > 0)
+            HostCommandTranscriptRenderer.RenderAllEntries(thread.CurrentTurn);
     }
 
     private bool ShouldRenderResponseEntryImmediately(TranscriptResponseEntry entry, string text)

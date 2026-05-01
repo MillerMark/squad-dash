@@ -212,6 +212,12 @@ internal sealed class PromptExecutionController {
     // ── IWorkspacePaths ───────────────────────────────────────────────────
     private readonly IWorkspacePaths _workspacePaths;
 
+    /// <summary>
+    /// When set, returns the HOST_COMMANDS catalog instruction to inject into every prompt.
+    /// MainWindow sets this after constructing the HostCommandRegistry.
+    /// </summary>
+    internal Func<string?>? GetHostCommandCatalogInstruction { get; set; }
+
     // ── Owned fields ──────────────────────────────────────────────────────
     private bool             _clearConfirmationPending;
     private bool             _universeSelectionPending;
@@ -1704,7 +1710,8 @@ internal sealed class PromptExecutionController {
 
         var triggeredCtx = BuildTriggeredInjections(prompt);
 
-        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, triggeredCtx, TurnSummaryInstruction }.Where(p => p is not null).ToArray();
+        var hostCmdCtx = GetHostCommandCatalogInstruction?.Invoke();
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, triggeredCtx, hostCmdCtx, TurnSummaryInstruction }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = SquadBridgePromptBuilder.Build(
             prompt,

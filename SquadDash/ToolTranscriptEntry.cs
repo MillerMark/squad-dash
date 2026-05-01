@@ -27,6 +27,7 @@ internal sealed class TranscriptTurnView {
         ThinkingBlocks = new List<TranscriptThinkingBlockView>();
         ResponseEntries = new List<TranscriptResponseEntry>();
         ToolEntries = new List<ToolTranscriptEntry>();
+        HostCommandEntries = new List<HostCommandTranscriptEntry>();
         NextNarrativeSequence = 1;
     }
 
@@ -41,6 +42,7 @@ internal sealed class TranscriptTurnView {
     public List<TranscriptThinkingBlockView> ThinkingBlocks { get; }
     public List<TranscriptResponseEntry> ResponseEntries { get; }
     public List<ToolTranscriptEntry> ToolEntries { get; }
+    public List<HostCommandTranscriptEntry> HostCommandEntries { get; }
     public int NextNarrativeSequence { get; set; }
 }
 
@@ -218,4 +220,26 @@ internal sealed class ToolTranscriptEntry : ICopyable {
         var message = TranscriptCopyService.ExtractInlineText(MessageTextBlock.Inlines).Trim();
         return string.Join(" ", new[] { icon, emoji, message }.Where(p => !string.IsNullOrWhiteSpace(p)));
     }
+}
+
+/// <summary>Records a host command invocation for transcript display.</summary>
+internal sealed class HostCommandTranscriptEntry {
+    public HostCommandTranscriptEntry(
+        TranscriptTurnView turn,
+        HostCommandInvocation invocation,
+        HostCommandDescriptor descriptor,
+        HostCommandResult result,
+        DateTimeOffset executedAt) {
+        Turn = turn;
+        Invocation = invocation;
+        Descriptor = descriptor;
+        Result = result;
+        ExecutedAt = executedAt;
+    }
+
+    public TranscriptTurnView Turn { get; }
+    public HostCommandInvocation Invocation { get; }
+    public HostCommandDescriptor Descriptor { get; }
+    public HostCommandResult Result { get; }
+    public DateTimeOffset ExecutedAt { get; }
 }

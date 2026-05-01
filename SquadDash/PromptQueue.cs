@@ -38,6 +38,13 @@ internal sealed class PromptQueue {
             _items.Remove(item);
     }
 
+    /// <summary>Inserts a new item at index 0, making it the next item to dispatch.</summary>
+    public PromptQueueItem EnqueueAtFront(string text, int seqNum) {
+        var item = new PromptQueueItem { Text = text, SequenceNumber = seqNum };
+        _items.Insert(0, item);
+        return item;
+    }
+
     /// <summary>
     /// Moves the item with the given id to the front of the queue (index 0),
     /// making it the next item to be dispatched.
