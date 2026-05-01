@@ -1632,6 +1632,7 @@ public partial class MainWindow : Window
             // not necessarily the one with SequenceNumber==1 (items may have been dequeued
             // leaving gaps, so we identify the candidate by Id rather than by sequence number).
             var nextReadyId = items.FirstOrDefault(i => !i.IsEditing)?.Id;
+            string? activeTabLabel = null;
             foreach (var item in items.Reverse())
             {
                 bool isNext = item.Id == nextReadyId;
@@ -1639,6 +1640,23 @@ public partial class MainWindow : Window
                 var tooltip = isNext ? "This prompt is next in the Squad queue."
                                      : "This item is in the Squad queue.";
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, label, tooltip));
+                if (item.Id == _activeTabId)
+                    activeTabLabel = label;
+            }
+
+            // When a queued tab (not Active Draft) is selected, show a hint that the queue
+            // will pause when it reaches that tab so the user can review before sending.
+            if (activeTabLabel is not null)
+            {
+                var hint = new TextBlock {
+                    Text              = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")",
+                    FontSize          = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(10, 0, 8, 0),
+                    FontStyle         = FontStyles.Italic,
+                };
+                hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                QueueTabStrip.Children.Add(hint);
             }
         }
 
