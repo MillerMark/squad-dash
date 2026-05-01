@@ -162,16 +162,26 @@ internal sealed class TasksPanelController {
         row.Child = grid;
 
         if (!string.IsNullOrEmpty(item.Description)) {
+            var doc = MarkdownFlowDocumentBuilder.Build(item.Description);
+            doc.TextAlignment = TextAlignment.Left;
             var viewer = new FlowDocumentScrollViewer {
-                Document                    = MarkdownFlowDocumentBuilder.Build(item.Description),
+                Document                    = doc,
                 Width                       = 320,
                 MaxHeight                   = 220,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 IsHitTestVisible            = false,
             };
+            var tip = new ToolTip {
+                Content         = viewer,
+                Padding         = new Thickness(0),
+                BorderThickness = new Thickness(1),
+                HasDropShadow   = false,
+            };
+            tip.SetResourceReference(ToolTip.BackgroundProperty, "PopupSurface");
+            tip.SetResourceReference(ToolTip.BorderBrushProperty, "ActivePanelBorder");
             ToolTipService.SetInitialShowDelay(row, 600);
             ToolTipService.SetShowDuration(row, 20000);
-            row.ToolTip = new ToolTip { Content = viewer, Padding = new Thickness(0) };
+            row.ToolTip = tip;
         }
 
         return row;
