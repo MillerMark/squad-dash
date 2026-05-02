@@ -1,3 +1,4 @@
-[2026-04-25 11:38:56.782Z] [screenshot] Starting: the-coordinator
-[2026-04-25 11:38:57.350Z] [screenshot] Comparison: 99.99% match (5 of 54526 pixels differ) — diff: D:\Drive\Source\SquadUI\docs\screenshots\diff\the-coordinator-light.png
-[2026-04-25 11:38:57.350Z] [screenshot] Saved: D:\Drive\Source\SquadUI\docs\screenshots\the-coordinator-light.png
+[2026-05-02 19:15:09.402Z] [screenshot] Starting: status-panel-border-agent-dark
+[2026-05-02 19:15:09.687Z] [screenshot] Comparison: 35.70% match (66151 of 102885 pixels differ) — diff: D:\Drive\Source\SquadDash-public\docs\screenshots\diff\status-panel-border-agent-dark-dark.png
+[2026-05-02 19:15:09.687Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\status-panel-border-agent-dark-dark.png
+[2026-05-02 19:15:09.687Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\panels\images\tasks-panel.png
