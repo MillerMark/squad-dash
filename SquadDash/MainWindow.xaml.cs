@@ -104,6 +104,7 @@ public partial class MainWindow : Window
     private Point _docsDragStartPoint;
     private TreeViewItem? _docsDragItem;
     private bool _docsDragInProgress;
+    private TreeViewItem? _dropInsideTarget;
     private TreeViewItem? _docsRenameItem;
     private TextBlock? _docsRenameOriginalTextBlock;
     private DateTime _docsRenameClickTime;
@@ -15728,11 +15729,11 @@ public partial class MainWindow : Window
         if (draggedItem is null)
             return;
 
-        var dropTarget = FindDropTarget(e.GetPosition(DocTopicsTreeView), out bool insertAfter);
+        var dropTarget = FindDropTarget(e.GetPosition(DocTopicsTreeView), out DropZone zone);
         if (dropTarget is null || ReferenceEquals(dropTarget, draggedItem))
             return;
 
-        ReorderDocTopics(draggedItem, dropTarget, insertAfter);
+        ReorderDocTopics(draggedItem, dropTarget, zone);
     }
 
     private static TreeViewItem? FindAncestorTreeViewItem(DependencyObject? source)
@@ -15761,21 +15762,66 @@ public partial class MainWindow : Window
         var itemBounds = hitItem.TransformToAncestor(DocTopicsTreeView).TransformBounds(
             new Rect(0, 0, hitItem.ActualWidth, hitItem.ActualHeight));
 
-        bool inTopHalf = posInTreeView.Y < itemBounds.Y + itemBounds.Height / 2;
-        double lineY = inTopHalf ? itemBounds.Y : itemBounds.Bottom;
+        bool isGroup = hitItem.Items.Count > 0;
+        double relY = posInTreeView.Y - itemBounds.Y;
+        double height = itemBounds.Height;
 
-        DocTopicsDropIndicator.Width = DocTopicsDropIndicatorCanvas.ActualWidth > 0
-            ? DocTopicsDropIndicatorCanvas.ActualWidth
-            : DocTopicsTreeView.ActualWidth;
-        Canvas.SetTop(DocTopicsDropIndicator, Math.Max(0, lineY - 1));
-        Canvas.SetLeft(DocTopicsDropIndicator, 0);
-        DocTopicsDropIndicator.Visibility = Visibility.Visible;
+        DropZone zone;
+        if (isGroup)
+        {
+            if (relY < height * 0.25)
+                zone = DropZone.Before;
+            else if (relY > height * 0.75)
+                zone = DropZone.After;
+            else
+                zone = DropZone.InsideAsChild;
+        }
+        else
+        {
+            zone = relY < height / 2 ? DropZone.Before : DropZone.After;
+        }
+
+        // Clear previous inside-highlight if the hover moved to a different item
+        if (_dropInsideTarget is not null && !ReferenceEquals(_dropInsideTarget, hitItem))
+        {
+            _dropInsideTarget.Background = null;
+            _dropInsideTarget = null;
+        }
+
+        if (zone == DropZone.InsideAsChild)
+        {
+            DocTopicsDropIndicator.Visibility = Visibility.Collapsed;
+            hitItem.SetResourceReference(BackgroundProperty, "HoverSurface");
+            _dropInsideTarget = hitItem;
+        }
+        else
+        {
+            if (_dropInsideTarget is not null)
+            {
+                _dropInsideTarget.Background = null;
+                _dropInsideTarget = null;
+            }
+
+            double lineY = zone == DropZone.Before ? itemBounds.Y : itemBounds.Bottom;
+            DocTopicsDropIndicator.Width = DocTopicsDropIndicatorCanvas.ActualWidth > 0
+                ? DocTopicsDropIndicatorCanvas.ActualWidth
+                : DocTopicsTreeView.ActualWidth;
+            Canvas.SetTop(DocTopicsDropIndicator, Math.Max(0, lineY - 1));
+            Canvas.SetLeft(DocTopicsDropIndicator, 0);
+            DocTopicsDropIndicator.Visibility = Visibility.Visible;
+        }
     }
 
     private void HideDocTopicsDropIndicator()
     {
         if (DocTopicsDropIndicator is not null)
             DocTopicsDropIndicator.Visibility = Visibility.Collapsed;
+
+        if (_dropInsideTarget is not null)
+        {
+            _dropInsideTarget.Background = null;
+            _dropInsideTarget = null;
+        }
     }
 
     private static TreeViewItem? FindItemAtPoint(TreeView treeView, Point point)
@@ -15785,19 +15831,39 @@ public partial class MainWindow : Window
         return FindAncestorTreeViewItem(result.VisualHit);
     }
 
-    private TreeViewItem? FindDropTarget(Point posInTreeView, out bool insertAfter)
+    private enum DropZone { Before, After, InsideAsChild }
+
+    private TreeViewItem? FindDropTarget(Point posInTreeView, out DropZone zone)
     {
-        insertAfter = false;
+        zone = DropZone.After;
         var hitItem = FindItemAtPoint(DocTopicsTreeView, posInTreeView);
         if (hitItem is null) return null;
 
         var itemBounds = hitItem.TransformToAncestor(DocTopicsTreeView).TransformBounds(
             new Rect(0, 0, hitItem.ActualWidth, hitItem.ActualHeight));
-        insertAfter = posInTreeView.Y >= itemBounds.Y + itemBounds.Height / 2;
+
+        bool isGroup = hitItem.Items.Count > 0;
+        double relY = posInTreeView.Y - itemBounds.Y;
+        double height = itemBounds.Height;
+
+        if (isGroup)
+        {
+            if (relY < height * 0.25)
+                zone = DropZone.Before;
+            else if (relY > height * 0.75)
+                zone = DropZone.After;
+            else
+                zone = DropZone.InsideAsChild;
+        }
+        else
+        {
+            zone = relY < height / 2 ? DropZone.Before : DropZone.After;
+        }
+
         return hitItem;
     }
 
-    private void ReorderDocTopics(TreeViewItem draggedItem, TreeViewItem targetItem, bool insertAfter)
+    private void ReorderDocTopics(TreeViewItem draggedItem, TreeViewItem targetItem, DropZone zone)
     {
         var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
         if (string.IsNullOrEmpty(docsRoot)) return;
@@ -15813,31 +15879,69 @@ public partial class MainWindow : Window
         if (draggedLineIndex < 0 || targetLineIndex < 0 || draggedLineIndex == targetLineIndex)
             return;
 
-        var draggedLine = lines[draggedLineIndex];
-        lines.RemoveAt(draggedLineIndex);
-
-        if (targetLineIndex > draggedLineIndex)
-            targetLineIndex--;
-
-        int insertIndex = insertAfter ? targetLineIndex + 1 : targetLineIndex;
-        insertIndex = Math.Clamp(insertIndex, 0, lines.Count);
-
-        var targetIsGroup = targetItem.Tag is null;
-        if (targetIsGroup && !insertAfter)
+        // Collect the dragged block: header line + all immediately following child lines
+        int parentIndent = lines[draggedLineIndex].TakeWhile(char.IsWhiteSpace).Count();
+        var draggedBlock = new List<string> { lines[draggedLineIndex] };
+        int next = draggedLineIndex + 1;
+        while (next < lines.Count)
         {
-            draggedLine = "  " + draggedLine.TrimStart();
-            insertIndex = targetLineIndex + 1;
+            var nextLine = lines[next];
+            if (string.IsNullOrWhiteSpace(nextLine) || nextLine.TrimStart().StartsWith("##"))
+                break;
+            if (nextLine.TakeWhile(char.IsWhiteSpace).Count() <= parentIndent)
+                break;
+            draggedBlock.Add(nextLine);
+            next++;
+        }
+
+        // Guard: target must not be inside the dragged block
+        if (targetLineIndex >= draggedLineIndex && targetLineIndex < draggedLineIndex + draggedBlock.Count)
+            return;
+
+        lines.RemoveRange(draggedLineIndex, draggedBlock.Count);
+
+        // Adjust targetLineIndex after removal
+        if (targetLineIndex > draggedLineIndex)
+            targetLineIndex -= draggedBlock.Count;
+
+        if (zone == DropZone.InsideAsChild)
+        {
+            // Insert as first child of target, with two extra spaces of indentation
+            int targetIndent = lines[targetLineIndex].TakeWhile(char.IsWhiteSpace).Count();
+            for (int i = 0; i < draggedBlock.Count; i++)
+            {
+                int lineIndent = draggedBlock[i].TakeWhile(char.IsWhiteSpace).Count();
+                int delta = lineIndent - parentIndent;
+                draggedBlock[i] = new string(' ', targetIndent + 2 + delta) + draggedBlock[i].TrimStart();
+            }
+            lines.InsertRange(targetLineIndex + 1, draggedBlock);
         }
         else
         {
-            var refLine = insertAfter
-                ? (targetLineIndex < lines.Count ? lines[targetLineIndex] : string.Empty)
-                : (targetLineIndex < lines.Count ? lines[targetLineIndex] : string.Empty);
-            var refIndent = new string(' ', refLine.TakeWhile(char.IsWhiteSpace).Count());
-            draggedLine = refIndent + draggedLine.TrimStart();
-        }
+            // Before or After: match the indentation of the target line
+            int targetIndent = lines[targetLineIndex].TakeWhile(char.IsWhiteSpace).Count();
 
-        lines.Insert(insertIndex, draggedLine);
+            int insertIndex;
+            if (zone == DropZone.After)
+            {
+                // Insert after the target's entire block (past its children)
+                insertIndex = GetBlockEndIndex(lines, targetLineIndex) + 1;
+            }
+            else
+            {
+                insertIndex = targetLineIndex;
+            }
+
+            for (int i = 0; i < draggedBlock.Count; i++)
+            {
+                int lineIndent = draggedBlock[i].TakeWhile(char.IsWhiteSpace).Count();
+                int delta = lineIndent - parentIndent;
+                draggedBlock[i] = new string(' ', targetIndent + delta) + draggedBlock[i].TrimStart();
+            }
+
+            insertIndex = Math.Clamp(insertIndex, 0, lines.Count);
+            lines.InsertRange(insertIndex, draggedBlock);
+        }
 
         if (_docsWatcher is not null)
             _docsWatcher.EnableRaisingEvents = false;
@@ -15853,6 +15957,24 @@ public partial class MainWindow : Window
         }
 
         PopulateDocumentationTopics();
+    }
+
+    private static int GetBlockEndIndex(List<string> lines, int startIndex)
+    {
+        int parentIndent = lines[startIndex].TakeWhile(char.IsWhiteSpace).Count();
+        int end = startIndex;
+        int i = startIndex + 1;
+        while (i < lines.Count)
+        {
+            var line = lines[i];
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith("##"))
+                break;
+            if (line.TakeWhile(char.IsWhiteSpace).Count() <= parentIndent)
+                break;
+            end = i;
+            i++;
+        }
+        return end;
     }
 
     private static int FindSummaryLineIndex(List<string> lines, TreeViewItem item, string docsRoot)
