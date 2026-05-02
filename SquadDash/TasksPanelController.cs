@@ -124,6 +124,16 @@ internal sealed class TasksPanelController {
             _toggleCompletedItem.Header = _showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks";
     }
 
+    private MenuItem BuildToggleCompletedMenuItem() {
+        var item = new MenuItem { Header = _showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks" };
+        item.Click += (_, _) => {
+            _showCompleted = !_showCompleted;
+            _completedSection.Visibility = _showCompleted ? Visibility.Visible : Visibility.Collapsed;
+            UpdateToggleHeader();
+        };
+        return item;
+    }
+
     // ── Row construction — open tasks ─────────────────────────────────────────
 
     private Border BuildRow(TaskItem item) {
@@ -135,6 +145,8 @@ internal sealed class TasksPanelController {
         var markCompleteItem = new MenuItem { Header = "Mark as Complete" };
         markCompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         menu.Items.Add(markCompleteItem);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(BuildToggleCompletedMenuItem());
         menu.Items.Add(new Separator());
         var editTasksItem2 = new MenuItem { Header = "Edit Tasks" };
         editTasksItem2.Click += (_, _) => _editTasksAction();
@@ -285,6 +297,8 @@ internal sealed class TasksPanelController {
         var markIncompleteItem = new MenuItem { Header = "Mark as Incomplete" };
         markIncompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: false);
         menu.Items.Add(markIncompleteItem);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(BuildToggleCompletedMenuItem());
         menu.Items.Add(new Separator());
         var editTasksItem3 = new MenuItem { Header = "Edit Tasks" };
         editTasksItem3.Click += (_, _) => _editTasksAction();
