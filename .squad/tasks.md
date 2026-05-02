@@ -10,6 +10,23 @@
 ## 🟡 Mid Priority
 
 - [ ] **RC browser UI — review and improvement pass** *(Owner: Lyra Morn)*
+
+- [ ] **[Orion audit] `_isPromptRunning` — move ownership to PromptExecutionController** *(Owner: Arjun Sen)*
+  `_isPromptRunning` is declared in MainWindow, mutated by PEC via setter delegate, read by
+  `BackgroundTaskPresenter` via getter delegate, and read directly by MainWindow at 8 call sites.
+  PEC is the natural owner (it sets the flag at prompt start/end). Consolidate ownership in PEC
+  and expose it via a clean property rather than scattered delegates.
+
+- [ ] **[Orion audit] Command system — verify AI can discover commands globally, not just in loop** *(Owner: Arjun Sen)*
+  Orion's command audit found commands were only injected during loop execution
+  (`LoopController.BuildAugmentedPrompt`). The CommandRegistry implementation (checkpoint 036)
+  may have resolved this — verify that host commands are documented globally to the AI and that
+  the structured JSON multi-command parser is in place. Close this if already done.
+
+- [ ] **[Vesper audit] DocStatusStore — review silent catch blocks** *(Owner: Arjun Sen)*
+  Vesper's audit flagged 34 bare catch blocks across the codebase; `DocStatusStore` in particular
+  has silent failure suppression that may hide real errors. Review and replace with at minimum a
+  `SquadDashTrace.Write` call so failures surface in the trace log.
   Review the RC mobile web client (`Squad.SDK/rc-client/index.html`) with fresh eyes and identify
   opportunities to improve the experience: layout, typography, spacing, readability of markdown
   content, chat bubble polish, activity indicators, input bar ergonomics, color/contrast, and
@@ -19,6 +36,19 @@
 ---
 
 ## 🔴 High Priority
+
+- [ ] **[Orion audit] AgentThreadRegistry — lock down mutable backing collections** *(Owner: Arjun Sen)*
+  `AgentThreadRegistry` exposes `ThreadsByKey`, `ThreadsByToolCallId`, `LaunchesByToolCallId`,
+  and `ThreadOrder` as public mutable dictionaries. Callers can write directly to them, silently
+  bypassing the aliasing invariants enforced by `GetOrCreateAgentThread`/`AliasThreadKeys`.
+  Make the exposed collections read-only wrappers (e.g. `IReadOnlyDictionary`) so the correctness
+  contract cannot be violated externally.
+
+- [ ] **[Vesper audit] Test coverage — CommitApprovalStore, DocStatusStore, DocTopicsLoader, LoopOutputStore** *(Owner: Vesper Knox)*
+  All four classes have zero test coverage despite critical responsibilities:
+  `CommitApprovalStore` (JSON persistence, 200-item cap), `DocStatusStore` (approval tracking,
+  case-insensitive key lookup), `DocTopicsLoader` (SUMMARY.md parsing, folder scanning),
+  `LoopOutputStore` (sequential log numbering). Write unit tests for each.
 
 - [ ] **WinGet — smoke-test installer on clean VM** *(Owner: you — manual step)*
   Run `.\installer\build-installer.ps1 -Version 1.0.0` (requires Inno Setup 6 installed locally),
@@ -30,7 +60,7 @@
 
 ## 🟡 Mid Priority
 
-- [x] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
+- [ ] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
   After smoke-test passes: create GitHub Release `v1.0.0`, attach the installer `.exe` and its
   SHA256 hash. The public download URL is required for `wingetcreate`.
   **Blocked by:** smoke-test passing.
@@ -60,6 +90,11 @@
 ## 🔵 Low Priority
 
 - [ ] **SubSquads — investigate and expose in UI** *(Owner: Orion Vale → Lyra Morn)*
+
+- [ ] **[Vesper audit] ScreenshotRefreshRunner — iterate light+dark variants** *(Owner: Vesper Knox)*
+  `ScreenshotRefreshRunner.cs:172` has a TODO: "iterate twice for light+dark variants" but only
+  one theme pass is currently executed. Implement dual-pass so screenshots are generated for both
+  Light and Dark themes in the same refresh run.
   The `squad streams` / workstreams feature was bridged (subsquads_list/activate) but the
   Workspace menu items were removed because they only printed to the transcript with no visible
   feedback. Investigate what `squad streams` / `.squad/workstreams.json` enables in the current
