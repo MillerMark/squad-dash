@@ -3863,16 +3863,32 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(promptText))
         {
+            var promptLabel = new TextBlock
+            {
+                Text = "Prompt:",
+                Foreground = subtleBrush,
+                FontSize = 10,
+                Margin = new Thickness(0, 6, 0, 2),
+            };
+            stack.Children.Add(promptLabel);
+
             var hintBlock = new TextBlock
             {
                 Text = promptText,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 320,
-                Margin = new Thickness(0, 5, 0, 0),
+                MaxWidth = 340,
                 Foreground = subtleBrush,
                 FontStyle = FontStyles.Italic,
             };
-            stack.Children.Add(hintBlock);
+            var scrollViewer = new ScrollViewer
+            {
+                Content = hintBlock,
+                MaxHeight = 260,
+                MaxWidth = 340,
+                VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Disabled,
+            };
+            stack.Children.Add(scrollViewer);
         }
 
         var border = new Border
