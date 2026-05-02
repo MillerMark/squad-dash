@@ -188,6 +188,7 @@ public partial class MainWindow : Window
     private readonly PostedUiActionTracker _postedUiActionTracker = new();
     private readonly UiActionReplayRegistry _uiActionReplayRegistry = new();
     private readonly FixtureLoaderRegistry _fixtureLoaderRegistry = new();
+    private Screenshots.ScreenshotDefinitionRegistry? _cachedDefinitionRegistry;
     private readonly Queue<DelegationOutcomeTelemetry> _recentDelegationOutcomes = new();
     // _activeToolName moved to PromptExecutionController.ActiveToolName
     private AgentThreadRegistry _agentThreadRegistry = null!;
@@ -1142,6 +1143,10 @@ public partial class MainWindow : Window
             // Screenshot refresh mode: run the automated pass then shut down.
             if (_screenshotRefreshOptions.Mode != ScreenshotRefreshMode.None)
                 await RunScreenshotRefreshAsync(_screenshotRefreshOptions);
+
+            // Pre-warm the definition registry so right-click "Refresh screenshot" is
+            // available immediately without an async lookup delay.
+            _ = WarmDefinitionRegistryCacheAsync();
         }
         catch (Exception ex)
         {
@@ -1192,6 +1197,84 @@ public partial class MainWindow : Window
             Application.Current.Shutdown();
         }
     }
+
+    private async Task WarmDefinitionRegistryCacheAsync()
+    {
+        try
+        {
+            var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
+            _cachedDefinitionRegistry = await Screenshots.ScreenshotDefinitionRegistry
+                                                         .LoadAsync(screenshotsDir)
+                                                         .ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Screenshot", $"WarmDefinitionRegistryCacheAsync failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Runs a single-definition screenshot refreshfrom the right-click context menu,
+    /// without shutting down afterwards.  Applies the fixture, replays the action,
+    /// captures, restores, copies to the doc image path, and reloads the viewer.
+    /// </summary>
+    private async Task RefreshDocImageAsync(string definitionName)
+    {
+        SquadDashTrace.Write("Screenshot", $"RefreshDocImage: {definitionName}");
+        try
+        {
+            var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
+            // Always reload from disk so we have the latest definition state.
+            var definitions = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir)
+                                               .ConfigureAwait(true);
+            _cachedDefinitionRegistry = definitions;
+
+            var runner = new Screenshots.ScreenshotRefreshRunner(
+                definitions,
+                _uiActionReplayRegistry,
+                _fixtureLoaderRegistry,
+                screenshotsDir,
+                applyThemeAsync: async name =>
+                {
+                    await Dispatcher.InvokeAsync(() => ApplyTheme(name));
+                });
+
+            runner.CaptureRequested += OnScreenshotCaptureRequested;
+            try
+            {
+                await runner.RunAsync(
+                    new Screenshots.ScreenshotRefreshOptions(
+                        Mode:       Screenshots.ScreenshotRefreshMode.Named,
+                        TargetName: definitionName)
+                    ).ConfigureAwait(true);
+            }
+            finally
+            {
+                runner.CaptureRequested -= OnScreenshotCaptureRequested;
+            }
+
+            // Reload the doc viewer so the updated image appears immediately.
+            if (!string.IsNullOrEmpty(_currentDocPath) && File.Exists(_currentDocPath))
+            {
+                var markdown = File.ReadAllText(_currentDocPath);
+                var title    = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString()
+                               ?? "Documentation";
+                var html = MarkdownHtmlBuilder.Build(
+                    markdown, title, filePath: _currentDocPath,
+                    isDark: AgentStatusCard.IsDarkTheme);
+                DocMarkdownViewer.NavigateToString(html);
+            }
+
+            AppendLine($"✅ Screenshot refreshed: {definitionName}");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Screenshot", $"RefreshDocImage failed for '{definitionName}': {ex}");
+            AppendLine($"[screenshot] Refresh failed for '{definitionName}': {ex.Message}",
+                       ThemeBrush("SystemErrorText"));
+        }
+    }
+
 
     private void OnScreenshotCaptureRequested(object? sender, ScreenshotCaptureRequestedEventArgs e)
     {
@@ -14751,7 +14834,22 @@ public partial class MainWindow : Window
         captureItem.Click += (_, _) => CaptureScreenshotForDocPlaceholder(imagePath);
         menu.Items.Add(captureItem);
 
+        // "Refresh screenshot" — only enabled when a definition with DocImagePath for this image exists.
         var resolvedPath = ResolveDocImagePath(imagePath);
+        var refreshItem = new MenuItem { Header = "Refresh screenshot" };
+        refreshItem.IsEnabled = false;
+        if (!string.IsNullOrEmpty(resolvedPath) && !string.IsNullOrEmpty(_currentDocPath))
+        {
+            var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
+            var def = _cachedDefinitionRegistry?.TryGetByDocImagePath(resolvedPath, screenshotsDir);
+            if (def is not null)
+            {
+                refreshItem.IsEnabled = true;
+                refreshItem.Click += (_, _) => _ = RefreshDocImageAsync(def.Name);
+            }
+        }
+        menu.Items.Add(refreshItem);
+
         var showInFolderItem = new MenuItem { Header = "Show image in folder" };
         showInFolderItem.IsEnabled = !string.IsNullOrEmpty(resolvedPath) && File.Exists(resolvedPath);
         showInFolderItem.Click += (_, _) => ShowFileInExplorer(resolvedPath!);
@@ -16421,6 +16519,7 @@ public partial class MainWindow : Window
             var registry = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir);
             registry.AddOrUpdate(definition);
             await registry.SaveAsync();
+            _cachedDefinitionRegistry = registry;  // keep warm for right-click Refresh
 
             // ── Step 7b: Doc-placeholder post-processing ──────────────────────
             if (!string.IsNullOrEmpty(docImagePath) && !string.IsNullOrEmpty(_currentDocPath))

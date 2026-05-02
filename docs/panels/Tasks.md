@@ -21,15 +21,12 @@ Close the panel with its **×** button.
 
 Tasks are read from `.squad/tasks.md` in the workspace's `.squad/` folder and grouped into three priority buckets, always in High → Mid → Low order:
 
+![Screenshot: Tasks panel showing prioritised task groups](images/tasks-panel.png)
 | Emoji | Priority label | Dot colour |
 |---|---|---|
 | 🔴 | High Priority | Red |
 | 🟡 | Mid Priority | Amber |
 | 🟢 | Low Priority | Blue (TaskPriorityLow theme colour) |
-
-The panel renders at most **7 task items** in total across all groups. If more exist, a footer line reads:
-
-> *showing 7 of 12 — see tasks.md for full details*
 
 The panel is **read-only** — checking off tasks requires editing `.squad/tasks.md` directly.
 
@@ -51,7 +48,7 @@ Use standard checkbox list format under `##` headings that include a priority em
 
 - [ ] **Add dark mode toggle** *(Owner: Lyra Morn)*
 
-## 🟢 Low Priority
+## �� Low Priority
 
 - [ ] **Update README screenshots**
 
@@ -79,7 +76,7 @@ The panel reloads automatically whenever `.squad/tasks.md` changes on disk. You 
 
 ## Tips
 
-- Keep the highest-priority tasks near the top of each section — the panel caps at 7 items total, so the most important ones should appear first.
+- Keep the highest-priority tasks near the top of each section so the most important ones are immediately visible.
 - Use `/dropTasks` to clear the cached task context that the squad CLI uses; this does not affect the panel display.
 - The panel renders task titles only — put actionable detail in sub-bullets below the task line for agents reading the raw file.
 
@@ -87,5 +84,5 @@ The panel reloads automatically whenever `.squad/tasks.md` changes on disk. You 
 
 ## Related
 
-- **[Loop Panel](loop-panel.md)** — Run agents in a loop to work through the task backlog automatically
+- **[Loop Panel](Loop.md)** — Run agents in a loop to work through the task backlog automatically
 - **[Slash Commands](../reference/slash-commands.md)** — `/tasks` and `/dropTasks` commands

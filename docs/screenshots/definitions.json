@@ -52,7 +52,8 @@
       "height": 169,
       "dpiX": 1,
       "dpiY": 1
-    }
+    },
+    "docImagePath": null
   },
   {
     "name": "the-coordinator",
@@ -119,7 +120,8 @@
       "height": 274,
       "dpiX": 1,
       "dpiY": 1
-    }
+    },
+    "docImagePath": null
   },
   {
     "name": "menu-test",
@@ -183,7 +185,8 @@
       "height": 192,
       "dpiX": 1,
       "dpiY": 1
-    }
+    },
+    "docImagePath": null
   },
   {
     "name": "status-agent-panels-grid-dark",
@@ -249,6 +252,75 @@
       "height": 422,
       "dpiX": 1,
       "dpiY": 1
-    }
+    },
+    "docImagePath": null
+  },
+  {
+    "name": "status-panel-border-agent-dark",
+    "description": "",
+    "theme": "Dark",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "StatusPanelBorder",
+        "StatusAgentPanelsGrid",
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 53,
+      "elementWidth": 2229.3560139381384,
+      "elementHeight": 353.42,
+      "distanceToEdge": 4
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 1600.002680604805,
+      "elementTop": 53,
+      "elementWidth": 276.9166666666667,
+      "elementHeight": 353.42,
+      "distanceToEdge": 7.080652728528321
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "StatusPanelBorder",
+        "StatusAgentPanelsGrid",
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 53,
+      "elementWidth": 2229.3560139381384,
+      "elementHeight": 353.42,
+      "distanceToEdge": 4
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 1600.002680604805,
+      "elementTop": 53,
+      "elementWidth": 276.9166666666667,
+      "elementHeight": 353.42,
+      "distanceToEdge": 4
+    },
+    "bounds": {
+      "x": 1596.002680604805,
+      "y": 49,
+      "width": 284.91666666666674,
+      "height": 361.42,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\panels\\images\\tasks-panel.png"
   }
 ]

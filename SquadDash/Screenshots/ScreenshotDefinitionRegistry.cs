@@ -131,8 +131,31 @@ public sealed class ScreenshotDefinitionRegistry
             d.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Adds or replaces the definition identified by
-    /// <see cref="ScreenshotDefinition.Name"/> (case-insensitive upsert).
+    /// Returns the definition whose <see cref="ScreenshotDefinition.DocImagePath"/>
+    /// resolves to <paramref name="fullDocImagePath"/> (case-insensitive), or
+    /// <c>null</c> if none is registered.
+    /// </summary>
+    /// <param name="fullDocImagePath">Absolute path to the doc image file.</param>
+    /// <param name="screenshotsDirectory">
+    ///   Directory used to resolve relative <see cref="ScreenshotDefinition.DocImagePath"/>
+    ///   values.
+    /// </param>
+    public ScreenshotDefinition? TryGetByDocImagePath(string fullDocImagePath, string screenshotsDirectory)
+    {
+        foreach (var def in _definitions)
+        {
+            if (string.IsNullOrWhiteSpace(def.DocImagePath)) continue;
+            var resolved = Path.GetFullPath(
+                Path.IsPathRooted(def.DocImagePath)
+                    ? def.DocImagePath
+                    : Path.Combine(screenshotsDirectory, def.DocImagePath));
+            if (string.Equals(resolved, fullDocImagePath, StringComparison.OrdinalIgnoreCase))
+                return def;
+        }
+        return null;
+    }
+
+
     /// </summary>
     /// <remarks>
     /// Emits a <see cref="Console.Error"/> warning when

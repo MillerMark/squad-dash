@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "description": "Multiple agents running at once in the Active panel.",
-  "rawDescription": "Multiple agents running at once in the Active panel.",
+  "description": "The Tasks panel shows tasks grouped by priority. User owned tasks are in the form of a checkbox and can be checked. Other tasks in the list are owned by AI agents. ",
+  "rawDescription": "The Tasks panel shows tasks grouped by priority. User owned tasks are in the form of a checkbox and can be checked. Other tasks in the list are owned by AI agents. ",
   "cursor": null,
   "arrows": []
 }
