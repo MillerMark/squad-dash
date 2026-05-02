@@ -1065,7 +1065,6 @@
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
@@ -1090,22 +1089,15 @@
                                         Click="TasksPanelCloseButton_Click" />
                             </Grid>
 
-                            <!-- Row 1: "Open Tasks" subheader -->
-                            <TextBlock Grid.Row="1"
-                                       Text="Open Tasks"
-                                       FontSize="11"
-                                       Margin="0,8,0,4"
-                                       Foreground="{DynamicResource SubtleText}" />
-
-                            <!-- Row 2: Active tasks scrollviewer (unbounded, fills remaining space) -->
-                            <ScrollViewer Grid.Row="2"
+                            <!-- Row 1: Active tasks scrollviewer (unbounded, fills remaining space) -->
+                            <ScrollViewer Grid.Row="1"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="TasksActivePanel" />
                             </ScrollViewer>
 
-                            <!-- Row 3: Completed section (collapsed by default, shown via context menu) -->
-                            <StackPanel Grid.Row="3"
+                            <!-- Row 2: Completed section (collapsed by default, shown via context menu) -->
+                            <StackPanel Grid.Row="2"
                                         x:Name="TasksCompletedSection"
                                         Visibility="Collapsed">
                                 <TextBlock Text="Completed"
