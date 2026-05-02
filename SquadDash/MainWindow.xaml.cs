@@ -14747,6 +14747,10 @@ public partial class MainWindow : Window
         replaceItem.Click += (s, e) => ReplaceScreenshotInDoc(imagePath);
         menu.Items.Add(replaceItem);
 
+        var captureItem = new MenuItem { Header = "Replace with captured image" };
+        captureItem.Click += (_, _) => CaptureScreenshotForDocPlaceholder(imagePath);
+        menu.Items.Add(captureItem);
+
         var resolvedPath = ResolveDocImagePath(imagePath);
         var showInFolderItem = new MenuItem { Header = "Show image in folder" };
         showInFolderItem.IsEnabled = !string.IsNullOrEmpty(resolvedPath) && File.Exists(resolvedPath);
