@@ -15710,7 +15710,8 @@ public partial class MainWindow : Window
         }
 
         e.Effects = DragDropEffects.Move;
-        UpdateDocTopicsDropIndicator(e.GetPosition(DocTopicsTreeView));
+        var draggedItem = e.Data.GetData("DocTopicTreeViewItem") as TreeViewItem;
+        UpdateDocTopicsDropIndicator(e.GetPosition(DocTopicsTreeView), draggedItem);
         e.Handled = true;
     }
 
@@ -15729,7 +15730,7 @@ public partial class MainWindow : Window
         if (draggedItem is null)
             return;
 
-        var dropTarget = FindDropTarget(e.GetPosition(DocTopicsTreeView), out DropZone zone);
+        var dropTarget = FindDropTarget(e.GetPosition(DocTopicsTreeView), draggedItem, out DropZone zone);
         if (dropTarget is null || ReferenceEquals(dropTarget, draggedItem))
             return;
 
@@ -15747,7 +15748,7 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private void UpdateDocTopicsDropIndicator(Point posInTreeView)
+    private void UpdateDocTopicsDropIndicator(Point posInTreeView, TreeViewItem? draggedItem = null)
     {
         if (DocTopicsDropIndicatorCanvas is null || DocTopicsDropIndicator is null)
             return;
@@ -15762,12 +15763,14 @@ public partial class MainWindow : Window
         var itemBounds = hitItem.TransformToAncestor(DocTopicsTreeView).TransformBounds(
             new Rect(0, 0, hitItem.ActualWidth, hitItem.ActualHeight));
 
-        bool isGroup = hitItem.Items.Count > 0;
+        bool isGroupTarget = hitItem.Items.Count > 0;
+        bool draggedIsGroup = draggedItem?.Items.Count > 0;
         double relY = posInTreeView.Y - itemBounds.Y;
         double height = itemBounds.Height;
 
         DropZone zone;
-        if (isGroup)
+        // Groups cannot be dropped InsideAsChild of another group — use 50/50 zones instead.
+        if (isGroupTarget && !draggedIsGroup)
         {
             if (relY < height * 0.25)
                 zone = DropZone.Before;
@@ -15833,7 +15836,7 @@ public partial class MainWindow : Window
 
     private enum DropZone { Before, After, InsideAsChild }
 
-    private TreeViewItem? FindDropTarget(Point posInTreeView, out DropZone zone)
+    private TreeViewItem? FindDropTarget(Point posInTreeView, TreeViewItem? draggedItem, out DropZone zone)
     {
         zone = DropZone.After;
         var hitItem = FindItemAtPoint(DocTopicsTreeView, posInTreeView);
@@ -15842,11 +15845,13 @@ public partial class MainWindow : Window
         var itemBounds = hitItem.TransformToAncestor(DocTopicsTreeView).TransformBounds(
             new Rect(0, 0, hitItem.ActualWidth, hitItem.ActualHeight));
 
-        bool isGroup = hitItem.Items.Count > 0;
+        bool isGroupTarget = hitItem.Items.Count > 0;
+        bool draggedIsGroup = draggedItem?.Items.Count > 0;
         double relY = posInTreeView.Y - itemBounds.Y;
         double height = itemBounds.Height;
 
-        if (isGroup)
+        // Groups cannot be dropped InsideAsChild of another group — use 50/50 zones instead.
+        if (isGroupTarget && !draggedIsGroup)
         {
             if (relY < height * 0.25)
                 zone = DropZone.Before;
