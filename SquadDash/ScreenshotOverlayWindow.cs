@@ -1329,19 +1329,20 @@ internal sealed class ScreenshotOverlayWindow : Window
         _descVoiceService.RecognitionError += (_, _) =>
             Dispatcher.BeginInvoke(() => _ = StopDescVoiceAsync());
 
-        await Dispatcher.InvokeAsync(() =>
+        // Already on the UI thread — create synchronously so no yield point exists between
+        // service creation and StartAsync. Any yield here lets the key-up fire and call
+        // StopDescVoiceAsync (which sees _descVoiceService != null), disposing the service
+        // before StartAsync ever runs.
+        _descPttWindow = new PushToTalkWindow(this, showHint: false);
+        if (_descriptionBox is not null)
         {
-            _descPttWindow = new PushToTalkWindow(this, showHint: false);
-            if (_descriptionBox is not null)
-            {
-                var pt = _descriptionBox.PointToScreen(new System.Windows.Point(0, -40));
-                pt = DpiHelper.PhysicalToLogical(_descriptionBox, pt);
-                _descPttWindow.Left = pt.X;
-                _descPttWindow.Top  = pt.Y;
-            }
-            _descPttWindow.Show();
-            _descriptionBox?.Focus();   // Fix 1: keep description box focused during voice input
-        });
+            var pt = _descriptionBox.PointToScreen(new System.Windows.Point(0, -40));
+            pt = DpiHelper.PhysicalToLogical(_descriptionBox, pt);
+            _descPttWindow.Left = pt.X;
+            _descPttWindow.Top  = pt.Y;
+        }
+        _descPttWindow.Show();
+        _descriptionBox?.Focus();
 
         try
         {
@@ -1365,11 +1366,9 @@ internal sealed class ScreenshotOverlayWindow : Window
     private async Task StopDescVoiceAsync()
     {
         SquadDashTrace.Write("OverlayVoice", "StopDescVoiceAsync stopping");
-        await Dispatcher.InvokeAsync(() =>
-        {
-            _descPttWindow?.Close();
-            _descPttWindow = null;
-        });
+        // Always called from the UI thread — close synchronously.
+        _descPttWindow?.Close();
+        _descPttWindow = null;
         if (_descVoiceService != null)
         {
             try { await _descVoiceService.StopAsync().ConfigureAwait(false); } catch { }
