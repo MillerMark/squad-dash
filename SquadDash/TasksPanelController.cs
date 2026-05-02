@@ -154,16 +154,17 @@ internal sealed class TasksPanelController {
             // Wire after IsChecked is set so construction doesn't fire the handler
             checkBox.Checked += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         } else {
-            // Non-user-owned tasks: show a filled circle instead of a checkbox.
+            // Non-user-owned tasks: show a filled rounded-rect instead of a checkbox.
             // Centered within the same 20px column so text aligns with checkbox rows.
-            var dot = new Ellipse {
-                Width               = 9,
-                Height              = 9,
+            var dot = new Border {
+                Width               = 11,
+                Height              = 11,
+                CornerRadius        = new CornerRadius(3),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment   = VerticalAlignment.Top,
-                Margin              = new Thickness(0, 3, 0, 0),
+                Margin              = new Thickness(-1, 2, 1, 0),
             };
-            dot.SetResourceReference(Ellipse.FillProperty, "LineColor");
+            dot.SetResourceReference(Border.BackgroundProperty, "LineColor");
             Grid.SetColumn(dot, 0);
             grid.Children.Add(dot);
         }
