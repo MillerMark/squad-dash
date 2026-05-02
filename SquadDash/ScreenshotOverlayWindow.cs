@@ -423,7 +423,7 @@ internal sealed class ScreenshotOverlayWindow : Window
         _nameTextBox.SetResourceReference(TextBox.BorderBrushProperty, "PopupBorder");
         _nameTextBox.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
         _nameTextBox.SetResourceReference(TextBox.CaretBrushProperty,  "LabelText");
-
+        _nameTextBox.GotFocus += (_, _) => { if (!_inAnnotationMode) EnterAnnotationMode(); };
         var nameRow = new StackPanel
         {
             Orientation       = Orientation.Horizontal,
@@ -533,6 +533,10 @@ internal sealed class ScreenshotOverlayWindow : Window
         _descriptionBox.Opacity = 0.45;
         _descriptionBox.GotFocus += (_, _) =>
         {
+            // Clicking the description box is enough intent to enter annotation mode —
+            // the user shouldn't have to drag a handle first.
+            if (!_inAnnotationMode) EnterAnnotationMode();
+
             if (_descriptionBox.Text == _descriptionPlaceholder)
             {
                 _descriptionBox.Text    = "";
