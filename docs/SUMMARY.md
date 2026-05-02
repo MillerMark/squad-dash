@@ -12,10 +12,10 @@
 ## Features
 
 * [Features](features/README.md)
+  * [Prompt Queue](features/prompt-queue.md)
   * [Fullscreen Transcript](features/fullscreen-transcript.md)
   * [Hiring Agents](features/hiring-agents.md)
   * [Voice Input](features/voice-input.md)
-  * [Prompt Queue](features/prompt-queue.md)
 
 ## Panels
 

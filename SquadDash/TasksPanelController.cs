@@ -4,8 +4,10 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using System.Threading.Tasks;
 
 /// <summary>Manages content in the inline Tasks panel.</summary>
@@ -186,19 +188,80 @@ internal sealed class TasksPanelController {
                 Width                       = 320,
                 MaxHeight                   = 220,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                IsHitTestVisible            = false,
             };
-            var tip = new ToolTip {
-                Content         = viewer,
+
+            var popupBorder = new Border {
+                Child           = viewer,
                 Padding         = new Thickness(0),
                 BorderThickness = new Thickness(1),
-                HasDropShadow   = false,
             };
-            tip.SetResourceReference(ToolTip.BackgroundProperty, "PopupSurface");
-            tip.SetResourceReference(ToolTip.BorderBrushProperty, "ActivePanelBorder");
-            ToolTipService.SetInitialShowDelay(row, 600);
-            ToolTipService.SetShowDuration(row, 20000);
-            row.ToolTip = tip;
+
+            var popup = new Popup {
+                Child           = popupBorder,
+                PlacementTarget = row,
+                Placement       = PlacementMode.Left,
+                StaysOpen       = true,
+            };
+
+            // SetResourceReference doesn't work on Popup children outside the logical tree.
+            // Resolve brushes from the row's resource dictionaries on first open.
+            bool brushesResolved = false;
+            void ResolveBrushes() {
+                if (brushesResolved) return;
+                brushesResolved = true;
+                popupBorder.Background  = (row.TryFindResource("PopupSurface")     as Brush)
+                                       ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
+                popupBorder.BorderBrush = (row.TryFindResource("ActivePanelBorder") as Brush)
+                                       ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
+            }
+
+            DispatcherTimer? openTimer  = null;
+            DispatcherTimer? closeTimer = null;
+
+            void CancelOpen() {
+                if (openTimer is null) return;
+                openTimer.Stop();
+                openTimer = null;
+            }
+
+            void CancelClose() {
+                if (closeTimer is null) return;
+                closeTimer.Stop();
+                closeTimer = null;
+            }
+
+            void BeginClose() {
+                if (closeTimer is not null) return;
+                closeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                closeTimer.Tick += (_, _) => {
+                    closeTimer!.Stop();
+                    closeTimer  = null;
+                    popup.IsOpen = false;
+                };
+                closeTimer.Start();
+            }
+
+            row.MouseEnter += (_, _) => {
+                CancelClose();
+                if (popup.IsOpen) return;
+                openTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+                openTimer.Tick += (_, _) => {
+                    openTimer!.Stop();
+                    openTimer = null;
+                    ResolveBrushes();
+                    popup.IsOpen = true;
+                };
+                openTimer.Start();
+            };
+
+            row.MouseLeave += (_, _) => {
+                CancelOpen();
+                if (!popup.IsOpen) return;
+                BeginClose();
+            };
+
+            popupBorder.MouseEnter += (_, _) => CancelClose();
+            popupBorder.MouseLeave += (_, _) => BeginClose();
         }
 
         return row;
