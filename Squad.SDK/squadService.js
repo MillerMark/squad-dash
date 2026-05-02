@@ -329,12 +329,16 @@ export class SquadBridgeService {
         }, buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
     }
     async runNamedAgent(request, handlers) {
+        const hiddenContext = [
+            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent),
+            request.handoffContext?.trim()
+        ].filter((value) => !!value && value.trim().length > 0).join("\n\n");
         await this.runSessionRequest(request.selectedOption, handlers, {
             cwd: request.cwd,
             sessionId: request.namedAgentSessionId,
             configDir: request.configDir,
             requireSameSession: false
-        }, buildNamedAgentHiddenContext(request.targetAgent, request.charterContent));
+        }, hiddenContext);
     }
     async runSessionRequest(prompt, handlers, options, hiddenAdditionalContext) {
         const trimmedPrompt = prompt.trim();

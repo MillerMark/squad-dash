@@ -739,8 +739,8 @@ public partial class MainWindow : Window
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
                 _bridge.RunNamedAgentDelegationAsync(selectedOption, targetAgentHandle, cwd, sessionId, configDir),
-            runNamedAgentDirectAsync: (targetAgentHandle, selectedOption, cwd, sessionId, configDir) =>
-                _bridge.RunNamedAgentDirectAsync(targetAgentHandle, selectedOption, cwd, sessionId, configDir),
+            runNamedAgentDirectAsync: (targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir) =>
+                _bridge.RunNamedAgentDirectAsync(targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir),
             getCurrentWorkspace: () => _currentWorkspace,
             getSettingsSnapshot: () => _settingsSnapshot,
             conversationManager: _conversationManager,
@@ -11044,9 +11044,16 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(
                     "Routing",
                     $"Quick reply entering named-agent direct launch target={payload.TargetAgentHandle?.Trim().TrimStart('@') ?? "(unknown)"} option='{promptText}'");
+                var handoffContext = _conversationManager.BuildQuickReplyHandoffContext(
+                    payload.Entry,
+                    promptText,
+                    payload.ContinuationAgentLabel,
+                    payload.RouteMode,
+                    payload.TargetAgentHandle);
                 await _pec.ExecuteNamedAgentDirectAsync(
                     payload.TargetAgentHandle!,
                     promptText,
+                    handoffContext,
                     addToHistory: true,
                     clearPromptBox: false);
             }

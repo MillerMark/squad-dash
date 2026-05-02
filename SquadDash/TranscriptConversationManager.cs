@@ -16,6 +16,8 @@ namespace SquadDash;
 /// </summary>
 internal sealed class TranscriptConversationManager {
     private const int MaxRememberedSessionIds = 12;
+    private const int QuickReplyHandoffCoordinatorTurnCount = 4;
+    private const int QuickReplyHandoffAgentContextCount = 4;
 
     // ── Owned state ────────────────────────────────────────────────────────────
     private WorkspaceConversationState _conversationState = WorkspaceConversationState.Empty;
@@ -406,6 +408,37 @@ internal sealed class TranscriptConversationManager {
             agentTurns.Sum(turn => CountChars(turn.ThinkingText)));
     }
 
+    internal string BuildQuickReplyHandoffContext(
+        TranscriptResponseEntry sourceEntry,
+        string selectedOption,
+        string? targetAgentLabel,
+        string? routeMode,
+        string? targetAgentHandle) {
+        var sourceRecord = BuildTranscriptTurnRecord(sourceEntry.Turn, DateTimeOffset.UtcNow);
+        var sourceThreadTitle = ResolveQuickReplySourceThreadTitle(sourceEntry.Turn.OwnerThread);
+
+        var priorTurns = _conversationState.Turns
+            .Where(turn => !IsSameTranscriptTurn(turn, sourceRecord))
+            .Where(turn => turn.StartedAt <= sourceRecord.StartedAt)
+            .TakeLast(Math.Max(0, QuickReplyHandoffCoordinatorTurnCount - 1))
+            .Select(turn => BuildQuickReplyTurnContext("Coordinator", turn, isSourceTurn: false))
+            .ToList();
+
+        priorTurns.Add(BuildQuickReplyTurnContext(sourceThreadTitle, sourceRecord, isSourceTurn: true));
+        var contextWindowStart = priorTurns
+            .Select(turn => turn.StartedAt)
+            .DefaultIfEmpty(sourceRecord.StartedAt)
+            .Min();
+
+        return QuickReplyContextPromptBuilder.BuildHandoffContext(
+            selectedOption,
+            targetAgentLabel,
+            routeMode,
+            targetAgentHandle,
+            priorTurns,
+            BuildQuickReplyAgentContexts(contextWindowStart));
+    }
+
     internal string? StartFreshSessionPreservingTranscript() {
         var previousSessionId = _currentSessionId;
         SetCurrentSessionId(null);
@@ -697,6 +730,68 @@ internal sealed class TranscriptConversationManager {
     }
 
     private static int CountChars(string? text) => text?.Length ?? 0;
+
+    private IReadOnlyList<QuickReplyHandoffAgentContext> BuildQuickReplyAgentContexts(DateTimeOffset windowStart) =>
+        _agentThreadRegistry.ThreadOrder
+            .Where(thread => thread.Kind == TranscriptThreadKind.Agent && !thread.IsPlaceholderThread)
+            .Select(BuildQuickReplyAgentContext)
+            .Where(context =>
+                (context.LastActivityAt ?? DateTimeOffset.MinValue) >= windowStart &&
+                (!string.IsNullOrWhiteSpace(context.UserPrompt) ||
+                 !string.IsNullOrWhiteSpace(context.AssistantResponse) ||
+                 context.RecentActivity.Count > 0))
+            .OrderByDescending(context => context.LastActivityAt ?? DateTimeOffset.MinValue)
+            .Take(QuickReplyHandoffAgentContextCount)
+            .ToArray();
+
+    private QuickReplyHandoffAgentContext BuildQuickReplyAgentContext(TranscriptThreadState thread) {
+        var latestTurn = GetLatestTurnRecord(thread);
+        var prompt = latestTurn?.Prompt ?? thread.Prompt;
+        var response = latestTurn?.ResponseText ?? thread.LatestResponse ?? thread.LastCoordinatorAnnouncedResponse;
+        var label = AgentThreadRegistry.ResolveThreadDisplayName(
+            thread.AgentDisplayName,
+            thread.AgentName,
+            thread.AgentId);
+
+        return new QuickReplyHandoffAgentContext(
+            label,
+            prompt,
+            response,
+            thread.RecentActivity,
+            AgentThreadRegistry.GetThreadLastActivityAt(thread));
+    }
+
+    private TranscriptTurnRecord? GetLatestTurnRecord(TranscriptThreadState thread) {
+        if (thread.CurrentTurn is not null)
+            return BuildTranscriptTurnRecord(thread.CurrentTurn, DateTimeOffset.UtcNow);
+
+        return thread.SavedTurns
+            .OrderByDescending(turn => turn.Timestamp)
+            .FirstOrDefault();
+    }
+
+    private static QuickReplyHandoffTurnContext BuildQuickReplyTurnContext(
+        string threadTitle,
+        TranscriptTurnRecord turn,
+        bool isSourceTurn) =>
+        new(
+            threadTitle,
+            turn.Prompt,
+            turn.ResponseText,
+            turn.StartedAt,
+            isSourceTurn);
+
+    private static string ResolveQuickReplySourceThreadTitle(TranscriptThreadState thread) =>
+        thread.Kind == TranscriptThreadKind.Coordinator
+            ? "Coordinator"
+            : AgentThreadRegistry.ResolveThreadDisplayName(
+                thread.AgentDisplayName,
+                thread.AgentName,
+                thread.AgentId);
+
+    private static bool IsSameTranscriptTurn(TranscriptTurnRecord left, TranscriptTurnRecord right) =>
+        left.StartedAt.ToUniversalTime() == right.StartedAt.ToUniversalTime() &&
+        string.Equals(left.Prompt, right.Prompt, StringComparison.Ordinal);
 
     // ── Record builders ─────────────────────────────────────────────────────────
 

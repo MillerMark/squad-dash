@@ -126,6 +126,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     public async Task RunNamedAgentDirectAsync(
         string targetAgentHandle,
         string selectedOption,
+        string? handoffContext,
         string workingDirectory,
         string? coordinatorSessionId,
         string? configDirectory = null) {
@@ -146,6 +147,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             var request = new SquadSdkNamedAgentRequest(
                 targetAgentHandle,
                 selectedOption,
+                handoffContext,
                 workingDirectory,
                 coordinatorSessionId,
                 configDirectory,
@@ -891,6 +893,7 @@ internal sealed record SquadSdkDelegateRequest(
 internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("targetAgent")] string TargetAgent,
     [property: JsonPropertyName("selectedOption")] string SelectedOption,
+    [property: JsonPropertyName("handoffContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? HandoffContext,
     [property: JsonPropertyName("cwd")] string Cwd,
     [property: JsonPropertyName("sessionId")] string? SessionId = null,
     [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,

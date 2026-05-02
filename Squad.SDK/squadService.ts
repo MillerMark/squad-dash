@@ -23,6 +23,7 @@ export type SquadDelegationRequest = {
 export type SquadNamedAgentRequest = {
     cwd: string;
     selectedOption: string;
+    handoffContext?: string;
     targetAgent: string;
     namedAgentSessionId?: string;
     charterContent?: string;
@@ -643,6 +644,11 @@ export class SquadBridgeService {
         request: SquadNamedAgentRequest,
         handlers: SquadRunHandlers
     ) {
+        const hiddenContext = [
+            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent),
+            request.handoffContext?.trim()
+        ].filter((value): value is string => !!value && value.trim().length > 0).join("\n\n");
+
         await this.runSessionRequest(
             request.selectedOption,
             handlers,
@@ -652,7 +658,7 @@ export class SquadBridgeService {
                 configDir: request.configDir,
                 requireSameSession: false
             },
-            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent));
+            hiddenContext);
     }
 
     private async runSessionRequest(

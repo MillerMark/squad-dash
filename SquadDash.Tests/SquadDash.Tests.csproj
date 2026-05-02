@@ -59,6 +59,7 @@
     <Compile Include="..\SquadDash\PromptTraceMetrics.cs" Link="Source\PromptTraceMetrics.cs" />
     <Compile Include="..\SquadDash\QuickReplyRoutePresentation.cs" Link="Source\QuickReplyRoutePresentation.cs" />
     <Compile Include="..\SquadDash\QuickReplyAgentLaunchPolicy.cs" Link="Source\QuickReplyAgentLaunchPolicy.cs" />
+    <Compile Include="..\SquadDash\QuickReplyContextPromptBuilder.cs" Link="Source\QuickReplyContextPromptBuilder.cs" />
     <Compile Include="..\SquadDash\WorkspaceIssuePanelState.cs" Link="Source\WorkspaceIssuePanelState.cs" />
     <Compile Include="..\SquadDash\LocalCommandTurnExecutionPolicy.cs" Link="Source\LocalCommandTurnExecutionPolicy.cs" />
     <Compile Include="..\SquadDash\AgentThreadIdentityPolicy.cs" Link="Source\AgentThreadIdentityPolicy.cs" />

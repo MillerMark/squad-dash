@@ -298,6 +298,7 @@ function tryParseNamedAgentRequest(parsed) {
         requestId: typeof parsed.requestId === "string" ? parsed.requestId.trim() || undefined : undefined,
         targetAgent,
         selectedOption,
+        handoffContext: typeof parsed.handoffContext === "string" ? parsed.handoffContext.trim() || undefined : undefined,
         cwd,
         sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId.trim() || undefined : undefined,
         configDir: typeof parsed.configDir === "string" ? parsed.configDir.trim() || undefined : undefined
@@ -853,7 +854,6 @@ async function handleNamedAgent(request) {
         .split("-")
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(" ");
-    const namedAgentSessionId = `named-agent:${handle}`;
     let charterContent;
     const charterPath = path.join(request.cwd, ".squad", "agents", handle, "charter.md");
     try {
@@ -875,8 +875,8 @@ async function handleNamedAgent(request) {
         await bridge.runNamedAgent({
             cwd: request.cwd,
             selectedOption: request.selectedOption,
+            handoffContext: request.handoffContext,
             targetAgent: handle,
-            namedAgentSessionId,
             charterContent,
             configDir: request.configDir
         }, buildNamedAgentRunHandlers(request.requestId, toolCallId, handle, displayName, request.sessionId));

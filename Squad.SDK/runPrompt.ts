@@ -38,6 +38,7 @@ type NamedAgentRequest = {
     requestId?: string;
     targetAgent: string;
     selectedOption: string;
+    handoffContext?: string;
     cwd: string;
     sessionId?: string;
     configDir?: string;
@@ -446,6 +447,7 @@ function tryParseNamedAgentRequest(parsed: Partial<NamedAgentRequest>): NamedAge
         requestId: typeof parsed.requestId === "string" ? parsed.requestId.trim() || undefined : undefined,
         targetAgent,
         selectedOption,
+        handoffContext: typeof parsed.handoffContext === "string" ? parsed.handoffContext.trim() || undefined : undefined,
         cwd,
         sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId.trim() || undefined : undefined,
         configDir: typeof parsed.configDir === "string" ? parsed.configDir.trim() || undefined : undefined
@@ -1048,8 +1050,6 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(" ");
 
-    const namedAgentSessionId = `named-agent:${handle}`;
-
     let charterContent: string | undefined;
     const charterPath = path.join(request.cwd, ".squad", "agents", handle, "charter.md");
     try {
@@ -1073,8 +1073,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
             {
                 cwd: request.cwd,
                 selectedOption: request.selectedOption,
+                handoffContext: request.handoffContext,
                 targetAgent: handle,
-                namedAgentSessionId,
                 charterContent,
                 configDir: request.configDir
             },
