@@ -95,6 +95,15 @@
 
 ## UI & Polish
 
+- [x] **Screenshots health panel** *(Owner: Lyra Morn)*
+  New floating `ScreenshotHealthWindow` (code-behind, following `TasksStatusWindow`/`TraceWindow` patterns).
+  Displays results of `ScreenshotHealthChecker.CheckAllAsync()` — per-definition name, status (✅/⚠️/❌/⬜),
+  and issue details. "Run Check" button with loading/disabled state. Summary counts in header.
+  Singleton pattern with `_screenshotHealthWindow` field in `MainWindow`. Wired into `open_panel "health"`
+  switch and `HostCommandRegistry` description. Floating window positioning follows existing snap/offset pattern.
+
+---
+
 - [x] **Verify task priority icon colors match tasks.md emoji** *(Owner: Lyra Morn)*
   Visual check that the high/mid/low priority circle icons in the Tasks panel match the 🔴🟡🟢
   emoji colors used in tasks.md (both light and dark theme).

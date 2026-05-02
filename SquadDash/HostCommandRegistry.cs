@@ -23,7 +23,7 @@ internal sealed class HostCommandRegistry {
             ResultBehavior:     HostCommandResultBehavior.InjectResultAsContext),
         new HostCommandDescriptor(
             Name:               "open_panel",
-            Description:        "Opens a named panel. Valid names: Approvals, Tasks, Trace",
+            Description:        "Opens a named panel. Valid names: Approvals, Tasks, Trace, Health",
             Parameters:         [new HostCommandParameterDescriptor("name", "string", Required: true)],
             ResultBehavior:     HostCommandResultBehavior.Silent),
         new HostCommandDescriptor(

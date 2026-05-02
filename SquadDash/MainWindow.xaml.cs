@@ -131,12 +131,14 @@ public partial class MainWindow : Window, ILiveElementLocator
     private string? _announcedRoutingIssueFingerprint;
     private bool _pendingRoutingRepairRecheck;
     private bool _pendingPowerShellInstallRecheck;
-    private TasksStatusWindow? _tasksStatusWindow;
-    private TraceWindow? _traceWindow;
+    private TasksStatusWindow?      _tasksStatusWindow;
+    private TraceWindow?            _traceWindow;
+    private ScreenshotHealthWindow? _screenshotHealthWindow;
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
     private Vector? _traceWindowOffset;
+    private Vector? _screenshotHealthWindowOffset;
     private CommitApprovalPanel? _approvalPanel;
     private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
@@ -4093,6 +4095,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 case "approvals": ShowApprovalPanel(); break;
                 case "tasks": ShowTasksStatusWindow(); break;
                 case "trace": ShowTraceWindow(); break;
+                case "health": ShowScreenshotHealthWindow(); break;
             }
         }));
         _hostCommandExecutor.Register(new Commands.InjectTextCommandHandler(_ =>
@@ -16193,6 +16196,31 @@ public partial class MainWindow : Window, ILiveElementLocator
         _tasksStatusWindow?.Close();
     }
 
+    private void ShowScreenshotHealthWindow()
+    {
+        if (_screenshotHealthWindow is null)
+        {
+            SquadDashTrace.Write("UI", "Showing screenshot health popup.");
+            _screenshotHealthWindow = new ScreenshotHealthWindow(ScreenshotHealthChecker);
+            if (CanShowOwnedWindow())
+                _screenshotHealthWindow.Owner = this;
+
+            _screenshotHealthWindow.Closed += (_, _) =>
+            {
+                _screenshotHealthWindow      = null;
+                _screenshotHealthWindowOffset = null;
+            };
+            _screenshotHealthWindow.LocationChanged += (_, _) => OnScreenshotHealthWindowMoved();
+            _screenshotHealthWindow.Show();
+        }
+        else
+        {
+            _screenshotHealthWindow.Activate();
+        }
+
+        PositionScreenshotHealthWindow();
+    }
+
     private void ShowApprovalPanel()
     {
         _approvalPanelVisible = !_approvalPanelVisible;
@@ -16273,8 +16301,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         PositionTasksStatusWindow();
         PositionTraceWindow();
+        PositionScreenshotHealthWindow();
         ValidateFloatingWindowPosition(ref _tasksWindowOffset, _tasksStatusWindow);
         ValidateFloatingWindowPosition(ref _traceWindowOffset, _traceWindow);
+        ValidateFloatingWindowPosition(ref _screenshotHealthWindowOffset, _screenshotHealthWindow);
     }
 
     /// <summary>
@@ -16382,6 +16412,20 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         if (_traceWindow is not null)
             OnFloatingWindowMoved(_traceWindow, ref _traceWindowOffset);
+    }
+
+    private void PositionScreenshotHealthWindow()
+    {
+        if (_screenshotHealthWindow is not { IsLoaded: true } || WindowState == WindowState.Minimized)
+            return;
+
+        ApplyFloatingWindowPosition(_screenshotHealthWindow, _screenshotHealthWindowOffset);
+    }
+
+    private void OnScreenshotHealthWindowMoved()
+    {
+        if (_screenshotHealthWindow is not null)
+            OnFloatingWindowMoved(_screenshotHealthWindow, ref _screenshotHealthWindowOffset);
     }
 
     private void ShowScreenshotOverlay()
