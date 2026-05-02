@@ -134,14 +134,17 @@ internal sealed class TasksPanelController {
         row.ContextMenu = menu;
 
         var grid = new Grid { Margin = new Thickness(4, 3, 4, 3) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        // Fixed-width column 0 (20px) so text in column 1 left-aligns identically
+        // whether the row has a CheckBox or a circle dot.
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         if (item.IsUserOwned) {
             var checkBox = new CheckBox {
-                IsChecked         = false,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin            = new Thickness(0, 1, 6, 0),
+                IsChecked           = false,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Top,
+                Margin              = new Thickness(0, 1, 0, 0),
             };
             Grid.SetColumn(checkBox, 0);
             grid.Children.Add(checkBox);
@@ -149,12 +152,14 @@ internal sealed class TasksPanelController {
             // Wire after IsChecked is set so construction doesn't fire the handler
             checkBox.Checked += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         } else {
-            // Non-user-owned tasks: show a filled circle instead of a disabled checkbox
+            // Non-user-owned tasks: show a filled circle instead of a checkbox.
+            // Centered within the same 20px column so text aligns with checkbox rows.
             var dot = new Ellipse {
-                Width             = 9,
-                Height            = 9,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin            = new Thickness(1, 3, 7, 0),
+                Width               = 9,
+                Height              = 9,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Top,
+                Margin              = new Thickness(0, 3, 0, 0),
             };
             dot.SetResourceReference(Ellipse.FillProperty, "LineColor");
             Grid.SetColumn(dot, 0);
