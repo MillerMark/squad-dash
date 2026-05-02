@@ -179,7 +179,7 @@ internal sealed class TasksPanelController {
             TextWrapping = TextWrapping.Wrap,
             MaxWidth     = 220,
         };
-        label.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         Grid.SetColumn(label, 1);
         grid.Children.Add(label);
 
