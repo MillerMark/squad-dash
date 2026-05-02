@@ -174,6 +174,7 @@ public partial class MainWindow : Window
     private Rect _preFullScreenBounds;
     private bool _documentationModeEnabled;
     private string? _currentDocPath;  // tracks currently displayed doc for link resolution
+    private DateTime _docSaveSuppressionUntil;
     private DocStatusStore? _docStatusStore;
     private bool _activeAgentLaneNudgeScheduled;
     private bool _inactiveAgentLaneNudgeScheduled;
@@ -7596,12 +7597,20 @@ public partial class MainWindow : Window
         if (DocSourceTextBox is null || string.IsNullOrEmpty(_currentDocPath)) return;
         try
         {
+            _docSaveSuppressionUntil = DateTime.UtcNow.AddMilliseconds(500);
             File.WriteAllText(_currentDocPath, DocSourceTextBox.Text);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write("DocSource", $"Failed to save doc source: {ex.Message}");
         }
+    }
+
+    private void ReloadCurrentDocFromDisk()
+    {
+        if (string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath)) return;
+        PopulateDocSourceEditor();
+        RefreshDocMarkdownViewerFromSource();
     }
 
     private void DocSourceTextBox_ApplyBold()
@@ -14084,11 +14093,19 @@ public partial class MainWindow : Window
     {
         try
         {
-            // Skip refreshes for the file we're actively editing in the source panel —
-            // the change was caused by our own debounced save, not an external modification.
+            // Skip refreshes caused by our own debounced save. External changes (e.g. from an
+            // AI tool writing the file) land outside the suppression window and should reload.
             if (!string.IsNullOrEmpty(_currentDocPath)
                 && string.Equals(e.FullPath, _currentDocPath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (DateTime.UtcNow < _docSaveSuppressionUntil)
+                    return;
+
+                // External change to the currently-open doc — reload source editor and preview.
+                TryPostToUi(ReloadCurrentDocFromDisk, "DocsWatcher.ExternalChange");
+                ScheduleDebouncedDocsRefresh();
                 return;
+            }
 
             if (_docStatusStore != null)
             {
@@ -14629,15 +14646,21 @@ public partial class MainWindow : Window
     /// <summary>
     /// Called by <see cref="DocViewerScriptingBridge"/> when the user right-clicks a
     /// 📸 placeholder blockquote in the docs viewer.  Shows a context menu with the
-    /// "Use screenshot on clipboard" action.
+    /// "Use screenshot on clipboard" action and a "Capture new screenshot" action.
     /// </summary>
     public void ShowDocScreenshotContextMenu(string imagePath)
     {
         var menu = new ContextMenu();
+
         var pasteItem = new MenuItem { Header = "Use screenshot on clipboard" };
         pasteItem.IsEnabled = Clipboard.ContainsImage();
         pasteItem.Click += (s, e) => PasteScreenshotToDoc(imagePath);
         menu.Items.Add(pasteItem);
+
+        var captureItem = new MenuItem { Header = "Capture new screenshot for this placeholder" };
+        captureItem.Click += (s, e) => CaptureScreenshotForDocPlaceholder(imagePath);
+        menu.Items.Add(captureItem);
+
         menu.PlacementTarget = DocMarkdownViewer;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
         menu.IsOpen = true;
@@ -16241,6 +16264,31 @@ public partial class MainWindow : Window
         overlay.Show();
     }
 
+    /// <summary>
+    /// Opens the screenshot overlay pre-wired to save the result into a specific doc
+    /// image placeholder.  On completion, copies the captured PNG to the placeholder
+    /// path, strips the 📸 blockquote from the markdown, reloads the viewer, and
+    /// registers the definition with <see cref="DocImagePath"/> set so that the
+    /// automated refresh runner can update it later.
+    /// </summary>
+    private void CaptureScreenshotForDocPlaceholder(string imagePath)
+    {
+        if (!CanShowOwnedWindow()) return;
+        if (string.IsNullOrEmpty(_currentDocPath)) return;
+
+        var saveDir = Path.Combine(_workspacePaths.ScreenshotsDirectory, "baseline");
+        var overlay = new ScreenshotOverlayWindow(this, saveDir, _activeThemeName, _settingsSnapshot.SpeechRegion ?? string.Empty);
+
+        overlay.ScreenshotSaved += (sender, e) =>
+        {
+            _ = RunInteractiveCaptureAsync(e, docImagePath: imagePath);
+        };
+        overlay.ScreenshotFailed += (_, error) => Dispatcher.InvokeAsync(() =>
+            AppendLine($"[screenshot error] {error}", ThemeBrush("SystemErrorText")));
+        overlay.Closed += (_, _) => ResetPttState();
+        overlay.Show();
+    }
+
     // ── Interactive capture completion ───────────────────────────────────────
 
     /// <summary>
@@ -16250,6 +16298,14 @@ public partial class MainWindow : Window
     /// registry upsert, PNG rename, and transcript confirmation.
     /// </summary>
     private async void OnInteractiveCaptureCompleted(object? sender, ScreenshotSavedEventArgs e)
+        => await RunInteractiveCaptureAsync(e, docImagePath: null);
+
+    /// <summary>
+    /// Core post-capture pipeline shared by interactive captures and doc-placeholder captures.
+    /// When <paramref name="docImagePath"/> is non-null, also copies the final PNG to the doc
+    /// image location, strips the 📸 placeholder from the markdown, and reloads the viewer.
+    /// </summary>
+    private async Task RunInteractiveCaptureAsync(ScreenshotSavedEventArgs e, string? docImagePath)
     {
         try
         {
@@ -16299,6 +16355,16 @@ public partial class MainWindow : Window
                 DpiX: dpi.DpiScaleX,
                 DpiY: dpi.DpiScaleY);
 
+            // Compute the doc-image path relative to screenshotsDir so the
+            // refresh runner can resolve it portably.
+            string? docImageRelPath = null;
+            if (!string.IsNullOrEmpty(docImagePath) && !string.IsNullOrEmpty(_currentDocPath))
+            {
+                var docDir = Path.GetDirectoryName(_currentDocPath)!;
+                var fullDocImagePath = Path.Combine(docDir, docImagePath.Replace('/', '\\'));
+                docImageRelPath = Path.GetRelativePath(_workspacePaths.ScreenshotsDirectory, fullDocImagePath);
+            }
+
             var manifest = new Screenshots.ScreenshotManifest(
                 Version: 1,
                 Name: acceptedName,
@@ -16312,7 +16378,8 @@ public partial class MainWindow : Window
                 Bottom: bottomAnchor,
                 Left: leftAnchor,
                 ReplayActionId: null,
-                FixturePath: null);
+                FixturePath: null,
+                DocImagePath: docImageRelPath);
 
             // Save manifest sidecar alongside the PNG.
             var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
@@ -16344,11 +16411,45 @@ public partial class MainWindow : Window
                 Right: rightAnchor,
                 Bottom: bottomAnchor,
                 Left: leftAnchor,
-                Bounds: bounds);
+                Bounds: bounds,
+                DocImagePath: docImageRelPath);
 
             var registry = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir);
             registry.AddOrUpdate(definition);
             await registry.SaveAsync();
+
+            // ── Step 7b: Doc-placeholder post-processing ──────────────────────
+            if (!string.IsNullOrEmpty(docImagePath) && !string.IsNullOrEmpty(_currentDocPath))
+            {
+                var docDir = Path.GetDirectoryName(_currentDocPath)!;
+                var fullDocImagePath = Path.Combine(docDir, docImagePath.Replace('/', '\\'));
+                Directory.CreateDirectory(Path.GetDirectoryName(fullDocImagePath)!);
+                File.Copy(finalPngPath, fullDocImagePath, overwrite: true);
+
+                // Strip the 📸 placeholder line from the markdown.
+                var lines = File.ReadAllLines(_currentDocPath).ToList();
+                var fwdSlashPath = docImagePath.Replace('\\', '/');
+                for (int i = lines.Count - 1; i >= 0; i--)
+                {
+                    if ((lines[i].Contains("📸") || lines[i].Contains("Screenshot needed")) &&
+                        i > 0 && lines[i - 1].Replace('\\', '/').Contains(fwdSlashPath))
+                    {
+                        lines.RemoveAt(i);
+                        if (i < lines.Count && string.IsNullOrWhiteSpace(lines[i]))
+                            lines.RemoveAt(i);
+                        break;
+                    }
+                }
+                File.WriteAllLines(_currentDocPath, lines);
+
+                // Reload the viewer.
+                var markdown = File.ReadAllText(_currentDocPath);
+                var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
+                var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
+                DocMarkdownViewer.NavigateToString(html);
+
+                AppendLine($"📷 Doc screenshot saved: `{acceptedName}` → `{fullDocImagePath}`");
+            }
 
             // ── Step 8: Transcript confirmation ───────────────────────────────
             var topName = topAnchor.ElementNames.Count > 0 ? string.Join(", ", topAnchor.ElementNames) : "(unnamed)";

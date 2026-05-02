@@ -162,6 +162,7 @@ internal sealed class ScreenshotOverlayWindow : Window
     private SpeechRecognitionService? _descVoiceService;
     private PushToTalkWindow?         _descPttWindow;
     private bool                      _descVoiceStopOnCtrlRelease;
+    private int                       _descVoiceCaretIndex = -1;
     private readonly CtrlDoubleTapGestureTracker _descPttGesture =
         new(maxTapHoldMs: DescPttMaxTapHoldMs, doubleTapGapMs: DescPttDoubleClickMs);
 
@@ -1289,6 +1290,13 @@ internal sealed class ScreenshotOverlayWindow : Window
             "OverlayVoice",
             $"StartDescVoiceAsync starting: overlayActive={IsActive} focusWithin={IsKeyboardFocusWithin} focusedElement={DescribeFocusedElement()}");
 
+        // Snapshot caret before any async yield so insertions land at the right position.
+        // We are already on the UI thread (called from a keyboard event handler).
+        if (_descriptionBox != null)
+            _descVoiceCaretIndex = _descriptionBox.Text == _descriptionPlaceholder
+                ? 0
+                : _descriptionBox.CaretIndex;
+
         _descVoiceStopOnCtrlRelease = true;
         _descVoiceService = new SpeechRecognitionService();
 
@@ -1297,10 +1305,18 @@ internal sealed class ScreenshotOverlayWindow : Window
             {
                 if (_descriptionBox == null) return;
                 var current = _descriptionBox.Text == _descriptionPlaceholder ? "" : _descriptionBox.Text;
-                var processed = VoiceInsertionHeuristics.Apply(current, text);
-                _descriptionBox.Text       = (current.Length > 0 ? current + " " : "") + processed;
+                var caretIndex = Math.Min(_descVoiceCaretIndex < 0 ? current.Length : _descVoiceCaretIndex, current.Length);
+                var leftContext  = current[..caretIndex];
+                var rightContext = current[caretIndex..];
+                var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
+                var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' &&
+                             precedingChar != '\n' && precedingChar != '\r' ? " " : string.Empty;
+                var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
+                var insert = prefix + processed;
+                _descriptionBox.Text       = leftContext + insert + rightContext;
                 _descriptionBox.Opacity    = 1.0;
-                _descriptionBox.CaretIndex = _descriptionBox.Text.Length;
+                _descVoiceCaretIndex       = caretIndex + insert.Length;
+                _descriptionBox.CaretIndex = _descVoiceCaretIndex;
             });
 
         _descVoiceService.VolumeChanged += (_, level) =>
@@ -1362,6 +1378,7 @@ internal sealed class ScreenshotOverlayWindow : Window
         }
 
         _descVoiceStopOnCtrlRelease = false;
+        _descVoiceCaretIndex = -1;
         _descPttGesture.Reset();
     }
 

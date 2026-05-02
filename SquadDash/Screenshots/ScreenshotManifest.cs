@@ -79,7 +79,8 @@ public record ScreenshotManifest(
     [property: JsonPropertyName("bottom")]          EdgeAnchorRecord Bottom,
     [property: JsonPropertyName("left")]            EdgeAnchorRecord Left,
     [property: JsonPropertyName("replayActionId")]  string?          ReplayActionId = null,
-    [property: JsonPropertyName("fixturePath")]     string?          FixturePath    = null
+    [property: JsonPropertyName("fixturePath")]     string?          FixturePath    = null,
+    [property: JsonPropertyName("docImagePath")]    string?          DocImagePath   = null
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +147,8 @@ public record ScreenshotDefinition(
     [property: JsonPropertyName("right")]           EdgeAnchorRecord Right,
     [property: JsonPropertyName("bottom")]          EdgeAnchorRecord Bottom,
     [property: JsonPropertyName("left")]            EdgeAnchorRecord Left,
-    [property: JsonPropertyName("bounds")]          CaptureBounds    Bounds
+    [property: JsonPropertyName("bounds")]          CaptureBounds    Bounds,
+    [property: JsonPropertyName("docImagePath")]    string?          DocImagePath = null
 );
 
 /// <summary>

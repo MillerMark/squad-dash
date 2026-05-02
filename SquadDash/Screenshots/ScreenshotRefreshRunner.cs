@@ -257,6 +257,16 @@ public sealed class ScreenshotRefreshRunner
 
             // ── Step 6 (success) — Log the saved path ─────────────────────────
             log.Write($"[screenshot] Saved: {outputPath}");
+
+            // ── Step 6b — Copy to doc image path if this is a doc screenshot ──
+            if (!string.IsNullOrWhiteSpace(definition.DocImagePath))
+            {
+                var fullDocImagePath = Path.GetFullPath(
+                    Path.Combine(_screenshotsDirectory, definition.DocImagePath));
+                Directory.CreateDirectory(Path.GetDirectoryName(fullDocImagePath)!);
+                File.Copy(outputPath, fullDocImagePath, overwrite: true);
+                log.Write($"[screenshot] Copied to doc image: {fullDocImagePath}");
+            }
         }
         catch (OperationCanceledException)
         {
