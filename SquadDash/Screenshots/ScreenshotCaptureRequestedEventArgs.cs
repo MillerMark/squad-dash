@@ -29,23 +29,49 @@ public sealed class ScreenshotCaptureRequestedEventArgs : EventArgs
     /// <summary>
     /// Optional sub-region to crop from the full-window render.
     /// When <c>null</c> the subscriber should save the full window (backward-compatible behaviour).
+    /// This is the <em>stored</em> bounds recorded at capture time and is used as a fallback
+    /// when live anchor resolution fails.
     /// </summary>
     public CaptureBounds? CaptureBounds { get; }
+
+    /// <summary>
+    /// Edge anchors from the definition, used by <c>MainWindow</c> to resolve the
+    /// <em>current</em> live bounds of the capture region from named WPF elements.
+    /// When all four anchors can be resolved, the live bounds are used instead of
+    /// <see cref="CaptureBounds"/>.  May be <c>null</c> for definitions that predate
+    /// the anchor system.
+    /// </summary>
+    public EdgeAnchorRecord? TopAnchor    { get; }
+    public EdgeAnchorRecord? RightAnchor  { get; }
+    public EdgeAnchorRecord? BottomAnchor { get; }
+    public EdgeAnchorRecord? LeftAnchor   { get; }
 
     /// <param name="definitionName">Kebab-case screenshot name.</param>
     /// <param name="outputPath">Full PNG output path.</param>
     /// <param name="captureBounds">
-    ///   Optional bounds for sub-region cropping.  Pass <c>null</c> (the default) to
-    ///   capture the full window.
+    ///   Optional stored bounds for sub-region cropping.  Used as a fallback when live
+    ///   anchor resolution fails.  Pass <c>null</c> (the default) to capture the full window.
     /// </param>
+    /// <param name="topAnchor">Top edge anchor from the definition.</param>
+    /// <param name="rightAnchor">Right edge anchor from the definition.</param>
+    /// <param name="bottomAnchor">Bottom edge anchor from the definition.</param>
+    /// <param name="leftAnchor">Left edge anchor from the definition.</param>
     public ScreenshotCaptureRequestedEventArgs(
-        string        definitionName,
-        string        outputPath,
-        CaptureBounds? captureBounds = null)
+        string           definitionName,
+        string           outputPath,
+        CaptureBounds?   captureBounds = null,
+        EdgeAnchorRecord? topAnchor    = null,
+        EdgeAnchorRecord? rightAnchor  = null,
+        EdgeAnchorRecord? bottomAnchor = null,
+        EdgeAnchorRecord? leftAnchor   = null)
     {
         DefinitionName = definitionName ?? throw new ArgumentNullException(nameof(definitionName));
         OutputPath     = outputPath     ?? throw new ArgumentNullException(nameof(outputPath));
         CaptureBounds  = captureBounds;
+        TopAnchor      = topAnchor;
+        RightAnchor    = rightAnchor;
+        BottomAnchor   = bottomAnchor;
+        LeftAnchor     = leftAnchor;
     }
 
     /// <summary>

@@ -1337,8 +1337,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                     rtb.Freeze();
 
                     // If the definition specified a sub-region, crop the RTB to that area.
+                    // Prefer live anchor-based bounds so that panel moves are handled correctly;
+                    // fall back to the stored CaptureBounds when live resolution fails.
                     BitmapSource bitmapToSave = rtb;
-                    if (e.CaptureBounds is { } bounds)
+                    var liveBounds = TryResolveLiveBounds(e);
+                    var cropBounds = liveBounds ?? e.CaptureBounds;
+                    if (cropBounds is { } bounds)
                     {
                         var pixelX = (int)Math.Round(bounds.X * bounds.DpiX);
                         var pixelY = (int)Math.Round(bounds.Y * bounds.DpiY);
@@ -1376,6 +1380,99 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             HandleUiCallbackException(nameof(OnScreenshotCaptureRequested), ex);
         }
+    }
+
+    /// <summary>
+    /// Attempts to derive a live <see cref="Screenshots.CaptureBounds"/> by locating
+    /// the named WPF elements stored in each edge anchor of <paramref name="e"/> and
+    /// computing the bounding box from their current screen positions.
+    /// </summary>
+    /// <returns>
+    /// A freshly computed <see cref="Screenshots.CaptureBounds"/> when all four edge
+    /// anchors resolve to a visible element; <c>null</c> when any anchor cannot be
+    /// resolved (callers should fall back to the stored bounds).
+    /// </returns>
+    private Screenshots.CaptureBounds? TryResolveLiveBounds(
+        Screenshots.ScreenshotCaptureRequestedEventArgs e)
+    {
+        // Require all four anchors to be present.
+        if (e.TopAnchor    is not { } top    || top.ElementNames.Count    == 0) return null;
+        if (e.RightAnchor  is not { } right  || right.ElementNames.Count  == 0) return null;
+        if (e.BottomAnchor is not { } bottom || bottom.ElementNames.Count == 0) return null;
+        if (e.LeftAnchor   is not { } left   || left.ElementNames.Count   == 0) return null;
+
+        var topEl    = FindName(top.ElementNames[0])    as FrameworkElement;
+        var rightEl  = FindName(right.ElementNames[0])  as FrameworkElement;
+        var bottomEl = FindName(bottom.ElementNames[0]) as FrameworkElement;
+        var leftEl   = FindName(left.ElementNames[0])   as FrameworkElement;
+
+        if (topEl is null || rightEl is null || bottomEl is null || leftEl is null)
+        {
+            SquadDashTrace.Write("Screenshot",
+                $"[{e.DefinitionName}] Live anchor resolution failed — one or more elements not found; falling back to stored bounds.");
+            return null;
+        }
+
+        try
+        {
+            Rect TopRect    = GetElementBoundsInWindow(topEl);
+            Rect RightRect  = GetElementBoundsInWindow(rightEl);
+            Rect BottomRect = GetElementBoundsInWindow(bottomEl);
+            Rect LeftRect   = GetElementBoundsInWindow(leftEl);
+
+            if (TopRect.IsEmpty || RightRect.IsEmpty || BottomRect.IsEmpty || LeftRect.IsEmpty)
+            {
+                SquadDashTrace.Write("Screenshot",
+                    $"[{e.DefinitionName}] Live anchor resolution failed — element has no layout; falling back to stored bounds.");
+                return null;
+            }
+
+            // Each anchor stores the distance from the element's matching edge to the
+            // capture region edge.  Invert to get the capture region edge coordinates.
+            //   Top anchor:    captureTop    = element.Top    − distanceToEdge
+            //   Bottom anchor: captureBottom = element.Bottom + distanceToEdge
+            //   Left anchor:   captureLeft   = element.Left   − distanceToEdge
+            //   Right anchor:  captureRight  = element.Right  + distanceToEdge
+            var captureTop    = TopRect.Top      - top.DistanceToEdge;
+            var captureBottom = BottomRect.Bottom + bottom.DistanceToEdge;
+            var captureLeft   = LeftRect.Left    - left.DistanceToEdge;
+            var captureRight  = RightRect.Right  + right.DistanceToEdge;
+
+            var width  = captureRight - captureLeft;
+            var height = captureBottom - captureTop;
+
+            if (width <= 0 || height <= 0)
+            {
+                SquadDashTrace.Write("Screenshot",
+                    $"[{e.DefinitionName}] Live anchor resolution produced zero/negative size; falling back to stored bounds.");
+                return null;
+            }
+
+            var dpiScale = VisualTreeHelper.GetDpi(this);
+            SquadDashTrace.Write("Screenshot",
+                $"[{e.DefinitionName}] Live bounds resolved: ({captureLeft:F1}, {captureTop:F1}) {width:F1}×{height:F1}");
+
+            return new Screenshots.CaptureBounds(
+                captureLeft, captureTop, width, height,
+                dpiScale.DpiScaleX, dpiScale.DpiScaleY);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Screenshot",
+                $"[{e.DefinitionName}] Live anchor resolution threw: {ex.Message}; falling back to stored bounds.");
+            return null;
+        }
+    }
+
+    private Rect GetElementBoundsInWindow(FrameworkElement element)
+    {
+        try
+        {
+            var transform = element.TransformToAncestor(this);
+            var origin    = transform.Transform(new Point(0, 0));
+            return new Rect(origin.X, origin.Y, element.ActualWidth, element.ActualHeight);
+        }
+        catch { return Rect.Empty; }
     }
 
     private void InitializeWorkspace(string? startupFolder)

@@ -235,7 +235,14 @@ public sealed class ScreenshotRefreshRunner
 
             // ── Step 4 — Signal MainWindow to capture ─────────────────────────
             Directory.CreateDirectory(_screenshotsDirectory);
-            var captureArgs = new ScreenshotCaptureRequestedEventArgs(definition.Name, outputPath, definition.Bounds);
+            var captureArgs = new ScreenshotCaptureRequestedEventArgs(
+                definition.Name,
+                outputPath,
+                definition.Bounds,
+                definition.Top,
+                definition.Right,
+                definition.Bottom,
+                definition.Left);
             CaptureRequested?.Invoke(this, captureArgs);
 
             var captureError = await captureArgs.WaitAsync().ConfigureAwait(false);
