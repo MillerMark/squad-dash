@@ -141,7 +141,7 @@ internal sealed class CommitApprovalPanel {
         grid.Children.Add(checkBox);
 
         var descBlock = new TextBlock {
-            Text              = item.Description,
+            Text              = TruncateDescription(item.Description),
             TextTrimming      = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 0, 0),
@@ -191,7 +191,7 @@ internal sealed class CommitApprovalPanel {
         grid.Children.Add(BuildRedX());
 
         var descBlock = new TextBlock {
-            Text              = item.Description,
+            Text              = TruncateDescription(item.Description),
             TextTrimming      = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 0, 0),
@@ -297,6 +297,11 @@ internal sealed class CommitApprovalPanel {
             ? Visibility.Visible
             : Visibility.Collapsed;
     }
+
+    /// <summary>Truncates <paramref name="text"/> to at most 35 characters.
+    /// If the text exceeds 35 characters, returns the first 34 followed by "…".</summary>
+    private static string TruncateDescription(string text) =>
+        text.Length > 35 ? text[..34] + "\u2026" : text;
 
     /// <summary>Returns the first 3 words of <paramref name="text"/> followed by "…",
     /// capped at 35 characters total (including the ellipsis).</summary>
