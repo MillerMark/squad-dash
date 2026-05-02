@@ -80,7 +80,7 @@ internal sealed class TasksPanelController {
                     FontWeight        = FontWeights.SemiBold,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
-                headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "RosterPanelTitle");
                 headingRow.Children.Add(dot);
                 headingRow.Children.Add(headingLabel);
                 _activePanel.Children.Add(headingRow);
