@@ -7589,7 +7589,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             var relativePath = absDocPath[absDocsRoot.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var noExtension  = Path.ChangeExtension(relativePath, null).TrimEnd('.');
             // Convert Windows backslashes to forward slashes for URLs.
-            var urlPath      = noExtension.Replace(Path.DirectorySeparatorChar, '/') + "/";
+            // Jekyll on GitHub Pages uses .html permalinks by default (no trailing slash).
+            var urlPath = noExtension.Replace(Path.DirectorySeparatorChar, '/') + ".html";
             return urlPath;
         }
         catch { return null; }
