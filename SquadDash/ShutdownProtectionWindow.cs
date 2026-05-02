@@ -25,6 +25,9 @@ internal sealed class ShutdownProtectionWindow : Window {
         WindowStyle           = WindowStyle.ToolWindow;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         this.SetResourceReference(BackgroundProperty, "AppSurface");
+        // Cascade the themed foreground to all TextBlock descendants that don't
+        // set their own Foreground (Foreground is an inheritable DP in WPF).
+        this.SetResourceReference(ForegroundProperty, "LabelText");
 
         var root = new StackPanel { Margin = new Thickness(20) };
         Content = root;
@@ -76,6 +79,7 @@ internal sealed class ShutdownProtectionWindow : Window {
                     Margin    = new Thickness(4, 0, 0, 6),
                     IsChecked = true,
                 };
+                afterTurnRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
                 root.Children.Add(afterTurnRadio);
             }
 
@@ -89,6 +93,7 @@ internal sealed class ShutdownProtectionWindow : Window {
                     Margin    = new Thickness(4, 0, 0, 6),
                     IsChecked = afterTurnRadio is null, // default if no turn option
                 };
+                afterQueuedRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
                 root.Children.Add(afterQueuedRadio);
             }
 
@@ -106,6 +111,7 @@ internal sealed class ShutdownProtectionWindow : Window {
 
         // Cancel
         var cancelBtn = new Button { Content = "Cancel", Width = 80, Height = 30, Margin = new Thickness(0, 0, 0, 0) };
+        cancelBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         cancelBtn.Click += (_, _) => { Choice = ShutdownChoice.None; DialogResult = false; };
         Grid.SetColumn(cancelBtn, 0);
         buttonRow.Children.Add(cancelBtn);
@@ -120,6 +126,7 @@ internal sealed class ShutdownProtectionWindow : Window {
                 Padding = new Thickness(12, 0, 12, 0),
                 Margin  = new Thickness(0, 0, 8, 0),
             };
+            scheduleBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
             scheduleBtn.Click += (_, _) =>
             {
                 Choice = (afterQueuedRadio?.IsChecked == true)
