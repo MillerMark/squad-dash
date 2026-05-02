@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -103,6 +104,20 @@ public sealed class FixtureLoaderRegistry
     }
 
     // ── Diagnostics ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The union of all <see cref="IFixtureLoader.KnownKeys"/> across every registered
+    /// loader.  Used by <c>ScreenshotHealthChecker</c> to detect fixture keys that no
+    /// loader will act on.
+    /// </summary>
+    /// <remarks>
+    /// The set is recomputed on every read from the live registration list, so it
+    /// automatically reflects loaders added after construction.
+    /// </remarks>
+    public IReadOnlySet<string> AllKnownKeys =>
+        new HashSet<string>(
+            _registrations.SelectMany(r => r.Loader.KnownKeys),
+            StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Read-only snapshot of registered domain names in registration order.

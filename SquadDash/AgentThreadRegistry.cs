@@ -182,7 +182,9 @@ internal sealed class AgentThreadRegistry {
 
         var created = false;
         if (!_agentThreadsByKey.TryGetValue(threadKey, out var thread)) {
-            thread = FindExistingAgentThread(toolCallId, agentId, agentName, agentDisplayName);
+            thread = string.IsNullOrWhiteSpace(toolCallId)
+                ? FindExistingAgentThread(toolCallId, agentId, agentName, agentDisplayName)
+                : null;
         }
 
         if (thread is null) {

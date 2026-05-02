@@ -31,6 +31,29 @@ namespace SquadDash.Screenshots;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
+/// Describes a named WPF element whose bounds are recorded as part of a screenshot
+/// definition's element inventory.  Used by <c>ScreenshotHealthChecker</c> to verify
+/// that expected elements are present in the live visual tree.
+/// </summary>
+/// <param name="Name">The <c>x:Name</c> of the element.</param>
+/// <param name="Role">
+///   Semantic role: <c>"primary-anchor"</c>, <c>"content"</c>, or <c>"chrome"</c>.
+///   A missing primary-anchor is an <c>Error</c>; other roles produce a <c>Warning</c>.
+/// </param>
+/// <param name="Left">Left edge of the element's last-known bounding box, in logical pixels.</param>
+/// <param name="Top">Top edge of the element's last-known bounding box, in logical pixels.</param>
+/// <param name="Width">Width of the element's last-known bounding box, in logical pixels.</param>
+/// <param name="Height">Height of the element's last-known bounding box, in logical pixels.</param>
+public record ElementInventoryItem(
+    [property: JsonPropertyName("name")]   string Name,
+    [property: JsonPropertyName("role")]   string Role,
+    [property: JsonPropertyName("left")]   double Left,
+    [property: JsonPropertyName("top")]    double Top,
+    [property: JsonPropertyName("width")]  double Width,
+    [property: JsonPropertyName("height")] double Height
+);
+
+/// <summary>
 /// Root metadata record written as a JSON sidecar alongside each PNG capture.
 /// </summary>
 /// <param name="Version">
@@ -78,9 +101,10 @@ public record ScreenshotManifest(
     [property: JsonPropertyName("right")]           EdgeAnchorRecord Right,
     [property: JsonPropertyName("bottom")]          EdgeAnchorRecord Bottom,
     [property: JsonPropertyName("left")]            EdgeAnchorRecord Left,
-    [property: JsonPropertyName("replayActionId")]  string?          ReplayActionId = null,
-    [property: JsonPropertyName("fixturePath")]     string?          FixturePath    = null,
-    [property: JsonPropertyName("docImagePath")]    string?          DocImagePath   = null
+    [property: JsonPropertyName("replayActionId")]  string?          ReplayActionId  = null,
+    [property: JsonPropertyName("fixturePath")]     string?          FixturePath     = null,
+    [property: JsonPropertyName("docImagePath")]    string?          DocImagePath    = null,
+    [property: JsonPropertyName("elementInventory")] IReadOnlyList<ElementInventoryItem>? ElementInventory = null
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,7 +172,8 @@ public record ScreenshotDefinition(
     [property: JsonPropertyName("bottom")]          EdgeAnchorRecord Bottom,
     [property: JsonPropertyName("left")]            EdgeAnchorRecord Left,
     [property: JsonPropertyName("bounds")]          CaptureBounds    Bounds,
-    [property: JsonPropertyName("docImagePath")]    string?          DocImagePath = null
+    [property: JsonPropertyName("docImagePath")]    string?          DocImagePath    = null,
+    [property: JsonPropertyName("elementInventory")] IReadOnlyList<ElementInventoryItem>? ElementInventory = null
 );
 
 /// <summary>

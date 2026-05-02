@@ -30,7 +30,7 @@ using Shapes = System.Windows.Shapes;
 
 namespace SquadDash;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, ILiveElementLocator
 {
     private const string PostInstallPrompt =
         "Take a look at my code base and suggest a starting Squad team.";
@@ -189,6 +189,7 @@ public partial class MainWindow : Window
     private readonly UiActionReplayRegistry _uiActionReplayRegistry = new();
     private readonly FixtureLoaderRegistry _fixtureLoaderRegistry = new();
     private Screenshots.ScreenshotDefinitionRegistry? _cachedDefinitionRegistry;
+    public  Screenshots.ScreenshotHealthChecker ScreenshotHealthChecker { get; private set; } = null!;
     private readonly Queue<DelegationOutcomeTelemetry> _recentDelegationOutcomes = new();
     // _activeToolName moved to PromptExecutionController.ActiveToolName
     private AgentThreadRegistry _agentThreadRegistry = null!;
@@ -1024,6 +1025,28 @@ public partial class MainWindow : Window
             dispatcher: Dispatcher));
     }
 
+    // ── ILiveElementLocator ─────────────────────────────────────────────────
+
+    /// <inheritdoc/>
+    FrameworkElement? ILiveElementLocator.FindByName(string name) =>
+        FindName(name) as FrameworkElement;
+
+    /// <inheritdoc/>
+    Rect ILiveElementLocator.GetBoundsRelativeToWindow(FrameworkElement element)
+    {
+        try
+        {
+            var transform = element.TransformToAncestor(this);
+            var origin    = transform.Transform(new Point(0, 0));
+            return new Rect(origin.X, origin.Y, element.ActualWidth, element.ActualHeight);
+        }
+        catch { return Rect.Empty; }
+    }
+
+    /// <inheritdoc/>
+    bool ILiveElementLocator.IsVisible(FrameworkElement element) =>
+        element.Visibility == Visibility.Visible && element.ActualWidth > 0;
+
     private void AddWorkspaceMenuSeparator()
     {
         WorkspaceMenuItem.Items.Add(new Separator
@@ -1206,6 +1229,15 @@ public partial class MainWindow : Window
             _cachedDefinitionRegistry = await Screenshots.ScreenshotDefinitionRegistry
                                                          .LoadAsync(screenshotsDir)
                                                          .ConfigureAwait(true);
+
+            // Construct (or refresh) the health checker now that the definition registry
+            // is loaded.  All fixture loaders are already registered at this point.
+            ScreenshotHealthChecker = new Screenshots.ScreenshotHealthChecker(
+                _cachedDefinitionRegistry,
+                _uiActionReplayRegistry,
+                _fixtureLoaderRegistry,
+                this,
+                screenshotsDir);
         }
         catch (Exception ex)
         {

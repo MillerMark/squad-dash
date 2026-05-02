@@ -49,6 +49,8 @@
 
 ## 🟡 Mid Priority
 
+- [ ] Screenshots health panel — XAML + bindings + status UX *(Owner: lyra-morn)*
+
 - [ ] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
   After smoke-test passes: create GitHub Release `v1.0.0`, attach the installer `.exe` and its
   SHA256 hash. The public download URL is required for `wingetcreate`.

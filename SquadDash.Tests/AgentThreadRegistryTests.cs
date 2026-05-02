@@ -160,6 +160,42 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void GetOrCreateAgentThread_DifferentToolCallIdsForSameNamedAgent_CreateDistinctThreads() {
+        var registry = MakeRegistry(getKnownTeamAgentDescriptors: () => [
+            new TeamAgentDescriptor("Orion Vale", "orion-vale", "Architect")
+        ]);
+
+        var first = registry.GetOrCreateAgentThread(
+            toolCallId: "tool-orion-yesterday",
+            agentId: "orion-vale",
+            agentName: "orion-vale",
+            agentDisplayName: "Orion Vale",
+            agentDescription: null,
+            status: "completed",
+            prompt: "Review the old architecture.",
+            startedAt: "2026-05-01T19:25:00Z");
+        first.CompletedAt = new DateTimeOffset(2026, 5, 1, 20, 0, 0, TimeSpan.Zero);
+
+        var second = registry.GetOrCreateAgentThread(
+            toolCallId: "tool-orion-quick-reply",
+            agentId: "orion-vale",
+            agentName: "orion-vale",
+            agentDisplayName: "Orion Vale",
+            agentDescription: null,
+            status: "running",
+            prompt: "Do the quick reply work.",
+            startedAt: "2026-05-02T14:00:00Z");
+
+        Assert.Multiple(() => {
+            Assert.That(ReferenceEquals(first, second), Is.False);
+            Assert.That(registry.ThreadOrder, Has.Count.EqualTo(2));
+            Assert.That(second.ToolCallId, Is.EqualTo("tool-orion-quick-reply"));
+            Assert.That(second.Prompt, Is.EqualTo("Do the quick reply work."));
+            Assert.That(second.CompletedAt, Is.Null);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void UpdateAgentThreadLifecycle_SetsCurrentBackgroundRun_ForNonTerminalStatus() {
         var registry = MakeRegistry();
         var thread = registry.GetOrCreateAgentThread("tool-live", "lyra-morn", null, null, null, null, null, null);
