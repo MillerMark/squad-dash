@@ -33,6 +33,15 @@
   * [Transcripts](concepts/transcripts.md)
   * [Documentation Panel](concepts/documentation-panel.md)
 
+
+## Remote Control
+
+* [Remote Control](reference/remote-control.md)
+  * [Local (LAN)](reference/remote-control/setup-local.md)
+  * [ngrok](reference/remote-control/setup-ngrok.md)
+  * [Cloudflare Tunnel](reference/remote-control/setup-cloudflare.md)
+  * [Using Remote Control](reference/remote-control/using-remote-control.md)
+
 ## Reference
 
 * [Reference](reference/README.md)
@@ -40,9 +49,4 @@
   * [Routing](reference/routing.md)
   * [Keyboard Shortcuts](reference/keyboard-shortcuts.md)
   * [Slash Commands](reference/slash-commands.md)
-  * [Remote Control](reference/remote-control.md)
-    * [Local (LAN)](reference/remote-control/setup-local.md)
-    * [ngrok](reference/remote-control/setup-ngrok.md)
-    * [Cloudflare Tunnel](reference/remote-control/setup-cloudflare.md)
-    * [Using Remote Control](reference/remote-control/using-remote-control.md)
 

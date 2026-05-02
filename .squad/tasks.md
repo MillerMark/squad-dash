@@ -17,21 +17,10 @@
   PEC is the natural owner (it sets the flag at prompt start/end). Consolidate ownership in PEC
   and expose it via a clean property rather than scattered delegates.
 
-- [ ] **[Orion audit] Command system — verify AI can discover commands globally, not just in loop** *(Owner: Arjun Sen)*
-  Orion's command audit found commands were only injected during loop execution
-  (`LoopController.BuildAugmentedPrompt`). The CommandRegistry implementation (checkpoint 036)
-  may have resolved this — verify that host commands are documented globally to the AI and that
-  the structured JSON multi-command parser is in place. Close this if already done.
-
 - [ ] **[Vesper audit] DocStatusStore — review silent catch blocks** *(Owner: Arjun Sen)*
   Vesper's audit flagged 34 bare catch blocks across the codebase; `DocStatusStore` in particular
   has silent failure suppression that may hide real errors. Review and replace with at minimum a
   `SquadDashTrace.Write` call so failures surface in the trace log.
-  Review the RC mobile web client (`Squad.SDK/rc-client/index.html`) with fresh eyes and identify
-  opportunities to improve the experience: layout, typography, spacing, readability of markdown
-  content, chat bubble polish, activity indicators, input bar ergonomics, color/contrast, and
-  anything else that feels rough. Propose and implement the best improvements. Focus on the phone
-  viewport (small screen, touch targets).
 
 ---
 
@@ -95,11 +84,6 @@
   `ScreenshotRefreshRunner.cs:172` has a TODO: "iterate twice for light+dark variants" but only
   one theme pass is currently executed. Implement dual-pass so screenshots are generated for both
   Light and Dark themes in the same refresh run.
-  The `squad streams` / workstreams feature was bridged (subsquads_list/activate) but the
-  Workspace menu items were removed because they only printed to the transcript with no visible
-  feedback. Investigate what `squad streams` / `.squad/workstreams.json` enables in the current
-  Squad SDK version, then design and implement proper UI (e.g. a dynamic submenu showing
-  configured workstreams, the active one highlighted, click to activate).
 
 - [ ] **Personal Squad — investigate and expose in UI** *(Owner: Orion Vale → Lyra Morn)*
   The `squad personal` feature was bridged (personal_list/personal_init) but the Workspace menu
@@ -113,6 +97,8 @@
 ## ✅ Recently Completed
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
+
+- [x] Command system — unified HostCommandRegistry/Parser/Executor — ✅ Verified complete (HostCommandRegistry builds catalog injected globally into every prompt; structured JSON multi-command parser; 6 built-in handlers; extensible via `.squad/commands.json`)
 
 - [x] Loop output log pane — ✅ Implemented (collapsible log pane in Loop panel wired to loop_output_line events)
 - [x] RC — LAN access (bind to PC IP, not localhost) — ✅ Implemented (0.0.0.0 binding via patch-package; LAN URL shown in transcript)
