@@ -98,10 +98,28 @@ internal sealed class TasksPanelController {
 
     // ── Panel context menu ────────────────────────────────────────────────────
 
-    private void AttachPanelContextMenu(Border outerBorder) {
-        var menu = new ContextMenu();
+    private static ContextMenu MakeMenu() {
+        var m = new ContextMenu();
+        m.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        return m;
+    }
 
-        _toggleCompletedItem = new MenuItem();
+    private static MenuItem MakeItem(string header) {
+        var i = new MenuItem { Header = header };
+        i.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        return i;
+    }
+
+    private static Separator MakeSep() {
+        var s = new Separator();
+        s.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+        return s;
+    }
+
+    private void AttachPanelContextMenu(Border outerBorder) {
+        var menu = MakeMenu();
+
+        _toggleCompletedItem = MakeItem(string.Empty);
         UpdateToggleHeader();
         _toggleCompletedItem.Click += (_, _) => {
             _showCompleted = !_showCompleted;
@@ -110,9 +128,9 @@ internal sealed class TasksPanelController {
         };
         menu.Items.Add(_toggleCompletedItem);
 
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MakeSep());
 
-        var editItem = new MenuItem { Header = "Edit Tasks" };
+        var editItem = MakeItem("Edit Tasks");
         editItem.Click += (_, _) => _editTasksAction();
         menu.Items.Add(editItem);
 
@@ -125,7 +143,7 @@ internal sealed class TasksPanelController {
     }
 
     private MenuItem BuildToggleCompletedMenuItem() {
-        var item = new MenuItem { Header = _showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks" };
+        var item = MakeItem(_showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks");
         item.Click += (_, _) => {
             _showCompleted = !_showCompleted;
             _completedSection.Visibility = _showCompleted ? Visibility.Visible : Visibility.Collapsed;
@@ -141,14 +159,14 @@ internal sealed class TasksPanelController {
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
-        var menu           = new ContextMenu();
-        var markCompleteItem = new MenuItem { Header = "Mark as Complete" };
+        var menu           = MakeMenu();
+        var markCompleteItem = MakeItem("Mark as Complete");
         markCompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         menu.Items.Add(markCompleteItem);
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MakeSep());
         menu.Items.Add(BuildToggleCompletedMenuItem());
-        menu.Items.Add(new Separator());
-        var editTasksItem2 = new MenuItem { Header = "Edit Tasks" };
+        menu.Items.Add(MakeSep());
+        var editTasksItem2 = MakeItem("Edit Tasks");
         editTasksItem2.Click += (_, _) => _editTasksAction();
         menu.Items.Add(editTasksItem2);
         row.ContextMenu = menu;
@@ -293,14 +311,14 @@ internal sealed class TasksPanelController {
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
-        var menu             = new ContextMenu();
-        var markIncompleteItem = new MenuItem { Header = "Mark as Incomplete" };
+        var menu             = MakeMenu();
+        var markIncompleteItem = MakeItem("Mark as Incomplete");
         markIncompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: false);
         menu.Items.Add(markIncompleteItem);
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MakeSep());
         menu.Items.Add(BuildToggleCompletedMenuItem());
-        menu.Items.Add(new Separator());
-        var editTasksItem3 = new MenuItem { Header = "Edit Tasks" };
+        menu.Items.Add(MakeSep());
+        var editTasksItem3 = MakeItem("Edit Tasks");
         editTasksItem3.Click += (_, _) => _editTasksAction();
         menu.Items.Add(editTasksItem3);
         row.ContextMenu = menu;

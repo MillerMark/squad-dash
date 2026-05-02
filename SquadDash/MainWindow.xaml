@@ -887,7 +887,7 @@
                             BorderThickness="1"
                             CornerRadius="16">
                         <Border.ContextMenu>
-                            <ContextMenu>
+                            <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
                                 <MenuItem Header="Edit Loop"
                                           Click="CreateEditLoopFileButton_Click" />
                             </ContextMenu>
@@ -1002,7 +1002,7 @@
                             </MultiBinding>
                         </Border.Height>
                         <Border.ContextMenu>
-                            <ContextMenu>
+                            <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
                                 <MenuItem Header="Clear"
                                           Click="LoopOutputClearMenuItem_Click" />
                             </ContextMenu>

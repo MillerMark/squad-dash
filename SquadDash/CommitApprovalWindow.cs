@@ -93,9 +93,21 @@ internal sealed class CommitApprovalPanel {
 
     // ── Panel context menu ────────────────────────────────────────────────────
 
+    private static ContextMenu MakeMenu() {
+        var m = new ContextMenu();
+        m.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        return m;
+    }
+
+    private static MenuItem MakeItem(string header) {
+        var i = new MenuItem { Header = header };
+        i.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        return i;
+    }
+
     private void AttachPanelContextMenu(Border outerBorder) {
-        var menu = new ContextMenu();
-        _toggleRejectedItem = new MenuItem();
+        var menu = MakeMenu();
+        _toggleRejectedItem = MakeItem(string.Empty);
         UpdateToggleHeader();
         _toggleRejectedItem.Click += (_, _) => {
             _showRejected = !_showRejected;
@@ -123,8 +135,8 @@ internal sealed class CommitApprovalPanel {
                 row.Background = Brushes.Transparent;
         };
 
-        var menu = new ContextMenu();
-        var rejectItem = new MenuItem { Header = $"Reject {DescriptionPreview(item.Description)}" };
+        var menu = MakeMenu();
+        var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
         row.ContextMenu = menu;
@@ -178,8 +190,8 @@ internal sealed class CommitApprovalPanel {
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
-        var menu = new ContextMenu();
-        var unrejectItem = new MenuItem { Header = "Unreject" };
+        var menu = MakeMenu();
+        var unrejectItem = MakeItem("Unreject");
         unrejectItem.Click += (_, _) => HandleUnrejectClicked(row, item);
         menu.Items.Add(unrejectItem);
         row.ContextMenu = menu;
