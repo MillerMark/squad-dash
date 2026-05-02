@@ -3,6 +3,7 @@ namespace SquadDash;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -300,8 +301,14 @@ internal sealed class CommitApprovalPanel {
 
     /// <summary>Truncates <paramref name="text"/> to at most 35 characters.
     /// If the text exceeds 35 characters, returns the first 34 followed by "…".</summary>
-    private static string TruncateDescription(string text) =>
-        text.Length > 35 ? text[..34] + "\u2026" : text;
+    private static string TruncateDescription(string text) {
+        text = CommitPhraseSuffix.Replace(text, string.Empty).Trim();
+        return text.Length > 35 ? text[..34] + "\u2026" : text;
+    }
+
+    /// <summary>Matches a trailing " in commit &lt;ref&gt;" phrase (plus optional punctuation).</summary>
+    private static readonly Regex CommitPhraseSuffix =
+        new(@"\s+in commit \S+[.,;!?]*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Returns the first 3 words of <paramref name="text"/> followed by "…",
     /// capped at 35 characters total (including the ellipsis).</summary>
