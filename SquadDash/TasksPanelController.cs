@@ -133,6 +133,10 @@ internal sealed class TasksPanelController {
         var markCompleteItem = new MenuItem { Header = "Mark as Complete" };
         markCompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         menu.Items.Add(markCompleteItem);
+        menu.Items.Add(new Separator());
+        var editTasksItem2 = new MenuItem { Header = "Edit Tasks" };
+        editTasksItem2.Click += (_, _) => _editTasksAction();
+        menu.Items.Add(editTasksItem2);
         row.ContextMenu = menu;
 
         var grid = new Grid { Margin = new Thickness(4, 3, 4, 3) };
@@ -279,6 +283,10 @@ internal sealed class TasksPanelController {
         var markIncompleteItem = new MenuItem { Header = "Mark as Incomplete" };
         markIncompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: false);
         menu.Items.Add(markIncompleteItem);
+        menu.Items.Add(new Separator());
+        var editTasksItem3 = new MenuItem { Header = "Edit Tasks" };
+        editTasksItem3.Click += (_, _) => _editTasksAction();
+        menu.Items.Add(editTasksItem3);
         row.ContextMenu = menu;
 
         var label = new TextBlock {

@@ -886,6 +886,12 @@
                             BorderBrush="{DynamicResource RosterPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Edit Loop"
+                                          Click="CreateEditLoopFileButton_Click" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <Border.Height>
                             <MultiBinding Converter="{StaticResource MaxValueConverter}">
                                 <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />

@@ -244,8 +244,8 @@ public partial class MainWindow : Window
     private bool _loopOutputHasContent;
     private bool _loopQueued;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
-    private bool _tasksPanelVisible = false;
-    private bool _approvalPanelVisible = false;
+    private bool _tasksPanelVisible = true;
+    private bool _approvalPanelVisible = true;
     private string? _watchCycleId;
     private int _watchFleetSize;
     private int _watchWaveIndex;
@@ -15923,25 +15923,16 @@ public partial class MainWindow : Window
         }
         else
         {
-            // Before or After: match the indentation of the target line
-            int targetIndent = lines[targetLineIndex].TakeWhile(char.IsWhiteSpace).Count();
-
+            // Before or After: preserve the dragged block's original indentation.
+            // Re-indenting would silently reparent items; reorder does not reparent.
             int insertIndex;
             if (zone == DropZone.After)
             {
-                // Insert after the target's entire block (past its children)
                 insertIndex = GetBlockEndIndex(lines, targetLineIndex) + 1;
             }
             else
             {
                 insertIndex = targetLineIndex;
-            }
-
-            for (int i = 0; i < draggedBlock.Count; i++)
-            {
-                int lineIndent = draggedBlock[i].TakeWhile(char.IsWhiteSpace).Count();
-                int delta = lineIndent - parentIndent;
-                draggedBlock[i] = new string(' ', targetIndent + delta) + draggedBlock[i].TrimStart();
             }
 
             insertIndex = Math.Clamp(insertIndex, 0, lines.Count);
