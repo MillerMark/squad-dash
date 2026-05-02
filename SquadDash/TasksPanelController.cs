@@ -137,14 +137,29 @@ internal sealed class TasksPanelController {
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var checkBox = new CheckBox {
-            IsEnabled         = item.IsUserOwned,
-            IsChecked         = false,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin            = new Thickness(0, 1, 6, 0),
-        };
-        Grid.SetColumn(checkBox, 0);
-        grid.Children.Add(checkBox);
+        if (item.IsUserOwned) {
+            var checkBox = new CheckBox {
+                IsChecked         = false,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin            = new Thickness(0, 1, 6, 0),
+            };
+            Grid.SetColumn(checkBox, 0);
+            grid.Children.Add(checkBox);
+
+            // Wire after IsChecked is set so construction doesn't fire the handler
+            checkBox.Checked += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
+        } else {
+            // Non-user-owned tasks: show a filled circle instead of a disabled checkbox
+            var dot = new Ellipse {
+                Width             = 9,
+                Height            = 9,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin            = new Thickness(1, 3, 7, 0),
+            };
+            dot.SetResourceReference(Ellipse.FillProperty, "LineColor");
+            Grid.SetColumn(dot, 0);
+            grid.Children.Add(dot);
+        }
 
         var label = new TextBlock {
             Text         = item.Text,
@@ -155,9 +170,6 @@ internal sealed class TasksPanelController {
         label.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         Grid.SetColumn(label, 1);
         grid.Children.Add(label);
-
-        // Wire after IsChecked is set so construction doesn't fire the handler
-        checkBox.Checked += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
 
         row.Child = grid;
 
