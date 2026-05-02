@@ -7541,13 +7541,58 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_workspaceGitHubUrl is null) return;
         try
         {
-            var uri = new Uri(_workspaceGitHubUrl);
+            var uri      = new Uri(_workspaceGitHubUrl);
             var segments = uri.AbsolutePath.Trim('/').Split('/');
             if (segments.Length < 2) return;
-            var pagesUrl = $"https://{segments[0]}.github.io/{segments[1]}/";
+
+            var pagesBase = $"https://{segments[0]}.github.io/{segments[1]}/";
+
+            // If a doc is currently open, try to navigate directly to its Pages URL
+            // by computing the relative path from the docs root to the current doc.
+            var docRelativePath = TryGetCurrentDocPagesPath();
+            var pagesUrl = docRelativePath is not null
+                ? pagesBase + docRelativePath
+                : pagesBase;
+
             Process.Start(new ProcessStartInfo(pagesUrl) { UseShellExecute = true });
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Returns the URL path segment (no leading slash) for the currently open doc
+    /// relative to the GitHub Pages root, or <c>null</c> if no doc is open or the
+    /// docs root cannot be resolved.
+    /// </summary>
+    /// <remarks>
+    /// Jekyll (and just-the-docs) typically converts <c>docs/panels/Tasks.md</c> to
+    /// the path <c>panels/Tasks/</c> relative to the Pages root.  The <c>.md</c>
+    /// extension is stripped and a trailing slash is added.
+    /// </remarks>
+    private string? TryGetCurrentDocPagesPath()
+    {
+        if (string.IsNullOrEmpty(_currentDocPath)) return null;
+        try
+        {
+            var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
+            if (string.IsNullOrEmpty(docsRoot)) return null;
+
+            // Make both paths absolute for reliable comparison.
+            var absDocPath  = Path.GetFullPath(_currentDocPath);
+            var absDocsRoot = Path.GetFullPath(docsRoot);
+
+            if (!absDocPath.StartsWith(absDocsRoot, StringComparison.OrdinalIgnoreCase)) return null;
+
+            // e.g.  absDocPath  = …/docs/panels/Tasks.md
+            //        absDocsRoot = …/docs
+            // →  rel = "panels/Tasks.md"  →  "panels/Tasks/"
+            var relativePath = absDocPath[absDocsRoot.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var noExtension  = Path.ChangeExtension(relativePath, null).TrimEnd('.');
+            // Convert Windows backslashes to forward slashes for URLs.
+            var urlPath      = noExtension.Replace(Path.DirectorySeparatorChar, '/') + "/";
+            return urlPath;
+        }
+        catch { return null; }
     }
 
     // ── Source editor (View Source panel) ────────────────────────────────────
