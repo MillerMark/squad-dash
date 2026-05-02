@@ -136,7 +136,7 @@ public partial class MainWindow : Window
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
     private Vector? _traceWindowOffset;
-    private CommitApprovalPanel?   _approvalPanel;
+    private CommitApprovalPanel? _approvalPanel;
     private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
@@ -149,7 +149,7 @@ public partial class MainWindow : Window
     private bool _isPromptRunning;
     private readonly PromptQueue _promptQueue = new();
     private int _promptQueueSeq;
-    private readonly HostCommandRegistry  _hostCommandRegistry  = new();
+    private readonly HostCommandRegistry _hostCommandRegistry = new();
     private HostCommandExecutor? _hostCommandExecutor;
     private string? _queuePreEditDraft;
     private int _queuePreEditDraftCaretIndex;
@@ -159,8 +159,8 @@ public partial class MainWindow : Window
 
     // ── Queue tab drag-to-reorder ────────────────────────────────────────────
     private string? _dragTabId;               // Id of the tab currently being dragged
-    private Point   _dragStartPoint;          // Mouse-down position in QueueTabStrip coords
-    private bool    _isDragging;              // True once movement exceeds DragThreshold
+    private Point _dragStartPoint;          // Mouse-down position in QueueTabStrip coords
+    private bool _isDragging;              // True once movement exceeds DragThreshold
     private string? _dragInsertBeforeTabId;   // Id of tab to drop before (visually); null = rightmost
     private Border? _dropIndicator;           // Narrow vertical bar shown between tabs during drag
     private const double DragThreshold = 4.0; // px of movement before drag mode activates
@@ -410,7 +410,8 @@ public partial class MainWindow : Window
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
             getPromptText: () => PromptTextBox.Text,
-            setPromptText: (text, caretIndex, selectionStart, selectionLength) => {
+            setPromptText: (text, caretIndex, selectionStart, selectionLength) =>
+            {
                 PromptTextBox.Text = text;
                 if (selectionLength > 0)
                     PromptTextBox.Select(selectionStart, selectionLength);
@@ -754,7 +755,8 @@ public partial class MainWindow : Window
             getAgents: () => _agents,
             getCurrentSessionState: () => _currentSessionState,
             getIsPromptRunning: () => _isPromptRunning,
-            setIsPromptRunning: v => {
+            setIsPromptRunning: v =>
+            {
                 _isPromptRunning = v;
                 if (v)
                 {
@@ -829,7 +831,8 @@ public partial class MainWindow : Window
             showLiveTraceWindow: () => ShowTraceWindow(),
             runDoctor: () => RunDoctorButton_Click(null!, null!),
             showHireAgentWindow: () => ShowHireAgentWindow(),
-            enqueuePrompt: text => {
+            enqueuePrompt: text =>
+            {
                 _promptQueue.Enqueue(text, ++_promptQueueSeq);
                 SyncQueuePanel();
                 _ = DrainQueueIfNeededAsync();
@@ -995,27 +998,27 @@ public partial class MainWindow : Window
             dispatcher: Dispatcher));
 
         _fixtureLoaderRegistry.Register("tasksPanel", new Screenshots.Fixtures.TasksFixtureLoader(
-            activePanel:    TasksActivePanel,
+            activePanel: TasksActivePanel,
             completedPanel: TasksCompletedPanel,
-            refreshPanel:   result => _tasksPanelController?.Refresh(result),
-            dispatcher:     Dispatcher));
+            refreshPanel: result => _tasksPanelController?.Refresh(result),
+            dispatcher: Dispatcher));
 
         _fixtureLoaderRegistry.Register("loopPanel", new Screenshots.Fixtures.LoopPanelFixtureLoader(
-            getStatusText:      () => LoopStatusLabel.Text,
-            setStatusText:      v  => LoopStatusLabel.Text = v,
-            getStopEnabled:     () => StopLoopButton.IsEnabled,
-            setStopEnabled:     v  => StopLoopButton.IsEnabled = v,
-            getStartEnabled:    () => StartLoopButton.IsEnabled,
-            setStartEnabled:    v  => StartLoopButton.IsEnabled = v,
+            getStatusText: () => LoopStatusLabel.Text,
+            setStatusText: v => LoopStatusLabel.Text = v,
+            getStopEnabled: () => StopLoopButton.IsEnabled,
+            setStopEnabled: v => StopLoopButton.IsEnabled = v,
+            getStartEnabled: () => StartLoopButton.IsEnabled,
+            setStartEnabled: v => StartLoopButton.IsEnabled = v,
             getAbortVisibility: () => AbortLoopButton.Visibility,
-            setAbortVisibility: v  => AbortLoopButton.Visibility = v,
-            dispatcher:         Dispatcher));
+            setAbortVisibility: v => AbortLoopButton.Visibility = v,
+            dispatcher: Dispatcher));
 
         _fixtureLoaderRegistry.Register("approvalsPanel", new Screenshots.Fixtures.ApprovalsPanelFixtureLoader(
-            getApprovalItems:  () => _approvalItems,
-            setApprovalItems:  items => _approvalItems = items,
+            getApprovalItems: () => _approvalItems,
+            setApprovalItems: items => _approvalItems = items,
             replaceAllInPanel: items => _approvalPanel?.ReplaceAllItems(items),
-            dispatcher:        Dispatcher));
+            dispatcher: Dispatcher));
     }
 
     private void AddWorkspaceMenuSeparator()
@@ -1396,8 +1399,8 @@ public partial class MainWindow : Window
         item.Text = prompt;
 
         // Switch back to Active Draft.
-        _activeTabId       = null;
-        PromptTextBox.Text = _queuePreEditDraft ?? "";
+        _activeTabId = null;
+        PromptTextBox.Text = _queuePreEditDraft ?? string.Empty;
         _queuePreEditDraft = null;
 
         if (_isPromptRunning || IsNativeLoopRunning)
@@ -1663,7 +1666,7 @@ public partial class MainWindow : Window
             foreach (var item in items.Reverse())
             {
                 bool isNext = item.Id == nextReadyId;
-                var label   = isNext ? $"Queue #{item.SequenceNumber}" : $"#{item.SequenceNumber}";
+                var label = isNext ? $"Queue #{item.SequenceNumber}" : $"#{item.SequenceNumber}";
                 var tooltip = isNext ? "This prompt is next in the Squad queue."
                                      : "This item is in the Squad queue.";
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, label, tooltip));
@@ -1675,12 +1678,13 @@ public partial class MainWindow : Window
             // will pause when it reaches that tab so the user can review before sending.
             if (activeTabLabel is not null)
             {
-                var hint = new TextBlock {
-                    Text              = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")",
-                    FontSize          = 11,
+                var hint = new TextBlock
+                {
+                    Text = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")",
+                    FontSize = 11,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(10, 0, 8, 0),
-                    FontStyle         = FontStyles.Italic,
+                    Margin = new Thickness(10, 0, 8, 0),
+                    FontStyle = FontStyles.Italic,
                 };
                 hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 QueueTabStrip.Children.Add(hint);
@@ -1697,9 +1701,9 @@ public partial class MainWindow : Window
 
         var textBlock = new TextBlock
         {
-            Text              = label,
-            FontSize          = 12,
-            FontWeight        = isActive ? FontWeights.SemiBold : FontWeights.Normal,
+            Text = label,
+            FontSize = 12,
+            FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
             VerticalAlignment = VerticalAlignment.Center,
         };
         // SetResourceReference keeps the brush live — updates automatically on theme switch.
@@ -1709,13 +1713,13 @@ public partial class MainWindow : Window
 
         var tab = new Border
         {
-            Padding         = new Thickness(12, 6, 12, 6),
-            Margin          = new Thickness(0, 0, 1, 0),
-            Cursor          = Cursors.Hand,
+            Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 1, 0),
+            Cursor = Cursors.Hand,
             BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0),
-            Background      = Brushes.Transparent,
-            Child           = textBlock,
-            ToolTip         = tooltip,
+            Background = Brushes.Transparent,
+            Child = textBlock,
+            ToolTip = tooltip,
         };
         if (isActive)
             tab.SetResourceReference(Border.BorderBrushProperty, "QueueTabActiveBorder");
@@ -1725,7 +1729,7 @@ public partial class MainWindow : Window
         if (id is not null)
         {
             var capturedId = id;
-            var cm         = new ContextMenu();
+            var cm = new ContextMenu();
 
             // Activate the tab on right-click so user can see what they're deleting.
             cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
@@ -1747,10 +1751,10 @@ public partial class MainWindow : Window
             // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
             // then wire up the four mouse events needed for the drag lifecycle.
             tab.Tag = capturedId;
-            tab.MouseLeftButtonDown += (_, e)  => OnQueueTabMouseDown(capturedId, tab, e);
-            tab.MouseMove           += (_, e)  => OnQueueTabMouseMove(e);
-            tab.MouseLeftButtonUp   += (_, e)  => OnQueueTabMouseUp(capturedId, e);
-            tab.LostMouseCapture    += (_, _)  => CancelDrag();
+            tab.MouseLeftButtonDown += (_, e) => OnQueueTabMouseDown(capturedId, tab, e);
+            tab.MouseMove += (_, e) => OnQueueTabMouseMove(e);
+            tab.MouseLeftButtonUp += (_, e) => OnQueueTabMouseUp(capturedId, e);
+            tab.LostMouseCapture += (_, _) => CancelDrag();
         }
         else
         {
@@ -1771,9 +1775,9 @@ public partial class MainWindow : Window
         // Save current content + caret before switching.
         if (_activeTabId is null)
         {
-            _queuePreEditDraft              = PromptTextBox.Text;
-            _queuePreEditDraftCaretIndex    = PromptTextBox.CaretIndex;
-            _queuePreEditDraftSelectionStart  = PromptTextBox.SelectionStart;
+            _queuePreEditDraft = PromptTextBox.Text;
+            _queuePreEditDraftCaretIndex = PromptTextBox.CaretIndex;
+            _queuePreEditDraftSelectionStart = PromptTextBox.SelectionStart;
             _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
         }
         else
@@ -1781,9 +1785,9 @@ public partial class MainWindow : Window
             var current = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
             if (current is not null)
             {
-                current.Text            = PromptTextBox.Text;
-                current.CaretIndex      = PromptTextBox.CaretIndex;
-                current.SelectionStart  = PromptTextBox.SelectionStart;
+                current.Text = PromptTextBox.Text;
+                current.CaretIndex = PromptTextBox.CaretIndex;
+                current.SelectionStart = PromptTextBox.SelectionStart;
                 current.SelectionLength = PromptTextBox.SelectionLength;
             }
         }
@@ -1792,8 +1796,8 @@ public partial class MainWindow : Window
 
         if (id is null)
         {
-            PromptTextBox.Text           = _queuePreEditDraft ?? "";
-            PromptTextBox.SelectionStart  = _queuePreEditDraftSelectionStart;
+            PromptTextBox.Text = _queuePreEditDraft ?? string.Empty;
+            PromptTextBox.SelectionStart = _queuePreEditDraftSelectionStart;
             PromptTextBox.SelectionLength = _queuePreEditDraftSelectionLength;
             if (_queuePreEditDraftSelectionLength == 0)
                 PromptTextBox.CaretIndex = _queuePreEditDraftCaretIndex;
@@ -1804,8 +1808,8 @@ public partial class MainWindow : Window
             var target = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
             if (target is not null)
             {
-                PromptTextBox.Text           = target.Text;
-                PromptTextBox.SelectionStart  = target.SelectionStart;
+                PromptTextBox.Text = target.Text;
+                PromptTextBox.SelectionStart = target.SelectionStart;
                 PromptTextBox.SelectionLength = target.SelectionLength;
                 if (target.SelectionLength == 0)
                     PromptTextBox.CaretIndex = target.CaretIndex;
@@ -1835,8 +1839,8 @@ public partial class MainWindow : Window
             : null;
         if (activeItem is not null)
         {
-            PromptTextBox.Text           = activeItem.Text;
-            PromptTextBox.SelectionStart  = activeItem.SelectionStart;
+            PromptTextBox.Text = activeItem.Text;
+            PromptTextBox.SelectionStart = activeItem.SelectionStart;
             PromptTextBox.SelectionLength = activeItem.SelectionLength;
             if (activeItem.SelectionLength == 0)
                 PromptTextBox.CaretIndex = activeItem.CaretIndex;
@@ -1847,8 +1851,8 @@ public partial class MainWindow : Window
     {
         if (_activeTabId == id)
         {
-            _activeTabId       = null;
-            PromptTextBox.Text = _queuePreEditDraft ?? "";
+            _activeTabId = null;
+            PromptTextBox.Text = _queuePreEditDraft ?? string.Empty;
             _queuePreEditDraft = null;
         }
         _promptQueue.Remove(id);
@@ -1893,10 +1897,10 @@ public partial class MainWindow : Window
 
         _dropIndicator = new Border
         {
-            Width             = 2,
+            Width = 2,
             VerticalAlignment = VerticalAlignment.Stretch,
-            IsHitTestVisible  = false,
-            Margin            = new Thickness(0, 4, 0, 4),
+            IsHitTestVisible = false,
+            Margin = new Thickness(0, 4, 0, 4),
         };
         _dropIndicator.SetResourceReference(Border.BackgroundProperty, "QueueTabActiveBorder");
         return _dropIndicator;
@@ -1904,9 +1908,9 @@ public partial class MainWindow : Window
 
     private void OnQueueTabMouseDown(string id, Border tab, MouseButtonEventArgs e)
     {
-        _dragTabId      = id;
+        _dragTabId = id;
         _dragStartPoint = e.GetPosition(QueueTabStrip);
-        _isDragging     = false;
+        _isDragging = false;
         tab.CaptureMouse();
     }
 
@@ -1918,7 +1922,7 @@ public partial class MainWindow : Window
 
         // Cancel if the cursor leaves the strip's bounds (with a small forgiveness margin).
         const double margin = 12.0;
-        if (pos.X < -margin || pos.X > QueueTabStrip.ActualWidth  + margin ||
+        if (pos.X < -margin || pos.X > QueueTabStrip.ActualWidth + margin ||
             pos.Y < -margin || pos.Y > QueueTabStrip.ActualHeight + margin)
         {
             CancelDrag();
@@ -1951,7 +1955,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool    wasDragging    = _isDragging;
+        bool wasDragging = _isDragging;
         string? insertBeforeId = _dragInsertBeforeTabId;
 
         // Clear drag state (and release capture) before doing any work.
@@ -1975,8 +1979,8 @@ public partial class MainWindow : Window
         // has already been nulled out.
         var captured = Mouse.Captured as UIElement;
 
-        _dragTabId             = null;
-        _isDragging            = false;
+        _dragTabId = null;
+        _isDragging = false;
         _dragInsertBeforeTabId = null;
 
         if (_dropIndicator is not null && QueueTabStrip.Children.Contains(_dropIndicator))
@@ -2002,7 +2006,7 @@ public partial class MainWindow : Window
         // Walk queue tabs (children 1…N; child 0 is the pinned Active Draft tab).
         // Find the first non-dragged tab whose horizontal mid-point is to the right of
         // the cursor — the indicator (and the eventual drop) go *before* that tab.
-        int     insertAt       = QueueTabStrip.Children.Count; // default: after all tabs
+        int insertAt = QueueTabStrip.Children.Count; // default: after all tabs
         string? insertBeforeId = null;
 
         for (int i = 1; i < QueueTabStrip.Children.Count; i++)
@@ -2013,12 +2017,12 @@ public partial class MainWindow : Window
             if (tagId == _dragTabId) continue; // skip the tab that is being dragged
 
             var childLeft = child.TranslatePoint(new Point(0, 0), QueueTabStrip).X;
-            var midX      = childLeft + child.ActualWidth / 2;
+            var midX = childLeft + child.ActualWidth / 2;
 
             if (mouseX < midX)
             {
                 insertBeforeId = tagId;
-                insertAt       = i;
+                insertAt = i;
                 break;
             }
         }
@@ -2049,7 +2053,7 @@ public partial class MainWindow : Window
         int dIdx = -1, rIdx = -1;
         for (int i = 0; i < items.Count; i++)
         {
-            if (items[i].Id == draggedId)    dIdx = i;
+            if (items[i].Id == draggedId) dIdx = i;
             if (items[i].Id == insertBeforeId) rIdx = i;
         }
 
@@ -2081,7 +2085,7 @@ public partial class MainWindow : Window
     /// <summary>Returns the bounding rect of a UI element in screen coordinates.</summary>
     private static Rect GetScreenRect(FrameworkElement element)
     {
-        var topLeft     = element.PointToScreen(new Point(0, 0));
+        var topLeft = element.PointToScreen(new Point(0, 0));
         var bottomRight = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
         return new Rect(topLeft, bottomRight);
     }
@@ -2089,10 +2093,10 @@ public partial class MainWindow : Window
     private void SyncSendButton()
     {
         RunButton.Content = RunButtonLabelPolicy.Compute(
-            coordinatorBusy:          _isPromptRunning || IsNativeLoopRunning,
+            coordinatorBusy: _isPromptRunning || IsNativeLoopRunning,
             queuePausedAwaitingInput: _queuePausedNotificationFired,
-            queueCount:               _promptQueue.Count,
-            activeTabId:              _activeTabId);
+            queueCount: _promptQueue.Count,
+            activeTabId: _activeTabId);
     }
 
     private async void AbortButton_Click(object sender, RoutedEventArgs e)
@@ -2440,9 +2444,9 @@ public partial class MainWindow : Window
                         // in PromptParagraphs. _pec.CurrentPromptStartedAt is already null here because
                         // the PEC finally-block runs before this Dispatcher.BeginInvoke callback fires.
                         var turnStartedAt = doneCurrentTurn?.StartedAt ?? DateTimeOffset.Now;
-                        var description   = BuildApprovalDescription(notifSummary, doneCurrentTurn?.Prompt);
-                        var hint          = TruncatePromptHint(doneCurrentTurn?.Prompt, maxChars: 60);
-                        var item          = CommitApprovalItem.Create(commitSha, commitUrl, description,
+                        var description = BuildApprovalDescription(notifSummary, doneCurrentTurn?.Prompt);
+                        var hint = TruncatePromptHint(doneCurrentTurn?.Prompt, maxChars: 60);
+                        var item = CommitApprovalItem.Create(commitSha, commitUrl, description,
                                                                       turnStartedAt, hint,
                                                                       originalPrompt: doneCurrentTurn?.Prompt?.Trim());
                         _approvalItems.Add(item);
@@ -2457,15 +2461,19 @@ public partial class MainWindow : Window
                         HandleSquadashCommand(cmd);
 
                     // Process HOST_COMMAND_JSON commands from this turn's response.
-                    if (_hostCommandExecutor is not null && rawResponse is not null) {
+                    if (_hostCommandExecutor is not null && rawResponse is not null)
+                    {
                         var commandResults = _hostCommandExecutor.TryParseAndExecute(
                             rawResponse, _hostCommandRegistry, _currentWorkspace?.FolderPath, out _);
-                        if (commandResults is not null) {
-                            foreach (var (invocation, descriptor, result) in commandResults) {
+                        if (commandResults is not null)
+                        {
+                            foreach (var (invocation, descriptor, result) in commandResults)
+                            {
                                 doneCurrentTurn?.HostCommandEntries.Add(new HostCommandTranscriptEntry(
                                     doneCurrentTurn, invocation, descriptor, result, DateTimeOffset.Now));
 
-                                if (descriptor.ResultBehavior == HostCommandResultBehavior.InjectResultAsContext && result.HasOutput) {
+                                if (descriptor.ResultBehavior == HostCommandResultBehavior.InjectResultAsContext && result.HasOutput)
+                                {
                                     _promptQueue.EnqueueAtFront(result.Output!, ++_promptQueueSeq);
                                     SyncQueuePanel();
                                     SyncSendButton();
@@ -2474,7 +2482,8 @@ public partial class MainWindow : Window
                         }
                     }
                 }
-                if (_pendingRcRestartAfterReset) {
+                if (_pendingRcRestartAfterReset)
+                {
                     _pendingRcRestartAfterReset = false;
                     _ = RestartRcAfterSessionResetAsync();
                 }
@@ -2916,7 +2925,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(evt.OutputLine)) return;
         var raw = evt.OutputLine!;
         SquadDashTrace.Write("LoopOutput", raw);
-        var line = AnsiEscapeRegex.Replace(raw, "").Trim();
+        var line = AnsiEscapeRegex.Replace(raw, string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(line)) return;
         if (line.StartsWith("[stderr]", StringComparison.Ordinal))
             AppendLoopOutputLine(line, LoopLifecycleBrush);
@@ -3181,9 +3190,9 @@ public partial class MainWindow : Window
                 using var doc = System.Text.Json.JsonDocument.Parse(evt.WorkstreamsJson);
                 foreach (var ws in doc.RootElement.EnumerateArray())
                 {
-                    var name = ws.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
-                    var label = ws.TryGetProperty("labelFilter", out var l) ? l.GetString() ?? "" : "";
-                    var workflow = ws.TryGetProperty("workflow", out var w) ? w.GetString() ?? "" : "";
+                    var name = ws.TryGetProperty("name", out var n) ? n.GetString() ?? string.Empty : string.Empty;
+                    var label = ws.TryGetProperty("labelFilter", out var l) ? l.GetString() ?? string.Empty : string.Empty;
+                    var workflow = ws.TryGetProperty("workflow", out var w) ? w.GetString() ?? string.Empty : string.Empty;
                     var isActive = string.Equals(name, evt.ActiveSubsquadName, StringComparison.OrdinalIgnoreCase);
                     var marker = isActive ? "●" : "○";
                     var suffix = isActive ? $"  ← active ({evt.ActiveSubsquadSource})" : string.Empty;
@@ -3281,7 +3290,7 @@ public partial class MainWindow : Window
         _remoteAccessActive = false;
         _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
         UpdateRemoteAccessMenuHeader();
-        _rcPanelUrl  = null;
+        _rcPanelUrl = null;
         _rcTunnelUrl = null;
 
         if (_rcRegeneratingToken)
@@ -3307,16 +3316,16 @@ public partial class MainWindow : Window
             // Brief pause to let the OS release the TCP port before we rebind it.
             await Task.Delay(500).ConfigureAwait(false);
             await _bridge.StartRemoteAsync(
-                repo:       System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
-                branch:     "main",
-                machine:    System.Environment.MachineName,
-                squadDir:   _currentWorkspace.SquadFolderPath,
-                cwd:        _currentWorkspace.FolderPath,
-                port:       _rcActivePort,
-                sessionId:  _conversationManager.CurrentSessionId,
+                repo: System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
+                branch: "main",
+                machine: System.Environment.MachineName,
+                squadDir: _currentWorkspace.SquadFolderPath,
+                cwd: _currentWorkspace.FolderPath,
+                port: _rcActivePort,
+                sessionId: _conversationManager.CurrentSessionId,
                 tunnelMode: _settingsSnapshot.TunnelMode,
                 tunnelToken: _settingsSnapshot.TunnelToken,
-                rcToken:    _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
+                rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -3332,16 +3341,16 @@ public partial class MainWindow : Window
             // Brief pause to let the OS release the TCP port before we rebind it.
             await Task.Delay(500).ConfigureAwait(false);
             await _bridge.StartRemoteAsync(
-                repo:       System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
-                branch:     "main",
-                machine:    System.Environment.MachineName,
-                squadDir:   _currentWorkspace.SquadFolderPath,
-                cwd:        _currentWorkspace.FolderPath,
-                port:       _rcActivePort,
-                sessionId:  _conversationManager.CurrentSessionId,
+                repo: System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
+                branch: "main",
+                machine: System.Environment.MachineName,
+                squadDir: _currentWorkspace.SquadFolderPath,
+                cwd: _currentWorkspace.FolderPath,
+                port: _rcActivePort,
+                sessionId: _conversationManager.CurrentSessionId,
                 tunnelMode: _settingsSnapshot.TunnelMode,
                 tunnelToken: _settingsSnapshot.TunnelToken,
-                rcToken:    _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
+                rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -3366,9 +3375,9 @@ public partial class MainWindow : Window
 
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName        = exePath,
-                Arguments       = arguments,
-                Verb            = "runas",
+                FileName = exePath,
+                Arguments = arguments,
+                Verb = "runas",
                 UseShellExecute = true,
             });
 
@@ -3390,7 +3399,7 @@ public partial class MainWindow : Window
     private void RegenerateRcToken()
     {
         var newToken = Guid.NewGuid().ToString("N");
-        _settingsSnapshot    = _settingsStore.SaveRcToken(newToken);
+        _settingsSnapshot = _settingsStore.SaveRcToken(newToken);
         _rcRegeneratingToken = true;
         _ = _bridge.StopRemoteAsync();
     }
@@ -3428,7 +3437,7 @@ public partial class MainWindow : Window
         try
         {
             var phraseHints = Dispatcher.Invoke(BuildSpeechPhraseHints);
-            var session = await RemoteSpeechSession.StartAsync(connId, key, region, [..phraseHints])
+            var session = await RemoteSpeechSession.StartAsync(connId, key, region, [.. phraseHints])
                 .ConfigureAwait(false);
 
             session.PhraseRecognized += (_, text) =>
@@ -3518,12 +3527,12 @@ public partial class MainWindow : Window
         if (busyCoordinator || _loopQueued)
         {
             StartLoopButton.IsEnabled = !_loopQueued; // disable once already queued
-            StartLoopButton.Content   = _loopQueued ? "Loop Queued" : "Queue Loop";
+            StartLoopButton.Content = _loopQueued ? "Loop Queued" : "Queue Loop";
         }
         else
         {
             StartLoopButton.IsEnabled = !running;
-            StartLoopButton.Content   = "Start Loop";
+            StartLoopButton.Content = "Start Loop";
         }
 
         StopLoopButton.IsEnabled = running;
@@ -3558,7 +3567,7 @@ public partial class MainWindow : Window
                 ? $"● Running · Round {_loopCurrentIteration}"
                 : "● Running";
         else
-            status = "";
+            status = string.Empty;
 
         LoopStatusLabel.Text = status;
         SyncLoopOutputPane();
@@ -3584,16 +3593,16 @@ public partial class MainWindow : Window
         if (TasksActivePanel is null) return;
 
         _tasksPanelController ??= new TasksPanelController(
-            activePanel:       TasksActivePanel,
-            completedPanel:    TasksCompletedPanel,
-            completedSection:  TasksCompletedSection,
-            outerBorder:       TasksPanelBorder,
-            getTasksPath:      () => _currentWorkspace is null
+            activePanel: TasksActivePanel,
+            completedPanel: TasksCompletedPanel,
+            completedSection: TasksCompletedSection,
+            outerBorder: TasksPanelBorder,
+            getTasksPath: () => _currentWorkspace is null
                                      ? null
                                      : Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"),
-            editTasksAction:   () => EditTasksMenuItem_Click(this, new RoutedEventArgs()),
-            priorityDotColor:  PriorityDotColor,
-            reloadPanel:       () => Dispatcher.BeginInvoke(LoadTasksPanel));
+            editTasksAction: () => EditTasksMenuItem_Click(this, new RoutedEventArgs()),
+            priorityDotColor: PriorityDotColor,
+            reloadPanel: () => Dispatcher.BeginInvoke(LoadTasksPanel));
 
         var workspace = _currentWorkspace;
         if (workspace is null) { _tasksPanelController.ShowEmpty("No workspace open"); return; }
@@ -3610,8 +3619,10 @@ public partial class MainWindow : Window
         // Also gather completed items from completed-tasks.md (most-recent-first by file order)
         var completedTasksPath = Path.Combine(workspace.SquadFolderPath, "completed-tasks.md");
         IReadOnlyList<TaskItem> extraCompleted = [];
-        if (File.Exists(completedTasksPath)) {
-            try {
+        if (File.Exists(completedTasksPath))
+        {
+            try
+            {
                 var completedLines = File.ReadAllLines(completedTasksPath);
                 extraCompleted = TasksPanelParser.ParseCompletedFile(completedLines);
             }
@@ -3621,14 +3632,18 @@ public partial class MainWindow : Window
         // tasks.md ✅ section first (most recent), then completed-tasks.md items.
         // Deduplicate: skip completed-tasks.md items whose text already appears in the tasks.md set.
         List<TaskItem> allCompleted;
-        if (parseResult.CompletedItems.Count == 0 && extraCompleted.Count == 0) {
+        if (parseResult.CompletedItems.Count == 0 && extraCompleted.Count == 0)
+        {
             allCompleted = [];
-        } else {
+        }
+        else
+        {
             allCompleted = [.. parseResult.CompletedItems];
             var seenTexts = new System.Collections.Generic.HashSet<string>(
                 parseResult.CompletedItems.Select(i => i.Text.Trim()),
                 StringComparer.OrdinalIgnoreCase);
-            foreach (var item in extraCompleted) {
+            foreach (var item in extraCompleted)
+            {
                 if (seenTexts.Add(item.Text.Trim()))
                     allCompleted.Add(item);
             }
@@ -3638,20 +3653,22 @@ public partial class MainWindow : Window
         _tasksPanelController.Refresh(combined);
     }
 
-    private Brush PriorityDotColor(string emoji) => emoji switch {
+    private Brush PriorityDotColor(string emoji) => emoji switch
+    {
         "🔴" => (Brush)FindResource("TaskPriorityHigh"),
         "🟡" => (Brush)FindResource("TaskPriorityMid"),
         "🟢" => (Brush)FindResource("TaskPriorityLow"),
         "🔵" => (Brush)FindResource("TaskPriorityLow"),
-        _    => Brushes.Gray
+        _ => Brushes.Gray
     };
 
-    private static string PriorityResourceKey(string emoji) => emoji switch {
+    private static string PriorityResourceKey(string emoji) => emoji switch
+    {
         "🔴" => "TaskPriorityHigh",
         "🟡" => "TaskPriorityMid",
         "🟢" => "TaskPriorityLow",
         "🔵" => "TaskPriorityLow",
-        _    => "LabelText"
+        _ => "LabelText"
     };
 
     private async void StartLoopButton_Click(object sender, RoutedEventArgs e)
@@ -3721,8 +3738,10 @@ public partial class MainWindow : Window
     private static readonly Regex _asCommitSuffixRe =
         new(@"\s+as\s+[0-9a-f]{5,}\S*[.,;:!?]*\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static string BuildApprovalDescription(string? notifSummary, string? prompt) {
-        if (!string.IsNullOrWhiteSpace(notifSummary)) {
+    private static string BuildApprovalDescription(string? notifSummary, string? prompt)
+    {
+        if (!string.IsNullOrWhiteSpace(notifSummary))
+        {
             var s = notifSummary.Trim();
             // Strip leading "Committed <sha><punct> " — the SHA is shown separately in the panel.
             s = _committedPrefixRe.Replace(s, string.Empty);
@@ -3747,22 +3766,25 @@ public partial class MainWindow : Window
 
     private static string? TruncatePromptHint(string? prompt, int maxChars) =>
         string.IsNullOrWhiteSpace(prompt) ? null
-            : prompt.Length <= maxChars  ? prompt.Trim()
-            : prompt[..maxChars].Trim()  + "…";
+            : prompt.Length <= maxChars ? prompt.Trim()
+            : prompt[..maxChars].Trim() + "…";
 
-    private void OnApprovalItemChanged(CommitApprovalItem updated) {
+    private void OnApprovalItemChanged(CommitApprovalItem updated)
+    {
         var idx = _approvalItems.FindIndex(i => i.Id == updated.Id);
         if (idx >= 0) _approvalItems[idx] = updated;
         _approvalStore?.Save(_approvalItems);
     }
 
-    private void OnApprovalItemsRemoved(IReadOnlyList<CommitApprovalItem> removed) {
+    private void OnApprovalItemsRemoved(IReadOnlyList<CommitApprovalItem> removed)
+    {
         foreach (var r in removed)
             _approvalItems.RemoveAll(i => i.Id == r.Id);
         _approvalStore?.Save(_approvalItems);
     }
 
-    private void ScrollToApprovalTurn(CommitApprovalItem item) {
+    private void ScrollToApprovalTurn(CommitApprovalItem item)
+    {
         var turnStartedAt = item.TurnStartedAt;
 
         // Dismiss any previous not-found popup immediately.
@@ -3770,7 +3792,7 @@ public partial class MainWindow : Window
 
         // Capture mouse position now (on the UI thread during click handling) so the popup
         // can be positioned correctly even after the async retry completes.
-        var relPos    = Mouse.GetPosition(this);
+        var relPos = Mouse.GetPosition(this);
         var screenPos = PointToScreen(relPos);
 
         // Ensure the coordinator transcript is visible in the main panel —
@@ -3780,7 +3802,8 @@ public partial class MainWindow : Window
 
         var entry = CoordinatorThread.PromptParagraphs
             .FirstOrDefault(e => e.Timestamp == turnStartedAt);
-        if (entry is not null) {
+        if (entry is not null)
+        {
             ScrollToPromptParagraph(entry.Paragraph);
             return;
         }
@@ -3788,98 +3811,112 @@ public partial class MainWindow : Window
         // The turn may exist but not yet be rendered (virtual window only shows recent turns).
         // Find its index in the full list and use EnsureTurnRenderedAsync to load batches until
         // it becomes visible, then scroll to it.
-        _ = Dispatcher.BeginInvoke(async () => {
+        _ = Dispatcher.BeginInvoke(async () =>
+        {
             var turnIndex = _conversationManager.FindCoordinatorTurnIndexByTimestamp(turnStartedAt);
-            if (turnIndex >= 0) {
+            if (turnIndex >= 0)
+            {
                 await _conversationManager.EnsureTurnRenderedAsync(turnIndex);
                 var retryEntry = CoordinatorThread.PromptParagraphs
                     .FirstOrDefault(e => e.Timestamp == turnStartedAt);
-                if (retryEntry is not null) {
+                if (retryEntry is not null)
+                {
                     ScrollToPromptParagraph(retryEntry.Paragraph);
                     return;
                 }
             }
             // Only show the not-found popup if the turn truly doesn't exist in the transcript.
-            ShowApprovalNotFoundPopup(screenPos, item.OriginalPrompt ?? item.TurnPromptHint);
+            ShowApprovalNotFoundPopup(screenPos, relPos, item.OriginalPrompt ?? item.TurnPromptHint);
         });
     }
 
-    private void DismissApprovalNotFoundPopup() {
-        if (_approvalNotFoundPopup is { IsOpen: true } p) {
+    private void DismissApprovalNotFoundPopup()
+    {
+        if (_approvalNotFoundPopup is { IsOpen: true } p)
+        {
             p.IsOpen = false;
             _approvalNotFoundPopup = null;
         }
     }
 
-    private void ShowApprovalNotFoundPopup(System.Windows.Point screenPoint, string? promptText) {
+    private void ShowApprovalNotFoundPopup(System.Windows.Point screenPoint, System.Windows.Point windowOrigin, string? promptText)
+    {
         // Dismiss any prior popup before showing a new one.
         DismissApprovalNotFoundPopup();
 
         // SetResourceReference doesn't work on Popup children that aren't in the logical tree.
         // Resolve brushes directly from the window's live merged resource dictionaries instead.
-        var bgBrush     = (TryFindResource("PopupSurface")  as Brush) ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
-        var borderBrush = (TryFindResource("PopupBorder")   as Brush) ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
-        var fgBrush     = (TryFindResource("LabelText")     as Brush) ?? Brushes.White;
-        var subtleBrush = (TryFindResource("SubtleText")    as Brush) ?? Brushes.LightGray;
+        var bgBrush = (TryFindResource("PopupSurface") as Brush) ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
+        var borderBrush = (TryFindResource("PopupBorder") as Brush) ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
+        var fgBrush = (TryFindResource("LabelText") as Brush) ?? Brushes.White;
+        var subtleBrush = (TryFindResource("SubtleText") as Brush) ?? Brushes.LightGray;
 
         var stack = new StackPanel { Margin = new Thickness(10, 7, 10, 7) };
 
-        var msgBlock = new TextBlock {
-            Text       = "Entry not found in transcript.",
+        var msgBlock = new TextBlock
+        {
+            Text = "Entry not found in transcript.",
             Foreground = fgBrush,
             FontWeight = FontWeights.SemiBold,
         };
         stack.Children.Add(msgBlock);
 
-        if (!string.IsNullOrWhiteSpace(promptText)) {
-            var hintBlock = new TextBlock {
-                Text         = promptText,
+        if (!string.IsNullOrWhiteSpace(promptText))
+        {
+            var hintBlock = new TextBlock
+            {
+                Text = promptText,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth     = 320,
-                Margin       = new Thickness(0, 5, 0, 0),
-                Foreground   = subtleBrush,
-                FontStyle    = FontStyles.Italic,
+                MaxWidth = 320,
+                Margin = new Thickness(0, 5, 0, 0),
+                Foreground = subtleBrush,
+                FontStyle = FontStyles.Italic,
             };
             stack.Children.Add(hintBlock);
         }
 
-        var border = new Border {
-            Child           = stack,
-            Background      = bgBrush,
-            BorderBrush     = borderBrush,
-            CornerRadius    = new CornerRadius(5),
+        var border = new Border
+        {
+            Child = stack,
+            Background = bgBrush,
+            BorderBrush = borderBrush,
+            CornerRadius = new CornerRadius(5),
             BorderThickness = new Thickness(1),
-            Effect          = new System.Windows.Media.Effects.DropShadowEffect {
-                BlurRadius  = 8,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 8,
                 ShadowDepth = 2,
-                Opacity     = 0.35,
-                Color       = Colors.Black,
+                Opacity = 0.35,
+                Color = Colors.Black,
             },
         };
 
-        var popup = new System.Windows.Controls.Primitives.Popup {
-            Child              = border,
-            Placement          = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint,
-            HorizontalOffset   = screenPoint.X,
-            VerticalOffset     = screenPoint.Y + 18,
+        var popup = new System.Windows.Controls.Primitives.Popup
+        {
+            Child = border,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint,
+            HorizontalOffset = screenPoint.X,
+            VerticalOffset = screenPoint.Y + 18,
             AllowsTransparency = true,
-            StaysOpen          = true,
-            IsOpen             = true,
+            StaysOpen = true,
+            IsOpen = true,
         };
         _approvalNotFoundPopup = popup;
 
-        bool dismissed        = false;
-        bool mouseEnteredPopup = false;
+        bool dismissed = false;
 
-        void FadeAndClose() {
+        void FadeAndClose()
+        {
             if (dismissed) return;
             dismissed = true;
+            MouseMove -= OnWindowMouseMoved;
             var fade = new System.Windows.Media.Animation.DoubleAnimation(
-                fromValue:    1.0,
-                toValue:      0.0,
-                duration:     new Duration(TimeSpan.FromSeconds(0.4)),
+                fromValue: 1.0,
+                toValue: 0.0,
+                duration: new Duration(TimeSpan.FromSeconds(0.4)),
                 fillBehavior: System.Windows.Media.Animation.FillBehavior.Stop);
-            fade.Completed += (_, _) => {
+            fade.Completed += (_, _) =>
+            {
                 popup.IsOpen = false;
                 if (ReferenceEquals(_approvalNotFoundPopup, popup))
                     _approvalNotFoundPopup = null;
@@ -3887,49 +3924,50 @@ public partial class MainWindow : Window
             border.BeginAnimation(UIElement.OpacityProperty, fade);
         }
 
-        // Mouse left the popup content — dismiss immediately.
-        border.MouseLeave += (_, _) => FadeAndClose();
-
-        // If the mouse enters the popup, cancel the fallback auto-dismiss timer.
-        // The popup will then stay open until the mouse leaves.
-        var fallbackTimer = new System.Windows.Threading.DispatcherTimer {
-            Interval = TimeSpan.FromSeconds(4)
-        };
-        fallbackTimer.Tick += (_, _) => {
-            fallbackTimer.Stop();
-            if (!mouseEnteredPopup)
+        // Dismiss only once the mouse has moved ≥10 px from the original click position.
+        // This prevents the popup from vanishing the instant the cursor drifts by a pixel or two.
+        void OnWindowMouseMoved(object? sender, System.Windows.Input.MouseEventArgs e)
+        {
+            var pos = e.GetPosition(this);
+            var dx  = pos.X - windowOrigin.X;
+            var dy  = pos.Y - windowOrigin.Y;
+            if (dx * dx + dy * dy >= 100.0) // 10 px radius
                 FadeAndClose();
-        };
-        border.MouseEnter += (_, _) => {
-            mouseEnteredPopup = true;
-            fallbackTimer.Stop();
-        };
-        fallbackTimer.Start();
+        }
+
+        MouseMove += OnWindowMouseMoved;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void InitializeHostCommands() {
+    private void InitializeHostCommands()
+    {
         _hostCommandExecutor = new HostCommandExecutor();
-        _hostCommandExecutor.Register(new Commands.StartLoopCommandHandler(() => {
+        _hostCommandExecutor.Register(new Commands.StartLoopCommandHandler(() =>
+        {
             if (!_loopController.IsRunning)
                 _ = StartLoopImmediateAsync();
         }));
-        _hostCommandExecutor.Register(new Commands.StopLoopCommandHandler(() => {
+        _hostCommandExecutor.Register(new Commands.StopLoopCommandHandler(() =>
+        {
             _loopController.RequestStop();
         }));
         _hostCommandExecutor.Register(new Commands.GetQueueStatusCommandHandler(() => _promptQueue.Items));
-        _hostCommandExecutor.Register(new Commands.OpenPanelCommandHandler(panelName => {
-            switch (panelName.Trim().ToLowerInvariant()) {
+        _hostCommandExecutor.Register(new Commands.OpenPanelCommandHandler(panelName =>
+        {
+            switch (panelName.Trim().ToLowerInvariant())
+            {
                 case "approvals": ShowApprovalPanel(); break;
-                case "tasks":     ShowTasksStatusWindow(); break;
-                case "trace":     ShowTraceWindow(); break;
+                case "tasks": ShowTasksStatusWindow(); break;
+                case "trace": ShowTraceWindow(); break;
             }
         }));
-        _hostCommandExecutor.Register(new Commands.InjectTextCommandHandler(_ => {
+        _hostCommandExecutor.Register(new Commands.InjectTextCommandHandler(_ =>
+        {
             // Text injection is handled by the done-event handler via InjectResultAsContext behavior.
         }));
-        _hostCommandExecutor.Register(new Commands.ClearApprovedCommandHandler(() => {
+        _hostCommandExecutor.Register(new Commands.ClearApprovedCommandHandler(() =>
+        {
             _approvalItems.Clear();
             _approvalStore?.Save(_approvalItems);
             _approvalPanel?.ReplaceAllItems(_approvalItems);
@@ -4687,7 +4725,8 @@ public partial class MainWindow : Window
             foreach (var inner in block.Blocks.OfType<BlockUIContainer>())
             {
                 // Code block is now: BlockUIContainer > StackPanel > [DockPanel header, TextBox]
-                var codeBox = inner.Child switch {
+                var codeBox = inner.Child switch
+                {
                     TextBox tb when tb.Tag is "codeblock" => tb,
                     System.Windows.Controls.StackPanel sp =>
                         sp.Children.OfType<TextBox>().FirstOrDefault(tb => tb.Tag is "codeblock"),
@@ -5139,7 +5178,7 @@ public partial class MainWindow : Window
                             if (_pttTargetTextBox != null)
                             {
                                 // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
-                                _sessionCaretIndex      = _pttTargetTextBox.SelectionStart;
+                                _sessionCaretIndex = _pttTargetTextBox.SelectionStart;
                                 _sessionSelectionLength = _pttTargetTextBox.SelectionLength;
                                 // Queue whenever the target is the prompt box.
                                 // EnqueueCurrentPrompt works whether or not a prompt is currently running,
@@ -5438,7 +5477,7 @@ public partial class MainWindow : Window
         // Clamp in case text was externally modified since session start.
         var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
         // If there was a selection when PTT started, replace it on the first insert.
-        var selLength  = _sessionSelectionLength;
+        var selLength = _sessionSelectionLength;
         _sessionSelectionLength = 0; // consume once; subsequent dictation appends
         var selEndIndex = Math.Min(caretIndex + selLength, current.Length);
         var leftContext = current[..caretIndex];
@@ -6567,16 +6606,16 @@ public partial class MainWindow : Window
                     && _preFullScreenBounds.Width > 100
                     && _preFullScreenBounds.Height > 100)
                 {
-                    Left   = _preFullScreenBounds.X;
-                    Top    = _preFullScreenBounds.Y;
-                    Width  = _preFullScreenBounds.Width;
+                    Left = _preFullScreenBounds.X;
+                    Top = _preFullScreenBounds.Y;
+                    Width = _preFullScreenBounds.Width;
                     Height = _preFullScreenBounds.Height;
 
                     // If the restored position is off-screen, snap to the primary work area.
                     if (!IsPlacementOnScreen(new WorkspaceWindowPlacement(Left, Top, Width, Height, false)))
                     {
                         Left = SystemParameters.WorkArea.Left;
-                        Top  = SystemParameters.WorkArea.Top;
+                        Top = SystemParameters.WorkArea.Top;
                     }
                 }
                 else if (_preFullScreenWindowState == WindowState.Normal)
@@ -7247,12 +7286,15 @@ public partial class MainWindow : Window
 
             PopulateDocumentationTopics();
 
-            var newItem = FindDocNodeByTag(DocTopicsTreeView.Items, newFilePath);
-            if (newItem is not null)
+            if (DocTopicsTreeView != null)
             {
-                newItem.IsSelected = true;
-                _docsRenameIsFromAdd = true;
-                EnterInPlaceRename(newItem, newFilePath);
+                var newItem = FindDocNodeByTag(DocTopicsTreeView.Items, newFilePath);
+                if (newItem is not null)
+                {
+                    newItem.IsSelected = true;
+                    _docsRenameIsFromAdd = true;
+                    EnterInPlaceRename(newItem, newFilePath);
+                }
             }
         }
         catch (Exception ex)
@@ -8431,7 +8473,7 @@ public partial class MainWindow : Window
 
         // Restore queued prompts saved before last shutdown.
         var savedEntries = _conversationManager.ConversationState.QueuedPromptEntries;
-        var savedLegacy  = _conversationManager.ConversationState.QueuedPrompts;
+        var savedLegacy = _conversationManager.ConversationState.QueuedPrompts;
         if (savedEntries is { Count: > 0 })
         {
             _promptQueueSeq = 0;
@@ -9674,7 +9716,8 @@ public partial class MainWindow : Window
     internal static string SanitizeResponseText(string? text) =>
         StripHostCommandBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))).TrimEnd();
 
-    private static string StripHostCommandBlock(string text) {
+    private static string StripHostCommandBlock(string text)
+    {
         if (HostCommandParser.TryExtract(text, out var body, out _))
             return body;
         return text;
@@ -10385,31 +10428,35 @@ public partial class MainWindow : Window
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
-        var copiedTip = new System.Windows.Controls.ToolTip {
-            Content   = "Copied!",
+        var copiedTip = new System.Windows.Controls.ToolTip
+        {
+            Content = "Copied!",
             Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
         };
-        var copyBtn = new Button {
-            Content             = "📋",
-            ToolTip             = copiedTip,
-            FontSize            = 13,
-            Width               = 26,
-            Height              = 22,
-            Padding             = new Thickness(0),
-            Margin              = new Thickness(4, 2, 4, 2),
-            BorderThickness     = new Thickness(0),
-            Background          = Brushes.Transparent,
-            Cursor              = Cursors.Hand,
+        var copyBtn = new Button
+        {
+            Content = "📋",
+            ToolTip = copiedTip,
+            FontSize = 13,
+            Width = 26,
+            Height = 22,
+            Padding = new Thickness(0),
+            Margin = new Thickness(4, 2, 4, 2),
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment   = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
         };
         copyBtn.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
         copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
-        copyBtn.Click += (_, _) => {
+        copyBtn.Click += (_, _) =>
+        {
             try { Clipboard.SetText(code); } catch { }
             copiedTip.PlacementTarget = copyBtn;
-            copiedTip.IsOpen          = true;
-            var timer = new System.Windows.Threading.DispatcherTimer {
+            copiedTip.IsOpen = true;
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
                 Interval = TimeSpan.FromSeconds(1.5)
             };
             timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
@@ -13110,8 +13157,8 @@ public partial class MainWindow : Window
                 _conversationManager.EmergencySave();
 
                 var dialog = new ShutdownProtectionWindow(
-                    isRunning:     _isPromptRunning,
-                    hasQueue:      _promptQueue.Count > 0,
+                    isRunning: _isPromptRunning,
+                    hasQueue: _promptQueue.Count > 0,
                     isLoopRunning: IsNativeLoopRunning)
                 {
                     Owner = this
@@ -14993,11 +15040,11 @@ public partial class MainWindow : Window
 
     private MarkdownDocumentCaptureContext BuildMarkdownCaptureContext() =>
         new MarkdownDocumentCaptureContext(
-            FixtureRegistry:      _fixtureLoaderRegistry,
-            ActionRegistry:       _uiActionReplayRegistry,
+            FixtureRegistry: _fixtureLoaderRegistry,
+            ActionRegistry: _uiActionReplayRegistry,
             ScreenshotsDirectory: _workspacePaths.ScreenshotsDirectory,
-            ThemeName:            _activeThemeName,
-            SpeechRegion:         _settingsSnapshot.SpeechRegion ?? string.Empty);
+            ThemeName: _activeThemeName,
+            SpeechRegion: _settingsSnapshot.SpeechRegion ?? string.Empty);
 
     private void ShowTextWindow(string title, string content)
     {
@@ -15381,7 +15428,7 @@ public partial class MainWindow : Window
     {
         name = name.Trim().ToLowerInvariant();
         name = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", "-");
-        name = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-z0-9\-]", "");
+        name = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-z0-9\-]", string.Empty);
         name = System.Text.RegularExpressions.Regex.Replace(name, @"-+", "-");
         name = name.Trim('-');
         return string.IsNullOrEmpty(name) ? "new-document" : name;
@@ -15878,9 +15925,9 @@ public partial class MainWindow : Window
                 ApprovalApprovedSection!,
                 ApprovalPanelBorder!,
                 ApprovalNeedsScrollViewer!,
-                navigateUrl:    url  => _ = OpenExternalLinkWithCommitCheckAsync(url),
-                scrollToTurn:   item => ScrollToApprovalTurn(item),
-                onItemChanged:  item => OnApprovalItemChanged(item),
+                navigateUrl: url => _ = OpenExternalLinkWithCommitCheckAsync(url),
+                scrollToTurn: item => ScrollToApprovalTurn(item),
+                onItemChanged: item => OnApprovalItemChanged(item),
                 onItemsRemoved: items => OnApprovalItemsRemoved(items));
             _approvalPanel.ReplaceAllItems(_approvalItems);
         }
