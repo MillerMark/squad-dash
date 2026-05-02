@@ -101,10 +101,6 @@ internal sealed class TasksPanelController {
     private void AttachPanelContextMenu(Border outerBorder) {
         var menu = new ContextMenu();
 
-        var editItem = new MenuItem { Header = "Edit Tasks" };
-        editItem.Click += (_, _) => _editTasksAction();
-        menu.Items.Add(editItem);
-
         _toggleCompletedItem = new MenuItem();
         UpdateToggleHeader();
         _toggleCompletedItem.Click += (_, _) => {
@@ -114,12 +110,18 @@ internal sealed class TasksPanelController {
         };
         menu.Items.Add(_toggleCompletedItem);
 
+        menu.Items.Add(new Separator());
+
+        var editItem = new MenuItem { Header = "Edit Tasks" };
+        editItem.Click += (_, _) => _editTasksAction();
+        menu.Items.Add(editItem);
+
         outerBorder.ContextMenu = menu;
     }
 
     private void UpdateToggleHeader() {
         if (_toggleCompletedItem is not null)
-            _toggleCompletedItem.Header = _showCompleted ? "Hide Completed" : "Show Completed";
+            _toggleCompletedItem.Header = _showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks";
     }
 
     // ── Row construction — open tasks ─────────────────────────────────────────
