@@ -249,8 +249,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _loopOutputHasContent;
     private bool _loopQueued;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
-    private bool _tasksPanelVisible = true;
-    private bool _approvalPanelVisible = true;
+    private bool _tasksPanelVisible = false;
+    private bool _approvalPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
     private int _watchWaveIndex;
