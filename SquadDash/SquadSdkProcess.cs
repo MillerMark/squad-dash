@@ -637,6 +637,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    /// <summary>
+    /// Kills the active bridge process (if any) so it will restart with fresh env vars on the next request.
+    /// Call this after updating <see cref="ByokProviderSettings"/> to ensure the new settings take effect.
+    /// </summary>
+    internal void RestartBridgeForNewSettings() => ResetProcess();
+
     private void ResetProcess() {
         Process? processToKill;
 

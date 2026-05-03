@@ -6793,6 +6793,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
+                    _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
+                    _bridge.RestartBridgeForNewSettings();
                 });
         }
         catch (Exception ex)
