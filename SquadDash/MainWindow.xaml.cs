@@ -15587,8 +15587,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ViewCommitApprovalsMenuItem.IsChecked = true;
         }
 
-        // Open: null (absent) or true = open (the default). false = explicitly closed.
-        if (_docsPanelState.Open == false)
+        // Open: true = explicitly opened by user. null (absent) or false = closed (default for new installs).
+        if (_docsPanelState.Open != true)
             return;
 
         SquadDashTrace.Write("Startup", "Restoring documentation panel from previous session.");
