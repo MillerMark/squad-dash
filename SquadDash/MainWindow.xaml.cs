@@ -1166,7 +1166,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ConfigureRestartRequestWatcher {phaseSw.ElapsedMilliseconds}ms.");
 
             phaseSw.Restart();
-            InitializeWorkspace(_startupFolderArgument);
+            await InitializeWorkspace(_startupFolderArgument);
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: InitializeWorkspace {phaseSw.ElapsedMilliseconds}ms.");
 
             phaseSw.Restart();
@@ -1178,11 +1178,19 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (PromptTextBox.IsVisible)
                 _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () => PromptTextBox.Focus());
 
-            phaseSw.Restart();
-            await _squadCliAdapter.ResolveSquadVersionAsync();
-            SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ResolveSquadVersionAsync {phaseSw.ElapsedMilliseconds}ms.");
-
+            // Fire-and-forget the version probe — it takes ~1.5 s and only affects status
+            // display.  Show the title immediately with whatever is already known; the probe
+            // will refresh it once it completes.
             UpdateStatusTitle();
+            var resolveVersionSw = Stopwatch.StartNew();
+            _ = _squadCliAdapter.ResolveSquadVersionAsync().ContinueWith(_ =>
+                Dispatcher.Invoke(() =>
+                {
+                    resolveVersionSw.Stop();
+                    SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ResolveSquadVersionAsync {resolveVersionSw.ElapsedMilliseconds}ms (async complete).");
+                    UpdateStatusTitle();
+                }));
+            SquadDashTrace.Write(TraceCategory.Startup, "MainWindow_Loaded: ResolveSquadVersionAsync started (non-blocking).");
             _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
 
             loadedSw.Stop();
@@ -1498,7 +1506,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch { return Rect.Empty; }
     }
 
-    private void InitializeWorkspace(string? startupFolder)
+    private async Task InitializeWorkspace(string? startupFolder)
     {
         var initWsSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
@@ -1528,7 +1536,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!string.IsNullOrWhiteSpace(candidateFolder))
         {
             SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: opening workspace at {initWsSw.ElapsedMilliseconds}ms.");
-            OpenWorkspace(
+            await OpenWorkspace(
                 candidateFolder,
                 rememberFolder: true,
                 closeWindowIfActivatedExisting: true,
@@ -6719,7 +6727,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private void OpenFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    private async void OpenFolderMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -6735,7 +6743,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             if (dialog.ShowDialog(this) == true)
             {
-                OpenWorkspace(dialog.FolderName, rememberFolder: true);
+                await OpenWorkspace(dialog.FolderName, rememberFolder: true);
             }
         }
         catch (Exception ex)
@@ -6791,14 +6799,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
     }
 
-    private void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    private async void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             if (sender is not MenuItem { Tag: string folderPath })
                 return;
 
-            OpenWorkspace(folderPath, rememberFolder: true);
+            await OpenWorkspace(folderPath, rememberFolder: true);
         }
         catch (Exception ex)
         {
@@ -8656,7 +8664,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private void OpenWorkspace(
+    private async Task OpenWorkspace(
         string folderPath,
         bool rememberFolder,
         bool closeWindowIfActivatedExisting = false,
@@ -8711,7 +8719,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                         "Workspace",
                         $"Activated an existing SquadDash instance for workspace={targetWorkspace.FolderPath}.");
                     if (closeWindowIfActivatedExisting && _currentWorkspace is null)
-                        Dispatcher.BeginInvoke(Close);
+                        _ = Dispatcher.BeginInvoke(Close);
 
                     return;
 
@@ -8731,7 +8739,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
 
                     if (closeWindowIfActivatedExisting && _currentWorkspace is null)
-                        Dispatcher.BeginInvoke(Close);
+                        _ = Dispatcher.BeginInvoke(Close);
 
                     return;
 
@@ -8783,7 +8791,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
-        _conversationManager.LoadWorkspaceConversation();
+        await _conversationManager.LoadWorkspaceConversationAsync();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
 
@@ -8805,12 +8813,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 // Restore the rightmost-tab hold: select the first item's tab so the user
                 // must explicitly Send or switch away before it dispatches.
-                Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
+                _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
             else
             {
-                Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
+                _ = Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
         }
@@ -8827,13 +8835,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 // Restore the rightmost-tab hold: select the first item's tab so the user
                 // must explicitly Send or switch away before it dispatches.
-                Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
+                _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
             else
             {
                 // Auto-dispatch restored queue items once the UI is fully initialised.
-                Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
+                _ = Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
         }
@@ -8850,7 +8858,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_settingsSnapshot.LoopActiveOnExit)
         {
             _settingsSnapshot = _settingsStore.SaveLoopActive(false);
-            Dispatcher.InvokeAsync(async () =>
+            _ = Dispatcher.InvokeAsync(async () =>
             {
                 AppendLoopOutputLine("🔄 Resuming loop from previous session…", LoopLifecycleBrush);
                 await StartLoopImmediateAsync();
@@ -8866,7 +8874,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // HandleRcError will revert if startup fails.
             _remoteAccessActive = true;
             UpdateRemoteAccessMenuHeader();
-            Dispatcher.InvokeAsync(async () =>
+            _ = Dispatcher.InvokeAsync(async () =>
             {
                 if (_currentWorkspace is null) return;
                 var savedPort = _settingsSnapshot.RcPersistentPort;
@@ -13405,18 +13413,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closed: begin async dispose (WhenAll).");
             await Task.WhenAll(
                 Task.Run(RemoveRunningInstanceRegistration),
+                // All three settings saves share the same named mutex
+                // (Local\SquadDash.ApplicationSettings).  Running them in separate
+                // concurrent Tasks causes the re-entrant guard in MutexLease to reject
+                // the second and third acquisition, silently dropping those saves.
+                // Serialize them inside a single Task.Run to eliminate the contention.
                 Task.Run(() =>
                 {
                     if (pendingPlacement is { } p)
                         _settingsStore.SaveWindowPlacement(p.FolderPath, p.Placement);
-                }),
-                Task.Run(() =>
-                {
                     if (pendingUtilityWindowState is { } u)
                         _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen);
-                }),
-                Task.Run(() =>
-                {
                     if (pendingDocsPanelState is { } docs)
                         _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, new WorkspaceDocsPanelState
                         {

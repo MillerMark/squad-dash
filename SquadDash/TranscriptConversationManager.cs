@@ -180,7 +180,7 @@ internal sealed class TranscriptConversationManager {
 
     // ── Workspace conversation load ─────────────────────────────────────────────
 
-    internal void LoadWorkspaceConversation() {
+    internal async Task LoadWorkspaceConversationAsync() {
         CancelScheduledAgentThreadSnapshotPersist();
         // Clear any pending renders left over from a previous workspace.
         _pendingAgentRenders.Clear();
@@ -194,8 +194,10 @@ internal sealed class TranscriptConversationManager {
         }
 
         // T0 → T1: measure deserialization of the saved conversation JSON.
+        // Run the file I/O + JSON parse off the UI thread to avoid blocking Loaded/OpenWorkspace.
         var dataSw = Stopwatch.StartNew();
-        _conversationState = _conversationStore.Load(workspace.FolderPath);
+        var folderPath = workspace.FolderPath;
+        _conversationState = await Task.Run(() => _conversationStore.Load(folderPath)).ConfigureAwait(true);
         dataSw.Stop();
         var dataLoadMs = dataSw.ElapsedMilliseconds;
 

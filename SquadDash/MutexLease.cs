@@ -70,12 +70,11 @@ internal sealed class MutexLease : IDisposable {
         if (mutex is null)
             return;
 
-        s_heldNames.TryRemove(_name, out _);
-
         try {
             mutex.ReleaseMutex();
         }
         finally {
+            s_heldNames.TryRemove(_name, out _);
             mutex.Dispose();
         }
     }
