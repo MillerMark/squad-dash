@@ -30,6 +30,11 @@ internal sealed class PreferencesWindow : Window {
     private readonly ComboBox _tunnelModeComboBox;
     private readonly PasswordBox _tunnelTokenPasswordBox;
     private readonly TextBox _tunnelTokenRevealBox;
+    private readonly TextBox _byokProviderUrlBox;
+    private readonly TextBox _byokModelBox;
+    private readonly ComboBox _byokProviderTypeComboBox;
+    private readonly PasswordBox _byokApiKeyPasswordBox;
+    private readonly TextBox _byokApiKeyRevealBox;
 
     private PreferencesWindow(
         ApplicationSettingsStore settingsStore,
@@ -265,6 +270,135 @@ internal sealed class PreferencesWindow : Window {
         };
         form.Children.Add(revealTunnelLink);
 
+        // ── Custom Model Provider (BYOK) Section ──────────────────────────
+        form.Children.Add(new Separator { Margin = new Thickness(0, 22, 0, 18) });
+
+        var byokSectionLabel = new TextBlock {
+            Text = "Custom Model Provider (BYOK)",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        byokSectionLabel.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        form.Children.Add(byokSectionLabel);
+
+        var byokHint = new TextBlock {
+            Text = "Override the default Copilot model with a custom provider (e.g. Ollama). Leave blank to use GitHub Copilot.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        byokHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        form.Children.Add(byokHint);
+
+        var byokProviderUrlLabel = new TextBlock {
+            Text = "Provider URL:",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        byokProviderUrlLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        form.Children.Add(byokProviderUrlLabel);
+
+        _byokProviderUrlBox = new TextBox {
+            Text = currentSettings.ByokProviderUrl ?? "",
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30
+        };
+        form.Children.Add(_byokProviderUrlBox);
+
+        var byokUrlHint = new TextBlock {
+            Text = "e.g. http://localhost:11434/v1",
+            FontSize = 11,
+            Margin = new Thickness(0, 3, 0, 12)
+        };
+        byokUrlHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        form.Children.Add(byokUrlHint);
+
+        var byokModelLabel = new TextBlock {
+            Text = "Model:",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        byokModelLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        form.Children.Add(byokModelLabel);
+
+        _byokModelBox = new TextBox {
+            Text = currentSettings.ByokModel ?? "",
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        form.Children.Add(_byokModelBox);
+
+        var byokProviderTypeLabel = new TextBlock {
+            Text = "Provider Type:",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        byokProviderTypeLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        form.Children.Add(byokProviderTypeLabel);
+
+        _byokProviderTypeComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
+        _byokProviderTypeComboBox.Items.Add(new ComboBoxItem { Content = "OpenAI / Ollama (default)", Tag = "openai" });
+        _byokProviderTypeComboBox.Items.Add(new ComboBoxItem { Content = "Azure", Tag = "azure" });
+        _byokProviderTypeComboBox.Items.Add(new ComboBoxItem { Content = "Anthropic", Tag = "anthropic" });
+        var savedByokType = currentSettings.ByokProviderType;
+        var byokTypeSelected = false;
+        foreach (ComboBoxItem item in _byokProviderTypeComboBox.Items) {
+            if (string.Equals(item.Tag as string, savedByokType, StringComparison.OrdinalIgnoreCase)) {
+                item.IsSelected = true;
+                byokTypeSelected = true;
+                break;
+            }
+        }
+        if (!byokTypeSelected)
+            ((ComboBoxItem)_byokProviderTypeComboBox.Items[0]).IsSelected = true;
+        form.Children.Add(_byokProviderTypeComboBox);
+
+        var byokApiKeyLabel = new TextBlock {
+            Text = "API Key (optional):",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        byokApiKeyLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        form.Children.Add(byokApiKeyLabel);
+
+        var currentByokApiKey = currentSettings.ByokApiKey ?? string.Empty;
+        var byokApiKeyHost = new Grid();
+        _byokApiKeyPasswordBox = new PasswordBox {
+            Password = currentByokApiKey,
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30
+        };
+        _byokApiKeyRevealBox = new TextBox {
+            Text = currentByokApiKey,
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30,
+            Visibility = Visibility.Collapsed
+        };
+        byokApiKeyHost.Children.Add(_byokApiKeyPasswordBox);
+        byokApiKeyHost.Children.Add(_byokApiKeyRevealBox);
+        form.Children.Add(byokApiKeyHost);
+
+        var revealByokApiKeyLink = new TextBlock {
+            Margin = new Thickness(0, 6, 0, 0),
+            Cursor = Cursors.Hand
+        };
+        var revealByokApiKeyRun = new System.Windows.Documents.Run("(reveal key)");
+        revealByokApiKeyRun.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "ActionLinkText");
+        revealByokApiKeyLink.Inlines.Add(revealByokApiKeyRun);
+        revealByokApiKeyLink.MouseLeftButtonDown += (_, _) => {
+            _byokApiKeyRevealBox.Text = _byokApiKeyPasswordBox.Password;
+            _byokApiKeyPasswordBox.Visibility = Visibility.Collapsed;
+            _byokApiKeyRevealBox.Visibility = Visibility.Visible;
+        };
+        revealByokApiKeyLink.MouseLeftButtonUp += (_, _) => {
+            _byokApiKeyPasswordBox.Password = _byokApiKeyRevealBox.Text;
+            _byokApiKeyRevealBox.Visibility = Visibility.Collapsed;
+            _byokApiKeyPasswordBox.Visibility = Visibility.Visible;
+        };
+        form.Children.Add(revealByokApiKeyLink);
+
         if (showDevOptions)
         {
         form.Children.Add(new Separator {
@@ -498,6 +632,13 @@ internal sealed class PreferencesWindow : Window {
         var tunnelMode = (_tunnelModeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
         var tunnelToken = _tunnelTokenRevealBox.IsVisible ? _tunnelTokenRevealBox.Text : _tunnelTokenPasswordBox.Password;
         updated = _settingsStore.SaveTunnelSettings(tunnelMode, string.IsNullOrWhiteSpace(tunnelToken) ? null : tunnelToken);
+        var byokProviderType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        var byokApiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
+        updated = _settingsStore.SaveByokSettings(
+            string.IsNullOrWhiteSpace(_byokProviderUrlBox.Text.Trim()) ? null : _byokProviderUrlBox.Text.Trim(),
+            string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim(),
+            byokProviderType,
+            string.IsNullOrWhiteSpace(byokApiKey) ? null : byokApiKey);
         _onSaved(updated);
         Close();
 
