@@ -1494,6 +1494,19 @@ async function main() {
     // No-op when env var is absent — zero runtime cost.
     const _telemetry = initAgentModeTelemetry();
 
+    // BYOK diagnostic: log env var state at startup so the C# Trace panel shows
+    // exactly what the node process received. Appears as "Bridge | stderr: BYOK_DIAG ..."
+    const byokVars = [
+        "COPILOT_PROVIDER_BASE_URL",
+        "COPILOT_PROVIDER_MODEL_ID",
+        "COPILOT_PROVIDER_TYPE",
+        "COPILOT_PROVIDER_API_KEY",
+        "COPILOT_PROVIDER_BEARER_TOKEN",
+        "COPILOT_MODEL",           // old/wrong name — should be absent
+    ];
+    const byokDiag = byokVars.map(k => `${k}=${process.env[k] ?? "(not set)"}`).join(", ");
+    process.stderr.write(`BYOK_DIAG pid=${process.pid} ${byokDiag}\n`);
+
     const directPrompt = process.argv.slice(2).join(" ").trim();
 
     if (directPrompt) {
