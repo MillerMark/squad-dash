@@ -65,6 +65,7 @@
     <Compile Include="..\SquadDash\AgentThreadIdentityPolicy.cs" Link="Source\AgentThreadIdentityPolicy.cs" />
     <Compile Include="..\SquadDash\QuickReplyOptionParser.cs" Link="Source\QuickReplyOptionParser.cs" />
     <Compile Include="..\SquadDash\ApplicationSettingsStore.cs" Link="Source\ApplicationSettingsStore.cs" />
+    <Compile Include="..\SquadDash\ByokProviderSettings.cs" Link="Source\ByokProviderSettings.cs" />
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />
