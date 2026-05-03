@@ -347,6 +347,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         _workspacePaths = workspacePaths ?? WorkspacePathsProvider.Discover();
         _screenshotRefreshOptions = screenshotRefreshOptions ?? ScreenshotRefreshOptions.None;
+        var ctorSw = Stopwatch.StartNew();
+        SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
         _bridge = new SquadSdkProcess(_workspacePaths);
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
@@ -354,6 +356,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
         InitializeComponent();
+        SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         _scrollController = new TranscriptScrollController(OutputTextBox, Dispatcher);
         _scrollController.SetScrollToBottomButton(ScrollToBottomButton);
         _agentThreadRegistry = new AgentThreadRegistry(
@@ -473,6 +476,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             () => TryPostToUi(ActivateOwnedWindow, "InstanceActivation.Request"),
             ex => SquadDashTrace.Write("Workspace", $"Activation listener failed: {ex.Message}"));
         _instanceActivationChannel.Start();
+        SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InstanceActivationChannel started {ctorSw.ElapsedMilliseconds}ms.");
 
         ActiveAgentItemsControl.ItemsSource = _activeAgentCards;
         InactiveAgentItemsControl.ItemsSource = _inactiveAgentCards;
@@ -862,6 +866,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             workspacePaths: _workspacePaths);
 
         InitializeHostCommands();
+        SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeHostCommands {ctorSw.ElapsedMilliseconds}ms.");
 
         _loopController = new LoopController(
             // ExecutePromptAsync accesses WPF components — must run on the UI thread.
@@ -916,6 +921,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         RegisterUiReplayActions();
         RegisterFixtureLoaders();
+        ctorSw.Stop();
+        SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: complete {ctorSw.ElapsedMilliseconds}ms total.");
     }
 
     // ── Replay action registration ──────────────────────────────────────────
@@ -1151,19 +1158,35 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
 
             _startupInitialized = true;
-            SquadDashTrace.Write("Startup", "MainWindow loaded. Beginning deferred startup initialization.");
+            var loadedSw = Stopwatch.StartNew();
+            var phaseSw = Stopwatch.StartNew();
+            SquadDashTrace.Write(TraceCategory.Startup, "MainWindow_Loaded: begin deferred init.");
 
             ConfigureRestartRequestWatcher();
-            InitializeWorkspace(_startupFolderArgument);
-            RestoreUtilityWindowVisibility();
-            await _squadCliAdapter.ResolveSquadVersionAsync();
-            UpdateStatusTitle();
-            _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
-            SquadDashTrace.Write("Startup", "Deferred startup initialization completed.");
+            SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ConfigureRestartRequestWatcher {phaseSw.ElapsedMilliseconds}ms.");
 
-            // Give the prompt text box focus on startup so the user can type immediately.
+            phaseSw.Restart();
+            InitializeWorkspace(_startupFolderArgument);
+            SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: InitializeWorkspace {phaseSw.ElapsedMilliseconds}ms.");
+
+            phaseSw.Restart();
+            RestoreUtilityWindowVisibility();
+            SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: RestoreUtilityWindowVisibility {phaseSw.ElapsedMilliseconds}ms.");
+
+            // Grant focus before the async version-check so the user can type immediately
+            // without waiting for the npx squad --version probe to complete.
             if (PromptTextBox.IsVisible)
                 _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () => PromptTextBox.Focus());
+
+            phaseSw.Restart();
+            await _squadCliAdapter.ResolveSquadVersionAsync();
+            SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ResolveSquadVersionAsync {phaseSw.ElapsedMilliseconds}ms.");
+
+            UpdateStatusTitle();
+            _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
+
+            loadedSw.Stop();
+            SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: complete {loadedSw.ElapsedMilliseconds}ms total.");
 
             // Screenshot refresh mode: run the automated pass then shut down.
             if (_screenshotRefreshOptions.Mode != ScreenshotRefreshMode.None)
@@ -1477,7 +1500,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void InitializeWorkspace(string? startupFolder)
     {
+        var initWsSw = Stopwatch.StartNew();
+        SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
         _settingsSnapshot = _settingsStore.Load();
+        SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: settings loaded {initWsSw.ElapsedMilliseconds}ms.");
         _promptFontSize = Math.Clamp(_settingsSnapshot.PromptFontSize, PromptFontSizeMin, PromptFontSizeMax);
         _transcriptFontSize = Math.Clamp(_settingsSnapshot.TranscriptFontSize, TranscriptFontSizeMin, TranscriptFontSizeMax);
         _docSourceFontSize = Math.Clamp(_settingsSnapshot.DocSourceFontSize, DocSourceFontSizeMin, DocSourceFontSizeMax);
@@ -1489,8 +1515,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         ApplyTheme(_settingsSnapshot.Theme ?? "Light");
         RefreshRecentFoldersMenu(_settingsSnapshot.RecentFolders);
         UpdateVoiceHintVisibility();
+        SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: theme/UI applied {initWsSw.ElapsedMilliseconds}ms.");
         RefreshInstallationState();
         RefreshDeveloperRuntimeIssuePreview();
+        SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: installation state refreshed {initWsSw.ElapsedMilliseconds}ms.");
 
         var candidateFolder = StartupWorkspaceResolver.Resolve(
             startupFolder,
@@ -1499,11 +1527,13 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (!string.IsNullOrWhiteSpace(candidateFolder))
         {
+            SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: opening workspace at {initWsSw.ElapsedMilliseconds}ms.");
             OpenWorkspace(
                 candidateFolder,
                 rememberFolder: true,
                 closeWindowIfActivatedExisting: true,
                 showBlockedDialog: false);
+            SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: complete (with workspace) {initWsSw.ElapsedMilliseconds}ms total.");
             return;
         }
 
@@ -1512,6 +1542,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         RefreshSidebar();
         UpdateInteractiveControlState();
         UpdateRunningInstanceRegistration();
+        SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: complete (no workspace) {initWsSw.ElapsedMilliseconds}ms total.");
     }
 
     private string? TryGetApplicationRoot()
@@ -13370,6 +13401,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             var pendingUtilityWindowState = _pendingUtilityWindowState;
             var pendingDocsPanelState = _pendingDocsPanelState;
             var pendingConversation = _conversationManager.PendingConversationSave;
+            var closedSw = Stopwatch.StartNew();
+            SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closed: begin async dispose (WhenAll).");
             await Task.WhenAll(
                 Task.Run(RemoveRunningInstanceRegistration),
                 Task.Run(() =>
@@ -13403,6 +13436,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }),
                 _bridge.DisposeAsync().AsTask(),
                 _instanceActivationChannel.DisposeAsync().AsTask());
+            SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: WhenAll complete {closedSw.ElapsedMilliseconds}ms.");
             _workspaceOwnershipLease?.Dispose();
             _workspaceOwnershipLease = null;
             _startupWorkspaceLease?.Dispose();
@@ -13412,6 +13446,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             DisposeRestartRequestWatcher();
             DisposeDocsWatcher();
             _toolSpinnerTimer.Stop();
+            SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
         }
         catch (Exception ex)
         {
@@ -13483,7 +13518,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             _deferredShutdown = DeferredShutdownMode.None;
             _isClosing = true;
-            SquadDashTrace.Write("Shutdown", "Main window closing.");
+            var closingSw = Stopwatch.StartNew();
+            SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: begin clean shutdown.");
             // Clear the loop resume flag on a user-initiated close so we don't auto-resume next
             // launch. On a build-triggered restart (_restartPending) we preserve the flag so the
             // new instance picks up where we left off and shows Stop/Abort instead of Start Loop.
@@ -13568,6 +13604,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     SourceWidth = docs.DocsSourceWidth,
                 });
             _conversationManager.EmergencySave();
+            SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: complete {closingSw.ElapsedMilliseconds}ms.");
         }
         catch (Exception ex)
         {

@@ -356,8 +356,10 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         process.Exited += (_, _) => HandleProcessExited(process);
 
+        var startSw = Stopwatch.StartNew();
         if (!process.Start())
             throw new InvalidOperationException("Failed to start Squad SDK process.");
+        startSw.Stop();
 
         process.BeginErrorReadLine();
         var readerTask = Task.Run(() => ReadOutputLoopAsync(process));
@@ -370,7 +372,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         SquadDashTrace.Write(
             "Bridge",
-            $"Started persistent bridge process pid={process.Id}. {SquadDashRuntimeStamp.BuildBridgeStamp()}");
+            $"Started persistent bridge process pid={process.Id} in {startSw.ElapsedMilliseconds}ms. {SquadDashRuntimeStamp.BuildBridgeStamp()}");
     }
 
     private ProcessStartInfo BuildDefaultStartInfo() {
@@ -637,7 +639,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     public async ValueTask DisposeAsync() {
+        var sw = Stopwatch.StartNew();
         ResetProcess();
+        SquadDashTrace.Write(TraceCategory.Shutdown, $"SDK DisposeAsync: ResetProcess (kill) {sw.ElapsedMilliseconds}ms.");
         _stdinWriteLock.Dispose();
         _promptLock.Dispose();
         await Task.CompletedTask.ConfigureAwait(false);
