@@ -511,8 +511,44 @@ function cloneBackgroundTasks(tasks: BackgroundTaskSnapshot): BackgroundTaskSnap
     };
 }
 
+function agentInfoEqual(left: BackgroundAgentInfo, right: BackgroundAgentInfo): boolean {
+    return left.agentId === right.agentId &&
+        left.status === right.status &&
+        left.description === right.description &&
+        left.error === right.error &&
+        left.latestIntent === right.latestIntent &&
+        left.latestResponse === right.latestResponse &&
+        left.completedAt === right.completedAt &&
+        left.totalToolCalls === right.totalToolCalls &&
+        left.totalInputTokens === right.totalInputTokens &&
+        left.totalOutputTokens === right.totalOutputTokens &&
+        JSON.stringify(left.recentActivity) === JSON.stringify(right.recentActivity);
+}
+
+function shellInfoEqual(left: BackgroundShellInfo, right: BackgroundShellInfo): boolean {
+    return left.shellId === right.shellId &&
+        left.status === right.status &&
+        left.description === right.description &&
+        left.completedAt === right.completedAt &&
+        left.recentOutput === right.recentOutput &&
+        left.pid === right.pid;
+}
+
 function backgroundTasksEqual(left: BackgroundTaskSnapshot, right: BackgroundTaskSnapshot): boolean {
-    return JSON.stringify(left) === JSON.stringify(right);
+    if (left.agents.length !== right.agents.length || left.shells.length !== right.shells.length)
+        return false;
+
+    for (let i = 0; i < left.agents.length; i++) {
+        if (!agentInfoEqual(left.agents[i], right.agents[i]))
+            return false;
+    }
+
+    for (let i = 0; i < left.shells.length; i++) {
+        if (!shellInfoEqual(left.shells[i], right.shells[i]))
+            return false;
+    }
+
+    return true;
 }
 
 function extractTaskCompletionSummary(event: unknown): string | undefined {
@@ -836,10 +872,10 @@ export class SquadBridgeService {
         if (backgroundTasksEqual(state.backgroundTasks, nextTasks))
             return;
 
-        state.backgroundTasks = cloneBackgroundTasks(nextTasks);
+        state.backgroundTasks = nextTasks;
         this.bridgeHandlers.onBackgroundTasksChanged?.(
             state.session.sessionId,
-            cloneBackgroundTasks(state.backgroundTasks));
+            cloneBackgroundTasks(nextTasks));
     }
 
     private async loadBackgroundTasks(state: SessionState): Promise<BackgroundTaskSnapshot> {
@@ -861,13 +897,21 @@ export class SquadBridgeService {
         const agents: BackgroundAgentInfo[] = [];
         const shells: BackgroundShellInfo[] = [];
 
-        for (const task of tasks) {
+        // Fetch all progress data in parallel rather than sequentially.
+        const progressResults = await Promise.all(
+            tasks.map(task =>
+                backgroundTaskSession.getBackgroundTaskProgress
+                    ? backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
+                    : Promise.resolve(undefined)
+            )
+        );
+
+        for (let taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+            const task = tasks[taskIndex];
+            const progress = progressResults[taskIndex];
             const taskType = getStringValue(task, "type");
             if (taskType === "agent") {
                 const toolCallId = getStringValue(task, "toolCallId");
-                const progress = backgroundTaskSession.getBackgroundTaskProgress
-                    ? await backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
-                    : undefined;
                 const known = toolCallId
                     ? state.subagentsByToolCallId.get(toolCallId)
                     : undefined;
@@ -914,9 +958,6 @@ export class SquadBridgeService {
             }
 
             if (taskType === "shell") {
-                const progress = backgroundTaskSession.getBackgroundTaskProgress
-                    ? await backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
-                    : undefined;
                 const shell: BackgroundShellInfo = {
                     shellId: getStringValue(task, "id") ?? "",
                     status: getStringValue(task, "status"),

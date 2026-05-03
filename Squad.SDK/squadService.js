@@ -233,8 +233,39 @@ function cloneBackgroundTasks(tasks) {
         shells: tasks.shells.map(shell => ({ ...shell }))
     };
 }
+function agentInfoEqual(left, right) {
+    return left.agentId === right.agentId &&
+        left.status === right.status &&
+        left.description === right.description &&
+        left.error === right.error &&
+        left.latestIntent === right.latestIntent &&
+        left.latestResponse === right.latestResponse &&
+        left.completedAt === right.completedAt &&
+        left.totalToolCalls === right.totalToolCalls &&
+        left.totalInputTokens === right.totalInputTokens &&
+        left.totalOutputTokens === right.totalOutputTokens &&
+        JSON.stringify(left.recentActivity) === JSON.stringify(right.recentActivity);
+}
+function shellInfoEqual(left, right) {
+    return left.shellId === right.shellId &&
+        left.status === right.status &&
+        left.description === right.description &&
+        left.completedAt === right.completedAt &&
+        left.recentOutput === right.recentOutput &&
+        left.pid === right.pid;
+}
 function backgroundTasksEqual(left, right) {
-    return JSON.stringify(left) === JSON.stringify(right);
+    if (left.agents.length !== right.agents.length || left.shells.length !== right.shells.length)
+        return false;
+    for (let i = 0; i < left.agents.length; i++) {
+        if (!agentInfoEqual(left.agents[i], right.agents[i]))
+            return false;
+    }
+    for (let i = 0; i < left.shells.length; i++) {
+        if (!shellInfoEqual(left.shells[i], right.shells[i]))
+            return false;
+    }
+    return true;
 }
 function extractTaskCompletionSummary(event) {
     return getStringValue(event, "summary") ??
@@ -467,8 +498,8 @@ export class SquadBridgeService {
         const nextTasks = await this.loadBackgroundTasks(state);
         if (backgroundTasksEqual(state.backgroundTasks, nextTasks))
             return;
-        state.backgroundTasks = cloneBackgroundTasks(nextTasks);
-        this.bridgeHandlers.onBackgroundTasksChanged?.(state.session.sessionId, cloneBackgroundTasks(state.backgroundTasks));
+        state.backgroundTasks = nextTasks;
+        this.bridgeHandlers.onBackgroundTasksChanged?.(state.session.sessionId, cloneBackgroundTasks(nextTasks));
     }
     async loadBackgroundTasks(state) {
         let tasks = [];
@@ -483,13 +514,16 @@ export class SquadBridgeService {
         }
         const agents = [];
         const shells = [];
-        for (const task of tasks) {
+        // Fetch all progress data in parallel rather than sequentially.
+        const progressResults = await Promise.all(tasks.map(task => backgroundTaskSession.getBackgroundTaskProgress
+            ? backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
+            : Promise.resolve(undefined)));
+        for (let taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+            const task = tasks[taskIndex];
+            const progress = progressResults[taskIndex];
             const taskType = getStringValue(task, "type");
             if (taskType === "agent") {
                 const toolCallId = getStringValue(task, "toolCallId");
-                const progress = backgroundTaskSession.getBackgroundTaskProgress
-                    ? await backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
-                    : undefined;
                 const known = toolCallId
                     ? state.subagentsByToolCallId.get(toolCallId)
                     : undefined;
@@ -528,9 +562,6 @@ export class SquadBridgeService {
                 continue;
             }
             if (taskType === "shell") {
-                const progress = backgroundTaskSession.getBackgroundTaskProgress
-                    ? await backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
-                    : undefined;
                 const shell = {
                     shellId: getStringValue(task, "id") ?? "",
                     status: getStringValue(task, "status"),

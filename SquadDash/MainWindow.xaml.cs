@@ -16985,6 +16985,21 @@ public partial class MainWindow : Window, ILiveElementLocator
             : AgentThreadRegistry.HumanizeAgentName(agentName).Trim()[..1].ToUpperInvariant();
     }
 
+    private static string? TryNormalizeGitHubUrl(string remoteUrl)
+    {
+        if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
+            remoteUrl = "https://github.com/" + remoteUrl["git@github.com:".Length..];
+
+        if (remoteUrl.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            remoteUrl = remoteUrl[..^4];
+
+        if (Uri.TryCreate(remoteUrl, UriKind.Absolute, out var uri) &&
+            uri.Host.Contains("github.com", StringComparison.OrdinalIgnoreCase))
+            return remoteUrl;
+
+        return null;
+    }
+
     private static string? TryResolveGitHubUrl(string workspaceFolderPath)
     {
         try
@@ -16999,24 +17014,47 @@ public partial class MainWindow : Window, ILiveElementLocator
                 CreateNoWindow = true
             });
 
-            if (process is null)
-                return null;
+            if (process is not null)
+            {
+                var remoteUrl = process.StandardOutput.ReadToEnd().Trim();
+                process.WaitForExit(3000);
 
-            var remoteUrl = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit(3000);
+                if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
+                {
+                    var result = TryNormalizeGitHubUrl(remoteUrl);
+                    if (result is not null)
+                        return result;
+                }
+            }
+        }
+        catch
+        {
+        }
 
-            if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(remoteUrl))
-                return null;
+        // Fallback: read the remote URL directly from .git/config
+        try
+        {
+            var gitConfigPath = Path.Combine(workspaceFolderPath, ".git", "config");
+            if (File.Exists(gitConfigPath))
+            {
+                var inOriginSection = false;
+                foreach (var line in File.ReadAllLines(gitConfigPath))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                    {
+                        inOriginSection = trimmed.Equals("[remote \"origin\"]", StringComparison.OrdinalIgnoreCase);
+                        continue;
+                    }
 
-            if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
-                remoteUrl = "https://github.com/" + remoteUrl["git@github.com:".Length..];
-
-            if (remoteUrl.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-                remoteUrl = remoteUrl[..^4];
-
-            if (Uri.TryCreate(remoteUrl, UriKind.Absolute, out var uri) &&
-                uri.Host.Contains("github.com", StringComparison.OrdinalIgnoreCase))
-                return remoteUrl;
+                    if (inOriginSection && trimmed.StartsWith("url", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var eqIndex = trimmed.IndexOf('=');
+                        if (eqIndex >= 0)
+                            return TryNormalizeGitHubUrl(trimmed[(eqIndex + 1)..].Trim());
+                    }
+                }
+            }
         }
         catch
         {
