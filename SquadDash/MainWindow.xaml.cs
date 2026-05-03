@@ -5120,8 +5120,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static string ExtractInlineText(InlineCollection inlines) =>
         TranscriptCopyService.ExtractInlineText(inlines);
 
-    private static void SetClipboardTextWithRetry(string text, int retries = 5)
+    private static void SetClipboardTextWithRetry(string text, int retries = 10)
     {
+        Exception? lastEx = null;
         for (int i = 0; i < retries; i++)
         {
             try
@@ -5129,11 +5130,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                 Clipboard.SetDataObject(text, copy: true);
                 return;
             }
-            catch (System.Runtime.InteropServices.COMException) when (i < retries - 1)
+            catch (System.Runtime.InteropServices.COMException ex)
             {
-                System.Threading.Thread.Sleep(15);
+                lastEx = ex;
+                System.Threading.Thread.Sleep(30 * (i + 1)); // 30, 60, 90... ms — linear backoff
             }
         }
+        if (lastEx != null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(lastEx).Throw();
     }
 
     private void OutputTextBox_CopyExecuted(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
