@@ -401,7 +401,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
 
             if (!string.IsNullOrEmpty(byok.Model))
-                psi.EnvironmentVariables["COPILOT_MODEL"] = byok.Model;
+                psi.EnvironmentVariables["COPILOT_PROVIDER_MODEL_ID"] = byok.Model;
 
             if (!string.IsNullOrEmpty(byok.ProviderType))
                 psi.EnvironmentVariables["COPILOT_PROVIDER_TYPE"] = byok.ProviderType;
