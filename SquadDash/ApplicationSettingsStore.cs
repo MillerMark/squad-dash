@@ -265,6 +265,23 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveByokSettings(
+        string? providerUrl,
+        string? model,
+        string? providerType,
+        string? apiKey) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            ByokProviderUrl = string.IsNullOrWhiteSpace(providerUrl) ? null : providerUrl.Trim(),
+            ByokModel = string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
+            ByokProviderType = providerType is "openai" or "azure" or "anthropic" ? providerType : null,
+            ByokApiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim()
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveDeveloperIssueSimulation(
         DeveloperStartupIssueSimulation startupIssueSimulation,
         DeveloperRuntimeIssueSimulation runtimeIssueSimulation) {
@@ -712,6 +729,19 @@ internal sealed record ApplicationSettingsSnapshot(
     /// <summary>Auth token for the tunnel provider (ngrok authtoken or cloudflare tunnel token).</summary>
     public string? TunnelToken { get; init; }
 
+    // ── BYOK (Bring Your Own Key) provider settings ───────────────────────
+    /// <summary>Base URL for a custom OpenAI-compatible model provider (e.g. a local Ollama instance).</summary>
+    public string? ByokProviderUrl { get; init; }
+
+    /// <summary>Model name to use with the custom provider (e.g. "qwen3-coder:30b").</summary>
+    public string? ByokModel { get; init; }
+
+    /// <summary>Provider type: "openai", "azure", "anthropic", or null (default Copilot).</summary>
+    public string? ByokProviderType { get; init; }
+
+    /// <summary>API key for the custom provider. Sensitive — not logged.</summary>
+    public string? ByokApiKey { get; init; }
+
     /// <summary>
     /// Names of <see cref="TraceCategory"/> values that should be suppressed in
     /// the live trace window.  Stored as strings so the JSON round-trips cleanly
@@ -943,6 +973,10 @@ internal sealed record ApplicationSettingsSnapshot(
             NotificationEventToggles = NotificationEventToggles,
             TunnelMode = TunnelMode is "ngrok" or "cloudflare" ? TunnelMode : null,
             TunnelToken = string.IsNullOrWhiteSpace(TunnelToken) ? null : TunnelToken.Trim(),
+            ByokProviderUrl = string.IsNullOrWhiteSpace(ByokProviderUrl) ? null : ByokProviderUrl.Trim(),
+            ByokModel = string.IsNullOrWhiteSpace(ByokModel) ? null : ByokModel.Trim(),
+            ByokProviderType = ByokProviderType is "openai" or "azure" or "anthropic" ? ByokProviderType : null,
+            ByokApiKey = string.IsNullOrWhiteSpace(ByokApiKey) ? null : ByokApiKey.Trim(),
             LoopMode = LoopMode,
             LoopContinuousContext = LoopContinuousContext,
             LoopActiveOnExit = LoopActiveOnExit,
