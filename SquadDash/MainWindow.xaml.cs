@@ -5120,13 +5120,29 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static string ExtractInlineText(InlineCollection inlines) =>
         TranscriptCopyService.ExtractInlineText(inlines);
 
+    private static void SetClipboardTextWithRetry(string text, int retries = 5)
+    {
+        for (int i = 0; i < retries; i++)
+        {
+            try
+            {
+                Clipboard.SetDataObject(text, copy: true);
+                return;
+            }
+            catch (System.Runtime.InteropServices.COMException) when (i < retries - 1)
+            {
+                System.Threading.Thread.Sleep(15);
+            }
+        }
+    }
+
     private void OutputTextBox_CopyExecuted(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
     {
         try
         {
             var text = TranscriptCopyService.BuildSelectionText(OutputTextBox);
             if (!string.IsNullOrEmpty(text))
-                Clipboard.SetText(text);
+                SetClipboardTextWithRetry(text);
             e.Handled = true;
         }
         catch (Exception ex)
