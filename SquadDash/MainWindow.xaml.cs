@@ -350,6 +350,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var ctorSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
         _bridge = new SquadSdkProcess(_workspacePaths);
+        _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
         _squadCliAdapter = new SquadCliAdapter(_workspacePaths, (op, ex) => HandleUiCallbackException(op, ex));
@@ -14392,6 +14393,18 @@ public partial class MainWindow : Window, ILiveElementLocator
         _docsRefreshCts?.Cancel();
         _docsRefreshCts?.Dispose();
         _docsRefreshCts = null;
+    }
+
+    private ByokProviderSettings? BuildByokSettingsFromStore()
+    {
+        var snapshot = _settingsStore.Load();
+        if (string.IsNullOrEmpty(snapshot.ByokProviderUrl))
+            return null;
+        return new ByokProviderSettings(
+            snapshot.ByokProviderUrl,
+            snapshot.ByokModel,
+            snapshot.ByokProviderType,
+            snapshot.ByokApiKey);
     }
 
     private void DocsWatcher_Changed(object sender, FileSystemEventArgs e)

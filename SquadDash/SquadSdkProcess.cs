@@ -32,6 +32,14 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private Task? _outputReaderTask;
     private string? _activePromptRequestId;
 
+    /// <summary>
+    /// Optional BYOK provider settings. When set (and <see cref="ByokProviderSettings.ProviderUrl"/> is
+    /// non-empty), the corresponding <c>COPILOT_PROVIDER_*</c> environment variables are injected into
+    /// the bridge child process, bypassing GitHub authentication entirely.
+    /// Must be assigned before the bridge is first started.
+    /// </summary>
+    internal ByokProviderSettings? ByokProviderSettings { get; set; }
+
     internal SquadSdkProcess(IWorkspacePaths workspacePaths)
         : this(processStartInfoFactory: null, options: null, workspacePaths: workspacePaths) {
     }
@@ -376,7 +384,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     private ProcessStartInfo BuildDefaultStartInfo() {
-        return new ProcessStartInfo {
+        var psi = new ProcessStartInfo {
             FileName = "node",
             Arguments = "runPrompt.js",
             WorkingDirectory = _workspacePaths?.SquadSdkDirectory ?? throw new InvalidOperationException("WorkspacePaths not configured"),
@@ -388,6 +396,21 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+
+        if (ByokProviderSettings is { ProviderUrl: { Length: > 0 } providerUrl } byok) {
+            psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
+
+            if (!string.IsNullOrEmpty(byok.Model))
+                psi.EnvironmentVariables["COPILOT_MODEL"] = byok.Model;
+
+            if (!string.IsNullOrEmpty(byok.ProviderType))
+                psi.EnvironmentVariables["COPILOT_PROVIDER_TYPE"] = byok.ProviderType;
+
+            if (!string.IsNullOrEmpty(byok.ApiKey))
+                psi.EnvironmentVariables["COPILOT_PROVIDER_API_KEY"] = byok.ApiKey;
+        }
+
+        return psi;
     }
 
     private async Task SendBridgeRequestAsync<TRequest>(TRequest request) {
