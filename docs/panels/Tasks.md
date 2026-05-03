@@ -23,7 +23,7 @@ Tasks are read from `.squad/tasks.md` in the workspace's `.squad/` folder and gr
 
 ![Screenshot: Tasks panel showing prioritised task groups](images/tasks-panel.png)
 
-| Emoji | Priority label | Dot colour |
+| Emoji | Priority label | Dot color |
 |---|---|---|
 | 🔴 | High Priority | Red |
 | 🟡 | Mid Priority | Amber |
@@ -49,7 +49,7 @@ Use standard checkbox list format under `##` headings that include a priority em
 
 - [ ] **Add dark mode toggle** *(Owner: Lyra Morn)*
 
-## �� Low Priority
+## 🟢 Low Priority
 
 - [ ] **Update README screenshots**
 
