@@ -229,27 +229,50 @@ function normalizeBackgroundTasks(event) {
 }
 function cloneBackgroundTasks(tasks) {
     return {
-        agents: tasks.agents.map(agent => ({ ...agent })),
+        agents: tasks.agents.map(agent => ({
+            ...agent,
+            recentActivity: agent.recentActivity ? [...agent.recentActivity] : undefined
+        })),
         shells: tasks.shells.map(shell => ({ ...shell }))
     };
 }
+function stringArrayEqual(left, right) {
+    if (!left || left.length === 0)
+        return !right || right.length === 0;
+    if (!right || left.length !== right.length)
+        return false;
+    for (let i = 0; i < left.length; i++) {
+        if (left[i] !== right[i])
+            return false;
+    }
+    return true;
+}
 function agentInfoEqual(left, right) {
     return left.agentId === right.agentId &&
+        left.toolCallId === right.toolCallId &&
+        left.agentType === right.agentType &&
         left.status === right.status &&
         left.description === right.description &&
+        left.prompt === right.prompt &&
         left.error === right.error &&
+        left.startedAt === right.startedAt &&
         left.latestIntent === right.latestIntent &&
         left.latestResponse === right.latestResponse &&
         left.completedAt === right.completedAt &&
+        left.agentName === right.agentName &&
+        left.agentDisplayName === right.agentDisplayName &&
+        left.model === right.model &&
         left.totalToolCalls === right.totalToolCalls &&
         left.totalInputTokens === right.totalInputTokens &&
         left.totalOutputTokens === right.totalOutputTokens &&
-        JSON.stringify(left.recentActivity) === JSON.stringify(right.recentActivity);
+        stringArrayEqual(left.recentActivity, right.recentActivity);
 }
 function shellInfoEqual(left, right) {
     return left.shellId === right.shellId &&
         left.status === right.status &&
         left.description === right.description &&
+        left.command === right.command &&
+        left.startedAt === right.startedAt &&
         left.completedAt === right.completedAt &&
         left.recentOutput === right.recentOutput &&
         left.pid === right.pid;
@@ -310,16 +333,23 @@ function extractErrorMessage(error) {
 function normalizeAgentHandle(value) {
     return value.trim().replace(/^@+/, "").toLowerCase();
 }
-function buildNamedAgentHiddenContext(targetAgent, charterContent) {
+export function buildNamedAgentExecutionPrompt(selectedOption, targetAgent, handoffContext, charterContent) {
     const normalizedHandle = normalizeAgentHandle(targetAgent);
+    const trimmedOption = selectedOption.trim();
     const lines = [
-        `You are @${normalizedHandle}. SquadDash has launched you directly for this task.`,
-        "Your charter defines your identity, responsibilities, and work style.",
-        "Begin working on the user's request immediately. Do not narrate your launch.",
+        `You are @${normalizedHandle}. SquadDash has launched you directly for a quick-reply task.`,
+        `Visible quick reply selected by the user: "${trimmedOption}"`,
+        "",
+        "Treat this prompt as the complete task brief. Do not depend on prior session memory unless it appears below.",
+        "Use the handoff/source turn below as authoritative scope for references such as \"this\", \"that\", \"the 3 optimizations\", \"run verification\", or named files.",
+        "Keep the work scoped to the selected quick reply and source context unless that context explicitly asks for a full sweep.",
+        "Begin working immediately. Do not narrate your launch."
     ];
-    if (charterContent?.trim()) {
-        lines.push("", "--- CHARTER ---", charterContent.trim(), "--- END CHARTER ---");
-    }
+    if (charterContent?.trim())
+        lines.push("", "## Agent Charter", charterContent.trim());
+    if (handoffContext?.trim())
+        lines.push("", "## Quick-Reply Handoff Context", handoffContext.trim());
+    lines.push("", "## Selected User Action", trimmedOption);
     return lines.join("\n");
 }
 function buildDelegationHiddenContext(selectedOption, targetAgent) {
@@ -360,16 +390,13 @@ export class SquadBridgeService {
         }, buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
     }
     async runNamedAgent(request, handlers) {
-        const hiddenContext = [
-            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent),
-            request.handoffContext?.trim()
-        ].filter((value) => !!value && value.trim().length > 0).join("\n\n");
-        await this.runSessionRequest(request.selectedOption, handlers, {
+        const executionPrompt = buildNamedAgentExecutionPrompt(request.selectedOption, request.targetAgent, request.handoffContext, request.charterContent);
+        await this.runSessionRequest(executionPrompt, handlers, {
             cwd: request.cwd,
             sessionId: request.namedAgentSessionId,
             configDir: request.configDir,
             requireSameSession: false
-        }, hiddenContext);
+        });
     }
     async runSessionRequest(prompt, handlers, options, hiddenAdditionalContext) {
         const trimmedPrompt = prompt.trim();

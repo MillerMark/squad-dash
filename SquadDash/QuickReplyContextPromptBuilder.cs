@@ -67,7 +67,7 @@ internal static class QuickReplyContextPromptBuilder
         }
 
         builder.AppendLine();
-        builder.AppendLine("The selected quick reply remains the user's actual prompt. Treat this context as supporting handoff material, not as a replacement user request.");
+        builder.AppendLine("The selected quick reply is the visible user action. The context above is authoritative task scope for the named agent and must be used to resolve vague labels or references.");
         return TrimToMaxContext(builder.ToString().TrimEnd());
     }
 

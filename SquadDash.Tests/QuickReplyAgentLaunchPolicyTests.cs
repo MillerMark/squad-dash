@@ -12,6 +12,15 @@ internal sealed class QuickReplyAgentLaunchPolicyTests {
     }
 
     [Test]
+    public void RequiresObservedNamedAgentLaunch_ReturnsTrue_ForResolvedContinuationQuickReply() {
+        var result = QuickReplyAgentLaunchPolicy.RequiresObservedNamedAgentLaunch(
+            "continue_current_agent",
+            "sorin-pyre");
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
     public void RequiresObservedNamedAgentLaunch_ReturnsFalse_WhenHandleMissing() {
         var result = QuickReplyAgentLaunchPolicy.RequiresObservedNamedAgentLaunch(
             "start_named_agent",

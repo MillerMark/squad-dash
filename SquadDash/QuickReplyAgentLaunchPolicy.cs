@@ -2,8 +2,12 @@ namespace SquadDash;
 
 internal static class QuickReplyAgentLaunchPolicy {
     public static bool RequiresObservedNamedAgentLaunch(string? routeMode, string? targetAgentHandle) =>
-        string.Equals(routeMode?.Trim(), "start_named_agent", StringComparison.OrdinalIgnoreCase) &&
+        IsDirectNamedAgentRoute(routeMode) &&
         !string.IsNullOrWhiteSpace(targetAgentHandle);
+
+    private static bool IsDirectNamedAgentRoute(string? routeMode) =>
+        string.Equals(routeMode?.Trim(), "start_named_agent", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(routeMode?.Trim(), "continue_current_agent", StringComparison.OrdinalIgnoreCase);
 
     public static bool MatchesExpectedAgent(string? expectedAgentHandle, string? expectedAgentLabel, SquadSdkEvent evt) {
         var normalizedExpectedHandle = NormalizeHandle(expectedAgentHandle);

@@ -16987,17 +16987,27 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private static string? TryNormalizeGitHubUrl(string remoteUrl)
     {
-        if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
-            remoteUrl = "https://github.com/" + remoteUrl["git@github.com:".Length..];
+        remoteUrl = remoteUrl.Trim();
 
-        if (remoteUrl.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-            remoteUrl = remoteUrl[..^4];
+        if (remoteUrl.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
+            return NormalizeGitHubPath(remoteUrl["git@github.com:".Length..]);
 
         if (Uri.TryCreate(remoteUrl, UriKind.Absolute, out var uri) &&
-            uri.Host.Contains("github.com", StringComparison.OrdinalIgnoreCase))
-            return remoteUrl;
+            string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase))
+            return NormalizeGitHubPath(uri.AbsolutePath);
 
         return null;
+    }
+
+    private static string? NormalizeGitHubPath(string path)
+    {
+        path = path.Trim().Trim('/');
+        if (path.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            path = path[..^4];
+
+        return string.IsNullOrWhiteSpace(path)
+            ? null
+            : "https://github.com/" + path;
     }
 
     private static string? TryResolveGitHubUrl(string workspaceFolderPath)

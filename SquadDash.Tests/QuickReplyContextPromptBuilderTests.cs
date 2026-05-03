@@ -52,6 +52,7 @@ internal sealed class QuickReplyContextPromptBuilderTests
             Assert.That(context, Does.Contain("Added tasks-panel-populated fixture."));
             Assert.That(context, Does.Not.Contain("QUICK_REPLIES_JSON"));
             Assert.That(context, Does.Not.Contain("Do not broaden"));
+            Assert.That(context, Does.Contain("authoritative task scope"));
         });
     }
 
@@ -77,6 +78,40 @@ internal sealed class QuickReplyContextPromptBuilderTests
         {
             Assert.That(context, Does.Contain("Ready for Orion?"));
             Assert.That(context, Does.Not.Contain("system_notification"));
+        });
+    }
+
+    [Test]
+    public void BuildHandoffContext_PreservesConcreteSourceTurnScope()
+    {
+        var context = QuickReplyContextPromptBuilder.BuildHandoffContext(
+            "Sorin - implement the 3 optimizations",
+            "Sorin Pyre",
+            "start_named_agent",
+            "sorin-pyre",
+            [
+                new QuickReplyHandoffTurnContext(
+                    "Coordinator",
+                    "did the fixes (optimizations) get implemented?",
+                    """
+                    No - only Sorin's first pass landed. The three actual optimizations identified from trace data were not implemented:
+
+                    1. ResolveSquadVersionAsync (1.5s) - cache or fire-and-forget so it doesn't hold up Loaded
+                    2. OpenWorkspace (670ms) - profile what's slow inside it
+                    3. Mutex timeout on settings save during shutdown - silent data-loss bug
+                    """,
+                    new DateTimeOffset(2026, 5, 3, 5, 23, 13, TimeSpan.Zero),
+                    IsSourceTurn: true)
+            ],
+            []);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context, Does.Contain("Sorin - implement the 3 optimizations"));
+            Assert.That(context, Does.Contain("ResolveSquadVersionAsync (1.5s)"));
+            Assert.That(context, Does.Contain("OpenWorkspace (670ms)"));
+            Assert.That(context, Does.Contain("Mutex timeout on settings save"));
+            Assert.That(context, Does.Contain("authoritative task scope"));
         });
     }
 }
