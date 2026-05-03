@@ -54,8 +54,15 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
             // Position right-bottom corner once actual height is known after render.
             ContentRendered += (_, _) =>
             {
-                Left = anchorScreenRect.Right - ActualWidth;
-                Top  = anchorScreenRect.Top - ActualHeight - 6;
+                // anchorScreenRect is in physical pixels (from PointToScreen).
+                // Left/Top are WPF logical units (DIPs). On high-DPI screens these
+                // diverge — convert using the device-to-logical transform.
+                var source = PresentationSource.FromVisual(this);
+                var tfm = source?.CompositionTarget?.TransformFromDevice
+                          ?? System.Windows.Media.Matrix.Identity;
+
+                Left = anchorScreenRect.Right  * tfm.M11 - ActualWidth;
+                Top  = anchorScreenRect.Top    * tfm.M22 - ActualHeight - 6;
             };
         }
 
