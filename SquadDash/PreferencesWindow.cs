@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System;
+using System.Net.Http;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Controls;
@@ -35,6 +37,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly ComboBox _byokProviderTypeComboBox;
     private readonly PasswordBox _byokApiKeyPasswordBox;
     private readonly TextBox _byokApiKeyRevealBox;
+    private TextBlock _byokTestStatusText = null!;
 
     private PreferencesWindow(
         ApplicationSettingsStore settingsStore,
@@ -399,6 +402,23 @@ internal sealed class PreferencesWindow : Window {
         };
         form.Children.Add(revealByokApiKeyLink);
 
+        var byokTestPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 4) };
+        var byokTestButton = new Button {
+            Content = "Test Connection",
+            Padding = new Thickness(12, 4, 12, 4),
+            Height = 28
+        };
+        _byokTestStatusText = new TextBlock {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+            FontSize = 11
+        };
+        _byokTestStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        byokTestPanel.Children.Add(byokTestButton);
+        byokTestPanel.Children.Add(_byokTestStatusText);
+        form.Children.Add(byokTestPanel);
+        byokTestButton.Click += ByokTestButton_Click;
+
         if (showDevOptions)
         {
         form.Children.Add(new Separator {
@@ -597,6 +617,33 @@ internal sealed class PreferencesWindow : Window {
         _apiKeyPasswordBox.Password = _apiKeyRevealBox.Text;
         _apiKeyRevealBox.Visibility = Visibility.Collapsed;
         _apiKeyPasswordBox.Visibility = Visibility.Visible;
+    }
+
+    private async void ByokTestButton_Click(object sender, RoutedEventArgs e) {
+        var url = _byokProviderUrlBox.Text.Trim().TrimEnd('/');
+        if (string.IsNullOrEmpty(url)) {
+            _byokTestStatusText.Text = "Enter a Provider URL first.";
+            return;
+        }
+        _byokTestStatusText.Text = "Testing…";
+        try {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
+            if (!string.IsNullOrWhiteSpace(apiKey))
+                http.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            var response = await http.GetStringAsync($"{url}/models").ConfigureAwait(true);
+            // Parse model IDs from the OpenAI-compat /v1/models response
+            var ids = System.Text.RegularExpressions.Regex.Matches(response, "\"id\"\\s*:\\s*\"([^\"]+)\"");
+            if (ids.Count > 0) {
+                var names = string.Join(", ", System.Linq.Enumerable.Select(ids.Cast<System.Text.RegularExpressions.Match>(), m => m.Groups[1].Value));
+                _byokTestStatusText.Text = $"✅ Connected — {ids.Count} model(s): {names}";
+            } else {
+                _byokTestStatusText.Text = "✅ Reachable (no models listed)";
+            }
+        } catch (Exception ex) {
+            _byokTestStatusText.Text = $"❌ {ex.Message}";
+        }
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e) {
