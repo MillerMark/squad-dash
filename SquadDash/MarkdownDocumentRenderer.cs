@@ -531,6 +531,19 @@ internal sealed class MarkdownDocumentRenderer {
                 continue;
             }
 
+            if (TryReadBareUrl(text, i, out var urlEnd, out var url)) {
+                flush(buffer.ToString());
+                buffer.Clear();
+                var urlLink = new Hyperlink(new Run(url)) {
+                    Tag = url
+                };
+                urlLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                urlLink.Click += (_, _) => _onLinkClicked(url);
+                inlines.Add(urlLink);
+                i = urlEnd;
+                continue;
+            }
+
             var workspaceGitHubUrl = _getWorkspaceGitHubUrl();
             if (!string.IsNullOrWhiteSpace(workspaceGitHubUrl) &&
                 TryReadCommitHash(text, i, out var hashEnd, out var hash)) {
@@ -656,6 +669,52 @@ internal sealed class MarkdownDocumentRenderer {
         static bool IsHexWordChar(char c) =>
             c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
     }
+
+    /// <summary>
+    /// Detects a bare http:// or https:// URL starting at <paramref name="startIndex"/>.
+    /// URLs are terminated by whitespace or certain punctuation characters that commonly
+    /// follow a URL in prose (e.g. "Go to https://example.com → next step").
+    /// </summary>
+    private static bool TryReadBareUrl(string text, int startIndex, out int nextIndex, out string url) {
+        nextIndex = startIndex;
+        url = string.Empty;
+
+        // Must start with http:// or https://
+        if (!text.AsSpan(startIndex).StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !text.AsSpan(startIndex).StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Must not be preceded by a non-whitespace character (avoid matching mid-word)
+        if (startIndex > 0 && !char.IsWhiteSpace(text[startIndex - 1]))
+            return false;
+
+        var end = startIndex;
+        while (end < text.Length && !IsUrlTerminator(text[end]))
+            end++;
+
+        // Trim trailing punctuation that is unlikely to be part of the URL
+        while (end > startIndex && IsTrailingPunctuation(text[end - 1]))
+            end--;
+
+        if (end <= startIndex + 7) // must have at least something after the scheme
+            return false;
+
+        var candidate = text[startIndex..end];
+        if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) ||
+            (!uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+             !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        url = candidate;
+        nextIndex = end;
+        return true;
+    }
+
+    private static bool IsUrlTerminator(char c) =>
+        char.IsWhiteSpace(c) || c == '<' || c == '>' || c == '"' || c == '\'' || c == '→';
+
+    private static bool IsTrailingPunctuation(char c) =>
+        c == '.' || c == ',' || c == ')' || c == ']' || c == '!' || c == '?' || c == ';' || c == ':';
 
     private static bool TryReadMarkdownLink(
         string text,
