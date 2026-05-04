@@ -383,13 +383,17 @@
                 </Setter>
             </Style>
 
+            <!-- Selector: returns ThemedMenuItemStyle for MenuItem, null for Separator -->
+            <local:MenuItemStyleSelector x:Key="ThemedMenuItemStyleSelector"
+                                         MenuItemStyle="{StaticResource ThemedMenuItemStyle}"/>
+
             <!-- Themed ContextMenu: dark background, themed items, themed separators -->
             <Style x:Key="ThemedContextMenuStyle" TargetType="ContextMenu">
                 <Setter Property="Background" Value="{DynamicResource ChromeSurface}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource PanelBorder}"/>
                 <Setter Property="BorderThickness" Value="1"/>
                 <Setter Property="Padding" Value="2"/>
-                <Setter Property="ItemContainerStyle" Value="{StaticResource ThemedMenuItemStyle}"/>
+                <Setter Property="ItemContainerStyleSelector" Value="{StaticResource ThemedMenuItemStyleSelector}"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ContextMenu">
