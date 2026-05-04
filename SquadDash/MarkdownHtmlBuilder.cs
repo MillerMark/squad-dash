@@ -13,6 +13,7 @@ internal static class MarkdownHtmlBuilder {
     private static readonly Regex LinkRegex = new(@"\[([^\]]+)\]\(([^)]+)\)", RegexOptions.Compiled);
     private static readonly Regex BoldRegex = new(@"\*\*(.+?)\*\*", RegexOptions.Compiled);
     private static readonly Regex ItalicRegex = new(@"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", RegexOptions.Compiled);
+    private static readonly Regex BareUrlRegex = new(@"https?://[^\s\[\]()'""`<>]+", RegexOptions.Compiled);
 
     public static string Build(string markdown, string title, string? filePath = null, bool isDark = false) {
         var body = BuildBody(markdown ?? string.Empty);
@@ -366,7 +367,23 @@ document.addEventListener('click', function(e) {
         if (string.IsNullOrEmpty(text))
             return string.Empty;
 
-        var escaped = EscapeHtml(text);
+        // ── Phase 0: extract bare URLs before HTML escaping ──────────────────
+        // URLs that are already inside [text](url) or ![alt](url) are left alone
+        // so the LinkRegex/ImageRegex steps can handle them normally.
+        var bareUrlPlaceholders = new Dictionary<string, string>();
+        var bareUrlIndex = 0;
+        var withUrlPlaceholders = BareUrlRegex.Replace(text, m => {
+            // Skip if preceded by "](" — this URL is the target of a markdown link/image.
+            if (m.Index >= 2 && text[m.Index - 1] == '(' && text[m.Index - 2] == ']')
+                return m.Value;
+            // Strip common trailing punctuation that follows URLs in prose.
+            var url = m.Value.TrimEnd('.', ',', ';', ':', '!', '?', ')');
+            var key = $"@@BAREURL{bareUrlIndex++}@@";
+            bareUrlPlaceholders[key] = url;
+            return key + m.Value[url.Length..]; // re-append any stripped chars
+        });
+
+        var escaped = EscapeHtml(withUrlPlaceholders);
 
         // Replace priority circle emoji with themed HTML dots before other inline processing.
         escaped = escaped
@@ -391,6 +408,12 @@ document.addEventListener('click', function(e) {
 
         foreach (var pair in codePlaceholders)
             escaped = escaped.Replace(pair.Key, pair.Value, StringComparison.Ordinal);
+
+        // ── Phase last: restore bare URL placeholders as anchor tags ─────────
+        foreach (var pair in bareUrlPlaceholders) {
+            var escapedUrl = EscapeHtml(pair.Value);
+            escaped = escaped.Replace(pair.Key, $"<a href=\"{escapedUrl}\">{escapedUrl}</a>", StringComparison.Ordinal);
+        }
 
         return escaped;
     }
