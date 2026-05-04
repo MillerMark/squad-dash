@@ -82,6 +82,12 @@ internal static class MarkdownHtmlBuilder {
     padding: 0.08em 0.32em;
     font: 0.95em Consolas, monospace;
   }
+  pre > code {
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    font: inherit;
+  }
   ul {
     margin: 0 0 1em 1.2em;
     padding: 0;
