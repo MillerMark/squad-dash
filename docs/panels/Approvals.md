@@ -87,6 +87,43 @@ Click **Clear Approved** in the Approved section to remove all approved entries 
 
 ---
 
+## Follow-up on a Commit
+
+You can reference a specific approval entry when composing your next prompt. This is useful for asking an agent to revisit, explain, or build on top of a specific commit.
+
+**How to attach a follow-up:**
+
+1. Right-click any entry in the **Needs Approval** or **Approved** section.
+2. Select **Follow up…**.
+
+A dismissable strip appears above the prompt input (or above the queue tab strip if a queued tab is selected):
+
+```
+↩ Follow-up: abc1234 — "Fix agent sort order"   [×]
+```
+
+### What happens when you send
+
+The follow-up context is silently prepended to the outgoing prompt — it is not visible in the draft or the conversation history:
+
+```
+[Follow-up on abc1234 — "Fix agent sort order": <original prompt summary>]
+
+<your new prompt>
+```
+
+The agent receives the full context header and can see what the referenced commit was about. Your message appears in the transcript without the header.
+
+### Clearing a follow-up
+
+Click **×** on the strip to remove the attachment before sending. The draft is unaffected.
+
+### Follow-up with queued prompts
+
+If a follow-up is attached to the **Active Draft** and you queue that prompt while the agent is busy, the attachment travels with the queued item and fires when that item is dispatched. Each queued tab tracks its own follow-up independently.
+
+---
+
 ## Related
 
 - **[Loop Panel](loop-panel.md)** — Commit entries accumulate quickly during loop runs; the approvals panel is the review checkpoint
