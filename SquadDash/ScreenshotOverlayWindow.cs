@@ -49,7 +49,7 @@ internal sealed class ScreenshotOverlayWindow : Window
 
     private const double HandleSize       = 9.0;   // side length of each resize handle square
     private const double HitPad           = 5.0;   // extra hit-test tolerance around handles
-    private const double MinSize          = 24.0;  // minimum selection dimension in logical units
+    private const double MinSize          = 80.0;  // minimum selection dimension in logical units
     private const double ToolbarMargin    = 8.0;   // logical px gap between toolbar and selection edge
     private const double ToolbarThreshold = 52.0;  // min logical px of clear space to float toolbar outside
     
@@ -728,7 +728,7 @@ internal sealed class ScreenshotOverlayWindow : Window
     {
         var active = (FrameworkElement)_editBorder;
 
-        if (active == null || !active.IsLoaded || active.ActualWidth <= 0)
+        if (active == null || !active.IsLoaded || active.ActualWidth <= 0 || active.ActualHeight <= 0)
             return;
 
         var tbW     = active.ActualWidth;
@@ -739,7 +739,7 @@ internal sealed class ScreenshotOverlayWindow : Window
 
         double tbLeft, tbTop;
 
-        if (_sel.Width < 10 || _sel.Height < 10)
+        if (_sel.Width < MinSize || _sel.Height < MinSize)
         {
             // No real selection yet — place at top-right corner of canvas
             tbLeft = Math.Max(0, canvasW - tbW - 12);
@@ -1054,6 +1054,15 @@ internal sealed class ScreenshotOverlayWindow : Window
         // Release resize drag (works in both normal and annotation modes)
         if (_activeZone != HitZone.None)
         {
+            // Snap rubber-band draws to the minimum size on release so the
+            // selection is never smaller than MinSize in either dimension.
+            if (_activeZone == HitZone.Draw)
+            {
+                _sel = new Rect(_sel.X, _sel.Y,
+                    Math.Max(_sel.Width,  MinSize),
+                    Math.Max(_sel.Height, MinSize));
+                UpdateLayout();
+            }
             CommitDragUndo();
             _canvas.ReleaseMouseCapture();
             _activeZone = HitZone.None;
