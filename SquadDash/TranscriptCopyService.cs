@@ -68,38 +68,55 @@ internal static class TranscriptCopyService {
         TextPointer selStart,
         TextPointer selEnd) {
 
-        var firstBlock = true;
+        var lastWasListItem = false;
         foreach (var block in blocks) {
             if (!OverlapsSelection(block, selStart, selEnd))
                 continue;
 
             switch (block) {
                 case Paragraph p: {
-                    if (!firstBlock) sb.AppendLine();
-                    if (p.Tag is string markdownSrc && markdownSrc.Length > 0)
+                    var markdownSrc = p.Tag as string;
+                    var isListItem  = IsListItemTag(markdownSrc);
+
+                    // Consecutive list items must be adjacent lines — no blank line separator.
+                    // Every other block transition gets a blank line for readability.
+                    if (sb.Length > 0 && !(isListItem && lastWasListItem))
+                        sb.AppendLine();
+
+                    if (markdownSrc is { Length: > 0 })
                         sb.AppendLine(markdownSrc);
                     else
                         AppendParagraphText(sb, p, selStart, selEnd);
-                    firstBlock = false;
+
+                    lastWasListItem = isListItem;
                     break;
                 }
 
                 case BlockUIContainer buc: {
-                    if (!firstBlock) sb.AppendLine();
+                    if (sb.Length > 0) sb.AppendLine();
                     // Reuse the same extraction logic as plain-text copy (already returns
                     // markdown-friendly content for code blocks, tables, and quick replies).
                     if (TryAppendBlockUIContainer(sb, buc))
                         sb.AppendLine();
-                    firstBlock = false;
+                    lastWasListItem = false;
                     break;
                 }
 
                 case Section s:
                     AppendBlocksMarkdown(sb, s.Blocks, selStart, selEnd);
-                    firstBlock = false;
+                    lastWasListItem = false;
                     break;
             }
         }
+    }
+
+    private static bool IsListItemTag(string? tag) {
+        if (tag is null) return false;
+        if (tag.StartsWith("- ", StringComparison.Ordinal) ||
+            tag.StartsWith("* ", StringComparison.Ordinal))
+            return true;
+        var dotIdx = tag.IndexOf(". ", StringComparison.Ordinal);
+        return dotIdx > 0 && dotIdx <= 3 && tag[..dotIdx].All(char.IsDigit);
     }
 
     // ── Block walk (plain text) ────────────────────────────────────────────────
