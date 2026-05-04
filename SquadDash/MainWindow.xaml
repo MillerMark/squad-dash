@@ -315,9 +315,6 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <!-- Left: menu bar -->
@@ -532,60 +529,6 @@
                     </Viewbox>
                 </Button>
             </StackPanel>
-
-            <!-- SquadDash version — left of Squad version -->
-            <TextBlock x:Name="SquadDashVersionTextBlock"
-                       Grid.Column="3"
-                       VerticalAlignment="Center"
-                       Margin="0,0,20,0"
-                       FontSize="12"
-                       Cursor="Hand"
-                       ToolTip="Click or right-click for system info"
-                       Foreground="{DynamicResource BodyText}"
-                       MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
-                       MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
-                       shell:WindowChrome.IsHitTestVisibleInChrome="True" />
-
-            <!-- Squad version + update badge -->
-            <StackPanel x:Name="SquadVersionPanel"
-                        Grid.Column="4"
-                        Orientation="Horizontal"
-                        VerticalAlignment="Center"
-                        Margin="0,0,8,0"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                <TextBlock x:Name="SquadVersionTextBlock"
-                           FontSize="12"
-                           Cursor="Hand"
-                           ToolTip="Click or right-click for system info"
-                           Foreground="{DynamicResource BodyText}"
-                           MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
-                           MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
-                           shell:WindowChrome.IsHitTestVisibleInChrome="True" />
-                <TextBlock x:Name="SquadUpdateBadge"
-                           Margin="5,0,0,0"
-                           FontSize="12"
-                           Cursor="Hand"
-                           Visibility="Collapsed"
-                           Foreground="{DynamicResource AgentTaskStartText}"
-                           MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
-                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
-                           Text="↑" />
-            </StackPanel>
-
-            <!-- Right-of-search: workspace title (click to reveal in Explorer) -->
-            <TextBlock x:Name="WorkspaceTitleText"
-                       Grid.Column="5"
-                       VerticalAlignment="Center"
-                       Margin="20,0,16,0"
-                       FontSize="12"
-                       FontWeight="Bold"
-                       Foreground="{DynamicResource LabelText}"
-                       Cursor="Hand"
-                       ToolTip="Click to reveal in Explorer"
-                       MouseLeftButtonUp="WorkspaceTitleText_MouseLeftButtonUp"
-                       MouseRightButtonUp="WorkspaceTitleText_MouseRightButtonUp"
-                       shell:WindowChrome.IsHitTestVisibleInChrome="True"
-                       Text="{Binding WorkspaceTitleDisplay, RelativeSource={RelativeSource AncestorType=Window}}" />
 
         </Grid>  <!-- end TitlebarGrid -->
 
@@ -1989,6 +1932,69 @@
         </Border>
     </Grid>
     </Border>
+
+    <!-- Title-bar info overlay: version + workspace title anchored to window right,
+         always left of the caption buttons (Margin right = 3×38px buttons = 114px). -->
+    <StackPanel x:Name="TitleBarInfoPanel"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Height="38"
+                Orientation="Horizontal"
+                Margin="0,0,114,0"
+                Panel.ZIndex="50"
+                shell:WindowChrome.IsHitTestVisibleInChrome="True">
+
+        <!-- SquadDash version — left of Squad version -->
+        <TextBlock x:Name="SquadDashVersionTextBlock"
+                   VerticalAlignment="Center"
+                   Margin="0,0,20,0"
+                   FontSize="12"
+                   Cursor="Hand"
+                   ToolTip="Click or right-click for system info"
+                   Foreground="{DynamicResource BodyText}"
+                   MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
+                   MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                   shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+
+        <!-- Squad version + update badge -->
+        <StackPanel x:Name="SquadVersionPanel"
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center"
+                    Margin="0,0,0,0"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True">
+            <TextBlock x:Name="SquadVersionTextBlock"
+                       FontSize="12"
+                       Cursor="Hand"
+                       ToolTip="Click or right-click for system info"
+                       Foreground="{DynamicResource BodyText}"
+                       MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
+                       MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                       shell:WindowChrome.IsHitTestVisibleInChrome="True" />
+            <TextBlock x:Name="SquadUpdateBadge"
+                       Margin="5,0,0,0"
+                       FontSize="12"
+                       Cursor="Hand"
+                       Visibility="Collapsed"
+                       Foreground="{DynamicResource AgentTaskStartText}"
+                       MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
+                       shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                       Text="↑" />
+        </StackPanel>
+
+        <!-- Workspace title (click to reveal in Explorer) -->
+        <TextBlock x:Name="WorkspaceTitleText"
+                   VerticalAlignment="Center"
+                   Margin="20,0,10,0"
+                   FontSize="12"
+                   FontWeight="Bold"
+                   Foreground="{DynamicResource LabelText}"
+                   Cursor="Hand"
+                   ToolTip="Click to reveal in Explorer"
+                   MouseLeftButtonUp="WorkspaceTitleText_MouseLeftButtonUp"
+                   MouseRightButtonUp="WorkspaceTitleText_MouseRightButtonUp"
+                   shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                   Text="{Binding WorkspaceTitleDisplay, RelativeSource={RelativeSource AncestorType=Window}}" />
+    </StackPanel>
 
     <!-- Caption buttons overlay: always positioned at real window top-right,
          independent of how wide the inner grid content is. -->
