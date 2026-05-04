@@ -34,6 +34,24 @@ internal static class VoiceInsertionHeuristics
         @"\b(?:uh{1,2}|um{1,2})\b[,\.…]{0,4}\s+",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Filler at the END of the text (no following whitespace required).
+    // Captures the preceding comma/space so it is consumed too.
+    // Example: "do this, uh."  →  "do this"
+    private static readonly Regex s_trailingFiller = new(
+        @"[,\s]+\b(?:uh{1,2}|um{1,2})\b[,\.…]{0,3}\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Words that constitute an entirely-filler remnant after leading fillers have
+    // been stripped (e.g. "Umm. Yeah." → strip "Umm. " → "Yeah." → empty).
+    private static readonly Regex s_fillerRemnant = new(
+        @"^(?:yeah+|yep|yup|mm+|mm-?hmm|right|okay|ok|sure|alright)\.?\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Two or more consecutive spaces — collapsed to one after filler removal.
+    private static readonly Regex s_multipleSpaces = new(
+        @"  +",
+        RegexOptions.Compiled);
+
     // ── Public entry point ────────────────────────────────────────────────────
 
     /// <summary>
@@ -236,8 +254,14 @@ internal static class VoiceInsertionHeuristics
     ///   <item>Repeated leading fillers are stripped in a loop.</item>
     /// </list>
     ///
+    /// <para>After leading fillers are stripped, if only a filler remnant remains
+    /// (e.g. "Yeah.", "Yep.") the entire text is discarded as filler.</para>
+    ///
+    /// <para>Trailing fillers (end of text, e.g. <c>", uh."</c>) are removed
+    /// together with the preceding comma/space.</para>
+    ///
     /// <para>Remaining mid-sentence fillers (any case) are replaced with a
-    /// single space.</para>
+    /// single space; consecutive spaces are then collapsed.</para>
     /// </summary>
     internal static string StripFillerWords(string text)
     {
@@ -255,8 +279,18 @@ internal static class VoiceInsertionHeuristics
             if (text.Length == 0) break;
         }
 
+        // If only a filler remnant remains after leading-filler stripping
+        // (e.g. "Umm. Yeah." → strip "Umm. " → "Yeah."), discard it entirely.
+        if (s_fillerRemnant.IsMatch(text)) return string.Empty;
+
+        // Remove trailing filler (e.g. ", uh." or " uh" at end of text).
+        text = s_trailingFiller.Replace(text, string.Empty);
+
         // Clean up any remaining filler words inside the text.
-        text = s_midFiller.Replace(text, " ").Trim();
+        text = s_midFiller.Replace(text, " ");
+
+        // Collapse any double-spaces created by filler removal (e.g. "word,  next").
+        text = s_multipleSpaces.Replace(text, " ").Trim();
 
         return text;
     }

@@ -508,4 +508,89 @@ internal sealed class VoiceInsertionHeuristicsTests {
         var inserted = VoiceInsertionHeuristics.Apply(left, "And more items");
         Assert.That(left + inserted, Is.EqualTo("There are 6 and more items"));
     }
+
+    // ── StripFillerWords — trailing filler (", uh.") ─────────────────────────
+
+    [Test]
+    public void StripFillerWords_TrailingUhWithCommaPeriod_Removed() {
+        // User saw ", uh." at the end of a transcript phrase.
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("I want to fix this, uh."),
+                    Is.EqualTo("I want to fix this"));
+    }
+
+    [Test]
+    public void StripFillerWords_TrailingUhNoComma_Removed() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("do this uh"),
+                    Is.EqualTo("do this"));
+    }
+
+    [Test]
+    public void StripFillerWords_TrailingUmWithComma_Removed() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("something, um"),
+                    Is.EqualTo("something"));
+    }
+
+    [Test]
+    public void StripFillerWords_TrailingUhh_Removed() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("look at this, uhh."),
+                    Is.EqualTo("look at this"));
+    }
+
+    // ── StripFillerWords — filler remnant ("Umm. Yeah.") ─────────────────────
+
+    [Test]
+    public void StripFillerWords_UmmYeah_ReturnsEmpty() {
+        // After stripping "Umm. " the remnant "Yeah." should be discarded too.
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("Umm. Yeah."),
+                    Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void StripFillerWords_UmmYeahNoTrailingPeriod_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("Umm. Yeah"),
+                    Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void StripFillerWords_UmmYep_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("Uh, yep."),
+                    Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void StripFillerWords_StandaloneYeah_ReturnsEmpty() {
+        // "Yeah." on its own with no real content → discarded.
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("Yeah."),
+                    Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void StripFillerWords_YeahWithContent_NotRemoved() {
+        // "Yeah," here is followed by real content — mid-sentence, not a remnant.
+        // The word "yeah" is not stripped from the middle of real content.
+        var result = VoiceInsertionHeuristics.StripFillerWords("Yeah, that's the plan.");
+        Assert.That(result, Is.EqualTo("Yeah, that's the plan."));
+    }
+
+    // ── StripFillerWords — no double space after comma (regression) ───────────
+
+    [Test]
+    public void StripFillerWords_MidSentenceUhAfterComma_NoDoubleSpace() {
+        // Regression: ", uh, " was being replaced with " " while the preceding
+        // ", " remained, producing "word,  next" instead of "word, next".
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("fix the thing, uh, and then"),
+                    Is.EqualTo("fix the thing, and then"));
+    }
+
+    [Test]
+    public void StripFillerWords_MidSentenceUmmAfterComma_NoDoubleSpace() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("do this, umm, please"),
+                    Is.EqualTo("do this, please"));
+    }
+
+    [Test]
+    public void StripFillerWords_MidSentenceUhAfterSpace_SingleSpace() {
+        Assert.That(VoiceInsertionHeuristics.StripFillerWords("the uh thing"),
+                    Is.EqualTo("the thing"));
+    }
 }
