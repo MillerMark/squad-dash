@@ -302,18 +302,7 @@ internal sealed class TasksPanelController {
 
             row.MouseEnter += (_, e) => {
                 hoverOrigin = row.PointToScreen(e.GetPosition(row));
-                openTimer?.Stop();
-                openTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-                openTimer.Tick += (_, _) => {
-                    openTimer!.Stop();
-                    openTimer = null;
-                    if (!popup.IsOpen) {
-                        ResolveBrushes();
-                        popupBorder.Opacity = 1.0;
-                        popup.IsOpen = true;
-                    }
-                };
-                openTimer.Start();
+                StartOpenTimer();
             };
 
             row.MouseLeave += (_, _) => {
@@ -322,14 +311,30 @@ internal sealed class TasksPanelController {
                 BeginFadeOut();
             };
 
+            void StartOpenTimer() {
+                openTimer?.Stop();
+                openTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                openTimer.Tick += (_, _) => {
+                    openTimer!.Stop();
+                    openTimer = null;
+                    if (!popup.IsOpen && !isFading) {
+                        ResolveBrushes();
+                        popupBorder.Opacity = 1.0;
+                        popup.IsOpen = true;
+                    }
+                };
+                openTimer.Start();
+            }
+
             row.MouseMove += (_, e) => {
                 var current = row.PointToScreen(e.GetPosition(row));
                 var dx = current.X - hoverOrigin.X;
                 var dy = current.Y - hoverOrigin.Y;
                 if (Math.Sqrt(dx * dx + dy * dy) > 10.0) {
-                    openTimer?.Stop();
-                    openTimer = null;
+                    hoverOrigin = current;
                     BeginFadeOut();
+                    // Re-arm the open timer so the popup shows again once the cursor settles.
+                    StartOpenTimer();
                 }
             };
 
