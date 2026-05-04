@@ -5316,6 +5316,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                 sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
                 menu.Items.Add(sep);
 
+                var followUpItem = new MenuItem { Header = "Follow up…" };
+                followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                followUpItem.Click += (_, _) => AttachTranscriptFollowUp(OutputTextBox);
+                menu.Items.Add(followUpItem);
+
                 var addToNotesItem = new MenuItem { Header = "Add to Notes" };
                 addToNotesItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 addToNotesItem.Click += (_, _) => {
@@ -10008,6 +10013,48 @@ public partial class MainWindow : Window, ILiveElementLocator
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        rtb.PreviewMouseRightButtonDown += (_, e) =>
+        {
+            try
+            {
+                var menu = new ContextMenu();
+                menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+                var hasSelection = !rtb.Selection.IsEmpty;
+
+                var copyItem = new MenuItem { Header = "_Copy" };
+                copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                copyItem.IsEnabled = hasSelection;
+                copyItem.Click += (_, _) =>
+                {
+                    var text = TranscriptCopyService.BuildSelectionText(rtb);
+                    if (!string.IsNullOrEmpty(text))
+                        SetClipboardTextWithRetry(text);
+                };
+                menu.Items.Add(copyItem);
+
+                if (hasSelection)
+                {
+                    var sep = new Separator();
+                    sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                    menu.Items.Add(sep);
+
+                    var followUpItem = new MenuItem { Header = "Follow up…" };
+                    followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    followUpItem.Click += (_, _) => AttachTranscriptFollowUp(rtb);
+                    menu.Items.Add(followUpItem);
+                }
+
+                menu.PlacementTarget = rtb;
+                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                menu.IsOpen = true;
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException("SecondaryTranscript.PreviewMouseRightButtonDown", ex);
+            }
+        };
 
         var scrollToBottomChevron = new System.Windows.Shapes.Path
         {
@@ -16902,6 +16949,22 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    // ── Transcript follow-up attachment ──────────────────────────────────────
+
+    private void AttachTranscriptFollowUp(RichTextBox rtb)
+    {
+        var quote = TranscriptCopyService.BuildSelectionText(rtb);
+        if (string.IsNullOrWhiteSpace(quote)) return;
+        var preview = quote.Length > 50 ? quote[..50].TrimEnd() + "…" : quote;
+        _followUpAttachments[_activeTabId ?? ""] = new FollowUpAttachment(
+            CommitSha:      string.Empty,
+            Description:    preview,
+            OriginalPrompt: null,
+            TranscriptQuote: quote);
+        UpdateFollowUpStrip();
+        if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
     // ── Follow-up attachment ──────────────────────────────────────────────────
 
     private void AttachFollowUpToActiveTab(CommitApprovalItem item)
@@ -16916,38 +16979,54 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (FollowUpStrip is null) return;
         if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var att))
         {
-            // Build inline content: "↩ Follow-up: " + clickable SHA + " — "description""
-            var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
-
-            var prefix = new Run("↩ Follow-up: ");
-            prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-
-            var shaRun = new Run(shaDisplay)
-            {
-                TextDecorations = TextDecorations.Underline,
-                Cursor          = System.Windows.Input.Cursors.Hand,
-            };
-            shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
-
-            var suffix = new Run($" — \"{att.Description}\"");
-            suffix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-
             FollowUpLabel.Inlines.Clear();
-            FollowUpLabel.Inlines.Add(prefix);
-            FollowUpLabel.Inlines.Add(shaRun);
-            FollowUpLabel.Inlines.Add(suffix);
 
-            // Wire click: find the approval item by SHA and scroll to it.
-            var capturedSha = att.CommitSha;
-            shaRun.MouseLeftButtonUp += (_, e) =>
+            if (att.TranscriptQuote != null)
             {
-                e.Handled = true;
-                var item = _approvalItems.FirstOrDefault(i =>
-                    string.Equals(i.CommitSha, capturedSha, StringComparison.OrdinalIgnoreCase) ||
-                    (capturedSha.Length >= 7 && i.CommitSha.StartsWith(capturedSha, StringComparison.OrdinalIgnoreCase)));
-                if (item is not null)
-                    ScrollToApprovalTurn(item);
-            };
+                // Transcript selection follow-up — no SHA link, just show the preview.
+                var prefix = new Run("↩ Regarding: ");
+                prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+                var quoteRun = new Run($"\"{att.Description}\"");
+                quoteRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+
+                FollowUpLabel.Inlines.Add(prefix);
+                FollowUpLabel.Inlines.Add(quoteRun);
+            }
+            else
+            {
+                // Commit follow-up — show clickable SHA + description.
+                var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
+
+                var prefix = new Run("↩ Follow-up: ");
+                prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+                var shaRun = new Run(shaDisplay)
+                {
+                    TextDecorations = TextDecorations.Underline,
+                    Cursor          = System.Windows.Input.Cursors.Hand,
+                };
+                shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
+
+                var suffix = new Run($" — \"{att.Description}\"");
+                suffix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+                FollowUpLabel.Inlines.Add(prefix);
+                FollowUpLabel.Inlines.Add(shaRun);
+                FollowUpLabel.Inlines.Add(suffix);
+
+                // Wire click: find the approval item by SHA and scroll to it.
+                var capturedSha = att.CommitSha;
+                shaRun.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    var item = _approvalItems.FirstOrDefault(i =>
+                        string.Equals(i.CommitSha, capturedSha, StringComparison.OrdinalIgnoreCase) ||
+                        (capturedSha.Length >= 7 && i.CommitSha.StartsWith(capturedSha, StringComparison.OrdinalIgnoreCase)));
+                    if (item is not null)
+                        ScrollToApprovalTurn(item);
+                };
+            }
 
             FollowUpStrip.Visibility = Visibility.Visible;
         }
@@ -17000,6 +17079,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         _followUpAttachments.Remove(tabId);
         if (tabId == "") PersistDraftFollowUp();
         UpdateFollowUpStrip();
+
+        if (att.TranscriptQuote != null)
+            return $"Regarding this section of the transcript: \"{att.TranscriptQuote}\"\n\n{text}";
+
         var summaryHint = att.OriginalPrompt is { Length: > 0 } op
             ? (op.Length > 120 ? op[..120] + "…" : op)
             : att.Description;
