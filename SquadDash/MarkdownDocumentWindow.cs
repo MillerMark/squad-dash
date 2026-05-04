@@ -755,6 +755,10 @@ internal sealed class MarkdownDocumentWindow : Window {
         pasteItem.Click += (_, _) => ReplaceImageFromClipboard(imagePath);
         menu.Items.Add(pasteItem);
 
+        var captureItem = new MenuItem { Header = "Replace with captured image" };
+        captureItem.Click += (_, _) => _ = CaptureImageAsync(imagePath);
+        menu.Items.Add(captureItem);
+
         menu.PlacementTarget = _activeDocument?.WebBrowser;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
         menu.IsOpen = true;
@@ -838,6 +842,18 @@ internal sealed class MarkdownDocumentWindow : Window {
         // Remove the 📸 placeholder if present immediately after the image line.
         RemoveScreenshotPlaceholderAfterImage(doc, imagePath);
         SaveDocument(doc);
+    }
+
+    /// <summary>
+    /// Returns the alt text from the first <c>![alt text](imagePath)</c> found in
+    /// <paramref name="docText"/>, or an empty string when no match exists.
+    /// </summary>
+    private static string ExtractImageAltText(string docText, string imagePath) {
+        var normalizedPath = imagePath.Replace('\\', '/');
+        var escapedPath    = System.Text.RegularExpressions.Regex.Escape(normalizedPath);
+        var m = System.Text.RegularExpressions.Regex.Match(
+            docText, $@"!\[([^\]]*)\]\({escapedPath}\)");
+        return m.Success ? m.Groups[1].Value.Trim() : "";
     }
 
     /// <summary>
@@ -979,7 +995,8 @@ internal sealed class MarkdownDocumentWindow : Window {
             var speechRegion = _captureContext?.SpeechRegion ?? string.Empty;
 
             var tcs     = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var overlay = new ScreenshotOverlayWindow(targetWindow, imageDir, themeName, speechRegion);
+            var initialDesc = ExtractImageAltText(doc.WorkingText, imagePath);
+            var overlay = new ScreenshotOverlayWindow(targetWindow, imageDir, themeName, speechRegion, initialDesc);
             overlay.ScreenshotSaved  += (_, e) => tcs.TrySetResult(e.PngPath);
             overlay.ScreenshotFailed += (_, _) => tcs.TrySetResult(null);
             overlay.Closed           += (_, _) => tcs.TrySetResult(null); // cancelled

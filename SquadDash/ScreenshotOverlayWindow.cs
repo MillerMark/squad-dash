@@ -188,7 +188,7 @@ internal sealed class ScreenshotOverlayWindow : Window
 
     private readonly string _speechRegion;
 
-    internal ScreenshotOverlayWindow(Window mainWindow, string saveDirectory, string themeName, string speechRegion = "")
+    internal ScreenshotOverlayWindow(Window mainWindow, string saveDirectory, string themeName, string speechRegion = "", string initialDescription = "")
     {
         _mainWindow    = mainWindow;
         _saveDirectory = saveDirectory;
@@ -529,9 +529,17 @@ internal sealed class ScreenshotOverlayWindow : Window
         _descriptionBox.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
         _descriptionBox.SetResourceReference(TextBox.CaretBrushProperty,  "LabelText");
 
-        // Placeholder via opacity swap (no native WPF TextBox placeholder)
-        _descriptionBox.Text    = _descriptionPlaceholder;
-        _descriptionBox.Opacity = 0.45;
+        // Placeholder via opacity swap (no native WPF TextBox placeholder); pre-fill when a prior description is available
+        if (!string.IsNullOrWhiteSpace(initialDescription))
+        {
+            _descriptionBox.Text    = initialDescription;
+            _descriptionBox.Opacity = 1.0;
+        }
+        else
+        {
+            _descriptionBox.Text    = _descriptionPlaceholder;
+            _descriptionBox.Opacity = 0.45;
+        }
         _descriptionBox.GotFocus += (_, _) =>
         {
             // Clicking the description box is enough intent to enter annotation mode —
