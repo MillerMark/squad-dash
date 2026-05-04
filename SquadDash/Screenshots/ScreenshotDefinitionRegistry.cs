@@ -172,6 +172,17 @@ public sealed class ScreenshotDefinitionRegistry
                 "has an empty description.  Add a description before committing baselines.");
         }
 
+        // When the incoming definition has a DocImagePath, remove any stale entry that
+        // points to the same doc image but has a different name.  This prevents old
+        // dark-theme definitions from surviving when the user recaptures in light (or
+        // vice-versa) and the auto-suggested name differs between captures.
+        if (!string.IsNullOrWhiteSpace(definition.DocImagePath))
+        {
+            _definitions.RemoveAll(d =>
+                !d.Name.Equals(definition.Name, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(d.DocImagePath, definition.DocImagePath, StringComparison.OrdinalIgnoreCase));
+        }
+
         var idx = _definitions.FindIndex(d =>
             d.Name.Equals(definition.Name, StringComparison.OrdinalIgnoreCase));
 
