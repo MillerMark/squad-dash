@@ -662,7 +662,7 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     private void SaveDocument(MarkdownDocumentTabState document) {
         document.WorkingText = document.EditorTextBox.Text;
-        File.WriteAllText(document.FilePath, document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.WriteAllText(document.FilePath, document.FrontMatter + document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         document.SavedText = document.WorkingText;
         document.IsDirty = false;
         RenderPreview(document, preserveScroll: true);
@@ -671,7 +671,7 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     private void AutoSaveDocument(MarkdownDocumentTabState document) {
         try {
-            File.WriteAllText(document.FilePath, document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.WriteAllText(document.FilePath, document.FrontMatter + document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             document.SavedText = document.WorkingText;
             document.IsDirty   = false;
         }
@@ -1235,11 +1235,13 @@ internal sealed class MarkdownDocumentWindow : Window {
         catch {
             return;
         }
-        if (string.Equals(newText, doc.SavedText, StringComparison.Ordinal))
+        var strippedNew = MarkdownDocumentTabState.StripFrontMatter(newText, out var newFrontMatter);
+        if (string.Equals(strippedNew, doc.SavedText, StringComparison.Ordinal))
             return;
-        doc.SavedText = newText;
-        doc.WorkingText = newText;
-        doc.EditorTextBox.Text = newText;
+        doc.FrontMatter = newFrontMatter;
+        doc.SavedText = strippedNew;
+        doc.WorkingText = strippedNew;
+        doc.EditorTextBox.Text = strippedNew;
         RenderPreview(doc, preserveScroll: true);
         UpdateChrome();
         if (doc == _activeDocument)
@@ -1289,8 +1291,10 @@ internal sealed class MarkdownDocumentTabState {
         TabTitle = tabTitle;
         FilePath = filePath;
         FileName = Path.GetFileName(filePath);
-        SavedText = text;
-        WorkingText = text;
+        var stripped = StripFrontMatter(text, out var frontMatter);
+        FrontMatter  = frontMatter;
+        SavedText    = stripped;
+        WorkingText  = stripped;
 
         WebBrowser = new WebBrowser();
         WebBrowser.Tag = this;
@@ -1299,7 +1303,7 @@ internal sealed class MarkdownDocumentTabState {
         };
         FallbackViewer.SetResourceReference(Control.BackgroundProperty, "TranscriptSurface");
         EditorTextBox = new TextBox {
-            Text = text,
+            Text = stripped,
             AcceptsReturn = true,
             AcceptsTab = true,
             TextWrapping = TextWrapping.Wrap,
@@ -1321,6 +1325,7 @@ internal sealed class MarkdownDocumentTabState {
     public string TabTitle { get; }
     public string FilePath { get; }
     public string FileName { get; }
+    public string FrontMatter { get; set; } = string.Empty;
     public string SavedText { get; set; }
     public string WorkingText { get; set; }
     public bool IsDirty { get; set; }
@@ -1336,6 +1341,23 @@ internal sealed class MarkdownDocumentTabState {
     public static MarkdownDocumentTabState Load(string tabTitle, string filePath) {
         var text = File.Exists(filePath) ? File.ReadAllText(filePath) : string.Empty;
         return new MarkdownDocumentTabState(tabTitle, filePath, text);
+    }
+
+    // Detects and strips a Jekyll/just-the-docs YAML frontmatter block (--- ... ---) from
+    // the start of the text. The stripped block is returned via frontMatter; the remainder
+    // is the return value. If no frontmatter is found, frontMatter is empty and the original
+    // text is returned unchanged.
+    private static readonly Regex s_frontMatterRegex = new(
+        @"^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?",
+        RegexOptions.Compiled);
+
+    public static string StripFrontMatter(string rawText, out string frontMatter) {
+        frontMatter = string.Empty;
+        if (string.IsNullOrEmpty(rawText)) return rawText;
+        var m = s_frontMatterRegex.Match(rawText);
+        if (!m.Success) return rawText;
+        frontMatter = m.Value;
+        return rawText[m.Length..];
     }
 }
 
