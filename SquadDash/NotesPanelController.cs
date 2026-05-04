@@ -190,6 +190,12 @@ internal sealed class NotesPanelController {
         newItem.Click += (_, _) => _newNote();
         menu.Items.Add(newItem);
         _listPanel.ContextMenu = menu;
+        // Also attach to the ScrollViewer (and its parent Grid) so right-clicking
+        // anywhere in the panel — not just over existing note rows — shows the menu.
+        if (_listPanel.Parent is FrameworkElement parent)
+            parent.ContextMenu = menu;
+        if (_listPanel.Parent is FrameworkElement { Parent: FrameworkElement grandParent })
+            grandParent.ContextMenu = menu;
     }
 
     // ── Menu helpers ──────────────────────────────────────────────────────────
