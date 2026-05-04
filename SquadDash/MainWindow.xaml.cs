@@ -2765,7 +2765,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             "first_response_event" => $"first response event after={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)}",
             "send_completed" => $"send completed total={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} firstSdk={FormatSdkDiagnosticMs(evt.TimeToFirstSdkEventMs)} firstThinking={FormatSdkDiagnosticMs(evt.TimeToFirstThinkingMs)} firstResponse={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)}",
             "send_failed" => $"send failed total={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} firstSdk={FormatSdkDiagnosticMs(evt.TimeToFirstSdkEventMs)} firstThinking={FormatSdkDiagnosticMs(evt.TimeToFirstThinkingMs)} firstResponse={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)} message={evt.Message ?? "(none)"}",
-            _ => $"phase={evt.DiagnosticPhase ?? "(unknown)"} event={evt.DiagnosticEventType ?? evt.FirstSdkEventType ?? "(none)"} after={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)}"
+            "named_agent_handoff" => $"named-agent handoff {evt.Message ?? "(none)"}",
+            _ => $"phase={evt.DiagnosticPhase ?? "(unknown)"} event={evt.DiagnosticEventType ?? evt.FirstSdkEventType ?? "(none)"} after={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} message={evt.Message ?? "(none)"}"
         };
 
         SquadDashTrace.Write("SDK", summary);

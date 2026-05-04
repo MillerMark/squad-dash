@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
-import { SquadBridgeService, type SquadRunHandlers, type SquadNamedAgentRequest } from "./squadService.js";
+import { SquadBridgeService, buildNamedAgentPrompt, type SquadRunHandlers, type SquadNamedAgentRequest } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
@@ -1069,11 +1069,26 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
     });
 
     try {
+        const handoffContext = request.handoffContext?.trim();
+        const inlinePromptChars = buildNamedAgentPrompt({
+            selectedOption: request.selectedOption,
+            targetAgent: handle,
+            handoffContext,
+            charterContent
+        }).length;
+        emit({
+            type: "sdk_diagnostics",
+            diagnosticPhase: "named_agent_handoff",
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            message: `target=${handle} selectedOptionChars=${request.selectedOption.trim().length} handoffContextChars=${handoffContext?.length ?? 0} charterChars=${charterContent?.trim().length ?? 0} inlinePromptChars=${inlinePromptChars}`
+        });
+
         await bridge.runNamedAgent(
             {
                 cwd: request.cwd,
                 selectedOption: request.selectedOption,
-                handoffContext: request.handoffContext,
+                handoffContext,
                 targetAgent: handle,
                 charterContent,
                 configDir: request.configDir

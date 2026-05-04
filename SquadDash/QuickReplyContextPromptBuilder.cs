@@ -50,11 +50,18 @@ internal static class QuickReplyContextPromptBuilder
         builder.AppendLine($"Clicked quick reply: \"{trimmedOption}\"");
         builder.AppendLine("Use this handoff to resolve references, pronouns, and intended scope. If the clicked reply or source context asks for a full sweep, honor that; otherwise keep the work scoped to the source task.");
 
-        if (recentTurns.Count > 0)
+        var sourceTurns = recentTurns
+            .Where(turn => turn.IsSourceTurn)
+            .ToArray();
+        var priorTurns = recentTurns
+            .Where(turn => !turn.IsSourceTurn)
+            .ToArray();
+
+        if (sourceTurns.Length > 0)
         {
             builder.AppendLine();
-            builder.AppendLine("Recent transcript context:");
-            foreach (var turn in recentTurns)
+            builder.AppendLine("Source transcript context:");
+            foreach (var turn in sourceTurns)
                 AppendTurn(builder, turn);
         }
 
@@ -64,6 +71,14 @@ internal static class QuickReplyContextPromptBuilder
             builder.AppendLine("Recent named-agent context:");
             foreach (var agent in recentAgentContexts)
                 AppendAgentContext(builder, agent);
+        }
+
+        if (priorTurns.Length > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("Earlier transcript context:");
+            foreach (var turn in priorTurns)
+                AppendTurn(builder, turn);
         }
 
         builder.AppendLine();

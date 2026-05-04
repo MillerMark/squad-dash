@@ -621,6 +621,29 @@ function buildNamedAgentHiddenContext(targetAgent: string, charterContent?: stri
     return lines.join("\n");
 }
 
+export function buildNamedAgentPrompt(request: Pick<SquadNamedAgentRequest, "selectedOption" | "targetAgent" | "handoffContext" | "charterContent">): string {
+    const selectedOption = request.selectedOption.trim();
+    const sections = [
+        selectedOption,
+        "",
+        "## Named Agent Launch Context",
+        buildNamedAgentHiddenContext(request.targetAgent, request.charterContent)
+    ];
+
+    const handoffContext = request.handoffContext?.trim();
+    if (handoffContext) {
+        sections.push(
+            "",
+            "## Quick-Reply Handoff Context",
+            handoffContext,
+            "",
+            "Use this handoff context to resolve references, pronouns, and intended scope in the selected quick reply. Carry out the selected quick reply now. Do not ask the user to restate context unless this handoff is empty or contradictory."
+        );
+    }
+
+    return sections.join("\n");
+}
+
 function buildDelegationHiddenContext(selectedOption: string, targetAgent: string): string {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -680,21 +703,15 @@ export class SquadBridgeService {
         request: SquadNamedAgentRequest,
         handlers: SquadRunHandlers
     ) {
-        const hiddenContext = [
-            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent),
-            request.handoffContext?.trim()
-        ].filter((value): value is string => !!value && value.trim().length > 0).join("\n\n");
-
         await this.runSessionRequest(
-            request.selectedOption,
+            buildNamedAgentPrompt(request),
             handlers,
             {
                 cwd: request.cwd,
                 sessionId: request.namedAgentSessionId,
                 configDir: request.configDir,
                 requireSameSession: false
-            },
-            hiddenContext);
+            });
     }
 
     private async runSessionRequest(

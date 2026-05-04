@@ -322,6 +322,20 @@ function buildNamedAgentHiddenContext(targetAgent, charterContent) {
     }
     return lines.join("\n");
 }
+export function buildNamedAgentPrompt(request) {
+    const selectedOption = request.selectedOption.trim();
+    const sections = [
+        selectedOption,
+        "",
+        "## Named Agent Launch Context",
+        buildNamedAgentHiddenContext(request.targetAgent, request.charterContent)
+    ];
+    const handoffContext = request.handoffContext?.trim();
+    if (handoffContext) {
+        sections.push("", "## Quick-Reply Handoff Context", handoffContext, "", "Use this handoff context to resolve references, pronouns, and intended scope in the selected quick reply. Carry out the selected quick reply now. Do not ask the user to restate context unless this handoff is empty or contradictory.");
+    }
+    return sections.join("\n");
+}
 function buildDelegationHiddenContext(selectedOption, targetAgent) {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -360,16 +374,12 @@ export class SquadBridgeService {
         }, buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
     }
     async runNamedAgent(request, handlers) {
-        const hiddenContext = [
-            buildNamedAgentHiddenContext(request.targetAgent, request.charterContent),
-            request.handoffContext?.trim()
-        ].filter((value) => !!value && value.trim().length > 0).join("\n\n");
-        await this.runSessionRequest(request.selectedOption, handlers, {
+        await this.runSessionRequest(buildNamedAgentPrompt(request), handlers, {
             cwd: request.cwd,
             sessionId: request.namedAgentSessionId,
             configDir: request.configDir,
             requireSameSession: false
-        }, hiddenContext);
+        });
     }
     async runSessionRequest(prompt, handlers, options, hiddenAdditionalContext) {
         const trimmedPrompt = prompt.trim();
