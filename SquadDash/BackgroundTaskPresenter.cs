@@ -22,7 +22,7 @@ internal sealed class BackgroundTaskPresenter {
     // ── Injectable state ─────────────────────────────────────────────────────
 
     private readonly AgentThreadRegistry                   _agentThreadRegistry;
-    private readonly Action<string, Brush>                 _appendLine;
+    private readonly Action<string, Brush?>                _appendLine;
     private readonly Action                                _syncAgentCards;
     private readonly Func<bool>                            _isPromptRunning;
     private readonly Func<TranscriptTurnView?>             _currentTurn;
@@ -69,7 +69,7 @@ internal sealed class BackgroundTaskPresenter {
 
     internal BackgroundTaskPresenter(
         AgentThreadRegistry             agentThreadRegistry,
-        Action<string, Brush>           appendLine,
+        Action<string, Brush?>          appendLine,
         Action                          syncAgentCards,
         Func<bool>                      isPromptRunning,
         Func<TranscriptTurnView?>       currentTurn,
@@ -471,7 +471,7 @@ internal sealed class BackgroundTaskPresenter {
 
     // ── Completion recording ─────────────────────────────────────────────────
 
-    internal void RecordBackgroundCompletion(string summary, string announcementKey) {
+    internal void RecordBackgroundCompletion(string summary, string announcementKey, bool appendNotice = true) {
         if (string.IsNullOrWhiteSpace(summary))
             return;
 
@@ -482,7 +482,8 @@ internal sealed class BackgroundTaskPresenter {
             "UI",
             $"Background completion recorded key={announcementKey} summary={_lastCompletedBackgroundTaskSummary}");
 
-        AppendBackgroundNotice(_lastCompletedBackgroundTaskSummary, _themeBrush("TaskSuccessText"), announcementKey);
+        if (appendNotice)
+            AppendBackgroundNotice(_lastCompletedBackgroundTaskSummary, _themeBrush("TaskSuccessText"), announcementKey);
     }
 
     internal void AppendBackgroundNotice(string text, Brush color, string announcementKey) {
@@ -656,17 +657,28 @@ internal sealed class BackgroundTaskPresenter {
         if (!_agentThreadRegistry.ThreadsByKey.TryGetValue(threadId, out var thread))
             return;
 
-        TryPromoteBackgroundAgentReportToCoordinator(thread, reason);
+        TryPromoteBackgroundAgentReportToCoordinator(thread, reason, allowDuringCurrentTurn: false);
     }
 
-    private void TryPromoteBackgroundAgentReportToCoordinator(
+    internal bool PromoteBackgroundAgentReportNow(TranscriptThreadState thread, string reason) =>
+        TryPromoteBackgroundAgentReportToCoordinator(thread, reason, allowDuringCurrentTurn: true);
+
+    private bool TryPromoteBackgroundAgentReportToCoordinator(
         TranscriptThreadState thread,
-        string                reason) {
-        if (_isPromptRunning() || _currentTurn() is not null) {
+        string                reason,
+        bool                  allowDuringCurrentTurn) {
+        var isPromptRunning = _isPromptRunning();
+        var hasCurrentTurn  = _currentTurn() is not null;
+        if ((isPromptRunning || hasCurrentTurn) && !(allowDuringCurrentTurn && hasCurrentTurn)) {
+            SquadDashTrace.Write(
+                "UI",
+                $"Deferred background report promotion thread={thread.ThreadId} reason={reason} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn}");
             ScheduleBackgroundAgentReportPromotion(thread, reason + ":deferred");
-            return;
+            return false;
         }
 
+        var isLiveBackgroundTask = IsThreadBackedByLiveBackgroundTask(thread);
+        var isTerminal           = AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText);
         var announcement = BackgroundAgentReportAnnouncementBuilder.TryBuild(
             thread.Title,
             thread.AgentId,
@@ -674,17 +686,26 @@ internal sealed class BackgroundTaskPresenter {
             thread.LatestResponse,
             thread.LastCoordinatorAnnouncedResponse,
             thread.WasObservedAsBackgroundTask,
-            IsThreadBackedByLiveBackgroundTask(thread),
-            AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText));
-        if (announcement is null)
-            return;
+            isLiveBackgroundTask,
+            isTerminal);
+        if (announcement is null) {
+            SquadDashTrace.Write(
+                "UI",
+                $"Skipped background report promotion thread={thread.ThreadId} reason={reason} latestResponseChars={thread.LatestResponse?.Length ?? 0} lastAnnouncedChars={thread.LastCoordinatorAnnouncedResponse?.Length ?? 0} observed={thread.WasObservedAsBackgroundTask} live={isLiveBackgroundTask} terminal={isTerminal}");
+            return false;
+        }
 
         thread.LastCoordinatorAnnouncedResponse = announcement.FullResponse;
         _persistAgentThreadSnapshot(thread);
 
+        _appendLine(
+            announcement.Header + Environment.NewLine + Environment.NewLine + announcement.Body,
+            null);
+
         SquadDashTrace.Write(
             "UI",
-            $"Promoted background report thread={thread.ThreadId} reason={reason} chars={announcement.Body.Length}");
+            $"Promoted background report thread={thread.ThreadId} reason={reason} chars={announcement.Body.Length} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn}");
+        return true;
     }
 
     // ── Thread ↔ background-task mapping ────────────────────────────────────

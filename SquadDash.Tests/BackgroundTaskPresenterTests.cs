@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Windows.Documents;
 using System.Threading.Tasks;
 using System.Windows.Media;
 
@@ -261,6 +263,56 @@ internal sealed class BackgroundTaskPresenterTests {
         });
     }
 
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void PromoteBackgroundAgentReportNow_AppendsReportDuringActiveCoordinatorTurn() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 5, 3, 21, 50, 6, TimeSpan.FromHours(-4));
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-lyra",
+            agentId: "lyra-morn",
+            agentName: "lyra-morn",
+            agentDisplayName: "Lyra Morn",
+            agentDescription: "WPF implementation specialist",
+            status: "completed",
+            prompt: "Looks good - have Lyra implement it",
+            startedAt: startedAt.ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.StatusText = "Completed";
+        thread.LatestResponse = "Done. Here's what was implemented:\n\n**Files changed:**\n- `PreferencesWindow.cs`";
+
+        var coordinatorThread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            startedAt);
+        var activeTurn = new TranscriptTurnView(
+            coordinatorThread,
+            "Looks good - have Lyra implement it",
+            startedAt,
+            new Section(),
+            []);
+        var appendedLines = new List<string>();
+        var persistedThreads = new List<TranscriptThreadState>();
+        var presenter = MakePresenter(
+            registry,
+            isPromptRunning: true,
+            currentTurn: activeTurn,
+            appendedLines: appendedLines,
+            persistedThreads: persistedThreads);
+
+        var promoted = presenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
+
+        Assert.Multiple(() => {
+            Assert.That(promoted, Is.True);
+            Assert.That(appendedLines, Has.Count.EqualTo(1));
+            Assert.That(appendedLines[0], Does.StartWith("Lyra Morn (lyra-morn) reported back:"));
+            Assert.That(appendedLines[0], Does.Contain("**Files changed:**"));
+            Assert.That(thread.LastCoordinatorAnnouncedResponse, Is.EqualTo(thread.LatestResponse));
+            Assert.That(persistedThreads, Is.EquivalentTo(new[] { thread }));
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static AgentThreadRegistry MakeRegistry() =>
@@ -286,21 +338,24 @@ internal sealed class BackgroundTaskPresenterTests {
 
     private static BackgroundTaskPresenter MakePresenter(
         AgentThreadRegistry? registry = null,
-        bool isPromptRunning = false) {
+        bool isPromptRunning = false,
+        TranscriptTurnView? currentTurn = null,
+        List<string>? appendedLines = null,
+        List<TranscriptThreadState>? persistedThreads = null) {
         registry ??= MakeRegistry();
 
         return new BackgroundTaskPresenter(
             agentThreadRegistry:          registry,
-            appendLine:                   (_, _) => { },
+            appendLine:                   (text, _) => appendedLines?.Add(text),
             syncAgentCards:               () => { },
             isPromptRunning:              () => isPromptRunning,
-            currentTurn:                  () => null,
+            currentTurn:                  () => currentTurn,
             themeBrush:                   _ => Brushes.Transparent,
             tryPostToUi:                  (action, _) => action(),
             isClosing:                    () => false,
             updateLeadAgent:              (_, _, _) => { },
             updateSessionState:           _ => { },
-            persistAgentThreadSnapshot:   _ => { },
+            persistAgentThreadSnapshot:   thread => persistedThreads?.Add(thread),
             currentTurnSnapshot:          () => new CurrentTurnStatusSnapshot(false, false, false),
             agentActiveDisplayLinger:     TimeSpan.FromSeconds(30),
             dynamicAgentHistoryRetention: TimeSpan.FromDays(7));

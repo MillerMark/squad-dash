@@ -3040,8 +3040,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
 
+        var promoted = _backgroundTaskPresenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
-        _backgroundTaskPresenter.RecordBackgroundCompletion(summary, BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread));
+        _backgroundTaskPresenter.RecordBackgroundCompletion(summary, BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread), appendNotice: !promoted);
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_completed");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
