@@ -1230,7 +1230,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 applyThemeAsync: async name =>
                 {
                     await Dispatcher.InvokeAsync(() => ApplyTheme(name));
-                });
+                },
+                getActiveTheme: () => _activeThemeName);
 
             runner.CaptureRequested += OnScreenshotCaptureRequested;
 
@@ -1303,7 +1304,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 applyThemeAsync: async name =>
                 {
                     await Dispatcher.InvokeAsync(() => ApplyTheme(name));
-                });
+                },
+                getActiveTheme: () => _activeThemeName);
 
             runner.CaptureRequested += OnScreenshotCaptureRequested;
             try

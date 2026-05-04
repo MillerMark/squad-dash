@@ -39,6 +39,7 @@ public sealed class ScreenshotRefreshRunner
     private readonly FixtureLoaderRegistry         _fixtures;
     private readonly string                        _screenshotsDirectory;
     private readonly Func<string, Task>?           _applyThemeAsync;
+    private readonly Func<string>?                 _getActiveTheme;
 
     // ── Events ─────────────────────────────────────────────────────────────────
 
@@ -62,18 +63,25 @@ public sealed class ScreenshotRefreshRunner
     ///   to the UI before capture.  When <c>null</c>, theme switching is skipped and the
     ///   currently active theme is used for every definition.
     /// </param>
+    /// <param name="getActiveTheme">
+    ///   Optional delegate that returns the name of the currently active theme.
+    ///   Required when <paramref name="applyThemeAsync"/> is provided — used to snapshot
+    ///   the original theme so it can be restored after each definition's capture.
+    /// </param>
     public ScreenshotRefreshRunner(
         ScreenshotDefinitionRegistry definitions,
         UiActionReplayRegistry        actions,
         FixtureLoaderRegistry         fixtures,
         string                        screenshotsDirectory,
-        Func<string, Task>?           applyThemeAsync = null)
+        Func<string, Task>?           applyThemeAsync = null,
+        Func<string>?                 getActiveTheme  = null)
     {
         _definitions          = definitions          ?? throw new ArgumentNullException(nameof(definitions));
         _actions              = actions              ?? throw new ArgumentNullException(nameof(actions));
         _fixtures             = fixtures             ?? throw new ArgumentNullException(nameof(fixtures));
         _screenshotsDirectory = screenshotsDirectory ?? throw new ArgumentNullException(nameof(screenshotsDirectory));
         _applyThemeAsync      = applyThemeAsync;
+        _getActiveTheme       = getActiveTheme;
     }
 
     // ── Public API ─────────────────────────────────────────────────────────────
@@ -158,6 +166,7 @@ public sealed class ScreenshotRefreshRunner
         var outputPath    = Path.Combine(_screenshotsDirectory, $"{themedStem}.png");
         IReplayableUiAction? action          = null;
         var                  fixtureApplied  = false;
+        string?              originalTheme   = null;
 
         try
         {
@@ -166,6 +175,7 @@ public sealed class ScreenshotRefreshRunner
                 && !string.IsNullOrWhiteSpace(definition.Theme)
                 && !string.Equals(definition.Theme, "Both", StringComparison.OrdinalIgnoreCase))
             {
+                originalTheme = _getActiveTheme?.Invoke();
                 await _applyThemeAsync(definition.Theme).ConfigureAwait(false);
                 await Task.Delay(50, ct).ConfigureAwait(false); // allow theme resources to settle
             }
@@ -309,6 +319,18 @@ public sealed class ScreenshotRefreshRunner
                 catch (Exception ex)
                 {
                     log.Write($"[screenshot] Warning: action undo failed for '{definition.Name}' — {ex.Message}");
+                }
+            }
+
+            if (originalTheme is not null && _applyThemeAsync is not null)
+            {
+                try
+                {
+                    await _applyThemeAsync(originalTheme).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    log.Write($"[screenshot] Warning: theme restore failed for '{definition.Name}' — {ex.Message}");
                 }
             }
         }
