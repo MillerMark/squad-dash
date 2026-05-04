@@ -1992,6 +1992,34 @@ public partial class MainWindow : Window, ILiveElementLocator
         SyncSendButton();
     }
 
+    private static readonly Geometry s_paperclipGeometry = Geometry.Parse(
+        // Feather Icons "paperclip" — 24×24 stroke-based, no fill needed.
+        "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66" +
+        "l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48");
+
+    private UIElement CreatePaperclipIcon(bool isActive)
+    {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data             = s_paperclipGeometry,
+            Stretch          = Stretch.Uniform,
+            Width            = 10,
+            Height           = 10,
+            Fill             = Brushes.Transparent,
+            StrokeThickness  = 2,
+            StrokeLineJoin   = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap   = PenLineCap.Round,
+            VerticalAlignment  = VerticalAlignment.Center,
+            // Half a space-width gap between number and clip (~3px at 12px font)
+            Margin = new Thickness(3, 0, 0, 0),
+        };
+        path.SetResourceReference(
+            System.Windows.Shapes.Path.StrokeProperty,
+            isActive ? "LabelText" : "QueueTabInactiveText");
+        return path;
+    }
+
     private UIElement CreateQueueTab(string? id, string label, string? tooltip = null)
     {
         bool isActive = _activeTabId == id;
@@ -2008,6 +2036,26 @@ public partial class MainWindow : Window, ILiveElementLocator
             TextBlock.ForegroundProperty,
             isActive ? "LabelText" : "QueueTabInactiveText");
 
+        var tabKey = id ?? "";
+        bool hasAttachment = _followUpAttachments.TryGetValue(tabKey, out var attachList) && attachList.Count > 0;
+
+        UIElement tabChild;
+        if (hasAttachment)
+        {
+            var sp = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            sp.Children.Add(textBlock);
+            sp.Children.Add(CreatePaperclipIcon(isActive));
+            tabChild = sp;
+        }
+        else
+        {
+            tabChild = textBlock;
+        }
+
         var tab = new Border
         {
             Padding = new Thickness(12, 6, 12, 6),
@@ -2015,7 +2063,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             Cursor = Cursors.Hand,
             BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0),
             Background = Brushes.Transparent,
-            Child = textBlock,
+            Child = tabChild,
             ToolTip = tooltip,
         };
         if (isActive)
