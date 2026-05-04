@@ -139,12 +139,12 @@ internal sealed class CommitApprovalPanel {
         };
 
         var menu = MakeMenu();
-        var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
-        rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
-        menu.Items.Add(rejectItem);
         var followUpItem = MakeItem("Follow up…");
         followUpItem.Click += (_, _) => _onFollowUp(item);
         menu.Items.Add(followUpItem);
+        var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
+        rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
+        menu.Items.Add(rejectItem);
         row.ContextMenu = menu;
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
