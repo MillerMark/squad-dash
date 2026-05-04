@@ -2029,6 +2029,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             StrokeThickness   = 0,
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(4, 0, 0, 0),
+            Opacity           = 0.65,
         };
         path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "LabelText");
 
