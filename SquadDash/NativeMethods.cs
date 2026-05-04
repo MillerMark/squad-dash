@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media.Imaging;
 
 namespace SquadDash;
 
@@ -155,8 +156,7 @@ internal static class NativeMethods {
         return new Rect(window.Left, window.Top, window.ActualWidth, window.ActualHeight);
     }
 
-    public static bool TryActivateProcessMainWindow(int processId) {
-        if (processId <= 0)
+    public static bool TryActivateProcessMainWindow(int processId) {        if (processId <= 0)
             return false;
 
         try {
@@ -231,5 +231,124 @@ internal static class NativeMethods {
         Marshal.StructureToPtr(mmi, lParam, false);
         handled = true;
         return nint.Zero;
+    }
+
+    // ── GDI screen-capture ────────────────────────────────────────────────────
+
+    [DllImport("user32.dll")]
+    private static extern nint GetDC(nint hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(nint hWnd, nint hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern nint CreateCompatibleDC(nint hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern nint CreateCompatibleBitmap(nint hDC, int cx, int cy);
+
+    [DllImport("gdi32.dll")]
+    private static extern nint SelectObject(nint hDC, nint hGdiObj);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool BitBlt(nint hdcDest, int xDest, int yDest, int w, int h,
+                                      nint hdcSrc, int xSrc, int ySrc, uint rop);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteDC(nint hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(nint hObject);
+
+    /// <summary>
+    /// Captures a region of the desktop (specified in physical/screen pixels) to a
+    /// frozen WPF <see cref="BitmapSource"/>.  Unlike <c>RenderTargetBitmap</c> this
+    /// captures everything visible on screen, including WPF <c>Popup</c> windows,
+    /// tooltips, and other top-level HWNDs that are not part of the main window's
+    /// visual tree.  Returns <c>null</c> if the capture fails or the region is empty.
+    /// </summary>
+    private static BitmapSource? CaptureScreenRegionPixels(int x, int y, int width, int height)
+    {
+        if (width <= 0 || height <= 0) return null;
+
+        const uint SRCCOPY = 0x00CC0020;
+
+        var screenDC = GetDC(nint.Zero);
+        if (screenDC == nint.Zero) return null;
+
+        nint memDC  = nint.Zero;
+        nint hBmp   = nint.Zero;
+        nint oldBmp = nint.Zero;
+        try
+        {
+            memDC  = CreateCompatibleDC(screenDC);
+            hBmp   = CreateCompatibleBitmap(screenDC, width, height);
+            oldBmp = SelectObject(memDC, hBmp);
+
+            BitBlt(memDC, 0, 0, width, height, screenDC, x, y, SRCCOPY);
+
+            var src = System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(
+                hBmp,
+                nint.Zero,
+                System.Windows.Int32Rect.Empty,
+                BitmapSizeOptions.FromEmptyOptions());
+            src.Freeze();
+            return src;
+        }
+        finally
+        {
+            if (oldBmp != nint.Zero && memDC != nint.Zero) SelectObject(memDC, oldBmp);
+            if (hBmp   != nint.Zero) DeleteObject(hBmp);
+            if (memDC  != nint.Zero) DeleteDC(memDC);
+            ReleaseDC(nint.Zero, screenDC);
+        }
+    }
+
+    /// <summary>
+    /// Captures the area of <paramref name="window"/> (or a sub-region of it defined by
+    /// <paramref name="selectionInDips"/>) from the live screen, including any floating
+    /// WPF popups, tooltips, or other windows drawn on top.
+    /// </summary>
+    /// <param name="window">The WPF window whose screen position determines the base origin.</param>
+    /// <param name="selectionInDips">
+    /// Optional sub-region in WPF logical units (DIPs) relative to the window's client area.
+    /// Pass <c>null</c> to capture the full window.
+    /// </param>
+    /// <returns>A frozen <see cref="BitmapSource"/>, or <c>null</c> on failure.</returns>
+    public static BitmapSource? CaptureWindowRegion(Window window, Rect? selectionInDips = null)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (hwnd == nint.Zero) return null;
+        if (!GetWindowRect(hwnd, out RECT win)) return null;
+
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(window);
+
+        int x, y, w, h;
+        if (selectionInDips is { } sel && sel.Width > 0 && sel.Height > 0)
+        {
+            var cx = (int)Math.Round(sel.Left   * dpi.DpiScaleX);
+            var cy = (int)Math.Round(sel.Top    * dpi.DpiScaleY);
+            var cw = (int)Math.Round(sel.Width  * dpi.DpiScaleX);
+            var ch = (int)Math.Round(sel.Height * dpi.DpiScaleY);
+            var maxW = win.Right  - win.Left;
+            var maxH = win.Bottom - win.Top;
+            cx = Math.Max(0, cx);
+            cy = Math.Max(0, cy);
+            cw = Math.Max(1, Math.Min(cw, maxW - cx));
+            ch = Math.Max(1, Math.Min(ch, maxH - cy));
+            x  = win.Left + cx;
+            y  = win.Top  + cy;
+            w  = cw;
+            h  = ch;
+        }
+        else
+        {
+            x = win.Left;
+            y = win.Top;
+            w = win.Right  - win.Left;
+            h = win.Bottom - win.Top;
+        }
+
+        return CaptureScreenRegionPixels(x, y, w, h);
     }
 }

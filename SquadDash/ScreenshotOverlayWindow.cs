@@ -2937,35 +2937,9 @@ internal sealed class ScreenshotOverlayWindow : Window
 
         try
         {
-            var dpi = VisualTreeHelper.GetDpi(_mainWindow);
-            var pxW = (int)Math.Round(_mainWindow.ActualWidth  * dpi.DpiScaleX);
-            var pxH = (int)Math.Round(_mainWindow.ActualHeight * dpi.DpiScaleY);
-
-            var rtb = new RenderTargetBitmap(
-                pxW, pxH,
-                dpi.PixelsPerInchX, dpi.PixelsPerInchY,
-                PixelFormats.Pbgra32);
-            rtb.Render(_mainWindow);
-            rtb.Freeze();
-
-            BitmapSource bmp = rtb;
-
-            if (!_capturedIsFullWindow)
-            {
-                var cropX = (int)Math.Round(_capturedSel.Left   * dpi.DpiScaleX);
-                var cropY = (int)Math.Round(_capturedSel.Top    * dpi.DpiScaleY);
-                var cropW = (int)Math.Round(_capturedSel.Width  * dpi.DpiScaleX);
-                var cropH = (int)Math.Round(_capturedSel.Height * dpi.DpiScaleY);
-
-                cropX = Math.Max(0, cropX);
-                cropY = Math.Max(0, cropY);
-                cropW = Math.Max(1, Math.Min(cropW, pxW - cropX));
-                cropH = Math.Max(1, Math.Min(cropH, pxH - cropY));
-
-                var cropped = new CroppedBitmap(rtb, new Int32Rect(cropX, cropY, cropW, cropH));
-                cropped.Freeze();
-                bmp = cropped;
-            }
+            var selectionArg = _capturedIsFullWindow ? (Rect?)null : _capturedSel;
+            var bmp = NativeMethods.CaptureWindowRegion(_mainWindow, selectionArg)
+                      ?? throw new InvalidOperationException("Screen capture returned no data.");
 
             Directory.CreateDirectory(_saveDirectory);
 
