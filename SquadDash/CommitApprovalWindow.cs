@@ -142,6 +142,7 @@ internal sealed class CommitApprovalPanel {
         var followUpItem = MakeItem("Follow up…");
         followUpItem.Click += (_, _) => _onFollowUp(item);
         menu.Items.Add(followUpItem);
+        menu.Items.Add(new Separator());
         var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
