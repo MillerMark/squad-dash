@@ -14998,7 +14998,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 .Select(static t => AgentThreadRegistry.GetThreadLastActivityAt(t).UtcTicks)
                 .ToArray(),
             card.Name,
-            isScribe: string.Equals(card.AccentStorageKey, "scribe", StringComparison.OrdinalIgnoreCase));
+            isScribe: string.Equals(card.AccentStorageKey, "scribe", StringComparison.OrdinalIgnoreCase),
+            isRetired: string.Equals(card.RegistryStatus, "retired", StringComparison.OrdinalIgnoreCase));
 
     private void UpdateAgentPanelWidths()
     {

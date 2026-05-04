@@ -12,6 +12,7 @@ namespace SquadDash;
 ///   Group 1 — roster agents (non-utility), ordered by most-recently-activated first
 ///   Group 2 — Scribe (always last among named roster agents)
 ///   Group 3 — dynamic/temporary agents, ordered by most-recently-activated first
+///   Group 4 — retired agents, ordered alphabetically by name
 ///
 /// Within groups 1, 2 and 3:
 ///   SortTicks = long.MaxValue - max(thread.LastActivityAt.UtcTicks)
@@ -27,9 +28,13 @@ internal static class AgentCardSorting {
         bool isDynamicAgent,
         IReadOnlyList<long> threadLastActivityAtUtcTicks,
         string name,
-        bool isScribe = false) {
+        bool isScribe = false,
+        bool isRetired = false) {
         if (isLeadAgent)
             return (0, 0, name);
+
+        if (isRetired)
+            return (4, 0, name);
 
         var sortTicks = threadLastActivityAtUtcTicks.Count == 0
             ? long.MaxValue

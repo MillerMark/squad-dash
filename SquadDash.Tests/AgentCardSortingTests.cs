@@ -317,6 +317,38 @@ internal sealed class AgentCardSortingTests {
     // -------------------------------------------------------------------------
 
     [Test]
+    public void RetiredAgent_AssignedToGroup4() {
+        var (group, _, _) = AgentCardSorting.ComputeSortKey(false, false, [], "Alice", isRetired: true);
+        Assert.That(group, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void RetiredAgent_SortsAfterDynamicAgent() {
+        var dynamic  = AgentCardSorting.ComputeSortKey(false, true,  [], "Temp");
+        var retired  = AgentCardSorting.ComputeSortKey(false, false, [], "Alice", isRetired: true);
+        Assert.That(dynamic, Is.LessThan(retired));
+    }
+
+    [Test]
+    public void RetiredAgents_SortedAlphabeticallyByName() {
+        var bravo = AgentCardSorting.ComputeSortKey(false, false, [], "Bravo", isRetired: true);
+        var alpha = AgentCardSorting.ComputeSortKey(false, false, [], "Alpha", isRetired: true);
+        Assert.That(alpha, Is.LessThan(bravo));
+    }
+
+    [Test]
+    public void RetiredAgent_AlphaSort_NotAffectedByThreadActivity() {
+        // A retired agent with lots of recent activity should still sort by name only.
+        var retiredBusy = AgentCardSorting.ComputeSortKey(false, false, [9_000_000L], "Zara", isRetired: true);
+        var retiredIdle = AgentCardSorting.ComputeSortKey(false, false, [],           "Andy", isRetired: true);
+        Assert.That(retiredIdle, Is.LessThan(retiredBusy), "Andy < Zara alphabetically despite Zara having threads");
+    }
+
+    // -------------------------------------------------------------------------
+    // Full end-to-end sort order
+    // -------------------------------------------------------------------------
+
+    [Test]
     public void FullSort_ProducesExpectedOrder() {
         // Expected slot order (left → right):
         //   [0] lead              group 0, SortTicks = 0
@@ -325,14 +357,18 @@ internal sealed class AgentCardSortingTests {
         //   [3] rosterIdle        group 1, MaxValue (never activated)
         //   [4] dynamicRecent     group 3, MaxValue - 3000 (smallest in group)
         //   [5] dynamicIdle       group 3, MaxValue (never activated)
+        //   [6] retiredA          group 4, "Andy"   (alphabetically first)
+        //   [7] retiredB          group 4, "Zara"   (alphabetically last)
         var lead = AgentCardSorting.ComputeSortKey(true, false, [2_000L], "Squad");
         var rosterRecent = AgentCardSorting.ComputeSortKey(false, false, [2_000L], "Arjun");
         var rosterOlder = AgentCardSorting.ComputeSortKey(false, false, [1_000L], "Lyra");
         var rosterIdle = AgentCardSorting.ComputeSortKey(false, false, [], "Talia");
         var dynamicRecent = AgentCardSorting.ComputeSortKey(false, true, [3_000L], "Temp1");
         var dynamicIdle = AgentCardSorting.ComputeSortKey(false, true, [], "Temp2");
+        var retiredA = AgentCardSorting.ComputeSortKey(false, false, [], "Andy", isRetired: true);
+        var retiredB = AgentCardSorting.ComputeSortKey(false, false, [], "Zara", isRetired: true);
 
-        var sorted = new[] { rosterIdle, dynamicRecent, lead, rosterOlder, dynamicIdle, rosterRecent }
+        var sorted = new[] { rosterIdle, dynamicRecent, lead, rosterOlder, dynamicIdle, rosterRecent, retiredB, retiredA }
             .Order()
             .ToList();
 
@@ -343,6 +379,8 @@ internal sealed class AgentCardSortingTests {
             Assert.That(sorted[3], Is.EqualTo(rosterIdle),    "slot 3: never-activated roster agent");
             Assert.That(sorted[4], Is.EqualTo(dynamicRecent), "slot 4: most-recently-activated dynamic agent");
             Assert.That(sorted[5], Is.EqualTo(dynamicIdle),   "slot 5: never-activated dynamic agent");
+            Assert.That(sorted[6], Is.EqualTo(retiredA),      "slot 6: retired agent Andy (alpha first)");
+            Assert.That(sorted[7], Is.EqualTo(retiredB),      "slot 7: retired agent Zara (alpha last)");
         });
     }
 }

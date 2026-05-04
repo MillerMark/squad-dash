@@ -73,6 +73,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
         IsUtilityAgent = isUtilityAgent ?? isCompact;
         IsLeadAgent = isLeadAgent;
         IsDynamicAgent = isDynamicAgent;
+        RegistryStatus = statusText;
         Threads = new ObservableCollection<TranscriptThreadState>();
         Threads.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ThreadsVisibility));
         _displayName = name;
@@ -111,6 +112,8 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     public bool IsUtilityAgent { get; }
     public bool IsLeadAgent { get; }
     public bool IsDynamicAgent { get; }
+    /// <summary>The registry status at the time the card was created (e.g. "Retired"). Never changes at runtime.</summary>
+    public string RegistryStatus { get; }
     public ObservableCollection<TranscriptThreadState> Threads { get; }
     public string RoleText {
         get => _roleText;
