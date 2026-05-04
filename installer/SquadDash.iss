@@ -31,6 +31,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "shellmenu";   Description: "Add ""Open SquadDash Here"" to Windows Explorer folder context menu"; GroupDescription: "Shell integration"
 
 [Files]
 ; Launcher — lives at the app root so the Start Menu shortcut points to it
@@ -47,6 +48,17 @@ Source: "..\artifacts\publish\sdk\*"; DestDir: "{app}\Squad.SDK"; Flags: ignorev
 Name: "{group}\SquadDash";                        Filename: "{app}\SquadDash.exe"
 Name: "{group}\{cm:UninstallProgram,SquadDash}";  Filename: "{uninstallexe}"
 Name: "{autodesktop}\SquadDash";                  Filename: "{app}\SquadDash.exe"; Tasks: desktopicon
+
+[Registry]
+; Explorer context menu: right-click on a folder in the tree / file list
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\SquadDash";          ValueType: string; ValueName: "";      ValueData: "Open SquadDash Here";                                        Flags: uninsdeletekey; Tasks: shellmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\SquadDash";          ValueType: string; ValueName: "Icon";  ValueData: "{app}\SquadDash.exe,0";                                      Tasks: shellmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\SquadDash\command";  ValueType: string; ValueName: "";      ValueData: """{app}\SquadDash.exe"" ""--folder"" ""%1""";                Tasks: shellmenu
+
+; Explorer context menu: right-click on the background of an open folder (%V = current folder)
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\SquadDash";          ValueType: string; ValueName: "";      ValueData: "Open SquadDash Here";                            Flags: uninsdeletekey; Tasks: shellmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\SquadDash";          ValueType: string; ValueName: "Icon";  ValueData: "{app}\SquadDash.exe,0";                          Tasks: shellmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\Background\shell\SquadDash\command";  ValueType: string; ValueName: "";      ValueData: """{app}\SquadDash.exe"" ""--folder"" ""%V""";   Tasks: shellmenu
 
 [Run]
 Filename: "{app}\SquadDash.exe"; Description: "{cm:LaunchProgram,SquadDash}"; Flags: nowait postinstall skipifsilent
