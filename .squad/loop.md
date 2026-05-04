@@ -18,8 +18,13 @@ Read `.squad/tasks.md`. Find the **first unchecked (`- [ ]`) item** that is NOT 
 
 No unchecked tasks remain (or all remaining tasks are Owner: User). Do the following and nothing else:
 
-1. Include this block in your response:
-   `{"squadash": {"command": "stop_loop", "notification": "🎉 Task backlog is clear — loop stopped."}}`
+1. Append this block at the **very end** of your response (after all other content):
+   ```
+   HOST_COMMAND_JSON:
+   [
+     { "command": "stop_loop" }
+   ]
+   ```
 2. Do not attempt any further work this iteration.
 
 ## Step 3 — If a task IS found, implement it fully

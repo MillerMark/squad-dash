@@ -158,9 +158,9 @@ internal sealed class LoopController {
     }
 
     /// <summary>
-    /// Appends a SquadDash command reference block to the loop instructions if the
-    /// loop.md frontmatter declared any <c>commands</c>. AI can respond with
-    /// <c>{"squadash": {"command": "stop_loop"}}</c> to invoke a command.
+    /// Appends a HOST_COMMAND_JSON reference block to the loop instructions if the
+    /// loop.md frontmatter declared any <c>commands</c>. AI invokes commands by
+    /// appending a HOST_COMMAND_JSON block at the very end of its response.
     /// </summary>
     internal static string BuildAugmentedPrompt(string instructions, IReadOnlyList<string>? commands) {
         if (commands is null || commands.Count == 0)
@@ -172,28 +172,34 @@ internal sealed class LoopController {
         sb.AppendLine("---");
         sb.AppendLine("## SquadDash loop commands (available this iteration)");
         sb.AppendLine();
-        sb.AppendLine("To invoke a SquadDash command, include a JSON block anywhere in your response:");
+        sb.AppendLine("To invoke a SquadDash command, append a HOST_COMMAND_JSON block at the **very end** of your response (after all other content including <system_notification>):");
+        sb.AppendLine();
+        sb.AppendLine("```");
+        sb.AppendLine("HOST_COMMAND_JSON:");
+        sb.AppendLine("[");
+        sb.AppendLine("  { \"command\": \"command_name\" }");
+        sb.AppendLine("]");
+        sb.AppendLine("```");
+        sb.AppendLine();
+        sb.AppendLine("Available commands this iteration:");
         sb.AppendLine();
 
         foreach (var cmd in commands) {
             switch (cmd.Trim().ToLowerInvariant()) {
                 case "stop_loop":
-                    sb.AppendLine("""- **Stop the loop**: `{"squadash": {"command": "stop_loop"}}`""");
-                    sb.AppendLine("  Stops the loop after this iteration. Combine with a notification:");
-                    sb.AppendLine("""  `{"squadash": {"command": "stop_loop", "notification": "reason"}}`""");
+                    sb.AppendLine("- **stop_loop** — Stops the loop after this iteration completes.");
                     break;
                 case "start_loop":
-                    sb.AppendLine("""- **Start the loop**: `{"squadash": {"command": "start_loop"}}`""");
-                    sb.AppendLine("  Starts (or restarts) the SquadDash native loop.");
+                    sb.AppendLine("- **start_loop** — Starts (or restarts) the SquadDash native loop.");
                     break;
                 default:
-                    sb.AppendLine($"- **{cmd}**: `{{\"squadash\": {{\"command\": \"{cmd}\"}}}}` ");
+                    sb.AppendLine($"- **{cmd}**");
                     break;
             }
         }
 
         sb.AppendLine();
-        sb.AppendLine("Only emit a command block when the condition for that command has been met. Do not emit commands on every iteration.");
+        sb.AppendLine("Only emit HOST_COMMAND_JSON when the condition for that command has been met. Do not emit it on every iteration.");
         return sb.ToString().TrimEnd();
     }
 }

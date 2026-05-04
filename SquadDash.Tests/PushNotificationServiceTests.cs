@@ -233,7 +233,7 @@ internal sealed class PushNotificationServiceTests {
         Assert.That(result, Does.Contain("Do work."));
         Assert.That(result, Does.Contain("SquadDash loop commands"));
         Assert.That(result, Does.Contain("stop_loop"));
-        Assert.That(result, Does.Contain("squadash"));
+        Assert.That(result, Does.Contain("HOST_COMMAND_JSON"));
     }
 
     [Test]
