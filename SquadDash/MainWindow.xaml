@@ -1679,62 +1679,68 @@
                     CornerRadius="18"
                     ClipToBounds="True"
                     Visibility="Collapsed">
+                <Grid>
+                <!-- Layout toggle buttons: always anchored to top-right of source panel,
+                     independent of content width so they never scroll out of view. -->
+                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Orientation="Horizontal"
+                            Panel.ZIndex="1"
+                            Margin="0,7,8,0">
+                    <!-- Side-by-side layout button with active underline indicator -->
+                    <Grid Margin="0,0,2,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="3" />
+                        </Grid.RowDefinitions>
+                        <Button x:Name="DocSourceSideBySideButton"
+                                Grid.Row="0"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Width="26" Height="22"
+                                Padding="0"
+                                ToolTip="Side-by-side layout (preview left, source right)"
+                                Click="DocSourceSideBySideButton_Click">
+                            <!-- Two vertical panes side-by-side -->
+                            <Viewbox Width="14" Height="12" Stretch="Uniform">
+                                <Canvas Width="14" Height="12" Opacity="0.45">
+                                    <Rectangle Canvas.Left="0"   Canvas.Top="0" Width="5.5" Height="12" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                    <Rectangle Canvas.Left="8.5" Canvas.Top="0" Width="5.5" Height="12" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                        <Border x:Name="DocSourceSideBySideIndicator"
+                                Grid.Row="1"
+                                CornerRadius="1.5"
+                                Background="Transparent" />
+                    </Grid>
+                    <!-- Top-bottom layout button with active underline indicator -->
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="3" />
+                        </Grid.RowDefinitions>
+                        <Button x:Name="DocSourceTopBottomButton"
+                                Grid.Row="0"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Width="26" Height="22"
+                                Padding="0"
+                                ToolTip="Top-bottom layout (preview top, source bottom)"
+                                Click="DocSourceTopBottomButton_Click">
+                            <!-- Two horizontal panes stacked top/bottom -->
+                            <Viewbox Width="14" Height="12" Stretch="Uniform">
+                                <Canvas Width="14" Height="12" Opacity="0.45">
+                                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="14" Height="5" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="7" Width="14" Height="5" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                </Canvas>
+                            </Viewbox>
+                        </Button>
+                        <Border x:Name="DocSourceTopBottomIndicator"
+                                Grid.Row="1"
+                                CornerRadius="1.5"
+                                Background="Transparent" />
+                    </Grid>
+                </StackPanel>
                 <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="14,10,14,4">
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- Side-by-side layout button with active underline indicator -->
-                        <Grid Margin="0,0,2,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="3" />
-                            </Grid.RowDefinitions>
-                            <Button x:Name="DocSourceSideBySideButton"
-                                    Grid.Row="0"
-                                    Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
-                                    Padding="0"
-                                    ToolTip="Side-by-side layout (preview left, source right)"
-                                    Click="DocSourceSideBySideButton_Click">
-                                <!-- Two vertical panes side-by-side -->
-                                <Viewbox Width="14" Height="12" Stretch="Uniform">
-                                    <Canvas Width="14" Height="12" Opacity="0.45">
-                                        <Rectangle Canvas.Left="0"   Canvas.Top="0" Width="5.5" Height="12" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
-                                        <Rectangle Canvas.Left="8.5" Canvas.Top="0" Width="5.5" Height="12" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
-                                    </Canvas>
-                                </Viewbox>
-                            </Button>
-                            <Border x:Name="DocSourceSideBySideIndicator"
-                                    Grid.Row="1"
-                                    CornerRadius="1.5"
-                                    Background="Transparent" />
-                        </Grid>
-                        <!-- Top-bottom layout button with active underline indicator -->
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*" />
-                                <RowDefinition Height="3" />
-                            </Grid.RowDefinitions>
-                            <Button x:Name="DocSourceTopBottomButton"
-                                    Grid.Row="0"
-                                    Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
-                                    Padding="0"
-                                    ToolTip="Top-bottom layout (preview top, source bottom)"
-                                    Click="DocSourceTopBottomButton_Click">
-                                <!-- Two horizontal panes stacked top/bottom -->
-                                <Viewbox Width="14" Height="12" Stretch="Uniform">
-                                    <Canvas Width="14" Height="12" Opacity="0.45">
-                                        <Rectangle Canvas.Left="0" Canvas.Top="0" Width="14" Height="5" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
-                                        <Rectangle Canvas.Left="0" Canvas.Top="7" Width="14" Height="5" Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
-                                    </Canvas>
-                                </Viewbox>
-                            </Button>
-                            <Border x:Name="DocSourceTopBottomIndicator"
-                                    Grid.Row="1"
-                                    CornerRadius="1.5"
-                                    Background="Transparent" />
-                        </Grid>
-                    </StackPanel>
                     <TextBlock Text="Source"
                                FontSize="13"
                                FontWeight="SemiBold"
@@ -1825,6 +1831,7 @@
                              SelectionChanged="DocSourceTextBox_SelectionChanged"
                              TextChanged="DocSourceTextBox_TextChanged" />
                 </DockPanel>
+                </Grid>
             </Border>
         </Grid>
 
