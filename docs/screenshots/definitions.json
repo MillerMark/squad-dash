@@ -344,35 +344,35 @@
       "needsName": false,
       "elementLeft": 13,
       "elementTop": 53,
-      "elementWidth": 1390.8713251019055,
+      "elementWidth": 1348.8713251019055,
       "elementHeight": 364.79,
-      "distanceToEdge": 5
+      "distanceToEdge": 6
     },
     "right": {
       "edge": "Right",
       "elementNames": [
-        "TasksPanelCloseButton",
-        "border",
-        "PART_Track"
+        "AgentCardBorder(Mira Quill)"
       ],
       "needsName": false,
-      "elementLeft": 1003.4346584352388,
-      "elementTop": 66,
-      "elementWidth": 22,
-      "elementHeight": 22,
-      "distanceToEdge": 9.425341564761084
+      "elementLeft": 614,
+      "elementTop": 115.91,
+      "elementWidth": 170,
+      "elementHeight": 242.51,
+      "distanceToEdge": 1.666666666666515
     },
     "bottom": {
       "edge": "Bottom",
       "elementNames": [
-        "PART_Track"
+        "StatusPanelBorder",
+        "StatusAgentPanelsGrid",
+        "TasksPanelBorder"
       ],
       "needsName": false,
-      "elementLeft": 1014.4346584352388,
-      "elementTop": 91,
-      "elementWidth": 11,
-      "elementHeight": 310.79,
-      "distanceToEdge": 13.236666666662757
+      "elementLeft": 13,
+      "elementTop": 53,
+      "elementWidth": 1348.8713251019055,
+      "elementHeight": 364.79,
+      "distanceToEdge": 1.2099999999999795
     },
     "left": {
       "edge": "Left",
@@ -380,21 +380,21 @@
         "TasksPanelBorder"
       ],
       "needsName": false,
-      "elementLeft": 761.5179917685721,
+      "elementLeft": 505.51799176857213,
       "elementTop": 53,
       "elementWidth": 276.9166666666667,
       "elementHeight": 364.79,
-      "distanceToEdge": 8
+      "distanceToEdge": 6.184658435238873
     },
     "bounds": {
-      "x": 757.5179917685721,
-      "y": 49,
-      "width": 271.91666666666674,
-      "height": 356.79,
+      "x": 499.33333333333326,
+      "y": 47,
+      "width": 286.33333333333326,
+      "height": 372,
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": "..\\panels\\images\\tasks-panel.png",
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
     "elementInventory": null
   },
   {
@@ -820,6 +820,81 @@
       "y": 1187,
       "width": 714.3333333333334,
       "height": 253,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
+  },
+  {
+    "name": "expand-site-expander-toggle-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "ExpandSite"
+      ],
+      "needsName": false,
+      "elementLeft": 33,
+      "elementTop": 1199.7499999999968,
+      "elementWidth": 1297.87,
+      "elementHeight": 298.70000000000005,
+      "distanceToEdge": 3.7499999999968168
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle"
+      ],
+      "needsName": false,
+      "elementLeft": 51,
+      "elementTop": 1211.304999999997,
+      "elementWidth": 10.8,
+      "elementHeight": 14.16,
+      "distanceToEdge": 660.5333333333334
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "ExpanderToggle"
+      ],
+      "needsName": false,
+      "elementLeft": 51,
+      "elementTop": 1416.1949999999965,
+      "elementWidth": 10.8,
+      "elementHeight": 14.16,
+      "distanceToEdge": 9.645000000003392
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "MainGrid",
+        "TranscriptPanelsGrid",
+        "MainTranscriptBorder",
+        "PromptBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 15,
+      "elementWidth": 2532,
+      "elementHeight": 1410,
+      "distanceToEdge": 13
+    },
+    "bounds": {
+      "x": 0,
+      "y": 1196,
+      "width": 722.3333333333334,
+      "height": 244,
       "dpiX": 1,
       "dpiY": 1
     },

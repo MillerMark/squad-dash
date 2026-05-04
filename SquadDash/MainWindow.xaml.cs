@@ -16866,7 +16866,39 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (FollowUpStrip is null) return;
         if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var att))
         {
-            FollowUpLabel.Text = $"↩ Follow-up: {att.CommitSha} — \"{att.Description}\"";
+            // Build inline content: "↩ Follow-up: " + clickable SHA + " — "description""
+            var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
+
+            var prefix = new Run("↩ Follow-up: ");
+            prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+            var shaRun = new Run(shaDisplay)
+            {
+                TextDecorations = TextDecorations.Underline,
+                Cursor          = System.Windows.Input.Cursors.Hand,
+            };
+            shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
+
+            var suffix = new Run($" — \"{att.Description}\"");
+            suffix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+            FollowUpLabel.Inlines.Clear();
+            FollowUpLabel.Inlines.Add(prefix);
+            FollowUpLabel.Inlines.Add(shaRun);
+            FollowUpLabel.Inlines.Add(suffix);
+
+            // Wire click: find the approval item by SHA and scroll to it.
+            var capturedSha = att.CommitSha;
+            shaRun.MouseLeftButtonUp += (_, e) =>
+            {
+                e.Handled = true;
+                var item = _approvalItems.FirstOrDefault(i =>
+                    string.Equals(i.CommitSha, capturedSha, StringComparison.OrdinalIgnoreCase) ||
+                    (capturedSha.Length >= 7 && i.CommitSha.StartsWith(capturedSha, StringComparison.OrdinalIgnoreCase)));
+                if (item is not null)
+                    ScrollToApprovalTurn(item);
+            };
+
             FollowUpStrip.Visibility = Visibility.Visible;
         }
         else
@@ -16939,11 +16971,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_notesPanelVisible && _notesPanel is null)
         {
             _notesPanel = new NotesPanelController(
-                listPanel:  NotesListPanel!,
-                openNote:   note => OpenNote(note),
-                renameNote: (note, title) => RenameNote(note, title),
-                deleteNote: note => DeleteNote(note),
-                newNote:    () => CreateNewNote());
+                listPanel:       NotesListPanel!,
+                scrollContainer: (FrameworkElement)NotesListPanel!.Parent,
+                openNote:        note => OpenNote(note),
+                renameNote:      (note, title) => RenameNote(note, title),
+                deleteNote:      note => DeleteNote(note),
+                newNote:         () => CreateNewNote());
             _notesPanel.Refresh(_noteItems);
         }
     }

@@ -1381,7 +1381,8 @@
                             </Grid>
 
                             <!-- Row 1: Notes list -->
-                            <ScrollViewer Grid.Row="1"
+                            <ScrollViewer x:Name="NotesScrollViewer"
+                                          Grid.Row="1"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="NotesListPanel" />
@@ -1815,7 +1816,7 @@
                             Padding="8,4"
                             BorderThickness="0,0,0,1"
                             BorderBrush="{DynamicResource LineColor}"
-                            Background="{DynamicResource InputSurface}">
+                            Background="{DynamicResource FollowUpSurface}">
                         <DockPanel>
                             <Button x:Name="FollowUpDismissBtn"
                                     DockPanel.Dock="Right"

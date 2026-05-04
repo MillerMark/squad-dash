@@ -4,12 +4,12 @@
   "description": "",
   "theme": "Light",
   "region": "custom",
-  "capturedAt": "2026-05-04T18:30:27.7082044Z",
+  "capturedAt": "2026-05-04T20:12:26.281748Z",
   "bounds": {
-    "x": 757.5179917685721,
-    "y": 49,
-    "width": 271.91666666666674,
-    "height": 356.79,
+    "x": 499.33333333333326,
+    "y": 47,
+    "width": 286.33333333333326,
+    "height": 372,
     "dpiX": 1,
     "dpiY": 1
   },
@@ -23,35 +23,35 @@
     "needsName": false,
     "elementLeft": 13,
     "elementTop": 53,
-    "elementWidth": 1390.8713251019055,
+    "elementWidth": 1348.8713251019055,
     "elementHeight": 364.79,
-    "distanceToEdge": 5
+    "distanceToEdge": 6
   },
   "right": {
     "edge": "Right",
     "elementNames": [
-      "TasksPanelCloseButton",
-      "border",
-      "PART_Track"
+      "AgentCardBorder(Mira Quill)"
     ],
     "needsName": false,
-    "elementLeft": 1003.4346584352388,
-    "elementTop": 66,
-    "elementWidth": 22,
-    "elementHeight": 22,
-    "distanceToEdge": 9.425341564761084
+    "elementLeft": 614,
+    "elementTop": 115.91,
+    "elementWidth": 170,
+    "elementHeight": 242.51,
+    "distanceToEdge": 1.666666666666515
   },
   "bottom": {
     "edge": "Bottom",
     "elementNames": [
-      "PART_Track"
+      "StatusPanelBorder",
+      "StatusAgentPanelsGrid",
+      "TasksPanelBorder"
     ],
     "needsName": false,
-    "elementLeft": 1014.4346584352388,
-    "elementTop": 91,
-    "elementWidth": 11,
-    "elementHeight": 310.79,
-    "distanceToEdge": 13.236666666662757
+    "elementLeft": 13,
+    "elementTop": 53,
+    "elementWidth": 1348.8713251019055,
+    "elementHeight": 364.79,
+    "distanceToEdge": 1.2099999999999795
   },
   "left": {
     "edge": "Left",
@@ -59,14 +59,14 @@
       "TasksPanelBorder"
     ],
     "needsName": false,
-    "elementLeft": 761.5179917685721,
+    "elementLeft": 505.51799176857213,
     "elementTop": 53,
     "elementWidth": 276.9166666666667,
     "elementHeight": 364.79,
-    "distanceToEdge": 8
+    "distanceToEdge": 6.184658435238873
   },
   "replayActionId": null,
   "fixturePath": null,
-  "docImagePath": "..\\panels\\images\\tasks-panel.png",
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
   "elementInventory": null
 }

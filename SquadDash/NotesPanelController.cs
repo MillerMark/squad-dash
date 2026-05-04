@@ -11,6 +11,7 @@ using System.Windows.Media;
 internal sealed class NotesPanelController {
 
     private readonly StackPanel          _listPanel;
+    private readonly FrameworkElement    _scrollContainer;
     private readonly Action<NoteItem>    _openNote;
     private readonly Action<NoteItem, string> _renameNote;
     private readonly Action<NoteItem>    _deleteNote;
@@ -22,12 +23,14 @@ internal sealed class NotesPanelController {
 
     public NotesPanelController(
         StackPanel               listPanel,
+        FrameworkElement         scrollContainer,
         Action<NoteItem>         openNote,
         Action<NoteItem, string> renameNote,
         Action<NoteItem>         deleteNote,
         Action                   newNote) {
 
-        _listPanel  = listPanel;
+        _listPanel       = listPanel;
+        _scrollContainer = scrollContainer;
         _openNote   = openNote;
         _renameNote = renameNote;
         _deleteNote = deleteNote;

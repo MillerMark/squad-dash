@@ -15,6 +15,7 @@
     <SolidColorBrush x:Key="TranscriptSurface" Color="#1E1C17"/>
     <SolidColorBrush x:Key="TextBoxBackground" Color="#131110"/>
     <SolidColorBrush x:Key="InputSurface" Color="#242018"/>
+    <SolidColorBrush x:Key="FollowUpSurface" Color="#12100C"/>
     <SolidColorBrush x:Key="QueueCardSurface" Color="#1E1B18"/>
     <SolidColorBrush x:Key="QueueCardEditingSurface" Color="#0D1A28"/>
     <SolidColorBrush x:Key="QueueTabActiveBorder"    Color="#42A5F5"/>

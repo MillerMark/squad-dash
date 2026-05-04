@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "expand-site-expander-toggle-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T20:13:03.0945222Z",
+  "bounds": {
+    "x": 0,
+    "y": 1196,
+    "width": 722.3333333333334,
+    "height": 244,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "ExpandSite"
+    ],
+    "needsName": false,
+    "elementLeft": 33,
+    "elementTop": 1199.7499999999968,
+    "elementWidth": 1297.87,
+    "elementHeight": 298.70000000000005,
+    "distanceToEdge": 3.7499999999968168
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle"
+    ],
+    "needsName": false,
+    "elementLeft": 51,
+    "elementTop": 1211.304999999997,
+    "elementWidth": 10.8,
+    "elementHeight": 14.16,
+    "distanceToEdge": 660.5333333333334
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "ExpanderToggle"
+    ],
+    "needsName": false,
+    "elementLeft": 51,
+    "elementTop": 1416.1949999999965,
+    "elementWidth": 10.8,
+    "elementHeight": 14.16,
+    "distanceToEdge": 9.645000000003392
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "MainGrid",
+      "TranscriptPanelsGrid",
+      "MainTranscriptBorder",
+      "PromptBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 15,
+    "elementWidth": 2532,
+    "elementHeight": 1410,
+    "distanceToEdge": 13
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}
