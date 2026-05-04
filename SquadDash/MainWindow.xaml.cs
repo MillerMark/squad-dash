@@ -8160,10 +8160,12 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void UpdateDocSourceLayoutButtons()
     {
-        if (DocSourceSideBySideButton is not null)
-            DocSourceSideBySideButton.FontWeight = !_docSourceLayoutTopBottom ? FontWeights.Bold : FontWeights.Normal;
-        if (DocSourceTopBottomButton is not null)
-            DocSourceTopBottomButton.FontWeight = _docSourceLayoutTopBottom ? FontWeights.Bold : FontWeights.Normal;
+        var activeBrush   = TryFindResource("QueueTabActiveBorder") as Brush ?? Brushes.CornflowerBlue;
+        var inactiveBrush = Brushes.Transparent;
+        if (DocSourceSideBySideIndicator is not null)
+            DocSourceSideBySideIndicator.Background = !_docSourceLayoutTopBottom ? activeBrush : inactiveBrush;
+        if (DocSourceTopBottomIndicator is not null)
+            DocSourceTopBottomIndicator.Background  = _docSourceLayoutTopBottom  ? activeBrush : inactiveBrush;
     }
 
     private void SaveDocSourceLayoutPreference()
