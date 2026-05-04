@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "queue-tab-strip-prompt-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T18:59:30.5581681Z",
+  "bounds": {
+    "x": 13,
+    "y": 1276,
+    "width": 715,
+    "height": 152,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "QueueTabStrip",
+      "PromptTextBox",
+      "border"
+    ],
+    "needsName": false,
+    "elementLeft": 28,
+    "elementTop": 1288.04,
+    "elementWidth": 1226.8713251019055,
+    "elementHeight": 29.96,
+    "distanceToEdge": 12.039999999999964
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [],
+    "needsName": true,
+    "elementLeft": 51,
+    "elementTop": 231.32000000000005,
+    "elementWidth": 622.4366666666666,
+    "elementHeight": 1242.2299999999996,
+    "distanceToEdge": 54.56333333333339
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "MainGrid",
+      "PromptBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 15,
+    "elementWidth": 2532,
+    "elementHeight": 1410,
+    "distanceToEdge": 3
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "MainGrid",
+      "PromptBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 15,
+    "elementWidth": 2532,
+    "elementHeight": 1410,
+    "distanceToEdge": 0
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}

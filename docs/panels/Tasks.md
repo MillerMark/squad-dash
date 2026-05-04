@@ -23,8 +23,6 @@ Close the panel with its **×** button.
 Tasks are read from `.squad/tasks.md` in the workspace's `.squad/` folder and grouped into three priority buckets, always in High → Mid → Low order:
 
 ![Screenshot: Tasks panel showing prioritised task groups](images/tasks-panel.png)
-> 📸 *Screenshot needed: Tasks panel open and docked, showing tasks grouped into High (red), Mid (amber), and Low (blue) priority sections with at least one task visible in each group.*
-
 | Emoji | Priority label | Dot color |
 |---|---|---|
 | 🔴 | High Priority | Red |

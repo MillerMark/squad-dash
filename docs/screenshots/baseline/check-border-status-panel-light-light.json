@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "check-border-status-panel-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T19:14:14.1605177Z",
+  "bounds": {
+    "x": 736.3333333333333,
+    "y": 292,
+    "width": 362.33333333333326,
+    "height": 115,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "checkBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 763.4346584352388,
+    "elementTop": 301.05000000000007,
+    "elementWidth": 14,
+    "elementHeight": 14,
+    "distanceToEdge": 9.050000000000068
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "StatusPanelBorder",
+      "StatusAgentPanelsGrid",
+      "ApprovalPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 53,
+    "elementWidth": 1083.8713251019055,
+    "elementHeight": 364.79,
+    "distanceToEdge": 1.7953415647609745
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "ApprovalApprovedPanel"
+    ],
+    "needsName": false,
+    "elementLeft": 758.4346584352388,
+    "elementTop": 344.91,
+    "elementWidth": 325.43666666666667,
+    "elementHeight": 59.88,
+    "distanceToEdge": 2.2099999999999795
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "ApprovalPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 745.4346584352388,
+    "elementTop": 53,
+    "elementWidth": 351.43666666666667,
+    "elementHeight": 364.79,
+    "distanceToEdge": 9.101325101905559
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}

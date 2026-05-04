@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "thumb-border-main-transcript-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T19:33:32.2537525Z",
+  "bounds": {
+    "x": 4.3333333333332575,
+    "y": 1187,
+    "width": 714.3333333333334,
+    "height": 253,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "ThumbBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 660.4356625509528,
+    "elementTop": 1211.0400000000002,
+    "elementWidth": 5,
+    "elementHeight": 28,
+    "distanceToEdge": 24.04000000000019
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "MainTranscriptBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 432.42,
+    "elementWidth": 670.4356625509528,
+    "elementHeight": 826.62,
+    "distanceToEdge": 35.23100411571386
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "MainGrid",
+      "PromptBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 15,
+    "elementWidth": 2532,
+    "elementHeight": 1410,
+    "distanceToEdge": 15
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "MainGrid",
+      "TranscriptPanelsGrid",
+      "MainTranscriptBorder",
+      "PromptBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 15,
+    "elementWidth": 2532,
+    "elementHeight": 1410,
+    "distanceToEdge": 8.666666666666742
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}

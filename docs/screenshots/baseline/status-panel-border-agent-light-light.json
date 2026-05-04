@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "status-panel-border-agent-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T18:30:27.7082044Z",
+  "bounds": {
+    "x": 757.5179917685721,
+    "y": 49,
+    "width": 271.91666666666674,
+    "height": 356.79,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "StatusPanelBorder",
+      "StatusAgentPanelsGrid",
+      "TasksPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 13,
+    "elementTop": 53,
+    "elementWidth": 1390.8713251019055,
+    "elementHeight": 364.79,
+    "distanceToEdge": 5
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "TasksPanelCloseButton",
+      "border",
+      "PART_Track"
+    ],
+    "needsName": false,
+    "elementLeft": 1003.4346584352388,
+    "elementTop": 66,
+    "elementWidth": 22,
+    "elementHeight": 22,
+    "distanceToEdge": 9.425341564761084
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "PART_Track"
+    ],
+    "needsName": false,
+    "elementLeft": 1014.4346584352388,
+    "elementTop": 91,
+    "elementWidth": 11,
+    "elementHeight": 310.79,
+    "distanceToEdge": 13.236666666662757
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "TasksPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 761.5179917685721,
+    "elementTop": 53,
+    "elementWidth": 276.9166666666667,
+    "elementHeight": 364.79,
+    "distanceToEdge": 8
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\panels\\images\\tasks-panel.png",
+  "elementInventory": null
+}

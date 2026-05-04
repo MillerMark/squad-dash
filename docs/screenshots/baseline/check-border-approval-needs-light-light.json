@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "name": "check-border-approval-needs-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T19:13:36.9537785Z",
+  "bounds": {
+    "x": 200.33333333333326,
+    "y": 708,
+    "width": 853.3333333333334,
+    "height": 480,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "checkBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 763.4346584352388,
+    "elementTop": 720.2100000000002,
+    "elementWidth": 14,
+    "elementHeight": 14,
+    "distanceToEdge": 12.21000000000015
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder",
+      "checkBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 763.4346584352388,
+    "elementTop": 700.2500000000001,
+    "elementWidth": 14,
+    "elementHeight": 14,
+    "distanceToEdge": 276.2320082314277
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "checkBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 763.4346584352388,
+    "elementTop": 1159.330000000001,
+    "elementWidth": 14,
+    "elementHeight": 14,
+    "distanceToEdge": 14.669999999998936
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "ApprovalNeedsPanel"
+    ],
+    "needsName": false,
+    "elementLeft": 758.4346584352388,
+    "elementTop": 18.630000000000003,
+    "elementWidth": 314.43666666666667,
+    "elementHeight": 1716.560000000002,
+    "distanceToEdge": 558.1013251019056
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}

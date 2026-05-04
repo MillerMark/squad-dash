@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "name": "check-border-prompt-text-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T19:13:55.2841394Z",
+  "bounds": {
+    "x": 100.33333333333326,
+    "y": 833,
+    "width": 853.3333333333334,
+    "height": 480,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "checkBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 763.4346584352388,
+    "elementTop": 839.9700000000004,
+    "elementWidth": 14,
+    "elementHeight": 14,
+    "distanceToEdge": 6.970000000000368
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "PromptTextBox",
+      "border"
+    ],
+    "needsName": false,
+    "elementLeft": 28,
+    "elementTop": 1288.04,
+    "elementWidth": 919.8713251019055,
+    "elementHeight": 96,
+    "distanceToEdge": 5.795341564761088
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "checkBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 763.4346584352388,
+    "elementTop": 1279.0900000000013,
+    "elementWidth": 14,
+    "elementHeight": 14,
+    "distanceToEdge": 19.909999999998718
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "border"
+    ],
+    "needsName": false,
+    "elementLeft": 536.9356625509528,
+    "elementTop": 1197.04,
+    "elementWidth": 36,
+    "elementHeight": 36,
+    "distanceToEdge": 436.6023292176195
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}

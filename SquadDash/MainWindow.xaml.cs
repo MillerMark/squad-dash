@@ -162,6 +162,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private int _queuePreEditDraftSelectionStart;
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
+    private readonly Dictionary<string, FollowUpAttachment> _followUpAttachments = new();
 
     // ── Queue tab drag-to-reorder ────────────────────────────────────────────
     private string? _dragTabId;               // Id of the tab currently being dragged
@@ -1621,7 +1622,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             ResetQueuePausedState();
             if (_remoteAccessActive)
                 _ = _bridge.BroadcastRcPromptAsync(prompt);
-            await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
+            await _pec.ExecutePromptAsync(ApplyFollowUpHeader(prompt, ""), addToHistory: true, clearPromptBox: true);
 
             // In fullscreen mode the prompt was peeked temporarily — hide it again now.
             if (_transcriptFullScreenEnabled && _fullScreenPromptVisible)
@@ -1644,6 +1645,14 @@ public partial class MainWindow : Window, ILiveElementLocator
         _promptHasVoiceInput = false;
 
         _promptQueue.Enqueue(text, ++_promptQueueSeq, isDictated);
+
+        // Transfer any draft follow-up attachment to the new queue item.
+        if (_followUpAttachments.TryGetValue("", out var att))
+        {
+            _followUpAttachments.Remove("");
+            _followUpAttachments[_promptQueue.Items[^1].Id] = att;
+        }
+
         PromptTextBox.Clear();
         SyncQueuePanel();
     }
@@ -1684,7 +1693,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             ResetQueuePausedState();
-            await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
+            await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), id), addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
         {
@@ -1736,7 +1745,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (_remoteAccessActive && !item.IsFromRemote)
                 _ = _bridge.BroadcastRcPromptAsync(item.Text);
             _pec.PendingQueueItemCount = _promptQueue.Count;
-            await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
+            await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
         {
@@ -2112,6 +2121,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         SyncQueuePanel();
         PromptTextBox.Focus();
+        UpdateFollowUpStrip();
 
         if (wasRightmostHold && !_isPromptRunning && !IsNativeLoopRunning)
             _ = DrainQueueIfNeededAsync();
@@ -2143,6 +2153,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             _activeTabId = null;
             PromptTextBox.Text = _queuePreEditDraft ?? string.Empty;
             _queuePreEditDraft = null;
+            UpdateFollowUpStrip();
         }
         _promptQueue.Remove(id);
         SyncQueuePanel();
@@ -16824,13 +16835,53 @@ public partial class MainWindow : Window, ILiveElementLocator
                 navigateUrl: url => _ = OpenExternalLinkWithCommitCheckAsync(url),
                 scrollToTurn: item => ScrollToApprovalTurn(item),
                 onItemChanged: item => OnApprovalItemChanged(item),
-                onItemsRemoved: items => OnApprovalItemsRemoved(items));
+                onItemsRemoved: items => OnApprovalItemsRemoved(items),
+                onFollowUp: item => AttachFollowUpToActiveTab(item));
             _approvalPanel.ReplaceAllItems(_approvalItems);
         }
     }
 
-    private void PersistApprovalPanelVisible()
+    // ── Follow-up attachment ──────────────────────────────────────────────────
+
+    private void AttachFollowUpToActiveTab(CommitApprovalItem item)
     {
+        _followUpAttachments[_activeTabId ?? ""] = new FollowUpAttachment(item.CommitSha, item.Description, item.OriginalPrompt);
+        UpdateFollowUpStrip();
+    }
+
+    private void UpdateFollowUpStrip()
+    {
+        if (FollowUpStrip is null) return;
+        if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var att))
+        {
+            FollowUpLabel.Text = $"↩ Follow-up: {att.CommitSha} — \"{att.Description}\"";
+            FollowUpStrip.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            FollowUpStrip.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
+    {
+        _followUpAttachments.Remove(_activeTabId ?? "");
+        UpdateFollowUpStrip();
+    }
+
+    private string ApplyFollowUpHeader(string text, string tabId)
+    {
+        if (!_followUpAttachments.TryGetValue(tabId, out var att))
+            return text;
+        _followUpAttachments.Remove(tabId);
+        UpdateFollowUpStrip();
+        var summaryHint = att.OriginalPrompt is { Length: > 0 } op
+            ? (op.Length > 120 ? op[..120] + "…" : op)
+            : att.Description;
+        return $"[Follow-up on {att.CommitSha} — \"{att.Description}\": {summaryHint}]\n\n{text}";
+    }
+
+    private void PersistApprovalPanelVisible()    {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { ApprovalPanelVisible = _approvalPanelVisible };
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);

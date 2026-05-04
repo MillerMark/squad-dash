@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "name": "expander-toggle-prompt-shortcuts-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-05-04T19:12:54.6328501Z",
+  "bounds": {
+    "x": 18.333333333333258,
+    "y": 1278,
+    "width": 703,
+    "height": 141,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "ExpanderToggle"
+    ],
+    "needsName": false,
+    "elementLeft": 33,
+    "elementTop": 1286.8450000000016,
+    "elementWidth": 10.8,
+    "elementHeight": 14.16,
+    "distanceToEdge": 8.845000000001619
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle",
+      "ExpanderToggle"
+    ],
+    "needsName": false,
+    "elementLeft": 33,
+    "elementTop": 1286.8450000000016,
+    "elementWidth": 10.8,
+    "elementHeight": 14.16,
+    "distanceToEdge": 677.5333333333333
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "PromptShortcutsHintTextBlock"
+    ],
+    "needsName": false,
+    "elementLeft": 28,
+    "elementTop": 1394.04,
+    "elementWidth": 919.8713251019055,
+    "elementHeight": 15.96,
+    "distanceToEdge": 9
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "PromptTextBox",
+      "border",
+      "PromptShortcutsHintTextBlock"
+    ],
+    "needsName": false,
+    "elementLeft": 28,
+    "elementTop": 1288.04,
+    "elementWidth": 919.8713251019055,
+    "elementHeight": 96,
+    "distanceToEdge": 9.666666666666742
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "elementInventory": null
+}

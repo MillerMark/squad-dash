@@ -20,8 +20,6 @@ Some commands are handled locally by SquadDash (instant, no AI round-trip). Othe
 4. Commands that require a parameter (e.g., `/activate`) insert a trailing space so you can type the argument before submitting.
 
 ![Screenshot: Slash command autocomplete list in the prompt box](images/slash-command-autocomplete.png)
-> 📸 *Screenshot needed: The prompt box with "/" typed and the autocomplete dropdown open, showing several slash command options. Capture the full dropdown.*
-
 ---
 
 ## SquadDash UI Commands

@@ -53,7 +53,8 @@
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": null
+    "docImagePath": null,
+    "elementInventory": null
   },
   {
     "name": "the-coordinator",
@@ -121,7 +122,8 @@
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": null
+    "docImagePath": null,
+    "elementInventory": null
   },
   {
     "name": "menu-test",
@@ -186,7 +188,8 @@
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": null
+    "docImagePath": null,
+    "elementInventory": null
   },
   {
     "name": "status-agent-panels-grid-dark",
@@ -253,7 +256,8 @@
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": null
+    "docImagePath": null,
+    "elementInventory": null
   },
   {
     "name": "status-panel-border-agent-dark",
@@ -321,6 +325,505 @@
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": "..\\panels\\images\\tasks-panel.png"
+    "docImagePath": "..\\panels\\images\\tasks-panel.png",
+    "elementInventory": null
+  },
+  {
+    "name": "status-panel-border-agent-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "StatusPanelBorder",
+        "StatusAgentPanelsGrid",
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 53,
+      "elementWidth": 1390.8713251019055,
+      "elementHeight": 364.79,
+      "distanceToEdge": 5
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "TasksPanelCloseButton",
+        "border",
+        "PART_Track"
+      ],
+      "needsName": false,
+      "elementLeft": 1003.4346584352388,
+      "elementTop": 66,
+      "elementWidth": 22,
+      "elementHeight": 22,
+      "distanceToEdge": 9.425341564761084
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "PART_Track"
+      ],
+      "needsName": false,
+      "elementLeft": 1014.4346584352388,
+      "elementTop": 91,
+      "elementWidth": 11,
+      "elementHeight": 310.79,
+      "distanceToEdge": 13.236666666662757
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 761.5179917685721,
+      "elementTop": 53,
+      "elementWidth": 276.9166666666667,
+      "elementHeight": 364.79,
+      "distanceToEdge": 8
+    },
+    "bounds": {
+      "x": 757.5179917685721,
+      "y": 49,
+      "width": 271.91666666666674,
+      "height": 356.79,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\panels\\images\\tasks-panel.png",
+    "elementInventory": null
+  },
+  {
+    "name": "queue-tab-strip-prompt-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "QueueTabStrip",
+        "PromptTextBox",
+        "border"
+      ],
+      "needsName": false,
+      "elementLeft": 28,
+      "elementTop": 1288.04,
+      "elementWidth": 1226.8713251019055,
+      "elementHeight": 29.96,
+      "distanceToEdge": 12.039999999999964
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [],
+      "needsName": true,
+      "elementLeft": 51,
+      "elementTop": 231.32000000000005,
+      "elementWidth": 622.4366666666666,
+      "elementHeight": 1242.2299999999996,
+      "distanceToEdge": 54.56333333333339
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "MainGrid",
+        "PromptBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 15,
+      "elementWidth": 2532,
+      "elementHeight": 1410,
+      "distanceToEdge": 3
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "MainGrid",
+        "PromptBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 15,
+      "elementWidth": 2532,
+      "elementHeight": 1410,
+      "distanceToEdge": 0
+    },
+    "bounds": {
+      "x": 13,
+      "y": 1276,
+      "width": 715,
+      "height": 152,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
+  },
+  {
+    "name": "expander-toggle-prompt-shortcuts-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "ExpanderToggle"
+      ],
+      "needsName": false,
+      "elementLeft": 33,
+      "elementTop": 1286.8450000000016,
+      "elementWidth": 10.8,
+      "elementHeight": 14.16,
+      "distanceToEdge": 8.845000000001619
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle",
+        "ExpanderToggle"
+      ],
+      "needsName": false,
+      "elementLeft": 33,
+      "elementTop": 1286.8450000000016,
+      "elementWidth": 10.8,
+      "elementHeight": 14.16,
+      "distanceToEdge": 677.5333333333333
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "PromptShortcutsHintTextBlock"
+      ],
+      "needsName": false,
+      "elementLeft": 28,
+      "elementTop": 1394.04,
+      "elementWidth": 919.8713251019055,
+      "elementHeight": 15.96,
+      "distanceToEdge": 9
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "PromptTextBox",
+        "border",
+        "PromptShortcutsHintTextBlock"
+      ],
+      "needsName": false,
+      "elementLeft": 28,
+      "elementTop": 1288.04,
+      "elementWidth": 919.8713251019055,
+      "elementHeight": 96,
+      "distanceToEdge": 9.666666666666742
+    },
+    "bounds": {
+      "x": 18.333333333333258,
+      "y": 1278,
+      "width": 703,
+      "height": 141,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
+  },
+  {
+    "name": "check-border-approval-needs-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "checkBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 763.4346584352388,
+      "elementTop": 720.2100000000002,
+      "elementWidth": 14,
+      "elementHeight": 14,
+      "distanceToEdge": 12.21000000000015
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder",
+        "checkBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 763.4346584352388,
+      "elementTop": 700.2500000000001,
+      "elementWidth": 14,
+      "elementHeight": 14,
+      "distanceToEdge": 276.2320082314277
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "checkBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 763.4346584352388,
+      "elementTop": 1159.330000000001,
+      "elementWidth": 14,
+      "elementHeight": 14,
+      "distanceToEdge": 14.669999999998936
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "ApprovalNeedsPanel"
+      ],
+      "needsName": false,
+      "elementLeft": 758.4346584352388,
+      "elementTop": 18.630000000000003,
+      "elementWidth": 314.43666666666667,
+      "elementHeight": 1716.560000000002,
+      "distanceToEdge": 558.1013251019056
+    },
+    "bounds": {
+      "x": 200.33333333333326,
+      "y": 708,
+      "width": 853.3333333333334,
+      "height": 480,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
+  },
+  {
+    "name": "check-border-prompt-text-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "checkBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 763.4346584352388,
+      "elementTop": 839.9700000000004,
+      "elementWidth": 14,
+      "elementHeight": 14,
+      "distanceToEdge": 6.970000000000368
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "PromptTextBox",
+        "border"
+      ],
+      "needsName": false,
+      "elementLeft": 28,
+      "elementTop": 1288.04,
+      "elementWidth": 919.8713251019055,
+      "elementHeight": 96,
+      "distanceToEdge": 5.795341564761088
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "checkBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 763.4346584352388,
+      "elementTop": 1279.0900000000013,
+      "elementWidth": 14,
+      "elementHeight": 14,
+      "distanceToEdge": 19.909999999998718
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "border"
+      ],
+      "needsName": false,
+      "elementLeft": 536.9356625509528,
+      "elementTop": 1197.04,
+      "elementWidth": 36,
+      "elementHeight": 36,
+      "distanceToEdge": 436.6023292176195
+    },
+    "bounds": {
+      "x": 100.33333333333326,
+      "y": 833,
+      "width": 853.3333333333334,
+      "height": 480,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
+  },
+  {
+    "name": "check-border-status-panel-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "checkBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 763.4346584352388,
+      "elementTop": 301.05000000000007,
+      "elementWidth": 14,
+      "elementHeight": 14,
+      "distanceToEdge": 9.050000000000068
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "StatusPanelBorder",
+        "StatusAgentPanelsGrid",
+        "ApprovalPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 53,
+      "elementWidth": 1083.8713251019055,
+      "elementHeight": 364.79,
+      "distanceToEdge": 1.7953415647609745
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "ApprovalApprovedPanel"
+      ],
+      "needsName": false,
+      "elementLeft": 758.4346584352388,
+      "elementTop": 344.91,
+      "elementWidth": 325.43666666666667,
+      "elementHeight": 59.88,
+      "distanceToEdge": 2.2099999999999795
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "ApprovalPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 745.4346584352388,
+      "elementTop": 53,
+      "elementWidth": 351.43666666666667,
+      "elementHeight": 364.79,
+      "distanceToEdge": 9.101325101905559
+    },
+    "bounds": {
+      "x": 736.3333333333333,
+      "y": 292,
+      "width": 362.33333333333326,
+      "height": 115,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
+  },
+  {
+    "name": "thumb-border-main-transcript-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "ThumbBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 660.4356625509528,
+      "elementTop": 1211.0400000000002,
+      "elementWidth": 5,
+      "elementHeight": 28,
+      "distanceToEdge": 24.04000000000019
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "MainTranscriptBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 432.42,
+      "elementWidth": 670.4356625509528,
+      "elementHeight": 826.62,
+      "distanceToEdge": 35.23100411571386
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "MainGrid",
+        "PromptBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 15,
+      "elementWidth": 2532,
+      "elementHeight": 1410,
+      "distanceToEdge": 15
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "MainGrid",
+        "TranscriptPanelsGrid",
+        "MainTranscriptBorder",
+        "PromptBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 13,
+      "elementTop": 15,
+      "elementWidth": 2532,
+      "elementHeight": 1410,
+      "distanceToEdge": 8.666666666666742
+    },
+    "bounds": {
+      "x": 4.3333333333332575,
+      "y": 1187,
+      "width": 714.3333333333334,
+      "height": 253,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+    "elementInventory": null
   }
 ]

@@ -1819,6 +1819,29 @@
                                     Orientation="Horizontal"
                                     Background="{DynamicResource InputSurface}" />
                     </Border>
+                    <Border x:Name="FollowUpStrip"
+                            DockPanel.Dock="Top"
+                            Visibility="Collapsed"
+                            Padding="8,4"
+                            BorderThickness="0,0,0,1"
+                            BorderBrush="{DynamicResource LineColor}"
+                            Background="{DynamicResource InputSurface}">
+                        <DockPanel>
+                            <Button x:Name="FollowUpDismissBtn"
+                                    DockPanel.Dock="Right"
+                                    Content="×"
+                                    Width="20" Height="20"
+                                    Padding="0"
+                                    VerticalAlignment="Center"
+                                    Click="FollowUpDismissBtn_Click"
+                                    Style="{StaticResource ThemedIconButtonStyle}" />
+                            <TextBlock x:Name="FollowUpLabel"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource SubtleText}" />
+                        </DockPanel>
+                    </Border>
                     <TextBox x:Name="PromptTextBox"
                              Panel.ZIndex="1"
                              MinHeight="96"

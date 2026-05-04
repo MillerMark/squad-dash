@@ -17,6 +17,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<CommitApprovalItem>                   _scrollToTurn;
     private readonly Action<CommitApprovalItem>                   _onItemChanged;
     private readonly Action<IReadOnlyList<CommitApprovalItem>>    _onItemsRemoved;
+    private readonly Action<CommitApprovalItem>                   _onFollowUp;
 
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
@@ -40,7 +41,8 @@ internal sealed class CommitApprovalPanel {
         Action<string>                            navigateUrl,
         Action<CommitApprovalItem>                scrollToTurn,
         Action<CommitApprovalItem>                onItemChanged,
-        Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved) {
+        Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved,
+        Action<CommitApprovalItem>                onFollowUp) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -51,6 +53,7 @@ internal sealed class CommitApprovalPanel {
         _scrollToTurn              = scrollToTurn;
         _onItemChanged             = onItemChanged;
         _onItemsRemoved            = onItemsRemoved;
+        _onFollowUp                = onFollowUp;
 
         AttachPanelContextMenu(outerBorder);
     }
@@ -139,6 +142,9 @@ internal sealed class CommitApprovalPanel {
         var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
+        var followUpItem = MakeItem("Follow up…");
+        followUpItem.Click += (_, _) => _onFollowUp(item);
+        menu.Items.Add(followUpItem);
         row.ContextMenu = menu;
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
