@@ -353,22 +353,68 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
 
         // Add "Add to Notes" if callback is set and there's a selection
-        if (_captureContext?.AddToNotesCallback is not { } callback) return;
-        if (tb.SelectionLength == 0) return;
+        if (_captureContext?.AddToNotesCallback is { } callback && tb.SelectionLength > 0) {
+            var sep = new Separator { Tag = "AddToNotesSep" };
+            sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
 
-        var sep = new Separator { Tag = "AddToNotesSep" };
-        sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+            var noteItem = new MenuItem { Header = "Add to Notes", Tag = "AddToNotes" };
+            noteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            noteItem.Click += (_, _) => {
+                var text = tb.SelectedText;
+                if (!string.IsNullOrWhiteSpace(text))
+                    callback(text);
+            };
 
-        var noteItem = new MenuItem { Header = "Add to Notes", Tag = "AddToNotes" };
-        noteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-        noteItem.Click += (_, _) => {
-            var text = tb.SelectedText;
-            if (!string.IsNullOrWhiteSpace(text))
-                callback(text);
-        };
+            tb.ContextMenu.Items.Add(sep);
+            tb.ContextMenu.Items.Add(noteItem);
+        }
 
-        tb.ContextMenu.Items.Add(sep);
-        tb.ContextMenu.Items.Add(noteItem);
+        // Remove any previously-injected "Revise with AI" items
+        for (int i = tb.ContextMenu.Items.Count - 1; i >= 0; i--) {
+            if (tb.ContextMenu.Items[i] is MenuItem { Tag: "ReviseWithAi" } ||
+                tb.ContextMenu.Items[i] is Separator { Tag: "ReviseWithAiSep" })
+                tb.ContextMenu.Items.RemoveAt(i);
+        }
+
+        // Add "Revise with AI" if callback is set and there's a selection
+        if (_captureContext?.ReviseWithAiCallback is { } reviseCallback && tb.SelectionLength > 0) {
+            var sep2 = new Separator { Tag = "ReviseWithAiSep" };
+            sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+
+            var reviseItem = new MenuItem { Header = "✏ _Revise with AI", Tag = "ReviseWithAi" };
+            reviseItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            reviseItem.Click += (_, _) => {
+                if (tb.SelectionLength == 0) return;
+                var doc          = tb.Tag as MarkdownDocumentTabState;
+                var selectedText = tb.SelectedText;
+                var fullText     = tb.Text;
+                var selStart     = tb.SelectionStart;
+                var selLen       = tb.SelectionLength;
+                var cwd          = doc is not null ? System.IO.Path.GetDirectoryName(doc.FilePath) ?? "" : "";
+                var docPath      = doc?.FilePath ?? "";
+
+                var popup = new DocRevisePopup(
+                    selectedText,
+                    fullText,
+                    docPath,
+                    reviseCallback);
+
+                var mousePos  = Mouse.GetPosition(this);
+                var screenPos = PointToScreen(mousePos);
+                popup.Left  = Math.Min(screenPos.X - 10, SystemParameters.PrimaryScreenWidth  - 360);
+                popup.Top   = Math.Max(screenPos.Y - 160, 0);
+                popup.Owner = this;
+
+                if (popup.ShowDialog() == true && popup.RevisedText is { } revised) {
+                    tb.SelectionStart  = selStart;
+                    tb.SelectionLength = selLen;
+                    tb.SelectedText    = revised;
+                }
+            };
+
+            tb.ContextMenu.Items.Add(sep2);
+            tb.ContextMenu.Items.Add(reviseItem);
+        }
     }
 
     private static ContextMenu BuildSourceEditorContextMenu(TextBox tb) {
@@ -1824,4 +1870,11 @@ internal sealed record MarkdownDocumentCaptureContext(
     /// editor context menu. Receives the selected markdown text.
     /// </summary>
     public Action<string>? AddToNotesCallback { get; init; }
+
+    /// <summary>
+    /// Optional callback invoked when the user chooses "Revise with AI" from the source
+    /// editor context menu. Parameters: instructions, selectedText, fullDocumentText, workingDirectory.
+    /// Returns the revised text.
+    /// </summary>
+    public Func<string, string, string, string, CancellationToken, Task<string>>? ReviseWithAiCallback { get; init; }
 }

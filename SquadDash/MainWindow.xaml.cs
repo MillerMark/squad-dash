@@ -8444,6 +8444,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                         AddNoteFromText(text);
                 };
                 menu.Items.Add(addToNotesItem);
+
+                var reviseItem = new MenuItem
+                {
+                    Header = "✏ _Revise with AI",
+                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "");
+                menu.Items.Add(reviseItem);
             }
 
             menu.PlacementTarget = DocSourceTextBox;
@@ -8454,6 +8462,35 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(DocSourceTextBox_PreviewMouseRightButtonDown), ex);
+        }
+    }
+
+    private void ShowDocRevisePopup(System.Windows.Controls.TextBox textBox, string filePath)
+    {
+        if (textBox.SelectionLength == 0) return;
+        var selectedText = textBox.SelectedText;
+        var fullText     = textBox.Text;
+        var selStart     = textBox.SelectionStart;
+        var selLen       = textBox.SelectionLength;
+        var cwd          = _currentWorkspace?.FolderPath ?? "";
+
+        var popup = new DocRevisePopup(
+            selectedText,
+            fullText,
+            filePath,
+            (instructions, sel, doc, workingDir, ct) =>
+                _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct));
+
+        var mousePos = PointToScreen(Mouse.GetPosition(this));
+        popup.Left  = Math.Min(mousePos.X - 10, SystemParameters.PrimaryScreenWidth  - 360);
+        popup.Top   = Math.Max(mousePos.Y - 160, 0);
+        popup.Owner = this;
+
+        if (popup.ShowDialog() == true && popup.RevisedText is { } revised)
+        {
+            textBox.SelectionStart  = selStart;
+            textBox.SelectionLength = selLen;
+            textBox.SelectedText    = revised;
         }
     }
 
@@ -15803,6 +15840,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             ThemeName: _activeThemeName,
             SpeechRegion: _settingsSnapshot.SpeechRegion ?? string.Empty) {
             AddToNotesCallback = text => Dispatcher.Invoke(() => AddNoteFromText(text)),
+            ReviseWithAiCallback = (instructions, sel, doc, cwd, ct) =>
+                _bridge.RunDocRevisionAsync(instructions, sel, doc, cwd, ct),
         };
 
     private void ShowTextWindow(string title, string content)
