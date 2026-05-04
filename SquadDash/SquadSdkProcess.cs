@@ -12,6 +12,7 @@ namespace SquadDash;
 public sealed class SquadSdkProcess : IAsyncDisposable {
     private static readonly TimeSpan DefaultPromptInactivityTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan DefaultBackgroundCancelResponseTimeout = TimeSpan.FromSeconds(5);
     private const string SessionResetEventType = "session_reset";
 
     public event EventHandler<SquadSdkEvent>? EventReceived;
@@ -23,6 +24,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private readonly object _stateLock = new();
     private readonly Queue<string> _recentErrorLines = new();
     private readonly Dictionary<string, PendingBridgeRequest> _pendingRequests = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingBackgroundCancelRequest> _pendingBackgroundCancels = new(StringComparer.Ordinal);
     private readonly TimeSpan _promptInactivityTimeout;
     private readonly TimeSpan _promptTimeoutPollInterval;
     private readonly IWorkspacePaths? _workspacePaths;
@@ -31,6 +33,14 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private StreamWriter? _activeProcessInput;
     private Task? _outputReaderTask;
     private string? _activePromptRequestId;
+
+    /// <summary>
+    /// Optional BYOK provider settings. When set (and <see cref="ByokProviderSettings.ProviderUrl"/> is
+    /// non-empty), the corresponding <c>COPILOT_PROVIDER_*</c> environment variables are injected into
+    /// the bridge child process, bypassing GitHub authentication entirely.
+    /// Must be assigned before the bridge is first started.
+    /// </summary>
+    internal ByokProviderSettings? ByokProviderSettings { get; set; }
 
     internal SquadSdkProcess(IWorkspacePaths workspacePaths)
         : this(processStartInfoFactory: null, options: null, workspacePaths: workspacePaths) {
@@ -376,7 +386,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     private ProcessStartInfo BuildDefaultStartInfo() {
-        return new ProcessStartInfo {
+        var psi = new ProcessStartInfo {
             FileName = "node",
             Arguments = "runPrompt.js",
             WorkingDirectory = _workspacePaths?.SquadSdkDirectory ?? throw new InvalidOperationException("WorkspacePaths not configured"),
@@ -388,6 +398,26 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+
+        if (ByokProviderSettings is { ProviderUrl: { Length: > 0 } providerUrl } byok) {
+            psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
+
+            if (!string.IsNullOrEmpty(byok.Model))
+                psi.EnvironmentVariables["COPILOT_PROVIDER_MODEL_ID"] = byok.Model;
+
+            if (!string.IsNullOrEmpty(byok.ProviderType))
+                psi.EnvironmentVariables["COPILOT_PROVIDER_TYPE"] = byok.ProviderType;
+
+            if (!string.IsNullOrEmpty(byok.ApiKey))
+                psi.EnvironmentVariables["COPILOT_PROVIDER_API_KEY"] = byok.ApiKey;
+
+            SquadDashTrace.Write("Bridge",
+                $"BYOK active — url={providerUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")}");
+        } else {
+            SquadDashTrace.Write("Bridge", "BYOK not configured — using default GitHub Copilot provider.");
+        }
+
+        return psi;
     }
 
     private async Task SendBridgeRequestAsync<TRequest>(TRequest request) {
@@ -454,6 +484,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     private void HandleBridgeEvent(SquadSdkEvent evt) {
+        var backgroundCancelHandled = TryCompleteBackgroundCancel(evt);
+
         var pendingRequest = ResolvePendingRequest(evt);
         var isRecoverableSessionReset =
             pendingRequest is not null &&
@@ -461,7 +493,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             pendingRequest.AllowRecoverableSessionReset &&
             ShouldResetSessionAndRetry(pendingRequest.SessionId, evt.Message);
 
-        if (!isRecoverableSessionReset && !string.Equals(evt.Type, "aborted", StringComparison.Ordinal))
+        if ((!backgroundCancelHandled || string.Equals(evt.Type, "background_task_cancelled", StringComparison.Ordinal)) &&
+            !isRecoverableSessionReset &&
+            !string.Equals(evt.Type, "aborted", StringComparison.Ordinal))
             EventReceived?.Invoke(this, evt);
 
         if (pendingRequest is null)
@@ -493,9 +527,10 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
     private PendingBridgeRequest? ResolvePendingRequest(SquadSdkEvent evt) {
         lock (_stateLock) {
-            if (!string.IsNullOrWhiteSpace(evt.RequestId) &&
-                _pendingRequests.TryGetValue(evt.RequestId, out var matched))
-                return matched;
+            if (!string.IsNullOrWhiteSpace(evt.RequestId))
+                return _pendingRequests.TryGetValue(evt.RequestId, out var matched)
+                    ? matched
+                    : null;
 
             if (_pendingRequests.Count == 1)
                 return _pendingRequests.Values.Single();
@@ -504,9 +539,40 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    private bool TryCompleteBackgroundCancel(SquadSdkEvent evt) {
+        if (string.IsNullOrWhiteSpace(evt.RequestId))
+            return false;
+
+        PendingBackgroundCancelRequest? pendingCancel;
+        lock (_stateLock) {
+            if (!_pendingBackgroundCancels.TryGetValue(evt.RequestId, out pendingCancel))
+                return false;
+        }
+
+        if (string.Equals(evt.Type, "background_task_cancelled", StringComparison.Ordinal)) {
+            var cancelled = evt.Cancelled == true;
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Background cancel acknowledgement requestId={evt.RequestId} taskId={evt.TaskId ?? pendingCancel.TaskId} sessionId={evt.SessionId ?? pendingCancel.SessionId ?? "(auto)"} cancelled={cancelled}");
+            pendingCancel.Completion.TrySetResult(cancelled);
+            return true;
+        }
+
+        if (string.Equals(evt.Type, "error", StringComparison.Ordinal)) {
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Background cancel failed requestId={evt.RequestId} taskId={pendingCancel.TaskId} message={evt.Message ?? "(none)"}");
+            pendingCancel.Completion.TrySetResult(false);
+            return true;
+        }
+
+        return false;
+    }
+
     private void HandleProcessExited(Process process) {
         string[] pendingRequestIds;
         PendingBridgeRequest[] pendingRequests;
+        PendingBackgroundCancelRequest[] pendingCancels;
         Task? outputReaderTask;
 
         lock (_stateLock) {
@@ -515,12 +581,17 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
             pendingRequestIds = _pendingRequests.Keys.ToArray();
             pendingRequests = _pendingRequests.Values.ToArray();
+            pendingCancels = _pendingBackgroundCancels.Values.ToArray();
+            _pendingBackgroundCancels.Clear();
             outputReaderTask = _outputReaderTask;
             _activeProcess = null;
             _activeProcessInput = null;
             _outputReaderTask = null;
             _activePromptRequestId = null;
         }
+
+        foreach (var pendingCancel in pendingCancels)
+            pendingCancel.Completion.TrySetResult(false);
 
         if (pendingRequests.Length == 0)
             return;
@@ -614,16 +685,28 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    /// <summary>
+    /// Kills the active bridge process (if any) so it will restart with fresh env vars on the next request.
+    /// Call this after updating <see cref="ByokProviderSettings"/> to ensure the new settings take effect.
+    /// </summary>
+    internal void RestartBridgeForNewSettings() => ResetProcess();
+
     private void ResetProcess() {
         Process? processToKill;
+        PendingBackgroundCancelRequest[] pendingCancels;
 
         lock (_stateLock) {
             processToKill = _activeProcess;
+            pendingCancels = _pendingBackgroundCancels.Values.ToArray();
+            _pendingBackgroundCancels.Clear();
             _activeProcess = null;
             _activeProcessInput = null;
             _outputReaderTask = null;
             _activePromptRequestId = null;
         }
+
+        foreach (var pendingCancel in pendingCancels)
+            pendingCancel.Completion.TrySetResult(false);
 
         if (processToKill is not null)
             TryKill(processToKill);
@@ -674,22 +757,59 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             .ConfigureAwait(false);
     }
 
-    public async Task CancelBackgroundTaskAsync(string taskId, string? sessionId = null) {
+    public async Task<bool> CancelBackgroundTaskAsync(string taskId, string? sessionId = null) {
         if (string.IsNullOrWhiteSpace(taskId))
             throw new ArgumentException("Background task id cannot be empty.", nameof(taskId));
 
+        var normalizedTaskId = taskId.Trim();
+        var normalizedSessionId = string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim();
+        var requestId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pendingCancel = new PendingBackgroundCancelRequest(
+            normalizedTaskId,
+            normalizedSessionId,
+            completion);
+
+        lock (_stateLock) {
+            _pendingBackgroundCancels[requestId] = pendingCancel;
+        }
+
         SquadDashTrace.Write(
             "Bridge",
-            $"CancelBackgroundTaskAsync requested taskId={taskId} sessionId={sessionId ?? "(auto)"}");
+            $"CancelBackgroundTaskAsync requested requestId={requestId} taskId={normalizedTaskId} sessionId={normalizedSessionId ?? "(auto)"}");
 
         try {
-            await SendBridgeRequestAsync(new SquadSdkCancelBackgroundTaskRequest(taskId.Trim(), sessionId?.Trim()))
+            await SendBridgeRequestAsync(new SquadSdkCancelBackgroundTaskRequest(
+                    normalizedTaskId,
+                    normalizedSessionId,
+                    requestId))
                 .ConfigureAwait(false);
+
+            var completedTask = await Task
+                .WhenAny(completion.Task, Task.Delay(DefaultBackgroundCancelResponseTimeout))
+                .ConfigureAwait(false);
+            if (completedTask == completion.Task) {
+                var cancelled = await completion.Task.ConfigureAwait(false);
+                SquadDashTrace.Write(
+                    "Bridge",
+                    $"CancelBackgroundTaskAsync completed requestId={requestId} taskId={normalizedTaskId} cancelled={cancelled}");
+                return cancelled;
+            }
+
+            SquadDashTrace.Write(
+                "Bridge",
+                $"CancelBackgroundTaskAsync timed out waiting for acknowledgement requestId={requestId} taskId={normalizedTaskId}");
+            return false;
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("Bridge", $"Failed to send background task cancel request for {taskId}: {ex.Message}");
+            SquadDashTrace.Write("Bridge", $"Failed to send background task cancel request for {normalizedTaskId}: {ex.Message}");
             ErrorReceived?.Invoke(this, ex.Message);
             throw;
+        }
+        finally {
+            lock (_stateLock) {
+                _pendingBackgroundCancels.Remove(requestId);
+            }
         }
     }
 
@@ -872,6 +992,21 @@ internal sealed class PendingBridgeRequest {
         now - GetLastActivityAt();
 }
 
+internal sealed class PendingBackgroundCancelRequest {
+    public PendingBackgroundCancelRequest(
+        string taskId,
+        string? sessionId,
+        TaskCompletionSource<bool> completion) {
+        TaskId = taskId;
+        SessionId = sessionId;
+        Completion = completion;
+    }
+
+    public string TaskId { get; }
+    public string? SessionId { get; }
+    public TaskCompletionSource<bool> Completion { get; }
+}
+
 internal sealed class SquadSdkProcessOptions {
     public TimeSpan PromptInactivityTimeout { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan PromptTimeoutPollInterval { get; init; } = TimeSpan.FromMilliseconds(250);
@@ -911,6 +1046,7 @@ internal sealed record SquadSdkAbortRequest(
 internal sealed record SquadSdkCancelBackgroundTaskRequest(
     [property: JsonPropertyName("taskId")] string TaskId,
     [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId = null,
+    [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "cancel_background_task");
 
 internal sealed record SquadSdkRunLoopRequest(

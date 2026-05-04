@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
-import { SquadBridgeService } from "./squadService.js";
+import { SquadBridgeService, buildNamedAgentPrompt } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
@@ -872,10 +872,24 @@ async function handleNamedAgent(request) {
         prompt: request.selectedOption
     });
     try {
+        const handoffContext = request.handoffContext?.trim();
+        const inlinePromptChars = buildNamedAgentPrompt({
+            selectedOption: request.selectedOption,
+            targetAgent: handle,
+            handoffContext,
+            charterContent
+        }).length;
+        emit({
+            type: "sdk_diagnostics",
+            diagnosticPhase: "named_agent_handoff",
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            message: `target=${handle} selectedOptionChars=${request.selectedOption.trim().length} handoffContextChars=${handoffContext?.length ?? 0} charterChars=${charterContent?.trim().length ?? 0} inlinePromptChars=${inlinePromptChars}`
+        });
         await bridge.runNamedAgent({
             cwd: request.cwd,
             selectedOption: request.selectedOption,
-            handoffContext: request.handoffContext,
+            handoffContext,
             targetAgent: handle,
             charterContent,
             configDir: request.configDir
@@ -1275,6 +1289,18 @@ async function main() {
     // Activate OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set (e.g. by `squad aspire`).
     // No-op when env var is absent — zero runtime cost.
     const _telemetry = initAgentModeTelemetry();
+    // BYOK diagnostic: log env var state at startup so the C# Trace panel shows
+    // exactly what the node process received. Appears as "Bridge | stderr: BYOK_DIAG ..."
+    // const byokVars = [
+    //     "COPILOT_PROVIDER_BASE_URL",
+    //     "COPILOT_PROVIDER_MODEL_ID",
+    //     "COPILOT_PROVIDER_TYPE",
+    //     "COPILOT_PROVIDER_API_KEY",
+    //     "COPILOT_PROVIDER_BEARER_TOKEN",
+    //     "COPILOT_MODEL",           // old/wrong name — should be absent
+    // ];
+    // const byokDiag = byokVars.map(k => `${k}=${process.env[k] ?? "(not set)"}`).join(", ");
+    // process.stderr.write(`BYOK_DIAG pid=${process.pid} ${byokDiag}\n`);
     const directPrompt = process.argv.slice(2).join(" ").trim();
     if (directPrompt) {
         const directRequest = {

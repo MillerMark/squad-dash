@@ -529,6 +529,13 @@ function stringArrayEqual(left?: string[], right?: string[]): boolean {
     return true;
 }
 
+function backgroundTasksContainTask(tasks: BackgroundTaskSnapshot, taskId: string): boolean {
+    return tasks.agents.some(agent =>
+        agent.agentId === taskId ||
+        agent.toolCallId === taskId) ||
+        tasks.shells.some(shell => shell.shellId === taskId);
+}
+
 function agentInfoEqual(left: BackgroundAgentInfo, right: BackgroundAgentInfo): boolean {
     return left.agentId === right.agentId &&
         left.toolCallId === right.toolCallId &&
@@ -663,6 +670,29 @@ export function buildNamedAgentExecutionPrompt(
     return lines.join("\n");
 }
 
+export function buildNamedAgentPrompt(request: Pick<SquadNamedAgentRequest, "selectedOption" | "targetAgent" | "handoffContext" | "charterContent">): string {
+    const selectedOption = request.selectedOption.trim();
+    const sections = [
+        selectedOption,
+        "",
+        "## Named Agent Launch Context",
+        buildNamedAgentHiddenContext(request.targetAgent, request.charterContent)
+    ];
+
+    const handoffContext = request.handoffContext?.trim();
+    if (handoffContext) {
+        sections.push(
+            "",
+            "## Quick-Reply Handoff Context",
+            handoffContext,
+            "",
+            "Use this handoff context to resolve references, pronouns, and intended scope in the selected quick reply. Carry out the selected quick reply now. Do not ask the user to restate context unless this handoff is empty or contradictory."
+        );
+    }
+
+    return sections.join("\n");
+}
+
 function buildDelegationHiddenContext(selectedOption: string, targetAgent: string): string {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -722,14 +752,8 @@ export class SquadBridgeService {
         request: SquadNamedAgentRequest,
         handlers: SquadRunHandlers
     ) {
-        const executionPrompt = buildNamedAgentExecutionPrompt(
-            request.selectedOption,
-            request.targetAgent,
-            request.handoffContext,
-            request.charterContent);
-
         await this.runSessionRequest(
-            executionPrompt,
+            buildNamedAgentPrompt(request),
             handlers,
             {
                 cwd: request.cwd,
@@ -832,25 +856,35 @@ export class SquadBridgeService {
         if (!normalizedTaskId)
             return false;
 
-        const state = sessionId
-            ? this.sessions.get(sessionId)
-            : Array.from(this.sessions.values()).find(value =>
-                value.backgroundTasks.agents.some(agent => agent.agentId === normalizedTaskId) ||
-                value.backgroundTasks.shells.some(shell => shell.shellId === normalizedTaskId));
+        const allStates = Array.from(this.sessions.values());
+        const preferredState = sessionId ? this.sessions.get(sessionId) : undefined;
+        const matchingStates = allStates.filter(value =>
+            value !== preferredState &&
+            backgroundTasksContainTask(value.backgroundTasks, normalizedTaskId));
+        const fallbackStates = allStates.filter(value =>
+            value !== preferredState &&
+            !matchingStates.includes(value));
+        const candidates = [
+            ...(preferredState ? [preferredState] : []),
+            ...matchingStates,
+            ...fallbackStates
+        ];
 
-        if (!state)
-            return false;
+        for (const state of candidates) {
+            const backgroundTaskSession = state.session as unknown as {
+                cancelBackgroundTask?: (taskId: string) => Promise<boolean>;
+            };
 
-        const backgroundTaskSession = state.session as unknown as {
-            cancelBackgroundTask?: (taskId: string) => Promise<boolean>;
-        };
+            if (!backgroundTaskSession.cancelBackgroundTask)
+                continue;
 
-        if (!backgroundTaskSession.cancelBackgroundTask)
-            return false;
+            const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
+            await this.refreshBackgroundTasks(state).catch(() => undefined);
+            if (cancelled)
+                return true;
+        }
 
-        const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
-        await this.refreshBackgroundTasks(state).catch(() => undefined);
-        return cancelled;
+        return false;
     }
 
     public async shutdown(): Promise<void> {

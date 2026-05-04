@@ -247,6 +247,11 @@ function stringArrayEqual(left, right) {
     }
     return true;
 }
+function backgroundTasksContainTask(tasks, taskId) {
+    return tasks.agents.some(agent => agent.agentId === taskId ||
+        agent.toolCallId === taskId) ||
+        tasks.shells.some(shell => shell.shellId === taskId);
+}
 function agentInfoEqual(left, right) {
     return left.agentId === right.agentId &&
         left.toolCallId === right.toolCallId &&
@@ -352,6 +357,20 @@ export function buildNamedAgentExecutionPrompt(selectedOption, targetAgent, hand
     lines.push("", "## Selected User Action", trimmedOption);
     return lines.join("\n");
 }
+export function buildNamedAgentPrompt(request) {
+    const selectedOption = request.selectedOption.trim();
+    const sections = [
+        selectedOption,
+        "",
+        "## Named Agent Launch Context",
+        buildNamedAgentHiddenContext(request.targetAgent, request.charterContent)
+    ];
+    const handoffContext = request.handoffContext?.trim();
+    if (handoffContext) {
+        sections.push("", "## Quick-Reply Handoff Context", handoffContext, "", "Use this handoff context to resolve references, pronouns, and intended scope in the selected quick reply. Carry out the selected quick reply now. Do not ask the user to restate context unless this handoff is empty or contradictory.");
+    }
+    return sections.join("\n");
+}
 function buildDelegationHiddenContext(selectedOption, targetAgent) {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -390,8 +409,7 @@ export class SquadBridgeService {
         }, buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
     }
     async runNamedAgent(request, handlers) {
-        const executionPrompt = buildNamedAgentExecutionPrompt(request.selectedOption, request.targetAgent, request.handoffContext, request.charterContent);
-        await this.runSessionRequest(executionPrompt, handlers, {
+        await this.runSessionRequest(buildNamedAgentPrompt(request), handlers, {
             cwd: request.cwd,
             sessionId: request.namedAgentSessionId,
             configDir: request.configDir,
@@ -465,18 +483,27 @@ export class SquadBridgeService {
         const normalizedTaskId = taskId.trim();
         if (!normalizedTaskId)
             return false;
-        const state = sessionId
-            ? this.sessions.get(sessionId)
-            : Array.from(this.sessions.values()).find(value => value.backgroundTasks.agents.some(agent => agent.agentId === normalizedTaskId) ||
-                value.backgroundTasks.shells.some(shell => shell.shellId === normalizedTaskId));
-        if (!state)
-            return false;
-        const backgroundTaskSession = state.session;
-        if (!backgroundTaskSession.cancelBackgroundTask)
-            return false;
-        const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
-        await this.refreshBackgroundTasks(state).catch(() => undefined);
-        return cancelled;
+        const allStates = Array.from(this.sessions.values());
+        const preferredState = sessionId ? this.sessions.get(sessionId) : undefined;
+        const matchingStates = allStates.filter(value => value !== preferredState &&
+            backgroundTasksContainTask(value.backgroundTasks, normalizedTaskId));
+        const fallbackStates = allStates.filter(value => value !== preferredState &&
+            !matchingStates.includes(value));
+        const candidates = [
+            ...(preferredState ? [preferredState] : []),
+            ...matchingStates,
+            ...fallbackStates
+        ];
+        for (const state of candidates) {
+            const backgroundTaskSession = state.session;
+            if (!backgroundTaskSession.cancelBackgroundTask)
+                continue;
+            const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
+            await this.refreshBackgroundTasks(state).catch(() => undefined);
+            if (cancelled)
+                return true;
+        }
+        return false;
     }
     async shutdown() {
         const sessionIds = Array.from(this.sessions.keys());

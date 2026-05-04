@@ -114,4 +114,47 @@ internal sealed class QuickReplyContextPromptBuilderTests
             Assert.That(context, Does.Contain("authoritative task scope"));
         });
     }
+
+    [Test]
+    public void BuildHandoffContext_KeepsSourceAndNamedAgentContext_WhenPriorTurnsAreLarge()
+    {
+        var noisyPriorTurns = Enumerable.Range(1, 10)
+            .Select(index => new QuickReplyHandoffTurnContext(
+                "Coordinator",
+                $"Older prompt {index} " + new string('p', 5000),
+                $"Older response {index} " + new string('r', 5000),
+                new DateTimeOffset(2026, 5, 1, 12, index, 0, TimeSpan.Zero),
+                IsSourceTurn: false))
+            .ToList();
+        noisyPriorTurns.Add(new QuickReplyHandoffTurnContext(
+            "Coordinator",
+            "SOURCE_PROMPT_MARKER break the options dialog into pages",
+            "SOURCE_RESPONSE_MARKER Here is Lyra's page-navigation plan summary.",
+            new DateTimeOffset(2026, 5, 1, 13, 0, 0, TimeSpan.Zero),
+            IsSourceTurn: true));
+
+        var context = QuickReplyContextPromptBuilder.BuildHandoffContext(
+            "Looks good - have Lyra implement it",
+            "Lyra Morn",
+            "start_named_agent",
+            "lyra-morn",
+            noisyPriorTurns,
+            [
+                new QuickReplyHandoffAgentContext(
+                    "Lyra Morn",
+                    "AGENT_PROMPT_MARKER plan only",
+                    "AGENT_RESPONSE_MARKER implement the five-page preferences dialog plan",
+                    [],
+                    new DateTimeOffset(2026, 5, 1, 13, 5, 0, TimeSpan.Zero))
+            ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context, Does.Contain("SOURCE_PROMPT_MARKER"));
+            Assert.That(context, Does.Contain("SOURCE_RESPONSE_MARKER"));
+            Assert.That(context, Does.Contain("AGENT_PROMPT_MARKER"));
+            Assert.That(context, Does.Contain("AGENT_RESPONSE_MARKER"));
+            Assert.That(context, Does.Contain("[handoff context truncated]"));
+        });
+    }
 }

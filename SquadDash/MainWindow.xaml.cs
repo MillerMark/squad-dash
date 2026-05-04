@@ -350,6 +350,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var ctorSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
         _bridge = new SquadSdkProcess(_workspacePaths);
+        _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
         _squadCliAdapter = new SquadCliAdapter(_workspacePaths, (op, ex) => HandleUiCallbackException(op, ex));
@@ -2430,15 +2431,21 @@ public partial class MainWindow : Window, ILiveElementLocator
             _bridge.AbortPrompt();
         }
 
-        foreach (var target in targets.Where(target => !target.IsCoordinator))
-        {
-            SquadDashTrace.Write(
-                "UI",
-                $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} label={target.DisplayLabel}");
-            await _bridge.CancelBackgroundTaskAsync(
-                target.TaskId,
-                _conversationManager.CurrentSessionId).ConfigureAwait(true);
-        }
+        var backgroundCancelTasks = targets
+            .Where(target => !target.IsCoordinator)
+            .Select(async target =>
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} label={target.DisplayLabel}");
+                var cancelled = await _bridge.CancelBackgroundTaskAsync(target.TaskId).ConfigureAwait(true);
+                SquadDashTrace.Write(
+                    "UI",
+                    $"AbortButton background cancel result taskKind={target.TaskKind} task={target.TaskId} cancelled={cancelled}");
+            })
+            .ToArray();
+
+        await Task.WhenAll(backgroundCancelTasks).ConfigureAwait(true);
     }
 
     private void HandleEvent(SquadSdkEvent evt)
@@ -2764,7 +2771,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             "first_response_event" => $"first response event after={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)}",
             "send_completed" => $"send completed total={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} firstSdk={FormatSdkDiagnosticMs(evt.TimeToFirstSdkEventMs)} firstThinking={FormatSdkDiagnosticMs(evt.TimeToFirstThinkingMs)} firstResponse={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)}",
             "send_failed" => $"send failed total={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} firstSdk={FormatSdkDiagnosticMs(evt.TimeToFirstSdkEventMs)} firstThinking={FormatSdkDiagnosticMs(evt.TimeToFirstThinkingMs)} firstResponse={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)} message={evt.Message ?? "(none)"}",
-            _ => $"phase={evt.DiagnosticPhase ?? "(unknown)"} event={evt.DiagnosticEventType ?? evt.FirstSdkEventType ?? "(none)"} after={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)}"
+            "named_agent_handoff" => $"named-agent handoff {evt.Message ?? "(none)"}",
+            _ => $"phase={evt.DiagnosticPhase ?? "(unknown)"} event={evt.DiagnosticEventType ?? evt.FirstSdkEventType ?? "(none)"} after={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} message={evt.Message ?? "(none)"}"
         };
 
         SquadDashTrace.Write("SDK", summary);
@@ -3038,8 +3046,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
 
+        var promoted = _backgroundTaskPresenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
-        _backgroundTaskPresenter.RecordBackgroundCompletion(summary, BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread));
+        _backgroundTaskPresenter.RecordBackgroundCompletion(summary, BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread), appendNotice: !promoted);
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_completed");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
@@ -5119,13 +5128,33 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static string ExtractInlineText(InlineCollection inlines) =>
         TranscriptCopyService.ExtractInlineText(inlines);
 
+    private static void SetClipboardTextWithRetry(string text, int retries = 10)
+    {
+        Exception? lastEx = null;
+        for (int i = 0; i < retries; i++)
+        {
+            try
+            {
+                Clipboard.SetDataObject(text, copy: true);
+                return;
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                lastEx = ex;
+                System.Threading.Thread.Sleep(30 * (i + 1)); // 30, 60, 90... ms — linear backoff
+            }
+        }
+        if (lastEx != null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(lastEx).Throw();
+    }
+
     private void OutputTextBox_CopyExecuted(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
     {
         try
         {
             var text = TranscriptCopyService.BuildSelectionText(OutputTextBox);
             if (!string.IsNullOrEmpty(text))
-                Clipboard.SetText(text);
+                SetClipboardTextWithRetry(text);
             e.Handled = true;
         }
         catch (Exception ex)
@@ -6386,9 +6415,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             SquadDashTrace.Write(
                 "UI",
                 $"Agent context menu abort requested taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} label={abortTarget.DisplayLabel}");
-            await _bridge.CancelBackgroundTaskAsync(
-                abortTarget.TaskId,
-                _conversationManager.CurrentSessionId).ConfigureAwait(true);
+            var cancelled = await _bridge.CancelBackgroundTaskAsync(abortTarget.TaskId).ConfigureAwait(true);
+            SquadDashTrace.Write(
+                "UI",
+                $"Agent context menu abort result taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} cancelled={cancelled}");
         }
         catch (Exception ex)
         {
@@ -6776,6 +6806,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
+                    _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
+                    _bridge.RestartBridgeForNewSettings();
                 });
         }
         catch (Exception ex)
@@ -14394,6 +14426,18 @@ public partial class MainWindow : Window, ILiveElementLocator
         _docsRefreshCts = null;
     }
 
+    private ByokProviderSettings? BuildByokSettingsFromStore()
+    {
+        var snapshot = _settingsStore.Load();
+        if (string.IsNullOrEmpty(snapshot.ByokProviderUrl))
+            return null;
+        return new ByokProviderSettings(
+            snapshot.ByokProviderUrl,
+            snapshot.ByokModel,
+            snapshot.ByokProviderType,
+            snapshot.ByokApiKey);
+    }
+
     private void DocsWatcher_Changed(object sender, FileSystemEventArgs e)
     {
         try
@@ -15556,8 +15600,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ViewCommitApprovalsMenuItem.IsChecked = true;
         }
 
-        // Open: null (absent) or true = open (the default). false = explicitly closed.
-        if (_docsPanelState.Open == false)
+        // Open: true = explicitly opened by user. null (absent) or false = closed (default for new installs).
+        if (_docsPanelState.Open != true)
             return;
 
         SquadDashTrace.Write("Startup", "Restoring documentation panel from previous session.");
