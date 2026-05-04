@@ -1,4 +1,4 @@
-[2026-05-02 21:24:30.718Z] [screenshot] Starting: status-panel-border-agent-dark
-[2026-05-02 21:24:30.991Z] [screenshot] Comparison FAILED for 'status-panel-border-agent-dark': dimension mismatch.
-[2026-05-02 21:24:30.992Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\status-panel-border-agent-dark-dark.png
-[2026-05-02 21:24:30.992Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\panels\images\tasks-panel.png
+[2026-05-04 09:57:22.449Z] [screenshot] Starting: status-panel-border-agent-dark
+[2026-05-04 09:57:22.870Z] [screenshot] Comparison FAILED for 'status-panel-border-agent-dark': dimension mismatch.
+[2026-05-04 09:57:22.871Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\status-panel-border-agent-dark-dark.png
+[2026-05-04 09:57:22.871Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\panels\images\tasks-panel.png
