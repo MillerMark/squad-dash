@@ -6,8 +6,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Input;
+using System.Windows.Threading;
 using System.Threading.Tasks;
 
 /// <summary>Manages content in the inline Tasks panel.</summary>
@@ -155,7 +157,7 @@ internal sealed class TasksPanelController {
     // ── Row construction — open tasks ─────────────────────────────────────────
 
     private Border BuildRow(TaskItem item) {
-        var row = new Border { Background = Brushes.Transparent, Tag = item, Cursor = Cursors.Hand };
+        var row = new Border { Background = Brushes.Transparent, Tag = item };
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
@@ -267,7 +269,7 @@ internal sealed class TasksPanelController {
                 Child           = popupBorder,
                 PlacementTarget = row,
                 Placement       = PlacementMode.Left,
-                StaysOpen       = false,
+                StaysOpen       = true,
             };
 
             bool brushesResolved = false;
@@ -280,11 +282,58 @@ internal sealed class TasksPanelController {
                                        ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
             }
 
-            row.MouseLeftButtonDown += (_, e) => {
-                ResolveBrushes();
-                popup.IsOpen = !popup.IsOpen;
-                e.Handled = true;
+            bool isFading = false;
+            void BeginFadeOut() {
+                if (!popup.IsOpen || isFading) return;
+                isFading = true;
+                var anim = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(350)) {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                };
+                anim.Completed += (_, _) => {
+                    popup.IsOpen = false;
+                    popupBorder.Opacity = 1.0;
+                    isFading = false;
+                };
+                popupBorder.BeginAnimation(UIElement.OpacityProperty, anim);
+            }
+
+            DispatcherTimer? openTimer = null;
+            Point hoverOrigin = default;
+
+            row.MouseEnter += (_, e) => {
+                hoverOrigin = row.PointToScreen(e.GetPosition(row));
+                openTimer?.Stop();
+                openTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+                openTimer.Tick += (_, _) => {
+                    openTimer!.Stop();
+                    openTimer = null;
+                    if (!popup.IsOpen) {
+                        ResolveBrushes();
+                        popupBorder.Opacity = 1.0;
+                        popup.IsOpen = true;
+                    }
+                };
+                openTimer.Start();
             };
+
+            row.MouseLeave += (_, _) => {
+                openTimer?.Stop();
+                openTimer = null;
+                BeginFadeOut();
+            };
+
+            row.MouseMove += (_, e) => {
+                var current = row.PointToScreen(e.GetPosition(row));
+                var dx = current.X - hoverOrigin.X;
+                var dy = current.Y - hoverOrigin.Y;
+                if (Math.Sqrt(dx * dx + dy * dy) > 10.0) {
+                    openTimer?.Stop();
+                    openTimer = null;
+                    BeginFadeOut();
+                }
+            };
+
+            row.PreviewMouseDown += (_, _) => BeginFadeOut();
         }
 
         return row;
