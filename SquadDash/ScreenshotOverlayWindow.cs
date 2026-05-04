@@ -1233,28 +1233,75 @@ internal sealed class ScreenshotOverlayWindow : Window
 
     private async Task StartDelayedCaptureAsync(int seconds)
     {
-        // Snapshot selection and auto-generate a name — same setup as EnterAnnotationMode.
-        EnterAnnotationMode();
+        try
+        {
+            // Snapshot the current selection state directly — without calling
+            // EnterAnnotationMode, which would show the annotation UI and queue
+            // dispatcher operations that can interfere with Hide().
+            _capturedSel = _sel;
 
-        // Hide the overlay so the user can interact freely during the countdown.
-        Hide();
+            // If no real selection has been drawn yet, capture the full window.
+            if (_capturedSel.Width < MinSize || _capturedSel.Height < MinSize)
+            {
+                _capturedSel          = new Rect(0, 0, _mainWindow.ActualWidth, _mainWindow.ActualHeight);
+                _capturedIsFullWindow = true;
+            }
+            else
+            {
+                _capturedIsFullWindow =
+                    _capturedSel.Left  < 1 &&
+                    _capturedSel.Top   < 1 &&
+                    Math.Abs(_capturedSel.Width  - _mainWindow.ActualWidth)  < 1 &&
+                    Math.Abs(_capturedSel.Height - _mainWindow.ActualHeight) < 1;
+            }
 
-        await ShowCountdownAsync(seconds);
+            _capturedAnchors = VisualTreeEdgeAnalyzer.Analyze(_capturedSel, _mainWindow);
 
-        // Now take the screenshot (overlay is still hidden; DoAnnotationSaveAsync hides it
-        // again before rendering, which is a no-op when already hidden).
-        await DoAnnotationSaveAsync();
+            // Auto-generate the filename; fall back to "screenshot" if SuggestName
+            // produces nothing valid (e.g., no anchors detected).
+            if (_nameTextBox != null)
+            {
+                var anchorRecords = _capturedAnchors
+                    .Select(a => new Screenshots.EdgeAnchorRecord(
+                        Edge:           a.Edge,
+                        ElementNames:   a.UniqueNames,
+                        NeedsName:      a.NeedsName,
+                        ElementLeft:    a.ElementBounds.Left,
+                        ElementTop:     a.ElementBounds.Top,
+                        ElementWidth:   a.ElementBounds.Width,
+                        ElementHeight:  a.ElementBounds.Height,
+                        DistanceToEdge: a.DistanceToEdge))
+                    .ToArray();
+                var suggested = Screenshots.ScreenshotNamingHelper.SuggestName(_themeName, anchorRecords);
+                _nameTextBox.Text = IsValidKebabName(suggested) ? suggested : "screenshot";
+            }
+
+            // Hide the overlay so the user can see and set up the window before capture.
+            Hide();
+
+            await ShowCountdownAsync(seconds);
+
+            // DoAnnotationSaveAsync hides the overlay again before rendering (no-op when
+            // already hidden) and calls Close() in its finally block.
+            await DoAnnotationSaveAsync();
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Screenshot", $"StartDelayedCaptureAsync failed: {ex.Message}");
+            Close();
+        }
     }
 
     /// <summary>
     /// Shows a transparent, topmost window with a large countdown number centered
-    /// over the main window.  The window is non-interactive (<c>IsHitTestVisible=false</c>)
-    /// so the user can interact with the app during the countdown.
+    /// over the main window.  The window is non-interactive so the user can set up
+    /// the app while the timer runs.
     /// </summary>
     private async Task ShowCountdownAsync(int seconds)
     {
         var countLabel = new System.Windows.Controls.TextBlock
         {
+            Text                = seconds.ToString(),
             FontSize            = 180,
             FontWeight          = FontWeights.Bold,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -1275,7 +1322,7 @@ internal sealed class ScreenshotOverlayWindow : Window
             AllowsTransparency    = true,
             Background            = Brushes.Transparent,
             Topmost               = true,
-            IsHitTestVisible      = false,
+            ShowActivated         = false,
             ShowInTaskbar         = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Left                  = _mainWindow.Left,
