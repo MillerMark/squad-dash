@@ -294,7 +294,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" MinWidth="320" />
             <ColumnDefinition x:Name="DocsSplitterColumn" Width="0" />
             <ColumnDefinition x:Name="DocsPanelColumn" Width="0" />
         </Grid.ColumnDefinitions>
