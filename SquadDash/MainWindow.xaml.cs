@@ -804,7 +804,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                         // Rebuild-triggered restart: close immediately after the current turn so
                         // the launcher can reload the new binary. Queue items will resume in the
                         // reloaded instance (they are persisted).
-                        Close();
+                        // Do not close if PTT is still active or draining — the deferral in
+                        // StopPushToTalkAsync's Background-priority callback will call Close()
+                        // once the final phrase has been received from Azure.
+                        if (_pttState != PttState.Active && !_pttDraining)
+                            Close();
                     }
                     else
                     {
@@ -5935,10 +5939,18 @@ public partial class MainWindow : Window, ILiveElementLocator
         // callbacks in the dispatcher queue still need it to route text to the correct target.
         // It is cleared inside the Background-priority dispatcher callback below, after all
         // Normal-priority phrase callbacks have drained.
-        ClosePttWindow();
 
         var service = _speechService;
         _speechService = null;
+
+        // Set _pttDraining BEFORE ClosePttWindow so that HandleRestartRequestChanged and
+        // MainWindow_Closing cannot slip through the gap between _pttState going Idle and
+        // this flag being raised.  ClosePttWindow fires WPF window-lifecycle events that may
+        // re-enter the dispatcher pump, so the flag must already be set when that happens.
+        if (service != null)
+            _pttDraining = true;
+
+        ClosePttWindow();
 
         if (service != null)
         {
@@ -5946,7 +5958,6 @@ public partial class MainWindow : Window, ILiveElementLocator
             // initiating a restart while Azure is flushing the final phrase recognition.
             // _pttState is already Idle at this point so without this flag the build watcher
             // could fire, see Idle state, and Close() before the last phrase arrives.
-            _pttDraining = true;
             try { await service.StopAsync().ConfigureAwait(false); }
             catch { }
             service.Dispose();
