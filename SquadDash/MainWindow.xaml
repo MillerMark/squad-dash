@@ -1853,7 +1853,9 @@
                             Padding="8,4"
                             BorderThickness="0,0,0,1"
                             BorderBrush="{DynamicResource LineColor}"
-                            Background="{DynamicResource FollowUpSurface}">
+                            Background="{DynamicResource FollowUpSurface}"
+                            Cursor="Hand"
+                            MouseLeftButtonUp="FollowUpStrip_MouseLeftButtonUp">
                         <DockPanel>
                             <Button x:Name="FollowUpDismissBtn"
                                     DockPanel.Dock="Right"

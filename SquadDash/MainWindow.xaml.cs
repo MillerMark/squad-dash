@@ -17287,16 +17287,35 @@ public partial class MainWindow : Window, ILiveElementLocator
         FollowUpLabel.Inlines.Add(shaRun);
         FollowUpLabel.Inlines.Add(suffix);
 
+        // Clicking the underlined SHA opens the commit on GitHub.
         var capturedSha = att.CommitSha;
         shaRun.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true;
-            var item = _approvalItems.FirstOrDefault(i =>
-                string.Equals(i.CommitSha, capturedSha, StringComparison.OrdinalIgnoreCase) ||
-                (capturedSha.Length >= 7 && i.CommitSha.StartsWith(capturedSha, StringComparison.OrdinalIgnoreCase)));
-            if (item is not null)
-                ScrollToApprovalTurn(item);
+            var commitUrl = _workspaceGitHubUrl is not null
+                ? $"{_workspaceGitHubUrl}/commit/{capturedSha}"
+                : null;
+            if (commitUrl is not null)
+                _ = OpenExternalLinkWithCommitCheckAsync(commitUrl);
         };
+    }
+
+    // Clicking anywhere on the follow-up strip (not the SHA, not the dismiss button)
+    // scrolls the transcript to the turn where that approval prompt was dispatched.
+    private void FollowUpStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.Handled) return;
+        if (!_followUpAttachments.TryGetValue(_activeTabId ?? "", out var list)) return;
+
+        // Find the first attachment that came from an approval item (has a commit SHA).
+        var commitAtt = list.FirstOrDefault(a => !string.IsNullOrEmpty(a.CommitSha));
+        if (commitAtt is null) return;
+
+        var item = _approvalItems.FirstOrDefault(i =>
+            string.Equals(i.CommitSha, commitAtt.CommitSha, StringComparison.OrdinalIgnoreCase) ||
+            (commitAtt.CommitSha.Length >= 7 && i.CommitSha.StartsWith(commitAtt.CommitSha, StringComparison.OrdinalIgnoreCase)));
+        if (item is not null)
+            ScrollToApprovalTurn(item);
     }
 
     private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
