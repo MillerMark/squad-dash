@@ -14202,18 +14202,32 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (!File.Exists(loopMdPath))
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(loopMdPath)!);
-                File.WriteAllText(loopMdPath, """
-                    # Loop Instructions
-
-                    You are running in autonomous loop mode. On each iteration:
-
-                    1. Check for outstanding tasks in `.squad/tasks.md`
-                    2. Pick the highest-priority unchecked item
-                    3. Work on it and mark it `[x]` when done
-                    4. Report what you accomplished
-
-                    Stop looping when all tasks are complete or when instructed.
-                    """);
+                File.WriteAllText(loopMdPath,
+                    "---\n" +
+                    "configured: true\n" +
+                    "interval: 10\n" +
+                    "timeout: 5\n" +
+                    "description: \"My loop\"\n" +
+                    "commands: [stop_loop]\n" +
+                    "---\n" +
+                    "\n" +
+                    "# Loop Instructions\n" +
+                    "\n" +
+                    "You are running in autonomous loop mode. On each iteration:\n" +
+                    "\n" +
+                    "1. Check for outstanding tasks in `.squad/tasks.md`\n" +
+                    "2. Pick the highest-priority unchecked item\n" +
+                    "3. Work on it and mark it `[x]` when done\n" +
+                    "4. Report what you accomplished\n" +
+                    "\n" +
+                    "When all tasks are complete (or all remaining tasks are owned by User), stop the loop:\n" +
+                    "\n" +
+                    "```\n" +
+                    "HOST_COMMAND_JSON:\n" +
+                    "[\n" +
+                    "  { \"command\": \"stop_loop\" }\n" +
+                    "]\n" +
+                    "```\n");
                 UpdateLoopPanelButtonStates();
             }
 

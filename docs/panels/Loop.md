@@ -81,17 +81,16 @@ progress, and mark the task done. If no open tasks remain, stop the loop.
 
 ## Agent-Initiated Commands
 
-If `commands` lists `stop_loop` (or `start_loop`), SquadDash appends a reference block to the prompt. The agent can then embed a JSON object in its response to invoke the command:
+If `commands` lists `stop_loop` (or `start_loop`), SquadDash appends a reference block to the prompt explaining how to use them. The agent invokes a command by appending a `HOST_COMMAND_JSON` block at the very end of its response:
 
-```json
-{"squadash": {"command": "stop_loop"}}
+```
+HOST_COMMAND_JSON:
+[
+  { "command": "stop_loop" }
+]
 ```
 
-Combine with a notification:
-
-```json
-{"squadash": {"command": "stop_loop", "notification": "All tasks complete"}}
-```
+This block must be the **last content** in the response — nothing may follow it. SquadDash only executes the command if the block is correctly terminated with no trailing text.
 
 Only emit a command when the condition is actually met — the instructions SquadDash injects say exactly this.
 
@@ -116,6 +115,6 @@ Agent output for each iteration appears in the **coordinator transcript** in the
 
 ## Related
 
-- **[Tasks Panel](tasks-panel.md)** — Surface the `.squad/tasks.md` backlog alongside the loop
+- **[Tasks Panel](Tasks.md)** — Surface the `.squad/tasks.md` backlog alongside the loop
 - **[Prompt Queue](../features/prompt-queue.md)** — How prompts queue and interact with loop iterations
 - **[Keyboard Shortcuts](../reference/keyboard-shortcuts.md)** — Global shortcuts reference
