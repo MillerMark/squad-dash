@@ -2729,10 +2729,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                         HandleSquadashCommand(cmd);
 
                     // Process HOST_COMMAND_JSON commands from this turn's response.
+                    // Strip <system_notification> tags first — the parser regex requires the JSON
+                    // block at the very end (\s*$), so trailing system_notification tags break it.
                     if (_hostCommandExecutor is not null && rawResponse is not null)
                     {
+                        var rawForCommandParsing = ToolTranscriptFormatter.StripSystemNotifications(rawResponse);
                         var commandResults = _hostCommandExecutor.TryParseAndExecute(
-                            rawResponse, _hostCommandRegistry, _currentWorkspace?.FolderPath, out _);
+                            rawForCommandParsing, _hostCommandRegistry, _currentWorkspace?.FolderPath, out _);
                         if (commandResults is not null)
                         {
                             foreach (var (invocation, descriptor, result) in commandResults)

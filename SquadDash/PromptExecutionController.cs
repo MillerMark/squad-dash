@@ -1713,7 +1713,10 @@ internal sealed class PromptExecutionController {
         var triggeredCtx = BuildTriggeredInjections(prompt);
 
         var hostCmdCtx = GetHostCommandCatalogInstruction?.Invoke();
-        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, triggeredCtx, hostCmdCtx, TurnSummaryInstruction }.Where(p => p is not null).ToArray();
+        // TurnSummaryInstruction must come BEFORE hostCmdCtx so the AI emits <system_notification>
+        // first and HOST_COMMAND_JSON last. The parser regex requires HOST_COMMAND_JSON at the
+        // very end of the response; placing it after TurnSummaryInstruction would break the match.
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, triggeredCtx, TurnSummaryInstruction, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = SquadBridgePromptBuilder.Build(
             prompt,
