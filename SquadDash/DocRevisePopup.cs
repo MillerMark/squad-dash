@@ -282,6 +282,18 @@ internal sealed class DocRevisePopup : Window
             RevisedText = await _reviseCallback(
                 instructions, _selectedText, _documentText, cwd, _cts.Token);
 
+            if (string.IsNullOrWhiteSpace(RevisedText))
+            {
+                RevisedText = null;
+                _errorLabel.Text          = "AI returned an empty response. Try rephrasing your instructions.";
+                _errorLabel.Visibility    = Visibility.Visible;
+                _progressLabel.Visibility = Visibility.Collapsed;
+                _instructionBox.IsEnabled = true;
+                _okButton.IsEnabled       = true;
+                _instructionBox.Focus();
+                return;
+            }
+
             DialogResult = true;
         }
         catch (OperationCanceledException)

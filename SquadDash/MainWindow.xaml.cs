@@ -8689,6 +8689,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             if (DocSourceTextBox.SelectionLength > 0)
             {
+                // Capture now — WPF clears the selection when the ContextMenu takes focus.
+                var capturedSelStart = DocSourceTextBox.SelectionStart;
+                var capturedSelLen   = DocSourceTextBox.SelectionLength;
+
                 menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
                 var addToNotesItem = new MenuItem
                 {
@@ -8696,7 +8700,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     Style  = (Style)FindResource("ThemedMenuItemStyle")
                 };
                 addToNotesItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.SelectedText;
+                    var text = DocSourceTextBox.Text.Substring(capturedSelStart, capturedSelLen);
                     if (!string.IsNullOrWhiteSpace(text))
                         AddNoteFromText(text);
                 };
@@ -8707,7 +8711,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     Header = "✏ _Revise with AI",
                     Style  = (Style)FindResource("ThemedMenuItemStyle")
                 };
-                reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "");
+                reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "", capturedSelStart, capturedSelLen);
                 menu.Items.Add(reviseItem);
             }
 
@@ -8722,13 +8726,24 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private void ShowDocRevisePopup(System.Windows.Controls.TextBox textBox, string filePath)
+    private void ShowDocRevisePopup(System.Windows.Controls.TextBox textBox, string filePath,
+        int selStart = -1, int selLen = -1)
     {
-        if (textBox.SelectionLength == 0) return;
-        var selectedText = textBox.SelectedText;
+        // Fall back to current selection if no captured coords were provided.
+        if (selStart < 0)
+        {
+            selStart = textBox.SelectionStart;
+            selLen   = textBox.SelectionLength;
+        }
+        if (selLen <= 0) return;
+
+        // Restore the selection visually so the user sees it highlighted in the popup background.
+        textBox.Focus();
+        textBox.SelectionStart  = selStart;
+        textBox.SelectionLength = selLen;
+
+        var selectedText = textBox.Text.Substring(selStart, selLen);
         var fullText     = textBox.Text;
-        var selStart     = textBox.SelectionStart;
-        var selLen       = textBox.SelectionLength;
         var cwd          = _currentWorkspace?.FolderPath ?? "";
 
         var popup = new DocRevisePopup(
@@ -8752,7 +8767,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         popup.Top   = Math.Max(mousePos.Y - 160, 0);
         popup.Owner = this;
 
-        if (popup.ShowDialog() == true && popup.RevisedText is { } revised)
+        if (popup.ShowDialog() == true && popup.RevisedText is { Length: > 0 } revised)
         {
             textBox.SelectionStart  = selStart;
             textBox.SelectionLength = selLen;
