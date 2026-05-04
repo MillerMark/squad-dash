@@ -1,3 +1,8 @@
+---
+title: "ADR: Replay UI Action Architecture"
+nav_exclude: true
+---
+
 # ADR: Replay UI Action Architecture
 
 **Status:** Accepted  

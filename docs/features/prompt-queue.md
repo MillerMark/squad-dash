@@ -1,3 +1,9 @@
+---
+title: Prompt Queue
+nav_order: 4
+parent: Features
+---
+
 # Prompt Queue
 
 When you submit a prompt while an agent is still running, it doesn't get lost — it enters the **Prompt Queue**. Queued prompts wait their turn and dispatch automatically when the current agent turn completes.

@@ -1,3 +1,9 @@
+---
+title: Entering Prompts
+nav_order: 1
+parent: Features
+---
+
 # Entering Prompts
 
 The **prompt input area** sits at the bottom of the SquadDash window. It's where you type instructions, questions, or commands to your agents. Everything you send goes through here — text you type manually, voice dictation, and slash commands.

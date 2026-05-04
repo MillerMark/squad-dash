@@ -1,3 +1,9 @@
+---
+title: Keyboard Shortcuts
+nav_order: 3
+parent: Reference
+---
+
 # Keyboard Shortcuts
 
 Known keyboard shortcuts and hotkeys in SquadDash.

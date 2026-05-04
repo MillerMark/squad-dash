@@ -1,3 +1,10 @@
+---
+title: Using Remote Control
+nav_order: 4
+parent: Remote Control
+grand_parent: Reference
+---
+
 # Using Remote Control
 
 > ⚠️ **The RC interface is actively in development.** This page reflects current functionality and will be updated as the interface evolves.

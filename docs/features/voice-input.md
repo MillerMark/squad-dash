@@ -1,3 +1,9 @@
+---
+title: Voice Input
+nav_order: 2
+parent: Features
+---
+
 # Voice Input
 
 SquadDash supports **push-to-talk (PTT)** voice input powered by Azure Cognitive Services Speech. Hold the PTT key while speaking; release when done — your speech is transcribed and sent as a prompt.

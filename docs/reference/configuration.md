@@ -1,3 +1,9 @@
+---
+title: Configuration
+nav_order: 1
+parent: Reference
+---
+
 # Configuration
 
 How to configure Squad workspaces and SquadDash application settings.

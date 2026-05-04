@@ -1,3 +1,9 @@
+---
+title: Agents
+nav_order: 1
+parent: Concepts
+---
+
 # Agents
 
 What agents are in the Squad context, how they work, and how SquadDash visualizes them.

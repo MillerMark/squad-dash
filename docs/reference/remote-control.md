@@ -1,3 +1,10 @@
+---
+title: Remote Control
+nav_order: 5
+parent: Reference
+has_children: true
+---
+
 # Remote Control
 
 Control SquadDash from your phone browser — read the transcript, send text prompts, and use push-to-talk voice input — while SquadDash runs on your PC. No app install required.

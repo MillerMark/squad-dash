@@ -1,3 +1,10 @@
+---
+title: ngrok Setup
+nav_order: 2
+parent: Remote Control
+grand_parent: Reference
+---
+
 # ngrok Setup
 
 Use ngrok to access SquadDash RC from outside your local WiFi — from mobile data, another location, or any internet connection.

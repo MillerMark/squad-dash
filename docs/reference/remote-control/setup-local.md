@@ -1,3 +1,10 @@
+---
+title: Local Setup
+nav_order: 1
+parent: Remote Control
+grand_parent: Reference
+---
+
 # Local (LAN) Setup
 
 Connect your phone to SquadDash over your local WiFi network. This is the simplest setup — no accounts, no extra software.

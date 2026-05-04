@@ -1,3 +1,9 @@
+---
+title: Panels
+nav_order: 4
+has_children: true
+---
+
 # Panels
 
 SquadDash includes several inline panels that surface agent activity alongside the main transcript. Each panel can be opened from the **View** menu and docked inside the main window.

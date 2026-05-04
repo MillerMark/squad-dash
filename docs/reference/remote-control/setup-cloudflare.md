@@ -1,3 +1,10 @@
+---
+title: Cloudflare Tunnel Setup
+nav_order: 3
+parent: Remote Control
+grand_parent: Reference
+---
+
 # Cloudflare Tunnel Setup
 
 Use Cloudflare Tunnel (`cloudflared`) to access SquadDash RC from outside your local network. It's free, reliable, and — unlike ngrok's free tier — gives you a stable URL that doesn't change between sessions.

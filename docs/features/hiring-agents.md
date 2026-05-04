@@ -1,3 +1,9 @@
+---
+title: Hiring Agents
+nav_order: 5
+parent: Features
+---
+
 # Hiring Agents
 
 **Hiring** is how you add a new specialist to your workspace's Squad team. A hired agent gets a name, a role, a `charter.md` defining its responsibilities, and a `history.md` for accumulated context. Once hired, the agent appears in the SquadDash sidebar and the coordinator can route prompts to it automatically.

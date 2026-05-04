@@ -1,3 +1,9 @@
+---
+title: Documentation Panel
+nav_order: 4
+parent: Concepts
+---
+
 # Documentation Panel
 
 How SquadDash reads and renders documentation from the `docs/` folder in your workspace.

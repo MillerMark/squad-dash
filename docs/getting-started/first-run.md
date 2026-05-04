@@ -1,3 +1,9 @@
+---
+title: First Run
+nav_order: 3
+parent: Getting Started
+---
+
 # First Run
 
 What happens when you launch SquadDash for the first time, and how to connect to a workspace.

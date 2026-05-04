@@ -1,3 +1,9 @@
+---
+title: Squad Team
+nav_order: 2
+parent: Concepts
+---
+
 # Squad Team
 
 How the `.squad/team.md` and `.squad/routing.md` files define your AI team and work assignment.

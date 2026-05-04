@@ -1,3 +1,9 @@
+---
+title: Transcripts
+nav_order: 3
+parent: Concepts
+---
+
 # Transcripts
 
 The multi-transcript panel system in SquadDash, and how conversations are streamed and persisted.

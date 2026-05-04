@@ -1,3 +1,9 @@
+---
+title: Slash Commands
+nav_order: 4
+parent: Reference
+---
+
 # Slash Commands
 
 Slash commands are shortcuts you type directly into the SquadDash prompt box. Begin any prompt with `/` to trigger IntelliSense autocomplete, then select or finish typing the command and press **Enter** or **Tab** to run it.

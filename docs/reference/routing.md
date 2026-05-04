@@ -1,3 +1,9 @@
+---
+title: Routing
+nav_order: 2
+parent: Reference
+---
+
 # Routing
 
 How `.squad/routing.md` defines work assignment rules and GitHub issue routing.

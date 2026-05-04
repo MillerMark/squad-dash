@@ -1,3 +1,9 @@
+---
+title: Fullscreen Transcript
+nav_order: 3
+parent: Features
+---
+
 # Fullscreen Transcript Mode
 
 A focused view mode that hides everything except the transcript — no agent cards, no status panel, no prompt bar. Ideal for deep reading of long agent responses, pair-programming reviews, or presenting work on screen.

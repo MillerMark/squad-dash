@@ -1,3 +1,8 @@
+---
+title: Screenshot Storage Convention
+nav_exclude: true
+---
+
 # Screenshot Storage Convention
 
 > **Schema version:** 1  

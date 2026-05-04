@@ -1,3 +1,8 @@
+---
+title: "ADR: Screenshot Metadata Schema"
+nav_exclude: true
+---
+
 # ADR: Screenshot Metadata Schema (Phase 2)
 
 **Status:** Accepted  
