@@ -632,6 +632,11 @@ internal sealed class ScreenshotOverlayWindow : Window
 
         _editBorder.SizeChanged += (_, _) => PositionToolbar();
 
+        // Keep MaxWidth at 1/4 of the canvas (screen) width so the panel wraps
+        // instead of expanding into a single wide line.
+        _canvas.SizeChanged += (_, _) => UpdateEditBorderMaxWidth();
+        _canvas.Loaded      += (_, _) => UpdateEditBorderMaxWidth();
+
         Content = _canvas;
 
         // ── Events ───────────────────────────────────────────────────────────
@@ -742,6 +747,14 @@ internal sealed class ScreenshotOverlayWindow : Window
     }
 
     // ── Toolbar floating position ────────────────────────────────────────────
+
+    private void UpdateEditBorderMaxWidth()
+    {
+        if (_editBorder is null) return;
+        var canvasW = _canvas.ActualWidth;
+        if (canvasW > 0)
+            _editBorder.MaxWidth = Math.Max(_editBorder.MinWidth, canvasW / 4.0);
+    }
 
     /// <summary>
     /// Moves the active toolbar (<see cref="_renameBorder"/> in rename mode,
