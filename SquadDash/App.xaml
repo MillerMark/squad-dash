@@ -76,6 +76,14 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="ThemedIconButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource PanelCloseButtonStyle}">
+                <Setter Property="Foreground" Value="{DynamicResource SubtleText}"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Padding" Value="0"/>
+            </Style>
+
             <!-- Transcript inline button (e.g. copy-code 📋) — transparent base, dark-aware hover -->
             <Style x:Key="TranscriptInlineButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="Transparent"/>

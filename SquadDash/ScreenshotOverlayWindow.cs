@@ -338,14 +338,12 @@ internal sealed class ScreenshotOverlayWindow : Window
         var captureBtn = new Button { Content = "Capture", Width = 84, Height = 28 };
         captureBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         captureBtn.ToolTip = "Shift+Click to capture in 5 seconds";
-        captureBtn.Click += (_, _) => EnterAnnotationMode();
-        captureBtn.PreviewMouseLeftButtonDown += (_, e) =>
+        captureBtn.Click += (_, _) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-            {
-                e.Handled = true;
                 _ = StartDelayedCaptureAsync(5);
-            }
+            else
+                EnterAnnotationMode();
         };
 
         var cancelBtn = new Button
