@@ -1993,9 +1993,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     private static readonly Geometry s_paperclipGeometry = Geometry.Parse(
-        // Feather Icons "paperclip" — 24×24 stroke-based, no fill needed.
-        "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66" +
-        "l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48");
+        "M16.5,6 V17.5 C16.5,19.71 14.71,21.5 12.5,21.5 C10.29,21.5 8.5,19.71 8.5,17.5 V5 C8.5,3.62 9.62,2.5 11,2.5 C12.38,2.5 13.5,3.62 13.5,5 V15.5 C13.5,16.05 13.05,16.5 12.5,16.5 C11.95,16.5 11.5,16.05 11.5,15.5 V6 H10 V15.5 C10,16.88 11.12,18 12.5,18 C13.88,18 15,16.88 15,15.5 V5 C15,2.79 13.21,1 11,1 C8.79,1 7,2.79 7,5 V17.5 C7,20.54 9.46,23 12.5,23 C15.54,23 18,20.54 18,17.5 V6 H16.5 Z");
 
     private UIElement CreatePaperclipIcon(bool isActive)
     {
@@ -2005,17 +2003,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             Stretch          = Stretch.Uniform,
             Width            = 10,
             Height           = 10,
-            Fill             = Brushes.Transparent,
-            StrokeThickness  = 2,
-            StrokeLineJoin   = PenLineJoin.Round,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap   = PenLineCap.Round,
+            StrokeThickness  = 0,
             VerticalAlignment  = VerticalAlignment.Center,
             // Half a space-width gap between number and clip (~3px at 12px font)
             Margin = new Thickness(3, 0, 0, 0),
         };
         path.SetResourceReference(
-            System.Windows.Shapes.Path.StrokeProperty,
+            System.Windows.Shapes.Path.FillProperty,
             isActive ? "LabelText" : "QueueTabInactiveText");
         return path;
     }
