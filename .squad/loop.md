@@ -12,7 +12,7 @@ You are running as part of a SquadDash autonomous loop. **Each iteration must co
 
 ## Step 1 — Find the next task
 
-Read `.squad/tasks.md`. Find the **first unchecked (`- [ ]`) item** that is NOT owned by `*(Owner: User)*`. Work top-to-bottom; higher sections (🔴 Critical, 🟠 High, 🟡 Mid) take priority over lower ones (🟢 Low).
+Read `.squad/tasks.md`. Find the **first unchecked (`- [ ]`) item** that is NOT owned by `*(Owner: User)*`. Work top-to-bottom; higher sections (🔴 High, 🟡 Mid) take priority over lower ones (🟢 Low).
 
 ## Step 2 — If NO actionable tasks remain
 
