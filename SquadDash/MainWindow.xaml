@@ -366,23 +366,26 @@
                               Header="_Documentation"
                               IsCheckable="True"
                               Click="ViewDocumentationMenuItem_Click" />
-                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
-                    <MenuItem x:Name="ViewLoopPanelMenuItem"
-                              Header="Loop Panel"
-                              IsCheckable="True"
-                              Click="ViewLoopPanelMenuItem_Click" />
-                    <MenuItem x:Name="ViewTasksMenuItem"
-                              Header="Tasks Panel"
-                              IsCheckable="True"
-                              Click="ViewTasksMenuItem_Click" />
+                </MenuItem>
+                <MenuItem Header="_Panels"
+                          Style="{StaticResource TopLevelMenuItemStyle}"
+                          ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
                     <MenuItem x:Name="ViewCommitApprovalsMenuItem"
-                              Header="Approvals Panel"
+                              Header="Approvals"
                               IsCheckable="True"
                               Click="ViewCommitApprovalsMenuItem_Click" />
+                    <MenuItem x:Name="ViewLoopPanelMenuItem"
+                              Header="Loop"
+                              IsCheckable="True"
+                              Click="ViewLoopPanelMenuItem_Click" />
                     <MenuItem x:Name="ViewNotesMenuItem"
-                              Header="Notes Panel"
+                              Header="Notes"
                               IsCheckable="True"
                               Click="ViewNotesMenuItem_Click" />
+                    <MenuItem x:Name="ViewTasksMenuItem"
+                              Header="Tasks"
+                              IsCheckable="True"
+                              Click="ViewTasksMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"
