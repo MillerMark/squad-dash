@@ -497,9 +497,30 @@ internal sealed class ScreenshotOverlayWindow : Window
 
         var annotSaveBtn = new Button { Content = "Capture", Width = 80, Height = 28, Margin = new Thickness(4, 0, 0, 0) };
         annotSaveBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        annotSaveBtn.ToolTip = "Shift+Click to hide the UI and capture in 5 seconds";
         annotSaveBtn.Click += async (_, _) =>
         {
             if (!_inAnnotationMode) EnterAnnotationMode();
+
+            // Shift+Click: hide the overlay, show a countdown, then capture.
+            // We skip re-snapshotting because EnterAnnotationMode already captured
+            // the selection; we just need to hide the overlay window before the shot.
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                try
+                {
+                    Hide();
+                    await ShowCountdownAsync(5);
+                    await DoAnnotationSaveAsync();
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("Screenshot", $"Shift+Click delayed capture failed: {ex.Message}");
+                    Close();
+                }
+                return;
+            }
+
             await DoAnnotationSaveAsync();
         };
 
