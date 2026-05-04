@@ -8141,17 +8141,19 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         if (_docSourceLayoutTopBottom == topBottom) return;
         var wasTopBottom = _docSourceLayoutTopBottom;
+
+        // Capture visibility and size BEFORE flipping the flag — IsDocSourceVisible()
+        // checks the dimension matching the CURRENT mode, so it must run first.
+        bool isVisible = IsDocSourceVisible();
+        var currentSize = wasTopBottom
+            ? (DocsSourceRow?.ActualHeight ?? 300)
+            : (DocsSourceColumn?.ActualWidth ?? 300);
+
         _docSourceLayoutTopBottom = topBottom;
         UpdateDocSourceLayoutButtons();
 
-        if (IsDocSourceVisible())
-        {
-            // Transfer the current size dimension to the new orientation
-            var currentSize = wasTopBottom
-                ? (DocsSourceRow?.ActualHeight ?? 300)
-                : (DocsSourceColumn?.ActualWidth ?? 300);
+        if (isVisible)
             ApplyDocSourceLayout(topBottom, currentSize);
-        }
 
         SaveDocSourceLayoutPreference();
     }
