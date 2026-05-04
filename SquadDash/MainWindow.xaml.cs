@@ -17167,13 +17167,19 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         var quote = TranscriptCopyService.BuildSelectionText(rtb);
         if (string.IsNullOrWhiteSpace(quote)) return;
+
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        // Deduplicate: don't add if the same transcript quote is already in the list.
+        if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == quote)) return;
+
         var preview = quote.Length > 50 ? quote[..50].TrimEnd() + "…" : quote;
-        GetOrCreateFollowUpList(_activeTabId ?? "").Add(new FollowUpAttachment(
+        list.Add(new FollowUpAttachment(
             CommitSha:      string.Empty,
             Description:    preview,
             OriginalPrompt: null,
             TranscriptQuote: quote));
         UpdateFollowUpStrip();
+        SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
@@ -17181,8 +17187,13 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void AttachFollowUpToActiveTab(CommitApprovalItem item)
     {
-        GetOrCreateFollowUpList(_activeTabId ?? "").Add(new FollowUpAttachment(item.CommitSha, item.Description, item.OriginalPrompt));
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        // Deduplicate: don't add the same commit SHA twice.
+        if (list.Count >= 15 || list.Any(a => string.Equals(a.CommitSha, item.CommitSha, StringComparison.OrdinalIgnoreCase))) return;
+
+        list.Add(new FollowUpAttachment(item.CommitSha, item.Description, item.OriginalPrompt));
         UpdateFollowUpStrip();
+        SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
@@ -17292,6 +17303,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         _followUpAttachments.Remove(_activeTabId ?? "");
         UpdateFollowUpStrip();
+        SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
@@ -17316,9 +17328,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         else
         {
+            // "[]" is the sentinel for "explicitly cleared". We cannot use null here because
+            // SaveDocsPanelState uses (new ?? existing) merge logic — null would cause the
+            // stale JSON from a previous save to survive and re-show follow-ups on restart.
             _docsPanelState = state with
             {
-                DraftFollowUpsJson          = null,
+                DraftFollowUpsJson          = "[]",
                 DraftFollowUpCommitSha      = null,
                 DraftFollowUpDescription    = null,
                 DraftFollowUpOriginalPrompt = null,

@@ -262,7 +262,7 @@
   {
     "name": "status-panel-border-agent-dark",
     "description": "",
-    "theme": "Dark",
+    "theme": "Light",
     "replayActionId": null,
     "fixturePath": null,
     "top": {
