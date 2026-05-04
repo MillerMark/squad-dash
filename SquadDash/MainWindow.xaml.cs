@@ -14281,7 +14281,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     "---\n" +
                     "configured: true\n" +
                     "interval: 10\n" +
-                    "timeout: 5\n" +
+                    "timeout: 60\n" +
                     "description: \"My loop\"\n" +
                     "commands: [stop_loop]\n" +
                     "---\n" +

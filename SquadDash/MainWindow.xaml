@@ -1031,16 +1031,16 @@
                                                Foreground="{DynamicResource BodyText}"
                                                VerticalAlignment="Center"
                                                Margin="0,0,10,6"
-                                                ToolTip="Maximum minutes a single iteration is allowed to run before it is forcibly aborted. Set this shorter than Interval to prevent iterations from overlapping." />
+                                                ToolTip="Maximum minutes a single iteration is allowed to run before it is forcibly aborted." />
                                     <TextBox x:Name="LoopConfigTimeoutBox"
                                              Grid.Row="1" Grid.Column="1"
-                                             Text="5"
+                                             Text="60"
                                              Padding="4,2"
                                              Margin="0,0,0,6"
                                              Background="{DynamicResource InputSurface}"
                                              Foreground="{DynamicResource LabelText}"
                                              BorderBrush="{DynamicResource InputBorder}"
-                                              ToolTip="Maximum minutes a single iteration is allowed to run before it is forcibly aborted. Set this shorter than Interval to prevent iterations from overlapping." />
+                                              ToolTip="Maximum minutes a single iteration is allowed to run before it is forcibly aborted." />
                                     <TextBlock Grid.Row="2" Grid.Column="0"
                                                Text="Description:"
                                                Foreground="{DynamicResource BodyText}"
