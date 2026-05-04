@@ -17231,65 +17231,74 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void UpdateFollowUpStrip()
     {
-        if (FollowUpStrip is null) return;
+        if (FollowUpStrip is null || FollowUpItemsPanel is null) return;
         if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var list) && list.Count > 0)
         {
-            FollowUpLabel.Inlines.Clear();
-
-            if (list.Count == 1)
+            FollowUpItemsPanel.Children.Clear();
+            for (int i = 0; i < list.Count; i++)
             {
-                var att = list[0];
+                var att = list[i];
+                var row = new DockPanel();
+                if (i > 0)
+                    row.Margin = new System.Windows.Thickness(0, 3, 0, 0);
+
+                var dismissBtn = new Button
+                {
+                    Content           = "×",
+                    Width             = 20,
+                    Height            = 20,
+                    Padding           = new System.Windows.Thickness(0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Style             = (Style)FindResource("ThemedIconButtonStyle"),
+                };
+                DockPanel.SetDock(dismissBtn, Dock.Right);
+                var capturedAtt = att;
+                dismissBtn.Click += (_, e) =>
+                {
+                    e.Handled = true;
+                    var l = GetOrCreateFollowUpList(_activeTabId ?? "");
+                    l.Remove(capturedAtt);
+                    UpdateFollowUpStrip();
+                    SyncQueuePanel();
+                    if (_activeTabId is null) PersistDraftFollowUp();
+                };
+                row.Children.Add(dismissBtn);
+
+                var label = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming      = TextTrimming.CharacterEllipsis,
+                    FontSize          = 11,
+                };
+                label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+
                 if (att.TranscriptQuote != null)
                 {
                     var prefix = new Run("↩ Regarding: ");
                     prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
                     var quoteRun = new Run($"\"{att.Description}\"");
                     quoteRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
-                    FollowUpLabel.Inlines.Add(prefix);
-                    FollowUpLabel.Inlines.Add(quoteRun);
+                    label.Inlines.Add(prefix);
+                    label.Inlines.Add(quoteRun);
                 }
                 else
                 {
-                    AppendCommitFollowUpInlines(att);
+                    AppendCommitFollowUpInlines(label, att);
                 }
-            }
-            else
-            {
-                var prefix = new Run($"↩ {list.Count} follow-ups: ");
-                prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-                FollowUpLabel.Inlines.Add(prefix);
 
-                for (int i = 0; i < list.Count; i++)
-                {
-                    if (i > 0)
-                    {
-                        var sep = new Run(" · ");
-                        sep.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-                        FollowUpLabel.Inlines.Add(sep);
-                    }
-                    var att = list[i];
-                    if (att.TranscriptQuote != null)
-                    {
-                        var run = new Run($"\"{att.Description}\"");
-                        run.SetResourceReference(Run.ForegroundProperty, "LabelText");
-                        FollowUpLabel.Inlines.Add(run);
-                    }
-                    else
-                    {
-                        AppendCommitFollowUpInlines(att);
-                    }
-                }
+                row.Children.Add(label);
+                FollowUpItemsPanel.Children.Add(row);
             }
-
             FollowUpStrip.Visibility = Visibility.Visible;
         }
         else
         {
+            FollowUpItemsPanel.Children.Clear();
             FollowUpStrip.Visibility = Visibility.Collapsed;
         }
     }
 
-    private void AppendCommitFollowUpInlines(FollowUpAttachment att)
+    private void AppendCommitFollowUpInlines(TextBlock label, FollowUpAttachment att)
     {
         var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
 
@@ -17306,11 +17315,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         var suffix = new Run($" — \"{att.Description}\"");
         suffix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
 
-        // Only add "↩ Follow-up: " prefix when rendering a single item (caller decides).
-        if (FollowUpLabel.Inlines.Count == 0)
-            FollowUpLabel.Inlines.Add(prefix);
-        FollowUpLabel.Inlines.Add(shaRun);
-        FollowUpLabel.Inlines.Add(suffix);
+        if (label.Inlines.Count == 0)
+            label.Inlines.Add(prefix);
+        label.Inlines.Add(shaRun);
+        label.Inlines.Add(suffix);
 
         // Clicking the underlined SHA opens the commit on GitHub.
         var capturedSha = att.CommitSha;
@@ -17325,8 +17333,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         };
     }
 
-    // Clicking anywhere on the follow-up strip (not the SHA, not the dismiss button)
-    // scrolls the transcript to the turn where that approval prompt was dispatched.
+    // Clicking anywhere on the follow-up strip (not the dismiss buttons) scrolls the
+    // transcript to the turn where the first approval prompt was dispatched.
     private void FollowUpStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         if (e.Handled) return;

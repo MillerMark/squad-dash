@@ -1887,21 +1887,7 @@
                             Background="{DynamicResource FollowUpSurface}"
                             Cursor="Hand"
                             MouseLeftButtonUp="FollowUpStrip_MouseLeftButtonUp">
-                        <DockPanel>
-                            <Button x:Name="FollowUpDismissBtn"
-                                    DockPanel.Dock="Right"
-                                    Content="×"
-                                    Width="20" Height="20"
-                                    Padding="0"
-                                    VerticalAlignment="Center"
-                                    Click="FollowUpDismissBtn_Click"
-                                    Style="{StaticResource ThemedIconButtonStyle}" />
-                            <TextBlock x:Name="FollowUpLabel"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"
-                                       FontSize="11"
-                                       Foreground="{DynamicResource SubtleText}" />
-                        </DockPanel>
+                        <StackPanel x:Name="FollowUpItemsPanel" />
                     </Border>
                     <Border x:Name="QueueTabBorder"
                             DockPanel.Dock="Top"
