@@ -2048,9 +2048,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     private void CycleQueueTab(bool reverse)
     {
-        // Build ordered list: null = Active Draft, then each queued item's ID.
+        // Build ordered list matching visual layout: null = Active Draft (leftmost),
+        // then items newest→oldest (left→right), mirroring the Reverse() in SyncQueuePanel.
         var tabIds = new List<string?> { null };
-        foreach (var item in _promptQueue.Items)
+        foreach (var item in _promptQueue.Items.Reverse())
             tabIds.Add(item.Id);
 
         var currentIndex = tabIds.IndexOf(_activeTabId);
