@@ -642,6 +642,22 @@ function normalizeAgentHandle(value: string): string {
     return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
+function buildNamedAgentHiddenContext(targetAgent: string, charterContent?: string): string {
+    const normalizedHandle = normalizeAgentHandle(targetAgent);
+    const lines = [
+        `You are @${normalizedHandle}. SquadDash has launched you directly for a quick-reply task.`,
+        "",
+        "Treat this prompt as the complete task brief. Do not depend on prior session memory unless it appears below.",
+        "Keep the work scoped to the selected quick reply and source context unless that context explicitly asks for a full sweep.",
+        "Begin working immediately. Do not narrate your launch."
+    ];
+
+    if (charterContent?.trim())
+        lines.push("", "## Agent Charter", charterContent.trim());
+
+    return lines.join("\n");
+}
+
 export function buildNamedAgentExecutionPrompt(
     selectedOption: string,
     targetAgent: string,
