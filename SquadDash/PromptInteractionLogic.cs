@@ -184,7 +184,6 @@ internal static class LocalPromptSubmissionPolicy {
         "/hire",
         "/model",
         "/retire",
-        "/screenshot",
         "/status",
         "/tasks",
         "/version"

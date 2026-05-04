@@ -788,9 +788,6 @@ internal sealed class PromptExecutionController {
         if (string.Equals(trimmed, "/clear", StringComparison.OrdinalIgnoreCase))
             return HandleLocalClearCommand(prompt, addToHistory, clearPromptBox);
 
-        if (string.Equals(trimmed, "/screenshot", StringComparison.OrdinalIgnoreCase))
-            return HandleLocalScreenshotCommand(prompt, addToHistory, clearPromptBox);
-
         return false;
     }
 
@@ -1066,7 +1063,6 @@ internal sealed class PromptExecutionController {
                 _appendLine("- `/hire` — Open the visual hire-agent workflow", null);
                 _appendLine("- `/model` — Show the active AI model", null);
                 _appendLine("- `/retire <name>` — Archive an agent and remove them from the active roster", null);
-                _appendLine("- `/screenshot` — Open the screenshot capture overlay", null);
                 _appendLine("- `/session` — Manage SDK sessions (type `/session` for details)", null);
                 _appendLine("- `/sessions` — List saved sessions", null);
                 _appendLine("- `/status` — Show team, session, and current turn state", null);
@@ -1281,11 +1277,6 @@ internal sealed class PromptExecutionController {
                 _appendLine(string.Empty, null);
                 _appendLine("This is text AFTER the table. If the table rows appear between these two lines when you paste, the fix is working.", null);
             });
-    }
-
-    private bool HandleLocalScreenshotCommand(string prompt, bool addToHistory, bool clearPromptBox) {
-        SquadDashTrace.Write("UI", "Local command intercepted prompt=/screenshot");
-        return ExecuteLocalUiCommand(prompt, addToHistory, clearPromptBox, _showScreenshotOverlay);
     }
 
     private bool HandleLocalClearCommand(string prompt, bool addToHistory, bool clearPromptBox) {

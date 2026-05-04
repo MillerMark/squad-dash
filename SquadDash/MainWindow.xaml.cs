@@ -4475,7 +4475,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         "/context", "/copy", "/delegate", "/deactivate", "/diff", "/doctor", "/experimental", "/feedback",
         "/fleet", "/dropTasks", "/help", "/hire", "/ide", "/init", "/instructions", "/login", "/logout",
         "/lsp", "/mcp", "/model", "/new", "/plan", "/pr", "/research", "/restart",
-        "/resume", "/review", "/rewind", "/rename", "/retire", "/session", "/sessions", "/screenshot", "/share", "/skills",
+        "/resume", "/review", "/rewind", "/rename", "/retire", "/session", "/sessions", "/share", "/skills",
         "/status", "/tasks", "/trace", "/update", "/usage", "/version"
     ];
 
@@ -17321,20 +17321,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
                 var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
                 DocMarkdownViewer.NavigateToString(html);
-
-                AppendLine($"📷 Doc screenshot saved: `{acceptedName}` → `{fullDocImagePath}`");
             }
 
-            // ── Step 8: Transcript confirmation ───────────────────────────────
-            var topName = topAnchor.ElementNames.Count > 0 ? string.Join(", ", topAnchor.ElementNames) : "(unnamed)";
-            var rightName = rightAnchor.ElementNames.Count > 0 ? string.Join(", ", rightAnchor.ElementNames) : "(unnamed)";
-            var bottomName = bottomAnchor.ElementNames.Count > 0 ? string.Join(", ", bottomAnchor.ElementNames) : "(unnamed)";
-            var leftName = leftAnchor.ElementNames.Count > 0 ? string.Join(", ", leftAnchor.ElementNames) : "(unnamed)";
-
-            AppendLine(
-                $"📷 Screenshot saved: `{acceptedName}` → `{finalPngPath}`\n" +
-                $"   Metadata: `{jsonPath}`\n" +
-                $"   Anchors: top={topName} right={rightName} bottom={bottomName} left={leftName}");
+            // ── Step 8: (no transcript output for doc screenshots — viewer update is the indicator) ──
         }
         catch (Exception ex)
         {
