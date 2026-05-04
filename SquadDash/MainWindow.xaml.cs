@@ -2033,6 +2033,27 @@ public partial class MainWindow : Window, ILiveElementLocator
         return tab;
     }
 
+    /// <summary>
+    /// Cycles the active queue tab left (reverse=true) or right (reverse=false).
+    /// Tab order is: Active Draft (index 0) → queued items left-to-right.
+    /// </summary>
+    private void CycleQueueTab(bool reverse)
+    {
+        // Build ordered list: null = Active Draft, then each queued item's ID.
+        var tabIds = new List<string?> { null };
+        foreach (var item in _promptQueue.Items)
+            tabIds.Add(item.Id);
+
+        var currentIndex = tabIds.IndexOf(_activeTabId);
+        if (currentIndex < 0) currentIndex = 0;
+
+        int nextIndex = reverse
+            ? (currentIndex - 1 + tabIds.Count) % tabIds.Count
+            : (currentIndex + 1) % tabIds.Count;
+
+        OnQueueTabClicked(tabIds[nextIndex]);
+    }
+
     private void OnQueueTabClicked(string? id)
     {
         if (_activeTabId == id) return;
@@ -5555,6 +5576,17 @@ public partial class MainWindow : Window, ILiveElementLocator
                 PromptTextBox?.IsFocused == true)
             {
                 PromptTextBox_ApplyBold();
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Tab / Ctrl+Shift+Tab: cycle through queue tabs ──────────────
+            if (e.Key == Key.Tab &&
+                (Keyboard.Modifiers & ModifierKeys.Control) != 0 &&
+                _promptQueue.Items.Count > 0)
+            {
+                bool reverse = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                CycleQueueTab(reverse);
                 e.Handled = true;
                 return;
             }
