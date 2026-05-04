@@ -13828,7 +13828,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (TitlebarGrid is null)
             return;
 
-        double w = TitlebarGrid.ActualWidth;
+        double w = ActualWidth;
 
         // Priority 6 — drop first: SquadDash version + Squad version panel
         bool showVersions = w >= 900;

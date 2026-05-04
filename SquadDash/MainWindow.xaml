@@ -283,6 +283,9 @@
             </DataTemplate.Triggers>
         </DataTemplate>
     </Window.Resources>
+    <!-- Root panel: Border + caption-button overlay share window space so buttons
+         always anchor to the real window right edge, not the scrolled grid content. -->
+    <Grid x:Name="RootPanel">
     <Border BorderBrush="{DynamicResource WindowBorder}"
             BorderThickness="1">
     <Grid x:Name="MainGrid" Margin="12,14,14,14">
@@ -312,7 +315,6 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -585,80 +587,7 @@
                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
                        Text="{Binding WorkspaceTitleDisplay, RelativeSource={RelativeSource AncestorType=Window}}" />
 
-            <!-- Far right: caption buttons -->
-            <StackPanel Grid.Column="6"
-                        Orientation="Horizontal"
-                        VerticalAlignment="Stretch"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                <Button x:Name="MinimizeButton"
-                        Width="38"
-                        Height="34"
-                        Padding="0"
-                        ToolTip="Minimize"
-                        Click="MinimizeButton_Click"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
-                        Style="{StaticResource CaptionButtonStyle}">
-                    <TextBlock Text="&#x2014;"
-                               FontSize="12"
-                               VerticalAlignment="Center"
-                               HorizontalAlignment="Center" />
-                </Button>
-                <Button x:Name="MaximizeRestoreButton"
-                        Width="38"
-                        Height="34"
-                        Padding="0"
-                        ToolTip="Maximize"
-                        Click="MaximizeRestoreButton_Click"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
-                        Style="{StaticResource CaptionButtonStyle}">
-                    <Grid Width="10" Height="10">
-                        <!-- Maximize: rectangle outline with thick title-bar line at top -->
-                        <Canvas x:Name="MaximizeIconCanvas" Width="10" Height="10">
-                            <Rectangle Canvas.Left="0.5" Canvas.Top="0.5"
-                                       Width="9" Height="9"
-                                       StrokeThickness="1.25" Fill="Transparent"
-                                       Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <Line X1="0.5" Y1="2.75" X2="9.5" Y2="2.75"
-                                  StrokeThickness="1.5"
-                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                        </Canvas>
-                        <!-- Restore: two overlapping windows; front filled with chrome to occlude back lines -->
-                        <Canvas x:Name="RestoreIconCanvas" Width="10" Height="10" Visibility="Collapsed">
-                            <!-- Back window (top-right) -->
-                            <Rectangle Canvas.Left="2.5" Canvas.Top="0.5"
-                                       Width="7" Height="7"
-                                       StrokeThickness="1.25" Fill="Transparent"
-                                       Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <Line X1="2.5" Y1="2.0" X2="9.5" Y2="2.0"
-                                  StrokeThickness="1.5"
-                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <!-- Front window (bottom-left) — filled with chrome surface to mask back-window overlap -->
-                            <Rectangle Canvas.Left="0.5" Canvas.Top="2.5"
-                                       Width="7" Height="7"
-                                       StrokeThickness="1.25"
-                                       Fill="{DynamicResource ChromeSurface}"
-                                       Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            <Line X1="0.5" Y1="4.0" X2="7.5" Y2="4.0"
-                                  StrokeThickness="1.5"
-                                  Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                        </Canvas>
-                    </Grid>
-                </Button>
-                <Button x:Name="CloseButton"
-                        Width="38"
-                        Height="34"
-                        Padding="0"
-                        ToolTip="Close"
-                        Click="CloseButton_Click"
-                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
-                        Style="{StaticResource CaptionCloseButtonStyle}">
-                    <TextBlock Text="&#x2715;"
-                               FontSize="12"
-                               VerticalAlignment="Center"
-                               HorizontalAlignment="Center" />
-                </Button>
-            </StackPanel>
-        </Grid>
+        </Grid>  <!-- end TitlebarGrid -->
 
         <Border x:Name="WorkspaceIssuePanelBorder"
                 Grid.Row="1"
@@ -2060,4 +1989,84 @@
         </Border>
     </Grid>
     </Border>
+
+    <!-- Caption buttons overlay: always positioned at real window top-right,
+         independent of how wide the inner grid content is. -->
+    <StackPanel x:Name="CaptionButtonsPanel"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Height="34"
+                Orientation="Horizontal"
+                Panel.ZIndex="100"
+                shell:WindowChrome.IsHitTestVisibleInChrome="True">
+        <Button x:Name="MinimizeButton"
+                Width="38"
+                Height="34"
+                Padding="0"
+                ToolTip="Minimize"
+                Click="MinimizeButton_Click"
+                shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                Style="{StaticResource CaptionButtonStyle}">
+            <TextBlock Text="&#x2014;"
+                       FontSize="12"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center" />
+        </Button>
+        <Button x:Name="MaximizeRestoreButton"
+                Width="38"
+                Height="34"
+                Padding="0"
+                ToolTip="Maximize"
+                Click="MaximizeRestoreButton_Click"
+                shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                Style="{StaticResource CaptionButtonStyle}">
+            <Grid Width="10" Height="10">
+                <!-- Maximize: rectangle outline with thick title-bar line at top -->
+                <Canvas x:Name="MaximizeIconCanvas" Width="10" Height="10">
+                    <Rectangle Canvas.Left="0.5" Canvas.Top="0.5"
+                               Width="9" Height="9"
+                               StrokeThickness="1.25" Fill="Transparent"
+                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    <Line X1="0.5" Y1="2.75" X2="9.5" Y2="2.75"
+                          StrokeThickness="1.5"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Canvas>
+                <!-- Restore: two overlapping windows; front filled with chrome to occlude back lines -->
+                <Canvas x:Name="RestoreIconCanvas" Width="10" Height="10" Visibility="Collapsed">
+                    <!-- Back window (top-right) -->
+                    <Rectangle Canvas.Left="2.5" Canvas.Top="0.5"
+                               Width="7" Height="7"
+                               StrokeThickness="1.25" Fill="Transparent"
+                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    <Line X1="2.5" Y1="2.0" X2="9.5" Y2="2.0"
+                          StrokeThickness="1.5"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    <!-- Front window (bottom-left) — filled with chrome surface to mask back-window overlap -->
+                    <Rectangle Canvas.Left="0.5" Canvas.Top="2.5"
+                               Width="7" Height="7"
+                               StrokeThickness="1.25"
+                               Fill="{DynamicResource ChromeSurface}"
+                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    <Line X1="0.5" Y1="4.0" X2="7.5" Y2="4.0"
+                          StrokeThickness="1.5"
+                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                </Canvas>
+            </Grid>
+        </Button>
+        <Button x:Name="CloseButton"
+                Width="38"
+                Height="34"
+                Padding="0"
+                ToolTip="Close"
+                Click="CloseButton_Click"
+                shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                Style="{StaticResource CaptionCloseButtonStyle}">
+            <TextBlock Text="&#x2715;"
+                       FontSize="12"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center" />
+        </Button>
+    </StackPanel>
+
+    </Grid>  <!-- end RootPanel -->
 </Window>
