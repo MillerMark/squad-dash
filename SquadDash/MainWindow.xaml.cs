@@ -178,7 +178,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private WindowState _preFullScreenWindowState;
     private Rect _preFullScreenBounds;
     private bool _documentationModeEnabled;
-    private string? _currentDocPath;  // tracks currently displayed doc for link resolution
+    private string? _currentDocPath;          // tracks currently displayed doc for link resolution
+    private string  _currentDocFrontMatter = string.Empty;  // Jekyll/JTD YAML block stripped from source editor; prepended on save
     private DateTime _docSaveSuppressionUntil;
     private DocStatusStore? _docStatusStore;
     private bool _activeAgentLaneNudgeScheduled;
@@ -1329,7 +1330,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             // Reload the doc viewer so the updated image appears immediately.
             if (!string.IsNullOrEmpty(_currentDocPath) && File.Exists(_currentDocPath))
             {
-                var markdown = File.ReadAllText(_currentDocPath);
+                var raw      = File.ReadAllText(_currentDocPath);
+                var markdown = StripDocFrontMatter(raw, out _);
                 var title    = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString()
                                ?? "Documentation";
                 var html = MarkdownHtmlBuilder.Build(
@@ -7459,7 +7461,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (isSameTopic && sourceVisible)
                 return;  // preview and source are already showing this topic with live edits — leave them alone
 
-            var markdown = File.ReadAllText(filePath);
+            var rawMarkdown = File.ReadAllText(filePath);
+            var markdown    = StripDocFrontMatter(rawMarkdown, out var frontMatter);
+            _currentDocFrontMatter = frontMatter;
             var title = item.Header?.ToString() ?? "Documentation";
             var html = MarkdownHtmlBuilder.Build(markdown, title,
                 filePath: filePath, isDark: AgentStatusCard.IsDarkTheme);
@@ -7848,6 +7852,27 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     // ── Source editor (View Source panel) ────────────────────────────────────
 
+    private static readonly System.Text.RegularExpressions.Regex FrontMatterRegex =
+        new(@"^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Strips a Jekyll/JTD YAML front matter block from <paramref name="raw"/> and returns
+    /// the body text.  <paramref name="frontMatter"/> receives the stripped block (including
+    /// the trailing newline) so it can be prepended on save without data loss.
+    /// </summary>
+    private static string StripDocFrontMatter(string raw, out string frontMatter)
+    {
+        var m = FrontMatterRegex.Match(raw);
+        if (m.Success)
+        {
+            frontMatter = m.Value;
+            return raw[m.Length..];
+        }
+        frontMatter = string.Empty;
+        return raw;
+    }
+
     private bool _suppressDocSourceTextChanged;
     private DispatcherTimer? _docSourceSaveTimer;
 
@@ -7915,9 +7940,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         _suppressDocSourceTextChanged = true;
         try
         {
-            DocSourceTextBox.Text = string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath)
-                ? string.Empty
-                : File.ReadAllText(_currentDocPath);
+            if (string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath))
+            {
+                DocSourceTextBox.Text = string.Empty;
+            }
+            else
+            {
+                var raw      = File.ReadAllText(_currentDocPath);
+                var stripped = StripDocFrontMatter(raw, out var frontMatter);
+                _currentDocFrontMatter = frontMatter;
+                DocSourceTextBox.Text  = stripped;
+            }
         }
         finally
         {
@@ -8109,7 +8142,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             _docSaveSuppressionUntil = DateTime.UtcNow.AddMilliseconds(500);
-            File.WriteAllText(_currentDocPath, DocSourceTextBox.Text);
+            File.WriteAllText(_currentDocPath, _currentDocFrontMatter + DocSourceTextBox.Text);
         }
         catch (Exception ex)
         {
