@@ -33,6 +33,10 @@ internal static class BuiltInPromptInjections {
             - Each open task is a line: `- [ ] Task description`
             - Completed tasks use `- [x]` and should be placed under a `## ✅ Done` section at the bottom
             - Owner tags are optional and written as ` *(Owner: agent-handle)*` at the end of the task line
+            - If a task has a description or additional context, add it as indented lines immediately below the task line (2-space indent). This description is shown in the Tasks panel hover preview. Example:
+              - [ ] Fix the login timeout bug
+                Happens when the session token expires mid-request. Check token refresh logic
+                in AuthService and add a retry on 401 before showing the error to the user.
             """);
 
     internal static IReadOnlyList<TriggeredPromptInjection> All { get; } = [
