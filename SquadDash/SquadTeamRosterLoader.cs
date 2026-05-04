@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Collections.Generic;
+using System.Text.Json;
 
 namespace SquadDash;
 
@@ -43,7 +44,10 @@ internal sealed class SquadTeamRosterLoader {
         var squadFolder = Path.Combine(normalizedWorkspace, ".squad");
         var agentsFolder = Path.Combine(squadFolder, "agents");
 
-        var members = LoadFromTeamFile(normalizedWorkspace, Path.Combine(squadFolder, "team.md"));
+        // Read registry.json to get authoritative retirement status (may differ from team.md Status column).
+        var retiredSlugs = LoadRetiredSlugsFromRegistry(squadFolder);
+
+        var members = LoadFromTeamFile(normalizedWorkspace, Path.Combine(squadFolder, "team.md"), retiredSlugs);
         if (members.Count == 0)
             return LoadFromAgentFolders(agentsFolder);
 
@@ -80,7 +84,35 @@ internal sealed class SquadTeamRosterLoader {
         return members;
     }
 
-    private static List<SquadTeamMember> LoadFromTeamFile(string workspaceFolder, string teamFilePath) {
+    /// <summary>
+    /// Reads .squad/casting/registry.json and returns the set of agent slugs (folder-name keys)
+    /// whose status is "retired". Returns an empty set if the file is absent or unreadable.
+    /// </summary>
+    private static HashSet<string> LoadRetiredSlugsFromRegistry(string squadFolder) {
+        var registryPath = Path.Combine(squadFolder, "casting", "registry.json");
+        if (!File.Exists(registryPath))
+            return [];
+
+        try {
+            using var stream = File.OpenRead(registryPath);
+            using var doc    = JsonDocument.Parse(stream);
+            if (!doc.RootElement.TryGetProperty("agents", out var agents))
+                return [];
+
+            var retired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in agents.EnumerateObject()) {
+                if (entry.Value.TryGetProperty("status", out var statusProp) &&
+                    string.Equals(statusProp.GetString(), "retired", StringComparison.OrdinalIgnoreCase))
+                    retired.Add(entry.Name);
+            }
+            return retired;
+        }
+        catch {
+            return [];
+        }
+    }
+
+    private static List<SquadTeamMember> LoadFromTeamFile(string workspaceFolder, string teamFilePath, HashSet<string>? retiredSlugs = null) {
         if (!File.Exists(teamFilePath))
             return [];
 
@@ -107,7 +139,7 @@ internal sealed class SquadTeamRosterLoader {
             if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(charter))
                 continue;
 
-            members.Add(BuildFromTeamRow(workspaceFolder, name, role, charter, status));
+            members.Add(BuildFromTeamRow(workspaceFolder, name, role, charter, status, retiredSlugs));
         }
 
         return members;
@@ -132,7 +164,8 @@ internal sealed class SquadTeamRosterLoader {
         string? name,
         string? role,
         string? charterPathText,
-        string? status) {
+        string? status,
+        HashSet<string>? retiredSlugs = null) {
         var charterPath = ResolvePath(workspaceFolder, charterPathText);
         var folderPath = !string.IsNullOrWhiteSpace(charterPath)
             ? Path.GetDirectoryName(charterPath)
@@ -146,6 +179,11 @@ internal sealed class SquadTeamRosterLoader {
             ?? "Agent";
         var displayRole = FirstNonEmpty(role, metadata.Role) ?? string.Empty;
         var isUtility = IsUtilityIdentity(displayName, normalizedFolderPath);
+
+        // registry.json is the authoritative source for retirement; override team.md Status if needed.
+        var folderSlug = normalizedFolderPath is not null ? Path.GetFileName(normalizedFolderPath) : null;
+        if (retiredSlugs is not null && folderSlug is not null && retiredSlugs.Contains(folderSlug))
+            status = "Retired";
 
         return new SquadTeamMember(
             displayName,
