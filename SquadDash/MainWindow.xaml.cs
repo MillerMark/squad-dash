@@ -162,7 +162,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private int _queuePreEditDraftSelectionStart;
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
-    private readonly Dictionary<string, FollowUpAttachment> _followUpAttachments = new();
+    private readonly Dictionary<string, List<FollowUpAttachment>> _followUpAttachments = new();
 
     // ── Queue tab drag-to-reorder ────────────────────────────────────────────
     private string? _dragTabId;               // Id of the tab currently being dragged
@@ -1664,11 +1664,11 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _promptQueue.Enqueue(text, ++_promptQueueSeq, isDictated);
 
-        // Transfer any draft follow-up attachment to the new queue item.
-        if (_followUpAttachments.TryGetValue("", out var att))
+        // Transfer any draft follow-up attachments to the new queue item.
+        if (_followUpAttachments.TryGetValue("", out var draftList) && draftList.Count > 0)
         {
             _followUpAttachments.Remove("");
-            _followUpAttachments[_promptQueue.Items[^1].Id] = att;
+            _followUpAttachments[_promptQueue.Items[^1].Id] = draftList;
         }
 
         PromptTextBox.Clear();
@@ -16186,11 +16186,27 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ViewNotesMenuItem.IsChecked = true;
         }
 
-        // Restore draft follow-up attachment if one was persisted.
-        if (_docsPanelState.DraftFollowUpCommitSha is { Length: > 0 } sha &&
-            _docsPanelState.DraftFollowUpDescription is { Length: > 0 } desc)
+        // Restore draft follow-up attachments if any were persisted.
+        var restoredList = new List<FollowUpAttachment>();
+        if (_docsPanelState.DraftFollowUpsJson is { Length: > 0 } followUpsJson)
         {
-            _followUpAttachments[""] = new FollowUpAttachment(sha, desc, _docsPanelState.DraftFollowUpOriginalPrompt);
+            try
+            {
+                var items = System.Text.Json.JsonSerializer.Deserialize<List<FollowUpAttachmentDto>>(followUpsJson);
+                if (items != null)
+                    restoredList.AddRange(items.Select(d => new FollowUpAttachment(d.CommitSha ?? "", d.Description ?? "", d.OriginalPrompt, d.TranscriptQuote)));
+            }
+            catch { /* corrupt data — ignore */ }
+        }
+        else if (_docsPanelState.DraftFollowUpCommitSha is { Length: > 0 } sha &&
+                 _docsPanelState.DraftFollowUpDescription is { Length: > 0 } desc)
+        {
+            // Legacy single-item fallback
+            restoredList.Add(new FollowUpAttachment(sha, desc, _docsPanelState.DraftFollowUpOriginalPrompt));
+        }
+        if (restoredList.Count > 0)
+        {
+            _followUpAttachments[""] = restoredList;
             UpdateFollowUpStrip();
         }
 
@@ -17102,11 +17118,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         var quote = TranscriptCopyService.BuildSelectionText(rtb);
         if (string.IsNullOrWhiteSpace(quote)) return;
         var preview = quote.Length > 50 ? quote[..50].TrimEnd() + "…" : quote;
-        _followUpAttachments[_activeTabId ?? ""] = new FollowUpAttachment(
+        GetOrCreateFollowUpList(_activeTabId ?? "").Add(new FollowUpAttachment(
             CommitSha:      string.Empty,
             Description:    preview,
             OriginalPrompt: null,
-            TranscriptQuote: quote);
+            TranscriptQuote: quote));
         UpdateFollowUpStrip();
         if (_activeTabId is null) PersistDraftFollowUp();
     }
@@ -17115,63 +17131,68 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void AttachFollowUpToActiveTab(CommitApprovalItem item)
     {
-        _followUpAttachments[_activeTabId ?? ""] = new FollowUpAttachment(item.CommitSha, item.Description, item.OriginalPrompt);
+        GetOrCreateFollowUpList(_activeTabId ?? "").Add(new FollowUpAttachment(item.CommitSha, item.Description, item.OriginalPrompt));
         UpdateFollowUpStrip();
         if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
+    private List<FollowUpAttachment> GetOrCreateFollowUpList(string key)
+    {
+        if (!_followUpAttachments.TryGetValue(key, out var list))
+            _followUpAttachments[key] = list = [];
+        return list;
     }
 
     private void UpdateFollowUpStrip()
     {
         if (FollowUpStrip is null) return;
-        if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var att))
+        if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var list) && list.Count > 0)
         {
             FollowUpLabel.Inlines.Clear();
 
-            if (att.TranscriptQuote != null)
+            if (list.Count == 1)
             {
-                // Transcript selection follow-up — no SHA link, just show the preview.
-                var prefix = new Run("↩ Regarding: ");
-                prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-
-                var quoteRun = new Run($"\"{att.Description}\"");
-                quoteRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
-
-                FollowUpLabel.Inlines.Add(prefix);
-                FollowUpLabel.Inlines.Add(quoteRun);
+                var att = list[0];
+                if (att.TranscriptQuote != null)
+                {
+                    var prefix = new Run("↩ Regarding: ");
+                    prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+                    var quoteRun = new Run($"\"{att.Description}\"");
+                    quoteRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                    FollowUpLabel.Inlines.Add(prefix);
+                    FollowUpLabel.Inlines.Add(quoteRun);
+                }
+                else
+                {
+                    AppendCommitFollowUpInlines(att);
+                }
             }
             else
             {
-                // Commit follow-up — show clickable SHA + description.
-                var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
-
-                var prefix = new Run("↩ Follow-up: ");
+                var prefix = new Run($"↩ {list.Count} follow-ups: ");
                 prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-
-                var shaRun = new Run(shaDisplay)
-                {
-                    TextDecorations = TextDecorations.Underline,
-                    Cursor          = System.Windows.Input.Cursors.Hand,
-                };
-                shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
-
-                var suffix = new Run($" — \"{att.Description}\"");
-                suffix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
-
                 FollowUpLabel.Inlines.Add(prefix);
-                FollowUpLabel.Inlines.Add(shaRun);
-                FollowUpLabel.Inlines.Add(suffix);
 
-                // Wire click: find the approval item by SHA and scroll to it.
-                var capturedSha = att.CommitSha;
-                shaRun.MouseLeftButtonUp += (_, e) =>
+                for (int i = 0; i < list.Count; i++)
                 {
-                    e.Handled = true;
-                    var item = _approvalItems.FirstOrDefault(i =>
-                        string.Equals(i.CommitSha, capturedSha, StringComparison.OrdinalIgnoreCase) ||
-                        (capturedSha.Length >= 7 && i.CommitSha.StartsWith(capturedSha, StringComparison.OrdinalIgnoreCase)));
-                    if (item is not null)
-                        ScrollToApprovalTurn(item);
-                };
+                    if (i > 0)
+                    {
+                        var sep = new Run(" · ");
+                        sep.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+                        FollowUpLabel.Inlines.Add(sep);
+                    }
+                    var att = list[i];
+                    if (att.TranscriptQuote != null)
+                    {
+                        var run = new Run($"\"{att.Description}\"");
+                        run.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                        FollowUpLabel.Inlines.Add(run);
+                    }
+                    else
+                    {
+                        AppendCommitFollowUpInlines(att);
+                    }
+                }
             }
 
             FollowUpStrip.Visibility = Visibility.Visible;
@@ -17182,6 +17203,41 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private void AppendCommitFollowUpInlines(FollowUpAttachment att)
+    {
+        var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
+
+        var prefix = new Run("↩ Follow-up: ");
+        prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+        var shaRun = new Run(shaDisplay)
+        {
+            TextDecorations = TextDecorations.Underline,
+            Cursor          = System.Windows.Input.Cursors.Hand,
+        };
+        shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
+
+        var suffix = new Run($" — \"{att.Description}\"");
+        suffix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
+
+        // Only add "↩ Follow-up: " prefix when rendering a single item (caller decides).
+        if (FollowUpLabel.Inlines.Count == 0)
+            FollowUpLabel.Inlines.Add(prefix);
+        FollowUpLabel.Inlines.Add(shaRun);
+        FollowUpLabel.Inlines.Add(suffix);
+
+        var capturedSha = att.CommitSha;
+        shaRun.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            var item = _approvalItems.FirstOrDefault(i =>
+                string.Equals(i.CommitSha, capturedSha, StringComparison.OrdinalIgnoreCase) ||
+                (capturedSha.Length >= 7 && i.CommitSha.StartsWith(capturedSha, StringComparison.OrdinalIgnoreCase)));
+            if (item is not null)
+                ScrollToApprovalTurn(item);
+        };
+    }
+
     private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
     {
         _followUpAttachments.Remove(_activeTabId ?? "");
@@ -17190,26 +17246,29 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     /// <summary>
-    /// Saves (or clears) the active-draft follow-up attachment to workspace settings
-    /// so it survives a restart.  Only the draft slot (key "") is persisted; queue items
+    /// Saves (or clears) the active-draft follow-up attachments to workspace settings
+    /// so they survive a restart.  Only the draft slot (key "") is persisted; queue items
     /// are not persisted because the queue itself does not survive a restart.
     /// </summary>
     private void PersistDraftFollowUp()
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
-        if (_followUpAttachments.TryGetValue("", out var att))
+        if (_followUpAttachments.TryGetValue("", out var list) && list.Count > 0)
         {
+            var dtos = list.Select(a => new FollowUpAttachmentDto(a.CommitSha, a.Description, a.OriginalPrompt, a.TranscriptQuote)).ToList();
             _docsPanelState = state with
             {
-                DraftFollowUpCommitSha      = att.CommitSha,
-                DraftFollowUpDescription    = att.Description,
-                DraftFollowUpOriginalPrompt = att.OriginalPrompt,
+                DraftFollowUpsJson          = System.Text.Json.JsonSerializer.Serialize(dtos),
+                DraftFollowUpCommitSha      = null,
+                DraftFollowUpDescription    = null,
+                DraftFollowUpOriginalPrompt = null,
             };
         }
         else
         {
             _docsPanelState = state with
             {
+                DraftFollowUpsJson          = null,
                 DraftFollowUpCommitSha      = null,
                 DraftFollowUpDescription    = null,
                 DraftFollowUpOriginalPrompt = null,
@@ -17220,19 +17279,22 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private string ApplyFollowUpHeader(string text, string tabId)
     {
-        if (!_followUpAttachments.TryGetValue(tabId, out var att))
+        if (!_followUpAttachments.TryGetValue(tabId, out var list) || list.Count == 0)
             return text;
         _followUpAttachments.Remove(tabId);
         if (tabId == "") PersistDraftFollowUp();
         UpdateFollowUpStrip();
 
-        if (att.TranscriptQuote != null)
-            return $"Regarding this section of the transcript: \"{att.TranscriptQuote}\"\n\n{text}";
-
-        var summaryHint = att.OriginalPrompt is { Length: > 0 } op
-            ? (op.Length > 120 ? op[..120] + "…" : op)
-            : att.Description;
-        return $"[Follow-up on {att.CommitSha} — \"{att.Description}\": {summaryHint}]\n\n{text}";
+        var headers = list.Select(att =>
+        {
+            if (att.TranscriptQuote != null)
+                return $"Regarding this section of the transcript: \"{att.TranscriptQuote}\"";
+            var summaryHint = att.OriginalPrompt is { Length: > 0 } op
+                ? (op.Length > 120 ? op[..120] + "…" : op)
+                : att.Description;
+            return $"[Follow-up on {att.CommitSha} — \"{att.Description}\": {summaryHint}]";
+        });
+        return string.Join("\n", headers) + "\n\n" + text;
     }
 
     private void PersistApprovalPanelVisible()    {

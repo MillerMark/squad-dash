@@ -603,6 +603,7 @@ internal sealed class ApplicationSettingsStore {
                 TasksPanelVisible = state.TasksPanelVisible ?? existing.TasksPanelVisible,
                 ApprovalPanelVisible = state.ApprovalPanelVisible ?? existing.ApprovalPanelVisible,
                 NotesPanelVisible = state.NotesPanelVisible ?? existing.NotesPanelVisible,
+                DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
             };
         }
         dict[key] = state;
@@ -649,8 +650,14 @@ internal sealed record WorkspaceDocsPanelState
     public bool? NotesPanelVisible { get; init; }
 
     /// <summary>
-    /// Follow-up attachment on the active draft tab. Persisted so it survives restart.
-    /// All three are null when no attachment is present.
+    /// Follow-up attachments on the active draft tab. Persisted so they survive restart.
+    /// JSON-serialized list of <see cref="FollowUpAttachmentDto"/>. Null when no attachments are present.
+    /// </summary>
+    public string? DraftFollowUpsJson { get; init; }
+
+    /// <summary>
+    /// Legacy single-item follow-up fields — kept for reading old settings files.
+    /// New writes use <see cref="DraftFollowUpsJson"/> instead.
     /// </summary>
     public string? DraftFollowUpCommitSha { get; init; }
     public string? DraftFollowUpDescription { get; init; }
