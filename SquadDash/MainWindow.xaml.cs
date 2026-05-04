@@ -5554,6 +5554,20 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+            // ── Ctrl+Page Up / Ctrl+Page Down: navigate between prompts ─────────
+            if (e.Key == Key.PageUp && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                PromptNavUpButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.PageDown && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                PromptNavDownButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
             // ── Page Up / Page Down: scroll main transcript ───────────────────
             if (e.Key == Key.PageUp && PromptTextBox?.IsFocused != true)
             {

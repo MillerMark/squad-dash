@@ -1420,7 +1420,7 @@
                                 Margin="0,0,4,0"
                                 IsEnabled="False"
                                 Style="{StaticResource ThemedButtonStyle}"
-                                ToolTip="Previous prompt"
+                                ToolTip="Previous prompt (Ctrl+Page Up)"
                                 Click="PromptNavUpButton_Click">
                             <Viewbox Width="12" Height="10" Stretch="Uniform" Opacity="0.8">
                                 <Path Data="M 1,8 L 5,2 L 9,8"
@@ -1439,7 +1439,7 @@
                                 Padding="0"
                                 IsEnabled="False"
                                 Style="{StaticResource ThemedButtonStyle}"
-                                ToolTip="Next prompt"
+                                ToolTip="Next prompt (Ctrl+Page Down)"
                                 Click="PromptNavDownButton_Click">
                             <Viewbox Width="12" Height="10" Stretch="Uniform" Opacity="0.8">
                                 <Path Data="M 1,2 L 5,8 L 9,2"
