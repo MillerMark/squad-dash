@@ -14,11 +14,23 @@ internal sealed class DocRevisePopup : Window
     private readonly string _documentText;
     private readonly string _documentPath;
     private readonly Func<string, string, string, string, CancellationToken, Task<string>> _reviseCallback;
+    private readonly Action<TextBox>? _startPtt;
+    private readonly Action? _stopPtt;
 
     private readonly TextBox _instructionBox;
     private readonly TextBlock _progressLabel;
     private readonly TextBlock _errorLabel;
+    private readonly Button _okButton;
+    private readonly Button _cancelButton;
     private CancellationTokenSource? _cts;
+
+    // PTT double-tap state (mirrors MainWindow logic)
+    private enum PttState { Idle, TapDown, TapReleased, Active }
+    private PttState _pttState;
+    private DateTime _ctrlFirstDownTime;
+    private DateTime _ctrlFirstReleaseTime;
+    private const int PttMaxTapHoldMs = 250;
+    private const int PttDoubleClickTimeMs = 350;
 
     private const string PlaceholderText = "Describe revisions (Enter to apply, Esc to cancel)";
 
@@ -28,18 +40,22 @@ internal sealed class DocRevisePopup : Window
         string selectedText,
         string documentText,
         string documentPath,
-        Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback)
+        Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback,
+        Action<TextBox>? startPtt = null,
+        Action? stopPtt = null)
     {
         _selectedText   = selectedText;
         _documentText   = documentText;
         _documentPath   = documentPath;
         _reviseCallback = reviseCallback;
+        _startPtt       = startPtt;
+        _stopPtt        = stopPtt;
 
         WindowStyle        = WindowStyle.None;
         AllowsTransparency = false;
         ResizeMode         = ResizeMode.NoResize;
-        Width              = 340;
-        Height             = 130;
+        SizeToContent      = SizeToContent.Height;
+        Width              = 460;
         ShowInTaskbar      = false;
 
         this.SetResourceReference(BackgroundProperty, "CardSurface");
@@ -47,7 +63,7 @@ internal sealed class DocRevisePopup : Window
         var outerBorder = new Border {
             CornerRadius    = new CornerRadius(10),
             BorderThickness = new Thickness(1),
-            Padding         = new Thickness(12)
+            Padding         = new Thickness(14)
         };
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "LineColor");
         outerBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
@@ -66,11 +82,13 @@ internal sealed class DocRevisePopup : Window
             AcceptsReturn            = false,
             AcceptsTab               = false,
             TextWrapping             = TextWrapping.Wrap,
-            Height                   = 36,
+            MinHeight                = 80,
+            MaxHeight                = 180,
             FontSize                 = 12,
-            Padding                  = new Thickness(6, 4, 6, 4),
+            Padding                  = new Thickness(6, 6, 6, 6),
             BorderThickness          = new Thickness(1),
-            VerticalContentAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Text                     = PlaceholderText
         };
         _instructionBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
@@ -91,6 +109,8 @@ internal sealed class DocRevisePopup : Window
         };
 
         _instructionBox.PreviewKeyDown += InstructionBox_PreviewKeyDown;
+        _instructionBox.KeyDown += InstructionBox_KeyDown;
+        _instructionBox.KeyUp   += InstructionBox_KeyUp;
 
         _progressLabel = new TextBlock {
             Text       = "⟳  Working…",
@@ -108,10 +128,46 @@ internal sealed class DocRevisePopup : Window
             Margin       = new Thickness(0, 4, 0, 0)
         };
 
+        // Button row
+        _okButton = new Button {
+            Content = "Apply",
+            MinWidth = 70,
+            Height = 28,
+            FontSize = 12,
+            Padding = new Thickness(12, 0, 12, 0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(8, 0, 0, 0),
+            IsDefault = true,
+        };
+        _okButton.Click += (_, _) => _ = SubmitAsync();
+
+        _cancelButton = new Button {
+            Content = "Cancel",
+            MinWidth = 70,
+            Height = 28,
+            FontSize = 12,
+            Padding = new Thickness(12, 0, 12, 0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            IsCancel = true,
+        };
+        _cancelButton.Click += (_, _) => {
+            _cts?.Cancel();
+            if (_cts is null)   // not running — just close
+                DialogResult = false;
+            // if running, cts cancel will trigger error path which re-enables; user can then Esc
+        };
+
+        var buttonRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
+        buttonRow.Children.Add(_cancelButton);
+        DockPanel.SetDock(_cancelButton, Dock.Left);
+        buttonRow.Children.Add(_okButton);
+        DockPanel.SetDock(_okButton, Dock.Right);
+
         panel.Children.Add(titleLabel);
         panel.Children.Add(_instructionBox);
         panel.Children.Add(_progressLabel);
         panel.Children.Add(_errorLabel);
+        panel.Children.Add(buttonRow);
 
         outerBorder.Child = panel;
         Content = outerBorder;
@@ -131,19 +187,90 @@ internal sealed class DocRevisePopup : Window
         };
     }
 
+    // ── PTT: double-tap Ctrl detection ─────────────────────────────────────
+
+    private static bool IsCtrlKey(Key k) => k == Key.LeftCtrl || k == Key.RightCtrl;
+
+    private void InstructionBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (_startPtt is null) return;
+        switch (_pttState)
+        {
+            case PttState.Idle:
+                if (IsCtrlKey(e.Key) && !e.IsRepeat) {
+                    _ctrlFirstDownTime = DateTime.UtcNow;
+                    _pttState = PttState.TapDown;
+                }
+                break;
+            case PttState.TapDown:
+                if (IsCtrlKey(e.Key)) {
+                    if (e.IsRepeat && (DateTime.UtcNow - _ctrlFirstDownTime).TotalMilliseconds > PttMaxTapHoldMs)
+                        _pttState = PttState.Idle;
+                } else {
+                    _pttState = PttState.Idle;
+                }
+                break;
+            case PttState.TapReleased:
+                if (IsCtrlKey(e.Key) && !e.IsRepeat) {
+                    var gapMs = (DateTime.UtcNow - _ctrlFirstReleaseTime).TotalMilliseconds;
+                    if (gapMs <= PttDoubleClickTimeMs) {
+                        _pttState = PttState.Active;
+                        _startPtt(_instructionBox);
+                    } else {
+                        _ctrlFirstDownTime = DateTime.UtcNow;
+                        _pttState = PttState.TapDown;
+                    }
+                } else {
+                    _pttState = PttState.Idle;
+                }
+                break;
+        }
+    }
+
+    private void InstructionBox_KeyUp(object sender, KeyEventArgs e)
+    {
+        if (_startPtt is null) return;
+        switch (_pttState)
+        {
+            case PttState.TapDown:
+                if (IsCtrlKey(e.Key)) {
+                    var heldMs = (DateTime.UtcNow - _ctrlFirstDownTime).TotalMilliseconds;
+                    if (heldMs <= PttMaxTapHoldMs) {
+                        _ctrlFirstReleaseTime = DateTime.UtcNow;
+                        _pttState = PttState.TapReleased;
+                    } else {
+                        _pttState = PttState.Idle;
+                    }
+                }
+                break;
+            case PttState.Active:
+                if (IsCtrlKey(e.Key)) {
+                    _pttState = PttState.Idle;
+                    _stopPtt?.Invoke();
+                }
+                break;
+        }
+    }
+
+    // ── Submission ──────────────────────────────────────────────────────────
+
     private async void InstructionBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
         e.Handled = true;
+        await SubmitAsync();
+    }
 
+    private async Task SubmitAsync()
+    {
         var instructions = _instructionBox.Text.Trim();
         if (string.IsNullOrEmpty(instructions) || instructions == PlaceholderText)
             return;
 
         _instructionBox.IsEnabled = false;
+        _okButton.IsEnabled       = false;
         _progressLabel.Visibility = Visibility.Visible;
         _errorLabel.Visibility    = Visibility.Collapsed;
-        IsEnabled = false;
 
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         try
@@ -159,11 +286,12 @@ internal sealed class DocRevisePopup : Window
         }
         catch (OperationCanceledException)
         {
-            _errorLabel.Text          = "Request timed out or was cancelled.";
+            _errorLabel.Text          = "Request cancelled.";
             _errorLabel.Visibility    = Visibility.Visible;
             _progressLabel.Visibility = Visibility.Collapsed;
             _instructionBox.IsEnabled = true;
-            IsEnabled = true;
+            _okButton.IsEnabled       = true;
+            _instructionBox.Focus();
         }
         catch (Exception ex)
         {
@@ -171,7 +299,8 @@ internal sealed class DocRevisePopup : Window
             _errorLabel.Visibility    = Visibility.Visible;
             _progressLabel.Visibility = Visibility.Collapsed;
             _instructionBox.IsEnabled = true;
-            IsEnabled = true;
+            _okButton.IsEnabled       = true;
+            _instructionBox.Focus();
         }
         finally
         {

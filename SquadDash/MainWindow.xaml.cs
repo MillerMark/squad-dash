@@ -8702,7 +8702,16 @@ public partial class MainWindow : Window, ILiveElementLocator
             fullText,
             filePath,
             (instructions, sel, doc, workingDir, ct) =>
-                _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct));
+                _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct),
+            startPtt: (tb) => {
+                _pttTargetTextBox = tb;
+                _sessionCaretIndex = tb.SelectionStart;
+                _sessionSelectionLength = tb.SelectionLength;
+                _voiceStartedWithSendEnabled = false;
+                _pttState = PttState.Active;
+                _ = StartPushToTalkAsync();
+            },
+            stopPtt: () => _ = StopPushToTalkAsync(send: false));
 
         var mousePos = PointToScreen(Mouse.GetPosition(this));
         popup.Left  = Math.Min(mousePos.X - 10, SystemParameters.PrimaryScreenWidth  - 360);
