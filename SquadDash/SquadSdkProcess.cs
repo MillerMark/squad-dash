@@ -958,6 +958,91 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             SquadDashTrace.Write("Bridge", $"Failed to send personal_init request: {ex.Message}");
         }
     }
+
+    public async Task<string> RunDocRevisionAsync(
+        string instructions,
+        string selectedText,
+        string fullDocumentText,
+        string workingDirectory,
+        CancellationToken cancellationToken = default) {
+        var prompt =
+            $"""
+             You are a precise document editor. The user wants a specific passage in a markdown document revised.
+
+             Full document (for context only — do not edit this):
+             ```
+             {fullDocumentText}
+             ```
+
+             Passage to revise:
+             ```
+             {selectedText}
+             ```
+
+             Revision instructions: {instructions}
+
+             Respond with ONLY the revised passage text. Do not include any explanation, preamble, markdown code fences, or anything other than the revised text itself.
+             """;
+
+        var sessionId = "doc-revision-" + Guid.NewGuid().ToString("N")[..8];
+        var psi = BuildDefaultStartInfo();
+        psi.WorkingDirectory = workingDirectory;
+
+        var process = new Process { StartInfo = psi };
+        var accumulated = new StringBuilder();
+
+        try {
+            process.Start();
+
+            var request = new SquadSdkPromptRequest(prompt, workingDirectory, sessionId);
+            var payload = JsonSerializer.Serialize(request);
+            await process.StandardInput.WriteLineAsync(payload).ConfigureAwait(false);
+            await process.StandardInput.FlushAsync().ConfigureAwait(false);
+
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            while (!cancellationToken.IsCancellationRequested) {
+                var readTask = process.StandardOutput.ReadLineAsync();
+                string? line;
+                if (cancellationToken.CanBeCanceled) {
+                    var cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
+                    var completed = await Task.WhenAny(readTask, cancelTask).ConfigureAwait(false);
+                    if (completed == cancelTask)
+                        break;
+                    line = await readTask.ConfigureAwait(false);
+                } else {
+                    line = await readTask.ConfigureAwait(false);
+                }
+
+                if (line is null)
+                    break;
+
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                try {
+                    var evt = JsonSerializer.Deserialize<SquadSdkEvent>(line, options);
+                    if (evt is null)
+                        continue;
+
+                    if (string.Equals(evt.Type, "text_delta", StringComparison.Ordinal) && evt.Text is not null)
+                        accumulated.Append(evt.Text);
+                    else if (string.Equals(evt.Type, "done", StringComparison.Ordinal) ||
+                             string.Equals(evt.Type, "error", StringComparison.Ordinal))
+                        break;
+                }
+                catch {
+                    // ignore non-JSON lines
+                }
+            }
+        }
+        finally {
+            try { process.Kill(); } catch { }
+            process.Dispose();
+        }
+
+        return accumulated.ToString().Trim();
+    }
 }
 
 internal enum BridgeRequestOutcome {
