@@ -384,16 +384,14 @@ internal sealed class TranscriptScrollController
         _isProgrammaticScroll = true;
         try
         {
-            if (sv.ExtentHeight - targetOffset < sv.ViewportHeight)
-            {
-                sv.ScrollToEnd();
-                // If we scrolled to the very end, auto-scroll should be live again.
+            // Clamp to the scrollable range so the last prompt scrolls as close to
+            // the viewport top as the content allows (rather than jumping to the end).
+            var clampedOffset = Math.Min(targetOffset, sv.ScrollableHeight);
+            sv.ScrollToVerticalOffset(clampedOffset);
+
+            // If we ended up at the very bottom, re-enable auto-scroll.
+            if (clampedOffset >= sv.ScrollableHeight)
                 IsUserScrolledAway = false;
-            }
-            else
-            {
-                sv.ScrollToVerticalOffset(targetOffset);
-            }
         }
         finally
         {
