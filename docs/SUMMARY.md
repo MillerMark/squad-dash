@@ -24,6 +24,7 @@
   * [Tasks](panels/Tasks.md)
   * [Loop](panels/Loop.md)
   * [Approvals](panels/Approvals.md)
+  * [Notes](panels/Notes.md)
 
 ## Concepts
 
