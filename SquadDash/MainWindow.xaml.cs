@@ -2082,6 +2082,39 @@ public partial class MainWindow : Window, ILiveElementLocator
             tabChild = textBlock;
         }
 
+        object? tipContent = null;
+        if (tooltip is not null)
+        {
+            if (isActive && id is not null)
+            {
+                // Rich two-line tooltip: base hint + pause warning with bold inline.
+                var hintBlock = new TextBlock
+                {
+                    Text = tooltip,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 320,
+                };
+                var pauseBlock = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 320,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    Opacity = 0.8,
+                };
+                pauseBlock.Inlines.Add(new System.Windows.Documents.Run("Because this tab is active, automatic queuing will pause when this prompt is reached. Select the "));
+                pauseBlock.Inlines.Add(new System.Windows.Documents.Bold(new System.Windows.Documents.Run("Active Draft")));
+                pauseBlock.Inlines.Add(new System.Windows.Documents.Run(" tab for uninterrupted prompt queuing."));
+                var tipPanel = new StackPanel { MaxWidth = 320 };
+                tipPanel.Children.Add(hintBlock);
+                tipPanel.Children.Add(pauseBlock);
+                tipContent = new ToolTip { Content = tipPanel };
+            }
+            else
+            {
+                tipContent = tooltip;
+            }
+        }
+
         var tab = new Border
         {
             Padding = new Thickness(12, 6, 12, 6),
@@ -2090,7 +2123,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0),
             Background = Brushes.Transparent,
             Child = tabChild,
-            ToolTip = tooltip,
+            ToolTip = tipContent,
         };
         if (isActive)
             tab.SetResourceReference(Border.BorderBrushProperty, "QueueTabActiveBorder");
