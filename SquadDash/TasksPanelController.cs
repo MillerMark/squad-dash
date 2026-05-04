@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using System.Windows.Threading;
+using System.Windows.Input;
 using System.Threading.Tasks;
 
 /// <summary>Manages content in the inline Tasks panel.</summary>
@@ -155,7 +155,7 @@ internal sealed class TasksPanelController {
     // ── Row construction — open tasks ─────────────────────────────────────────
 
     private Border BuildRow(TaskItem item) {
-        var row = new Border { Background = Brushes.Transparent, Tag = item };
+        var row = new Border { Background = Brushes.Transparent, Tag = item, Cursor = Cursors.Hand };
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
@@ -217,88 +217,74 @@ internal sealed class TasksPanelController {
 
         row.Child = grid;
 
-        if (!string.IsNullOrEmpty(item.Description)) {
-            var doc = MarkdownFlowDocumentBuilder.Build(item.Description);
-            doc.TextAlignment = TextAlignment.Left;
-            var viewer = new FlowDocumentScrollViewer {
-                Document                    = doc,
-                Width                       = 320,
-                MaxHeight                   = 220,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        // Always create the detail popup — shown on click regardless of whether
+        // the task has a description.
+        {
+            var contentStack = new StackPanel { Margin = new Thickness(10) };
+
+            var titleBlock = new TextBlock {
+                Text         = item.Text,
+                FontSize     = 13,
+                FontWeight   = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth     = 300,
             };
+            titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            contentStack.Children.Add(titleBlock);
+
+            if (!string.IsNullOrEmpty(item.Description)) {
+                var doc = MarkdownFlowDocumentBuilder.Build(item.Description);
+                doc.TextAlignment = TextAlignment.Left;
+                var viewer = new FlowDocumentScrollViewer {
+                    Document                    = doc,
+                    MaxWidth                    = 320,
+                    MaxHeight                   = 220,
+                    Margin                      = new Thickness(0, 6, 0, 0),
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                };
+                contentStack.Children.Add(viewer);
+            } else {
+                var noDesc = new TextBlock {
+                    Text      = "No description",
+                    FontSize  = 11,
+                    FontStyle = FontStyles.Italic,
+                    Margin    = new Thickness(0, 4, 0, 0),
+                    Opacity   = 0.6,
+                };
+                noDesc.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                contentStack.Children.Add(noDesc);
+            }
 
             var popupBorder = new Border {
-                Child           = viewer,
+                Child           = contentStack,
                 Padding         = new Thickness(0),
                 BorderThickness = new Thickness(1),
+                MinWidth        = 220,
+                MaxWidth        = 340,
             };
 
             var popup = new Popup {
                 Child           = popupBorder,
                 PlacementTarget = row,
                 Placement       = PlacementMode.Left,
-                StaysOpen       = true,
+                StaysOpen       = false,
             };
 
-            // SetResourceReference doesn't work on Popup children outside the logical tree.
-            // Resolve brushes from the row's resource dictionaries on first open.
             bool brushesResolved = false;
             void ResolveBrushes() {
                 if (brushesResolved) return;
                 brushesResolved = true;
-                popupBorder.Background  = (row.TryFindResource("PopupSurface")     as Brush)
+                popupBorder.Background  = (row.TryFindResource("PopupSurface")      as Brush)
                                        ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
                 popupBorder.BorderBrush = (row.TryFindResource("ActivePanelBorder") as Brush)
                                        ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
             }
 
-            DispatcherTimer? openTimer  = null;
-            DispatcherTimer? closeTimer = null;
-
-            void CancelOpen() {
-                if (openTimer is null) return;
-                openTimer.Stop();
-                openTimer = null;
-            }
-
-            void CancelClose() {
-                if (closeTimer is null) return;
-                closeTimer.Stop();
-                closeTimer = null;
-            }
-
-            void BeginClose() {
-                if (closeTimer is not null) return;
-                closeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
-                closeTimer.Tick += (_, _) => {
-                    closeTimer!.Stop();
-                    closeTimer  = null;
-                    popup.IsOpen = false;
-                };
-                closeTimer.Start();
-            }
-
-            row.MouseEnter += (_, _) => {
-                CancelClose();
-                if (popup.IsOpen) return;
-                openTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
-                openTimer.Tick += (_, _) => {
-                    openTimer!.Stop();
-                    openTimer = null;
-                    ResolveBrushes();
-                    popup.IsOpen = true;
-                };
-                openTimer.Start();
+            row.MouseLeftButtonDown += (_, e) => {
+                ResolveBrushes();
+                popup.IsOpen = !popup.IsOpen;
+                e.Handled = true;
             };
-
-            row.MouseLeave += (_, _) => {
-                CancelOpen();
-                if (!popup.IsOpen) return;
-                BeginClose();
-            };
-
-            popupBorder.MouseEnter += (_, _) => CancelClose();
-            popupBorder.MouseLeave += (_, _) => BeginClose();
         }
 
         return row;
