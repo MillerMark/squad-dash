@@ -5516,7 +5516,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                     else if (IsShiftKey(e.Key))
                     {
-                        // Shift held during recording — keep recording, will suppress send on Ctrl release
+                        // Shift held during recording — flag immediately so Ctrl release suppresses send
+                        // even if the KeyUp is swallowed by an IME or third-party keyboard hook.
+                        _pttShiftTappedDuringRecording = true;
+                        _pttWindow?.MarkShiftSuppressed();
                     }
                     else if (!IsCtrlKey(e.Key))
                     {
@@ -5570,7 +5573,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                     else if (IsCtrlKey(e.Key))
                     {
-                        var shiftHeld = (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0;
+                        // Check shift via multiple paths: ModifierKeys (VK_SHIFT), and the
+                        // left/right-specific device state (VK_LSHIFT/VK_RSHIFT). Some IMEs
+                        // and keyboard utilities update the sided VKs but not the combined flag,
+                        // or vice versa — querying all three makes suppression reliable.
+                        var shiftHeld = (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0
+                                        || e.KeyboardDevice.IsKeyDown(Key.LeftShift)
+                                        || e.KeyboardDevice.IsKeyDown(Key.RightShift);
                         var suppress = shiftHeld || _pttShiftTappedDuringRecording || _pttHadPreexistingText;
                         // Send only if PTT started with Send enabled AND no suppression flags
                         _ = StopPushToTalkAsync(send: _voiceStartedWithSendEnabled && !suppress);
