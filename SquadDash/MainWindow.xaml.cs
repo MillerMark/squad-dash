@@ -17004,8 +17004,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!CanShowOwnedWindow()) return;
         if (string.IsNullOrEmpty(_currentDocPath)) return;
 
-        var saveDir = Path.Combine(_workspacePaths.ScreenshotsDirectory, "baseline");
-        var overlay = new ScreenshotOverlayWindow(this, saveDir, _activeThemeName, _settingsSnapshot.SpeechRegion ?? string.Empty);
+        var saveDir     = Path.Combine(_workspacePaths.ScreenshotsDirectory, "baseline");
+        var initialDesc = ExtractDocImageDescription(_currentDocPath, imagePath);
+        var overlay     = new ScreenshotOverlayWindow(this, saveDir, _activeThemeName, _settingsSnapshot.SpeechRegion ?? string.Empty, initialDesc);
 
         overlay.ScreenshotSaved += (sender, e) =>
         {
@@ -17015,6 +17016,53 @@ public partial class MainWindow : Window, ILiveElementLocator
             AppendLine($"[screenshot error] {error}", ThemeBrush("SystemErrorText")));
         overlay.Closed += (_, _) => ResetPttState();
         overlay.Show();
+    }
+
+    /// <summary>
+    /// Returns a pre-fill description for the screenshot overlay by reading
+    /// <paramref name="docPath"/> and extracting, in preference order:
+    /// (1) the 📸 blockquote description on the line immediately after the image tag, or
+    /// (2) the alt text from the image tag itself.
+    /// Returns an empty string if neither is found or if the file cannot be read.
+    /// </summary>
+    private static string ExtractDocImageDescription(string docPath, string imagePath)
+    {
+        if (!File.Exists(docPath)) return string.Empty;
+
+        string text;
+        try { text = File.ReadAllText(docPath); }
+        catch { return string.Empty; }
+
+        var normalizedTarget = imagePath.Replace('\\', '/');
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].Replace('\\', '/').Contains(normalizedTarget)) continue;
+
+            // Prefer the 📸 blockquote description on the next line.
+            if (i + 1 < lines.Length)
+            {
+                var next = lines[i + 1].Trim();
+                if (next.Contains("📸") || next.Contains("Screenshot needed"))
+                {
+                    // Strip "> 📸 *Screenshot needed: " prefix and trailing "*"
+                    var stripped = System.Text.RegularExpressions.Regex.Replace(
+                        next, @"^>\s*📸\s*\*?Screenshot needed:\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).TrimEnd('*').Trim();
+                    if (!string.IsNullOrWhiteSpace(stripped)) return stripped;
+                }
+            }
+
+            // Fall back to alt text.
+            var altMatch = System.Text.RegularExpressions.Regex.Match(
+                lines[i], @"!\[([^\]]*)\]\(" + System.Text.RegularExpressions.Regex.Escape(normalizedTarget) + @"\)");
+            if (altMatch.Success)
+                return altMatch.Groups[1].Value.Trim();
+
+            break;
+        }
+
+        return string.Empty;
     }
 
     // ── Interactive capture completion ───────────────────────────────────────
