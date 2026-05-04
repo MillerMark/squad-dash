@@ -14112,6 +14112,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     private MenuItem? OpenSquadFolderMenuItem;
+    // Temporary accumulator used while building the sorted top group in RefreshSidebar.
+    private readonly List<(string Header, string SortKey, Action ClickAction)> _squadFileMenuEntries = [];
 
     private void RefreshSidebar()
     {
@@ -14132,6 +14134,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         var squadFolderExists = Directory.Exists(squadRoot);
         ConfigureTeamFileWatcher();
 
+        var loopMdPath  = Path.Combine(squadRoot, "loop.md");
+        var tasksMdPath = Path.Combine(squadRoot, "tasks.md");
+
+        // Regular squad files: added only when they exist.
         foreach (var relativePath in new[] {
                      "ceremonies.md",
                      "decisions.md",
@@ -14141,10 +14147,30 @@ public partial class MainWindow : Window, ILiveElementLocator
                      Path.Combine("skills", "project-conventions", "SKILL.md"),
                      "team.md",
                      Path.Combine("identity", "wisdom.md")
-                 }.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+                 })
         {
-            AddWorkspaceFileMenuItem(relativePath);
+            var fullPath = Path.Combine(squadRoot, relativePath);
+            if (File.Exists(fullPath))
+            {
+                var e = new SidebarEntry("📄" + Path.GetFileName(relativePath), string.Empty, fullPath, true, SidebarEntryKind.File);
+                _squadFileMenuEntries.Add(("📄" + Path.GetFileName(relativePath), Path.GetFileName(relativePath), () => OpenSidebarEntry(e)));
+            }
         }
+
+        // loop.md and tasks.md always appear; clicking creates the file when missing.
+        _squadFileMenuEntries.Add(("🔁 loop.md",  "loop.md",  () => OpenOrCreateLoopMd(loopMdPath)));
+        _squadFileMenuEntries.Add(("📋 tasks.md", "tasks.md", () => OpenOrCreateTasksMd(tasksMdPath)));
+
+        foreach (var (header, _, clickAction) in _squadFileMenuEntries.OrderBy(x => x.SortKey, StringComparer.OrdinalIgnoreCase))
+        {
+            var menuItem = new MenuItem { Header = header, Style = (Style)FindResource("ThemedMenuItemStyle") };
+            menuItem.Click += (_, _) => clickAction();
+            WorkspaceMenuItem.Items.Add(menuItem);
+        }
+        _squadFileMenuEntries.Clear();
+
+        UpdateLoopPanelButtonStates();
+        _pec.TasksFilePath = tasksMdPath;
 
         AddWorkspaceMenuSeparator();
 
@@ -14159,25 +14185,6 @@ public partial class MainWindow : Window, ILiveElementLocator
         WorkspaceMenuItem.Items.Add(OpenSquadFolderMenuItem);
 
         AddWorkspaceFolderMenuItem(Path.Combine("decisions", "inbox"));
-
-        var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
-        var loopMenuItem = new MenuItem
-        {
-            Header = "🔁 loop.md",
-            Style = (Style)FindResource("ThemedMenuItemStyle")
-        };
-        loopMenuItem.Click += (_, _) => OpenOrCreateLoopMd(loopMdPath);
-        WorkspaceMenuItem.Items.Add(loopMenuItem);
-
-        UpdateLoopPanelButtonStates();
-
-        var tasksMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (File.Exists(tasksMdPath))
-        {
-            var tasksEntry = new SidebarEntry("📋 tasks.md", string.Empty, tasksMdPath, true, SidebarEntryKind.File);
-            AddWorkspaceEntryMenuItem(tasksEntry);
-        }
-        _pec.TasksFilePath = File.Exists(tasksMdPath) ? tasksMdPath : null;
 
         AddWorkspaceMenuSeparator();
 
@@ -14311,6 +14318,26 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(OpenOrCreateLoopMd), ex);
+        }
+    }
+
+    private void OpenOrCreateTasksMd(string tasksMdPath)
+    {
+        try
+        {
+            if (!File.Exists(tasksMdPath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(tasksMdPath)!);
+                File.WriteAllText(tasksMdPath,
+                    "## 🔴 High Priority\n\n## 🟡 Mid Priority\n\n## 🟢 Low Priority\n");
+                _pec.TasksFilePath = tasksMdPath;
+                SyncTasksPanel();
+            }
+            OpenMarkdownFile(tasksMdPath, "Tasks", showSource: true);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OpenOrCreateTasksMd), ex);
         }
     }
 
