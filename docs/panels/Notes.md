@@ -34,7 +34,13 @@ Each row shows the note's title. Notes are listed newest-first.
 
 ## Creating a Note
 
-Notes are created from selected text elsewhere in the UI — there is no "New Note" button in the panel itself.
+Notes can be created from the panel itself or from selected text elsewhere in the UI.
+
+### New Note (blank)
+
+Right-click anywhere in the Notes panel (on a row or the background) → **New Note**.
+
+An empty note titled "New Note" is created and the markdown editor opens immediately in **source mode** so you can start typing. The note auto-saves as you type. Rename it via the panel context menu when done.
 
 ### From the transcript
 

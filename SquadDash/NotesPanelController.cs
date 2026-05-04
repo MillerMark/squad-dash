@@ -14,6 +14,7 @@ internal sealed class NotesPanelController {
     private readonly Action<NoteItem>    _openNote;
     private readonly Action<NoteItem, string> _renameNote;
     private readonly Action<NoteItem>    _deleteNote;
+    private readonly Action              _newNote;
 
     private List<NoteItem> _notes = [];
 
@@ -23,12 +24,16 @@ internal sealed class NotesPanelController {
         StackPanel               listPanel,
         Action<NoteItem>         openNote,
         Action<NoteItem, string> renameNote,
-        Action<NoteItem>         deleteNote) {
+        Action<NoteItem>         deleteNote,
+        Action                   newNote) {
 
         _listPanel  = listPanel;
         _openNote   = openNote;
         _renameNote = renameNote;
         _deleteNote = deleteNote;
+        _newNote    = newNote;
+
+        AttachPanelContextMenu();
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -101,6 +106,12 @@ internal sealed class NotesPanelController {
     private ContextMenu BuildRowContextMenu(NoteItem note, Border row, TextBlock titleLabel) {
         var menu = MakeMenu();
 
+        var newItem = MakeItem("New Note");
+        newItem.Click += (_, _) => _newNote();
+        menu.Items.Add(newItem);
+
+        menu.Items.Add(MakeSep());
+
         var renameItem = MakeItem("Rename");
         renameItem.Click += (_, _) => BeginInlineRename(note, row, titleLabel);
         menu.Items.Add(renameItem);
@@ -169,6 +180,16 @@ internal sealed class NotesPanelController {
 
         if (result == MessageBoxResult.Yes)
             _deleteNote(note);
+    }
+
+    // ── Panel-level context menu ──────────────────────────────────────────────
+
+    private void AttachPanelContextMenu() {
+        var menu = MakeMenu();
+        var newItem = MakeItem("New Note");
+        newItem.Click += (_, _) => _newNote();
+        menu.Items.Add(newItem);
+        _listPanel.ContextMenu = menu;
     }
 
     // ── Menu helpers ──────────────────────────────────────────────────────────

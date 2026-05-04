@@ -16899,7 +16899,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 listPanel:  NotesListPanel!,
                 openNote:   note => OpenNote(note),
                 renameNote: (note, title) => RenameNote(note, title),
-                deleteNote: note => DeleteNote(note));
+                deleteNote: note => DeleteNote(note),
+                newNote:    () => CreateNewNote());
             _notesPanel.Refresh(_noteItems);
         }
     }
@@ -16921,6 +16922,38 @@ public partial class MainWindow : Window, ILiveElementLocator
             note.Title,
             path,
             showSource: false,
+            BuildMarkdownCaptureContext(),
+            autoSave: true);
+    }
+
+    private void CreateNewNote()
+    {
+        if (_notesStore is null) return;
+        var note = new NoteItem(Guid.NewGuid(), "New Note", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        _notesStore.WriteContent(note.Id, string.Empty);
+        _noteItems.Insert(0, note);
+        _notesStore.SaveAll(_noteItems);
+
+        if (!_notesPanelVisible)
+        {
+            _notesPanelVisible = true;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = true;
+            PersistNotesPanelVisible();
+        }
+        else
+        {
+            _notesPanel?.AddNote(note);
+        }
+
+        // Open with source visible so the user can start typing immediately.
+        var path = _notesStore.GetNotePath(note.Id);
+        MarkdownDocumentWindow.Show(
+            CanShowOwnedWindow() ? this : null,
+            note.Title,
+            path,
+            showSource: true,
             BuildMarkdownCaptureContext(),
             autoSave: true);
     }
