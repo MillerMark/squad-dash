@@ -14349,23 +14349,6 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (StartLoopButton is not null)
             StartLoopButton.IsEnabled = loopExists;
-
-        if (CreateEditLoopFileButton is not null)
-            CreateEditLoopFileButton.Content = "📝 Edit Loop";
-    }
-
-    private void CreateEditLoopFileButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (_currentWorkspace is null) return;
-            var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
-            OpenOrCreateLoopMd(loopMdPath);
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(CreateEditLoopFileButton_Click), ex);
-        }
     }
 
     private void ConfigureInboxWatcher(string inboxPath)

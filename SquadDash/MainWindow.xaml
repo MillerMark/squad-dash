@@ -894,12 +894,6 @@
                             BorderBrush="{DynamicResource RosterPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16">
-                        <Border.ContextMenu>
-                            <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
-                                <MenuItem Header="Edit Loop"
-                                          Click="CreateEditLoopFileButton_Click" />
-                            </ContextMenu>
-                        </Border.ContextMenu>
                         <Border.Height>
                             <MultiBinding Converter="{StaticResource MaxValueConverter}">
                                 <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
@@ -950,7 +944,7 @@
                                       Content="Continuous context"
                                       IsChecked="True"
                                       Margin="0,0,0,8"
-                                      Foreground="{DynamicResource BodyText}"
+                                      Foreground="{DynamicResource LabelText}"
                                       ToolTip="When checked, each iteration continues in the same session and can see prior results. Uncheck for a fresh, lower-cost session each iteration."
                                       Click="LoopContinuousContextCheckBox_Click" />
                             <Button x:Name="StartLoopButton"
@@ -974,12 +968,6 @@
                                     Foreground="{DynamicResource AbortButtonText}"
                                     Style="{StaticResource ThemedButtonStyle}"
                                     Click="AbortLoopButton_Click" />
-                            <Button x:Name="CreateEditLoopFileButton"
-                                    DockPanel.Dock="Bottom"
-                                    Content="📝 Edit Loop"
-                                    Style="{StaticResource ThemedButtonStyle}"
-                                    ToolTip="Create or open loop.md for editing"
-                                    Click="CreateEditLoopFileButton_Click" />
                         </DockPanel>
                     </Border>
 
