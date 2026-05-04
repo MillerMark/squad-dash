@@ -980,6 +980,92 @@
                         </DockPanel>
                     </Border>
 
+                    <!-- Loop "not configured" flyout — shown below StartLoopButton when loop.md frontmatter is missing -->
+                    <Popup x:Name="_loopConfigFlyout"
+                           PlacementTarget="{Binding ElementName=StartLoopButton}"
+                           Placement="Bottom"
+                           HorizontalOffset="0"
+                           StaysOpen="False"
+                           AllowsTransparency="True"
+                           Opened="_LoopConfigFlyout_Opened">
+                        <Border x:Name="_loopConfigFlyoutBorder"
+                                Background="{DynamicResource RosterPanelSurface}"
+                                BorderBrush="{DynamicResource RosterPanelBorder}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="14"
+                                MinWidth="260">
+                            <StackPanel>
+                                <TextBlock Text="loop.md is not configured. Click OK to insert configuration at the top of the file."
+                                           Foreground="{DynamicResource BodyText}"
+                                           TextWrapping="Wrap"
+                                           MaxWidth="260"
+                                           Margin="0,0,0,12" />
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0"
+                                               Text="Interval (min):"
+                                               Foreground="{DynamicResource BodyText}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,10,6" />
+                                    <TextBox x:Name="LoopConfigIntervalBox"
+                                             Grid.Row="0" Grid.Column="1"
+                                             Text="10"
+                                             Padding="4,2"
+                                             Margin="0,0,0,6"
+                                             Background="{DynamicResource InputSurface}"
+                                             Foreground="{DynamicResource LabelText}"
+                                             BorderBrush="{DynamicResource InputBorder}" />
+                                    <TextBlock Grid.Row="1" Grid.Column="0"
+                                               Text="Timeout (min):"
+                                               Foreground="{DynamicResource BodyText}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,10,6" />
+                                    <TextBox x:Name="LoopConfigTimeoutBox"
+                                             Grid.Row="1" Grid.Column="1"
+                                             Text="5"
+                                             Padding="4,2"
+                                             Margin="0,0,0,6"
+                                             Background="{DynamicResource InputSurface}"
+                                             Foreground="{DynamicResource LabelText}"
+                                             BorderBrush="{DynamicResource InputBorder}" />
+                                    <TextBlock Grid.Row="2" Grid.Column="0"
+                                               Text="Description:"
+                                               Foreground="{DynamicResource BodyText}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,10,0" />
+                                    <TextBox x:Name="LoopConfigDescriptionBox"
+                                             Grid.Row="2" Grid.Column="1"
+                                             Text="My loop"
+                                             Padding="4,2"
+                                             Background="{DynamicResource InputSurface}"
+                                             Foreground="{DynamicResource LabelText}"
+                                             BorderBrush="{DynamicResource InputBorder}" />
+                                </Grid>
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right">
+                                    <Button Content="OK"
+                                            MinWidth="64"
+                                            Margin="0,0,8,0"
+                                            Style="{StaticResource ThemedButtonStyle}"
+                                            Click="LoopConfigOk_Click" />
+                                    <Button Content="Cancel"
+                                            MinWidth="64"
+                                            Style="{StaticResource ThemedButtonStyle}"
+                                            Click="LoopConfigCancel_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+
                     <GridSplitter x:Name="LoopOutputSplitter"
                                   Grid.Column="4"
                                   Width="5"

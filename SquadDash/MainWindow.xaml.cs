@@ -252,6 +252,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _loopOutputHasContent;
     private bool _loopQueued;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
+    private string? _loopMdPathForConfig; // stored when loop config flyout is shown
     private bool _tasksPanelVisible = false;
     private bool _approvalPanelVisible = false;
     private bool _notesPanelVisible = false;
@@ -3977,9 +3978,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             var config = LoopMdParser.Parse(loopMdPath);
             if (config == null)
             {
-                AppendLine(
-                    "❌ Loop not configured — check loop.md has configured: true",
-                    ThemeBrush("SystemErrorText"));
+                _loopMdPathForConfig = loopMdPath;
+                // Reset field validation state
+                LoopConfigIntervalBox.ClearValue(System.Windows.Controls.TextBox.BorderBrushProperty);
+                LoopConfigTimeoutBox.ClearValue(System.Windows.Controls.TextBox.BorderBrushProperty);
+                _loopConfigFlyout.PlacementTarget = StartLoopButton;
+                _loopConfigFlyout.IsOpen = true;
                 return;
             }
             await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext);
@@ -3989,6 +3993,77 @@ public partial class MainWindow : Window, ILiveElementLocator
             await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
                 _conversationManager.CurrentSessionId);
         }
+    }
+
+    // ── Loop config flyout handlers ───────────────────────────────────────────
+
+    private void _LoopConfigFlyout_Opened(object sender, EventArgs e)
+    {
+        // Right-align popup's right edge with StartLoopButton's right edge.
+        // ActualWidth is valid here because the popup has already been laid out.
+        Dispatcher.InvokeAsync(() =>
+        {
+            _loopConfigFlyout.HorizontalOffset =
+                StartLoopButton.ActualWidth - _loopConfigFlyoutBorder.ActualWidth;
+        }, System.Windows.Threading.DispatcherPriority.Render);
+    }
+
+    private async void LoopConfigOk_Click(object sender, RoutedEventArgs e)
+    {
+        // Validate interval
+        if (!int.TryParse(LoopConfigIntervalBox.Text.Trim(), out var interval) || interval <= 0)
+        {
+            LoopConfigIntervalBox.BorderBrush = Brushes.Red;
+            return;
+        }
+        LoopConfigIntervalBox.ClearValue(System.Windows.Controls.TextBox.BorderBrushProperty);
+
+        // Validate timeout
+        if (!int.TryParse(LoopConfigTimeoutBox.Text.Trim(), out var timeout) || timeout <= 0)
+        {
+            LoopConfigTimeoutBox.BorderBrush = Brushes.Red;
+            return;
+        }
+        LoopConfigTimeoutBox.ClearValue(System.Windows.Controls.TextBox.BorderBrushProperty);
+
+        var description = LoopConfigDescriptionBox.Text.Trim();
+        if (string.IsNullOrEmpty(description))
+            description = "My loop";
+
+        var loopMdPath = _loopMdPathForConfig;
+        if (loopMdPath is null) return;
+
+        var frontmatter = $"""
+            ---
+            configured: true
+            interval: {interval}
+            timeout: {timeout}
+            description: "{description}"
+            commands: [stop_loop]
+            ---
+
+            """;
+
+        var existingContent = File.Exists(loopMdPath)
+            ? await File.ReadAllTextAsync(loopMdPath)
+            : string.Empty;
+        await File.WriteAllTextAsync(loopMdPath, frontmatter + existingContent);
+
+        _loopConfigFlyout.IsOpen = false;
+
+        try
+        {
+            await StartLoopImmediateAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(LoopConfigOk_Click), ex);
+        }
+    }
+
+    private void LoopConfigCancel_Click(object sender, RoutedEventArgs e)
+    {
+        _loopConfigFlyout.IsOpen = false;
     }
 
     // ── CommitApproval helpers ────────────────────────────────────────────────
