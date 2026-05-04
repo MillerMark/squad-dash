@@ -1995,6 +1995,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static readonly Geometry s_paperclipGeometry = Geometry.Parse(
         "M16.5,6 V17.5 C16.5,19.71 14.71,21.5 12.5,21.5 C10.29,21.5 8.5,19.71 8.5,17.5 V5 C8.5,3.62 9.62,2.5 11,2.5 C12.38,2.5 13.5,3.62 13.5,5 V15.5 C13.5,16.05 13.05,16.5 12.5,16.5 C11.95,16.5 11.5,16.05 11.5,15.5 V6 H10 V15.5 C10,16.88 11.12,18 12.5,18 C13.88,18 15,16.88 15,15.5 V5 C15,2.79 13.21,1 11,1 C8.79,1 7,2.79 7,5 V17.5 C7,20.54 9.46,23 12.5,23 C15.54,23 18,20.54 18,17.5 V6 H16.5 Z");
 
+    // Two vertical bars — standard pause symbol
+    private static readonly Geometry s_pauseGeometry = Geometry.Parse(
+        "M3,1 H6 V13 H3 Z M8,1 H11 V13 H8 Z");
+
     private UIElement CreatePaperclipIcon(bool isActive)
     {
         var path = new System.Windows.Shapes.Path
@@ -2011,6 +2015,30 @@ public partial class MainWindow : Window, ILiveElementLocator
         path.SetResourceReference(
             System.Windows.Shapes.Path.FillProperty,
             isActive ? "LabelText" : "QueueTabInactiveText");
+        return path;
+    }
+
+    private UIElement CreatePauseIcon()
+    {
+        var path = new System.Windows.Shapes.Path
+        {
+            Data              = s_pauseGeometry,
+            Stretch           = Stretch.Uniform,
+            Width             = 9,
+            Height            = 10,
+            StrokeThickness   = 0,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(4, 0, 0, 0),
+        };
+        path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "LabelText");
+
+        var tipText = new TextBlock
+        {
+            Text        = "This tab is active. Automatic queuing will pause when this prompt is reached. Select the Active Draft tab for uninterrupted prompt queuing.",
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth    = 280,
+        };
+        ToolTipService.SetToolTip(path, new ToolTip { Content = tipText });
         return path;
     }
 
@@ -2032,9 +2060,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         var tabKey = id ?? "";
         bool hasAttachment = _followUpAttachments.TryGetValue(tabKey, out var attachList) && attachList.Count > 0;
+        bool showPause = id is not null && isActive;
 
         UIElement tabChild;
-        if (hasAttachment)
+        if (hasAttachment || showPause)
         {
             var sp = new StackPanel
             {
@@ -2042,7 +2071,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                 VerticalAlignment = VerticalAlignment.Center,
             };
             sp.Children.Add(textBlock);
-            sp.Children.Add(CreatePaperclipIcon(isActive));
+            if (hasAttachment)
+                sp.Children.Add(CreatePaperclipIcon(isActive));
+            if (showPause)
+                sp.Children.Add(CreatePauseIcon());
             tabChild = sp;
         }
         else
