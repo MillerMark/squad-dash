@@ -266,10 +266,11 @@ internal sealed class TasksPanelController {
             };
 
             var popup = new Popup {
-                Child           = popupBorder,
-                PlacementTarget = row,
-                Placement       = PlacementMode.Left,
-                StaysOpen       = true,
+                Child             = popupBorder,
+                PlacementTarget   = row,
+                Placement         = PlacementMode.Left,
+                StaysOpen         = true,
+                AllowsTransparency = true,
             };
 
             bool brushesResolved = false;
