@@ -1340,6 +1340,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 DocMarkdownViewer.NavigateToString(html);
             }
 
+            // Reload the Tasks panel from disk so any changes made before the refresh are visible.
+            LoadTasksPanel();
+
             AppendLine($"✅ Screenshot refreshed: {definitionName}");
         }
         catch (Exception ex)
@@ -15473,6 +15476,35 @@ public partial class MainWindow : Window, ILiveElementLocator
         var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
         var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
         DocMarkdownViewer.NavigateToString(html);
+
+        // Sync the definition's Theme to the current active theme so "Refresh screenshot"
+        // will recapture in the same theme as the image the user just pasted in.
+        _ = SyncDefinitionThemeForDocImageAsync(fullImagePath, _activeThemeName);
+    }
+
+    /// <summary>
+    /// When the user replaces a doc screenshot via clipboard paste, updates the matching
+    /// <see cref="Screenshots.ScreenshotDefinition"/> to use <paramref name="themeName"/>
+    /// so that a subsequent "Refresh screenshot" captures in the same theme.
+    /// </summary>
+    private async Task SyncDefinitionThemeForDocImageAsync(string fullDocImagePath, string themeName)
+    {
+        try
+        {
+            var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
+            var registry = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir)
+                                                                          .ConfigureAwait(true);
+            var def = registry.TryGetByDocImagePath(fullDocImagePath, screenshotsDir);
+            if (def is null) return;
+
+            registry.AddOrUpdate(def with { Theme = themeName });
+            await registry.SaveAsync().ConfigureAwait(true);
+            _cachedDefinitionRegistry = registry;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Screenshot", $"SyncDefinitionTheme failed: {ex.Message}");
+        }
     }
 
     /// <summary>
