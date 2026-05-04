@@ -1307,6 +1307,19 @@ public partial class MainWindow : Window, ILiveElementLocator
                                                .ConfigureAwait(true);
             _cachedDefinitionRegistry = definitions;
 
+            // "Refresh screenshot" from the right-click menu always re-captures in the
+            // currently visible theme.  If the stored definition says a different theme,
+            // update it now so the runner applies the correct theme and the definition
+            // stays in sync with the image the user is actually looking at.
+            var existingDef = definitions.TryGet(definitionName);
+            if (existingDef is not null
+                && !string.Equals(existingDef.Theme, _activeThemeName, StringComparison.OrdinalIgnoreCase))
+            {
+                definitions.AddOrUpdate(existingDef with { Theme = _activeThemeName });
+                await definitions.SaveAsync().ConfigureAwait(true);
+                _cachedDefinitionRegistry = definitions;
+            }
+
             var runner = new Screenshots.ScreenshotRefreshRunner(
                 definitions,
                 _uiActionReplayRegistry,
