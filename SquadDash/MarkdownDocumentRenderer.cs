@@ -248,7 +248,7 @@ internal sealed class MarkdownDocumentRenderer {
                 var headingText = trimmed[level..].TrimStart();
                 var p = CreateTranscriptParagraph(bottomMargin: level <= 2 ? 6 : 4);
                 p.FontSize = HeadingFontSize(level, _getFontSize());
-                p.Tag = level == 1 ? "h1" : level == 2 ? "h2" : "h3";
+                p.Tag = new string('#', level) + " " + headingText;
                 p.Inlines.Add(new Run(headingText) { FontWeight = FontWeights.Bold });
                 yield return p;
                 i++;
@@ -315,6 +315,7 @@ internal sealed class MarkdownDocumentRenderer {
             if (paragraphLines.Count > 0) {
                 foreach (var pl in paragraphLines) {
                     var p = CreateTranscriptParagraph(bottomMargin: 4);
+                    p.Tag = pl;
                     AppendInlineMarkdown(p.Inlines, pl.TrimStart());
                     yield return p;
                 }
@@ -327,7 +328,8 @@ internal sealed class MarkdownDocumentRenderer {
     private Paragraph BuildNumberedListParagraph(int number, string text, bool isLast = false) {
         var p = new Paragraph {
             Margin = new Thickness(16, 1, 0, isLast ? 12 : 1),
-            TextIndent = -12
+            TextIndent = -12,
+            Tag = $"{number}. {text}"
         };
         var markerRun = new Run($"{number}. ");
         markerRun.SetResourceReference(TextElement.ForegroundProperty, "ListMarkerText");
@@ -339,7 +341,8 @@ internal sealed class MarkdownDocumentRenderer {
     private Paragraph BuildBulletParagraph(string text, bool isLast = false) {
         var p = new Paragraph {
             Margin = new Thickness(16, 1, 0, isLast ? 12 : 1),
-            TextIndent = -12
+            TextIndent = -12,
+            Tag = $"- {text}"
         };
         var markerRun = new Run("• ");
         markerRun.SetResourceReference(TextElement.ForegroundProperty, "ListMarkerText");
@@ -353,6 +356,7 @@ internal sealed class MarkdownDocumentRenderer {
             Margin = new Thickness(12, 2, 0, 8),
             Padding = new Thickness(10, 4, 10, 4),
             BorderThickness = new Thickness(3, 0, 0, 0),
+            Tag = string.Join("\n", text.Split('\n').Select(l => $"> {l}"))
         };
         p.SetResourceReference(Block.BorderBrushProperty, "QuoteBorder");
         p.SetResourceReference(Block.BackgroundProperty, "QuoteSurface");

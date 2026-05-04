@@ -38,7 +38,71 @@ internal static class TranscriptCopyService {
         return result.Length == 0 ? null : result;
     }
 
-    // ── Block walk ────────────────────────────────────────────────────────────
+    /// <summary>
+    /// Builds a markdown-faithful string for the current selection, using the original
+    /// markdown source stored on each <see cref="Paragraph.Tag"/> by the renderer.
+    /// Falls back to plain-text extraction for blocks without a stored source.
+    /// Block elements are separated by blank lines so the note renders correctly.
+    /// Returns <c>null</c> if the selection is empty.
+    /// </summary>
+    public static string? BuildSelectionMarkdown(RichTextBox richTextBox) {
+        var selection = richTextBox.Selection;
+        if (selection.IsEmpty)
+            return null;
+
+        var selStart = selection.Start;
+        var selEnd   = selection.End;
+        var sb       = new StringBuilder();
+
+        AppendBlocksMarkdown(sb, richTextBox.Document.Blocks, selStart, selEnd);
+
+        var result = sb.ToString().TrimEnd();
+        return result.Length == 0 ? null : result;
+    }
+
+    // ── Block walk (markdown) ─────────────────────────────────────────────
+
+    private static void AppendBlocksMarkdown(
+        StringBuilder sb,
+        BlockCollection blocks,
+        TextPointer selStart,
+        TextPointer selEnd) {
+
+        var firstBlock = true;
+        foreach (var block in blocks) {
+            if (!OverlapsSelection(block, selStart, selEnd))
+                continue;
+
+            switch (block) {
+                case Paragraph p: {
+                    if (!firstBlock) sb.AppendLine();
+                    if (p.Tag is string markdownSrc && markdownSrc.Length > 0)
+                        sb.AppendLine(markdownSrc);
+                    else
+                        AppendParagraphText(sb, p, selStart, selEnd);
+                    firstBlock = false;
+                    break;
+                }
+
+                case BlockUIContainer buc: {
+                    if (!firstBlock) sb.AppendLine();
+                    // Reuse the same extraction logic as plain-text copy (already returns
+                    // markdown-friendly content for code blocks, tables, and quick replies).
+                    if (TryAppendBlockUIContainer(sb, buc))
+                        sb.AppendLine();
+                    firstBlock = false;
+                    break;
+                }
+
+                case Section s:
+                    AppendBlocksMarkdown(sb, s.Blocks, selStart, selEnd);
+                    firstBlock = false;
+                    break;
+            }
+        }
+    }
+
+    // ── Block walk (plain text) ────────────────────────────────────────────────
 
     private static void AppendBlocks(
         StringBuilder sb,

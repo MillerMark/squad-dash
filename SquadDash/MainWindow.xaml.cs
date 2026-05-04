@@ -5197,7 +5197,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 var addToNotesItem = new MenuItem { Header = "Add to Notes" };
                 addToNotesItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 addToNotesItem.Click += (_, _) => {
-                    var text = TranscriptCopyService.BuildSelectionText(OutputTextBox);
+                    var text = TranscriptCopyService.BuildSelectionMarkdown(OutputTextBox);
                     if (!string.IsNullOrWhiteSpace(text))
                         AddNoteFromText(text);
                 };
@@ -10748,7 +10748,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 var headingText = trimmed[level..].TrimStart();
                 var p = CreateTranscriptParagraph(bottomMargin: level <= 2 ? 6 : 4);
                 p.FontSize = MarkdownDocumentRenderer.HeadingFontSize(level, _transcriptFontSize);
-                p.Tag = level == 1 ? "h1" : level == 2 ? "h2" : "h3";
+                p.Tag = new string('#', level) + " " + headingText;
                 p.Inlines.Add(new Run(headingText) { FontWeight = FontWeights.Bold });
                 yield return p;
                 i++;
@@ -10824,6 +10824,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 foreach (var pl in paragraphLines)
                 {
                     var p = CreateTranscriptParagraph(bottomMargin: 4);
+                    p.Tag = pl;
                     _markdownRenderer.AppendInlineMarkdown(p.Inlines, pl.TrimStart());
                     yield return p;
                 }
@@ -10836,7 +10837,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         var p = new Paragraph
         {
             Margin = new Thickness(16, 1, 0, isLast ? 12 : 1),
-            TextIndent = -12
+            TextIndent = -12,
+            Tag = $"{number}. {text}"
         };
         var markerRun = new Run($"{number}. ");
         markerRun.SetResourceReference(TextElement.ForegroundProperty, "ListMarkerText");
@@ -10850,7 +10852,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         var p = new Paragraph
         {
             Margin = new Thickness(16, 1, 0, isLast ? 12 : 1),
-            TextIndent = -12
+            TextIndent = -12,
+            Tag = $"- {text}"
         };
         var markerRun = new Run("• ");
         markerRun.SetResourceReference(TextElement.ForegroundProperty, "ListMarkerText");
@@ -10866,6 +10869,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             Margin = new Thickness(12, 2, 0, 8),
             Padding = new Thickness(10, 4, 10, 4),
             BorderThickness = new Thickness(3, 0, 0, 0),
+            Tag = string.Join("\n", text.Split('\n').Select(l => $"> {l}"))
         };
         p.SetResourceReference(Block.BorderBrushProperty, "QuoteBorder");
         p.SetResourceReference(Block.BackgroundProperty, "QuoteSurface");
