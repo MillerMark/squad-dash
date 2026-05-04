@@ -1,4 +1,4 @@
-﻿<Window x:Class="SquadDash.MainWindow"
+<Window x:Class="SquadDash.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -996,7 +996,7 @@
                                 Padding="14"
                                 MinWidth="260">
                             <StackPanel>
-                                <TextBlock Text="loop.md is not configured. Click OK to insert configuration at the top of the file."
+                                <TextBlock Text="loop.md is not configured. Click OK to start the loop with this configuration:"
                                            Foreground="{DynamicResource BodyText}"
                                            TextWrapping="Wrap"
                                            MaxWidth="260"
@@ -1015,20 +1015,23 @@
                                                Text="Interval (min):"
                                                Foreground="{DynamicResource BodyText}"
                                                VerticalAlignment="Center"
-                                               Margin="0,0,10,6" />
+                                               Margin="0,0,10,6"
+                                                ToolTip="How many minutes to wait between the end of one iteration and the start of the next. Applies to both SquadDash Agents and squad CLI loop modes." />
                                     <TextBox x:Name="LoopConfigIntervalBox"
                                              Grid.Row="0" Grid.Column="1"
-                                             Text="10"
+                                             Text="1"
                                              Padding="4,2"
                                              Margin="0,0,0,6"
                                              Background="{DynamicResource InputSurface}"
                                              Foreground="{DynamicResource LabelText}"
-                                             BorderBrush="{DynamicResource InputBorder}" />
+                                             BorderBrush="{DynamicResource InputBorder}"
+                                              ToolTip="How many minutes to wait between the end of one iteration and the start of the next. Applies to both SquadDash Agents and squad CLI loop modes." />
                                     <TextBlock Grid.Row="1" Grid.Column="0"
                                                Text="Timeout (min):"
                                                Foreground="{DynamicResource BodyText}"
                                                VerticalAlignment="Center"
-                                               Margin="0,0,10,6" />
+                                               Margin="0,0,10,6"
+                                                ToolTip="Maximum minutes a single iteration is allowed to run before it is forcibly aborted. Set this shorter than Interval to prevent iterations from overlapping." />
                                     <TextBox x:Name="LoopConfigTimeoutBox"
                                              Grid.Row="1" Grid.Column="1"
                                              Text="5"
@@ -1036,19 +1039,22 @@
                                              Margin="0,0,0,6"
                                              Background="{DynamicResource InputSurface}"
                                              Foreground="{DynamicResource LabelText}"
-                                             BorderBrush="{DynamicResource InputBorder}" />
+                                             BorderBrush="{DynamicResource InputBorder}"
+                                              ToolTip="Maximum minutes a single iteration is allowed to run before it is forcibly aborted. Set this shorter than Interval to prevent iterations from overlapping." />
                                     <TextBlock Grid.Row="2" Grid.Column="0"
                                                Text="Description:"
                                                Foreground="{DynamicResource BodyText}"
                                                VerticalAlignment="Center"
-                                               Margin="0,0,10,0" />
+                                               Margin="0,0,10,0"
+                                                ToolTip="A short label for this loop shown in the Loop panel status area. Helps identify the loop's purpose at a glance." />
                                     <TextBox x:Name="LoopConfigDescriptionBox"
                                              Grid.Row="2" Grid.Column="1"
                                              Text="My loop"
                                              Padding="4,2"
                                              Background="{DynamicResource InputSurface}"
                                              Foreground="{DynamicResource LabelText}"
-                                             BorderBrush="{DynamicResource InputBorder}" />
+                                             BorderBrush="{DynamicResource InputBorder}"
+                                              ToolTip="A short label for this loop shown in the Loop panel status area. Helps identify the loop's purpose at a glance." />
                                 </Grid>
                                 <StackPanel Orientation="Horizontal"
                                             HorizontalAlignment="Right">
