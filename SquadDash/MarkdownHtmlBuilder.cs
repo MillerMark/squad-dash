@@ -13,7 +13,7 @@ internal static class MarkdownHtmlBuilder {
     private static readonly Regex LinkRegex = new(@"\[([^\]]+)\]\(([^)]+)\)", RegexOptions.Compiled);
     private static readonly Regex BoldRegex = new(@"\*\*(.+?)\*\*", RegexOptions.Compiled);
     private static readonly Regex ItalicRegex = new(@"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", RegexOptions.Compiled);
-    private static readonly Regex BareUrlRegex = new(@"https?://[^\s\[\]()'""`<>]+", RegexOptions.Compiled);
+    private static readonly Regex BareUrlRegex = new(@"https?://[^\s\[\]()'`""*_<>]+", RegexOptions.Compiled);
 
     public static string Build(string markdown, string title, string? filePath = null, bool isDark = false) {
         var body = BuildBody(markdown ?? string.Empty);
@@ -377,7 +377,7 @@ document.addEventListener('click', function(e) {
             if (m.Index >= 2 && text[m.Index - 1] == '(' && text[m.Index - 2] == ']')
                 return m.Value;
             // Strip common trailing punctuation that follows URLs in prose.
-            var url = m.Value.TrimEnd('.', ',', ';', ':', '!', '?', ')');
+            var url = m.Value.TrimEnd('.', ',', ';', ':', '!', '?', ')', '*', '_');
             var key = $"@@BAREURL{bareUrlIndex++}@@";
             bareUrlPlaceholders[key] = url;
             return key + m.Value[url.Length..]; // re-append any stripped chars
