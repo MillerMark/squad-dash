@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
@@ -19,6 +20,19 @@ internal static class VoiceInsertionHeuristics
     // uppercase letter but must stay capitalised.
     private static readonly HashSet<string> PreservedWords =
         new(StringComparer.Ordinal) { "I" };
+
+    // Filler words at the very start of incoming text (any case).
+    // Matches: Uh / Uhh / Um / Umm followed by optional punctuation then whitespace.
+    private static readonly Regex s_leadingFiller = new(
+        @"^(?:[Uu][Hh]{1,2}|[Uu][Mm]{1,2})\b[,\.…]{0,4}\s+",
+        RegexOptions.Compiled);
+
+    // Filler words anywhere in the text (case-insensitive).
+    // Used after all leading fillers are stripped to clean up any remaining
+    // mid-sentence occurrences.
+    private static readonly Regex s_midFiller = new(
+        @"\b(?:uh{1,2}|um{1,2})\b[,\.…]{0,4}\s+",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // ── Public entry point ────────────────────────────────────────────────────
 
@@ -45,7 +59,12 @@ internal static class VoiceInsertionHeuristics
 
         var result = incomingText;
 
-        // 1. Mid-sentence continuation (left side): lowercase first word unless
+        // 0. Strip filler words ("Uh,", "Um,", "Umm,", etc.) before any other
+        //    heuristic runs so that downstream steps see clean text.
+        result = StripFillerWords(result);
+        if (string.IsNullOrEmpty(result)) return result;
+
+        // 1. Mid-sentence continuation(left side): lowercase first word unless
         //    it is a special-case token (acronym, CamelCase, pronoun "I").
         if (IsSentenceContinuation(leftContext))
             result = LowercaseFirstWordIfNotSpecial(result);
@@ -181,6 +200,7 @@ internal static class VoiceInsertionHeuristics
     ///   <item>It contains two or more uppercase letters — indicating an acronym
     ///         (<c>API</c>, <c>URL</c>) or a CamelCase identifier
     ///         (<c>JavaScript</c>, <c>iPhone</c>).</item>
+    ///   <item>It contains a digit — e.g. <c>"3D"</c>, <c>"R2D2"</c>, <c>"v2"</c>.</item>
     /// </list>
     /// </summary>
     internal static bool IsSpecialCaseWord(string word)
@@ -194,10 +214,68 @@ internal static class VoiceInsertionHeuristics
 
         var upperCount = 0;
         foreach (var ch in word)
-            if (char.IsUpper(ch) && ++upperCount >= 2)
-                return true;
+        {
+            if (char.IsDigit(ch)) return true;
+            if (char.IsUpper(ch) && ++upperCount >= 2) return true;
+        }
 
         return false;
+    }
+
+    /// <summary>
+    /// Removes speech filler words ("Uh", "Uhh", "Um", "Umm" in any case) from
+    /// the incoming text before other heuristics run.
+    ///
+    /// <para>Leading fillers (start of text):</para>
+    /// <list type="bullet">
+    ///   <item>Strip the filler word, any immediately-following punctuation
+    ///         (<c>,</c> <c>.</c> <c>…</c>), and the whitespace after it.</item>
+    ///   <item>If the filler was capitalised, capitalise the next word —
+    ///         unless that word is already a special-case token
+    ///         (acronym, CamelCase, contains a digit, etc.).</item>
+    ///   <item>Repeated leading fillers are stripped in a loop.</item>
+    /// </list>
+    ///
+    /// <para>Remaining mid-sentence fillers (any case) are replaced with a
+    /// single space.</para>
+    /// </summary>
+    internal static string StripFillerWords(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        // Strip leading fillers one at a time (handles "Uh, um, do this").
+        while (true)
+        {
+            var m = s_leadingFiller.Match(text);
+            if (!m.Success) break;
+            bool wasCapitalised = char.IsUpper(m.Value[0]);
+            text = text[m.Length..];
+            if (wasCapitalised && text.Length > 0)
+                text = CapitalizeFirstWordIfNotSpecial(text);
+            if (text.Length == 0) break;
+        }
+
+        // Clean up any remaining filler words inside the text.
+        text = s_midFiller.Replace(text, " ").Trim();
+
+        return text;
+    }
+
+    /// <summary>
+    /// Uppercases the first character of <paramref name="text"/> unless the
+    /// first word is a special-case token (see <see cref="IsSpecialCaseWord"/>).
+    /// Used after a leading filler is stripped to restore sentence capitalisation.
+    /// </summary>
+    internal static string CapitalizeFirstWordIfNotSpecial(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+
+        var spaceIdx  = text.IndexOf(' ');
+        var firstWord = spaceIdx < 0 ? text : text[..spaceIdx];
+
+        if (IsSpecialCaseWord(firstWord)) return text;
+
+        return char.ToUpperInvariant(text[0]) + text[1..];
     }
 
     /// <summary>
