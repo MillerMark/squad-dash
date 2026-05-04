@@ -337,7 +337,16 @@ internal sealed class ScreenshotOverlayWindow : Window
         // ── Toolbar (Capture + Cancel) ────────────────────────────────────────
         var captureBtn = new Button { Content = "Capture", Width = 84, Height = 28 };
         captureBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        captureBtn.ToolTip = "Shift+Click to capture in 5 seconds";
         captureBtn.Click += (_, _) => EnterAnnotationMode();
+        captureBtn.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                e.Handled = true;
+                _ = StartDelayedCaptureAsync(5);
+            }
+        };
 
         var cancelBtn = new Button
         {
@@ -1220,6 +1229,74 @@ internal sealed class ScreenshotOverlayWindow : Window
     /// shows the unified annotation panel (name + buttons + description) so the
     /// user can annotate and save in one step.
     /// </summary>
+    // ── Delayed-capture (Shift+Click countdown) ──────────────────────────────
+
+    private async Task StartDelayedCaptureAsync(int seconds)
+    {
+        // Snapshot selection and auto-generate a name — same setup as EnterAnnotationMode.
+        EnterAnnotationMode();
+
+        // Hide the overlay so the user can interact freely during the countdown.
+        Hide();
+
+        await ShowCountdownAsync(seconds);
+
+        // Now take the screenshot (overlay is still hidden; DoAnnotationSaveAsync hides it
+        // again before rendering, which is a no-op when already hidden).
+        await DoAnnotationSaveAsync();
+    }
+
+    /// <summary>
+    /// Shows a transparent, topmost window with a large countdown number centered
+    /// over the main window.  The window is non-interactive (<c>IsHitTestVisible=false</c>)
+    /// so the user can interact with the app during the countdown.
+    /// </summary>
+    private async Task ShowCountdownAsync(int seconds)
+    {
+        var countLabel = new System.Windows.Controls.TextBlock
+        {
+            FontSize            = 180,
+            FontWeight          = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Foreground          = new SolidColorBrush(Color.FromArgb(210, 255, 255, 255)),
+            Effect              = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color       = Colors.Black,
+                BlurRadius  = 24,
+                ShadowDepth = 0,
+                Opacity     = 0.85
+            }
+        };
+
+        var countWindow = new Window
+        {
+            WindowStyle           = WindowStyle.None,
+            AllowsTransparency    = true,
+            Background            = Brushes.Transparent,
+            Topmost               = true,
+            IsHitTestVisible      = false,
+            ShowInTaskbar         = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Left                  = _mainWindow.Left,
+            Top                   = _mainWindow.Top,
+            Width                 = _mainWindow.ActualWidth,
+            Height                = _mainWindow.ActualHeight,
+            Content               = new Grid { Children = { countLabel } },
+            Owner                 = _mainWindow
+        };
+
+        countWindow.Show();
+
+        for (int i = seconds; i >= 1; i--)
+        {
+            countLabel.Text = i.ToString();
+            await Task.Delay(1000);
+        }
+
+        countWindow.Close();
+    }
+
     private void EnterAnnotationMode()
     {
         if (_inAnnotationMode) return;   // already active — idempotent
