@@ -2431,15 +2431,21 @@ public partial class MainWindow : Window, ILiveElementLocator
             _bridge.AbortPrompt();
         }
 
-        foreach (var target in targets.Where(target => !target.IsCoordinator))
-        {
-            SquadDashTrace.Write(
-                "UI",
-                $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} label={target.DisplayLabel}");
-            await _bridge.CancelBackgroundTaskAsync(
-                target.TaskId,
-                _conversationManager.CurrentSessionId).ConfigureAwait(true);
-        }
+        var backgroundCancelTasks = targets
+            .Where(target => !target.IsCoordinator)
+            .Select(async target =>
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} label={target.DisplayLabel}");
+                var cancelled = await _bridge.CancelBackgroundTaskAsync(target.TaskId).ConfigureAwait(true);
+                SquadDashTrace.Write(
+                    "UI",
+                    $"AbortButton background cancel result taskKind={target.TaskKind} task={target.TaskId} cancelled={cancelled}");
+            })
+            .ToArray();
+
+        await Task.WhenAll(backgroundCancelTasks).ConfigureAwait(true);
     }
 
     private void HandleEvent(SquadSdkEvent evt)
@@ -6409,9 +6415,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             SquadDashTrace.Write(
                 "UI",
                 $"Agent context menu abort requested taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} label={abortTarget.DisplayLabel}");
-            await _bridge.CancelBackgroundTaskAsync(
-                abortTarget.TaskId,
-                _conversationManager.CurrentSessionId).ConfigureAwait(true);
+            var cancelled = await _bridge.CancelBackgroundTaskAsync(abortTarget.TaskId).ConfigureAwait(true);
+            SquadDashTrace.Write(
+                "UI",
+                $"Agent context menu abort result taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} cancelled={cancelled}");
         }
         catch (Exception ex)
         {

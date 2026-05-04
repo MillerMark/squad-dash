@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace SquadDash.Tests;
 
@@ -175,6 +176,107 @@ internal sealed class SquadSdkProcessTests {
             Assert.That(completionEvent.AgentDisplayName, Is.EqualTo("WandaMaximoff"));
             Assert.That(completionEvent.AgentDescription, Is.EqualTo("Review options page changes"));
         });
+    }
+
+    [Test]
+    public async Task CancelBackgroundTaskAsync_SendsRequestIdAndReturnsAcknowledgedResult() {
+        var requestLogPath = Path.Combine(_tempDir, "requests.jsonl");
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var events = new List<SquadSdkEvent>();
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'cancel_background_task') {
+                    Write-Output ('{"type":"background_task_cancelled","requestId":"' + $request.requestId + '","taskId":"' + $request.taskId + '","cancelled":true}')
+                    Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            lock (events)
+                events.Add(e);
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var cancelled = await sut.CancelBackgroundTaskAsync("agent-1");
+        await promptTask;
+
+        var cancelRequestLine = FindLoggedRequestLine(requestLogPath, "cancel_background_task");
+        using var cancelRequest = JsonDocument.Parse(cancelRequestLine);
+        var root = cancelRequest.RootElement;
+
+        Assert.Multiple(() => {
+            Assert.That(cancelled, Is.True);
+            Assert.That(root.GetProperty("taskId").GetString(), Is.EqualTo("agent-1"));
+            Assert.That(root.GetProperty("requestId").GetString(), Is.Not.Null.And.Not.Empty);
+            Assert.That(root.TryGetProperty("sessionId", out _), Is.False);
+            Assert.That(events.Any(e =>
+                e.Type == "background_task_cancelled" &&
+                e.TaskId == "agent-1" &&
+                e.Cancelled == true), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task CancelBackgroundTaskAsync_ErrorAcknowledgement_DoesNotFailActivePrompt() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'cancel_background_task') {
+                    Write-Output ('{"type":"error","requestId":"' + $request.requestId + '","message":"not cancelled"}')
+                    Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var cancelled = await sut.CancelBackgroundTaskAsync("agent-1");
+
+        Assert.That(cancelled, Is.False);
+        Assert.That(async () => await promptTask, Throws.Nothing);
     }
 
     [Test]
@@ -462,6 +564,21 @@ internal sealed class SquadSdkProcessTests {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    private static string PowerShellSingleQuoted(string value) =>
+        "'" + value.Replace("'", "''") + "'";
+
+    private static string FindLoggedRequestLine(string requestLogPath, string requestType) {
+        foreach (var line in File.ReadLines(requestLogPath, Encoding.UTF8)) {
+            using var document = JsonDocument.Parse(line);
+            if (document.RootElement.TryGetProperty("type", out var type) &&
+                string.Equals(type.GetString(), requestType, StringComparison.Ordinal)) {
+                return line;
+            }
+        }
+
+        throw new InvalidOperationException($"No logged request with type '{requestType}' was found.");
+    }
 
     /// <summary>Creates a ProcessStartInfo that runs a cmd.exe script from inline lines.</summary>
     private Func<ProcessStartInfo> BuildStartInfo(string scriptLines) => () => BuildScriptStartInfo(scriptLines);

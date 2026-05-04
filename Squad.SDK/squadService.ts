@@ -511,6 +511,13 @@ function cloneBackgroundTasks(tasks: BackgroundTaskSnapshot): BackgroundTaskSnap
     };
 }
 
+function backgroundTasksContainTask(tasks: BackgroundTaskSnapshot, taskId: string): boolean {
+    return tasks.agents.some(agent =>
+        agent.agentId === taskId ||
+        agent.toolCallId === taskId) ||
+        tasks.shells.some(shell => shell.shellId === taskId);
+}
+
 function agentInfoEqual(left: BackgroundAgentInfo, right: BackgroundAgentInfo): boolean {
     return left.agentId === right.agentId &&
         left.status === right.status &&
@@ -807,25 +814,35 @@ export class SquadBridgeService {
         if (!normalizedTaskId)
             return false;
 
-        const state = sessionId
-            ? this.sessions.get(sessionId)
-            : Array.from(this.sessions.values()).find(value =>
-                value.backgroundTasks.agents.some(agent => agent.agentId === normalizedTaskId) ||
-                value.backgroundTasks.shells.some(shell => shell.shellId === normalizedTaskId));
+        const allStates = Array.from(this.sessions.values());
+        const preferredState = sessionId ? this.sessions.get(sessionId) : undefined;
+        const matchingStates = allStates.filter(value =>
+            value !== preferredState &&
+            backgroundTasksContainTask(value.backgroundTasks, normalizedTaskId));
+        const fallbackStates = allStates.filter(value =>
+            value !== preferredState &&
+            !matchingStates.includes(value));
+        const candidates = [
+            ...(preferredState ? [preferredState] : []),
+            ...matchingStates,
+            ...fallbackStates
+        ];
 
-        if (!state)
-            return false;
+        for (const state of candidates) {
+            const backgroundTaskSession = state.session as unknown as {
+                cancelBackgroundTask?: (taskId: string) => Promise<boolean>;
+            };
 
-        const backgroundTaskSession = state.session as unknown as {
-            cancelBackgroundTask?: (taskId: string) => Promise<boolean>;
-        };
+            if (!backgroundTaskSession.cancelBackgroundTask)
+                continue;
 
-        if (!backgroundTaskSession.cancelBackgroundTask)
-            return false;
+            const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
+            await this.refreshBackgroundTasks(state).catch(() => undefined);
+            if (cancelled)
+                return true;
+        }
 
-        const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
-        await this.refreshBackgroundTasks(state).catch(() => undefined);
-        return cancelled;
+        return false;
     }
 
     public async shutdown(): Promise<void> {

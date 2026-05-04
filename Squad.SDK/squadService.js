@@ -233,6 +233,11 @@ function cloneBackgroundTasks(tasks) {
         shells: tasks.shells.map(shell => ({ ...shell }))
     };
 }
+function backgroundTasksContainTask(tasks, taskId) {
+    return tasks.agents.some(agent => agent.agentId === taskId ||
+        agent.toolCallId === taskId) ||
+        tasks.shells.some(shell => shell.shellId === taskId);
+}
 function agentInfoEqual(left, right) {
     return left.agentId === right.agentId &&
         left.status === right.status &&
@@ -448,18 +453,27 @@ export class SquadBridgeService {
         const normalizedTaskId = taskId.trim();
         if (!normalizedTaskId)
             return false;
-        const state = sessionId
-            ? this.sessions.get(sessionId)
-            : Array.from(this.sessions.values()).find(value => value.backgroundTasks.agents.some(agent => agent.agentId === normalizedTaskId) ||
-                value.backgroundTasks.shells.some(shell => shell.shellId === normalizedTaskId));
-        if (!state)
-            return false;
-        const backgroundTaskSession = state.session;
-        if (!backgroundTaskSession.cancelBackgroundTask)
-            return false;
-        const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
-        await this.refreshBackgroundTasks(state).catch(() => undefined);
-        return cancelled;
+        const allStates = Array.from(this.sessions.values());
+        const preferredState = sessionId ? this.sessions.get(sessionId) : undefined;
+        const matchingStates = allStates.filter(value => value !== preferredState &&
+            backgroundTasksContainTask(value.backgroundTasks, normalizedTaskId));
+        const fallbackStates = allStates.filter(value => value !== preferredState &&
+            !matchingStates.includes(value));
+        const candidates = [
+            ...(preferredState ? [preferredState] : []),
+            ...matchingStates,
+            ...fallbackStates
+        ];
+        for (const state of candidates) {
+            const backgroundTaskSession = state.session;
+            if (!backgroundTaskSession.cancelBackgroundTask)
+                continue;
+            const cancelled = await backgroundTaskSession.cancelBackgroundTask(normalizedTaskId).catch(() => false);
+            await this.refreshBackgroundTasks(state).catch(() => undefined);
+            if (cancelled)
+                return true;
+        }
+        return false;
     }
     async shutdown() {
         const sessionIds = Array.from(this.sessions.keys());
