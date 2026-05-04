@@ -10,8 +10,15 @@ internal static class StartupWorkspaceResolver {
         string? startupFolder,
         string? lastOpenedFolder,
         string? applicationRoot) {
-        var candidates = new List<string?>(3) {
-            startupFolder,
+        // If an explicit startup folder was provided (e.g. from --folder / shell context menu),
+        // use it directly. Do not fall through to lastOpenedFolder just because the explicit
+        // folder doesn't look like a workspace root — that would silently route to the wrong
+        // already-open workspace and discard the user's intent.
+        if (!string.IsNullOrWhiteSpace(startupFolder) && Directory.Exists(startupFolder))
+            return NormalizePath(startupFolder);
+
+        // No explicit folder provided — use heuristics to pick the best candidate.
+        var candidates = new List<string?>(2) {
             lastOpenedFolder,
             applicationRoot
         };
