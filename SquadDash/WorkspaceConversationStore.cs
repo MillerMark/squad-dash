@@ -553,7 +553,10 @@ internal sealed record WorkspaceConversationState(
     public IReadOnlyList<string> GetRecentSessionIds() => RecentSessionIds ?? Array.Empty<string>();
 }
 
-internal sealed record QueuedPromptEntry(string Text, bool IsDictated);
+internal sealed record QueuedPromptEntry(
+    string Text,
+    bool IsDictated,
+    IReadOnlyList<FollowUpAttachmentDto>? Attachments = null);
 
 internal enum TranscriptThoughtPlacement {
     BeforeTools,

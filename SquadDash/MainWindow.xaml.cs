@@ -1988,7 +1988,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
 
-        _conversationManager.UpdateQueuedPromptsState(items, queueRightmostHeld: IsRightmostQueueTabActive());
+        _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
         SyncSendButton();
     }
 
@@ -9396,7 +9396,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             _promptQueueSeq = 0;
             foreach (var entry in savedEntries)
+            {
                 _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated);
+                if (entry.Attachments is { Count: > 0 })
+                {
+                    var newId = _promptQueue.Items[^1].Id;
+                    _followUpAttachments[newId] = entry.Attachments
+                        .Where(a => !string.IsNullOrEmpty(a.CommitSha) && !string.IsNullOrEmpty(a.Description))
+                        .Select(a => new FollowUpAttachment(a.CommitSha!, a.Description!, a.OriginalPrompt, a.TranscriptQuote))
+                        .ToList();
+                }
+            }
             SyncQueuePanel();
 
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
@@ -14187,7 +14197,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // call always writes queueRightmostHeld=false (because _activeTabId is now null),
             // so we must re-persist the true value after the switch completes.
             if (queueWasRightmostHeld)
-                _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, queueRightmostHeld: true);
+                _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, _followUpAttachments, queueRightmostHeld: true);
             SquadDashTrace.Write("Queue", $"Shutdown save: count={_promptQueue.Count} wasHeld={queueWasRightmostHeld} restartPending={_restartPending}");
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();

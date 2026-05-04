@@ -934,10 +934,25 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
-    internal void UpdateQueuedPromptsState(IReadOnlyList<PromptQueueItem> items, bool queueRightmostHeld = false) {
-        var entries = items.Count > 0
-            ? (IReadOnlyList<QueuedPromptEntry>)items.Select(i => new QueuedPromptEntry(i.Text, i.IsDictated)).ToArray()
-            : null;
+    internal void UpdateQueuedPromptsState(
+        IReadOnlyList<PromptQueueItem> items,
+        Dictionary<string, List<FollowUpAttachment>>? attachments = null,
+        bool queueRightmostHeld = false) {
+        IReadOnlyList<QueuedPromptEntry>? entries = null;
+        if (items.Count > 0)
+        {
+            entries = items.Select(i => {
+                List<FollowUpAttachmentDto>? dtos = null;
+                if (attachments is not null &&
+                    attachments.TryGetValue(i.Id, out var list) && list.Count > 0)
+                {
+                    dtos = list
+                        .Select(a => new FollowUpAttachmentDto(a.CommitSha, a.Description, a.OriginalPrompt, a.TranscriptQuote))
+                        .ToList();
+                }
+                return new QueuedPromptEntry(i.Text, i.IsDictated, dtos);
+            }).ToArray();
+        }
         _conversationState = _conversationState with {
             QueuedPromptEntries = entries,
             QueueRightmostHeld  = queueRightmostHeld ? true : null,
