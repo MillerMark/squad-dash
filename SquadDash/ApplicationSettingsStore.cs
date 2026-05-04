@@ -642,6 +642,14 @@ internal sealed record WorkspaceDocsPanelState
     /// <c>true</c> = user had the panel open and wants it restored on next startup.
     /// </summary>
     public bool? NotesPanelVisible { get; init; }
+
+    /// <summary>
+    /// Follow-up attachment on the active draft tab. Persisted so it survives restart.
+    /// All three are null when no attachment is present.
+    /// </summary>
+    public string? DraftFollowUpCommitSha { get; init; }
+    public string? DraftFollowUpDescription { get; init; }
+    public string? DraftFollowUpOriginalPrompt { get; init; }
 }
 
 internal sealed record ApplicationSettingsSnapshot(

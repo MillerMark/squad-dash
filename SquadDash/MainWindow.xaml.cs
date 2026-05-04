@@ -1655,6 +1655,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         PromptTextBox.Clear();
         SyncQueuePanel();
+        UpdateFollowUpStrip();
+        PersistDraftFollowUp();
     }
 
     private void EnqueueRcPrompt(string text)
@@ -15958,6 +15960,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ViewNotesMenuItem.IsChecked = true;
         }
 
+        // Restore draft follow-up attachment if one was persisted.
+        if (_docsPanelState.DraftFollowUpCommitSha is { Length: > 0 } sha &&
+            _docsPanelState.DraftFollowUpDescription is { Length: > 0 } desc)
+        {
+            _followUpAttachments[""] = new FollowUpAttachment(sha, desc, _docsPanelState.DraftFollowUpOriginalPrompt);
+            UpdateFollowUpStrip();
+        }
+
         // Open: true = explicitly opened by user. null (absent) or false = closed (default for new installs).
         if (_docsPanelState.Open != true)
             return;
@@ -16848,6 +16858,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         _followUpAttachments[_activeTabId ?? ""] = new FollowUpAttachment(item.CommitSha, item.Description, item.OriginalPrompt);
         UpdateFollowUpStrip();
+        if (_activeTabId is null) PersistDraftFollowUp();
     }
 
     private void UpdateFollowUpStrip()
@@ -16868,6 +16879,36 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         _followUpAttachments.Remove(_activeTabId ?? "");
         UpdateFollowUpStrip();
+        if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
+    /// <summary>
+    /// Saves (or clears) the active-draft follow-up attachment to workspace settings
+    /// so it survives a restart.  Only the draft slot (key "") is persisted; queue items
+    /// are not persisted because the queue itself does not survive a restart.
+    /// </summary>
+    private void PersistDraftFollowUp()
+    {
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        if (_followUpAttachments.TryGetValue("", out var att))
+        {
+            _docsPanelState = state with
+            {
+                DraftFollowUpCommitSha      = att.CommitSha,
+                DraftFollowUpDescription    = att.Description,
+                DraftFollowUpOriginalPrompt = att.OriginalPrompt,
+            };
+        }
+        else
+        {
+            _docsPanelState = state with
+            {
+                DraftFollowUpCommitSha      = null,
+                DraftFollowUpDescription    = null,
+                DraftFollowUpOriginalPrompt = null,
+            };
+        }
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
     }
 
     private string ApplyFollowUpHeader(string text, string tabId)
@@ -16875,6 +16916,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!_followUpAttachments.TryGetValue(tabId, out var att))
             return text;
         _followUpAttachments.Remove(tabId);
+        if (tabId == "") PersistDraftFollowUp();
         UpdateFollowUpStrip();
         var summaryHint = att.OriginalPrompt is { Length: > 0 } op
             ? (op.Length > 120 ? op[..120] + "…" : op)

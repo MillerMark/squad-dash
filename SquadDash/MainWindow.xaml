@@ -1809,16 +1809,6 @@
                 </StackPanel>
 
                 <DockPanel Grid.Row="0">
-                    <Border x:Name="QueueTabBorder"
-                            DockPanel.Dock="Top"
-                            Visibility="Collapsed"
-                            Panel.ZIndex="0"
-                            BorderThickness="0,0,0,1"
-                            BorderBrush="{DynamicResource LineColor}">
-                        <StackPanel x:Name="QueueTabStrip"
-                                    Orientation="Horizontal"
-                                    Background="{DynamicResource InputSurface}" />
-                    </Border>
                     <Border x:Name="FollowUpStrip"
                             DockPanel.Dock="Top"
                             Visibility="Collapsed"
@@ -1841,6 +1831,16 @@
                                        FontSize="11"
                                        Foreground="{DynamicResource SubtleText}" />
                         </DockPanel>
+                    </Border>
+                    <Border x:Name="QueueTabBorder"
+                            DockPanel.Dock="Top"
+                            Visibility="Collapsed"
+                            Panel.ZIndex="0"
+                            BorderThickness="0,0,0,1"
+                            BorderBrush="{DynamicResource LineColor}">
+                        <StackPanel x:Name="QueueTabStrip"
+                                    Orientation="Horizontal"
+                                    Background="{DynamicResource InputSurface}" />
                     </Border>
                     <TextBox x:Name="PromptTextBox"
                              Panel.ZIndex="1"
