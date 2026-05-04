@@ -193,6 +193,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         _sourceEditorHost = new Grid();
         foreach (var document in _documents) {
             document.EditorTextBox.Tag = document;
+            document.EditorTextBox.ContextMenu = BuildSourceEditorContextMenu(document.EditorTextBox);
             document.EditorTextBox.TextChanged += EditorTextBox_TextChanged;
             _sourceEditorHost.Children.Add(document.EditorTextBox);
         }
@@ -217,6 +218,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         foreach (var document in _documents) {
             document.EditorTextBox.SelectionChanged += EditorTextBox_SelectionChanged;
             document.EditorTextBox.PreviewKeyDown   += EditorTextBox_PreviewKeyDown;
+            document.EditorTextBox.ContextMenuOpening += EditorTextBox_ContextMenuOpening;
         }
 
         var tbStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new System.Windows.Thickness(0, 0, 0, 6) };
@@ -254,15 +256,18 @@ internal sealed class MarkdownDocumentWindow : Window {
         UpdateChrome();
     }
 
+    private bool _autoSave;
+
     public static void Show(Window? owner, string title, string filePath, bool showSource = false,
-        MarkdownDocumentCaptureContext? captureContext = null) {
-        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext);
+        MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false) {
+        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave);
     }
 
     public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false,
-        MarkdownDocumentCaptureContext? captureContext = null) {
+        MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false) {
         var window = new MarkdownDocumentWindow(title, documents);
         window._captureContext = captureContext;
+        window._autoSave       = autoSave;
         if (owner is not null)
             window.Owner = owner;
 
@@ -306,6 +311,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         document.WorkingText = editorTextBox.Text;
         document.IsDirty = !string.Equals(document.WorkingText, document.SavedText, StringComparison.Ordinal);
         RenderPreview(document, preserveScroll: true);
+        if (_autoSave && document.IsDirty)
+            AutoSaveDocument(document);
         UpdateChrome();
     }
 
@@ -315,6 +322,76 @@ internal sealed class MarkdownDocumentWindow : Window {
         var hasSelection = tb.SelectionLength > 0;
         if (_srcBoldButton   is not null) _srcBoldButton.IsEnabled   = hasSelection;
         if (_srcItalicButton is not null) _srcItalicButton.IsEnabled = hasSelection;
+    }
+
+    private void EditorTextBox_ContextMenuOpening(object sender, ContextMenuEventArgs e) {
+        if (sender is not TextBox tb || tb.ContextMenu is null) return;
+
+        // Remove any previously-injected "Add to Notes" items so they don't stack
+        for (int i = tb.ContextMenu.Items.Count - 1; i >= 0; i--) {
+            if (tb.ContextMenu.Items[i] is MenuItem { Tag: "AddToNotes" } ||
+                tb.ContextMenu.Items[i] is Separator { Tag: "AddToNotesSep" })
+                tb.ContextMenu.Items.RemoveAt(i);
+        }
+
+        // Cut/Copy/Paste enabled state
+        foreach (var obj in tb.ContextMenu.Items) {
+            if (obj is not MenuItem mi) continue;
+            if (mi.Command == ApplicationCommands.Cut   || mi.Command == ApplicationCommands.Copy)
+                mi.IsEnabled = tb.SelectionLength > 0;
+            if (mi.Command == ApplicationCommands.Paste)
+                mi.IsEnabled = Clipboard.ContainsText();
+        }
+
+        // Add "Add to Notes" if callback is set and there's a selection
+        if (_captureContext?.AddToNotesCallback is not { } callback) return;
+        if (tb.SelectionLength == 0) return;
+
+        var sep = new Separator { Tag = "AddToNotesSep" };
+        sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+
+        var noteItem = new MenuItem { Header = "Add to Notes", Tag = "AddToNotes" };
+        noteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        noteItem.Click += (_, _) => {
+            var text = tb.SelectedText;
+            if (!string.IsNullOrWhiteSpace(text))
+                callback(text);
+        };
+
+        tb.ContextMenu.Items.Add(sep);
+        tb.ContextMenu.Items.Add(noteItem);
+    }
+
+    private static ContextMenu BuildSourceEditorContextMenu(TextBox tb) {
+        var menu = new ContextMenu();
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+        var cutItem = new MenuItem {
+            Header = "Cu_t",
+            Command = ApplicationCommands.Cut,
+            CommandTarget = tb,
+        };
+        cutItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+
+        var copyItem = new MenuItem {
+            Header = "_Copy",
+            Command = ApplicationCommands.Copy,
+            CommandTarget = tb,
+        };
+        copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+
+        var pasteItem = new MenuItem {
+            Header = "_Paste",
+            Command = ApplicationCommands.Paste,
+            CommandTarget = tb,
+        };
+        pasteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+
+        menu.Items.Add(cutItem);
+        menu.Items.Add(copyItem);
+        menu.Items.Add(pasteItem);
+
+        return menu;
     }
 
     private void EditorTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
@@ -590,6 +667,17 @@ internal sealed class MarkdownDocumentWindow : Window {
         document.IsDirty = false;
         RenderPreview(document, preserveScroll: true);
         UpdateChrome($"Saved {document.FileName} at {DateTime.Now:t}");
+    }
+
+    private void AutoSaveDocument(MarkdownDocumentTabState document) {
+        try {
+            File.WriteAllText(document.FilePath, document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            document.SavedText = document.WorkingText;
+            document.IsDirty   = false;
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("MarkdownDocumentWindow", $"AutoSave failed: {ex.Message}");
+        }
     }
 
     private void RenderPreview(MarkdownDocumentTabState document, bool preserveScroll = false) {
@@ -1681,4 +1769,11 @@ internal sealed record MarkdownDocumentCaptureContext(
     Screenshots.UiActionReplayRegistry? ActionRegistry,
     string?                             ScreenshotsDirectory,
     string                              ThemeName,
-    string                              SpeechRegion);
+    string                              SpeechRegion) {
+
+    /// <summary>
+    /// Optional callback invoked when the user chooses "Add to Notes" from the source
+    /// editor context menu. Receives the selected markdown text.
+    /// </summary>
+    public Action<string>? AddToNotesCallback { get; init; }
+}

@@ -379,6 +379,10 @@
                               Header="Approvals Panel"
                               IsCheckable="True"
                               Click="ViewCommitApprovalsMenuItem_Click" />
+                    <MenuItem x:Name="ViewNotesMenuItem"
+                              Header="Notes Panel"
+                              IsCheckable="True"
+                              Click="ViewNotesMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"
@@ -776,6 +780,7 @@
                                           Width="0" />
                         <ColumnDefinition x:Name="LoopOutputColumnDef"
                                           Width="0" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -1246,6 +1251,60 @@
                             </StackPanel>
                         </Grid>
                     </Border>
+
+                    <!-- Notes panel (Column 9) -->
+                    <Border x:Name="NotesPanelBorder"
+                            Grid.Column="9"
+                            MinWidth="200"
+                            MaxWidth="280"
+                            VerticalAlignment="Top"
+                            Margin="14,0,0,0"
+                            Padding="12"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Border.Height>
+                            <MultiBinding Converter="{StaticResource MaxValueConverter}">
+                                <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
+                                <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
+                            </MultiBinding>
+                        </Border.Height>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Row 0: Title + close button -->
+                            <Grid Grid.Row="0">
+                                <TextBlock Text="Notes"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           HorizontalAlignment="Left"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="NotesPanelCloseButton"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="13"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Notes panel"
+                                        Click="NotesPanelCloseButton_Click" />
+                            </Grid>
+
+                            <!-- Row 1: Notes list -->
+                            <ScrollViewer Grid.Row="1"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="NotesListPanel" />
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
                 </Grid>
             </Grid>
         </Border>
@@ -1338,7 +1397,9 @@
                                  IsDocumentEnabled="True"
                                  IsReadOnly="True"
                                  IsUndoEnabled="False"
+                                 ContextMenu="{x:Null}"
                                  Foreground="{DynamicResource LabelText}"
+                                 PreviewMouseRightButtonDown="OutputTextBox_PreviewMouseRightButtonDown"
                                  PreviewMouseWheel="OutputTextBox_PreviewMouseWheel"
                                  PreviewMouseDown="OutputTextBox_PreviewMouseDown" />
 

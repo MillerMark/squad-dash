@@ -144,6 +144,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
     private System.Windows.Controls.Primitives.Popup? _approvalNotFoundPopup;
+    private NotesStore? _notesStore;
+    private NotesPanelController? _notesPanel;
+    private List<NoteItem> _noteItems = [];
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
     private bool _movingFloatingWindow;
@@ -251,6 +254,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _tasksPanelVisible = false;
     private bool _approvalPanelVisible = false;
+    private bool _notesPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
     private int _watchWaveIndex;
@@ -5165,6 +5169,52 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private void OutputTextBox_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try
+        {
+            var menu = new ContextMenu();
+            menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+            var hasSelection = !OutputTextBox.Selection.IsEmpty;
+
+            var copyItem = new MenuItem { Header = "_Copy" };
+            copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            copyItem.IsEnabled = hasSelection;
+            copyItem.Click += (_, _) => {
+                var text = TranscriptCopyService.BuildSelectionText(OutputTextBox);
+                if (!string.IsNullOrEmpty(text))
+                    SetClipboardTextWithRetry(text);
+            };
+            menu.Items.Add(copyItem);
+
+            if (hasSelection)
+            {
+                var sep = new Separator();
+                sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(sep);
+
+                var addToNotesItem = new MenuItem { Header = "Add to Notes" };
+                addToNotesItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                addToNotesItem.Click += (_, _) => {
+                    var text = TranscriptCopyService.BuildSelectionText(OutputTextBox);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        AddNoteFromText(text);
+                };
+                menu.Items.Add(addToNotesItem);
+            }
+
+            menu.PlacementTarget = OutputTextBox;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OutputTextBox_PreviewMouseRightButtonDown), ex);
+        }
+    }
+
     private void OutputTextBox_CopyCanExecute(object sender, System.Windows.Input.CanExecuteRoutedEventArgs e)
     {
         try
@@ -7073,6 +7123,32 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewCommitApprovalsMenuItem_Click), ex); }
     }
 
+    private void ViewNotesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _notesPanelVisible = !_notesPanelVisible;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = _notesPanelVisible;
+            PersistNotesPanelVisible();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ViewNotesMenuItem_Click), ex); }
+    }
+
+    private void NotesPanelCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _notesPanelVisible = false;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = false;
+            PersistNotesPanelVisible();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(NotesPanelCloseButton_Click), ex); }
+    }
+
     private void SetDocumentationMode(bool enabled, bool persistChange = true)
     {
         if (_documentationModeEnabled == enabled)
@@ -8170,6 +8246,22 @@ public partial class MainWindow : Window, ILiveElementLocator
                 menu.Items.Add(imgItem);
             }
 
+            if (DocSourceTextBox.SelectionLength > 0)
+            {
+                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
+                var addToNotesItem = new MenuItem
+                {
+                    Header = "Add to Notes",
+                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                addToNotesItem.Click += (_, _) => {
+                    var text = DocSourceTextBox.SelectedText;
+                    if (!string.IsNullOrWhiteSpace(text))
+                        AddNoteFromText(text);
+                };
+                menu.Items.Add(addToNotesItem);
+            }
+
             menu.PlacementTarget = DocSourceTextBox;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
             menu.IsOpen = true;
@@ -8810,6 +8902,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         _approvalStore = new CommitApprovalStore(workspaceStateDir);
         _approvalItems = _approvalStore.Load();
         _approvalPanel?.ReplaceAllItems(_approvalItems);
+
+        _notesStore = new NotesStore(workspaceStateDir);
+        _noteItems  = _notesStore.LoadAll();
+        _notesPanel?.Refresh(_noteItems);
 
         ClearRuntimeIssue();
 
@@ -15463,7 +15559,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             ActionRegistry: _uiActionReplayRegistry,
             ScreenshotsDirectory: _workspacePaths.ScreenshotsDirectory,
             ThemeName: _activeThemeName,
-            SpeechRegion: _settingsSnapshot.SpeechRegion ?? string.Empty);
+            SpeechRegion: _settingsSnapshot.SpeechRegion ?? string.Empty) {
+            AddToNotesCallback = text => Dispatcher.Invoke(() => AddNoteFromText(text)),
+        };
 
     private void ShowTextWindow(string title, string content)
     {
@@ -15609,6 +15707,15 @@ public partial class MainWindow : Window, ILiveElementLocator
             SyncApprovalPanel();
             if (ViewCommitApprovalsMenuItem is not null)
                 ViewCommitApprovalsMenuItem.IsChecked = true;
+        }
+
+        // Restore notes panel visibility.
+        if (_docsPanelState.NotesPanelVisible == true)
+        {
+            _notesPanelVisible = true;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = true;
         }
 
         // Open: true = explicitly opened by user. null (absent) or false = closed (default for new installs).
@@ -16499,6 +16606,86 @@ public partial class MainWindow : Window, ILiveElementLocator
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { ApprovalPanelVisible = _approvalPanelVisible };
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    // ── Notes panel ───────────────────────────────────────────────────────────
+
+    private void SyncNotesPanel()
+    {
+        if (NotesPanelBorder is null) return;
+        NotesPanelBorder.Visibility = _notesPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+        if (_notesPanelVisible && _notesPanel is null)
+        {
+            _notesPanel = new NotesPanelController(
+                listPanel:  NotesListPanel!,
+                openNote:   note => OpenNote(note),
+                renameNote: (note, title) => RenameNote(note, title),
+                deleteNote: note => DeleteNote(note));
+            _notesPanel.Refresh(_noteItems);
+        }
+    }
+
+    private void PersistNotesPanelVisible()
+    {
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { NotesPanelVisible = _notesPanelVisible };
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    private void OpenNote(NoteItem note)
+    {
+        if (_notesStore is null) return;
+        var path = _notesStore.GetNotePath(note.Id);
+        if (!File.Exists(path)) return;
+        MarkdownDocumentWindow.Show(
+            CanShowOwnedWindow() ? this : null,
+            note.Title,
+            path,
+            showSource: false,
+            BuildMarkdownCaptureContext(),
+            autoSave: true);
+    }
+
+    private void RenameNote(NoteItem oldNote, string newTitle)
+    {
+        var idx = _noteItems.FindIndex(n => n.Id == oldNote.Id);
+        if (idx < 0 || _notesStore is null) return;
+        var updated = oldNote with { Title = newTitle };
+        _noteItems[idx] = updated;
+        _notesStore.SaveAll(_noteItems);
+    }
+
+    private void DeleteNote(NoteItem note)
+    {
+        if (_notesStore is null) return;
+        _noteItems.RemoveAll(n => n.Id == note.Id);
+        _notesStore.DeleteContent(note.Id);
+        _notesStore.SaveAll(_noteItems);
+        _notesPanel?.Refresh(_noteItems);
+    }
+
+    private void AddNoteFromText(string text)
+    {
+        if (_notesStore is null) return;
+        var title = NotesStore.DeriveTitle(text);
+        var note  = new NoteItem(Guid.NewGuid(), title, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        _notesStore.WriteContent(note.Id, text);
+        _noteItems.Insert(0, note);
+        _notesStore.SaveAll(_noteItems);
+
+        // Show the panel if hidden
+        if (!_notesPanelVisible)
+        {
+            _notesPanelVisible = true;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = true;
+            PersistNotesPanelVisible();
+        }
+        else
+        {
+            _notesPanel?.AddNote(note);
+        }
     }
 
     private void ApprovalPanelCloseButton_Click(object sender, RoutedEventArgs e)

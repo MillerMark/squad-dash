@@ -601,6 +601,7 @@ internal sealed class ApplicationSettingsStore {
                 FullScreenTranscript = state.FullScreenTranscript ?? existing.FullScreenTranscript,
                 TasksPanelVisible = state.TasksPanelVisible ?? existing.TasksPanelVisible,
                 ApprovalPanelVisible = state.ApprovalPanelVisible ?? existing.ApprovalPanelVisible,
+                NotesPanelVisible = state.NotesPanelVisible ?? existing.NotesPanelVisible,
             };
         }
         dict[key] = state;
@@ -635,6 +636,12 @@ internal sealed record WorkspaceDocsPanelState
     /// <c>true</c> = user had the panel open and wants it restored on next startup.
     /// </summary>
     public bool? ApprovalPanelVisible { get; init; }
+
+    /// <summary>
+    /// Whether the Notes inline panel was visible. <c>null</c> or <c>false</c> = hidden (default).
+    /// <c>true</c> = user had the panel open and wants it restored on next startup.
+    /// </summary>
+    public bool? NotesPanelVisible { get; init; }
 }
 
 internal sealed record ApplicationSettingsSnapshot(
