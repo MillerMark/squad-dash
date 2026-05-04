@@ -17168,15 +17168,44 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Deduplicate: don't add if the same transcript quote is already in the list.
         if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == quote)) return;
 
-        var preview = quote.Length > 50 ? quote[..50].TrimEnd() + "…" : quote;
+        // Title: first non-whitespace line of the selection, capped at 80 chars.
+        var firstLine = quote.Split('\n')
+            .Select(l => l.Trim())
+            .FirstOrDefault(l => l.Length > 0) ?? quote.TrimStart();
+        var title = firstLine.Length > 80 ? firstLine[..80].TrimEnd() + "…" : firstLine;
+
+        // Scan backwards through the thread's prompt paragraphs to find the prompt
+        // that precedes the selection, giving the AI useful context.
+        var thread = FindThreadForDocument(rtb.Document);
+        var selectionStart = rtb.Selection.Start;
+        PromptEntry? precedingEntry = null;
+        foreach (var entry in thread.PromptParagraphs)
+        {
+            if (entry.Paragraph.ContentStart.CompareTo(selectionStart) < 0)
+                precedingEntry = entry;
+            else
+                break;
+        }
+        string? originalPrompt = precedingEntry is not null
+            ? new TextRange(precedingEntry.Paragraph.ContentStart, precedingEntry.Paragraph.ContentEnd).Text.Trim()
+            : null;
+
         list.Add(new FollowUpAttachment(
             CommitSha:      string.Empty,
-            Description:    preview,
-            OriginalPrompt: null,
+            Description:    title,
+            OriginalPrompt: originalPrompt,
             TranscriptQuote: quote));
         UpdateFollowUpStrip();
         SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
+    private TranscriptThreadState FindThreadForDocument(FlowDocument document)
+    {
+        if (ReferenceEquals(CoordinatorThread.Document, document))
+            return CoordinatorThread;
+        return _agentThreadRegistry.ThreadOrder.FirstOrDefault(t => ReferenceEquals(t.Document, document))
+            ?? CoordinatorThread;
     }
 
     // ── Follow-up attachment ──────────────────────────────────────────────────
