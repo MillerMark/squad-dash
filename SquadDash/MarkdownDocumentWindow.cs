@@ -260,6 +260,15 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     public static void Show(Window? owner, string title, string filePath, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false) {
+        // If a window already has this file open, bring it to the front instead of opening a duplicate.
+        var existing = _openWindows.FirstOrDefault(w =>
+            w._documents.Any(d => string.Equals(d.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
+        if (existing is not null) {
+            if (existing.WindowState == WindowState.Minimized)
+                existing.WindowState = WindowState.Normal;
+            existing.Activate();
+            return;
+        }
         Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave);
     }
 
