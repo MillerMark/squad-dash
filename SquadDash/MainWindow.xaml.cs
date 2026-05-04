@@ -5619,6 +5619,16 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+            // ── Ctrl+End: scroll main transcript to bottom ────────────────────
+            if (e.Key == Key.End &&
+                (Keyboard.Modifiers & ModifierKeys.Control) != 0 &&
+                PromptTextBox?.IsFocused != true)
+            {
+                _scrollController.ScrollToBottom();
+                e.Handled = true;
+                return;
+            }
+
             switch (_pttState)
             {
                 case PttState.Idle:
