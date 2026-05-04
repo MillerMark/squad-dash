@@ -1557,9 +1557,15 @@
                 <ColumnDefinition x:Name="DocsSourceSplitterColumn" Width="0" />
                 <ColumnDefinition x:Name="DocsSourceColumn" Width="0" />
             </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <!-- Row 1 and 2 are 0-height until top-bottom layout is active -->
+                <RowDefinition x:Name="DocsSourceSplitterRow" Height="0" />
+                <RowDefinition x:Name="DocsSourceRow" Height="0" />
+            </Grid.RowDefinitions>
 
             <!-- Topic tree (left side of docs panel) — auto-sized to content, no splitter -->
-            <Border Grid.Column="0"
+            <Border Grid.Column="0" Grid.RowSpan="3"
                     Background="{DynamicResource PanelSurface}"
                     BorderBrush="{DynamicResource PanelBorder}"
                     BorderThickness="1"
@@ -1674,12 +1680,31 @@
                     ClipToBounds="True"
                     Visibility="Collapsed">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="Source"
+                <DockPanel DockPanel.Dock="Top" Margin="14,10,14,4">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="DocSourceSideBySideButton"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Width="26" Height="22"
+                                Padding="0" Margin="0,0,2,0"
+                                ToolTip="Side-by-side layout (preview left, source right)"
+                                Click="DocSourceSideBySideButton_Click">
+                            <TextBlock Text="▐▌" FontSize="10" />
+                        </Button>
+                        <Button x:Name="DocSourceTopBottomButton"
+                                Style="{StaticResource ThemedButtonStyle}"
+                                Width="26" Height="22"
+                                Padding="0"
+                                ToolTip="Top-bottom layout (preview top, source bottom)"
+                                Click="DocSourceTopBottomButton_Click">
+                            <TextBlock Text="▄▀" FontSize="10" />
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Text="Source"
                                FontSize="13"
                                FontWeight="SemiBold"
                                Foreground="{DynamicResource LabelText}"
-                               Margin="14,10,14,6" />
+                               VerticalAlignment="Center" />
+                </DockPanel>
                     <!-- Markdown formatting toolbar -->
                     <Border DockPanel.Dock="Top"
                             BorderBrush="{DynamicResource PanelBorder}"

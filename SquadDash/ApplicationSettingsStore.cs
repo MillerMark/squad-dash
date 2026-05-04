@@ -598,6 +598,7 @@ internal sealed class ApplicationSettingsStore {
                 TopicsWidthFraction = state.TopicsWidthFraction ?? existing.TopicsWidthFraction,
                 SourceOpen = state.SourceOpen ?? existing.SourceOpen,
                 SourceWidth = state.SourceWidth ?? existing.SourceWidth,
+                SourceLayoutTopBottom = state.SourceLayoutTopBottom ?? existing.SourceLayoutTopBottom,
                 FullScreenTranscript = state.FullScreenTranscript ?? existing.FullScreenTranscript,
                 TasksPanelVisible = state.TasksPanelVisible ?? existing.TasksPanelVisible,
                 ApprovalPanelVisible = state.ApprovalPanelVisible ?? existing.ApprovalPanelVisible,
@@ -625,6 +626,10 @@ internal sealed record WorkspaceDocsPanelState
     public double? TopicsWidthFraction { get; init; }
     public bool? SourceOpen { get; init; }
     public double? SourceWidth { get; init; }
+    /// <summary>
+    /// Whether the source panel is in top-bottom layout. <c>null</c> or <c>false</c> = side-by-side (default).
+    /// </summary>
+    public bool? SourceLayoutTopBottom { get; init; }
     /// <summary>
     /// Whether the Tasks sidebar panel was visible. <c>null</c> or <c>false</c> = hidden (default).
     /// <c>true</c> = user had the panel open and wants it restored on next startup.

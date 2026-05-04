@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "description": "Screenshot: Slash command autocomplete list in the prompt box",
-  "rawDescription": "Screenshot: Slash command autocomplete list in the prompt box",
+  "description": "The approvals panel lists work performed by AI and allows you to, review at the work, and then individually approve each change.",
+  "rawDescription": "The approvals panel lists work performed by AI and allows you to, review at the work, and then individually approve each change.",
   "cursor": null,
   "arrows": []
 }

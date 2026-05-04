@@ -4,12 +4,12 @@
   "description": "",
   "theme": "Light",
   "region": "custom",
-  "capturedAt": "2026-05-04T20:12:26.281748Z",
+  "capturedAt": "2026-05-04T20:36:33.2031269Z",
   "bounds": {
-    "x": 499.33333333333326,
-    "y": 47,
-    "width": 286.33333333333326,
-    "height": 372,
+    "x": 838.43,
+    "y": 49,
+    "width": 360.4413251019056,
+    "height": 359.79,
     "dpiX": 1,
     "dpiY": 1
   },
@@ -18,55 +18,56 @@
     "elementNames": [
       "StatusPanelBorder",
       "StatusAgentPanelsGrid",
-      "TasksPanelBorder"
+      "ApprovalPanelBorder",
+      "DocsSplitter"
     ],
     "needsName": false,
     "elementLeft": 13,
     "elementTop": 53,
-    "elementWidth": 1348.8713251019055,
+    "elementWidth": 1181.8713251019055,
     "elementHeight": 364.79,
-    "distanceToEdge": 6
+    "distanceToEdge": 4
   },
   "right": {
     "edge": "Right",
     "elementNames": [
-      "AgentCardBorder(Mira Quill)"
-    ],
-    "needsName": false,
-    "elementLeft": 614,
-    "elementTop": 115.91,
-    "elementWidth": 170,
-    "elementHeight": 242.51,
-    "distanceToEdge": 1.666666666666515
-  },
-  "bottom": {
-    "edge": "Bottom",
-    "elementNames": [
       "StatusPanelBorder",
       "StatusAgentPanelsGrid",
-      "TasksPanelBorder"
+      "ApprovalPanelBorder"
     ],
     "needsName": false,
     "elementLeft": 13,
     "elementTop": 53,
-    "elementWidth": 1348.8713251019055,
+    "elementWidth": 1181.8713251019055,
     "elementHeight": 364.79,
-    "distanceToEdge": 1.2099999999999795
+    "distanceToEdge": 4
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "ApprovalApprovedPanel"
+    ],
+    "needsName": false,
+    "elementLeft": 856.4346584352388,
+    "elementTop": 364.87,
+    "elementWidth": 325.43666666666667,
+    "elementHeight": 39.92,
+    "distanceToEdge": 1.0199999999999818
   },
   "left": {
     "edge": "Left",
     "elementNames": [
-      "TasksPanelBorder"
+      "border"
     ],
     "needsName": false,
-    "elementLeft": 505.51799176857213,
-    "elementTop": 53,
-    "elementWidth": 276.9166666666667,
-    "elementHeight": 364.79,
-    "distanceToEdge": 6.184658435238873
+    "elementLeft": 842.43,
+    "elementTop": 312.78999999999996,
+    "elementWidth": 26.43,
+    "elementHeight": 22.630000000000003,
+    "distanceToEdge": 4
   },
   "replayActionId": null,
   "fixturePath": null,
-  "docImagePath": "..\\reference\\images\\slash-command-autocomplete.png",
+  "docImagePath": "..\\panels\\images\\descriptive-filename.png",
   "elementInventory": null
 }

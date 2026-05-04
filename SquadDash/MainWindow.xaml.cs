@@ -284,6 +284,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private (bool TasksOpen, bool TraceOpen)? _pendingUtilityWindowState;
     private (bool Open, List<string>? ExpandedNodes, string? SelectedTopic, double? DocsPanelWidth, double? DocsTopicsWidth, double? DocsPanelWidthFraction, double? DocsTopicsWidthFraction, bool? DocsSourceOpen, double? DocsSourceWidth)? _pendingDocsPanelState;
     private WorkspaceDocsPanelState? _docsPanelState; // loaded at startup, updated on save
+    private bool _docSourceLayoutTopBottom; // false = side-by-side (default), true = top-bottom
     // _currentPromptStartedAt, _lastPromptActivityAt, _promptNoActivityWarningShown,
     // _promptStallWarningShown moved to PromptExecutionController
 
@@ -7373,8 +7374,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (MainGrid is not null && MainGrid.ActualWidth > 0)
                     docsPanelWidthFraction = DocsPanelColumn.ActualWidth / MainGrid.ActualWidth;
             }
-            bool? docsSourceOpen = DocsSourceColumn is not null && DocsSourceColumn.ActualWidth > 0;
-            double? docsSourceWidth = (DocsSourceColumn?.ActualWidth > 0) ? DocsSourceColumn.ActualWidth : null;
+            bool? docsSourceOpen = IsDocSourceVisible() ? true : (bool?)null;
+            double? docsSourceWidth = IsDocSourceVisible() ? GetDocSourceSize() : (double?)null;
 
             var workspaceFolder = _currentWorkspace?.FolderPath;
             _docsPanelState = new WorkspaceDocsPanelState
@@ -7386,6 +7387,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 PanelWidthFraction = docsPanelWidthFraction,
                 SourceOpen = docsSourceOpen,
                 SourceWidth = docsSourceWidth,
+                SourceLayoutTopBottom = _docSourceLayoutTopBottom ? true : null,
             };
             _settingsSnapshot = _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
         }
@@ -7968,8 +7970,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
-            var showing = DocsSourceColumn?.Width.Value == 0;
-            if (showing)
+            var showing = IsDocSourceVisible();
+            if (!showing)
                 ShowDocSourcePanel();
             else
                 HideDocSourcePanel();
@@ -7980,21 +7982,29 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private bool IsDocSourceVisible() =>
+        _docSourceLayoutTopBottom
+            ? (DocsSourceRow?.ActualHeight ?? 0) > 0
+            : (DocsSourceColumn?.ActualWidth ?? 0) > 0;
+
+    private double GetDocSourceSize() =>
+        _docSourceLayoutTopBottom
+            ? DocsSourceRow?.ActualHeight ?? 0
+            : DocsSourceColumn?.ActualWidth ?? 0;
+
     private void ShowDocSourcePanel()
     {
         if (DocsSourceSplitterColumn is null || DocsSourceColumn is null) return;
+        if (DocsSourceSplitterRow is null || DocsSourceRow is null) return;
 
-        // Split the viewer's current available width evenly between preview and source editor.
         const double splitterWidth = 6;
         double availableWidth = (DocsPanelColumn?.ActualWidth ?? 600)
                                 - (DocsTopicsColumn?.ActualWidth ?? 220)
                                 - splitterWidth;
         double sourceWidth = Math.Max(100, availableWidth / 2);
+        double sourceSize = _docSourceLayoutTopBottom ? 300 : sourceWidth;
 
-        DocsSourceSplitterColumn.Width = new GridLength(splitterWidth);
-        DocsSourceColumn.Width = new GridLength(sourceWidth, GridUnitType.Pixel);
-        if (DocSourceSplitter is not null) DocSourceSplitter.Visibility = Visibility.Visible;
-        if (DocSourcePanel is not null) DocSourcePanel.Visibility = Visibility.Visible;
+        ApplyDocSourceLayout(_docSourceLayoutTopBottom, sourceSize);
         if (ViewSourceButton is not null) ViewSourceButton.Content = "Hide Source";
 
         ApplyDocSourceFontSize();
@@ -8012,13 +8022,119 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void HideDocSourcePanel()
     {
         if (DocsSourceSplitterColumn is null || DocsSourceColumn is null) return;
+        if (DocsSourceSplitterRow is null || DocsSourceRow is null) return;
 
         _docSourceSaveTimer?.Stop();
         DocsSourceSplitterColumn.Width = new GridLength(0);
         DocsSourceColumn.Width = new GridLength(0);
+        DocsSourceSplitterRow.Height = new GridLength(0);
+        DocsSourceRow.Height = new GridLength(0);
         if (DocSourceSplitter is not null) DocSourceSplitter.Visibility = Visibility.Collapsed;
         if (DocSourcePanel is not null) DocSourcePanel.Visibility = Visibility.Collapsed;
         if (ViewSourceButton is not null) ViewSourceButton.Content = "View Source";
+    }
+
+    private void ApplyDocSourceLayout(bool topBottom, double sourceSize)
+    {
+        if (DocsSourceSplitterColumn is null || DocsSourceColumn is null) return;
+        if (DocsSourceSplitterRow is null || DocsSourceRow is null) return;
+        if (DocSourceSplitter is null || DocSourcePanel is null) return;
+
+        const double splitterSize = 6;
+
+        if (topBottom)
+        {
+            // Collapse column-based dimensions
+            DocsSourceSplitterColumn.Width = new GridLength(0);
+            DocsSourceColumn.Width = new GridLength(0);
+
+            // Set row-based dimensions
+            DocsSourceSplitterRow.Height = new GridLength(splitterSize);
+            DocsSourceRow.Height = new GridLength(Math.Max(100, sourceSize), GridUnitType.Pixel);
+
+            // Move splitter and source panel to row layout (col 1 = viewer column)
+            Grid.SetRow(DocSourceSplitter, 1);
+            Grid.SetColumn(DocSourceSplitter, 1);
+            Grid.SetRow(DocSourcePanel, 2);
+            Grid.SetColumn(DocSourcePanel, 1);
+
+            DocSourceSplitter.Width = double.NaN;
+            DocSourceSplitter.Height = splitterSize;
+            DocSourceSplitter.Cursor = System.Windows.Input.Cursors.SizeNS;
+            DocSourceSplitter.ResizeDirection = GridResizeDirection.Rows;
+        }
+        else
+        {
+            // Collapse row-based dimensions
+            DocsSourceSplitterRow.Height = new GridLength(0);
+            DocsSourceRow.Height = new GridLength(0);
+
+            // Set column-based dimensions
+            DocsSourceSplitterColumn.Width = new GridLength(splitterSize);
+            DocsSourceColumn.Width = new GridLength(Math.Max(100, sourceSize), GridUnitType.Pixel);
+
+            // Move splitter and source panel back to column layout
+            Grid.SetRow(DocSourceSplitter, 0);
+            Grid.SetColumn(DocSourceSplitter, 2);
+            Grid.SetRow(DocSourcePanel, 0);
+            Grid.SetColumn(DocSourcePanel, 3);
+
+            DocSourceSplitter.Width = splitterSize;
+            DocSourceSplitter.Height = double.NaN;
+            DocSourceSplitter.Cursor = System.Windows.Input.Cursors.SizeWE;
+            DocSourceSplitter.ResizeDirection = GridResizeDirection.Columns;
+        }
+
+        DocSourceSplitter.Visibility = Visibility.Visible;
+        DocSourcePanel.Visibility = Visibility.Visible;
+    }
+
+    private void SetDocSourceLayout(bool topBottom)
+    {
+        if (_docSourceLayoutTopBottom == topBottom) return;
+        var wasTopBottom = _docSourceLayoutTopBottom;
+        _docSourceLayoutTopBottom = topBottom;
+        UpdateDocSourceLayoutButtons();
+
+        if (IsDocSourceVisible())
+        {
+            // Transfer the current size dimension to the new orientation
+            var currentSize = wasTopBottom
+                ? (DocsSourceRow?.ActualHeight ?? 300)
+                : (DocsSourceColumn?.ActualWidth ?? 300);
+            ApplyDocSourceLayout(topBottom, currentSize);
+        }
+
+        SaveDocSourceLayoutPreference();
+    }
+
+    private void UpdateDocSourceLayoutButtons()
+    {
+        if (DocSourceSideBySideButton is not null)
+            DocSourceSideBySideButton.FontWeight = !_docSourceLayoutTopBottom ? FontWeights.Bold : FontWeights.Normal;
+        if (DocSourceTopBottomButton is not null)
+            DocSourceTopBottomButton.FontWeight = _docSourceLayoutTopBottom ? FontWeights.Bold : FontWeights.Normal;
+    }
+
+    private void SaveDocSourceLayoutPreference()
+    {
+        _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with
+        {
+            SourceLayoutTopBottom = _docSourceLayoutTopBottom ? true : null,
+        };
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    private void DocSourceSideBySideButton_Click(object sender, RoutedEventArgs e)
+    {
+        try { SetDocSourceLayout(topBottom: false); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(DocSourceSideBySideButton_Click), ex); }
+    }
+
+    private void DocSourceTopBottomButton_Click(object sender, RoutedEventArgs e)
+    {
+        try { SetDocSourceLayout(topBottom: true); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(DocSourceTopBottomButton_Click), ex); }
     }
 
     private void PopulateDocSourceEditor()
@@ -14003,8 +14119,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     if (MainGrid is not null && MainGrid.ActualWidth > 0)
                         docsPanelWidthFraction = DocsPanelColumn.ActualWidth / MainGrid.ActualWidth;
                 }
-                bool? docsSourceOpen = DocsSourceColumn is not null && DocsSourceColumn.ActualWidth > 0;
-                double? docsSourceWidth = (DocsSourceColumn?.ActualWidth > 0) ? DocsSourceColumn.ActualWidth : null;
+                bool? docsSourceOpen = IsDocSourceVisible() ? true : (bool?)null;
+                double? docsSourceWidth = IsDocSourceVisible() ? GetDocSourceSize() : (double?)null;
 
                 _pendingDocsPanelState = (
                     Open: true,
@@ -16112,10 +16228,27 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Restore View Source panel state
         if (docState.SourceOpen == true)
         {
-            var sourceWidth = docState.SourceWidth ?? 300;
+            var sourceSize = docState.SourceWidth ?? 300;
+            _docSourceLayoutTopBottom = docState.SourceLayoutTopBottom == true;
+            UpdateDocSourceLayoutButtons();
             ShowDocSourcePanel();
-            if (DocsSourceColumn is not null)
-                DocsSourceColumn.Width = new GridLength(Math.Max(100, sourceWidth));
+            // Override the default calculated size with the saved size
+            if (_docSourceLayoutTopBottom)
+            {
+                if (DocsSourceRow is not null)
+                    DocsSourceRow.Height = new GridLength(Math.Max(100, sourceSize), GridUnitType.Pixel);
+            }
+            else
+            {
+                if (DocsSourceColumn is not null)
+                    DocsSourceColumn.Width = new GridLength(Math.Max(100, sourceSize));
+            }
+        }
+        else
+        {
+            // Restore layout button state even when source is closed
+            _docSourceLayoutTopBottom = docState.SourceLayoutTopBottom == true;
+            UpdateDocSourceLayoutButtons();
         }
     }
 

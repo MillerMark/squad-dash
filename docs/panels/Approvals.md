@@ -32,19 +32,8 @@ Entries persist across SquadDash restarts (stored in `commit-approvals.json` in 
 ---
 
 ## Panel Layout
+![Screenshot: The Approvals panel allows you to review work performed by the Squad team](images/descriptive-filename.png)
 
-```
-┌─ Approvals Panel ────────────────────────────────[×]─┐
-│                                                       │
-│  Needs Approval                                       │
-│  ☐  Fix login timeout logic          abc1234          │
-│  ☐  Add dark mode preference key     def5678          │
-│                                                       │
-│  Approved                                    [Clear Approved]
-│  ☑  Update README screenshots        9ab0cd2          │
-│                                                       │
-└───────────────────────────────────────────────────────┘
-```
 
 Each row contains:
 
