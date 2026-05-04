@@ -291,6 +291,7 @@ internal sealed class TasksPanelController {
                 };
                 anim.Completed += (_, _) => {
                     popup.IsOpen = false;
+                    popupBorder.BeginAnimation(UIElement.OpacityProperty, null); // release animation hold
                     popupBorder.Opacity = 1.0;
                     isFading = false;
                 };
@@ -319,6 +320,7 @@ internal sealed class TasksPanelController {
                     openTimer = null;
                     if (!popup.IsOpen && !isFading) {
                         ResolveBrushes();
+                        popupBorder.BeginAnimation(UIElement.OpacityProperty, null); // clear any stale animation
                         popupBorder.Opacity = 1.0;
                         popup.IsOpen = true;
                     }
