@@ -25,6 +25,7 @@ internal sealed class TasksPanelController {
 
     private bool      _showCompleted;
     private MenuItem? _toggleCompletedItem;
+    private readonly List<MenuItem> _allToggleItems = [];
 
     // ── Construction ─────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ internal sealed class TasksPanelController {
     public void Refresh(TaskParseResult result) {
         _activePanel.Children.Clear();
         _completedPanel.Children.Clear();
+        _allToggleItems.Clear();
 
         var openGroups = result.OpenGroups;
         var hasOpen    = openGroups.Any(g => g.Items.Count > 0);
@@ -141,12 +143,16 @@ internal sealed class TasksPanelController {
     }
 
     private void UpdateToggleHeader() {
+        var label = _showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks";
         if (_toggleCompletedItem is not null)
-            _toggleCompletedItem.Header = _showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks";
+            _toggleCompletedItem.Header = label;
+        foreach (var item in _allToggleItems)
+            item.Header = label;
     }
 
     private MenuItem BuildToggleCompletedMenuItem() {
         var item = MakeItem(_showCompleted ? "Hide Completed Tasks" : "Show Completed Tasks");
+        _allToggleItems.Add(item);
         item.Click += (_, _) => {
             _showCompleted = !_showCompleted;
             _completedSection.Visibility = _showCompleted ? Visibility.Visible : Visibility.Collapsed;
