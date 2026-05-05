@@ -6,6 +6,7 @@ using System.Configuration;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using System.Windows.Shell;
+using System.Collections.Generic;
 using SquadDash.Screenshots;
 
 namespace SquadDash {
@@ -56,7 +57,10 @@ namespace SquadDash {
 
             var window = new MainWindow(startupFolder, startupWorkspaceLease, workspacePaths, refreshOptions, noWorkspaceOnStart);
             MainWindow = window;
-            RegisterJumpList();
+
+            var recentFolders = new ApplicationSettingsStore().Load().RecentFolders;
+            RefreshJumpList(recentFolders);
+
             window.Show();
 
             if (!string.IsNullOrWhiteSpace(startupFolder) && !Directory.Exists(startupFolder)) {
@@ -68,7 +72,7 @@ namespace SquadDash {
             }
         }
 
-        private static void RegisterJumpList()
+        public static void RefreshJumpList(IReadOnlyList<string> recentFolders)
         {
             try
             {
@@ -76,6 +80,7 @@ namespace SquadDash {
                 if (exe is null) return;
 
                 var jumpList = new JumpList();
+
                 jumpList.JumpItems.Add(new JumpTask
                 {
                     Title = "New Window",
@@ -84,6 +89,26 @@ namespace SquadDash {
                     Arguments = "--new-window",
                     IconResourcePath = exe,
                 });
+
+                foreach (var folder in recentFolders)
+                {
+                    if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                        continue;
+
+                    var title = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                    if (string.IsNullOrEmpty(title)) title = folder;
+
+                    jumpList.JumpItems.Add(new JumpTask
+                    {
+                        Title            = title,
+                        Description      = folder,
+                        ApplicationPath  = exe,
+                        Arguments        = $"--folder \"{folder}\"",
+                        IconResourcePath = exe,
+                        CustomCategory   = "Recent Workspaces",
+                    });
+                }
+
                 JumpList.SetJumpList(Current, jumpList);
                 jumpList.Apply();
             }

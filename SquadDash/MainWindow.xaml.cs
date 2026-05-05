@@ -10308,6 +10308,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         _settingsSnapshot = _settingsStore.RememberFolder(folderPath);
         RefreshRecentFoldersMenu(_settingsSnapshot.RecentFolders);
+        App.RefreshJumpList(_settingsSnapshot.RecentFolders);
     }
 
     private void RefreshRecentFoldersMenu(IReadOnlyList<string> recentFolders)
