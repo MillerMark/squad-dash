@@ -1,0 +1,39 @@
+name: Publish VoiceHeuristics to NuGet.org
+
+on:
+  push:
+    tags:
+      - 'voice-v*'   # trigger on tags like voice-v1.0.0, voice-v1.1.0, etc.
+
+jobs:
+  publish:
+    name: Pack & Publish
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#voice-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Pack
+        run: >
+          dotnet pack VoiceHeuristics/VoiceHeuristics.csproj
+          -c Release
+          -p:VersionPrefix=${{ steps.version.outputs.VERSION }}
+          -o artifacts/nupkg
+
+      - name: Push to NuGet.org
+        run: >
+          dotnet nuget push artifacts/nupkg/VoiceHeuristics.${{ steps.version.outputs.VERSION }}.nupkg
+          --source https://api.nuget.org/v3/index.json
+          --api-key ${{ secrets.NUGET_API_KEY }}
+          --skip-duplicate

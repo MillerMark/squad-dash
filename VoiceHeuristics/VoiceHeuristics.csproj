@@ -14,7 +14,7 @@
     <Authors>SquadDash Team</Authors>
     <Description>Context-aware voice insertion heuristics: filler-word stripping, sentence continuation detection, capitalisation and punctuation correction for speech-to-text input.</Description>
     <PackageTags>voice;speech;dictation;heuristics;tts</PackageTags>
-    <RepositoryUrl>https://github.com/SquadDash/SquadDash-public</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MillerMark/squad-dash</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
