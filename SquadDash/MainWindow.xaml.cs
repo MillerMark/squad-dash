@@ -18469,6 +18469,56 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalFilterClearButton_Click), ex); }
     }
 
+    private void TasksFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        try
+        {
+            var text = TasksFilterBox?.Text ?? string.Empty;
+            if (TasksFilterClearButton is not null)
+                TasksFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _tasksPanelController?.SetFilter(text);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
+    }
+
+    private void TasksFilterClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (TasksFilterBox is not null)
+            {
+                TasksFilterBox.Text = string.Empty;
+                TasksFilterBox.Focus();
+            }
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterClearButton_Click), ex); }
+    }
+
+    private void NotesFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        try
+        {
+            var text = NotesFilterBox?.Text ?? string.Empty;
+            if (NotesFilterClearButton is not null)
+                NotesFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _notesPanel?.SetFilter(text);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(NotesFilterBox_TextChanged), ex); }
+    }
+
+    private void NotesFilterClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (NotesFilterBox is not null)
+            {
+                NotesFilterBox.Text = string.Empty;
+                NotesFilterBox.Focus();
+            }
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(NotesFilterClearButton_Click), ex); }
+    }
+
     private void ApprovalClearAllButton_Click(object sender, RoutedEventArgs e)
     {
         try

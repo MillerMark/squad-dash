@@ -25,6 +25,7 @@ internal sealed class TasksPanelController {
     private readonly Action<TaskItem>?  _attachFollowUp;
 
     private bool      _showCompleted;
+    private string    _filterText = string.Empty;
     private MenuItem? _toggleCompletedItem;
     private readonly List<MenuItem> _allToggleItems = [];
 
@@ -100,11 +101,18 @@ internal sealed class TasksPanelController {
 
         foreach (var item in result.CompletedItems)
             _completedPanel.Children.Add(BuildDoneRow(item));
+
+        ApplyFilter();
     }
 
     public void ShowEmpty(string message) => ShowEmptyInPanel(message);
 
-    // ── Panel context menu ────────────────────────────────────────────────────
+    public void SetFilter(string text) {
+        _filterText = text.Trim();
+        ApplyFilter();
+    }
+
+    // ── Panel context menu────────────────────────────────────────────────────
 
     private static ContextMenu MakeMenu() {
         var m = new ContextMenu();
@@ -406,8 +414,43 @@ internal sealed class TasksPanelController {
         return row;
     }
 
-    // ── Empty state ───────────────────────────────────────────────────────────
+    // ── Filter ────────────────────────────────────────────────────────────────
 
+    private void ApplyFilter() {
+        ApplyFilterToPanel(_activePanel, syncHeadings: true);
+        ApplyFilterToPanel(_completedPanel, syncHeadings: false);
+    }
+
+    private void ApplyFilterToPanel(StackPanel panel, bool syncHeadings) {
+        // Pass 1: show/hide item rows.
+        foreach (UIElement child in panel.Children) {
+            if (child is System.Windows.Controls.Border { Tag: TaskItem item })
+                child.Visibility = PanelFilterHelper.Matches(item.Text, _filterText)
+                    ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        if (!syncHeadings) return;
+
+        // Pass 2: hide priority headings whose items are all filtered out.
+        StackPanel? currentHeading = null;
+        bool headingHasVisible = false;
+
+        foreach (UIElement child in panel.Children) {
+            if (child is StackPanel heading) {
+                if (currentHeading is not null)
+                    currentHeading.Visibility = headingHasVisible ? Visibility.Visible : Visibility.Collapsed;
+                currentHeading = heading;
+                headingHasVisible = false;
+            } else if (child is System.Windows.Controls.Border { Tag: TaskItem }) {
+                if (child.Visibility == Visibility.Visible)
+                    headingHasVisible = true;
+            }
+        }
+        if (currentHeading is not null)
+            currentHeading.Visibility = headingHasVisible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // ── Empty state ───────────────────────────────────────────────────────────
     private void ShowEmptyInPanel(string message) {
         _activePanel.Children.Clear();
         var empty = new TextBlock {

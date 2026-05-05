@@ -20,6 +20,7 @@ internal sealed class NotesPanelController {
     private readonly Action<NoteItem>?   _attachFollowUp;
 
     private List<NoteItem> _notes = [];
+    private string _filterText = string.Empty;
 
     // ── Construction ─────────────────────────────────────────────────────────
 
@@ -57,7 +58,12 @@ internal sealed class NotesPanelController {
         RebuildList();
     }
 
-    // ── List construction ─────────────────────────────────────────────────────
+    public void SetFilter(string text) {
+        _filterText = text.Trim();
+        ApplyFilterToList();
+    }
+
+    // ── List construction─────────────────────────────────────────────────────
 
     private void RebuildList() {
         _listPanel.Children.Clear();
@@ -77,6 +83,16 @@ internal sealed class NotesPanelController {
 
         foreach (var note in _notes)
             _listPanel.Children.Add(BuildRow(note));
+
+        ApplyFilterToList();
+    }
+
+    private void ApplyFilterToList() {
+        foreach (UIElement child in _listPanel.Children) {
+            if (child is Border { Tag: NoteItem note })
+                child.Visibility = PanelFilterHelper.Matches(note.Title, _filterText)
+                    ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private Border BuildRow(NoteItem note) {
