@@ -18,6 +18,9 @@ internal sealed class WorkspaceConversationStore {
     private const int MaxToolsPerTurn = 500;
     private const int MaxToolOutputLength = 100_000;  // ~100 KB per tool output/detail field
     private static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(14);
+    // Progressive tool compression: strip content at 3 days, collapse to stub at 7 days.
+    private static readonly TimeSpan ToolDetailRetentionPeriod = TimeSpan.FromDays(3);
+    private static readonly TimeSpan ToolExistenceRetentionPeriod = TimeSpan.FromDays(7);
     private readonly string _rootDirectory;
 
     public WorkspaceConversationStore()
@@ -187,7 +190,7 @@ internal sealed class WorkspaceConversationStore {
 
         var turns = state.Turns
             .Where(turn => turn.Timestamp >= cutoff)
-            .Select(turn => NormalizeTurn(turn))
+            .Select(turn => NormalizeTurn(turn, now))
             .OrderBy(turn => turn.StartedAt)
             .ThenBy(turn => turn.Timestamp)
             .ThenBy(turn => turn.Prompt, StringComparer.Ordinal)
@@ -206,7 +209,7 @@ internal sealed class WorkspaceConversationStore {
         }
 
         var threads = state.GetThreads()
-            .Select(thread => NormalizeThread(thread, cutoff))
+            .Select(thread => NormalizeThread(thread, cutoff, now))
             .Where(thread => thread.Turns.Count > 0 ||
                              !string.IsNullOrWhiteSpace(thread.Prompt) ||
                              !string.IsNullOrWhiteSpace(thread.DetailText) ||
@@ -243,6 +246,7 @@ internal sealed class WorkspaceConversationStore {
 
     private static TranscriptTurnRecord NormalizeTurn(
         TranscriptTurnRecord turn,
+        DateTimeOffset now,
         string? owningThreadStatus = null,
         DateTimeOffset? owningThreadCompletedAt = null) {
         var thoughts = turn.GetThoughts()
@@ -253,70 +257,86 @@ internal sealed class WorkspaceConversationStore {
                 Sequence = NormalizeSequence(segment.Sequence)
             })
             .ToArray();
-        var inferredTerminalToolSuccess = owningThreadStatus?.Trim() switch {
-            "Completed" => true,
-            "Failed" => false,
-            "Cancelled" => false,
-            _ => (bool?)null
-        };
-        var tools = turn.Tools
-            .Take(MaxToolsPerTurn)
-            .Select(tool => {
-                var isCompleted = tool.IsCompleted;
-                var success = tool.Success;
-                var finishedAt = tool.FinishedAt?.ToUniversalTime();
-                var outputText = TruncateText(tool.OutputText?.Trim(), MaxToolOutputLength);
-                var detailContent = TruncateText(tool.DetailContent?.Trim(), MaxToolOutputLength);
-                var inferredCompletion = false;
 
-                if (!isCompleted && inferredTerminalToolSuccess is { } terminalSuccess) {
-                    isCompleted = true;
-                    success = terminalSuccess;
-                    finishedAt ??= owningThreadCompletedAt?.ToUniversalTime();
-                    inferredCompletion = true;
-                }
+        var turnAge = now - turn.StartedAt;
+        var stripDetail = turnAge > ToolDetailRetentionPeriod;
+        var suppressAll = turnAge > ToolExistenceRetentionPeriod;
 
-                // Any tool still marked incomplete at load time was abandoned (the session
-                // ended without a tool_complete event).  Mark it failed so it never shows
-                // "Status: Running" on a past turn.
-                if (!isCompleted) {
-                    isCompleted = true;
-                    success = false;
-                    inferredCompletion = true;
-                }
+        TranscriptToolRecord[] tools;
+        int? toolsSuppressedCount = null;
 
-                if (inferredCompletion) {
-                    // Build the persisted detail-content string via the data-layer helper,
-                    // not via ToolTranscriptFormatter, so the persistence layer stays free
-                    // of display-layer dependencies.  The formatter's BuildDetailContent
-                    // method delegates here for parity.
-                    detailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
+        if (suppressAll) {
+            // > 7 days: collapse all tools to a count stub; content not worth persisting.
+            toolsSuppressedCount = turn.Tools.Count + (turn.ToolsSuppressedCount ?? 0);
+            tools = Array.Empty<TranscriptToolRecord>();
+        } else {
+            var inferredTerminalToolSuccess = owningThreadStatus?.Trim() switch {
+                "Completed" => true,
+                "Failed" => false,
+                "Cancelled" => false,
+                _ => (bool?)null
+            };
+            tools = turn.Tools
+                .TakeLast(MaxToolsPerTurn)
+                .Select(tool => {
+                    var isCompleted = tool.IsCompleted;
+                    var success = tool.Success;
+                    var finishedAt = tool.FinishedAt?.ToUniversalTime();
+                    // 3–7 days: keep headers (name/args/timing/status) but strip large text blobs.
+                    var outputText = stripDetail ? null : TruncateText(tool.OutputText?.Trim(), MaxToolOutputLength);
+                    var detailContent = stripDetail ? null : TruncateText(tool.DetailContent?.Trim(), MaxToolOutputLength);
+                    var progressText = stripDetail ? null : tool.ProgressText?.Trim();
+                    var inferredCompletion = false;
+
+                    if (!isCompleted && inferredTerminalToolSuccess is { } terminalSuccess) {
+                        isCompleted = true;
+                        success = terminalSuccess;
+                        finishedAt ??= owningThreadCompletedAt?.ToUniversalTime();
+                        inferredCompletion = true;
+                    }
+
+                    // Any tool still marked incomplete at load time was abandoned (the session
+                    // ended without a tool_complete event).  Mark it failed so it never shows
+                    // "Status: Running" on a past turn.
+                    if (!isCompleted) {
+                        isCompleted = true;
+                        success = false;
+                        inferredCompletion = true;
+                    }
+
+                    if (inferredCompletion && !stripDetail) {
+                        // Build the persisted detail-content string via the data-layer helper,
+                        // not via ToolTranscriptFormatter, so the persistence layer stays free
+                        // of display-layer dependencies.  The formatter's BuildDetailContent
+                        // method delegates here for parity.
+                        detailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
+                            NormalizeDescriptor(tool.Descriptor),
+                            tool.ArgsJson?.Trim(),
+                            outputText,
+                            tool.StartedAt.ToUniversalTime(),
+                            finishedAt,
+                            progressText,
+                            isCompleted,
+                            success));
+                        detailContent = TruncateText(detailContent, MaxToolOutputLength);
+                    }
+
+                    return new TranscriptToolRecord(
+                        tool.ToolCallId?.Trim(),
                         NormalizeDescriptor(tool.Descriptor),
                         tool.ArgsJson?.Trim(),
-                        outputText,
                         tool.StartedAt.ToUniversalTime(),
                         finishedAt,
-                        tool.ProgressText?.Trim(),
+                        progressText,
+                        outputText,
+                        detailContent,
                         isCompleted,
-                        success));
-                    detailContent = TruncateText(detailContent, MaxToolOutputLength);
-                }
-
-                return new TranscriptToolRecord(
-                    tool.ToolCallId?.Trim(),
-                    NormalizeDescriptor(tool.Descriptor),
-                    tool.ArgsJson?.Trim(),
-                    tool.StartedAt.ToUniversalTime(),
-                    finishedAt,
-                    tool.ProgressText?.Trim(),
-                    outputText,
-                    detailContent,
-                    isCompleted,
-                    success) {
-                    ThinkingBlockSequence = NormalizeSequence(tool.ThinkingBlockSequence)
-                };
-            })
-            .ToArray();
+                        success) {
+                        ThinkingBlockSequence = NormalizeSequence(tool.ThinkingBlockSequence)
+                    };
+                })
+                .ToArray();
+        }
 
         return new TranscriptTurnRecord(
             turn.StartedAt.ToUniversalTime(),
@@ -327,7 +347,9 @@ internal sealed class WorkspaceConversationStore {
             turn.ThinkingCollapsed,
             tools,
             thoughts,
-            responseSegments);
+            responseSegments) {
+            ToolsSuppressedCount = toolsSuppressedCount
+        };
     }
 
     private static TranscriptThoughtRecord NormalizeThought(TranscriptThoughtRecord thought) {
@@ -341,10 +363,10 @@ internal sealed class WorkspaceConversationStore {
         };
     }
 
-    private TranscriptThreadRecord NormalizeThread(TranscriptThreadRecord thread, DateTimeOffset cutoff) {
+    private TranscriptThreadRecord NormalizeThread(TranscriptThreadRecord thread, DateTimeOffset cutoff, DateTimeOffset now) {
         var turns = thread.Turns
             .Where(turn => turn.Timestamp >= cutoff)
-            .Select(turn => NormalizeTurn(turn, thread.StatusText, thread.CompletedAt))
+            .Select(turn => NormalizeTurn(turn, now, thread.StatusText, thread.CompletedAt))
             .TakeLast(MaxTurns)
             .ToArray();
 
@@ -594,6 +616,7 @@ internal sealed record TranscriptTurnRecord(
     IReadOnlyList<TranscriptResponseSegmentRecord>? ResponseSegments = null) {
 
     public DateTimeOffset Timestamp => CompletedAt ?? StartedAt;
+    public int? ToolsSuppressedCount { get; init; }
 
     public IReadOnlyList<TranscriptThoughtRecord> GetThoughts() {
         if (Thoughts is { Count: > 0 })

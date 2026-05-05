@@ -11106,7 +11106,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         var thoughts = turn.GetThoughts().ToArray();
         var responseSegments = turn.GetResponseSegments().ToArray();
-        if (thoughts.Length == 0 && turn.Tools.Count == 0 && responseSegments.Length == 0)
+        if (thoughts.Length == 0 && turn.Tools.Count == 0 && (turn.ToolsSuppressedCount ?? 0) == 0 && responseSegments.Length == 0)
             return true;
 
         if (thoughts.Any(thought => !thought.Sequence.HasValue) ||
@@ -11161,6 +11161,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                     SetCollapsedBlockHeader(block.HeaderTextBlock, "Tooling...",
                         StatusTimingPresentation.FormatDuration(duration.Value));
             }))));
+        if (turn.ToolsSuppressedCount is { } suppressedCount && suppressedCount > 0) {
+            // Sequence: place before any response segments, after any thoughts.
+            var stubSeq = responseSegments.Length > 0
+                ? responseSegments.Min(s => s.Sequence!.Value) - 1
+                : (thoughts.Length > 0 ? thoughts.Max(t => t.Sequence!.Value) + 1 : 0);
+            items.Add((stubSeq, 1, () => RenderSuppressedToolsStub(view, suppressedCount)));
+        }
         items.AddRange(responseSegments.Select(segment => (
             segment.Sequence!.Value,
             2,
@@ -11195,6 +11202,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                     SetCollapsedBlockHeader(block.HeaderTextBlock, "Tooling...",
                         StatusTimingPresentation.FormatDuration(toolEnd - toolStart));
             }
+        }
+        else if (turn.ToolsSuppressedCount is { } suppressedCount && suppressedCount > 0)
+        {
+            RenderSuppressedToolsStub(view, suppressedCount);
         }
 
         foreach (var thought in turn.GetThoughts().Where(entry => entry.Placement == TranscriptThoughtPlacement.AfterTools))
@@ -13066,6 +13077,20 @@ public partial class MainWindow : Window, ILiveElementLocator
         entry.IsCompleted = tool.IsCompleted;
         entry.Success = tool.Success;
         RenderToolEntry(entry);
+    }
+
+    private void RenderSuppressedToolsStub(TranscriptTurnView view, int count)
+    {
+        var label = count == 1 ? "Tooling... (1 tool)" : $"Tooling... ({count} tools)";
+        var tb = new TextBlock
+        {
+            Text = label,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+            ToolTip = "Tooling output removed for transcript optimization"
+        };
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "ThinkingText");
+        view.NarrativeSection.Blocks.Add(new BlockUIContainer(tb));
     }
 
     private TranscriptThinkingBlockView GetOrCreateThinkingBlockForNewTool(TranscriptTurnView turn)
