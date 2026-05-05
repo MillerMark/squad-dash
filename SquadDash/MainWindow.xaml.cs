@@ -11290,7 +11290,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     RenderPersistedTool(block, tool);
                 if (collapsed && groupDurations.TryGetValue(group.Key, out var duration) && duration.HasValue)
                     SetCollapsedBlockHeader(block.HeaderTextBlock, "Tooling...",
-                        StatusTimingPresentation.FormatDuration(duration.Value));
+                        StatusTimingPresentation.FormatDuration(duration.Value),
+                        ComputeBlockEditDiff(block));
             }))));
         if (turn.ToolsSuppressedCount is { } suppressedCount && suppressedCount > 0) {
             // Sequence: place before any response segments, after any thoughts.
@@ -11331,7 +11332,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     toolEnd = orderedTools.Last().StartedAt;
                 if (toolEnd > toolStart)
                     SetCollapsedBlockHeader(block.HeaderTextBlock, "Tooling...",
-                        StatusTimingPresentation.FormatDuration(toolEnd - toolStart));
+                        StatusTimingPresentation.FormatDuration(toolEnd - toolStart),
+                        ComputeBlockEditDiff(block));
             }
         }
         else if (turn.ToolsSuppressedCount is { } suppressedCount && suppressedCount > 0)
@@ -12899,7 +12901,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 lastUpdatedAt > block.StartedAt)
             {
                 SetCollapsedBlockHeader(block.HeaderTextBlock, "Tooling...",
-                    StatusTimingPresentation.FormatDuration(lastUpdatedAt - block.StartedAt));
+                    StatusTimingPresentation.FormatDuration(lastUpdatedAt - block.StartedAt),
+                    ComputeBlockEditDiff(block));
             }
 
             SetExpanderOpen(block.Expander, false);
@@ -12930,18 +12933,52 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private static void SetCollapsedBlockHeader(TextBlock header, string label, string? duration = null)
+    private static void SetCollapsedBlockHeader(
+        TextBlock header,
+        string label,
+        string? duration = null,
+        (int added, int removed)? diffAggregate = null)
     {
         header.Text = string.Empty;
         header.Inlines.Clear();
         var labelRun = new Run(label) { FontWeight = FontWeights.SemiBold };
         header.Inlines.Add(labelRun);
+        if (diffAggregate is { } diff && (diff.added > 0 || diff.removed > 0))
+        {
+            if (diff.added > 0)
+            {
+                var addedRun = new Run($" +{diff.added}") { FontWeight = FontWeights.SemiBold };
+                addedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffAddedText");
+                header.Inlines.Add(addedRun);
+            }
+            if (diff.removed > 0)
+            {
+                var removedRun = new Run($" -{diff.removed}") { FontWeight = FontWeights.SemiBold };
+                removedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffRemovedText");
+                header.Inlines.Add(removedRun);
+            }
+        }
         if (!string.IsNullOrWhiteSpace(duration))
         {
             var durationRun = new Run($" {duration}") { FontWeight = FontWeights.Normal };
             durationRun.SetResourceReference(TextElement.ForegroundProperty, "ThinkingMetaText");
             header.Inlines.Add(durationRun);
         }
+    }
+
+    private static (int added, int removed) ComputeBlockEditDiff(TranscriptThinkingBlockView block)
+    {
+        var added   = 0;
+        var removed = 0;
+        foreach (var entry in block.ToolEntries)
+        {
+            if (!entry.IsCompleted || !entry.Success) continue;
+            var diff = ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText);
+            if (diff is null) continue;
+            added   += diff.AddedLineCount;
+            removed += diff.RemovedLineCount;
+        }
+        return (added, removed);
     }
 
     private void SetExpanderOpen(Expander expander, bool open)
@@ -13334,7 +13371,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         container.Tag = block;
         block.StartedAt = DateTimeOffset.Now;
         turn.ThinkingBlocks.Add(block);
-        expander.Expanded += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = true; };
+        expander.Expanded += (_, _) =>
+        {
+            if (!_programmaticExpanderChange) block.UserPinnedOpen = true;
+            // When re-opened, hide the collapsed diff aggregate — only shown when closed.
+            block.HeaderTextBlock.Inlines.Clear();
+            block.HeaderTextBlock.Inlines.Add(new Run("Tooling...") { FontWeight = FontWeights.SemiBold });
+        };
         expander.Collapsed += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = false; };
         header.ContextMenu = CreateThinkingContextMenu(turn);
         expander.ContextMenu = CreateThinkingContextMenu(turn);
