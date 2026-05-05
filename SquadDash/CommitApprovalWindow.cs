@@ -123,6 +123,12 @@ internal sealed class CommitApprovalPanel {
         return i;
     }
 
+    private static Separator MakeSep() {
+        var s = new Separator();
+        s.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+        return s;
+    }
+
     private void AttachPanelContextMenu(Border outerBorder) {
         var menu = MakeMenu();
 
@@ -171,7 +177,7 @@ internal sealed class CommitApprovalPanel {
         var followUpItem = MakeItem("Follow up…");
         followUpItem.Click += (_, _) => _onFollowUp(item);
         menu.Items.Add(followUpItem);
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MakeSep());
         var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
