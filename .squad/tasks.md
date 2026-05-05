@@ -9,20 +9,8 @@
 
 ## 🟡 Mid Priority
 
-- [ ] **Doc editor — Phase 1: swap DocSourceTextBox to RichTextBox + plain-text adapter** *(Owner: Arjun Sen)*
-  Replace the XAML `TextBox` with `RichTextBox`. Write a `RichTextBoxExtensions` helper class providing
-  `.GetPlainText()`, `.SetPlainText(string)`, `.GetCharOffset(TextPointer)`, `.GetTextPointerAt(int)`.
-  Verify plain-text round-trip: load .md file → display → save → file bytes unchanged.
-  Line-ending normalisation must be handled (FlowDocument uses \r\n at paragraph breaks; strip to \n for storage).
-  **Prerequisite for:** Phase 2 migration and Phase 3 indicator.
-
-- [ ] **Doc editor — Phase 2: migrate all DocSourceTextBox API call sites to RichTextBox** *(Owner: Arjun Sen)*
-  ~30 call sites in `MainWindow.xaml.cs` use TextBox-specific API (`.Text`, `.SelectionStart`,
-  `.SelectionLength`, `.SelectedText`, `.CaretIndex`, `GetRectFromCharacterIndex`). Replace each
-  with `RichTextBoxExtensions` helpers or native RTB API. Subsystems to verify after migration:
-  Bold/Italic/code-block toolbar buttons, find-in-source bar, revision applied hint overlay,
-  Revise with AI popup positioning (`PositionPopupNearCaret`), file save, markdown preview sync.
-  **Blocked by:** Phase 1.
+- [x] **Doc editor — Phase 1: swap DocSourceTextBox to RichTextBox + plain-text adapter** *(Owner: Arjun Sen)*
+- [x] **Doc editor — Phase 2: migrate all DocSourceTextBox API call sites to RichTextBox** *(Owner: Arjun Sen)*
 
 - [ ] **Doc editor — Phase 3: animated inline indicator for pending Revise with AI** *(Owner: Arjun Sen)*
   Create a `RevisionPendingIndicator` class: an `InlineUIContainer` wrapping an animated WPF element
