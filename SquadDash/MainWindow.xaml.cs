@@ -13559,7 +13559,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             block.HeaderTextBlock.Inlines.Clear();
             block.HeaderTextBlock.Inlines.Add(new Run("Tooling...") { FontWeight = FontWeights.SemiBold });
         };
-        expander.Collapsed += (_, _) => { if (!_programmaticExpanderChange) block.UserPinnedOpen = false; };
+        expander.Collapsed += (_, _) =>
+        {
+            if (!_programmaticExpanderChange) block.UserPinnedOpen = false;
+            var duration = block.LastUpdatedAt is { } lastUpdated && lastUpdated > block.StartedAt
+                ? StatusTimingPresentation.FormatDuration(lastUpdated - block.StartedAt)
+                : null;
+            SetCollapsedBlockHeader(block.HeaderTextBlock, "Tooling...", duration, ComputeBlockEditDiff(block));
+        };
         header.ContextMenu = CreateThinkingContextMenu(turn);
         expander.ContextMenu = CreateThinkingContextMenu(turn);
         return block;
