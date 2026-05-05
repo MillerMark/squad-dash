@@ -2074,5 +2074,17 @@
         </Button>
     </StackPanel>
 
+    <!-- Restarting overlay: shown immediately when a build-triggered restart fires -->
+    <TextBlock x:Name="RestartingOverlay"
+               Text="Restarting…"
+               FontSize="52"
+               FontWeight="Bold"
+               Foreground="#CCFF3333"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               IsHitTestVisible="False"
+               Opacity="0"
+               Visibility="Collapsed" />
+
     </Grid>  <!-- end RootPanel -->
 </Window>

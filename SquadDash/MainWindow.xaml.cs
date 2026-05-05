@@ -811,7 +811,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                         // StopPushToTalkAsync's Background-priority callback will call Close()
                         // once the final phrase has been received from Azure.
                         if (_pttState != PttState.Active && !_pttDraining)
+                        {
+                            ShowRestartingOverlay();
                             Close();
+                        }
                     }
                     else
                     {
@@ -6102,6 +6105,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             _pttDraining = false;
             if (_restartPending && !_isPromptRunning)
             {
+                ShowRestartingOverlay();
                 _conversationManager.EmergencySave();
                 Close();
             }
@@ -15320,7 +15324,19 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
+        ShowRestartingOverlay();
         Close();
+    }
+
+    private void ShowRestartingOverlay()
+    {
+        RestartingOverlay.Visibility = Visibility.Visible;
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 0.9,
+            new Duration(TimeSpan.FromMilliseconds(400)));
+        RestartingOverlay.BeginAnimation(OpacityProperty, fade);
+        // Force the dispatcher to flush a render frame so the overlay paints before
+        // the synchronous shutdown work blocks the UI thread.
+        Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void TryPostToUi(Action action, string source)
