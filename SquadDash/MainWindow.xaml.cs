@@ -4047,7 +4047,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                                      : Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"),
             editTasksAction: () => EditTasksMenuItem_Click(this, new RoutedEventArgs()),
             priorityDotColor: PriorityDotColor,
-            reloadPanel: () => Dispatcher.BeginInvoke(LoadTasksPanel));
+            reloadPanel: () => Dispatcher.BeginInvoke(LoadTasksPanel),
+            attachFollowUp: task => AttachContextFollowUp(
+                $"Task: {task.Text}",
+                BuildTaskContentBlock(task)));
 
         var workspace = _currentWorkspace;
         if (workspace is null) { _tasksPanelController.ShowEmpty("No workspace open"); return; }
@@ -9606,7 +9609,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     var newId = _promptQueue.Items[^1].Id;
                     _followUpAttachments[newId] = entry.Attachments
                         .Where(a => !string.IsNullOrEmpty(a.CommitSha) && !string.IsNullOrEmpty(a.Description))
-                        .Select(a => new FollowUpAttachment(a.CommitSha!, a.Description!, a.OriginalPrompt, a.TranscriptQuote))
+                        .Select(a => new FollowUpAttachment(a.CommitSha!, a.Description!, a.OriginalPrompt, a.TranscriptQuote, a.ContentBlock))
                         .ToList();
                 }
             }
@@ -16617,7 +16620,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 var items = System.Text.Json.JsonSerializer.Deserialize<List<FollowUpAttachmentDto>>(followUpsJson);
                 if (items != null)
-                    restoredList.AddRange(items.Select(d => new FollowUpAttachment(d.CommitSha ?? "", d.Description ?? "", d.OriginalPrompt, d.TranscriptQuote)));
+                    restoredList.AddRange(items.Select(d => new FollowUpAttachment(d.CommitSha ?? "", d.Description ?? "", d.OriginalPrompt, d.TranscriptQuote, d.ContentBlock)));
             }
             catch { /* corrupt data — ignore */ }
         }
@@ -16715,6 +16718,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             menu.Items.Add(renameItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(copyLinkItem);
+
+            // Follow up…
+            var followUpItem = new MenuItem { Header = "Follow up…" };
+            followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            followUpItem.Click += (_, _) => AttachTopicFollowUp(item, filePath);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(followUpItem);
 
             if (_docStatusStore?.GetStatus(filePath) == DocApprovalStatus.Approved)
             {
@@ -17587,6 +17597,89 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     // ── Follow-up attachment ──────────────────────────────────────────────────
 
+    private void AttachNoteFollowUp(NoteItem note)
+    {
+        var path = _notesStore?.GetNotePath(note.Id) ?? "";
+        string content = "";
+        try { if (!string.IsNullOrEmpty(path)) content = File.ReadAllText(path); } catch { }
+
+        var block = new System.Text.StringBuilder();
+        block.AppendLine($"## Note: {note.Title}");
+        if (!string.IsNullOrEmpty(path))
+            block.AppendLine($"File: {path}");
+        block.AppendLine();
+        if (!string.IsNullOrWhiteSpace(content))
+            block.Append(content);
+
+        AttachContextFollowUp($"Note: {note.Title}", block.ToString().TrimEnd());
+    }
+
+    private void AttachTopicFollowUp(TreeViewItem treeItem, string filePath)
+    {
+        // Extract display title from TreeViewItem header or fall back to filename.
+        string title = filePath;
+        if (treeItem.Header is FrameworkElement fe)
+        {
+            var tb = FindVisualChild<TextBlock>(fe);
+            if (tb is not null && !string.IsNullOrWhiteSpace(tb.Text))
+                title = tb.Text.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(title) || title == filePath)
+            title = Path.GetFileNameWithoutExtension(filePath);
+
+        string content = "";
+        try { content = File.ReadAllText(filePath); } catch { }
+
+        var block = new System.Text.StringBuilder();
+        block.AppendLine($"## Documentation topic: {title}");
+        block.AppendLine($"File: {filePath}");
+        block.AppendLine();
+        if (!string.IsNullOrWhiteSpace(content))
+            block.Append(content);
+
+        AttachContextFollowUp($"Topic: {title}", block.ToString().TrimEnd());
+    }
+
+    private static string BuildTaskContentBlock(TaskItem task)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Task context");
+        sb.AppendLine($"Title: {task.Text}");
+        var priority = task.Emoji switch {
+            "🔴" => "High",
+            "🟡" => "Mid",
+            "🟢" => "Low",
+            "✅" => "Done",
+            _    => task.Emoji
+        };
+        sb.AppendLine($"Priority: {priority}");
+        sb.AppendLine($"Status: {(task.IsChecked ? "Done" : "Open")}");
+        if (!string.IsNullOrWhiteSpace(task.Owner))
+            sb.AppendLine($"Owner: {task.Owner}");
+        if (!string.IsNullOrWhiteSpace(task.Description))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Description:");
+            sb.AppendLine(task.Description.Trim());
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    private void AttachContextFollowUp(string description, string contentBlock)
+    {
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        // Deduplicate by description.
+        if (list.Count >= 15 || list.Any(a => a.Description == description)) return;
+        list.Add(new FollowUpAttachment(
+            CommitSha:    string.Empty,
+            Description:  description,
+            OriginalPrompt: null,
+            ContentBlock: contentBlock));
+        UpdateFollowUpStrip();
+        SyncQueuePanel();
+        if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
     private void AttachFollowUpToActiveTab(CommitApprovalItem item)
     {
         var list = GetOrCreateFollowUpList(_activeTabId ?? "");
@@ -17649,7 +17742,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                 };
                 label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
-                if (att.TranscriptQuote != null)
+                if (att.ContentBlock != null)
+                {
+                    var icon = new Run("📎 ");
+                    var descRun = new Run(att.Description);
+                    descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                    label.Inlines.Add(icon);
+                    label.Inlines.Add(descRun);
+                }
+                else if (att.TranscriptQuote != null)
                 {
                     var prefix = new Run("↩ Regarding: ");
                     prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
@@ -17783,6 +17884,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         var headers = list.Select(att =>
         {
+            if (att.ContentBlock != null)
+                return att.ContentBlock;
             if (att.TranscriptQuote != null)
                 return $"Regarding this section of the transcript: \"{att.TranscriptQuote}\"";
             var summaryHint = att.OriginalPrompt is { Length: > 0 } op
@@ -17813,7 +17916,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 openNote:        note => OpenNote(note),
                 renameNote:      (note, title) => RenameNote(note, title),
                 deleteNote:      note => DeleteNote(note),
-                newNote:         () => CreateNewNote());
+                newNote:         () => CreateNewNote(),
+                attachFollowUp:  note => AttachNoteFollowUp(note));
             _notesPanel.Refresh(_noteItems);
         }
     }

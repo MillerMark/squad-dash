@@ -16,6 +16,7 @@ internal sealed class NotesPanelController {
     private readonly Action<NoteItem, string> _renameNote;
     private readonly Action<NoteItem>    _deleteNote;
     private readonly Action              _newNote;
+    private readonly Action<NoteItem>?   _attachFollowUp;
 
     private List<NoteItem> _notes = [];
 
@@ -27,14 +28,16 @@ internal sealed class NotesPanelController {
         Action<NoteItem>         openNote,
         Action<NoteItem, string> renameNote,
         Action<NoteItem>         deleteNote,
-        Action                   newNote) {
+        Action                   newNote,
+        Action<NoteItem>?        attachFollowUp = null) {
 
         _listPanel       = listPanel;
         _scrollContainer = scrollContainer;
-        _openNote   = openNote;
-        _renameNote = renameNote;
-        _deleteNote = deleteNote;
-        _newNote    = newNote;
+        _openNote        = openNote;
+        _renameNote      = renameNote;
+        _deleteNote      = deleteNote;
+        _newNote         = newNote;
+        _attachFollowUp  = attachFollowUp;
 
         AttachPanelContextMenu();
     }
@@ -114,6 +117,14 @@ internal sealed class NotesPanelController {
         menu.Items.Add(newItem);
 
         menu.Items.Add(MakeSep());
+
+        if (_attachFollowUp is not null)
+        {
+            var followUpItem = MakeItem("Follow up…");
+            followUpItem.Click += (_, _) => _attachFollowUp(note);
+            menu.Items.Add(followUpItem);
+            menu.Items.Add(MakeSep());
+        }
 
         var renameItem = MakeItem("Rename");
         renameItem.Click += (_, _) => BeginInlineRename(note, row, titleLabel);

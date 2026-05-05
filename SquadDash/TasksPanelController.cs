@@ -22,6 +22,7 @@ internal sealed class TasksPanelController {
     private readonly Action          _reloadPanel;
     private readonly Action          _editTasksAction;
     private readonly Func<string, Brush> _priorityDotColor;
+    private readonly Action<TaskItem>?  _attachFollowUp;
 
     private bool      _showCompleted;
     private MenuItem? _toggleCompletedItem;
@@ -37,7 +38,8 @@ internal sealed class TasksPanelController {
         Func<string?>        getTasksPath,
         Action               editTasksAction,
         Func<string, Brush>  priorityDotColor,
-        Action               reloadPanel) {
+        Action               reloadPanel,
+        Action<TaskItem>?    attachFollowUp = null) {
 
         _activePanel      = activePanel;
         _completedPanel   = completedPanel;
@@ -46,6 +48,7 @@ internal sealed class TasksPanelController {
         _editTasksAction  = editTasksAction;
         _priorityDotColor = priorityDotColor;
         _reloadPanel      = reloadPanel;
+        _attachFollowUp   = attachFollowUp;
 
         AttachPanelContextMenu(outerBorder);
     }
@@ -172,6 +175,13 @@ internal sealed class TasksPanelController {
         var markCompleteItem = MakeItem("Mark as Complete");
         markCompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         menu.Items.Add(markCompleteItem);
+        if (_attachFollowUp is not null)
+        {
+            menu.Items.Add(MakeSep());
+            var followUpItem = MakeItem("Follow up…");
+            followUpItem.Click += (_, _) => _attachFollowUp(item);
+            menu.Items.Add(followUpItem);
+        }
         menu.Items.Add(MakeSep());
         menu.Items.Add(BuildToggleCompletedMenuItem());
         menu.Items.Add(MakeSep());
@@ -365,6 +375,13 @@ internal sealed class TasksPanelController {
         var markIncompleteItem = MakeItem("Mark as Incomplete");
         markIncompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: false);
         menu.Items.Add(markIncompleteItem);
+        if (_attachFollowUp is not null)
+        {
+            menu.Items.Add(MakeSep());
+            var followUpItem = MakeItem("Follow up…");
+            followUpItem.Click += (_, _) => _attachFollowUp(item);
+            menu.Items.Add(followUpItem);
+        }
         menu.Items.Add(MakeSep());
         menu.Items.Add(BuildToggleCompletedMenuItem());
         menu.Items.Add(MakeSep());
