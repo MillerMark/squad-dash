@@ -163,6 +163,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private readonly Dictionary<string, List<FollowUpAttachment>> _followUpAttachments = new();
+    // Captured by ApplyFollowUpHeader; consumed by CreateTranscriptTurnView for the paperclip UI.
+    private IReadOnlyList<FollowUpAttachment>? _pendingTranscriptAttachments;
 
     // ── Queue tab drag-to-reorder ────────────────────────────────────────────
     private string? _dragTabId;               // Id of the tab currently being dragged
@@ -10864,9 +10866,46 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         var promptParagraph = CreateTranscriptParagraph(bottomMargin: 8);
         const string voiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
-        var promptBody = prompt.EndsWith(voiceAnnotation, StringComparison.Ordinal)
-            ? prompt[..^voiceAnnotation.Length]
-            : prompt;
+
+        // Consume pending attachments captured by ApplyFollowUpHeader for this turn.
+        var pendingAttachments = _pendingTranscriptAttachments;
+        _pendingTranscriptAttachments = null;
+
+        // Determine the display prompt: strip attachment header prefix if present.
+        string displayPrompt = prompt;
+        IReadOnlyList<FollowUpAttachment>? attachmentsForViewer = pendingAttachments;
+        bool hasAttachments = pendingAttachments?.Count > 0;
+
+        if (hasAttachments)
+        {
+            // Strip the header block (everything before the first \n\n separator).
+            var nnIdx = displayPrompt.IndexOf("\n\n", StringComparison.Ordinal);
+            if (nnIdx >= 0)
+                displayPrompt = displayPrompt[(nnIdx + 2)..];
+        }
+        else
+        {
+            // Historical turns: detect attachment header prefix by content pattern.
+            var nnIdx = displayPrompt.IndexOf("\n\n", StringComparison.Ordinal);
+            if (nnIdx > 0)
+            {
+                var prefix = displayPrompt[..nnIdx];
+                if (prefix.StartsWith("[Follow-up on ", StringComparison.Ordinal) ||
+                    prefix.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal))
+                {
+                    hasAttachments      = true;
+                    attachmentsForViewer = null;  // no structured objects — viewer shows raw header
+                    displayPrompt       = displayPrompt[(nnIdx + 2)..];
+                    var rawHeader       = prefix;
+                    // Use a local variable so the lambda captures the right value.
+                    var capturedRaw     = rawHeader;
+                    attachmentsForViewer = new[] { new FollowUpAttachment("", "Attachment", capturedRaw, null) };
+                }
+            }
+        }
+
+        bool hasDictation = displayPrompt.EndsWith(voiceAnnotation, StringComparison.Ordinal);
+        var promptBody = hasDictation ? displayPrompt[..^voiceAnnotation.Length] : displayPrompt;
 
         if (!string.IsNullOrEmpty(promptBody))
         {
@@ -10892,14 +10931,43 @@ public partial class MainWindow : Window, ILiveElementLocator
                 bodyRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptText");
                 promptParagraph.Inlines.Add(bodyRun);
             }
-            if (promptBody != prompt)
+
+            if (hasAttachments || hasDictation)
             {
-                var voiceRun = new Run("\n(some or all of this prompt was dictated by voice)")
+                promptParagraph.Inlines.Add(new Run("\n") { FontWeight = FontWeights.Normal });
+
+                if (hasAttachments)
                 {
-                    FontWeight = FontWeights.Normal
-                };
-                voiceRun.SetResourceReference(TextElement.ForegroundProperty, "VoiceAnnotationText");
-                promptParagraph.Inlines.Add(voiceRun);
+                    var capturedAttachments = attachmentsForViewer ?? Array.Empty<FollowUpAttachment>();
+                    var count    = capturedAttachments.Count;
+                    var linkText = count == 1 ? "📎 1 attachment" : $"📎 {count} attachments";
+                    var link     = new System.Windows.Documents.Hyperlink(new Run(linkText))
+                    {
+                        FontWeight      = FontWeights.Normal,
+                        TextDecorations = null,
+                        Cursor          = System.Windows.Input.Cursors.Hand,
+                    };
+                    link.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "SubtleText");
+                    link.ToolTip = "This prompt includes attachments. Click to view.";
+                    link.Click  += (_, _) =>
+                    {
+                        if (capturedAttachments.Count > 0)
+                            PromptAttachmentViewerWindow.Show(capturedAttachments, CanShowOwnedWindow() ? this : null);
+                    };
+                    promptParagraph.Inlines.Add(link);
+                }
+
+                if (hasDictation)
+                {
+                    if (hasAttachments)
+                        promptParagraph.Inlines.Add(new Run("  ") { FontWeight = FontWeights.Normal });
+                    var voiceRun = new Run("(some or all of this prompt was dictated by voice)")
+                    {
+                        FontWeight = FontWeights.Normal
+                    };
+                    voiceRun.SetResourceReference(TextElement.ForegroundProperty, "VoiceAnnotationText");
+                    promptParagraph.Inlines.Add(voiceRun);
+                }
             }
             thread.Document.Blocks.Add(promptParagraph);
             topLevelBlocks.Add(promptParagraph);
@@ -17496,8 +17564,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private string ApplyFollowUpHeader(string text, string tabId)
     {
+        _pendingTranscriptAttachments = null;
         if (!_followUpAttachments.TryGetValue(tabId, out var list) || list.Count == 0)
             return text;
+        _pendingTranscriptAttachments = list.ToList();
         _followUpAttachments.Remove(tabId);
         if (tabId == "") PersistDraftFollowUp();
         UpdateFollowUpStrip();
