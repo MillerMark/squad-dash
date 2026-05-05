@@ -607,6 +607,10 @@ internal enum TranscriptThoughtPlacement {
     AfterTools
 }
 
+/// <summary>References a saved agent report file that should be rendered as a button
+/// immediately after the coordinator turn it is attached to.</summary>
+internal sealed record AgentReportInfo(string AgentLabel, string ReportPath);
+
 internal sealed record TranscriptTurnRecord(
     DateTimeOffset StartedAt,
     DateTimeOffset? CompletedAt,
@@ -620,6 +624,8 @@ internal sealed record TranscriptTurnRecord(
 
     public DateTimeOffset Timestamp => CompletedAt ?? StartedAt;
     public int? ToolsSuppressedCount { get; init; }
+    /// <summary>Agent reports to render as buttons immediately after this turn.</summary>
+    public IReadOnlyList<AgentReportInfo>? AgentReports { get; init; }
 
     public IReadOnlyList<TranscriptThoughtRecord> GetThoughts() {
         if (Thoughts is { Count: > 0 })

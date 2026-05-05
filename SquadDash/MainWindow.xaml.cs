@@ -11756,6 +11756,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             foreach (var block in view.ThoughtBlocks)
                 block.Expander.IsExpanded = false;
         }
+
+        if (turn.AgentReports is { Count: > 0 } && ReferenceEquals(thread, CoordinatorThread))
+        {
+            foreach (var report in turn.AgentReports)
+                AppendAgentReportButton(report.AgentLabel, report.ReportPath);
+        }
     }
 
     private bool RenderStructuredPersistedNarrative(TranscriptTurnView view, TranscriptTurnRecord turn, bool isLastTurn = false)
@@ -12402,6 +12408,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var stateDir    = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         var reportsDir  = AgentReportStore.GetReportsDir(stateDir);
         var reportPath  = AgentReportStore.Store(reportsDir, agentLabel, header, body, DateTimeOffset.UtcNow);
+        _conversationManager.AppendAgentReportToLastTurn(agentLabel, reportPath);
         AppendAgentReportButton(agentLabel, reportPath);
     }
 
@@ -12440,7 +12447,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                     MessageBoxImage.Information);
         };
 
-        var container = new BlockUIContainer(button) { Margin = new Thickness(0, 4, 0, 6) };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(button);
+        var container = new BlockUIContainer(panel) { Margin = new Thickness(0, 4, 0, 6) };
         CoordinatorThread.Document.Blocks.Add(container);
     }
 

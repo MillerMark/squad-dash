@@ -646,6 +646,34 @@ internal sealed class TranscriptConversationManager {
         PersistConversationStateInBackground(state);
     }
 
+    /// <summary>
+    /// Attaches an agent report stub to the last saved coordinator turn so it is
+    /// re-rendered as a button when the conversation is loaded on next startup.
+    /// If there are no saved turns yet the call is a no-op (the button was already
+    /// appended live and will be gone on restart, but this is an uncommon edge case).
+    /// </summary>
+    internal void AppendAgentReportToLastTurn(string agentLabel, string reportPath) {
+        if (_getWorkspace() is null)
+            return;
+
+        var turns = _conversationState.Turns;
+        if (turns.Count == 0)
+            return;
+
+        var lastTurn  = turns[^1];
+        var existing  = lastTurn.AgentReports ?? [];
+        var newReport = new AgentReportInfo(agentLabel, reportPath);
+        var updated   = existing.Concat([newReport]).ToArray();
+
+        var newTurns = turns.ToList();
+        newTurns[^1] = lastTurn with { AgentReports = updated };
+
+        PersistConversationState(_conversationState with {
+            Turns = newTurns
+        });
+        _conversationState = _conversationState with { Turns = newTurns };
+    }
+
     internal void SaveWorkspaceInputState() {
         if (_getWorkspace() is null)
             return;
