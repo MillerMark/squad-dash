@@ -1126,7 +1126,7 @@
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <!-- Title row with close button -->
+                            <!-- Title row with filter box and close button -->
                             <Grid Grid.Row="0">
                                 <TextBlock Text="Approvals"
                                            FontSize="15"
@@ -1134,6 +1134,98 @@
                                            Foreground="{DynamicResource RosterPanelTitle}"
                                            HorizontalAlignment="Left"
                                            VerticalAlignment="Center" />
+
+                                <!-- Filter box + clear X, inset to the left of the close button -->
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Margin="0,0,28,0">
+                                    <TextBox x:Name="ApprovalFilterBox"
+                                             Width="80"
+                                             Height="17"
+                                             FontSize="11"
+                                             VerticalContentAlignment="Center"
+                                             Background="{DynamicResource InputSurface}"
+                                             Foreground="{DynamicResource LabelText}"
+                                             CaretBrush="{DynamicResource LabelText}"
+                                             BorderBrush="{DynamicResource InputBorder}"
+                                             BorderThickness="1"
+                                             TextChanged="ApprovalFilterBox_TextChanged">
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox">
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="TextBox">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                                    Padding="4,0"
+                                                                    CornerRadius="3">
+                                                                <Grid>
+                                                                    <TextBlock x:Name="Placeholder"
+                                                                               Text="(filter)"
+                                                                               Foreground="{DynamicResource SubtleText}"
+                                                                               FontSize="{TemplateBinding FontSize}"
+                                                                               VerticalAlignment="Center"
+                                                                               IsHitTestVisible="False"
+                                                                               Visibility="Collapsed" />
+                                                                    <ScrollViewer x:Name="PART_ContentHost"
+                                                                                  VerticalAlignment="Center"
+                                                                                  VerticalScrollBarVisibility="Hidden"
+                                                                                  HorizontalScrollBarVisibility="Hidden" />
+                                                                </Grid>
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="Text" Value="">
+                                                                    <Setter TargetName="Placeholder" Property="Visibility" Value="Visible" />
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </TextBox.Style>
+                                    </TextBox>
+
+                                    <!-- Clear X: low-contrast, only visible when filter has text -->
+                                    <Button x:Name="ApprovalFilterClearButton"
+                                            Content="×"
+                                            Width="14"
+                                            Height="14"
+                                            FontSize="10"
+                                            Margin="2,0,0,0"
+                                            VerticalAlignment="Center"
+                                            Visibility="Collapsed"
+                                            ToolTip="Clear filter"
+                                            Click="ApprovalFilterClearButton_Click">
+                                        <Button.Style>
+                                            <Style TargetType="Button">
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="Foreground" Value="{DynamicResource SubtleText}" />
+                                                <Setter Property="Cursor" Value="Hand" />
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border Background="{TemplateBinding Background}"
+                                                                    Padding="{TemplateBinding Padding}">
+                                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                                  VerticalAlignment="Center" />
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter Property="Foreground" Value="{DynamicResource LabelText}" />
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </StackPanel>
+
                                 <Button x:Name="ApprovalPanelCloseButton"
                                         Content="×"
                                         Width="22"

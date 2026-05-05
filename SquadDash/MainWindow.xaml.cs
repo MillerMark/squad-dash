@@ -18390,6 +18390,31 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalPanelCloseButton_Click), ex); }
     }
 
+    private void ApprovalFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        try
+        {
+            var text = ApprovalFilterBox?.Text ?? string.Empty;
+            if (ApprovalFilterClearButton is not null)
+                ApprovalFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _approvalPanel?.SetFilter(text);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalFilterBox_TextChanged), ex); }
+    }
+
+    private void ApprovalFilterClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (ApprovalFilterBox is not null)
+            {
+                ApprovalFilterBox.Text = string.Empty;
+                ApprovalFilterBox.Focus();
+            }
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalFilterClearButton_Click), ex); }
+    }
+
     private void ApprovalClearAllButton_Click(object sender, RoutedEventArgs e)
     {
         try

@@ -69,7 +69,9 @@ internal sealed class CommitApprovalPanel {
 
     public void AddItem(CommitApprovalItem item) {
         // Newest items go to the top
-        _needsApprovalPanel.Children.Insert(0, BuildRow(item));
+        var row = BuildRow(item);
+        row.Visibility = MatchesFilter(item) ? Visibility.Visible : Visibility.Collapsed;
+        _needsApprovalPanel.Children.Insert(0, row);
     }
 
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
@@ -86,6 +88,9 @@ internal sealed class CommitApprovalPanel {
             else
                 _needsApprovalPanel.Children.Add(BuildRow(item));
         }
+        ApplyFilterToPanel(_needsApprovalPanel);
+        ApplyFilterToPanel(_approvedPanel);
+        ApplyFilterToPanel(_rejectedPanel);
         SyncApprovedSectionVisibility();
     }
 
@@ -307,6 +312,7 @@ internal sealed class CommitApprovalPanel {
 
         sourcePanel.Children.Remove(row);
         InsertSorted(targetPanel, BuildRow(updated), updated);
+        ApplyFilterToPanel(targetPanel);
         SyncApprovedSectionVisibility();
 
         _onItemChanged(updated);
@@ -325,6 +331,7 @@ internal sealed class CommitApprovalPanel {
 
         sourcePanel.Children.Remove(row);
         InsertSorted(_rejectedPanel, BuildRejectedRow(updated), updated);
+        ApplyFilterToPanel(_rejectedPanel);
         SyncApprovedSectionVisibility();
 
         _onItemChanged(updated);
@@ -334,6 +341,7 @@ internal sealed class CommitApprovalPanel {
         var updated = item with { IsRejected = false, IsApproved = false };
         _rejectedPanel.Children.Remove(row);
         InsertSorted(_needsApprovalPanel, BuildRow(updated), updated);
+        ApplyFilterToPanel(_needsApprovalPanel);
         _onItemChanged(updated);
     }
 
@@ -419,5 +427,30 @@ internal sealed class CommitApprovalPanel {
             }
         }
         panel.Children.Add(row);
+    }
+
+    // ── Filter ────────────────────────────────────────────────────────────────
+
+    private string _filterText = string.Empty;
+
+    /// <summary>Applies a case-insensitive substring filter across all three sections.
+    /// Pass an empty string to clear the filter and show everything.</summary>
+    public void SetFilter(string filterText) {
+        _filterText = filterText.Trim();
+        ApplyFilterToPanel(_needsApprovalPanel);
+        ApplyFilterToPanel(_approvedPanel);
+        ApplyFilterToPanel(_rejectedPanel);
+    }
+
+    private bool MatchesFilter(CommitApprovalItem item) {
+        if (string.IsNullOrEmpty(_filterText)) return true;
+        return item.Description.Contains(_filterText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ApplyFilterToPanel(StackPanel panel) {
+        foreach (UIElement child in panel.Children) {
+            if (child is Border row && row.Tag is CommitApprovalItem item)
+                row.Visibility = MatchesFilter(item) ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 }
