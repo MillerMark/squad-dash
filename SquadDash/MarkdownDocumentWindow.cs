@@ -490,7 +490,9 @@ internal sealed class MarkdownDocumentWindow : Window {
                 priorFocus?.Focus();
                 Keyboard.Focus(priorFocus);
                 RevisionWorkingOverlay.ShowAt(popupCenter, this);
-            });
+            },
+            startPtt: _captureContext?.StartPttCallback,
+            stopPtt:  _captureContext?.StopPttCallback);
 
         PositionPopupNearCaret(popup, tb, selStart);
         popup.Owner = this;
@@ -2017,4 +2019,11 @@ internal sealed record MarkdownDocumentCaptureContext(
     /// Returns the revised text.
     /// </summary>
     public Func<string, string, string, string, CancellationToken, Task<string>>? ReviseWithAiCallback { get; init; }
+
+    /// <summary>
+    /// Optional callbacks for starting/stopping push-to-talk voice inside the Revise-with-AI popup.
+    /// <see cref="StartPttCallback"/> receives the instruction TextBox; <see cref="StopPttCallback"/> ends the session.
+    /// </summary>
+    public Action<TextBox>? StartPttCallback { get; init; }
+    public Action? StopPttCallback { get; init; }
 }

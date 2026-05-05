@@ -16578,6 +16578,15 @@ public partial class MainWindow : Window, ILiveElementLocator
             AddToNotesCallback = text => Dispatcher.Invoke(() => AddNoteFromText(text)),
             ReviseWithAiCallback = (instructions, sel, doc, cwd, ct) =>
                 _bridge.RunDocRevisionAsync(instructions, sel, doc, cwd, ct),
+            StartPttCallback = tb => {
+                _pttTargetTextBox = tb;
+                _sessionCaretIndex = tb.SelectionStart;
+                _sessionSelectionLength = tb.SelectionLength;
+                _voiceStartedWithSendEnabled = false;
+                _pttState = PttState.Active;
+                _ = StartPushToTalkAsync();
+            },
+            StopPttCallback = () => _ = StopPushToTalkAsync(send: false),
         };
 
     private void ShowTextWindow(string title, string content)
