@@ -651,10 +651,6 @@
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition x:Name="LoopOutputSplitterColumnDef"
-                                          Width="0" />
-                        <ColumnDefinition x:Name="LoopOutputColumnDef"
-                                          Width="0" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -756,99 +752,188 @@
                         </Grid>
                     </Border>
 
-                    <Border x:Name="LoopPanelBorder"
-                            Grid.Column="3"
-                            MinWidth="136"
-                            VerticalAlignment="Top"
-                            Margin="14,0,0,0"
-                            Padding="12"
-                            Background="{DynamicResource RosterPanelSurface}"
-                            BorderBrush="{DynamicResource RosterPanelBorder}"
-                            BorderThickness="1"
-                            CornerRadius="16">
-                        <Border.Height>
-                            <MultiBinding Converter="{StaticResource MaxValueConverter}">
-                                <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
-                                <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
-                            </MultiBinding>
-                        </Border.Height>
-                        <Border.ContextMenu>
-                            <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
-                                <MenuItem Header="Edit loop.md"
-                                          Style="{StaticResource ThemedMenuItemStyle}"
-                                          Click="LoopPanelEditLoopMdMenuItem_Click" />
-                            </ContextMenu>
-                        </Border.ContextMenu>
-                        <DockPanel LastChildFill="False">
-                            <Grid DockPanel.Dock="Top">
-                                <TextBlock Text="Loop"
-                                           FontSize="15"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           HorizontalAlignment="Left"
-                                           VerticalAlignment="Center" />
-                                <Button x:Name="LoopPanelCloseButton"
-                                        Content="×"
-                                        Width="22"
-                                        Height="22"
-                                        FontSize="13"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Top"
-                                        Style="{StaticResource PanelCloseButtonStyle}"
-                                        ToolTip="Hide Loop panel"
-                                        Click="LoopPanelCloseButton_Click" />
+                    <!-- Loop Section Grid: Contains loop controls, splitter, and loop output -->
+                    <Grid x:Name="LoopSectionGrid"
+                          Grid.Column="3"
+                          Margin="14,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="LoopPanelInnerColDef"
+                                              Width="Auto" />
+                            <ColumnDefinition Width="5" />
+                            <ColumnDefinition Width="280" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border x:Name="LoopPanelBorder"
+                                Grid.Column="0"
+                                MinWidth="136"
+                                VerticalAlignment="Top"
+                                Padding="12"
+                                Background="{DynamicResource RosterPanelSurface}"
+                                BorderBrush="{DynamicResource RosterPanelBorder}"
+                                BorderThickness="1"
+                                CornerRadius="16">
+                            <Border.Height>
+                                <MultiBinding Converter="{StaticResource MaxValueConverter}">
+                                    <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
+                                    <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
+                                </MultiBinding>
+                            </Border.Height>
+                            <Border.ContextMenu>
+                                <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
+                                    <MenuItem Header="Edit loop.md"
+                                              Style="{StaticResource ThemedMenuItemStyle}"
+                                              Click="LoopPanelEditLoopMdMenuItem_Click" />
+                                    <Separator />
+                                    <MenuItem x:Name="LoopPanelShowOutputMenuItem"
+                                              Header="Show Loop Output"
+                                              Style="{StaticResource ThemedMenuItemStyle}"
+                                              Click="LoopPanelShowOutputMenuItem_Click" />
+                                </ContextMenu>
+                            </Border.ContextMenu>
+                            <DockPanel LastChildFill="False">
+                                <Grid DockPanel.Dock="Top">
+                                    <TextBlock Text="Loop"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource RosterPanelTitle}"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="LoopPanelCloseButton"
+                                            Content="×"
+                                            Width="22"
+                                            Height="22"
+                                            FontSize="13"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Style="{StaticResource PanelCloseButtonStyle}"
+                                            ToolTip="Hide Loop panel"
+                                            Click="LoopPanelCloseButton_Click" />
+                                </Grid>
+                                <TextBlock x:Name="LoopStatusLabel"
+                                           DockPanel.Dock="Top"
+                                           Text=""
+                                           Margin="0,4,0,6"
+                                           Foreground="{DynamicResource BodyText}" />
+                                <StackPanel DockPanel.Dock="Top"
+                                            Margin="0,0,0,6">
+                                    <RadioButton x:Name="LoopModeNativeRadio"
+                                                 Content="SquadDash Agents"
+                                                 GroupName="LoopMode"
+                                                 IsChecked="True"
+                                                 Style="{StaticResource ThemedRadioButtonStyle}"
+                                                 Click="LoopModeNativeRadio_Click" />
+                                    <RadioButton x:Name="LoopModeCliRadio"
+                                                 Content="squad CLI"
+                                                 GroupName="LoopMode"
+                                                 Margin="0,2,0,0"
+                                                 Style="{StaticResource ThemedRadioButtonStyle}"
+                                                 Click="LoopModeCliRadio_Click" />
+                                </StackPanel>
+                                <CheckBox x:Name="LoopContinuousContextCheckBox"
+                                          DockPanel.Dock="Top"
+                                          Content="Continuous context"
+                                          IsChecked="True"
+                                          Margin="0,0,0,8"
+                                          Foreground="{DynamicResource LabelText}"
+                                          ToolTip="When checked, each iteration continues in the same session and can see prior results. Uncheck for a fresh, lower-cost session each iteration."
+                                          Click="LoopContinuousContextCheckBox_Click" />
+                                <Button x:Name="StartLoopButton"
+                                        DockPanel.Dock="Top"
+                                        Content="▶ Start Loop"
+                                        IsEnabled="False"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Click="StartLoopButton_Click" />
+                                <Button x:Name="StopLoopButton"
+                                        DockPanel.Dock="Top"
+                                        Content="■ Stop After This"
+                                        Margin="0,4,0,0"
+                                        IsEnabled="False"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Click="StopLoopButton_Click" />
+                                <Button x:Name="AbortLoopButton"
+                                        DockPanel.Dock="Top"
+                                        Content="⚠ Abort..."
+                                        Margin="0,4,0,0"
+                                        Visibility="Collapsed"
+                                        Foreground="{DynamicResource AbortButtonText}"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Click="AbortLoopButton_Click" />
+                            </DockPanel>
+                        </Border>
+
+                        <GridSplitter x:Name="LoopOutputSplitter"
+                                      Grid.Column="1"
+                                      Width="5"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Stretch"
+                                      Background="{DynamicResource RosterPanelBorder}"
+                                      Visibility="Collapsed"
+                                      ResizeBehavior="PreviousAndNext" />
+
+                        <Border x:Name="LoopOutputBorder"
+                                Grid.Column="2"
+                                MinWidth="160"
+                                VerticalAlignment="Top"
+                                Margin="3,0,0,0"
+                                Padding="8"
+                                Background="{DynamicResource RosterPanelSurface}"
+                                BorderBrush="{DynamicResource RosterPanelBorder}"
+                                BorderThickness="1"
+                                CornerRadius="16"
+                                Visibility="Collapsed">
+                            <Border.Height>
+                                <MultiBinding Converter="{StaticResource MaxValueConverter}">
+                                    <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
+                                    <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
+                                </MultiBinding>
+                            </Border.Height>
+                            <Border.ContextMenu>
+                                <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
+                                    <MenuItem Header="Clear"
+                                              Click="LoopOutputClearMenuItem_Click" />
+                                    <Separator />
+                                    <MenuItem Header="Hide Loop Output"
+                                              Style="{StaticResource ThemedMenuItemStyle}"
+                                              Click="LoopOutputHideMenuItem_Click" />
+                                </ContextMenu>
+                            </Border.ContextMenu>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0"
+                                      Margin="0,0,0,6">
+                                    <TextBlock Text="Loop Output"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource RosterPanelTitle}"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="LoopOutputClearButton"
+                                            Content="✕ Clear"
+                                            Padding="4,2"
+                                            FontSize="11"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Style="{StaticResource ThemedButtonStyle}"
+                                            ToolTip="Save and clear loop output"
+                                            Click="LoopOutputClearButton_Click" />
+                                </Grid>
+                                <RichTextBox x:Name="LoopOutputTextBox"
+                                             Grid.Row="1"
+                                             VerticalScrollBarVisibility="Auto"
+                                             HorizontalScrollBarVisibility="Disabled"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             IsReadOnly="True"
+                                             IsUndoEnabled="False"
+                                             Foreground="{DynamicResource LabelText}"
+                                             FontSize="11"
+                                             FontFamily="Consolas" />
                             </Grid>
-                            <TextBlock x:Name="LoopStatusLabel"
-                                       DockPanel.Dock="Top"
-                                       Text=""
-                                       Margin="0,4,0,6"
-                                       Foreground="{DynamicResource BodyText}" />
-                            <StackPanel DockPanel.Dock="Top"
-                                        Margin="0,0,0,6">
-                                <RadioButton x:Name="LoopModeNativeRadio"
-                                             Content="SquadDash Agents"
-                                             GroupName="LoopMode"
-                                             IsChecked="True"
-                                             Style="{StaticResource ThemedRadioButtonStyle}"
-                                             Click="LoopModeNativeRadio_Click" />
-                                <RadioButton x:Name="LoopModeCliRadio"
-                                             Content="squad CLI"
-                                             GroupName="LoopMode"
-                                             Margin="0,2,0,0"
-                                             Style="{StaticResource ThemedRadioButtonStyle}"
-                                             Click="LoopModeCliRadio_Click" />
-                            </StackPanel>
-                            <CheckBox x:Name="LoopContinuousContextCheckBox"
-                                      DockPanel.Dock="Top"
-                                      Content="Continuous context"
-                                      IsChecked="True"
-                                      Margin="0,0,0,8"
-                                      Foreground="{DynamicResource LabelText}"
-                                      ToolTip="When checked, each iteration continues in the same session and can see prior results. Uncheck for a fresh, lower-cost session each iteration."
-                                      Click="LoopContinuousContextCheckBox_Click" />
-                            <Button x:Name="StartLoopButton"
-                                    DockPanel.Dock="Top"
-                                    Content="▶ Start Loop"
-                                    IsEnabled="False"
-                                    Style="{StaticResource ThemedButtonStyle}"
-                                    Click="StartLoopButton_Click" />
-                            <Button x:Name="StopLoopButton"
-                                    DockPanel.Dock="Top"
-                                    Content="■ Stop After This"
-                                    Margin="0,4,0,0"
-                                    IsEnabled="False"
-                                    Style="{StaticResource ThemedButtonStyle}"
-                                    Click="StopLoopButton_Click" />
-                            <Button x:Name="AbortLoopButton"
-                                    DockPanel.Dock="Top"
-                                    Content="⚠ Abort..."
-                                    Margin="0,4,0,0"
-                                    Visibility="Collapsed"
-                                    Foreground="{DynamicResource AbortButtonText}"
-                                    Style="{StaticResource ThemedButtonStyle}"
-                                    Click="AbortLoopButton_Click" />
-                        </DockPanel>
-                    </Border>
+                        </Border>
+                    </Grid>
 
                     <!-- Loop "not configured" flyout — shown below StartLoopButton when loop.md frontmatter is missing -->
                     <Popup x:Name="_loopConfigFlyout"
@@ -942,77 +1027,8 @@
                         </Border>
                     </Popup>
 
-                    <GridSplitter x:Name="LoopOutputSplitter"
-                                  Grid.Column="4"
-                                  Width="5"
-                                  HorizontalAlignment="Stretch"
-                                  VerticalAlignment="Stretch"
-                                  Background="{DynamicResource RosterPanelBorder}"
-                                  Visibility="Collapsed"
-                                  ResizeBehavior="PreviousAndNext" />
-
-                    <Border x:Name="LoopOutputBorder"
-                            Grid.Column="5"
-                            MinWidth="160"
-                            VerticalAlignment="Top"
-                            Margin="3,0,0,0"
-                            Padding="8"
-                            Background="{DynamicResource RosterPanelSurface}"
-                            BorderBrush="{DynamicResource RosterPanelBorder}"
-                            BorderThickness="1"
-                            CornerRadius="16"
-                            Visibility="Collapsed">
-                        <Border.Height>
-                            <MultiBinding Converter="{StaticResource MaxValueConverter}">
-                                <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
-                                <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
-                            </MultiBinding>
-                        </Border.Height>
-                        <Border.ContextMenu>
-                            <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
-                                <MenuItem Header="Clear"
-                                          Click="LoopOutputClearMenuItem_Click" />
-                            </ContextMenu>
-                        </Border.ContextMenu>
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0"
-                                  Margin="0,0,0,6">
-                                <TextBlock Text="Loop Output"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           HorizontalAlignment="Left"
-                                           VerticalAlignment="Center" />
-                                <Button x:Name="LoopOutputClearButton"
-                                        Content="✕ Clear"
-                                        Padding="4,2"
-                                        FontSize="11"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Center"
-                                        Style="{StaticResource ThemedButtonStyle}"
-                                        ToolTip="Save and clear loop output"
-                                        Click="LoopOutputClearButton_Click" />
-                            </Grid>
-                            <RichTextBox x:Name="LoopOutputTextBox"
-                                         Grid.Row="1"
-                                         VerticalScrollBarVisibility="Auto"
-                                         HorizontalScrollBarVisibility="Disabled"
-                                         Background="Transparent"
-                                         BorderThickness="0"
-                                         IsReadOnly="True"
-                                         IsUndoEnabled="False"
-                                         Foreground="{DynamicResource LabelText}"
-                                         FontSize="11"
-                                         FontFamily="Consolas" />
-                        </Grid>
-                    </Border>
-
                     <Border x:Name="TasksPanelBorder"
-                            Grid.Column="6"
+                            Grid.Column="4"
                             MinWidth="200"
                             MaxWidth="280"
                             VerticalAlignment="Top"
@@ -1109,7 +1125,7 @@
                     </Border>
 
                     <Border x:Name="WatchPanelBorder"
-                            Grid.Column="7"
+                            Grid.Column="5"
                             MinWidth="180"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
@@ -1135,7 +1151,7 @@
                     </Border>
 
                     <Border x:Name="ApprovalPanelBorder"
-                            Grid.Column="8"
+                            Grid.Column="6"
                             MinWidth="220"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
@@ -1278,9 +1294,9 @@
                         </Grid>
                     </Border>
 
-                    <!-- Notes panel (Column 9) -->
+                    <!-- Notes panel (Column 7) -->
                     <Border x:Name="NotesPanelBorder"
-                            Grid.Column="9"
+                            Grid.Column="7"
                             MinWidth="200"
                             MaxWidth="280"
                             VerticalAlignment="Top"

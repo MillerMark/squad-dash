@@ -3592,15 +3592,26 @@ public partial class MainWindow : Window, ILiveElementLocator
         var vis = show ? Visibility.Visible : Visibility.Collapsed;
         LoopOutputBorder.Visibility = vis;
         LoopOutputSplitter.Visibility = vis;
-        if (LoopOutputSplitterColumnDef is not null)
-            LoopOutputSplitterColumnDef.Width = show ? new GridLength(8) : new GridLength(0);
-        if (LoopOutputColumnDef is not null)
+        
+        if (LoopPanelInnerColDef is not null && LoopPanelBorder is not null)
         {
-            if (show && LoopOutputColumnDef.ActualWidth < 1)
-                LoopOutputColumnDef.Width = new GridLength(320);
-            else if (!show)
-                LoopOutputColumnDef.Width = new GridLength(0);
+            if (show)
+            {
+                // Freeze the loop panel column so splitter only resizes output
+                LoopPanelInnerColDef.MaxWidth = LoopPanelBorder.ActualWidth;
+                LoopPanelInnerColDef.Width = new GridLength(LoopPanelBorder.ActualWidth);
+            }
+            else
+            {
+                // Unfreeze the loop panel column
+                LoopPanelInnerColDef.MaxWidth = double.PositiveInfinity;
+                LoopPanelInnerColDef.Width = GridLength.Auto;
+            }
         }
+        
+        // Update the "Show Loop Output" menu item visibility
+        if (LoopPanelShowOutputMenuItem is not null)
+            LoopPanelShowOutputMenuItem.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void LoopOutputClearButton_Click(object sender, RoutedEventArgs e)
@@ -3613,6 +3624,26 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try { BackupAndClearLoopOutput(); }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopOutputClearMenuItem_Click), ex); }
+    }
+
+    private void LoopOutputHideMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _loopOutputHasContent = false;
+            SyncLoopOutputPane();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopOutputHideMenuItem_Click), ex); }
+    }
+
+    private void LoopPanelShowOutputMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _loopOutputHasContent = true;
+            SyncLoopOutputPane();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelShowOutputMenuItem_Click), ex); }
     }
 
     private void HandleWatchFleetDispatched(SquadSdkEvent evt)
