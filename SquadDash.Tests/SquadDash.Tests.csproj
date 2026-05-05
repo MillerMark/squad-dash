@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\VoiceHeuristics\VoiceHeuristics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\SquadDash\Screenshots\IFixtureLoader.cs" Link="Source\IFixtureLoader.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotFixture.cs" Link="Source\ScreenshotFixture.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotRefreshMode.cs" Link="Source\ScreenshotRefreshMode.cs" />
@@ -109,7 +113,7 @@
     <Compile Include="..\SquadDash\WorkspaceIssuePresentation.cs" Link="Source\WorkspaceIssuePresentation.cs" />
     <Compile Include="..\SquadDash\ProcessIdentity.cs" Link="Source\ProcessIdentity.cs" />
     <Compile Include="..\SquadDash\ColorUtilities.cs" Link="Source\ColorUtilities.cs" />
-    <Compile Include="..\SquadDash\VoiceInsertionHeuristics.cs" Link="Source\VoiceInsertionHeuristics.cs" />
+
     <Compile Include="..\SquadDash\CtrlDoubleTapGestureTracker.cs" Link="Source\CtrlDoubleTapGestureTracker.cs" />
     <Compile Include="..\SquadDash\VisualTreeEdgeAnalyzer.cs" Link="Source\VisualTreeEdgeAnalyzer.cs" />
     <Compile Include="..\SquadDash\ICopyable.cs" Link="Source\ICopyable.cs" />

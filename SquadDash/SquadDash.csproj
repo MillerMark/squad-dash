@@ -110,6 +110,10 @@
     <Folder Include="Assets\Agents\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\VoiceHeuristics\VoiceHeuristics.csproj" />
+  </ItemGroup>
+
   <!-- Flatten Speech SDK native DLL to output root so P/Invoke can find it -->
   <Target Name="CopySpeechNativeDll" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
     <Copy SourceFiles="$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll"

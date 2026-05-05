@@ -5,4 +5,5 @@
   </Project>
   <Project Path="SquadDash.Tests/SquadDash.Tests.csproj" />
   <Project Path="SquadDash/SquadDash.csproj" />
+  <Project Path="VoiceHeuristics/VoiceHeuristics.csproj" />
 </Solution>

@@ -1,19 +1,16 @@
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
-namespace SquadDash;
+namespace VoiceHeuristics;
 
 /// <summary>
 /// Adjusts voice-recognized text before it is inserted at the cursor so that
 /// it reads naturally in context.
 ///
 /// This class is the single, growing home for all voice-insertion intelligence.
-/// All non-private methods are <c>internal</c> so the NUnit test suite can
-/// exercise each heuristic directly without needing integration-level fixtures.
-///
 /// Add new heuristics here — do NOT spread voice-adjustment logic across callers.
 /// </summary>
-internal static class VoiceInsertionHeuristics
+public static class VoiceInsertionHeuristics
 {
     // Words that must never be lowercased regardless of context.
     // "I" (first-person pronoun) is the canonical example: it has only one
@@ -134,7 +131,7 @@ internal static class VoiceInsertionHeuristics
         return result;
     }
 
-    // ── Heuristics (internal for unit testability) ────────────────────────────
+    // ── Heuristics ────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Returns <c>true</c> when <paramref name="leftContext"/> ends in a way
@@ -161,7 +158,7 @@ internal static class VoiceInsertionHeuristics
     ///   <item>Empty / whitespace-only context</item>
     /// </list>
     /// </summary>
-    internal static bool IsSentenceContinuation(string leftContext)
+    public static bool IsSentenceContinuation(string leftContext)
     {
         if (string.IsNullOrEmpty(leftContext)) return false;
 
@@ -193,7 +190,7 @@ internal static class VoiceInsertionHeuristics
     /// first word qualifies as a <em>special-case</em> token (see
     /// <see cref="IsSpecialCaseWord"/>).
     /// </summary>
-    internal static string LowercaseFirstWordIfNotSpecial(string text)
+    public static string LowercaseFirstWordIfNotSpecial(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
 
@@ -221,7 +218,7 @@ internal static class VoiceInsertionHeuristics
     ///   <item>It contains a digit — e.g. <c>"3D"</c>, <c>"R2D2"</c>, <c>"v2"</c>.</item>
     /// </list>
     /// </summary>
-    internal static bool IsSpecialCaseWord(string word)
+    public static bool IsSpecialCaseWord(string word)
     {
         if (string.IsNullOrEmpty(word)) return false;
         if (PreservedWords.Contains(word)) return true;
@@ -263,7 +260,7 @@ internal static class VoiceInsertionHeuristics
     /// <para>Remaining mid-sentence fillers (any case) are replaced with a
     /// single space; consecutive spaces are then collapsed.</para>
     /// </summary>
-    internal static string StripFillerWords(string text)
+    public static string StripFillerWords(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
 
@@ -300,7 +297,7 @@ internal static class VoiceInsertionHeuristics
     /// first word is a special-case token (see <see cref="IsSpecialCaseWord"/>).
     /// Used after a leading filler is stripped to restore sentence capitalisation.
     /// </summary>
-    internal static string CapitalizeFirstWordIfNotSpecial(string text)
+    public static string CapitalizeFirstWordIfNotSpecial(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
 
@@ -326,7 +323,7 @@ internal static class VoiceInsertionHeuristics
     ///   </item>
     /// </list>
     /// </summary>
-    internal static string ApplyTrailingPunctuationFixes(string text)
+    public static string ApplyTrailingPunctuationFixes(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
 
@@ -342,7 +339,7 @@ internal static class VoiceInsertionHeuristics
     /// specifically a lowercase letter or a closing parenthesis <c>)</c>.
     /// When true, the caller should strip trailing periods from the inserted text.
     /// </summary>
-    internal static bool IsRightContextMidSentence(string rightContext)
+    public static bool IsRightContextMidSentence(string rightContext)
     {
         if (string.IsNullOrEmpty(rightContext)) return false;
 
@@ -360,7 +357,7 @@ internal static class VoiceInsertionHeuristics
     /// caret (i.e. <c>rightContext[0]</c>) is a letter — meaning the inserted
     /// text will run directly into the next word unless a trailing space is added.
     /// </summary>
-    internal static bool IsRightContextStartsWithLetter(string rightContext) =>
+    public static bool IsRightContextStartsWithLetter(string rightContext) =>
         rightContext.Length > 0 && char.IsLetter(rightContext[0]);
 
     /// <summary>
@@ -375,7 +372,7 @@ internal static class VoiceInsertionHeuristics
     /// The punctuation exception prevents <c>"word ,rest"</c> — punctuation
     /// attaches to the word on its left, not the word on its right.
     /// </summary>
-    internal static bool IsRightContextRequiresTrailingSpace(string rightContext) =>
+    public static bool IsRightContextRequiresTrailingSpace(string rightContext) =>
         rightContext.Length > 0
         && rightContext[0] != ')'
         && ".,;!?:".IndexOf(rightContext[0]) < 0
@@ -386,7 +383,7 @@ internal static class VoiceInsertionHeuristics
     /// is a punctuation mark that would cause the inserted text's trailing punctuation
     /// to double up: <c>. , ; ! ? :</c>.
     /// </summary>
-    internal static bool IsRightContextStartsWithPunctuation(string rightContext) =>
+    public static bool IsRightContextStartsWithPunctuation(string rightContext) =>
         rightContext.Length > 0 && ".,;!?:".IndexOf(rightContext[0]) >= 0;
 
     /// <summary>
@@ -394,7 +391,7 @@ internal static class VoiceInsertionHeuristics
     /// or <c>?</c>) from <paramref name="text"/>.  Used when the right context already
     /// opens with punctuation, making the inserted punctuation redundant.
     /// </summary>
-    internal static string StripTrailingSentencePunctuation(string text)
+    public static string StripTrailingSentencePunctuation(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
         var last = text[^1];
@@ -405,13 +402,11 @@ internal static class VoiceInsertionHeuristics
     /// Removes one trailing period from <paramref name="text"/>.
     /// Used when the caret is mid-sentence (right context signals continuation).
     /// </summary>
-    internal static string StripTrailingPeriods(string text)
+    public static string StripTrailingPeriods(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
         return text.EndsWith('.') ? text[..^1] : text;
     }
-
-
 
     /// <summary>
     /// Returns <c>true</c> when the last non-whitespace character of
@@ -419,7 +414,7 @@ internal static class VoiceInsertionHeuristics
     /// Used to detect patterns like <c>"step 6"</c> or <c>"items: 3"</c> where
     /// the speech recogniser's auto-capitalisation of the next word is incorrect.
     /// </summary>
-    internal static bool IsLeftContextEndsWithDigit(string leftContext)
+    public static bool IsLeftContextEndsWithDigit(string leftContext)
     {
         if (string.IsNullOrEmpty(leftContext)) return false;
         for (var i = leftContext.Length - 1; i >= 0; i--)

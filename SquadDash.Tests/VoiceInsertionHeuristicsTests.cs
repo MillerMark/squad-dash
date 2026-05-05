@@ -1,3 +1,5 @@
+using VoiceHeuristics;
+
 namespace SquadDash.Tests;
 
 [TestFixture]

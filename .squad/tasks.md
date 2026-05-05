@@ -12,7 +12,7 @@
 - [x] **Doc editor — Phase 1: swap DocSourceTextBox to RichTextBox + plain-text adapter** *(Owner: Arjun Sen)*
 - [x] **Doc editor — Phase 2: migrate all DocSourceTextBox API call sites to RichTextBox** *(Owner: Arjun Sen)*
 
-- [ ] **Doc editor — Phase 3: animated inline indicator for pending Revise with AI** *(Owner: Arjun Sen)*
+- [x] **Doc editor — Phase 3: animated inline indicator for pending Revise with AI** *(Owner: Arjun Sen)*
   Create a `RevisionPendingIndicator` class: an `InlineUIContainer` wrapping an animated WPF element
   (pulsing border or spinner). On Revise with AI submit (`onSubmitting` callback): insert the indicator
   `Inline` at the selection's `TextPointer`. On `ApplyDocRevision` (success or fallback): remove it.
@@ -151,4 +151,5 @@
 - [x] Squad CLI upgraded to 0.9.5-insider.1
 - [x] Contributing docs removed
 - [x] Abandoned tool runs / charter menu / version context menu fixes
+
 
