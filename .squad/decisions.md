@@ -2380,3 +2380,66 @@ Both failures are **test maintenance issues**, not production code defects:
 
 **Conclusion:** Codebase is in good overall health. Test suite is robust and well-maintained. Primary risk area is newer features (commit approvals, doc status tracking, doc topics loading) lacking test coverage. Recommend prioritizing test coverage for data-persistence components before production release.
 
+
+# Loop Panel Splitter Layout Pattern
+
+**Date:** 2026-04-27  
+**Author:** Lyra Morn  
+**Status:** Implemented  
+**Commit:** 9b9d756  
+
+## Decision
+
+When a panel section needs internal resizing via GridSplitter but should maintain fixed positioning in the outer layout grid, wrap the resizable elements in a dedicated inner Grid instead of using outer-grid columns for each element.
+
+## Context
+
+The loop panel area in MainWindow required three elements: loop controls (LoopPanelBorder), a resizable splitter, and loop output (LoopOutputBorder). The original design placed all three as siblings in the outer StatusAgentPanelsGrid with columns 3, 4, and 5. The GridSplitter used `ResizeBehavior="PreviousAndNext"` which caused dragging to resize BOTH the loop controls (col 3) and output (col 5) — not the desired behavior.
+
+## Implementation
+
+Created `LoopSectionGrid` as a single outer grid column (Grid.Column="3") containing:
+- **Inner Column 0:** `LoopPanelInnerColDef` Width="Auto" — LoopPanelBorder
+- **Inner Column 1:** Width="5" — GridSplitter with `ResizeBehavior="PreviousAndNext"`
+- **Inner Column 2:** Width="280" — LoopOutputBorder
+
+When loop output becomes visible, freeze the loop controls column:
+```csharp
+LoopPanelInnerColDef.MaxWidth = LoopPanelBorder.ActualWidth;
+LoopPanelInnerColDef.Width = new GridLength(LoopPanelBorder.ActualWidth);
+```
+
+When hiding output, restore Auto sizing:
+```csharp
+LoopPanelInnerColDef.MaxWidth = double.PositiveInfinity;
+LoopPanelInnerColDef.Width = GridLength.Auto;
+```
+
+This ensures:
+1. The splitter only resizes the output panel (col 2), not the controls (col 0)
+2. The loop section as a whole maintains its outer grid position
+3. The controls panel can auto-size to content when output is hidden
+
+## Benefits
+
+- **User control:** Splitter behaves predictably — only the output panel resizes
+- **Layout stability:** Loop controls maintain consistent width during drag
+- **Clean column structure:** Reduced outer grid from 10 columns to 8
+- **Reusable pattern:** Same technique can apply to other resizable panel pairs
+
+## Alternative Considered
+
+We considered using `ResizeBehavior="BasedOnAlignment"` with carefully tuned `HorizontalAlignment` values, but this approach is fragile and doesn't guarantee the controls panel stays fixed-width during drag.
+
+## Related Changes
+
+- Removed outer `LoopOutputSplitterColumnDef` and `LoopOutputColumnDef`
+- Decremented Grid.Column for all panels after the loop section (TasksPanel, WatchPanel, ApprovalPanel, NotesPanel)
+- Added context menu items for show/hide loop output
+- Updated `SyncLoopOutputPane()` to manage column freeze/unfreeze logic
+
+## Files Modified
+
+- `SquadDash/MainWindow.xaml` — Grid column restructure, inner LoopSectionGrid
+- `SquadDash/MainWindow.xaml.cs` — SyncLoopOutputPane freeze logic, context menu handlers
+

@@ -29,3 +29,6 @@ Replace all `WorkspacePaths.*` static calls in backend services (`SquadCliAdapte
 
 **Task 5 — P2 Fixture Loaders: ✅ COMPLETE (commit `b3a6f88`, 2026-04-25)**  
 Delivered `BackgroundTaskFixtureLoader` (domain `"backgroundTask"`) and `QuickReplyFixtureLoader` (domain `"quickReplies"`) in `SquadDash/Screenshots/Fixtures/`. Both registered in `MainWindow.RegisterFixtureLoaders()` at positions 6 and 7. Fixture JSON files added to `docs/screenshots/fixtures/`. Build: 0 errors · Tests: 659/659 passing. Vesper Knox writing unit tests for both loaders (in progress).
+
+**Task 6 — Condensed loop iteration transcript display: ✅ COMPLETE (commit `b74b807`)**  
+Added optional `displayPrompt` parameter to `PromptExecutionController.ExecutePromptAsync` to allow separate visible transcript text from AI prompt. MainWindow loop delegate now passes short "🔁 Loop · Iteration N [View loop.md](app://open-loop-md:...)" indicator instead of full loop instructions. Added link handler for `app://open-loop-md:` scheme in MarkdownDocumentRenderer callback to open loop.md in system editor. Full loop instructions still sent to AI — only transcript bubble is condensed. Build: 0 errors · Tests: 1179/1180 passing (1 expected skip). Pattern: optional display override parameters maintain backward compatibility while enabling specialized UI behavior for automation workflows.
