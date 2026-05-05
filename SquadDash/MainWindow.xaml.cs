@@ -17924,6 +17924,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ApprovalRejectedPanel!,
                 ApprovalRejectedSection!,
                 ApprovalApprovedSection!,
+                ApprovalApprovedScrollViewer!,
                 ApprovalPanelBorder!,
                 ApprovalNeedsScrollViewer!,
                 navigateUrl: url => _ = OpenExternalLinkWithCommitCheckAsync(url),

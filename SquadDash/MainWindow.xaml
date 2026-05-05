@@ -1277,7 +1277,8 @@
                             </DockPanel>
 
                             <!-- Approved items -->
-                            <ScrollViewer Grid.Row="4"
+                            <ScrollViewer x:Name="ApprovalApprovedScrollViewer"
+                                          Grid.Row="4"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           MaxHeight="{Binding ActualHeight, ElementName=ApprovalPanelBorder, Converter={StaticResource FractionConverter}, ConverterParameter=0.5}">

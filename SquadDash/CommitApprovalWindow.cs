@@ -24,6 +24,7 @@ internal sealed class CommitApprovalPanel {
     private readonly StackPanel _rejectedPanel;
     private readonly UIElement  _rejectedSection;
     private readonly UIElement  _approvedSection;
+    private readonly UIElement  _approvedScrollViewer;
     private readonly ScrollViewer _needsApprovalScrollViewer;
 
     private Border?    _selectedRow;
@@ -39,6 +40,7 @@ internal sealed class CommitApprovalPanel {
         StackPanel                               rejectedPanel,
         UIElement                                rejectedSection,
         UIElement                                approvedSection,
+        UIElement                                approvedScrollViewer,
         Border                                   outerBorder,
         ScrollViewer                             needsApprovalScrollViewer,
         Action<string>                            navigateUrl,
@@ -53,6 +55,7 @@ internal sealed class CommitApprovalPanel {
         _rejectedPanel             = rejectedPanel;
         _rejectedSection           = rejectedSection;
         _approvedSection           = approvedSection;
+        _approvedScrollViewer      = approvedScrollViewer;
         _needsApprovalScrollViewer = needsApprovalScrollViewer;
         _navigateUrl               = navigateUrl;
         _scrollToTurn              = scrollToTurn;
@@ -346,9 +349,11 @@ internal sealed class CommitApprovalPanel {
     }
 
     private void SyncApprovedSectionVisibility() {
-        _approvedSection.Visibility = (_showApproved && _approvedPanel.Children.Count > 0)
+        var vis = (_showApproved && _approvedPanel.Children.Count > 0)
             ? Visibility.Visible
             : Visibility.Collapsed;
+        _approvedSection.Visibility      = vis;
+        _approvedScrollViewer.Visibility = vis;
     }
 
     /// <summary>Builds the tooltip string for an approval list row.
