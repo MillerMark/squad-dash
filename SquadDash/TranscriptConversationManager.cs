@@ -939,7 +939,8 @@ internal sealed class TranscriptConversationManager {
     internal void UpdateQueuedPromptsState(
         IReadOnlyList<PromptQueueItem> items,
         Dictionary<string, List<FollowUpAttachment>>? attachments = null,
-        bool queueRightmostHeld = false) {
+        bool queueRightmostHeld = false,
+        bool loopQueuedToDequeue = false) {
         IReadOnlyList<QueuedPromptEntry>? entries = null;
         if (items.Count > 0)
         {
@@ -958,6 +959,7 @@ internal sealed class TranscriptConversationManager {
         _conversationState = _conversationState with {
             QueuedPromptEntries = entries,
             QueueRightmostHeld  = queueRightmostHeld ? true : null,
+            LoopQueuedToDequeue = loopQueuedToDequeue ? true : null,
         };
     }
 

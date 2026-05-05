@@ -239,6 +239,7 @@ internal sealed class WorkspaceConversationStore {
             PromptDraftSelectionLength = state.PromptDraftSelectionLength,
             QueuedPromptEntries      = state.QueuedPromptEntries is { Count: > 0 } qe ? qe : null,
             QueueRightmostHeld       = state.QueueRightmostHeld == true ? true : null,
+            LoopQueuedToDequeue      = state.LoopQueuedToDequeue == true ? true : null,
             LoopMode                 = state.LoopMode,
             LoopContinuousContext    = state.LoopContinuousContext,
         };
@@ -576,6 +577,8 @@ internal sealed record WorkspaceConversationState(
     public IReadOnlyList<QueuedPromptEntry>? QueuedPromptEntries { get; init; }
     /// <summary>When true, the queue was shut down with the rightmost (first-to-dispatch) tab held for editing. Restore that hold on next launch.</summary>
     public bool? QueueRightmostHeld { get; init; }
+    /// <summary>When true, the loop was paused waiting to dequeue prompts at last shutdown. Auto-resumes after queue drains on next launch.</summary>
+    public bool? LoopQueuedToDequeue { get; init; }
     public LoopMode? LoopMode { get; init; }
     public bool? LoopContinuousContext { get; init; }
 

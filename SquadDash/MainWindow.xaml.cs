@@ -1953,6 +1953,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!shouldResume || _isPromptRunning || IsLoopRunning) return;
         _loopQueued = false;
         _loopInterruptedByQueue = false;
+        _conversationManager.UpdateQueuedPromptsState(
+            _promptQueue.Items, _followUpAttachments,
+            queueRightmostHeld: IsRightmostQueueTabActive(),
+            loopQueuedToDequeue: false);
         SyncLoopPanel();
         try
         {
@@ -3449,6 +3453,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         _settingsSnapshot = _settingsStore.SaveLoopActive(true);
         _loopCurrentIteration = 0;
         _loopQueued = false;
+        _conversationManager.UpdateQueuedPromptsState(
+            _promptQueue.Items, _followUpAttachments,
+            queueRightmostHeld: IsRightmostQueueTabActive(),
+            loopQueuedToDequeue: false);
         var label = string.IsNullOrWhiteSpace(evt.LoopMdPath)
             ? "🔁 Loop started"
             : $"🔁 Loop started: {evt.LoopMdPath.Replace('\\', '/')}";
@@ -3517,6 +3525,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         if ((hasInterrupt || _promptQueue.HasReadyItems) && !_loopQueued)
         {
             _loopQueued = true;
+            _conversationManager.UpdateQueuedPromptsState(
+                _promptQueue.Items, _followUpAttachments,
+                queueRightmostHeld: IsRightmostQueueTabActive(),
+                loopQueuedToDequeue: true);
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
         }
 
@@ -4210,7 +4222,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         string status;
         if (_loopQueued)
-            status = "⏸ Loop queued — waiting for coordinator";
+            status = "⏸ Paused — dequeuing prompts";
         else if (running
             && nativeMode
             && _loopController.StopState == LoopStopState.StopRequested)
@@ -4346,6 +4358,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
             {
                 _loopQueued = true;
+                _conversationManager.UpdateQueuedPromptsState(
+                    _promptQueue.Items, _followUpAttachments,
+                    queueRightmostHeld: IsRightmostQueueTabActive(),
+                    loopQueuedToDequeue: true);
                 SyncLoopPanel();
                 return;
             }
@@ -10069,7 +10085,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         AgentReportStore.PruneOld(AgentReportStore.GetReportsDir(reportStateDir));
 
-        _loopQueued = false;
+        // Restore loop-queued-to-dequeue state from previous session.
+        _loopQueued = _conversationManager.ConversationState.LoopQueuedToDequeue == true;
 
         // Restore queued prompts saved before last shutdown.
         var savedEntries = _conversationManager.ConversationState.QueuedPromptEntries;
@@ -10105,6 +10122,20 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _ = Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
+
+            // If the loop was paused to dequeue at last shutdown, auto-resume once the queue drains.
+            // If there are no queue items to drain, resume immediately.
+            if (_loopQueued)
+            {
+                if (!_promptQueue.HasReadyItems)
+                {
+                    _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
+                        System.Windows.Threading.DispatcherPriority.Background);
+                }
+                // else: DrainQueueIfNeededAsync already scheduled above will call MaybeFireQueuedLoopAsync when done
+                AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
+                SyncLoopPanel();
+            }
         }
         else if (savedLegacy is { Count: > 0 })
         {
@@ -10128,6 +10159,28 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _ = Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
+
+            // If the loop was paused to dequeue at last shutdown, auto-resume once the queue drains.
+            // If there are no queue items to drain, resume immediately.
+            if (_loopQueued)
+            {
+                if (!_promptQueue.HasReadyItems)
+                {
+                    _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
+                        System.Windows.Threading.DispatcherPriority.Background);
+                }
+                // else: DrainQueueIfNeededAsync already scheduled above will call MaybeFireQueuedLoopAsync when done
+                AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
+                SyncLoopPanel();
+            }
+        }
+        else if (_loopQueued)
+        {
+            // No queue items but loop was paused — resume immediately.
+            _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
+                System.Windows.Threading.DispatcherPriority.Background);
+            AppendLoopOutputLine("⏸ Loop paused — resuming…", LoopLifecycleBrush);
+            SyncLoopPanel();
         }
 
         // Restore per-workspace loop settings (override global app settings).
