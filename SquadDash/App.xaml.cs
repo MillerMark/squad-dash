@@ -5,6 +5,7 @@ using System.Windows;
 using System.Configuration;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using System.Windows.Shell;
 using SquadDash.Screenshots;
 
 namespace SquadDash {
@@ -21,7 +22,7 @@ namespace SquadDash {
                 : new WorkspacePathsProvider(startupArguments.ApplicationRoot);
             SquadDashTrace.Write(
                 "Startup",
-                $"App.OnStartup appRoot={startupArguments.ApplicationRoot ?? "(auto)"} workspace={startupArguments.StartupFolder ?? "(none)"}");
+                $"App.OnStartup appRoot={startupArguments.ApplicationRoot ?? "(auto)"} workspace={startupArguments.StartupFolder ?? "(none)"} newWindow={startupArguments.NoWorkspaceOnStart}");
             SquadDashRuntimeStamp.WriteStartupStamp(workspacePaths);
             var startupFolder = startupArguments.StartupFolder;
 
@@ -47,12 +48,15 @@ namespace SquadDash {
             // be allowed to run alongside an existing interactive instance for the same
             // workspace, so skip the single-instance ownership check entirely.
             WorkspaceOwnershipLease? startupWorkspaceLease = null;
-            if (!WorkspaceStartupRoutingPolicy.ShouldBypassSingleInstanceRouting(refreshOptions) &&
-                TryHandleStartupWorkspaceRouting(startupFolder, workspacePaths, out startupWorkspaceLease))
+            var noWorkspaceOnStart = startupArguments.NoWorkspaceOnStart;
+            if (!noWorkspaceOnStart &&
+                !WorkspaceStartupRoutingPolicy.ShouldBypassSingleInstanceRouting(refreshOptions) &&
+                TryHandleStartupWorkspaceRouting(startupFolder, workspacePaths, out startupWorkspaceLease, out noWorkspaceOnStart))
                 return;
 
-            var window = new MainWindow(startupFolder, startupWorkspaceLease, workspacePaths, refreshOptions);
+            var window = new MainWindow(startupFolder, startupWorkspaceLease, workspacePaths, refreshOptions, noWorkspaceOnStart);
             MainWindow = window;
+            RegisterJumpList();
             window.Show();
 
             if (!string.IsNullOrWhiteSpace(startupFolder) && !Directory.Exists(startupFolder)) {
@@ -62,6 +66,28 @@ namespace SquadDash {
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
             }
+        }
+
+        private static void RegisterJumpList()
+        {
+            try
+            {
+                var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if (exe is null) return;
+
+                var jumpList = new JumpList();
+                jumpList.JumpItems.Add(new JumpTask
+                {
+                    Title = "New Window",
+                    Description = "Open a new SquadDash window",
+                    ApplicationPath = exe,
+                    Arguments = "--new-window",
+                    IconResourcePath = exe,
+                });
+                JumpList.SetJumpList(Current, jumpList);
+                jumpList.Apply();
+            }
+            catch { /* best-effort: JumpList is a convenience, not critical */ }
         }
 
         private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e) {
@@ -114,8 +140,10 @@ namespace SquadDash {
         private bool TryHandleStartupWorkspaceRouting(
             string? startupFolder,
             IWorkspacePaths workspacePaths,
-            out WorkspaceOwnershipLease? startupWorkspaceLease) {
+            out WorkspaceOwnershipLease? startupWorkspaceLease,
+            out bool noWorkspaceOnStart) {
             startupWorkspaceLease = null;
+            noWorkspaceOnStart = false;
 
             if (!string.IsNullOrWhiteSpace(startupFolder) && !Directory.Exists(startupFolder))
                 return false;
@@ -140,6 +168,15 @@ namespace SquadDash {
                     return false;
 
                 case WorkspaceOpenDisposition.ActivatedExisting:
+                    if (string.IsNullOrWhiteSpace(startupFolder)) {
+                        // No explicit workspace was requested — open a fresh no-folder window
+                        // so the user can pick a different workspace from File > Open.
+                        noWorkspaceOnStart = true;
+                        SquadDashTrace.Write(
+                            "Startup",
+                            $"ActivatedExisting for {candidateWorkspace} but no explicit folder — opening new no-folder window.");
+                        return false;
+                    }
                     SquadDashTrace.Write(
                         "Startup",
                         $"Activated an existing SquadDash instance for workspace={candidateWorkspace} during startup routing.");
@@ -147,6 +184,15 @@ namespace SquadDash {
                     return true;
 
                 case WorkspaceOpenDisposition.Blocked:
+                    if (string.IsNullOrWhiteSpace(startupFolder)) {
+                        // No explicit workspace — silently open no-folder window rather than
+                        // showing a confusing "already open" dialog.
+                        noWorkspaceOnStart = true;
+                        SquadDashTrace.Write(
+                            "Startup",
+                            $"Blocked for {candidateWorkspace} but no explicit folder — opening new no-folder window.");
+                        return false;
+                    }
                     MessageBox.Show(
                         $"That workspace is already open in another SquadDash window:{Environment.NewLine}{candidateWorkspace}",
                         "Workspace Already Open",

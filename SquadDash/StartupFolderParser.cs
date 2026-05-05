@@ -6,7 +6,8 @@ internal sealed record StartupArguments(
     string? StartupFolder,
     string? ApplicationRoot,
     bool    RefreshScreenshots     = false,
-    string? RefreshScreenshotName  = null);
+    string? RefreshScreenshotName  = null,
+    bool    NoWorkspaceOnStart     = false);
 
 internal static class StartupFolderParser {
     public static string? Parse(string[] args) {
@@ -21,6 +22,7 @@ internal static class StartupFolderParser {
         string? applicationRoot       = null;
         var     refreshScreenshots    = false;
         string? refreshScreenshotName = null;
+        var     noWorkspaceOnStart    = false;
 
         for (var index = 0; index < args.Length; index++) {
             var arg = args[index];
@@ -65,11 +67,16 @@ internal static class StartupFolderParser {
                 continue;
             }
 
+            if (string.Equals(arg, "--new-window", StringComparison.OrdinalIgnoreCase)) {
+                noWorkspaceOnStart = true;
+                continue;
+            }
+
             if (!arg.StartsWith("-", StringComparison.Ordinal) && startupFolder is null)
                 startupFolder = Normalize(arg);
         }
 
-        return new StartupArguments(startupFolder, applicationRoot, refreshScreenshots, refreshScreenshotName);
+        return new StartupArguments(startupFolder, applicationRoot, refreshScreenshots, refreshScreenshotName, noWorkspaceOnStart);
     }
 
     public static string? Normalize(string? value) {

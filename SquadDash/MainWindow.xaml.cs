@@ -279,6 +279,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private string _activeThemeName = "Light";
     private readonly long _processStartedAtUtcTicks = ProcessIdentity.GetCurrentProcessStartedAtUtcTicks();
     private readonly string? _startupFolderArgument;
+    private readonly bool _noWorkspaceOnStart;
     private WorkspaceOwnershipLease? _startupWorkspaceLease;
     private WorkspaceOwnershipLease? _workspaceOwnershipLease;
     private bool _startupInitialized;
@@ -353,7 +354,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         string Summary,
         string Details);
 
-    internal MainWindow(string? startupFolder = null, WorkspaceOwnershipLease? startupWorkspaceLease = null, IWorkspacePaths? workspacePaths = null, ScreenshotRefreshOptions? screenshotRefreshOptions = null)
+    internal MainWindow(string? startupFolder = null, WorkspaceOwnershipLease? startupWorkspaceLease = null, IWorkspacePaths? workspacePaths = null, ScreenshotRefreshOptions? screenshotRefreshOptions = null, bool noWorkspaceOnStart = false)
     {
         _workspacePaths = workspacePaths ?? WorkspacePathsProvider.Discover();
         _screenshotRefreshOptions = screenshotRefreshOptions ?? ScreenshotRefreshOptions.None;
@@ -363,6 +364,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
+        _noWorkspaceOnStart    = noWorkspaceOnStart;
         _squadCliAdapter = new SquadCliAdapter(_workspacePaths, (op, ex) => HandleUiCallbackException(op, ex));
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
@@ -1566,10 +1568,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         RefreshDeveloperRuntimeIssuePreview();
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: installation state refreshed {initWsSw.ElapsedMilliseconds}ms.");
 
-        var candidateFolder = StartupWorkspaceResolver.Resolve(
-            startupFolder,
-            _settingsSnapshot.LastOpenedFolder,
-            TryGetApplicationRoot());
+        var candidateFolder = _noWorkspaceOnStart
+            ? null
+            : StartupWorkspaceResolver.Resolve(
+                startupFolder,
+                _settingsSnapshot.LastOpenedFolder,
+                TryGetApplicationRoot());
 
         if (!string.IsNullOrWhiteSpace(candidateFolder))
         {
@@ -1587,6 +1591,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         RefreshAgentCards();
         RefreshSidebar();
         UpdateInteractiveControlState();
+        SyncNoWorkspaceHintOverlay();
         UpdateRunningInstanceRegistration();
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: complete (no workspace) {initWsSw.ElapsedMilliseconds}ms total.");
     }
@@ -14322,6 +14327,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             : _currentWorkspace is { FolderPath.Length: > 0 }
                 ? Path.GetFileName(_currentWorkspace.FolderPath)
                 : "Squad Dash";
+        SyncNoWorkspaceHintOverlay();
+    }
+
+    private void SyncNoWorkspaceHintOverlay()
+    {
+        var show = _currentWorkspace is null;
+        NoWorkspaceHintOverlay.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        // When no workspace is loaded there is no transcript to load, so hide the
+        // "Loading transcript..." overlay that starts visible at startup.
+        if (show)
+            LoadingTranscriptOverlay.Visibility = Visibility.Collapsed;
     }
 
     // -----------------------------------------------------------------------

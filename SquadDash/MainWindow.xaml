@@ -1373,6 +1373,25 @@
                                IsHitTestVisible="False"
                                Panel.ZIndex="5" />
 
+                    <!-- No-workspace overlay. Visible when no folder is open; hidden once a workspace is loaded. -->
+                    <StackPanel x:Name="NoWorkspaceHintOverlay"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="False"
+                                Panel.ZIndex="5">
+                        <TextBlock Text="Select a working folder from the File menu to get started."
+                                   HorizontalAlignment="Center"
+                                   FontSize="14"
+                                   Foreground="{DynamicResource SubtleText}" />
+                        <TextBlock Text="File  →  Open Folder…"
+                                   HorizontalAlignment="Center"
+                                   FontSize="12"
+                                   Margin="0,6,0,0"
+                                   Foreground="{DynamicResource SubtleText}"
+                                   Opacity="0.7" />
+                    </StackPanel>
+
                     <!-- Floating scroll-to-bottom button. Starts hidden; animated by TranscriptScrollController. -->
                     <Button x:Name="ScrollToBottomButton"
                             HorizontalAlignment="Center"
