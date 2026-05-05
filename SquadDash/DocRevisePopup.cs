@@ -27,13 +27,10 @@ internal sealed class DocRevisePopup : Window
     private CancellationTokenSource? _cts;
     private bool _isSubmitting;
 
-    // PTT double-tap state (mirrors MainWindow logic)
-    private enum PttState { Idle, TapDown, TapReleased, Active }
-    private PttState _pttState;
-    private DateTime _ctrlFirstDownTime;
-    private DateTime _ctrlFirstReleaseTime;
-    private const int PttMaxTapHoldMs = 250;
-    private const int PttDoubleClickTimeMs = 350;
+    // PTT double-tap detection at Window level (PreviewKeyDown/PreviewKeyUp)
+    private readonly CtrlDoubleTapGestureTracker _pttGesture =
+        new CtrlDoubleTapGestureTracker(maxTapHoldMs: 250, doubleTapGapMs: 350);
+    private bool _pttActive;
 
     private const string PlaceholderText = "Describe revisions (Enter to apply, Esc to cancel)";
 
@@ -124,8 +121,17 @@ internal sealed class DocRevisePopup : Window
         };
 
         _instructionBox.PreviewKeyDown += InstructionBox_PreviewKeyDown;
-        _instructionBox.KeyDown += InstructionBox_KeyDown;
-        _instructionBox.KeyUp   += InstructionBox_KeyUp;
+
+        PreviewKeyDown += (_, e) => {
+            if (e.Key == Key.Escape) {
+                _cts?.Cancel();
+                Close();
+                e.Handled = true;
+                return;
+            }
+            OnPopupPreviewKeyDown(e);
+        };
+        PreviewKeyUp += (_, e) => OnPopupPreviewKeyUp(e);
 
         _progressLabel = new TextBlock {
             Text       = "⟳  Working…",
@@ -191,79 +197,28 @@ internal sealed class DocRevisePopup : Window
             _instructionBox.Focus();
             Keyboard.Focus(_instructionBox);
         };
-
-        PreviewKeyDown += (_, e) => {
-            if (e.Key == Key.Escape) {
-                _cts?.Cancel();
-                Close();
-                e.Handled = true;
-            }
-        };
     }
 
-    // ── PTT: double-tap Ctrl detection ─────────────────────────────────────
+    // ── PTT: double-tap Ctrl detection (Window-level PreviewKeyDown/PreviewKeyUp) ──
 
-    private static bool IsCtrlKey(Key k) => k == Key.LeftCtrl || k == Key.RightCtrl;
-
-    private void InstructionBox_KeyDown(object sender, KeyEventArgs e)
+    private void OnPopupPreviewKeyDown(KeyEventArgs e)
     {
         if (_startPtt is null) return;
-        switch (_pttState)
-        {
-            case PttState.Idle:
-                if (IsCtrlKey(e.Key) && !e.IsRepeat) {
-                    _ctrlFirstDownTime = DateTime.UtcNow;
-                    _pttState = PttState.TapDown;
-                }
-                break;
-            case PttState.TapDown:
-                if (IsCtrlKey(e.Key)) {
-                    if (e.IsRepeat && (DateTime.UtcNow - _ctrlFirstDownTime).TotalMilliseconds > PttMaxTapHoldMs)
-                        _pttState = PttState.Idle;
-                } else {
-                    _pttState = PttState.Idle;
-                }
-                break;
-            case PttState.TapReleased:
-                if (IsCtrlKey(e.Key) && !e.IsRepeat) {
-                    var gapMs = (DateTime.UtcNow - _ctrlFirstReleaseTime).TotalMilliseconds;
-                    if (gapMs <= PttDoubleClickTimeMs) {
-                        _pttState = PttState.Active;
-                        _startPtt(_instructionBox);
-                    } else {
-                        _ctrlFirstDownTime = DateTime.UtcNow;
-                        _pttState = PttState.TapDown;
-                    }
-                } else {
-                    _pttState = PttState.Idle;
-                }
-                break;
-        }
+        var action = _pttGesture.HandleKeyDown(e.Key, e.IsRepeat, DateTime.UtcNow);
+        if (action != CtrlDoubleTapGestureAction.Triggered) return;
+        _pttActive = true;
+        _startPtt(_instructionBox);
     }
 
-    private void InstructionBox_KeyUp(object sender, KeyEventArgs e)
+    private void OnPopupPreviewKeyUp(KeyEventArgs e)
     {
-        if (_startPtt is null) return;
-        switch (_pttState)
-        {
-            case PttState.TapDown:
-                if (IsCtrlKey(e.Key)) {
-                    var heldMs = (DateTime.UtcNow - _ctrlFirstDownTime).TotalMilliseconds;
-                    if (heldMs <= PttMaxTapHoldMs) {
-                        _ctrlFirstReleaseTime = DateTime.UtcNow;
-                        _pttState = PttState.TapReleased;
-                    } else {
-                        _pttState = PttState.Idle;
-                    }
-                }
-                break;
-            case PttState.Active:
-                if (IsCtrlKey(e.Key)) {
-                    _pttState = PttState.Idle;
-                    _stopPtt?.Invoke();
-                }
-                break;
+        if (!CtrlDoubleTapGestureTracker.IsCtrlKey(e.Key)) return;
+        if (_pttActive) {
+            _pttActive = false;
+            _stopPtt?.Invoke();
+            return;
         }
+        _pttGesture.HandleKeyUp(e.Key, DateTime.UtcNow);
     }
 
     // ── Submission ──────────────────────────────────────────────────────────
