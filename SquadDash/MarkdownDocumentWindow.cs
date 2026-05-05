@@ -280,6 +280,12 @@ internal sealed class MarkdownDocumentWindow : Window {
         if (owner is not null)
             window.Owner = owner;
 
+        // In auto-save mode (notes), manual Save and Back navigation are never useful.
+        if (autoSave) {
+            window._backButton!.Visibility = Visibility.Collapsed;
+            window._saveButton.Visibility  = Visibility.Collapsed;
+        }
+
         if (showSource) {
             window._showSource = true;
             window.UpdateSourcePaneVisibility();

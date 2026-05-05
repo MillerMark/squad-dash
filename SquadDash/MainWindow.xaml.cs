@@ -17650,7 +17650,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             CanShowOwnedWindow() ? this : null,
             note.Title,
             path,
-            showSource: false,
+            showSource: true,
             BuildMarkdownCaptureContext(),
             autoSave: true);
     }
