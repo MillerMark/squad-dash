@@ -115,35 +115,31 @@ internal sealed class NotesPanelController {
     private ContextMenu BuildRowContextMenu(NoteItem note, Border row, TextBlock titleLabel) {
         var menu = MakeMenu();
 
-        var editItem = MakeItem("Edit Note");
-        editItem.Click += (_, _) => _editNote(note);
-        menu.Items.Add(editItem);
-
-        menu.Items.Add(MakeSep());
-
         var newItem = MakeItem("New Note");
         newItem.Click += (_, _) => _newNote();
         menu.Items.Add(newItem);
 
         menu.Items.Add(MakeSep());
 
-        if (_attachFollowUp is not null)
-        {
-            var followUpItem = MakeItem("Follow up…");
-            followUpItem.Click += (_, _) => _attachFollowUp(note);
-            menu.Items.Add(followUpItem);
-            menu.Items.Add(MakeSep());
-        }
-
         var renameItem = MakeItem("Rename");
         renameItem.Click += (_, _) => BeginInlineRename(note, row, titleLabel);
         menu.Items.Add(renameItem);
 
-        menu.Items.Add(MakeSep());
+        var editItem = MakeItem("View/Edit…");
+        editItem.Click += (_, _) => _editNote(note);
+        menu.Items.Add(editItem);
 
-        var deleteItem = MakeItem("Delete");
+        var deleteItem = MakeItem("Delete…");
         deleteItem.Click += (_, _) => ConfirmAndDelete(note);
         menu.Items.Add(deleteItem);
+
+        if (_attachFollowUp is not null)
+        {
+            menu.Items.Add(MakeSep());
+            var followUpItem = MakeItem("Follow up…");
+            followUpItem.Click += (_, _) => _attachFollowUp(note);
+            menu.Items.Add(followUpItem);
+        }
 
         return menu;
     }
