@@ -57,7 +57,10 @@ internal sealed class StatusTimingPresentationTests {
 
     [Test]
     public void FormatRelativeTimestamp_ShowsJustNowWithClockTime() {
-        var timestamp = new DateTimeOffset(2026, 4, 28, 14, 33, 0, TimeSpan.FromHours(-4));
+        // Use the local offset so LocalDateTime round-trips back to the original wall-clock time
+        // on any machine (including UTC CI runners).
+        var localOffset = TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 4, 28, 14, 33, 0));
+        var timestamp = new DateTimeOffset(2026, 4, 28, 14, 33, 0, localOffset);
         var now = timestamp.AddSeconds(30);
 
         var formatted = StatusTimingPresentation.FormatRelativeTimestamp(timestamp, now);
@@ -67,7 +70,8 @@ internal sealed class StatusTimingPresentationTests {
 
     [Test]
     public void FormatRelativeTimestamp_ShowsMinutesAndClockTime() {
-        var timestamp = new DateTimeOffset(2026, 4, 28, 14, 30, 0, TimeSpan.FromHours(-4));
+        var localOffset = TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 4, 28, 14, 30, 0));
+        var timestamp = new DateTimeOffset(2026, 4, 28, 14, 30, 0, localOffset);
         var now = timestamp.AddMinutes(3);
 
         var formatted = StatusTimingPresentation.FormatRelativeTimestamp(timestamp, now);
