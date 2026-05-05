@@ -985,11 +985,14 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
              """;
 
         var sessionId = "doc-revision-" + Guid.NewGuid().ToString("N")[..8];
+        // Do NOT override WorkingDirectory — runPrompt.js must run from the SDK directory.
+        // workingDirectory is only used as context in the prompt request payload.
         var psi = BuildDefaultStartInfo();
-        psi.WorkingDirectory = workingDirectory;
 
         var process = new Process { StartInfo = psi };
         var accumulated = new StringBuilder();
+
+        SquadDashTrace.Write("DocRevision", $"Starting doc-revision session {sessionId}, cwd={workingDirectory}, selLen={selectedText.Length}");
 
         try {
             process.Start();
@@ -1014,22 +1017,32 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                     line = await readTask.ConfigureAwait(false);
                 }
 
-                if (line is null)
+                if (line is null) {
+                    SquadDashTrace.Write("DocRevision", "stdout EOF — process exited");
                     break;
+                }
 
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
+
+                SquadDashTrace.Write("DocRevision", $"evt: {(line.Length > 200 ? line[..200] : line)}");
 
                 try {
                     var evt = JsonSerializer.Deserialize<SquadSdkEvent>(line, options);
                     if (evt is null)
                         continue;
 
-                    if (string.Equals(evt.Type, "text_delta", StringComparison.Ordinal) && evt.Text is not null)
-                        accumulated.Append(evt.Text);
-                    else if (string.Equals(evt.Type, "done", StringComparison.Ordinal) ||
-                             string.Equals(evt.Type, "error", StringComparison.Ordinal))
+                    // runPrompt.ts emits "response_delta" { chunk } for streamed text
+                    if (string.Equals(evt.Type, "response_delta", StringComparison.Ordinal) && evt.Chunk is not null)
+                        accumulated.Append(evt.Chunk);
+                    else if (string.Equals(evt.Type, "done", StringComparison.Ordinal)) {
+                        SquadDashTrace.Write("DocRevision", $"done, accumulated {accumulated.Length} chars");
                         break;
+                    }
+                    else if (string.Equals(evt.Type, "error", StringComparison.Ordinal)) {
+                        SquadDashTrace.Write("DocRevision", $"error event: {evt.Message}");
+                        break;
+                    }
                 }
                 catch {
                     // ignore non-JSON lines
@@ -1041,7 +1054,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             process.Dispose();
         }
 
-        return accumulated.ToString().Trim();
+        var result = accumulated.ToString().Trim();
+        SquadDashTrace.Write("DocRevision", $"Returning {result.Length} chars");
+        return result;
     }
 }
 
