@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Diagnostics;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace SquadDash;
 
@@ -103,6 +105,15 @@ internal static class Program {
 
         if (!File.Exists(payloadPath))
             throw new FileNotFoundException("Could not find SquadDash payload executable.", payloadPath);
+
+        if (!TryCheckRuntimeRequirements(payloadPath, out var missingRequirement)) {
+            var message =
+                $"SquadDash requires the .NET Desktop Runtime to run, but it is not installed.\n\n" +
+                $"Missing: {missingRequirement}\n\n" +
+                $"Download it from:\nhttps://dotnet.microsoft.com/download/dotnet/10.0";
+            ShowErrorDialog("SquadDash — .NET Desktop Runtime Required", message);
+            return 1;
+        }
 
         var workingDirectory = ResolveWorkingDirectory(startupFolder);
         var arguments = BuildPayloadArguments(startupFolder, _workspacePaths.ApplicationRoot, refreshScreenshots, refreshScreenshotName);
@@ -401,5 +412,71 @@ internal static class Program {
         catch {
             return false;
         }
+    }
+
+    private static bool TryCheckRuntimeRequirements(string payloadPath, out string? missingRequirement) {
+        missingRequirement = null;
+        try {
+            var payloadDir = Path.GetDirectoryName(payloadPath)!;
+            var payloadName = Path.GetFileNameWithoutExtension(payloadPath);
+            var runtimeConfigPath = Path.Combine(payloadDir, payloadName + ".runtimeconfig.json");
+
+            if (!File.Exists(runtimeConfigPath))
+                return true;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(runtimeConfigPath));
+
+            if (!doc.RootElement.TryGetProperty("runtimeOptions", out var opts))
+                return true;
+            if (!opts.TryGetProperty("frameworks", out var frameworks))
+                return true;
+
+            var dotnetRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet");
+
+            foreach (var framework in frameworks.EnumerateArray()) {
+                if (!framework.TryGetProperty("name", out var nameEl)) continue;
+                if (!framework.TryGetProperty("version", out var versionEl)) continue;
+
+                var frameworkName = nameEl.GetString() ?? string.Empty;
+                var frameworkVersion = versionEl.GetString() ?? string.Empty;
+
+                if (!IsFrameworkInstalled(dotnetRoot, frameworkName, frameworkVersion)) {
+                    missingRequirement = $"{frameworkName} {frameworkVersion}";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch {
+            return true;
+        }
+    }
+
+    private static bool IsFrameworkInstalled(string dotnetRoot, string frameworkName, string minimumVersionStr) {
+        var frameworkDir = Path.Combine(dotnetRoot, "shared", frameworkName);
+        if (!Directory.Exists(frameworkDir))
+            return false;
+
+        if (!Version.TryParse(minimumVersionStr, out var minimumVersion))
+            return true;
+
+        return Directory.GetDirectories(frameworkDir)
+            .Select(d => {
+                var name = Path.GetFileName(d);
+                var simple = name.Split('-')[0];
+                return Version.TryParse(simple, out var v) ? v : null;
+            })
+            .Any(v => v != null && v.Major == minimumVersion.Major && v >= minimumVersion);
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBox(nint hWnd, string text, string caption, uint type);
+
+    private static void ShowErrorDialog(string caption, string text) {
+        const uint MB_OK = 0x00000000;
+        const uint MB_ICONERROR = 0x00000010;
+        MessageBox(0, text, caption, MB_OK | MB_ICONERROR);
     }
 }
