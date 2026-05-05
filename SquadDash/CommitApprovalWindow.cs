@@ -324,17 +324,45 @@ internal sealed class CommitApprovalPanel {
 
     /// <summary>Builds the tooltip string for an approval list row.
     /// Shows the full untruncated description, plus the original prompt or prompt hint if available.</summary>
-    private static string BuildDescriptionTooltip(CommitApprovalItem item) {
+    private ToolTip BuildDescriptionTooltip(CommitApprovalItem item) {
         var cleaned = CommitPhraseSuffix.Replace(item.Description, string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(item.OriginalPrompt)) {
-            return cleaned + "\n\n" + item.OriginalPrompt.Trim();
+
+        var container = new StackPanel();
+
+        var summaryBlock = new TextBlock {
+            Text        = cleaned,
+            FontWeight  = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        container.Children.Add(summaryBlock);
+
+        string? rawPrompt = null;
+        if (!string.IsNullOrWhiteSpace(item.OriginalPrompt))
+            rawPrompt = item.OriginalPrompt.Trim();
+        else if (!string.IsNullOrWhiteSpace(item.TurnPromptHint))
+            rawPrompt = item.TurnPromptHint.Trim();
+
+        if (rawPrompt is not null) {
+            var promptText = DictationAnnotation.Replace(rawPrompt, string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(promptText) &&
+                !promptText.Equals(cleaned, StringComparison.OrdinalIgnoreCase)) {
+                container.Children.Add(new TextBlock {
+                    Text         = promptText,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin       = new Thickness(0, 6, 0, 0),
+                });
+            }
         }
-        if (!string.IsNullOrWhiteSpace(item.TurnPromptHint) &&
-            !item.TurnPromptHint.Trim().Equals(cleaned, StringComparison.OrdinalIgnoreCase)) {
-            return cleaned + "\n\n" + item.TurnPromptHint.Trim();
-        }
-        return cleaned;
+
+        var tooltip = new ToolTip { Content = container };
+        tooltip.Opened += (_, _) =>
+            container.MaxWidth = Math.Max(300, _needsApprovalPanel.ActualWidth * 3);
+        return tooltip;
     }
+
+    private static readonly Regex DictationAnnotation =
+        new(@"\(some or all of this prompt was dictated by voice\)\s*",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Truncates <paramref name="text"/> to at most 35 characters.
     /// If the text exceeds 35 characters, returns the first 34 followed by "…".</summary>
