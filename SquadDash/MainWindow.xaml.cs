@@ -1952,6 +1952,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void SyncQueuePanel()
     {
+        var swFull = Stopwatch.StartNew();
         var items = _promptQueue.Items;
         QueueTabBorder.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         QueueTabStrip.Children.Clear();
@@ -1996,6 +1997,159 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
         SyncSendButton();
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"SyncQueuePanel: full rebuild of {items.Count} queued tabs in {swFull.ElapsedMilliseconds}ms");
+    }
+
+    /// <summary>
+    /// Fast path for Ctrl+Tab cycling: only updates the two tabs whose active/inactive
+    /// state changed, without tearing down and rebuilding the entire tab strip.
+    /// </summary>
+    private void FastSyncQueueTabActiveState(string? oldId, string? newId)
+    {
+        var sw = Stopwatch.StartNew();
+
+        Border? oldBorder = null;
+        Border? newBorder = null;
+        TextBlock? hintBlock = null;
+
+        foreach (UIElement child in QueueTabStrip.Children)
+        {
+            if (child is TextBlock tb)       { hintBlock = tb; continue; }
+            if (child is not Border b)        continue;
+            string? tabId = b.Tag as string;
+            if (tabId == oldId || (tabId is null && oldId is null)) oldBorder = b;
+            if (tabId == newId || (tabId is null && newId is null)) newBorder = b;
+        }
+
+        if (oldBorder is not null) ApplyQueueTabActiveState(oldBorder, isActive: false, isQueueItem: oldId is not null);
+        if (newBorder is not null) ApplyQueueTabActiveState(newBorder, isActive: true,  isQueueItem: newId is not null);
+        UpdateQueueTabHint(hintBlock, newId);
+
+        _conversationManager.UpdateQueuedPromptsState(
+            _promptQueue.Items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
+        SyncSendButton();
+
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"FastSyncQueueTabActiveState: {oldId ?? "draft"}→{newId ?? "draft"} in {sw.ElapsedMilliseconds}ms");
+    }
+
+    /// <summary>
+    /// Applies active or inactive visual styling to an existing tab Border element.
+    /// Handles TextBlock-only tabs and StackPanel tabs (with optional paperclip/pause icons).
+    /// </summary>
+    private void ApplyQueueTabActiveState(Border tab, bool isActive, bool isQueueItem)
+    {
+        tab.BorderThickness = new Thickness(0, 0, 0, isActive ? 2 : 0);
+        if (isActive)
+            tab.SetResourceReference(Border.BorderBrushProperty, "QueueTabActiveBorder");
+        else
+            tab.BorderBrush = Brushes.Transparent;
+
+        bool showPause = isQueueItem && isActive;
+
+        void StyleText(TextBlock tb)
+        {
+            tb.FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal;
+            tb.SetResourceReference(TextBlock.ForegroundProperty,
+                isActive ? "LabelText" : "QueueTabInactiveText");
+        }
+
+        if (tab.Child is TextBlock directText)
+        {
+            StyleText(directText);
+            if (showPause)
+            {
+                // Promote from single TextBlock to StackPanel to accommodate the pause icon.
+                tab.Child = null; // detach before reparenting
+                var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                sp.Children.Add(directText);
+                sp.Children.Add(CreatePauseIcon());
+                tab.Child = sp;
+            }
+        }
+        else if (tab.Child is StackPanel panel)
+        {
+            if (panel.Children.Count > 0 && panel.Children[0] is TextBlock tbFirst)
+                StyleText(tbFirst);
+
+            // Update paperclip icon color (it tracks active state).
+            foreach (UIElement c in panel.Children)
+            {
+                if (c is System.Windows.Shapes.Path pp && pp.Data == s_paperclipGeometry)
+                    pp.SetResourceReference(System.Windows.Shapes.Path.FillProperty,
+                        isActive ? "LabelText" : "QueueTabInactiveText");
+            }
+
+            // Add or remove pause icon.
+            System.Windows.Shapes.Path? existingPause = null;
+            foreach (UIElement c in panel.Children)
+            {
+                if (c is System.Windows.Shapes.Path pp && pp.Data == s_pauseGeometry)
+                { existingPause = pp; break; }
+            }
+
+            if (showPause && existingPause is null)
+            {
+                panel.Children.Add(CreatePauseIcon());
+            }
+            else if (!showPause && existingPause is not null)
+            {
+                panel.Children.Remove(existingPause);
+                // Demote back to plain TextBlock when no icons remain.
+                if (panel.Children.Count == 1 && panel.Children[0] is TextBlock onlyText)
+                {
+                    panel.Children.Clear(); // detach before reparenting
+                    tab.Child = onlyText;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Updates (or adds/removes) the italic hint TextBlock at the end of the queue tab strip
+    /// that warns the user about automatic queue pausing when a queued tab is active.
+    /// </summary>
+    private void UpdateQueueTabHint(TextBlock? existingHint, string? newActiveId)
+    {
+        string? activeTabLabel = null;
+        if (newActiveId is not null)
+        {
+            var item = _promptQueue.Items.FirstOrDefault(i => i.Id == newActiveId);
+            if (item is not null)
+            {
+                var nextReadyId = _promptQueue.Items.FirstOrDefault(i => !i.IsEditing)?.Id;
+                activeTabLabel = item.Id == nextReadyId
+                    ? $"Queue #{item.SequenceNumber}"
+                    : $"#{item.SequenceNumber}";
+            }
+        }
+
+        if (activeTabLabel is not null)
+        {
+            var text = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")";
+            if (existingHint is not null)
+            {
+                existingHint.Text = text;
+            }
+            else
+            {
+                var hint = new TextBlock
+                {
+                    Text = text,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(10, 0, 8, 0),
+                    FontStyle = FontStyles.Italic,
+                };
+                hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                QueueTabStrip.Children.Add(hint);
+            }
+        }
+        else if (existingHint is not null)
+        {
+            QueueTabStrip.Children.Remove(existingHint);
+        }
     }
 
     private static readonly Geometry s_paperclipGeometry = Geometry.Parse(
@@ -2202,6 +2356,11 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         if (_activeTabId == id) return;
 
+        var sw = Stopwatch.StartNew();
+
+        // Capture the old tab id before we change it — needed for the fast visual update.
+        var previousId = _activeTabId;
+
         // Capture whether we're leaving the rightmost hold tab before the switch.
         bool wasRightmostHold = IsRightmostQueueTabActive();
 
@@ -2249,14 +2408,25 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
 
+        long msAfterText = sw.ElapsedMilliseconds;
+
         // Switching away from the rightmost hold tab releases the hold.
         // Reset the notification flag so it can fire again if re-activated, then drain.
         if (wasRightmostHold)
             _rightmostTabHoldNotificationFired = false;
 
-        SyncQueuePanel();
+        // Fast path: only update the two tabs whose visual state changed rather than
+        // tearing down and rebuilding the entire tab strip on every Ctrl+Tab cycle.
+        FastSyncQueueTabActiveState(previousId, id);
+        long msAfterTabSync = sw.ElapsedMilliseconds;
+
         PromptTextBox.Focus();
         UpdateFollowUpStrip();
+
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"OnQueueTabClicked: {previousId ?? "draft"}→{id ?? "draft"} | " +
+            $"text={msAfterText}ms tabSync={msAfterTabSync - msAfterText}ms " +
+            $"followUp={(sw.ElapsedMilliseconds - msAfterTabSync)}ms total={sw.ElapsedMilliseconds}ms");
 
         if (wasRightmostHold && !_isPromptRunning && !IsNativeLoopRunning)
             _ = DrainQueueIfNeededAsync();
