@@ -9052,6 +9052,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         int selStart, int selLen, string originalText, string revised)
     {
         var currentText = textBox.Text;
+
+        // Fast path: text is still at the exact captured offset.
         var intact = selStart >= 0 &&
                      selStart + selLen <= currentText.Length &&
                      currentText.Substring(selStart, selLen) == originalText;
@@ -9062,12 +9064,29 @@ public partial class MainWindow : Window, ILiveElementLocator
             textBox.SelectionLength = selLen;
             textBox.SelectedText    = revised;
             ShowRevisionAppliedHint(textBox, selStart);
+            return;
         }
-        else
+
+        // Slow path: the user edited elsewhere in the document while AI was working
+        // (e.g. added a newline on a different line), shifting the stored offset.
+        // Search for the original text and apply there if it is unambiguous.
+        var firstIdx  = currentText.IndexOf(originalText, StringComparison.Ordinal);
+        var secondIdx = firstIdx < 0 ? -1
+            : currentText.IndexOf(originalText, firstIdx + 1, StringComparison.Ordinal);
+
+        if (firstIdx >= 0 && secondIdx < 0)
         {
-            var win = new RevisionResultWindow(revised) { Owner = this };
-            win.Show();
+            // Found exactly once — safe to apply at the new position.
+            textBox.SelectionStart  = firstIdx;
+            textBox.SelectionLength = originalText.Length;
+            textBox.SelectedText    = revised;
+            ShowRevisionAppliedHint(textBox, firstIdx);
+            return;
         }
+
+        // Text not found or found in multiple places — show the manual-copy fallback.
+        var win = new RevisionResultWindow(revised) { Owner = this };
+        win.Show();
     }
 
     private void ShowRevisionAppliedHint(System.Windows.Controls.TextBox textBox, int insertedAt)
