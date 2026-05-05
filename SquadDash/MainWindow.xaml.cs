@@ -8225,20 +8225,22 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void SetDocSourceLayout(bool topBottom)
     {
         if (_docSourceLayoutTopBottom == topBottom) return;
-        var wasTopBottom = _docSourceLayoutTopBottom;
 
-        // Capture visibility and size BEFORE flipping the flag — IsDocSourceVisible()
+        // Capture visibility BEFORE flipping the flag — IsDocSourceVisible()
         // checks the dimension matching the CURRENT mode, so it must run first.
         bool isVisible = IsDocSourceVisible();
-        var currentSize = wasTopBottom
-            ? (DocsSourceRow?.ActualHeight ?? 300)
-            : (DocsSourceColumn?.ActualWidth ?? 300);
 
         _docSourceLayoutTopBottom = topBottom;
         UpdateDocSourceLayoutButtons();
 
         if (isVisible)
-            ApplyDocSourceLayout(topBottom, currentSize);
+        {
+            // Reset to 50/50 split in the new orientation.
+            double halfSize = topBottom
+                ? Math.Max(100, (DocsPanel?.ActualHeight ?? 600) / 2)
+                : Math.Max(100, ((DocsPanelColumn?.ActualWidth ?? 600) - (DocsTopicsColumn?.ActualWidth ?? 220) - 6) / 2);
+            ApplyDocSourceLayout(topBottom, halfSize);
+        }
 
         SaveDocSourceLayoutPreference();
     }
