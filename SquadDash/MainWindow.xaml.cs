@@ -14206,7 +14206,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             var closedSw = Stopwatch.StartNew();
             SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closed: begin async dispose (WhenAll).");
             await Task.WhenAll(
-                Task.Run(RemoveRunningInstanceRegistration),
+                Task.Run(() =>
+                {
+                    var sw = Stopwatch.StartNew();
+                    RemoveRunningInstanceRegistration();
+                    SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: RemoveRunningInstanceRegistration {sw.ElapsedMilliseconds}ms.");
+                }),
                 // All three settings saves share the same named mutex
                 // (Local\SquadDash.ApplicationSettings).  Running them in separate
                 // concurrent Tasks causes the re-entrant guard in MutexLease to reject
@@ -14214,6 +14219,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 // Serialize them inside a single Task.Run to eliminate the contention.
                 Task.Run(() =>
                 {
+                    var sw = Stopwatch.StartNew();
                     if (pendingPlacement is { } p)
                         _settingsStore.SaveWindowPlacement(p.FolderPath, p.Placement);
                     if (pendingUtilityWindowState is { } u)
@@ -14229,14 +14235,19 @@ public partial class MainWindow : Window, ILiveElementLocator
                             SourceOpen = docs.DocsSourceOpen,
                             SourceWidth = docs.DocsSourceWidth,
                         });
+                    SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: settings saves {sw.ElapsedMilliseconds}ms.");
                 }),
                 Task.Run(() =>
                 {
+                    var sw = Stopwatch.StartNew();
                     if (pendingConversation is { } c)
                         _conversationManager.ConversationStore.Save(c.FolderPath, c.State);
+                    SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: conversation save {sw.ElapsedMilliseconds}ms.");
                 }),
-                _bridge.DisposeAsync().AsTask(),
-                _instanceActivationChannel.DisposeAsync().AsTask());
+                _bridge.DisposeAsync().AsTask().ContinueWith(t =>
+                    SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: bridge dispose {closedSw.ElapsedMilliseconds}ms elapsed (status={t.Status}).")),
+                _instanceActivationChannel.DisposeAsync().AsTask().ContinueWith(t =>
+                    SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: activationChannel dispose {closedSw.ElapsedMilliseconds}ms elapsed (status={t.Status}).")));
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: WhenAll complete {closedSw.ElapsedMilliseconds}ms.");
             _workspaceOwnershipLease?.Dispose();
             _workspaceOwnershipLease = null;
@@ -14332,6 +14343,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // Users who want to stop RC should use "Stop Remote Access" explicitly (which clears
             // RemoteAccessActiveOnExit via HandleRcStopped).
             _instanceActivationChannel.Stop();
+            SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: InstanceActivationChannel stopped {closingSw.ElapsedMilliseconds}ms.");
             // If a queued item is selected, the prompt box shows that item's text while the real
             // draft is stashed in _queuePreEditDraft. Switch back to Active Draft first so that
             // CaptureWorkspaceInputState reads the actual draft — not the queue item's text —
@@ -14381,6 +14393,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 // Save synchronously here — MainWindow_Closed is async void and may not
                 // complete before the process exits.
                 var s = _pendingDocsPanelState.Value;
+                var docsPanelSaveSw = Stopwatch.StartNew();
                 _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, new WorkspaceDocsPanelState
                 {
                     Open = s.Open ? null : false,
@@ -14391,9 +14404,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                     SourceOpen = s.DocsSourceOpen,
                     SourceWidth = s.DocsSourceWidth,
                 });
+                SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: SaveDocsPanelState(docs-open) {docsPanelSaveSw.ElapsedMilliseconds}ms elapsed={closingSw.ElapsedMilliseconds}ms.");
             }
             // Write synchronously so state is on disk before the process exits.
             if (_pendingDocsPanelState is { } docs)
+            {
+                var pendingDocsSaveSw = Stopwatch.StartNew();
                 _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, new WorkspaceDocsPanelState
                 {
                     Open = docs.Open ? null : false,
@@ -14404,7 +14420,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                     SourceOpen = docs.DocsSourceOpen,
                     SourceWidth = docs.DocsSourceWidth,
                 });
+                SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: SaveDocsPanelState(pending) {pendingDocsSaveSw.ElapsedMilliseconds}ms elapsed={closingSw.ElapsedMilliseconds}ms.");
+            }
+            var emergencySaveSw = Stopwatch.StartNew();
             _conversationManager.EmergencySave();
+            SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: EmergencySave {emergencySaveSw.ElapsedMilliseconds}ms elapsed={closingSw.ElapsedMilliseconds}ms.");
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: complete {closingSw.ElapsedMilliseconds}ms.");
         }
         catch (Exception ex)

@@ -722,9 +722,11 @@ internal sealed class TranscriptConversationManager {
 
             var version = RegisterConversationSaveRequest();
             _conversationState = state;
+            var emergencySaveSw = Stopwatch.StartNew();
             var savedState = SaveConversationStateSerially(workspace.FolderPath, state, version, skipIfStale: false);
+            emergencySaveSw.Stop();
             ApplySavedConversationStateIfCurrent(version, savedState);
-            SquadDashTrace.Write("Shutdown", $"EmergencySave: saved {turns.Count} turns, promptDraft={state.PromptDraft?.Length ?? 0} chars.");
+            SquadDashTrace.Write("Shutdown", $"EmergencySave: saved {turns.Count} turns, promptDraft={state.PromptDraft?.Length ?? 0} chars, saveMs={emergencySaveSw.ElapsedMilliseconds}ms.");
         }
         catch (Exception ex) {
             SquadDashTrace.Write("Shutdown", $"EmergencySave failed: {ex.Message}");

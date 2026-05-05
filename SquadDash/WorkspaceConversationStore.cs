@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -44,7 +45,10 @@ internal sealed class WorkspaceConversationStore {
         WorkspaceConversationState state,
         CancellationToken ct = default) {
         var normalizedWorkspace = NormalizeWorkspaceFolder(workspaceFolder);
+        var mutexSw = Stopwatch.StartNew();
         using var mutex = AcquireMutex(normalizedWorkspace);
+        mutexSw.Stop();
+        SquadDashTrace.Write(TraceCategory.Shutdown, $"ConversationStore.Save: mutex acquired in {mutexSw.ElapsedMilliseconds}ms turns={state.Turns.Count}.");
 
         // Yield point 1: after acquiring the mutex but before any file I/O.
         // Lets EmergencySave interrupt an in-flight background save cleanly.
@@ -64,7 +68,10 @@ internal sealed class WorkspaceConversationStore {
         if (HasMeaningfulContent(existing))
             CreateBackup(normalizedWorkspace, existing);
 
+        var writeSw = Stopwatch.StartNew();
         SaveCore(normalizedWorkspace, normalized);
+        writeSw.Stop();
+        SquadDashTrace.Write(TraceCategory.Shutdown, $"ConversationStore.Save: written in {writeSw.ElapsedMilliseconds}ms.");
         return normalized;
     }
 
