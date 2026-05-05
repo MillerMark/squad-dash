@@ -426,7 +426,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                                                   _pec.ToolStartCount,
                                                   _pec.ToolCompleteCount),
             agentActiveDisplayLinger: AgentActiveDisplayLinger,
-            dynamicAgentHistoryRetention: DynamicAgentHistoryRetention);
+            dynamicAgentHistoryRetention: DynamicAgentHistoryRetention,
+            appendAgentReport: (agentLabel, header, body) => AppendAgentReport(agentLabel, header, body));
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
             getPromptText: () => PromptTextBox.Text,
@@ -9593,6 +9594,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
 
+        // Prune agent reports older than 2 weeks on each workspace load.
+        var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+        AgentReportStore.PruneOld(AgentReportStore.GetReportsDir(reportStateDir));
+
         _loopQueued = false;
 
         // Restore queued prompts saved before last shutdown.
@@ -11857,6 +11862,63 @@ public partial class MainWindow : Window, ILiveElementLocator
         return container;
     }
 
+    // ── Agent report button ───────────────────────────────────────────────────
+
+    private void AppendAgentReport(string agentLabel, string header, string body)
+    {
+        if (_currentWorkspace is null)
+        {
+            AppendLine(header + Environment.NewLine + Environment.NewLine + body, null);
+            return;
+        }
+
+        var stateDir    = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+        var reportsDir  = AgentReportStore.GetReportsDir(stateDir);
+        var reportPath  = AgentReportStore.Store(reportsDir, agentLabel, header, body, DateTimeOffset.UtcNow);
+        AppendAgentReportButton(agentLabel, reportPath);
+    }
+
+    private void AppendAgentReportButton(string agentLabel, string reportPath)
+    {
+        var button = new Button
+        {
+            Content         = $"📋 {agentLabel}'s report",
+            Margin          = new Thickness(0),
+            Padding         = new Thickness(10, 4, 10, 4),
+            BorderThickness = new Thickness(1),
+            Cursor          = Cursors.Hand,
+            MinHeight       = 28,
+            ToolTip         = "Click to open the full agent report",
+        };
+        if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style style)
+            button.Style = style;
+        button.SetResourceReference(Control.BackgroundProperty, "QuickReplySurface");
+        button.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
+        button.SetResourceReference(Control.BorderBrushProperty, "QuickReplyBorder");
+
+        var capturedPath  = reportPath;
+        var capturedLabel = agentLabel;
+        button.Click += (_, _) =>
+        {
+            if (File.Exists(capturedPath))
+                MarkdownDocumentWindow.Show(
+                    CanShowOwnedWindow() ? this : null,
+                    $"{capturedLabel}'s Report",
+                    capturedPath);
+            else
+                MessageBox.Show(
+                    "This report is no longer available.",
+                    "Report not found",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+        };
+
+        var container = new BlockUIContainer(button) { Margin = new Thickness(0, 4, 0, 6) };
+        CoordinatorThread.Document.Blocks.Add(container);
+    }
+
+    // ── End agent report button ───────────────────────────────────────────────
+
     private void TranscriptHyperlink_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -13576,6 +13638,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         _pec.ActiveToolName = null;
         _conversationManager.CurrentSessionId = null;
         _currentTurn = null;
+        // Clear all stored agent reports for this workspace when the conversation is cleared.
+        if (_currentWorkspace is not null)
+        {
+            var stateDir   = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+            var reportsDir = AgentReportStore.GetReportsDir(stateDir);
+            AgentReportStore.ClearAll(reportsDir);
+        }
         CoordinatorThread.Document.Blocks.Clear();
         _agentThreadRegistry.ClearAll();
         _backgroundTaskPresenter.ClearState();

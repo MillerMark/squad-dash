@@ -35,6 +35,10 @@ internal sealed class BackgroundTaskPresenter {
     private readonly Func<CurrentTurnStatusSnapshot>       _currentTurnSnapshot;
     private readonly TimeSpan                              _agentActiveDisplayLinger;
     private readonly TimeSpan                              _dynamicAgentHistoryRetention;
+    // Optional: if provided, stores the agent report to disk and renders a button
+    // in the coordinator transcript instead of inlining the body text.
+    // Params: (agentLabel, announcementHeader, reportBody)
+    private readonly Action<string, string, string>?       _appendAgentReport;
 
     // ── Owned mutable state ──────────────────────────────────────────────────
 
@@ -81,7 +85,8 @@ internal sealed class BackgroundTaskPresenter {
         Action<TranscriptThreadState>   persistAgentThreadSnapshot,
         Func<CurrentTurnStatusSnapshot> currentTurnSnapshot,
         TimeSpan                        agentActiveDisplayLinger,
-        TimeSpan                        dynamicAgentHistoryRetention) {
+        TimeSpan                        dynamicAgentHistoryRetention,
+        Action<string, string, string>? appendAgentReport = null) {
         _agentThreadRegistry          = agentThreadRegistry;
         _appendLine                   = appendLine;
         _syncAgentCards               = syncAgentCards;
@@ -96,6 +101,7 @@ internal sealed class BackgroundTaskPresenter {
         _currentTurnSnapshot          = currentTurnSnapshot;
         _agentActiveDisplayLinger     = agentActiveDisplayLinger;
         _dynamicAgentHistoryRetention = dynamicAgentHistoryRetention;
+        _appendAgentReport            = appendAgentReport;
     }
 
     // ── State management ─────────────────────────────────────────────────────
@@ -698,9 +704,12 @@ internal sealed class BackgroundTaskPresenter {
         thread.LastCoordinatorAnnouncedResponse = announcement.FullResponse;
         _persistAgentThreadSnapshot(thread);
 
-        _appendLine(
-            announcement.Header + Environment.NewLine + Environment.NewLine + announcement.Body,
-            null);
+        if (_appendAgentReport is not null)
+            _appendAgentReport(thread.Title, announcement.Header, announcement.Body);
+        else
+            _appendLine(
+                announcement.Header + Environment.NewLine + Environment.NewLine + announcement.Body,
+                null);
 
         SquadDashTrace.Write(
             "UI",
