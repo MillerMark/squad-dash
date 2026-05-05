@@ -8995,52 +8995,86 @@ public partial class MainWindow : Window, ILiveElementLocator
             },
             stopPtt: () => _ = StopPushToTalkAsync(send: false));
 
-        PositionPopupNearCaret(popup, textBox, selStart);
+        PositionPopupNearCaret(popup, textBox, selStart, selLen);
         popup.Owner = this;
         popup.Show();
     }
 
-    private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox, int charIndex)
+    private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox,
+        int selStart, int selLen = 0)
     {
         try
         {
-            var rect = textBox.GetRectFromCharacterIndex(Math.Max(0, charIndex));
-            var screenBottom = textBox.PointToScreen(new Point(rect.Left, rect.Bottom));
-            var screenTop    = textBox.PointToScreen(new Point(rect.Left, rect.Top));
+            var startIdx = Math.Max(0, selStart);
+            var endIdx   = selLen > 1 ? selStart + selLen - 1 : startIdx;
+
+            var startRect = textBox.GetRectFromCharacterIndex(startIdx);
+            var endRect   = textBox.GetRectFromCharacterIndex(endIdx);
+
+            var startTopScreen    = textBox.PointToScreen(new Point(startRect.Left,  startRect.Top));
+            var startBottomScreen = textBox.PointToScreen(new Point(startRect.Left,  startRect.Bottom));
+            var endBottomScreen   = textBox.PointToScreen(new Point(endRect.Right,   endRect.Bottom));
+            var endRightScreen    = textBox.PointToScreen(new Point(endRect.Right,   endRect.Top));
 
             var dpi      = System.Windows.Media.VisualTreeHelper.GetDpi(this);
-            var workArea = NativeMethods.GetWorkAreaForPhysicalPoint((int)screenBottom.X, (int)screenBottom.Y);
+            var workArea = NativeMethods.GetWorkAreaForPhysicalPoint((int)endBottomScreen.X, (int)endBottomScreen.Y);
 
-            // Work area is in physical pixels; convert to logical units for Window.Left/Top.
             var waLeft   = workArea.Left   / dpi.DpiScaleX;
             var waTop    = workArea.Top    / dpi.DpiScaleY;
             var waRight  = workArea.Right  / dpi.DpiScaleX;
             var waBottom = workArea.Bottom / dpi.DpiScaleY;
 
-            var logBottom = new Point(screenBottom.X / dpi.DpiScaleX, screenBottom.Y / dpi.DpiScaleY);
-            var logTop    = new Point(screenTop.X    / dpi.DpiScaleX, screenTop.Y    / dpi.DpiScaleY);
+            double startTopY    = startTopScreen.Y    / dpi.DpiScaleY;
+            double startBottomY = startBottomScreen.Y / dpi.DpiScaleY;
+            double startLeftX   = startTopScreen.X    / dpi.DpiScaleX;
+            double endBottomY   = endBottomScreen.Y   / dpi.DpiScaleY;
+            double endRightX    = endRightScreen.X    / dpi.DpiScaleX;
 
             const double PopupWidth  = 470;
-            const double PopupHeight = 235; // estimated — SizeToContent.Height may differ slightly
+            const double PopupHeight = 235;
+            const double Gap         = 6;
 
-            double left = logBottom.X - 10;
-            double top  = logBottom.Y + 6;  // prefer below caret
+            bool Fits(double l, double t) =>
+                l >= waLeft && l + PopupWidth  <= waRight &&
+                t >= waTop  && t + PopupHeight <= waBottom;
 
-            // Clamp horizontally to stay on screen
-            if (left + PopupWidth > waRight) left = waRight - PopupWidth - 10;
-            if (left < waLeft)               left = waLeft  + 10;
+            double ClampX(double l) =>
+                Math.Max(waLeft + 4, Math.Min(l, waRight - PopupWidth - 4));
 
-            // If below the caret goes off screen, flip above
-            if (top + PopupHeight > waBottom)
-                top = logTop.Y - PopupHeight - 6;
-            if (top < waTop) top = waTop + 10;
+            // 1. Below the last line of the selection
+            {
+                double t = endBottomY + Gap;
+                double l = ClampX(startLeftX - 10);
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
 
-            popup.Left = left;
-            popup.Top  = top;
+            // 2. Above the first line of the selection
+            {
+                double t = startTopY - PopupHeight - Gap;
+                double l = ClampX(startLeftX - 10);
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 3. Left of the selection
+            {
+                double l = startLeftX - PopupWidth - Gap;
+                double t = Math.Max(waTop + 4, Math.Min(startTopY, waBottom - PopupHeight - 4));
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 4. Right of the selection
+            {
+                double l = endRightX + Gap;
+                double t = Math.Max(waTop + 4, Math.Min(startTopY, waBottom - PopupHeight - 4));
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 5. Fallback: below the first line (original behaviour)
+            popup.Left = ClampX(startLeftX - 10);
+            popup.Top  = startBottomY + Gap;
         }
         catch
         {
-            // Fallback: near mouse position
             var mp  = PointToScreen(Mouse.GetPosition(this));
             var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
             popup.Left = mp.X / dpi.DpiScaleX - 10;
