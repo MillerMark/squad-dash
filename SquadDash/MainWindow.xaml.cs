@@ -17854,7 +17854,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 scrollToTurn: item => ScrollToApprovalTurn(item),
                 onItemChanged: item => OnApprovalItemChanged(item),
                 onItemsRemoved: items => OnApprovalItemsRemoved(items),
-                onFollowUp: item => AttachFollowUpToActiveTab(item));
+                onFollowUp: item => AttachFollowUpToActiveTab(item),
+                initialShowApproved: _settingsStore.Load().ApprovalShowApproved,
+                onShowApprovedChanged: show => _settingsStore.SaveApprovalShowApproved(show));
             _approvalPanel.ReplaceAllItems(_approvalItems);
         }
     }

@@ -407,6 +407,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveApprovalShowApproved(bool show) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { ApprovalShowApproved = show };
+        SaveCore(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Persists the RC session token so the same QR code URL stays valid across restarts.
     /// </summary>
@@ -825,6 +833,12 @@ internal sealed record ApplicationSettingsSnapshot(
     /// SquadDash uses this to auto-resume RC after an unexpected shutdown or restart.
     /// </summary>
     public bool RemoteAccessActiveOnExit { get; init; } = false;
+
+    /// <summary>
+    /// Whether the Approved section is visible in the Approvals panel.
+    /// Defaults to true (approved items shown by default). Machine-wide setting.
+    /// </summary>
+    public bool ApprovalShowApproved { get; init; } = true;
 
     /// <summary>
     /// The RC session token from the last successful RC start.
