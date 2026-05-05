@@ -927,9 +927,9 @@ internal sealed class HireAgentWindow : Window {
 
     private ContextMenu BuildAgentCardContextMenu(HireAgentOption option) {
         var menu = new ContextMenu();
-        var setImage = new MenuItem {
-            Header = "Set agent image..."
-        };
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        var setImage = new MenuItem { Header = "Set agent image..." };
+        setImage.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         setImage.Click += (_, _) => SetAgentImage(option);
         menu.Items.Add(setImage);
         return menu;

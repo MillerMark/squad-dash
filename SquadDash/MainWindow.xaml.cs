@@ -2140,7 +2140,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (id is not null)
         {
             var capturedId = id;
-            var cm = new ContextMenu();
+            var cm = MakeMenu();
 
             // Activate the tab on right-click so user can see what they're deleting.
             cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
@@ -2149,12 +2149,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
             if (!isAlreadyFirst)
             {
-                var prioritizeItem = new MenuItem { Header = "Prioritize — send this next" };
+                var prioritizeItem = MakeItem("Prioritize — send this next");
                 prioritizeItem.Click += (_, _) => OnQueueTabPrioritize(capturedId);
                 cm.Items.Add(prioritizeItem);
             }
 
-            var deleteItem = new MenuItem { Header = "Delete queued item…" };
+            var deleteItem = MakeItem("Delete queued item…");
             deleteItem.Click += (_, _) => OnQueueTabDeleteConfirm(capturedId, tab);
             cm.Items.Add(deleteItem);
             tab.ContextMenu = cm;
@@ -5289,14 +5289,11 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private ContextMenu CreateThinkingContextMenu(TranscriptTurnView view)
     {
-        var copyMenuItem = new MenuItem
-        {
-            Header = "Copy Thinking Block",
-            Tag = view
-        };
+        var copyMenuItem = MakeItem("Copy Thinking Block");
+        copyMenuItem.Tag = view;
         copyMenuItem.Click += CopyThinkingMenuItem_Click;
 
-        var menu = new ContextMenu();
+        var menu = MakeMenu();
         menu.Items.Add(copyMenuItem);
         menu.Opened += ThinkingContextMenu_Opened;
         return menu;
@@ -6494,6 +6491,29 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    // ── Context-menu helpers ───────────────────────────────────────────────────
+
+    private static ContextMenu MakeMenu()
+    {
+        var m = new ContextMenu();
+        m.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        return m;
+    }
+
+    private static MenuItem MakeItem(string header)
+    {
+        var i = new MenuItem { Header = header };
+        i.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        return i;
+    }
+
+    private static Separator MakeSep()
+    {
+        var s = new Separator();
+        s.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+        return s;
+    }
+
     private static T? FindVisualAncestor<T>(DependencyObject? source)
         where T : DependencyObject
     {
@@ -6551,17 +6571,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (overflowThreads.Count == 0)
                 return;
 
-            var menu = new ContextMenu();
+            var menu = MakeMenu();
             foreach (var thread in overflowThreads)
             {
                 var label = $"#{thread.SequenceNumber}";
                 var time = FormatRelativeTime(thread.StartedAt);
-                var item = new MenuItem
-                {
-                    Header = $"{label}  —  {time}",
-                    ToolTip = BuildThreadChipToolTip(thread),
-                    Tag = thread
-                };
+                var item = MakeItem($"{label}  —  {time}");
+                item.ToolTip = BuildThreadChipToolTip(thread);
+                item.Tag = thread;
                 item.Click += OverflowMenuThreadItem_Click;
                 menu.Items.Add(item);
             }
@@ -6663,23 +6680,17 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private ContextMenu CreateAgentAccentContextMenu(AgentStatusCard agentCard)
     {
-        var menu = new ContextMenu();
+        var menu = MakeMenu();
         var primaryThread = GetPrimaryThread(agentCard);
         var now = DateTimeOffset.Now;
 
-        var agentInfoItem = new MenuItem
-        {
-            Header = "Agent Info",
-            Tag = agentCard
-        };
+        var agentInfoItem = MakeItem("Agent Info");
+        agentInfoItem.Tag = agentCard;
         agentInfoItem.Click += AgentInfoMenuItem_Click;
         menu.Items.Add(agentInfoItem);
 
-        var openCharterItem = new MenuItem
-        {
-            Header = "Open Charter",
-            Tag = agentCard
-        };
+        var openCharterItem = MakeItem("Open Charter");
+        openCharterItem.Tag = agentCard;
         openCharterItem.Click += AgentOpenCharterMenuItem_Click;
         var hasCharter = (!string.IsNullOrWhiteSpace(agentCard.CharterPath) && File.Exists(agentCard.CharterPath))
                       || (!string.IsNullOrWhiteSpace(agentCard.HistoryPath) && File.Exists(agentCard.HistoryPath));
@@ -6691,36 +6702,30 @@ public partial class MainWindow : Window, ILiveElementLocator
             var abortTarget = _backgroundTaskPresenter.TryResolveAbortTarget(primaryThread, allowSingleFallback: false);
             if (abortTarget is not null)
             {
-                var abortItem = new MenuItem
-                {
-                    Header = "Abort Current Run",
-                    Tag = abortTarget
-                };
+                var abortItem = MakeItem("Abort Current Run");
+                abortItem.Tag = abortTarget;
                 abortItem.Click += AgentAbortCurrentRunMenuItem_Click;
                 menu.Items.Add(abortItem);
             }
 
-            var copyDiagnosticsItem = new MenuItem
-            {
-                Header = "Copy Stall Diagnostics",
-                Tag = BuildAgentStallDiagnostics(agentCard, primaryThread, now)
-            };
+            var copyDiagnosticsItem = MakeItem("Copy Stall Diagnostics");
+            copyDiagnosticsItem.Tag = BuildAgentStallDiagnostics(agentCard, primaryThread, now);
             copyDiagnosticsItem.Click += AgentCopyStallDiagnosticsMenuItem_Click;
             menu.Items.Add(copyDiagnosticsItem);
 
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MakeSep());
         }
         else
         {
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MakeSep());
         }
 
         // Accent Color submenu
-        var accentSubmenu = new MenuItem { Header = "Accent Color" };
+        var accentSubmenu = MakeItem("Accent Color");
         for (var index = 0; index < AgentAccentPalette.Length; index++)
         {
             if (index == 8)
-                accentSubmenu.Items.Add(new Separator());
+                accentSubmenu.Items.Add(MakeSep());
 
             var paletteOption = AgentAccentPalette[index];
             var swatchBrush = ColorUtilities.AccentBrush(paletteOption.Hex);
@@ -6739,26 +6744,21 @@ public partial class MainWindow : Window, ILiveElementLocator
                 CornerRadius = new CornerRadius(5)
             };
 
-            var menuItem = new MenuItem
-            {
-                Header = swatch,
-                Tag = new AgentAccentSelection(agentCard, paletteOption.Hex),
-                StaysOpenOnClick = false,
-                ToolTip = paletteOption.Hex
-            };
+            var menuItem = MakeItem(string.Empty);
+            menuItem.Header = swatch;
+            menuItem.Tag = new AgentAccentSelection(agentCard, paletteOption.Hex);
+            menuItem.StaysOpenOnClick = false;
+            menuItem.ToolTip = paletteOption.Hex;
             menuItem.Click += AgentAccentColorMenuItem_Click;
             accentSubmenu.Items.Add(menuItem);
         }
         menu.Items.Add(accentSubmenu);
 
-        menu.Items.Add(new Separator());
+        menu.Items.Add(MakeSep());
 
         // Choose Image...
-        var chooseImageItem = new MenuItem
-        {
-            Header = "Choose Image...",
-            Tag = agentCard
-        };
+        var chooseImageItem = MakeItem("Choose Image...");
+        chooseImageItem.Tag = agentCard;
         chooseImageItem.Click += AgentChooseImageMenuItem_Click;
         menu.Items.Add(chooseImageItem);
 
@@ -6767,11 +6767,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             _settingsSnapshot.AgentImagePathsByWorkspace.TryGetValue(_currentWorkspace.FolderPath, out var imgs) &&
             imgs.ContainsKey(agentCard.AccentStorageKey))
         {
-            var removeImageItem = new MenuItem
-            {
-                Header = "Remove Custom Image",
-                Tag = agentCard
-            };
+            var removeImageItem = MakeItem("Remove Custom Image");
+            removeImageItem.Tag = agentCard;
             removeImageItem.Click += AgentRemoveImageMenuItem_Click;
             menu.Items.Add(removeImageItem);
         }
@@ -8690,7 +8687,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (DocSourceTextBox is null) return;
         try
         {
-            var menu = new ContextMenu();
+            var menu = MakeMenu();
 
             var cutItem = new MenuItem
             {
@@ -14194,8 +14191,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void WorkspaceTitleText_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        var menu = new ContextMenu();
-        var showItem = new MenuItem { Header = "Show in Explorer" };
+        var menu = MakeMenu();
+        var showItem = MakeItem("Show in Explorer");
         showItem.Click += (_, _) => WorkspaceTitleText_MouseLeftButtonUp(sender, e);
         menu.Items.Add(showItem);
         menu.IsOpen = true;
@@ -14222,16 +14219,16 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void ShowVersionContextMenu()
     {
-        var menu = new ContextMenu();
-        var copyItem = new MenuItem { Header = "Copy Squad system info" };
+        var menu = MakeMenu();
+        var copyItem = MakeItem("Copy Squad system info");
         copyItem.Click += (_, _) => CopySquadSystemInfoToClipboard();
         menu.Items.Add(copyItem);
 
         var latestVersion = _squadCliAdapter.LatestSquadVersion;
         if (!string.IsNullOrWhiteSpace(latestVersion) && IsNewerSquadVersion(latestVersion, _squadCliAdapter.SquadVersion))
         {
-            menu.Items.Add(new Separator());
-            var updateItem = new MenuItem { Header = $"Update Squad CLI to v{latestVersion}" };
+            menu.Items.Add(MakeSep());
+            var updateItem = MakeItem($"Update Squad CLI to v{latestVersion}");
             updateItem.Click += (_, _) => RunSquadCliUpdate(latestVersion);
             menu.Items.Add(updateItem);
         }
@@ -16094,14 +16091,14 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     public void ShowDocScreenshotContextMenu(string imagePath)
     {
-        var menu = new ContextMenu();
+        var menu = MakeMenu();
 
-        var pasteItem = new MenuItem { Header = "Use screenshot on clipboard" };
+        var pasteItem = MakeItem("Use screenshot on clipboard");
         pasteItem.IsEnabled = Clipboard.ContainsImage();
         pasteItem.Click += (s, e) => PasteScreenshotToDoc(imagePath);
         menu.Items.Add(pasteItem);
 
-        var captureItem = new MenuItem { Header = "Capture new screenshot for this placeholder" };
+        var captureItem = MakeItem("Capture new screenshot for this placeholder");
         captureItem.Click += (s, e) => CaptureScreenshotForDocPlaceholder(imagePath);
         menu.Items.Add(captureItem);
 
@@ -16184,20 +16181,20 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     public void ShowImageContextMenu(string imagePath)
     {
-        var menu = new ContextMenu();
+        var menu = MakeMenu();
 
-        var replaceItem = new MenuItem { Header = "Replace with image on clipboard" };
+        var replaceItem = MakeItem("Replace with image on clipboard");
         replaceItem.IsEnabled = Clipboard.ContainsImage();
         replaceItem.Click += (s, e) => ReplaceScreenshotInDoc(imagePath);
         menu.Items.Add(replaceItem);
 
-        var captureItem = new MenuItem { Header = "Replace with captured image" };
+        var captureItem = MakeItem("Replace with captured image");
         captureItem.Click += (_, _) => CaptureScreenshotForDocPlaceholder(imagePath);
         menu.Items.Add(captureItem);
 
         // "Refresh screenshot" — only enabled when a definition with DocImagePath for this image exists.
         var resolvedPath = ResolveDocImagePath(imagePath);
-        var refreshItem = new MenuItem { Header = "Refresh screenshot" };
+        var refreshItem = MakeItem("Refresh screenshot");
         refreshItem.IsEnabled = false;
         if (!string.IsNullOrEmpty(resolvedPath) && !string.IsNullOrEmpty(_currentDocPath))
         {
@@ -16211,7 +16208,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         menu.Items.Add(refreshItem);
 
-        var showInFolderItem = new MenuItem { Header = "Show image in folder" };
+        var showInFolderItem = MakeItem("Show image in folder");
         showInFolderItem.IsEnabled = !string.IsNullOrEmpty(resolvedPath) && File.Exists(resolvedPath);
         showInFolderItem.Click += (_, _) => ShowFileInExplorer(resolvedPath!);
         menu.Items.Add(showInFolderItem);
@@ -16833,28 +16830,27 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             item.IsSelected = true;
 
-            var renameItem = new MenuItem { Header = "Rename…" };
+            var renameItem = MakeItem("Rename…");
             renameItem.Click += (_, _) => EnterInPlaceRename(item, filePath);
 
-            var copyLinkItem = new MenuItem { Header = "Copy markdown link" };
+            var copyLinkItem = MakeItem("Copy markdown link");
             copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
 
-            var menu = new ContextMenu();
+            var menu = MakeMenu();
             menu.Items.Add(renameItem);
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MakeSep());
             menu.Items.Add(copyLinkItem);
 
             // Follow up…
-            var followUpItem = new MenuItem { Header = "Follow up…" };
-            followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            var followUpItem = MakeItem("Follow up…");
             followUpItem.Click += (_, _) => AttachTopicFollowUp(item, filePath);
-            menu.Items.Add(new Separator());
+            menu.Items.Add(MakeSep());
             menu.Items.Add(followUpItem);
 
             if (_docStatusStore?.GetStatus(filePath) == DocApprovalStatus.Approved)
             {
-                menu.Items.Add(new Separator());
-                var resetApprovalItem = new MenuItem { Header = "Reset approval" };
+                menu.Items.Add(MakeSep());
+                var resetApprovalItem = MakeItem("Reset approval");
                 resetApprovalItem.Click += (_, _) =>
                 {
                     _docStatusStore.SetNeedsReview(filePath);

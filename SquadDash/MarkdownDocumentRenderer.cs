@@ -846,10 +846,12 @@ internal sealed class MarkdownDocumentRenderer {
         var markdownTable = BuildMarkdownTableText(rows);
         tablePanel.Tag = markdownTable; // used by DataObjectCopying to include table in selection copy
         var contextMenu  = new ContextMenu();
+        contextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
         var copyMenuItem = new MenuItem {
             Header = "Copy Table",
             Tag    = markdownTable
         };
+        copyMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         copyMenuItem.Click += CopyTableMenuItem_Click;
         contextMenu.Items.Add(copyMenuItem);
         tablePanel.ContextMenu = contextMenu;
