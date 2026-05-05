@@ -1804,12 +1804,9 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBox x:Name="DocSourceTextBox"
-                             AcceptsReturn="True"
-                             AcceptsTab="True"
-                             TextWrapping="NoWrap"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
+                    <RichTextBox x:Name="DocSourceTextBox"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              FontFamily="Consolas, Courier New, monospace"
                              FontSize="12"
                              Padding="10"
@@ -1817,10 +1814,16 @@
                              Background="{DynamicResource InputSurface}"
                              Foreground="{DynamicResource LabelText}"
                              ContextMenu="{x:Null}"
+                             SpellCheck.IsEnabled="False"
+                             PreviewKeyDown="DocSourceTextBox_PreviewKeyDown"
                              PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
                              PreviewMouseWheel="DocSourceTextBox_PreviewMouseWheel"
                              SelectionChanged="DocSourceTextBox_SelectionChanged"
-                             TextChanged="DocSourceTextBox_TextChanged" />
+                             TextChanged="DocSourceTextBox_TextChanged">
+                        <RichTextBox.Document>
+                            <FlowDocument PageWidth="100000" />
+                        </RichTextBox.Document>
+                    </RichTextBox>
                 </DockPanel>
                 </Grid>
             </Border>

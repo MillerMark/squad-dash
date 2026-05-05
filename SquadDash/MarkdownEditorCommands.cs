@@ -1,4 +1,5 @@
 using System.Windows.Controls;
+using System.Windows.Documents;
 
 namespace SquadDash;
 
@@ -145,6 +146,143 @@ internal static class MarkdownEditorCommands
             const string fence = "\n```\n\n```\n";
             box.Text        = box.Text.Insert(caret, fence);
             box.CaretIndex  = caret + 5;
+        }
+    }
+
+    internal static void ApplyBold(RichTextBox box)
+    {
+        var selStart = box.GetSelectionStart();
+        var selLen   = box.GetSelectionLength();
+
+        if (selLen > 0)
+        {
+            var selected       = box.GetSelectedText();
+            var trimmed        = selected.TrimEnd(' ');
+            var trailingSpaces = selected[trimmed.Length..];
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection($"**{trimmed}**{trailingSpaces}");
+            box.SelectRange(selStart, trimmed.Length + 4);
+        }
+        else
+        {
+            var caret = box.GetCaretOffset();
+            var text  = box.GetPlainText();
+            box.SetPlainText(text.Insert(caret, "****"));
+            box.SetCaretOffset(caret + 2);
+        }
+    }
+
+    internal static void ApplyItalic(RichTextBox box)
+    {
+        var selStart = box.GetSelectionStart();
+        var selLen   = box.GetSelectionLength();
+
+        if (selLen > 0)
+        {
+            var selected       = box.GetSelectedText();
+            var trimmed        = selected.TrimEnd(' ');
+            var trailingSpaces = selected[trimmed.Length..];
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection($"*{trimmed}*{trailingSpaces}");
+            box.SelectRange(selStart, trimmed.Length + 2);
+        }
+        else
+        {
+            var caret = box.GetCaretOffset();
+            var text  = box.GetPlainText();
+            box.SetPlainText(text.Insert(caret, "**"));
+            box.SetCaretOffset(caret + 1);
+        }
+    }
+
+    internal static void InsertLink(RichTextBox box)
+    {
+        var selStart = box.GetSelectionStart();
+        var selLen   = box.GetSelectionLength();
+
+        if (selLen > 0)
+        {
+            var text = box.GetSelectedText();
+            var md   = $"[{text}](url)";
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection(md);
+            box.SelectRange(selStart, md.Length);
+        }
+        else
+        {
+            var caret = box.GetCaretOffset();
+            const string md = "[text](url)";
+            box.SetPlainText(box.GetPlainText().Insert(caret, md));
+            box.SelectRange(caret, md.Length);
+        }
+    }
+
+    internal static void InsertTable(RichTextBox box)
+    {
+        var caret = box.GetCaretOffset();
+        const string table =
+            "| Column 1 | Column 2 | Column 3 |\n" +
+            "|----------|----------|----------|\n" +
+            "| Cell     | Cell     | Cell     |";
+        box.SetPlainText(box.GetPlainText().Insert(caret, table));
+        box.SetCaretOffset(caret + table.Length);
+    }
+
+    internal static void InsertInlineCode(RichTextBox box)
+    {
+        var selStart = box.GetSelectionStart();
+        var selLen   = box.GetSelectionLength();
+
+        if (selLen > 0)
+        {
+            var text = box.GetSelectedText();
+            var md   = $"`{text}`";
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection(md);
+            box.SelectRange(selStart, md.Length);
+        }
+        else
+        {
+            var caret = box.GetCaretOffset();
+            box.SetPlainText(box.GetPlainText().Insert(caret, "``"));
+            box.SetCaretOffset(caret + 1);
+        }
+    }
+
+    internal static void InsertHorizontalRule(RichTextBox box)
+    {
+        var caret = box.GetCaretOffset();
+        var text  = box.GetPlainText();
+
+        var atLineStart = caret == 0 || text[caret - 1] == '\n';
+        var atLineEnd   = caret == text.Length || text[caret] == '\n';
+
+        var prefix    = atLineStart ? "" : "\n";
+        var suffix    = atLineEnd   ? "\n" : "\n\n";
+        var insertion = $"{prefix}---{suffix}";
+        box.SetPlainText(text.Insert(caret, insertion));
+        box.SetCaretOffset(caret + insertion.Length);
+    }
+
+    internal static void InsertCodeBlock(RichTextBox box)
+    {
+        var selStart = box.GetSelectionStart();
+        var selLen   = box.GetSelectionLength();
+
+        if (selLen > 0)
+        {
+            var text = box.GetSelectedText();
+            var md   = $"\n```\n{text}\n```\n";
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection(md);
+            box.SelectRange(selStart, md.Length);
+        }
+        else
+        {
+            var caret = box.GetCaretOffset();
+            const string fence = "\n```\n\n```\n";
+            box.SetPlainText(box.GetPlainText().Insert(caret, fence));
+            box.SetCaretOffset(caret + 5);
         }
     }
 }

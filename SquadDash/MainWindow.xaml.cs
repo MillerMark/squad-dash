@@ -5713,6 +5713,29 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private void DocSourceTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Tab)
+        {
+            e.Handled = true;
+            var caret    = DocSourceTextBox.GetCaretOffset();
+            var selLen   = DocSourceTextBox.GetSelectionLength();
+            var selStart = DocSourceTextBox.GetSelectionStart();
+            var text     = DocSourceTextBox.GetPlainText();
+            if (selLen > 0)
+            {
+                DocSourceTextBox.SelectRange(selStart, selLen);
+                DocSourceTextBox.ReplaceSelection("    ");
+                DocSourceTextBox.SetCaretOffset(selStart + 4);
+            }
+            else
+            {
+                DocSourceTextBox.SetPlainText(text.Insert(caret, "    "));
+                DocSourceTextBox.SetCaretOffset(caret + 4);
+            }
+        }
+    }
+
     private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
     {
         try
@@ -8488,14 +8511,14 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             if (string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath))
             {
-                DocSourceTextBox.Text = string.Empty;
+                DocSourceTextBox.SetPlainText(string.Empty);
             }
             else
             {
                 var raw      = File.ReadAllText(_currentDocPath);
                 var stripped = StripDocFrontMatter(raw, out var frontMatter);
                 _currentDocFrontMatter = frontMatter;
-                DocSourceTextBox.Text  = stripped;
+                DocSourceTextBox.SetPlainText(stripped);
             }
         }
         finally
@@ -8553,7 +8576,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         catch { /* WebBrowser has no document yet */ }
 
-        var markdown = DocSourceTextBox.Text;
+        var markdown = DocSourceTextBox.GetPlainText();
         var title = string.IsNullOrEmpty(_currentDocPath) ? "Documentation" : Path.GetFileNameWithoutExtension(_currentDocPath);
         var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
 
@@ -8581,7 +8604,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (DocSourceTextBox is null || string.IsNullOrEmpty(lineHint)) return;
         if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
 
-        var lines = DocSourceTextBox.Text.Split('\n');
+        var lines = DocSourceTextBox.GetPlainText().Split('\n');
         if (lineNum > lines.Length) return;
 
         // Find the start position of the line
@@ -8640,7 +8663,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (length <= 0) return;
 
         // Get the bounding rect of the character in TextBox space
-        var rect = DocSourceTextBox.GetRectFromCharacterIndex(start);
+        var rect = DocSourceTextBox.GetRectFromOffset(start);
         if (rect == Rect.Empty) return;
 
         var overlayCanvas = EnsureDocSourceOverlayCanvas();
@@ -8688,7 +8711,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             _docSaveSuppressionUntil = DateTime.UtcNow.AddMilliseconds(500);
-            File.WriteAllText(_currentDocPath, _currentDocFrontMatter + DocSourceTextBox.Text);
+            File.WriteAllText(_currentDocPath, _currentDocFrontMatter + DocSourceTextBox.GetPlainText());
         }
         catch (Exception ex)
         {
@@ -8715,6 +8738,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     private static void ApplyMarkdownBold(TextBox box) => MarkdownEditorCommands.ApplyBold(box);
+    private static void ApplyMarkdownBold(RichTextBox box) => MarkdownEditorCommands.ApplyBold(box);
 
     private void DocSourceTextBox_ApplyItalic()
     {
@@ -8724,10 +8748,11 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     private static void ApplyMarkdownItalic(TextBox box) => MarkdownEditorCommands.ApplyItalic(box);
+    private static void ApplyMarkdownItalic(RichTextBox box) => MarkdownEditorCommands.ApplyItalic(box);
 
     private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {
-        var hasSelection = DocSourceTextBox?.SelectionLength > 0;
+        var hasSelection = DocSourceTextBox?.GetSelectionLength() > 0;
         if (DocBoldButton is not null) DocBoldButton.IsEnabled = hasSelection;
         if (DocItalicButton is not null) DocItalicButton.IsEnabled = hasSelection;
     }
@@ -8754,24 +8779,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void DocSourceTextBox_InsertLink()
     {
         if (DocSourceTextBox is null) return;
-        var selStart = DocSourceTextBox.SelectionStart;
-        var selLen = DocSourceTextBox.SelectionLength;
-        if (selLen > 0)
-        {
-            var text = DocSourceTextBox.SelectedText;
-            var md = $"[{text}](url)";
-            DocSourceTextBox.SelectedText = md;
-            DocSourceTextBox.SelectionStart = selStart;
-            DocSourceTextBox.SelectionLength = md.Length;
-        }
-        else
-        {
-            var caret = DocSourceTextBox.CaretIndex;
-            const string md = "[text](url)";
-            DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, md);
-            DocSourceTextBox.SelectionStart = caret;
-            DocSourceTextBox.SelectionLength = md.Length;
-        }
+        MarkdownEditorCommands.InsertLink(DocSourceTextBox);
     }
 
     private void DocImageButton_Click(object sender, RoutedEventArgs e)
@@ -8784,12 +8792,12 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void DocSourceTextBox_InsertImagePlaceholder()
     {
         if (DocSourceTextBox is null) return;
-        var caret = DocSourceTextBox.CaretIndex;
+        var caret = DocSourceTextBox.GetCaretOffset();
         const string placeholder =
             "![Screenshot: brief description](images/descriptive-filename.png)\n" +
             "> 📸 *Screenshot needed: Detailed description of what to capture in this screenshot.*";
-        DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, placeholder);
-        DocSourceTextBox.CaretIndex = caret + placeholder.Length;
+        DocSourceTextBox.SetPlainText(DocSourceTextBox.GetPlainText().Insert(caret, placeholder));
+        DocSourceTextBox.SetCaretOffset(caret + placeholder.Length);
     }
 
     private void DocTableButton_Click(object sender, RoutedEventArgs e)
@@ -8802,13 +8810,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void DocSourceTextBox_InsertTable()
     {
         if (DocSourceTextBox is null) return;
-        var caret = DocSourceTextBox.CaretIndex;
-        const string table =
-            "| Column 1 | Column 2 | Column 3 |\n" +
-            "|----------|----------|----------|\n" +
-            "| Cell     | Cell     | Cell     |";
-        DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, table);
-        DocSourceTextBox.CaretIndex = caret + table.Length;
+        MarkdownEditorCommands.InsertTable(DocSourceTextBox);
     }
 
     private void DocInlineCodeButton_Click(object sender, RoutedEventArgs e)
@@ -8821,22 +8823,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void DocSourceTextBox_InsertInlineCode()
     {
         if (DocSourceTextBox is null) return;
-        var selStart = DocSourceTextBox.SelectionStart;
-        var selLen = DocSourceTextBox.SelectionLength;
-        if (selLen > 0)
-        {
-            var text = DocSourceTextBox.SelectedText;
-            var md = $"`{text}`";
-            DocSourceTextBox.SelectedText = md;
-            DocSourceTextBox.SelectionStart = selStart;
-            DocSourceTextBox.SelectionLength = md.Length;
-        }
-        else
-        {
-            var caret = DocSourceTextBox.CaretIndex;
-            DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, "``");
-            DocSourceTextBox.CaretIndex = caret + 1;
-        }
+        MarkdownEditorCommands.InsertInlineCode(DocSourceTextBox);
     }
 
     private void DocCodeBlockButton_Click(object sender, RoutedEventArgs e)
@@ -8849,23 +8836,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void DocSourceTextBox_InsertCodeBlock()
     {
         if (DocSourceTextBox is null) return;
-        var selStart = DocSourceTextBox.SelectionStart;
-        var selLen = DocSourceTextBox.SelectionLength;
-        if (selLen > 0)
-        {
-            var text = DocSourceTextBox.SelectedText;
-            var md = $"\n```\n{text}\n```\n";
-            DocSourceTextBox.SelectedText = md;
-            DocSourceTextBox.SelectionStart = selStart;
-            DocSourceTextBox.SelectionLength = md.Length;
-        }
-        else
-        {
-            var caret = DocSourceTextBox.CaretIndex;
-            const string fence = "\n```\n\n```\n";
-            DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caret, fence);
-            DocSourceTextBox.CaretIndex = caret + 5; // position inside the fence
-        }
+        MarkdownEditorCommands.InsertCodeBlock(DocSourceTextBox);
     }
 
     private void DocSourceTextBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -8897,8 +8868,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 CommandTarget = DocSourceTextBox
             };
 
-            cutItem.IsEnabled = DocSourceTextBox.SelectionLength > 0;
-            copyItem.IsEnabled = DocSourceTextBox.SelectionLength > 0;
+            cutItem.IsEnabled = DocSourceTextBox.GetSelectionLength() > 0;
+            copyItem.IsEnabled = DocSourceTextBox.GetSelectionLength() > 0;
             pasteItem.IsEnabled = Clipboard.ContainsText();
 
             menu.Items.Add(cutItem);
@@ -8917,11 +8888,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                 menu.Items.Add(imgItem);
             }
 
-            if (DocSourceTextBox.SelectionLength > 0)
+            if (DocSourceTextBox.GetSelectionLength() > 0)
             {
                 // Capture now — WPF clears the selection when the ContextMenu takes focus.
-                var capturedSelStart = DocSourceTextBox.SelectionStart;
-                var capturedSelLen   = DocSourceTextBox.SelectionLength;
+                var capturedSelStart = DocSourceTextBox.GetSelectionStart();
+                var capturedSelLen   = DocSourceTextBox.GetSelectionLength();
 
                 menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
                 var addToNotesItem = new MenuItem
@@ -8930,7 +8901,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     Style  = (Style)FindResource("ThemedMenuItemStyle")
                 };
                 addToNotesItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.Text.Substring(capturedSelStart, capturedSelLen);
+                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
                     if (!string.IsNullOrWhiteSpace(text))
                         AddNoteFromText(text);
                 };
@@ -9011,6 +8982,55 @@ public partial class MainWindow : Window, ILiveElementLocator
         popup.Show();
     }
 
+    private void ShowDocRevisePopup(RichTextBox textBox, string filePath,
+        int selStart = -1, int selLen = -1)
+    {
+        if (selStart < 0)
+        {
+            selStart = textBox.GetSelectionStart();
+            selLen   = textBox.GetSelectionLength();
+        }
+        if (selLen <= 0) return;
+
+        var priorFocus = Keyboard.FocusedElement as IInputElement;
+
+        textBox.Focus();
+        textBox.SelectRange(selStart, selLen);
+
+        var originalText = textBox.GetSubstring(selStart, selLen);
+        var fullText     = textBox.GetPlainText();
+
+        var capturedStart = selStart;
+        var capturedLen   = selLen;
+
+        var popup = new DocRevisePopup(
+            originalText,
+            fullText,
+            filePath,
+            (instructions, sel, doc, workingDir, ct) =>
+                _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct),
+            onRevised: revised => Dispatcher.Invoke(
+                () => ApplyDocRevision(textBox, capturedStart, capturedLen, originalText, revised)),
+            onSubmitting: popupCenter => {
+                priorFocus?.Focus();
+                Keyboard.Focus(priorFocus);
+                ShowRevisionWorkingOverlay(popupCenter);
+            },
+            startPtt: (tb) => {
+                _pttTargetTextBox = tb;
+                _sessionCaretIndex = tb.SelectionStart;
+                _sessionSelectionLength = tb.SelectionLength;
+                _voiceStartedWithSendEnabled = false;
+                _pttState = PttState.Active;
+                _ = StartPushToTalkAsync();
+            },
+            stopPtt: () => _ = StopPushToTalkAsync(send: false));
+
+        PositionPopupNearCaret(popup, textBox, selStart, selLen);
+        popup.Owner = this;
+        popup.Show();
+    }
+
     private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox,
         int selStart, int selLen = 0)
     {
@@ -9021,6 +9041,88 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             var startRect = textBox.GetRectFromCharacterIndex(startIdx);
             var endRect   = textBox.GetRectFromCharacterIndex(endIdx);
+
+            var startTopScreen    = textBox.PointToScreen(new Point(startRect.Left,  startRect.Top));
+            var startBottomScreen = textBox.PointToScreen(new Point(startRect.Left,  startRect.Bottom));
+            var endBottomScreen   = textBox.PointToScreen(new Point(endRect.Right,   endRect.Bottom));
+            var endRightScreen    = textBox.PointToScreen(new Point(endRect.Right,   endRect.Top));
+
+            var dpi      = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            var workArea = NativeMethods.GetWorkAreaForPhysicalPoint((int)endBottomScreen.X, (int)endBottomScreen.Y);
+
+            var waLeft   = workArea.Left   / dpi.DpiScaleX;
+            var waTop    = workArea.Top    / dpi.DpiScaleY;
+            var waRight  = workArea.Right  / dpi.DpiScaleX;
+            var waBottom = workArea.Bottom / dpi.DpiScaleY;
+
+            double startTopY    = startTopScreen.Y    / dpi.DpiScaleY;
+            double startBottomY = startBottomScreen.Y / dpi.DpiScaleY;
+            double startLeftX   = startTopScreen.X    / dpi.DpiScaleX;
+            double endBottomY   = endBottomScreen.Y   / dpi.DpiScaleY;
+            double endRightX    = endRightScreen.X    / dpi.DpiScaleX;
+
+            const double PopupWidth  = 470;
+            const double PopupHeight = 235;
+            const double Gap         = 6;
+
+            bool Fits(double l, double t) =>
+                l >= waLeft && l + PopupWidth  <= waRight &&
+                t >= waTop  && t + PopupHeight <= waBottom;
+
+            double ClampX(double l) =>
+                Math.Max(waLeft + 4, Math.Min(l, waRight - PopupWidth - 4));
+
+            // 1. Below the last line of the selection
+            {
+                double t = endBottomY + Gap;
+                double l = ClampX(startLeftX - 10);
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 2. Above the first line of the selection
+            {
+                double t = startTopY - PopupHeight - Gap;
+                double l = ClampX(startLeftX - 10);
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 3. Left of the selection
+            {
+                double l = startLeftX - PopupWidth - Gap;
+                double t = Math.Max(waTop + 4, Math.Min(startTopY, waBottom - PopupHeight - 4));
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 4. Right of the selection
+            {
+                double l = endRightX + Gap;
+                double t = Math.Max(waTop + 4, Math.Min(startTopY, waBottom - PopupHeight - 4));
+                if (Fits(l, t)) { popup.Left = l; popup.Top = t; return; }
+            }
+
+            // 5. Fallback: below the first line (original behaviour)
+            popup.Left = ClampX(startLeftX - 10);
+            popup.Top  = startBottomY + Gap;
+        }
+        catch
+        {
+            var mp  = PointToScreen(Mouse.GetPosition(this));
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            popup.Left = mp.X / dpi.DpiScaleX - 10;
+            popup.Top  = mp.Y / dpi.DpiScaleY - 10;
+        }
+    }
+
+    private void PositionPopupNearCaret(Window popup, RichTextBox textBox,
+        int selStart, int selLen = 0)
+    {
+        try
+        {
+            var startIdx = Math.Max(0, selStart);
+            var endIdx   = selLen > 1 ? selStart + selLen - 1 : startIdx;
+
+            var startRect = textBox.GetRectFromOffset(startIdx);
+            var endRect   = textBox.GetRectFromOffset(endIdx);
 
             var startTopScreen    = textBox.PointToScreen(new Point(startRect.Left,  startRect.Top));
             var startBottomScreen = textBox.PointToScreen(new Point(startRect.Left,  startRect.Bottom));
@@ -9134,6 +9236,41 @@ public partial class MainWindow : Window, ILiveElementLocator
         win.Show();
     }
 
+    private void ApplyDocRevision(RichTextBox textBox,
+        int selStart, int selLen, string originalText, string revised)
+    {
+        var currentText = textBox.GetPlainText();
+
+        var intact = selStart >= 0 &&
+                     selStart + selLen <= currentText.Length &&
+                     currentText.Substring(selStart, selLen) == originalText;
+
+        if (intact)
+        {
+            textBox.SelectRange(selStart, selLen);
+            textBox.ReplaceSelection(revised);
+            textBox.SelectRange(selStart, revised.Length);
+            ShowRevisionAppliedHint(textBox, selStart);
+            return;
+        }
+
+        var firstIdx  = currentText.IndexOf(originalText, StringComparison.Ordinal);
+        var secondIdx = firstIdx < 0 ? -1
+            : currentText.IndexOf(originalText, firstIdx + 1, StringComparison.Ordinal);
+
+        if (firstIdx >= 0 && secondIdx < 0)
+        {
+            textBox.SelectRange(firstIdx, originalText.Length);
+            textBox.ReplaceSelection(revised);
+            textBox.SelectRange(firstIdx, revised.Length);
+            ShowRevisionAppliedHint(textBox, firstIdx);
+            return;
+        }
+
+        var win = new RevisionResultWindow(revised) { Owner = this };
+        win.Show();
+    }
+
     private void ShowRevisionAppliedHint(System.Windows.Controls.TextBox textBox, int insertedAt)
     {
         try
@@ -9157,16 +9294,47 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch { /* hint is cosmetic — swallow positioning errors */ }
     }
 
+    private void ShowRevisionAppliedHint(RichTextBox textBox, int insertedAt)
+    {
+        try
+        {
+            var rect    = textBox.GetRectFromOffset(Math.Max(0, insertedAt));
+            var visible = IsOffsetVisible(textBox, insertedAt);
+
+            var localPt  = visible ? new Point(rect.Left, rect.Top) : new Point(4, 4);
+            var screenPt = textBox.PointToScreen(localPt);
+            var dpi      = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+
+            var hint = new RevisionHintOverlay("✅ AI revision inserted")
+            {
+                Left  = screenPt.X / dpi.DpiScaleX,
+                Top   = screenPt.Y / dpi.DpiScaleY - 30,
+                Owner = this
+            };
+            hint.Show();
+        }
+        catch { }
+    }
+
     private void ShowRevisionWorkingOverlay(Point popupCenter)
         => RevisionWorkingOverlay.ShowAt(popupCenter, this);
 
     private bool TryShowRevisePopupForFocusedTextBox()
     {
-        if (Keyboard.FocusedElement is not System.Windows.Controls.TextBox tb) return false;
-        if (tb.SelectionLength <= 0) return false;
-        var filePath = ReferenceEquals(tb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
-        ShowDocRevisePopup(tb, filePath);
-        return true;
+        if (Keyboard.FocusedElement is RichTextBox rtb)
+        {
+            if (rtb.GetSelectionLength() <= 0) return false;
+            var filePath = ReferenceEquals(rtb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+            ShowDocRevisePopup(rtb, filePath);
+            return true;
+        }
+        if (Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+        {
+            if (tb.SelectionLength <= 0) return false;
+            ShowDocRevisePopup(tb, "");
+            return true;
+        }
+        return false;
     }
 
     private static bool IsCharacterIndexVisible(System.Windows.Controls.TextBox textBox, int charIndex)
@@ -9174,6 +9342,19 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             var rect = textBox.GetRectFromCharacterIndex(charIndex);
+            var sv   = FindVisualChild<ScrollViewer>(textBox);
+            if (sv is null) return true;
+            return rect.Top    < sv.VerticalOffset + sv.ViewportHeight &&
+                   rect.Bottom > sv.VerticalOffset;
+        }
+        catch { return false; }
+    }
+
+    private static bool IsOffsetVisible(RichTextBox textBox, int offset)
+    {
+        try
+        {
+            var rect = textBox.GetRectFromOffset(offset);
             var sv   = FindVisualChild<ScrollViewer>(textBox);
             if (sv is null) return true;
             return rect.Top    < sv.VerticalOffset + sv.ViewportHeight &&
@@ -9205,10 +9386,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         using (var stream = File.OpenWrite(fullImagePath))
             encoder.Save(stream);
 
-        var caretIndex = DocSourceTextBox.CaretIndex;
+        var caretIndex = DocSourceTextBox.GetCaretOffset();
         var markdown = $"![{docName} screenshot](images/{fileName})";
-        DocSourceTextBox.Text = DocSourceTextBox.Text.Insert(caretIndex, markdown);
-        DocSourceTextBox.CaretIndex = caretIndex + markdown.Length;
+        DocSourceTextBox.SetPlainText(DocSourceTextBox.GetPlainText().Insert(caretIndex, markdown));
+        DocSourceTextBox.SetCaretOffset(caretIndex + markdown.Length);
     }
 
     // ── Feature 2: Find-in-source bar ───────────────────────────────────────────
@@ -9393,7 +9574,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
-        var text = DocSourceTextBox.Text;
+        var text = DocSourceTextBox.GetPlainText();
         var index = 0;
         while ((index = text.IndexOf(searchText, index, StringComparison.OrdinalIgnoreCase)) >= 0)
         {
@@ -9429,12 +9610,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         for (int i = 0; i < _docSourceFindMatches.Count; i++)
         {
             var pos = _docSourceFindMatches[i];
-            var startRect = DocSourceTextBox.GetRectFromCharacterIndex(pos);
+            var startRect = DocSourceTextBox.GetRectFromOffset(pos);
             if (startRect == Rect.Empty) continue; // off-screen — skip, ScrollChanged will re-render
 
             // Use start+end rects for accurate width (handles variable-width fonts too)
-            var endPos = Math.Min(pos + searchLen, DocSourceTextBox.Text.Length);
-            var endRect = DocSourceTextBox.GetRectFromCharacterIndex(endPos);
+            var endPos = Math.Min(pos + searchLen, DocSourceTextBox.GetTextLength());
+            var endRect = DocSourceTextBox.GetRectFromOffset(endPos);
             double highlightWidth = (endRect != Rect.Empty && endRect.Left >= startRect.Left)
                 ? Math.Max(2, endRect.Left - startRect.Left)
                 : Math.Max(2, searchLen * (startRect.Width > 0 ? startRect.Width : 8));
@@ -9456,7 +9637,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         // Draw scrollbar tick marks proportional to the total text length
-        if (DocSourceTextBox.Text.Length > 0 && _docSourceFindMatches.Count > 0)
+        if (DocSourceTextBox.GetTextLength() > 0 && _docSourceFindMatches.Count > 0)
         {
             var sv = FindVisualChild<ScrollViewer>(DocSourceTextBox);
             var scrollBar = sv is not null ? FindVisualChild<ScrollBar>(sv) : null;
@@ -9464,7 +9645,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             foreach (var pos in _docSourceFindMatches)
             {
-                var fraction = (double)pos / DocSourceTextBox.Text.Length;
+                var fraction = (double)pos / DocSourceTextBox.GetTextLength();
                 var tick = new Shapes.Rectangle
                 {
                     Width = 4,
@@ -9518,7 +9699,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var pos = _docSourceFindMatches[_docSourceFindCurrentIndex];
 
         // Scroll vertically to the matching line
-        DocSourceTextBox.ScrollToLine(DocSourceTextBox.GetLineIndexFromCharacterIndex(pos));
+        DocSourceTextBox.ScrollToOffset(pos);
 
         // After the vertical scroll settles, handle horizontal scroll, re-render highlights
         // (positions changed due to scroll), then return focus to the find box.
@@ -9527,7 +9708,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             var sv = FindVisualChild<ScrollViewer>(DocSourceTextBox);
             if (sv is not null && DocSourceTextBox is not null && _docSourceFindTextBox is not null)
             {
-                var matchRect = DocSourceTextBox.GetRectFromCharacterIndex(pos);
+                var matchRect = DocSourceTextBox.GetRectFromOffset(pos);
                 if (matchRect != Rect.Empty)
                 {
                     // Bring the match into horizontal view with a small margin
