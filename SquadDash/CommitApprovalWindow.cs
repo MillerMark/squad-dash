@@ -166,7 +166,9 @@ internal sealed class CommitApprovalPanel {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 0, 0),
             Cursor            = Cursors.Hand,
+            ToolTip           = BuildDescriptionTooltip(item),
         };
+        ToolTipService.SetShowDuration(descBlock, 30000);
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         descBlock.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
@@ -216,7 +218,9 @@ internal sealed class CommitApprovalPanel {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 0, 0),
             Opacity           = 0.6,
+            ToolTip           = BuildDescriptionTooltip(item),
         };
+        ToolTipService.SetShowDuration(descBlock, 30000);
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         Grid.SetColumn(descBlock, 1);
         grid.Children.Add(descBlock);
@@ -316,6 +320,20 @@ internal sealed class CommitApprovalPanel {
         _approvedSection.Visibility = _approvedPanel.Children.Count > 0
             ? Visibility.Visible
             : Visibility.Collapsed;
+    }
+
+    /// <summary>Builds the tooltip string for an approval list row.
+    /// Shows the full untruncated description, plus the original prompt or prompt hint if available.</summary>
+    private static string BuildDescriptionTooltip(CommitApprovalItem item) {
+        var cleaned = CommitPhraseSuffix.Replace(item.Description, string.Empty).Trim();
+        if (!string.IsNullOrWhiteSpace(item.OriginalPrompt)) {
+            return cleaned + "\n\n" + item.OriginalPrompt.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(item.TurnPromptHint) &&
+            !item.TurnPromptHint.Trim().Equals(cleaned, StringComparison.OrdinalIgnoreCase)) {
+            return cleaned + "\n\n" + item.TurnPromptHint.Trim();
+        }
+        return cleaned;
     }
 
     /// <summary>Truncates <paramref name="text"/> to at most 35 characters.
