@@ -15,6 +15,8 @@ internal sealed class WorkspaceConversationStore {
     private const int MaxAgentThreads = 80;
     private const int MaxPromptHistoryEntries = 200;
     private const int MaxRecentSessionIds = 12;
+    private const int MaxToolsPerTurn = 500;
+    private const int MaxToolOutputLength = 100_000;  // ~100 KB per tool output/detail field
     private static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(14);
     private readonly string _rootDirectory;
 
@@ -258,11 +260,13 @@ internal sealed class WorkspaceConversationStore {
             _ => (bool?)null
         };
         var tools = turn.Tools
+            .Take(MaxToolsPerTurn)
             .Select(tool => {
                 var isCompleted = tool.IsCompleted;
                 var success = tool.Success;
                 var finishedAt = tool.FinishedAt?.ToUniversalTime();
-                var detailContent = tool.DetailContent?.Trim();
+                var outputText = TruncateText(tool.OutputText?.Trim(), MaxToolOutputLength);
+                var detailContent = TruncateText(tool.DetailContent?.Trim(), MaxToolOutputLength);
                 var inferredCompletion = false;
 
                 if (!isCompleted && inferredTerminalToolSuccess is { } terminalSuccess) {
@@ -289,12 +293,13 @@ internal sealed class WorkspaceConversationStore {
                     detailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
                         NormalizeDescriptor(tool.Descriptor),
                         tool.ArgsJson?.Trim(),
-                        tool.OutputText?.Trim(),
+                        outputText,
                         tool.StartedAt.ToUniversalTime(),
                         finishedAt,
                         tool.ProgressText?.Trim(),
                         isCompleted,
                         success));
+                    detailContent = TruncateText(detailContent, MaxToolOutputLength);
                 }
 
                 return new TranscriptToolRecord(
@@ -304,7 +309,7 @@ internal sealed class WorkspaceConversationStore {
                     tool.StartedAt.ToUniversalTime(),
                     finishedAt,
                     tool.ProgressText?.Trim(),
-                    tool.OutputText?.Trim(),
+                    outputText,
                     detailContent,
                     isCompleted,
                     success) {
@@ -414,6 +419,13 @@ internal sealed class WorkspaceConversationStore {
         return string.IsNullOrWhiteSpace(value)
             ? null
             : value.Trim();
+    }
+
+    private static string? TruncateText(string? value, int maxLength) {
+        if (value == null || value.Length <= maxLength)
+            return value;
+        var omitted = value.Length - maxLength;
+        return value[..maxLength] + $"\n… [{omitted:N0} chars truncated]";
     }
 
     private static IReadOnlyList<string> NormalizePromptHistory(IReadOnlyList<string>? promptHistory) {
