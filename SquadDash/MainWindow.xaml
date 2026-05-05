@@ -752,20 +752,10 @@
                         </Grid>
                     </Border>
 
-                    <!-- Loop Section Grid: Contains loop controls, splitter, and loop output -->
-                    <Grid x:Name="LoopSectionGrid"
-                          Grid.Column="3"
-                          Margin="14,0,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition x:Name="LoopPanelInnerColDef"
-                                              Width="Auto" />
-                            <ColumnDefinition Width="5" />
-                            <ColumnDefinition Width="280" />
-                        </Grid.ColumnDefinitions>
-
-                        <Border x:Name="LoopPanelBorder"
-                                Grid.Column="0"
-                                MinWidth="136"
+                    <Border x:Name="LoopPanelBorder"
+                            Grid.Column="3"
+                            Margin="14,0,0,0"
+                            MinWidth="136"
                                 VerticalAlignment="Top"
                                 Padding="12"
                                 Background="{DynamicResource RosterPanelSurface}"
@@ -784,10 +774,10 @@
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelEditLoopMdMenuItem_Click" />
                                     <Separator />
-                                    <MenuItem x:Name="LoopPanelShowOutputMenuItem"
-                                              Header="Show Loop Output"
+                                     <MenuItem x:Name="LoopPanelViewOutputMenuItem"
+                                              Header="View Loop Output"
                                               Style="{StaticResource ThemedMenuItemStyle}"
-                                              Click="LoopPanelShowOutputMenuItem_Click" />
+                                              Click="LoopPanelViewOutputMenuItem_Click" />
                                 </ContextMenu>
                             </Border.ContextMenu>
                             <DockPanel LastChildFill="False">
@@ -860,80 +850,6 @@
                                         Click="AbortLoopButton_Click" />
                             </DockPanel>
                         </Border>
-
-                        <GridSplitter x:Name="LoopOutputSplitter"
-                                      Grid.Column="1"
-                                      Width="5"
-                                      HorizontalAlignment="Stretch"
-                                      VerticalAlignment="Stretch"
-                                      Background="{DynamicResource RosterPanelBorder}"
-                                      Visibility="Collapsed"
-                                      ResizeBehavior="PreviousAndNext" />
-
-                        <Border x:Name="LoopOutputBorder"
-                                Grid.Column="2"
-                                MinWidth="160"
-                                VerticalAlignment="Top"
-                                Margin="3,0,0,0"
-                                Padding="8"
-                                Background="{DynamicResource RosterPanelSurface}"
-                                BorderBrush="{DynamicResource RosterPanelBorder}"
-                                BorderThickness="1"
-                                CornerRadius="16"
-                                Visibility="Collapsed">
-                            <Border.Height>
-                                <MultiBinding Converter="{StaticResource MaxValueConverter}">
-                                    <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
-                                    <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
-                                </MultiBinding>
-                            </Border.Height>
-                            <Border.ContextMenu>
-                                <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
-                                    <MenuItem Header="Clear"
-                                              Click="LoopOutputClearMenuItem_Click" />
-                                    <Separator />
-                                    <MenuItem Header="Hide Loop Output"
-                                              Style="{StaticResource ThemedMenuItemStyle}"
-                                              Click="LoopOutputHideMenuItem_Click" />
-                                </ContextMenu>
-                            </Border.ContextMenu>
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="*" />
-                                </Grid.RowDefinitions>
-                                <Grid Grid.Row="0"
-                                      Margin="0,0,0,6">
-                                    <TextBlock Text="Loop Output"
-                                               FontSize="13"
-                                               FontWeight="SemiBold"
-                                               Foreground="{DynamicResource RosterPanelTitle}"
-                                               HorizontalAlignment="Left"
-                                               VerticalAlignment="Center" />
-                                    <Button x:Name="LoopOutputClearButton"
-                                            Content="✕ Clear"
-                                            Padding="4,2"
-                                            FontSize="11"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Center"
-                                            Style="{StaticResource ThemedButtonStyle}"
-                                            ToolTip="Save and clear loop output"
-                                            Click="LoopOutputClearButton_Click" />
-                                </Grid>
-                                <RichTextBox x:Name="LoopOutputTextBox"
-                                             Grid.Row="1"
-                                             VerticalScrollBarVisibility="Auto"
-                                             HorizontalScrollBarVisibility="Disabled"
-                                             Background="Transparent"
-                                             BorderThickness="0"
-                                             IsReadOnly="True"
-                                             IsUndoEnabled="False"
-                                             Foreground="{DynamicResource LabelText}"
-                                             FontSize="11"
-                                             FontFamily="Consolas" />
-                            </Grid>
-                        </Border>
-                    </Grid>
 
                     <!-- Loop "not configured" flyout — shown below StartLoopButton when loop.md frontmatter is missing -->
                     <Popup x:Name="_loopConfigFlyout"

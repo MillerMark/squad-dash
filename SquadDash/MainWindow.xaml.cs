@@ -253,7 +253,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private DateTimeOffset _loopNextIterationAt;
     private bool _loopIsWaiting;
     private bool _loopPanelVisible = true;
-    private bool _loopOutputHasContent;
+    private LoopOutputWindow? _loopOutputWindow;
     private bool _loopQueued;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private string? _loopMdPathForConfig; // stored when loop config flyout is shown
@@ -3578,62 +3578,46 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void AppendLoopOutputLine(string text, Brush? brush = null)
     {
-        var p = new Paragraph { Margin = new Thickness(0, 0, 0, 2) };
-        var run = new Run(text);
-        if (brush is not null)
-            run.Foreground = brush;
-        p.Inlines.Add(run);
-        LoopOutputTextBox.Document.Blocks.Add(p);
-        LoopOutputTextBox.ScrollToEnd();
-        if (!_loopOutputHasContent)
-        {
-            _loopOutputHasContent = true;
-            SyncLoopOutputPane();
-        }
+        EnsureLoopOutputWindow();
+        _loopOutputWindow!.AppendLine(text);
     }
 
     private void BackupAndClearLoopOutput()
     {
-        if (LoopOutputTextBox is null) return;
-        if (LoopOutputTextBox.Document.Blocks.Count > 0)
-        {
-            var range = new TextRange(
-                LoopOutputTextBox.Document.ContentStart,
-                LoopOutputTextBox.Document.ContentEnd);
-            LoopOutputStore.SaveLog(range.Text);
-            LoopOutputTextBox.Document.Blocks.Clear();
-        }
-        _loopOutputHasContent = false;
-        SyncLoopOutputPane();
+        _loopOutputWindow?.SaveAndClear();
     }
 
-    private void SyncLoopOutputPane()
+    private void OpenLoopOutputWindow()
     {
-        if (LoopOutputBorder is null) return;
-        bool show = _loopPanelVisible && (_loopOutputHasContent || IsLoopRunning);
-        var vis = show ? Visibility.Visible : Visibility.Collapsed;
-        LoopOutputBorder.Visibility = vis;
-        LoopOutputSplitter.Visibility = vis;
-        
-        if (LoopPanelInnerColDef is not null && LoopPanelBorder is not null)
+        if (_loopOutputWindow is { IsVisible: true })
         {
-            if (show)
-            {
-                // Freeze the loop panel column so splitter only resizes output
-                LoopPanelInnerColDef.MaxWidth = LoopPanelBorder.ActualWidth;
-                LoopPanelInnerColDef.Width = new GridLength(LoopPanelBorder.ActualWidth);
-            }
-            else
-            {
-                // Unfreeze the loop panel column
-                LoopPanelInnerColDef.MaxWidth = double.PositiveInfinity;
-                LoopPanelInnerColDef.Width = GridLength.Auto;
-            }
+            _loopOutputWindow.Activate();
+            return;
         }
-        
-        // Update the "Show Loop Output" menu item visibility
-        if (LoopPanelShowOutputMenuItem is not null)
-            LoopPanelShowOutputMenuItem.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+
+        _loopOutputWindow = new LoopOutputWindow();
+        _loopOutputWindow.Owner = this;
+        _loopOutputWindow.Closed += (_, _) => _loopOutputWindow = null;
+
+        // Position upper-right of the main window
+        var w = _loopOutputWindow.Width;
+        var margin = 20;
+        _loopOutputWindow.Left = Left + Width - w - margin;
+        _loopOutputWindow.Top  = Top + margin;
+
+        _loopOutputWindow.Show();
+    }
+
+    private void EnsureLoopOutputWindow()
+    {
+        if (_loopOutputWindow is not { IsVisible: true })
+            OpenLoopOutputWindow();
+    }
+
+    private void LoopPanelViewOutputMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { OpenLoopOutputWindow(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelViewOutputMenuItem_Click), ex); }
     }
 
     private void LoopOutputClearButton_Click(object sender, RoutedEventArgs e)
@@ -3650,21 +3634,13 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void LoopOutputHideMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        try
-        {
-            _loopOutputHasContent = false;
-            SyncLoopOutputPane();
-        }
+        try { _loopOutputWindow?.Close(); }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopOutputHideMenuItem_Click), ex); }
     }
 
     private void LoopPanelShowOutputMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        try
-        {
-            _loopOutputHasContent = true;
-            SyncLoopOutputPane();
-        }
+        try { OpenLoopOutputWindow(); }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelShowOutputMenuItem_Click), ex); }
     }
 
@@ -4244,7 +4220,6 @@ public partial class MainWindow : Window, ILiveElementLocator
             status = string.Empty;
 
         LoopStatusLabel.Text = status;
-        SyncLoopOutputPane();
     }
 
     private void SyncTasksPanel()
