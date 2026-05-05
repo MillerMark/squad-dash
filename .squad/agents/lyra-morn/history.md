@@ -13,6 +13,18 @@
 
 ## Learnings
 
+📌 Loop panel splitter layout fix (2026-04-27): Fixed three related issues with loop panel splitter and context menus.
+
+**Issue 1 — Splitter moves loop panel left edge (BUG):** Original structure had LoopPanelBorder (col 3), LoopOutputSplitter (col 4), LoopOutputBorder (col 5) as siblings in outer grid with `ResizeBehavior="PreviousAndNext"`. Dragging splitter left would shrink loop controls panel. **Fix:** Wrapped all three elements in inner `LoopSectionGrid` (Grid.Column="3" in outer grid). Inner grid columns: col 0 (Auto, `LoopPanelInnerColDef`) = loop controls, col 1 (5px) = splitter, col 2 (280px) = output. Removed outer columns 4 and 5, decremented Grid.Column for TasksPanel (6→4), WatchPanel (7→5), ApprovalPanel (8→6), NotesPanel (9→7). Updated `SyncLoopOutputPane()` to freeze/unfreeze `LoopPanelInnerColDef` when output shown/hidden: when showing, `MaxWidth = ActualWidth` and `Width = GridLength(ActualWidth)` to lock loop controls width; when hiding, `MaxWidth = PositiveInfinity` and `Width = Auto` to restore. Splitter now only resizes output panel.
+
+**Issue 2 — Hide Loop Output context menu:** Added `Separator` and "Hide Loop Output" `MenuItem` to `LoopOutputBorder.ContextMenu`. Added `LoopOutputHideMenuItem_Click` handler that sets `_loopOutputHasContent = false` and calls `SyncLoopOutputPane()`.
+
+**Issue 3 — Show Loop Output context menu:** Added `Separator` and `x:Name="LoopPanelShowOutputMenuItem"` MenuItem "Show Loop Output" to `LoopPanelBorder.ContextMenu`. Added `LoopPanelShowOutputMenuItem_Click` handler that sets `_loopOutputHasContent = true` and calls `SyncLoopOutputPane()`. Updated `SyncLoopOutputPane()` to toggle menu item visibility: `Collapsed` when output visible, `Visible` when hidden.
+
+**Gotcha:** The Popup (`_loopConfigFlyout`) is NOT a direct child of LoopPanelBorder — it lives in the outer grid between `LoopSectionGrid` and `TasksPanelBorder`. Popups use `PlacementTarget` binding, not Grid.Column.
+
+**Files:** `MainWindow.xaml` (lines 647-662 outer columns, 755-936 inner grid structure, 771-781 loop context menu, 972-980 output context menu), `MainWindow.xaml.cs` (lines 3588-3616 `SyncLoopOutputPane`, new handlers after 3616). Commit: `9b9d756`. Build: 0 errors, 0 warnings. Tests: 1179/1180 passing (1 inconclusive pre-existing).
+
 📌 Transcript link navigation fix (2026-04-26): Fixed transcript hyperlink click behavior to open secondary panels instead of replacing main transcript content.
 
 **Root cause:** `TranscriptHyperlink_Click` (line 5775) called `OpenTranscriptThread`, which invoked `SelectTranscriptThread`. This method directly modified the main transcript's document/content, replacing the visible transcript instead of opening a separate panel.
