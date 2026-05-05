@@ -1,15 +1,14 @@
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
+using System.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Threading.Tasks;
+using System.Windows.Controls;
 
 namespace SquadDash;
 
-internal sealed class DocRevisePopup : Window
-{
+internal sealed class DocRevisePopup : Window {
     private readonly string _selectedText;
     private readonly string _documentText;
     private readonly string _documentPath;
@@ -42,29 +41,28 @@ internal sealed class DocRevisePopup : Window
         Action<string> onRevised,
         Action<Point>? onSubmitting = null,
         Action<TextBox>? startPtt = null,
-        Action? stopPtt = null)
-    {
-        _selectedText   = selectedText;
-        _documentText   = documentText;
-        _documentPath   = documentPath;
+        Action? stopPtt = null) {
+        _selectedText = selectedText;
+        _documentText = documentText;
+        _documentPath = documentPath;
         _reviseCallback = reviseCallback;
-        _onRevised      = onRevised;
-        _onSubmitting   = onSubmitting;
-        _startPtt       = startPtt;
-        _stopPtt        = stopPtt;
+        _onRevised = onRevised;
+        _onSubmitting = onSubmitting;
+        _startPtt = startPtt;
+        _stopPtt = stopPtt;
 
-        WindowStyle        = WindowStyle.None;
+        WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
-        Background         = Brushes.Transparent;
-        ResizeMode         = ResizeMode.NoResize;
-        SizeToContent      = SizeToContent.Height;
-        Width              = 460;
-        ShowInTaskbar      = false;
+        Background = Brushes.Transparent;
+        ResizeMode = ResizeMode.NoResize;
+        SizeToContent = SizeToContent.Height;
+        Width = 460;
+        ShowInTaskbar = false;
 
         var outerBorder = new Border {
-            CornerRadius    = new CornerRadius(10),
+            CornerRadius = new CornerRadius(10),
             BorderThickness = new Thickness(1),
-            Padding         = new Thickness(14)
+            Padding = new Thickness(14)
         };
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "LineColor");
         outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
@@ -75,9 +73,9 @@ internal sealed class DocRevisePopup : Window
         var titleRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
 
         var titleLabel = new TextBlock {
-            Text       = "✏  Revise with AI",
+            Text = "✏  Revise with AI",
             FontWeight = FontWeights.SemiBold,
-            FontSize   = 12,
+            FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         };
         titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
@@ -88,14 +86,14 @@ internal sealed class DocRevisePopup : Window
         titleRow.MouseLeftButtonDown += (_, _) => { try { DragMove(); } catch { } };
 
         _instructionBox = new TextBox {
-            AcceptsReturn            = false,
-            AcceptsTab               = false,
-            TextWrapping             = TextWrapping.Wrap,
-            MinHeight                = 80,
-            MaxHeight                = 180,
-            FontSize                 = 12,
-            Padding                  = new Thickness(6, 6, 6, 6),
-            BorderThickness          = new Thickness(1),
+            AcceptsReturn = false,
+            AcceptsTab = false,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 80,
+            MaxHeight = 180,
+            FontSize = 12,
+            Padding = new Thickness(6, 6, 6, 6),
+            BorderThickness = new Thickness(1),
             VerticalContentAlignment = VerticalAlignment.Top,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
@@ -105,12 +103,12 @@ internal sealed class DocRevisePopup : Window
 
         // Hint overlay — shown when TextBox is empty, hidden once text is entered.
         var hintBlock = new TextBlock {
-            Text                  = HintText,
-            FontSize              = 12,
-            IsHitTestVisible      = false,
-            VerticalAlignment     = VerticalAlignment.Top,
-            HorizontalAlignment   = HorizontalAlignment.Left,
-            Margin                = new Thickness(9, 8, 0, 0),
+            Text = HintText,
+            FontSize = 12,
+            IsHitTestVisible = false,
+            VerticalAlignment = VerticalAlignment.Top,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(9, 8, 0, 0),
         };
         hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
@@ -121,7 +119,8 @@ internal sealed class DocRevisePopup : Window
         _instructionBox.TextChanged += (_, _) => {
             bool hasText = !string.IsNullOrEmpty(_instructionBox.Text);
             hintBlock.Visibility = hasText ? Visibility.Hidden : Visibility.Visible;
-            _okButton.IsEnabled  = !string.IsNullOrWhiteSpace(_instructionBox.Text);
+            if (_okButton != null)
+                _okButton.IsEnabled = !string.IsNullOrWhiteSpace(_instructionBox.Text);
         };
 
         _instructionBox.PreviewKeyDown += InstructionBox_PreviewKeyDown;
@@ -138,29 +137,29 @@ internal sealed class DocRevisePopup : Window
         PreviewKeyUp += (_, e) => OnPopupPreviewKeyUp(e);
 
         _progressLabel = new TextBlock {
-            Text       = "⟳  Working…",
-            FontSize   = 12,
+            Text = "⟳  Working…",
+            FontSize = 12,
             Visibility = Visibility.Collapsed,
-            Margin     = new Thickness(0, 8, 0, 0)
+            Margin = new Thickness(0, 8, 0, 0)
         };
         _progressLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
         _errorLabel = new TextBlock {
-            FontSize     = 11,
-            Foreground   = new SolidColorBrush(Color.FromRgb(0xCC, 0x33, 0x33)),
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0x33, 0x33)),
             TextWrapping = TextWrapping.Wrap,
-            Visibility   = Visibility.Collapsed,
-            Margin       = new Thickness(0, 4, 0, 0)
+            Visibility = Visibility.Collapsed,
+            Margin = new Thickness(0, 4, 0, 0)
         };
 
         // Button row — both buttons aligned right, themed style
         _okButton = new Button {
-            Content   = "Apply",
-            MinWidth  = 70,
-            Height    = 28,
-            FontSize  = 12,
-            Padding   = new Thickness(12, 0, 12, 0),
-            Margin    = new Thickness(8, 0, 0, 0),
+            Content = "Apply",
+            MinWidth = 70,
+            Height = 28,
+            FontSize = 12,
+            Padding = new Thickness(12, 0, 12, 0),
+            Margin = new Thickness(8, 0, 0, 0),
             IsDefault = true,
             IsEnabled = false,
         };
@@ -168,11 +167,11 @@ internal sealed class DocRevisePopup : Window
         _okButton.Click += (_, _) => _ = SubmitAsync();
 
         _cancelButton = new Button {
-            Content  = "Cancel",
+            Content = "Cancel",
             MinWidth = 70,
-            Height   = 28,
+            Height = 28,
             FontSize = 12,
-            Padding  = new Thickness(12, 0, 12, 0),
+            Padding = new Thickness(12, 0, 12, 0),
             IsCancel = true,
         };
         _cancelButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
@@ -183,9 +182,9 @@ internal sealed class DocRevisePopup : Window
         };
 
         var buttonRow = new StackPanel {
-            Orientation         = Orientation.Horizontal,
+            Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin              = new Thickness(0, 10, 0, 0)
+            Margin = new Thickness(0, 10, 0, 0)
         };
         buttonRow.Children.Add(_cancelButton);
         buttonRow.Children.Add(_okButton);
@@ -207,8 +206,7 @@ internal sealed class DocRevisePopup : Window
 
     // ── PTT: double-tap Ctrl detection (Window-level PreviewKeyDown/PreviewKeyUp) ──
 
-    private void OnPopupPreviewKeyDown(KeyEventArgs e)
-    {
+    private void OnPopupPreviewKeyDown(KeyEventArgs e) {
         if (_startPtt is null) return;
         var action = _pttGesture.HandleKeyDown(e.Key, e.IsRepeat, DateTime.UtcNow);
         if (action != CtrlDoubleTapGestureAction.Triggered) return;
@@ -216,8 +214,7 @@ internal sealed class DocRevisePopup : Window
         _startPtt(_instructionBox);
     }
 
-    private void OnPopupPreviewKeyUp(KeyEventArgs e)
-    {
+    private void OnPopupPreviewKeyUp(KeyEventArgs e) {
         if (!CtrlDoubleTapGestureTracker.IsCtrlKey(e.Key)) return;
         if (_pttActive) {
             _pttActive = false;
@@ -229,15 +226,13 @@ internal sealed class DocRevisePopup : Window
 
     // ── Submission ──────────────────────────────────────────────────────────
 
-    private async void InstructionBox_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
+    private async void InstructionBox_PreviewKeyDown(object sender, KeyEventArgs e) {
         if (e.Key != Key.Enter) return;
         e.Handled = true;
         await SubmitAsync();
     }
 
-    private async Task SubmitAsync()
-    {
+    private async Task SubmitAsync() {
         var instructions = _instructionBox.Text.Trim();
         if (string.IsNullOrEmpty(instructions))
             return;
@@ -245,8 +240,7 @@ internal sealed class DocRevisePopup : Window
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         var capturedToken = _cts.Token;
 
-        if (_onSubmitting is not null)
-        {
+        if (_onSubmitting is not null) {
             // New behavior: close popup immediately, restore focus, show working overlay,
             // then run the AI call in the background.
             _isSubmitting = true;
@@ -254,25 +248,21 @@ internal sealed class DocRevisePopup : Window
             Close();
             _ = RunRevisionAsync(instructions, capturedToken);
         }
-        else
-        {
+        else {
             // Legacy behavior: show progress inside the popup while waiting.
             _instructionBox.IsEnabled = false;
-            _okButton.IsEnabled       = false;
+            _okButton.IsEnabled = false;
             _progressLabel.Visibility = Visibility.Visible;
-            _errorLabel.Visibility    = Visibility.Collapsed;
+            _errorLabel.Visibility = Visibility.Collapsed;
 
-            try
-            {
+            try {
                 var cwd = string.IsNullOrEmpty(_documentPath)
-                    ? ""
-                    : System.IO.Path.GetDirectoryName(_documentPath) ?? "";
+                    ? string.Empty : System.IO.Path.GetDirectoryName(_documentPath) ?? string.Empty;
 
                 var revised = await _reviseCallback(
                     instructions, _selectedText, _documentText, cwd, capturedToken);
 
-                if (string.IsNullOrWhiteSpace(revised))
-                {
+                if (string.IsNullOrWhiteSpace(revised)) {
                     ShowError("AI returned an empty response. Try rephrasing your instructions.");
                     return;
                 }
@@ -280,29 +270,23 @@ internal sealed class DocRevisePopup : Window
                 _onRevised(revised);
                 Close();
             }
-            catch (OperationCanceledException)
-            {
+            catch (OperationCanceledException) {
                 ShowError("Request cancelled.");
             }
-            catch (Exception ex)
-            {
+            catch (Exception ex) {
                 ShowError($"Error: {ex.Message}");
             }
-            finally
-            {
+            finally {
                 _cts?.Dispose();
                 _cts = null;
             }
         }
     }
 
-    private async Task RunRevisionAsync(string instructions, CancellationToken ct)
-    {
-        try
-        {
+    private async Task RunRevisionAsync(string instructions, CancellationToken ct) {
+        try {
             var cwd = string.IsNullOrEmpty(_documentPath)
-                ? ""
-                : System.IO.Path.GetDirectoryName(_documentPath) ?? "";
+                ? string.Empty : System.IO.Path.GetDirectoryName(_documentPath) ?? string.Empty;
 
             var revised = await _reviseCallback(
                 instructions, _selectedText, _documentText, cwd, ct);
@@ -311,25 +295,22 @@ internal sealed class DocRevisePopup : Window
                 _onRevised(revised);
         }
         catch { /* popup already dismissed — swallow silently */ }
-        finally
-        {
+        finally {
             _cts?.Dispose();
             _cts = null;
         }
     }
 
-    private void ShowError(string message)
-    {
-        _errorLabel.Text          = message;
-        _errorLabel.Visibility    = Visibility.Visible;
+    private void ShowError(string message) {
+        _errorLabel.Text = message;
+        _errorLabel.Visibility = Visibility.Visible;
         _progressLabel.Visibility = Visibility.Collapsed;
         _instructionBox.IsEnabled = true;
-        _okButton.IsEnabled       = !string.IsNullOrWhiteSpace(_instructionBox.Text);
+        _okButton.IsEnabled = !string.IsNullOrWhiteSpace(_instructionBox.Text);
         _instructionBox.Focus();
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
+    protected override void OnClosed(EventArgs e) {
         if (!_isSubmitting)
             _cts?.Cancel();
         base.OnClosed(e);

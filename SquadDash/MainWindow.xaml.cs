@@ -15500,10 +15500,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
 
         var squadFolderPath = _currentWorkspace.SquadFolderPath;
-        if (!Directory.Exists(squadFolderPath))
+
+        // If .squad doesn't exist yet, watch from the workspace root so we still
+        // detect .squad/tasks.md creation (e.g. when a loop run first creates it).
+        var watchPath = Directory.Exists(squadFolderPath)
+            ? squadFolderPath
+            : _currentWorkspace.FolderPath;
+
+        if (!Directory.Exists(watchPath))
             return;
 
-        _teamFileWatcher = new FileSystemWatcher(squadFolderPath, "*.md")
+        _teamFileWatcher = new FileSystemWatcher(watchPath, "*.md")
         {
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
