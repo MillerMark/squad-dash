@@ -15,6 +15,7 @@ internal sealed class DocRevisePopup : Window
     private readonly string _documentPath;
     private readonly Func<string, string, string, string, CancellationToken, Task<string>> _reviseCallback;
     private readonly Action<string> _onRevised;
+    private readonly Action<Point>? _onSubmitting;
     private readonly Action<TextBox>? _startPtt;
     private readonly Action? _stopPtt;
 
@@ -24,6 +25,7 @@ internal sealed class DocRevisePopup : Window
     private readonly Button _okButton;
     private readonly Button _cancelButton;
     private CancellationTokenSource? _cts;
+    private bool _isSubmitting;
 
     // PTT double-tap state (mirrors MainWindow logic)
     private enum PttState { Idle, TapDown, TapReleased, Active }
@@ -41,6 +43,7 @@ internal sealed class DocRevisePopup : Window
         string documentPath,
         Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback,
         Action<string> onRevised,
+        Action<Point>? onSubmitting = null,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null)
     {
@@ -49,6 +52,7 @@ internal sealed class DocRevisePopup : Window
         _documentPath   = documentPath;
         _reviseCallback = reviseCallback;
         _onRevised      = onRevised;
+        _onSubmitting   = onSubmitting;
         _startPtt       = startPtt;
         _stopPtt        = stopPtt;
 
@@ -277,12 +281,62 @@ internal sealed class DocRevisePopup : Window
         if (string.IsNullOrEmpty(instructions) || instructions == PlaceholderText)
             return;
 
-        _instructionBox.IsEnabled = false;
-        _okButton.IsEnabled       = false;
-        _progressLabel.Visibility = Visibility.Visible;
-        _errorLabel.Visibility    = Visibility.Collapsed;
-
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var capturedToken = _cts.Token;
+
+        if (_onSubmitting is not null)
+        {
+            // New behavior: close popup immediately, restore focus, show working overlay,
+            // then run the AI call in the background.
+            _isSubmitting = true;
+            _onSubmitting(new Point(Left + Width / 2, Top + ActualHeight / 2));
+            Close();
+            _ = RunRevisionAsync(instructions, capturedToken);
+        }
+        else
+        {
+            // Legacy behavior: show progress inside the popup while waiting.
+            _instructionBox.IsEnabled = false;
+            _okButton.IsEnabled       = false;
+            _progressLabel.Visibility = Visibility.Visible;
+            _errorLabel.Visibility    = Visibility.Collapsed;
+
+            try
+            {
+                var cwd = string.IsNullOrEmpty(_documentPath)
+                    ? ""
+                    : System.IO.Path.GetDirectoryName(_documentPath) ?? "";
+
+                var revised = await _reviseCallback(
+                    instructions, _selectedText, _documentText, cwd, capturedToken);
+
+                if (string.IsNullOrWhiteSpace(revised))
+                {
+                    ShowError("AI returned an empty response. Try rephrasing your instructions.");
+                    return;
+                }
+
+                _onRevised(revised);
+                Close();
+            }
+            catch (OperationCanceledException)
+            {
+                ShowError("Request cancelled.");
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Error: {ex.Message}");
+            }
+            finally
+            {
+                _cts?.Dispose();
+                _cts = null;
+            }
+        }
+    }
+
+    private async Task RunRevisionAsync(string instructions, CancellationToken ct)
+    {
         try
         {
             var cwd = string.IsNullOrEmpty(_documentPath)
@@ -290,40 +344,12 @@ internal sealed class DocRevisePopup : Window
                 : System.IO.Path.GetDirectoryName(_documentPath) ?? "";
 
             var revised = await _reviseCallback(
-                instructions, _selectedText, _documentText, cwd, _cts.Token);
+                instructions, _selectedText, _documentText, cwd, ct);
 
-            if (string.IsNullOrWhiteSpace(revised))
-            {
-                _errorLabel.Text          = "AI returned an empty response. Try rephrasing your instructions.";
-                _errorLabel.Visibility    = Visibility.Visible;
-                _progressLabel.Visibility = Visibility.Collapsed;
-                _instructionBox.IsEnabled = true;
-                _okButton.IsEnabled       = true;
-                _instructionBox.Focus();
-                return;
-            }
-
-            _onRevised(revised);
-            Close();
+            if (!string.IsNullOrWhiteSpace(revised))
+                _onRevised(revised);
         }
-        catch (OperationCanceledException)
-        {
-            _errorLabel.Text          = "Request cancelled.";
-            _errorLabel.Visibility    = Visibility.Visible;
-            _progressLabel.Visibility = Visibility.Collapsed;
-            _instructionBox.IsEnabled = true;
-            _okButton.IsEnabled       = true;
-            _instructionBox.Focus();
-        }
-        catch (Exception ex)
-        {
-            _errorLabel.Text          = $"Error: {ex.Message}";
-            _errorLabel.Visibility    = Visibility.Visible;
-            _progressLabel.Visibility = Visibility.Collapsed;
-            _instructionBox.IsEnabled = true;
-            _okButton.IsEnabled       = true;
-            _instructionBox.Focus();
-        }
+        catch { /* popup already dismissed — swallow silently */ }
         finally
         {
             _cts?.Dispose();
@@ -331,9 +357,20 @@ internal sealed class DocRevisePopup : Window
         }
     }
 
+    private void ShowError(string message)
+    {
+        _errorLabel.Text          = message;
+        _errorLabel.Visibility    = Visibility.Visible;
+        _progressLabel.Visibility = Visibility.Collapsed;
+        _instructionBox.IsEnabled = true;
+        _okButton.IsEnabled       = true;
+        _instructionBox.Focus();
+    }
+
     protected override void OnClosed(EventArgs e)
     {
-        _cts?.Cancel();
+        if (!_isSubmitting)
+            _cts?.Cancel();
         base.OnClosed(e);
     }
 }

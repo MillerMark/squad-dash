@@ -387,47 +387,57 @@ internal sealed class MarkdownDocumentWindow : Window {
             var sep2 = new Separator { Tag = "ReviseWithAiSep" };
             sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
 
-            var reviseItem = new MenuItem { Header = "✏ _Revise with AI", Tag = "ReviseWithAi" };
+            var reviseItem = new MenuItem { Header = "✏ _Revise with AI", Tag = "ReviseWithAi", InputGestureText = "Ctrl+Shift+A" };
             reviseItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            reviseItem.Click += (_, _) => {
-                if (tb.SelectionLength == 0) return;
-                var doc          = tb.Tag as MarkdownDocumentTabState;
-                var selectedText = tb.SelectedText;
-                var fullText     = tb.Text;
-                var selStart     = tb.SelectionStart;
-                var selLen       = tb.SelectionLength;
-                var cwd          = doc is not null ? System.IO.Path.GetDirectoryName(doc.FilePath) ?? "" : "";
-                var docPath      = doc?.FilePath ?? "";
-
-                var popup = new DocRevisePopup(
-                    selectedText,
-                    fullText,
-                    docPath,
-                    reviseCallback,
-                    onRevised: revised => Dispatcher.Invoke(() => {
-                        // Check original text still intact; apply or show conflict window
-                        var currentText = tb.Text;
-                        var intact = selStart >= 0 &&
-                                     selStart + selLen <= currentText.Length &&
-                                     currentText.Substring(selStart, selLen) == selectedText;
-                        if (intact) {
-                            tb.SelectionStart  = selStart;
-                            tb.SelectionLength = selLen;
-                            tb.SelectedText    = revised;
-                        } else {
-                            var win = new RevisionResultWindow(revised) { Owner = this };
-                            win.Show();
-                        }
-                    }));
-
-                PositionPopupNearCaret(popup, tb, selStart);
-                popup.Owner = this;
-                popup.Show();
-            };
+            reviseItem.Click += (_, _) => TriggerReviseWithAi(tb, reviseCallback);
 
             tb.ContextMenu.Items.Add(sep2);
             tb.ContextMenu.Items.Add(reviseItem);
         }
+    }
+
+    private void TriggerReviseWithAi(
+        TextBox tb,
+        Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback)
+    {
+        if (tb.SelectionLength == 0) return;
+        var doc          = tb.Tag as MarkdownDocumentTabState;
+        var selectedText = tb.SelectedText;
+        var fullText     = tb.Text;
+        var selStart     = tb.SelectionStart;
+        var selLen       = tb.SelectionLength;
+        var docPath      = doc?.FilePath ?? "";
+
+        var priorFocus = Keyboard.FocusedElement as IInputElement;
+
+        var popup = new DocRevisePopup(
+            selectedText,
+            fullText,
+            docPath,
+            reviseCallback,
+            onRevised: revised => Dispatcher.Invoke(() => {
+                var currentText = tb.Text;
+                var intact = selStart >= 0 &&
+                             selStart + selLen <= currentText.Length &&
+                             currentText.Substring(selStart, selLen) == selectedText;
+                if (intact) {
+                    tb.SelectionStart  = selStart;
+                    tb.SelectionLength = selLen;
+                    tb.SelectedText    = revised;
+                } else {
+                    var win = new RevisionResultWindow(revised) { Owner = this };
+                    win.Show();
+                }
+            }),
+            onSubmitting: popupCenter => {
+                priorFocus?.Focus();
+                Keyboard.Focus(priorFocus);
+                RevisionWorkingOverlay.ShowAt(popupCenter, this);
+            });
+
+        PositionPopupNearCaret(popup, tb, selStart);
+        popup.Owner = this;
+        popup.Show();
     }
 
     private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox, int charIndex)
@@ -514,6 +524,12 @@ internal sealed class MarkdownDocumentWindow : Window {
             e.Handled = true;
         } else if (e.Key == System.Windows.Input.Key.S && _activeDocument is not null) {
             SaveDocument(_activeDocument);
+            e.Handled = true;
+        } else if (e.Key == System.Windows.Input.Key.A
+            && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0
+            && _captureContext?.ReviseWithAiCallback is { } revCb
+            && tb.SelectionLength > 0) {
+            TriggerReviseWithAi(tb, revCb);
             e.Handled = true;
         }
     }

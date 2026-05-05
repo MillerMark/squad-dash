@@ -8755,8 +8755,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
                 var reviseItem = new MenuItem
                 {
-                    Header = "✏ _Revise with AI",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                    Header           = "✏ _Revise with AI",
+                    InputGestureText = "Ctrl+Shift+A",
+                    Style            = (Style)FindResource("ThemedMenuItemStyle")
                 };
                 reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "", capturedSelStart, capturedSelLen);
                 menu.Items.Add(reviseItem);
@@ -8784,6 +8785,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         if (selLen <= 0) return;
 
+        // Capture focus before we move it to the text box, so we can restore it after submit.
+        var priorFocus = Keyboard.FocusedElement as IInputElement;
+
         // Restore the selection visually so the user sees it highlighted in the popup background.
         textBox.Focus();
         textBox.SelectionStart  = selStart;
@@ -8803,6 +8807,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct),
             onRevised: revised => Dispatcher.Invoke(
                 () => ApplyDocRevision(textBox, capturedStart, capturedLen, originalText, revised)),
+            onSubmitting: popupCenter => {
+                // Restore focus immediately (before the overlay appears, so it never steals it).
+                priorFocus?.Focus();
+                Keyboard.Focus(priorFocus);
+                ShowRevisionWorkingOverlay(popupCenter);
+            },
             startPtt: (tb) => {
                 _pttTargetTextBox = tb;
                 _sessionCaretIndex = tb.SelectionStart;
@@ -8910,6 +8920,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         catch { /* hint is cosmetic — swallow positioning errors */ }
     }
+
+    private void ShowRevisionWorkingOverlay(Point popupCenter)
+        => RevisionWorkingOverlay.ShowAt(popupCenter, this);
 
     private bool TryShowRevisePopupForFocusedTextBox()
     {
