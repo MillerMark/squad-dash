@@ -10456,6 +10456,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             IsDocumentEnabled = true,
             IsReadOnly = true,
             IsUndoEnabled = false,
+            IsInactiveSelectionHighlightEnabled = true,
             FontSize = _transcriptFontSize,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };

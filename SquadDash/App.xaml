@@ -9,6 +9,11 @@
                 <ResourceDictionary Source="Themes/ToolIcons.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- Transcript selection dimmed at 50% opacity when context menu is open (focus leaves RTB) -->
+            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
+                             Color="{x:Static SystemColors.HighlightColor}"
+                             Opacity="0.2"/>
+
             <!-- Issue 1: Themed button — applied explicitly, not globally -->
             <Style x:Key="ThemedButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="{DynamicResource InputSurface}"/>

@@ -1353,6 +1353,7 @@
                                  IsDocumentEnabled="True"
                                  IsReadOnly="True"
                                  IsUndoEnabled="False"
+                                 IsInactiveSelectionHighlightEnabled="True"
                                  ContextMenu="{x:Null}"
                                  Foreground="{DynamicResource LabelText}"
                                  PreviewMouseRightButtonDown="OutputTextBox_PreviewMouseRightButtonDown"
