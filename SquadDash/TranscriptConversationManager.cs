@@ -978,7 +978,7 @@ internal sealed class TranscriptConversationManager {
                     attachments.TryGetValue(i.Id, out var list) && list.Count > 0)
                 {
                     dtos = list
-                        .Select(a => new FollowUpAttachmentDto(a.CommitSha, a.Description, a.OriginalPrompt, a.TranscriptQuote))
+                        .Select(a => new FollowUpAttachmentDto(a.CommitSha, a.Description, a.OriginalPrompt, a.TranscriptQuote, a.ContentBlock))
                         .ToList();
                 }
                 return new QueuedPromptEntry(i.Text, i.IsDictated, dtos);
