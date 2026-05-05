@@ -17013,7 +17013,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             var renameItem = MakeItem("Rename…");
             renameItem.Click += (_, _) => EnterInPlaceRename(item, filePath);
 
-            var copyLinkItem = MakeItem("Copy markdown link");
+            var copyLinkItem = MakeItem("Copy markdown link to this topic");
             copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
 
             var menu = MakeMenu();
@@ -17381,12 +17381,26 @@ public partial class MainWindow : Window, ILiveElementLocator
         dialog.ShowDialog();
         return result;
     }
+    /// <summary>
+    /// Extracts the display title string from a docs TreeViewItem, handling both
+    /// plain-string headers and StackPanel headers (built by DocTopicsLoader.BuildItemHeader).
+    /// </summary>
+    private static string? GetTopicItemTitle(TreeViewItem item)
+    {
+        return item.Header switch
+        {
+            string s                    => s,
+            StackPanel sp when sp.Children.Count > 0 && sp.Children[0] is TextBlock tb => tb.Text,
+            _                           => null,
+        };
+    }
+
     private void DocTopicsTreeView_CopyMarkdownLink(TreeViewItem item)
     {
         var filePath = item.Tag as string;
         if (string.IsNullOrEmpty(filePath)) return;
 
-        var title = item.Header?.ToString() ?? Path.GetFileNameWithoutExtension(filePath);
+        var title = GetTopicItemTitle(item) ?? Path.GetFileNameWithoutExtension(filePath);
         var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
 
         string relativePath;
