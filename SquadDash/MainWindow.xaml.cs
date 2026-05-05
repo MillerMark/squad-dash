@@ -8137,6 +8137,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         _docSourceSaveTimer?.Stop();
         DocsSourceSplitterColumn.Width = new GridLength(0);
         DocsSourceColumn.Width = new GridLength(0);
+        if (DocsPreviewColumn is not null)
+            DocsPreviewColumn.Width = new GridLength(1, GridUnitType.Star);
         DocsSourceSplitterRow.Height = new GridLength(0);
         DocsSourceRow.Height = new GridLength(0);
         if (DocSourceSplitter is not null) DocSourceSplitter.Visibility = Visibility.Collapsed;
@@ -8154,7 +8156,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (topBottom)
         {
-            // Collapse column-based dimensions
+            // Collapse column-based dimensions; restore preview column to full star
+            if (DocsPreviewColumn is not null)
+                DocsPreviewColumn.Width = new GridLength(1, GridUnitType.Star);
             DocsSourceSplitterColumn.Width = new GridLength(0);
             DocsSourceColumn.Width = new GridLength(0);
 
@@ -8179,9 +8183,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             DocsSourceSplitterRow.Height = new GridLength(0);
             DocsSourceRow.Height = new GridLength(0);
 
-            // Set column-based dimensions
+            // Set column-based dimensions using star sizing so both panels
+            // scale proportionally on window resize and the source never overflows.
             DocsSourceSplitterColumn.Width = new GridLength(splitterSize);
-            DocsSourceColumn.Width = new GridLength(Math.Max(100, sourceSize), GridUnitType.Pixel);
+            ApplyDocSourceSideBySide(sourceSize);
 
             // Move splitter and source panel back to column layout
             Grid.SetRow(DocSourceSplitter, 0);
@@ -8197,6 +8202,24 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         DocSourceSplitter.Visibility = Visibility.Visible;
         DocSourcePanel.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Sets the preview and source columns to proportional star widths so the
+    /// two panels always share the available space and neither overflows when
+    /// the window is resized narrower.
+    /// </summary>
+    private void ApplyDocSourceSideBySide(double sourceSize)
+    {
+        if (DocsPreviewColumn is null || DocsSourceColumn is null) return;
+        const double splitterSize = 6;
+        double docsAvailable = (DocsPanelColumn?.ActualWidth ?? 600)
+                               - (DocsTopicsColumn?.ActualWidth ?? 220)
+                               - splitterSize;
+        double safeSource  = Math.Clamp(sourceSize, 100, Math.Max(100, docsAvailable - 100));
+        double previewSize = Math.Max(100, docsAvailable - safeSource);
+        DocsPreviewColumn.Width = new GridLength(previewSize, GridUnitType.Star);
+        DocsSourceColumn.Width  = new GridLength(safeSource,  GridUnitType.Star);
     }
 
     private void SetDocSourceLayout(bool topBottom)
@@ -16471,7 +16494,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             else
             {
                 if (DocsSourceColumn is not null)
-                    DocsSourceColumn.Width = new GridLength(Math.Max(100, sourceSize));
+                    ApplyDocSourceSideBySide(Math.Max(100, sourceSize));
             }
         }
         else

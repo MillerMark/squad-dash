@@ -1424,7 +1424,7 @@
               Margin="0,0,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="DocsTopicsColumn" Width="Auto" MinWidth="140" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="DocsPreviewColumn" Width="*" />
                 <!-- Source-editor splitter and panel — Width="0" until View Source is toggled on -->
                 <ColumnDefinition x:Name="DocsSourceSplitterColumn" Width="0" />
                 <ColumnDefinition x:Name="DocsSourceColumn" Width="0" />
