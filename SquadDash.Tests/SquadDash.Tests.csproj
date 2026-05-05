@@ -96,6 +96,7 @@
     <Compile Include="..\SquadDash\InstanceActivationChannel.cs" Link="Source\InstanceActivationChannel.cs" />
     <Compile Include="..\SquadDash\WorkspaceOwnershipLease.cs" Link="Source\WorkspaceOwnershipLease.cs" />
     <Compile Include="..\SquadDash\WorkspaceOpenCoordinator.cs" Link="Source\WorkspaceOpenCoordinator.cs" />
+    <Compile Include="..\SquadDash\FollowUpAttachment.cs" Link="Source\FollowUpAttachment.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
     <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Source\IWorkspacePaths.cs" />
     <Compile Include="..\SquadDash\WorkspacePathsProvider.cs" Link="Source\WorkspacePathsProvider.cs" />
