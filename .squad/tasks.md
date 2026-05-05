@@ -22,6 +22,17 @@
   has silent failure suppression that may hide real errors. Review and replace with at minimum a
   `SquadDashTrace.Write` call so failures surface in the trace log.
 
+- [ ] **Revise with AI — dynamic offset tracking for async revision** *(Owner: Arjun Sen)*
+  When Revise with AI (Ctrl+Shift+A) is invoked, `selStart` is saved as an integer. If the user
+  edits text *before* that offset while the AI is working, the saved integer is stale. Implement
+  a text-change listener on `DocSourceTextBox` that adjusts the saved start offset based on
+  `TextChangedEventArgs` delta (characters inserted/deleted and at what position). Represent the
+  in-flight revision as a tracked `PendingRevision` record with a mutable `AdjustedStart` property.
+  On each `TextChanged` event, for every pending revision: if the edit is before `AdjustedStart`,
+  shift it by `(inserted - deleted)` chars. When the AI response lands, use `AdjustedStart` and
+  the original length to check if the original text is still intact before applying the replacement.
+  Multiple in-flight revisions should each track their own offset independently.
+
 ---
 
 ## 🔴 High Priority

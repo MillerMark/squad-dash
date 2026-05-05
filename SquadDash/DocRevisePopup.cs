@@ -14,6 +14,7 @@ internal sealed class DocRevisePopup : Window
     private readonly string _documentText;
     private readonly string _documentPath;
     private readonly Func<string, string, string, string, CancellationToken, Task<string>> _reviseCallback;
+    private readonly Action<string> _onRevised;
     private readonly Action<TextBox>? _startPtt;
     private readonly Action? _stopPtt;
 
@@ -34,13 +35,12 @@ internal sealed class DocRevisePopup : Window
 
     private const string PlaceholderText = "Describe revisions (Enter to apply, Esc to cancel)";
 
-    public string? RevisedText { get; private set; }
-
     internal DocRevisePopup(
         string selectedText,
         string documentText,
         string documentPath,
         Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback,
+        Action<string> onRevised,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null)
     {
@@ -48,6 +48,7 @@ internal sealed class DocRevisePopup : Window
         _documentText   = documentText;
         _documentPath   = documentPath;
         _reviseCallback = reviseCallback;
+        _onRevised      = onRevised;
         _startPtt       = startPtt;
         _stopPtt        = stopPtt;
 
@@ -70,13 +71,23 @@ internal sealed class DocRevisePopup : Window
 
         var panel = new StackPanel { Orientation = Orientation.Vertical };
 
+        // Title bar row — drag handle + close button
+        var titleRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+
         var titleLabel = new TextBlock {
             Text       = "✏  Revise with AI",
             FontWeight = FontWeights.SemiBold,
             FontSize   = 12,
-            Margin     = new Thickness(0, 0, 0, 8)
+            VerticalAlignment = VerticalAlignment.Center
         };
         titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        DockPanel.SetDock(titleLabel, Dock.Left);
+        titleRow.Children.Add(titleLabel);
+
+        // Dragging from title row moves the popup
+        titleRow.MouseLeftButtonDown += (_, _) => { try { DragMove(); } catch { } };
+        titleLabel.Cursor = Cursors.SizeAll;
+        titleRow.Cursor   = Cursors.SizeAll;
 
         _instructionBox = new TextBox {
             AcceptsReturn            = false,
@@ -152,9 +163,8 @@ internal sealed class DocRevisePopup : Window
         };
         _cancelButton.Click += (_, _) => {
             _cts?.Cancel();
-            if (_cts is null)   // not running — just close
-                DialogResult = false;
-            // if running, cts cancel will trigger error path which re-enables; user can then Esc
+            if (_cts is null)
+                Close();
         };
 
         var buttonRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
@@ -163,7 +173,7 @@ internal sealed class DocRevisePopup : Window
         buttonRow.Children.Add(_okButton);
         DockPanel.SetDock(_okButton, Dock.Right);
 
-        panel.Children.Add(titleLabel);
+        panel.Children.Add(titleRow);
         panel.Children.Add(_instructionBox);
         panel.Children.Add(_progressLabel);
         panel.Children.Add(_errorLabel);
@@ -181,7 +191,7 @@ internal sealed class DocRevisePopup : Window
         PreviewKeyDown += (_, e) => {
             if (e.Key == Key.Escape) {
                 _cts?.Cancel();
-                DialogResult = false;
+                Close();
                 e.Handled = true;
             }
         };
@@ -279,12 +289,11 @@ internal sealed class DocRevisePopup : Window
                 ? ""
                 : System.IO.Path.GetDirectoryName(_documentPath) ?? "";
 
-            RevisedText = await _reviseCallback(
+            var revised = await _reviseCallback(
                 instructions, _selectedText, _documentText, cwd, _cts.Token);
 
-            if (string.IsNullOrWhiteSpace(RevisedText))
+            if (string.IsNullOrWhiteSpace(revised))
             {
-                RevisedText = null;
                 _errorLabel.Text          = "AI returned an empty response. Try rephrasing your instructions.";
                 _errorLabel.Visibility    = Visibility.Visible;
                 _progressLabel.Visibility = Visibility.Collapsed;
@@ -294,7 +303,8 @@ internal sealed class DocRevisePopup : Window
                 return;
             }
 
-            DialogResult = true;
+            _onRevised(revised);
+            Close();
         }
         catch (OperationCanceledException)
         {

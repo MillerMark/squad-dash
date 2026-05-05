@@ -5607,6 +5607,18 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
+            // ── Ctrl+Shift+A: Revise with AI — fires from ANY focused text box with a selection ──
+            if (e.Key == Key.A
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                if (TryShowRevisePopupForFocusedTextBox())
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             // ── Feature 1: Guard against rerouting input when DocSourceTextBox has focus ──
             if (DocSourceTextBox?.IsFocused == true)
             {
@@ -8773,16 +8785,20 @@ public partial class MainWindow : Window, ILiveElementLocator
         textBox.SelectionStart  = selStart;
         textBox.SelectionLength = selLen;
 
-        var selectedText = textBox.Text.Substring(selStart, selLen);
+        var originalText = textBox.Text.Substring(selStart, selLen);
         var fullText     = textBox.Text;
-        var cwd          = _currentWorkspace?.FolderPath ?? "";
+
+        var capturedStart = selStart;
+        var capturedLen   = selLen;
 
         var popup = new DocRevisePopup(
-            selectedText,
+            originalText,
             fullText,
             filePath,
             (instructions, sel, doc, workingDir, ct) =>
                 _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct),
+            onRevised: revised => Dispatcher.Invoke(
+                () => ApplyDocRevision(textBox, capturedStart, capturedLen, originalText, revised)),
             startPtt: (tb) => {
                 _pttTargetTextBox = tb;
                 _sessionCaretIndex = tb.SelectionStart;
@@ -8793,17 +8809,124 @@ public partial class MainWindow : Window, ILiveElementLocator
             },
             stopPtt: () => _ = StopPushToTalkAsync(send: false));
 
-        var mousePos = PointToScreen(Mouse.GetPosition(this));
-        popup.Left  = Math.Min(mousePos.X - 10, SystemParameters.PrimaryScreenWidth  - 360);
-        popup.Top   = Math.Max(mousePos.Y - 160, 0);
+        PositionPopupNearCaret(popup, textBox, selStart);
         popup.Owner = this;
+        popup.Show();
+    }
 
-        if (popup.ShowDialog() == true && popup.RevisedText is { Length: > 0 } revised)
+    private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox, int charIndex)
+    {
+        try
+        {
+            var rect = textBox.GetRectFromCharacterIndex(Math.Max(0, charIndex));
+            var screenBottom = textBox.PointToScreen(new Point(rect.Left, rect.Bottom));
+            var screenTop    = textBox.PointToScreen(new Point(rect.Left, rect.Top));
+
+            var dpi      = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            var workArea = NativeMethods.GetWorkAreaForPhysicalPoint((int)screenBottom.X, (int)screenBottom.Y);
+
+            // Work area is in physical pixels; convert to logical units for Window.Left/Top.
+            var waLeft   = workArea.Left   / dpi.DpiScaleX;
+            var waTop    = workArea.Top    / dpi.DpiScaleY;
+            var waRight  = workArea.Right  / dpi.DpiScaleX;
+            var waBottom = workArea.Bottom / dpi.DpiScaleY;
+
+            var logBottom = new Point(screenBottom.X / dpi.DpiScaleX, screenBottom.Y / dpi.DpiScaleY);
+            var logTop    = new Point(screenTop.X    / dpi.DpiScaleX, screenTop.Y    / dpi.DpiScaleY);
+
+            const double PopupWidth  = 470;
+            const double PopupHeight = 235; // estimated — SizeToContent.Height may differ slightly
+
+            double left = logBottom.X - 10;
+            double top  = logBottom.Y + 6;  // prefer below caret
+
+            // Clamp horizontally to stay on screen
+            if (left + PopupWidth > waRight) left = waRight - PopupWidth - 10;
+            if (left < waLeft)               left = waLeft  + 10;
+
+            // If below the caret goes off screen, flip above
+            if (top + PopupHeight > waBottom)
+                top = logTop.Y - PopupHeight - 6;
+            if (top < waTop) top = waTop + 10;
+
+            popup.Left = left;
+            popup.Top  = top;
+        }
+        catch
+        {
+            // Fallback: near mouse position
+            var mp  = PointToScreen(Mouse.GetPosition(this));
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            popup.Left = mp.X / dpi.DpiScaleX - 10;
+            popup.Top  = mp.Y / dpi.DpiScaleY - 10;
+        }
+    }
+
+    private void ApplyDocRevision(System.Windows.Controls.TextBox textBox,
+        int selStart, int selLen, string originalText, string revised)
+    {
+        var currentText = textBox.Text;
+        var intact = selStart >= 0 &&
+                     selStart + selLen <= currentText.Length &&
+                     currentText.Substring(selStart, selLen) == originalText;
+
+        if (intact)
         {
             textBox.SelectionStart  = selStart;
             textBox.SelectionLength = selLen;
             textBox.SelectedText    = revised;
+            ShowRevisionAppliedHint(textBox, selStart);
         }
+        else
+        {
+            var win = new RevisionResultWindow(revised) { Owner = this };
+            win.Show();
+        }
+    }
+
+    private void ShowRevisionAppliedHint(System.Windows.Controls.TextBox textBox, int insertedAt)
+    {
+        try
+        {
+            var rect    = textBox.GetRectFromCharacterIndex(Math.Max(0, insertedAt));
+            var visible = IsCharacterIndexVisible(textBox, insertedAt);
+
+            // If not visible, pin hint to top of the text box's visible area instead.
+            var localPt  = visible ? new Point(rect.Left, rect.Top) : new Point(4, 4);
+            var screenPt = textBox.PointToScreen(localPt);
+            var dpi      = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+
+            var hint = new RevisionHintOverlay("✅ AI revision inserted")
+            {
+                Left  = screenPt.X / dpi.DpiScaleX,
+                Top   = screenPt.Y / dpi.DpiScaleY - 30,
+                Owner = this
+            };
+            hint.Show();
+        }
+        catch { /* hint is cosmetic — swallow positioning errors */ }
+    }
+
+    private bool TryShowRevisePopupForFocusedTextBox()
+    {
+        if (Keyboard.FocusedElement is not System.Windows.Controls.TextBox tb) return false;
+        if (tb.SelectionLength <= 0) return false;
+        var filePath = ReferenceEquals(tb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+        ShowDocRevisePopup(tb, filePath);
+        return true;
+    }
+
+    private static bool IsCharacterIndexVisible(System.Windows.Controls.TextBox textBox, int charIndex)
+    {
+        try
+        {
+            var rect = textBox.GetRectFromCharacterIndex(charIndex);
+            var sv   = FindVisualChild<ScrollViewer>(textBox);
+            if (sv is null) return true;
+            return rect.Top    < sv.VerticalOffset + sv.ViewportHeight &&
+                   rect.Bottom > sv.VerticalOffset;
+        }
+        catch { return false; }
     }
 
     private void DocSourceTextBox_PasteImageFromClipboard()

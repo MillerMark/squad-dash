@@ -403,23 +403,71 @@ internal sealed class MarkdownDocumentWindow : Window {
                     selectedText,
                     fullText,
                     docPath,
-                    reviseCallback);
+                    reviseCallback,
+                    onRevised: revised => Dispatcher.Invoke(() => {
+                        // Check original text still intact; apply or show conflict window
+                        var currentText = tb.Text;
+                        var intact = selStart >= 0 &&
+                                     selStart + selLen <= currentText.Length &&
+                                     currentText.Substring(selStart, selLen) == selectedText;
+                        if (intact) {
+                            tb.SelectionStart  = selStart;
+                            tb.SelectionLength = selLen;
+                            tb.SelectedText    = revised;
+                        } else {
+                            var win = new RevisionResultWindow(revised) { Owner = this };
+                            win.Show();
+                        }
+                    }));
 
-                var mousePos  = Mouse.GetPosition(this);
-                var screenPos = PointToScreen(mousePos);
-                popup.Left  = Math.Min(screenPos.X - 10, SystemParameters.PrimaryScreenWidth  - 360);
-                popup.Top   = Math.Max(screenPos.Y - 160, 0);
+                PositionPopupNearCaret(popup, tb, selStart);
                 popup.Owner = this;
-
-                if (popup.ShowDialog() == true && popup.RevisedText is { } revised) {
-                    tb.SelectionStart  = selStart;
-                    tb.SelectionLength = selLen;
-                    tb.SelectedText    = revised;
-                }
+                popup.Show();
             };
 
             tb.ContextMenu.Items.Add(sep2);
             tb.ContextMenu.Items.Add(reviseItem);
+        }
+    }
+
+    private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox, int charIndex)
+    {
+        try
+        {
+            var rect        = textBox.GetRectFromCharacterIndex(Math.Max(0, charIndex));
+            var screenBottom = textBox.PointToScreen(new Point(rect.Left, rect.Bottom));
+            var screenTop    = textBox.PointToScreen(new Point(rect.Left, rect.Top));
+            var dpi         = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            var workArea    = NativeMethods.GetWorkAreaForPhysicalPoint((int)screenBottom.X, (int)screenBottom.Y);
+
+            var waLeft   = workArea.Left   / dpi.DpiScaleX;
+            var waTop    = workArea.Top    / dpi.DpiScaleY;
+            var waRight  = workArea.Right  / dpi.DpiScaleX;
+            var waBottom = workArea.Bottom / dpi.DpiScaleY;
+
+            var logBottom = new Point(screenBottom.X / dpi.DpiScaleX, screenBottom.Y / dpi.DpiScaleY);
+            var logTop    = new Point(screenTop.X    / dpi.DpiScaleX, screenTop.Y    / dpi.DpiScaleY);
+
+            const double PopupWidth  = 470;
+            const double PopupHeight = 235;
+
+            double left = logBottom.X - 10;
+            double top  = logBottom.Y + 6;
+
+            if (left + PopupWidth > waRight) left = waRight - PopupWidth - 10;
+            if (left < waLeft)               left = waLeft  + 10;
+            if (top + PopupHeight > waBottom) top = logTop.Y - PopupHeight - 6;
+            if (top < waTop) top = waTop + 10;
+
+            popup.Left = left;
+            popup.Top  = top;
+        }
+        catch
+        {
+            var mp  = PointToScreen(Mouse.GetPosition(this));
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            popup.Left = mp.X / dpi.DpiScaleX - 10;
+            popup.Top  = mp.Y / dpi.DpiScaleY - 10;
         }
     }
 
