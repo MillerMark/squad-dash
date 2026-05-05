@@ -3614,6 +3614,21 @@ public partial class MainWindow : Window, ILiveElementLocator
             OpenLoopOutputWindow();
     }
 
+    private void LoopPanelDequeueMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _loopQueued = false;
+            _conversationManager.UpdateQueuedPromptsState(
+                _promptQueue.Items, _followUpAttachments,
+                queueRightmostHeld: IsRightmostQueueTabActive(),
+                loopQueuedToDequeue: false);
+            AppendLoopOutputLine("⏹ Loop dequeued — will not resume after queue drains.", LoopLifecycleBrush);
+            SyncLoopPanel();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelDequeueMenuItem_Click), ex); }
+    }
+
     private void LoopPanelViewOutputMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try { OpenLoopOutputWindow(); }
@@ -4220,6 +4235,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             status = string.Empty;
 
         LoopStatusLabel.Text = status;
+
+        if (LoopPanelDequeueMenuItem is not null)
+            LoopPanelDequeueMenuItem.Visibility = _loopQueued ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SyncTasksPanel()

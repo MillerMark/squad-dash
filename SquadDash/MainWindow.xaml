@@ -778,6 +778,12 @@
                                               Header="View Loop Output"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelViewOutputMenuItem_Click" />
+                                    <Separator />
+                                    <MenuItem x:Name="LoopPanelDequeueMenuItem"
+                                              Header="Cancel Queued Loop"
+                                              Style="{StaticResource ThemedMenuItemStyle}"
+                                              Visibility="Collapsed"
+                                              Click="LoopPanelDequeueMenuItem_Click" />
                                 </ContextMenu>
                             </Border.ContextMenu>
                             <DockPanel LastChildFill="False">
