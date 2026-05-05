@@ -1127,19 +1127,31 @@
                             </Grid.RowDefinitions>
 
                             <!-- Title row with filter box and close button -->
-                            <Grid Grid.Row="0">
-                                <TextBlock Text="Approvals"
+                            <DockPanel Grid.Row="0">
+
+                                <Button x:Name="ApprovalPanelCloseButton"
+                                        DockPanel.Dock="Right"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="13"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Approvals panel"
+                                        Click="ApprovalPanelCloseButton_Click" />
+
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="Approvals"
                                            FontSize="15"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource RosterPanelTitle}"
-                                           HorizontalAlignment="Left"
                                            VerticalAlignment="Center" />
 
-                                <!-- Filter box + clear X, inset to the left of the close button -->
+                                <!-- Filter box + clear X: left-aligned, ~2 space-widths after title -->
                                 <StackPanel Orientation="Horizontal"
-                                            HorizontalAlignment="Right"
+                                            DockPanel.Dock="Left"
                                             VerticalAlignment="Center"
-                                            Margin="0,0,28,0">
+                                            Margin="8,0,0,0">
                                     <TextBox x:Name="ApprovalFilterBox"
                                              Width="80"
                                              Height="17"
@@ -1226,17 +1238,7 @@
                                     </Button>
                                 </StackPanel>
 
-                                <Button x:Name="ApprovalPanelCloseButton"
-                                        Content="×"
-                                        Width="22"
-                                        Height="22"
-                                        FontSize="13"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Top"
-                                        Style="{StaticResource PanelCloseButtonStyle}"
-                                        ToolTip="Hide Approvals panel"
-                                        Click="ApprovalPanelCloseButton_Click" />
-                            </Grid>
+                            </DockPanel>
 
                             <!-- "Needs Approval" header -->
                             <TextBlock Grid.Row="1"
