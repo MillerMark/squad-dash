@@ -181,6 +181,26 @@ internal sealed class CommitApprovalPanel {
         var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
+        menu.Items.Add(MakeSep());
+        var rowToggleRejectedItem = MakeItem(string.Empty);
+        var rowToggleApprovedItem = MakeItem(string.Empty);
+        menu.Opened += (_, _) => {
+            rowToggleRejectedItem.Header = _showRejected ? "Hide Rejected" : "Show Rejected";
+            rowToggleApprovedItem.Header = _showApproved ? "Hide Approved" : "Show Approved";
+        };
+        rowToggleRejectedItem.Click += (_, _) => {
+            _showRejected = !_showRejected;
+            _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
+            UpdateToggleHeaders();
+        };
+        rowToggleApprovedItem.Click += (_, _) => {
+            _showApproved = !_showApproved;
+            _onShowApprovedChanged?.Invoke(_showApproved);
+            SyncApprovedSectionVisibility();
+            UpdateToggleHeaders();
+        };
+        menu.Items.Add(rowToggleRejectedItem);
+        menu.Items.Add(rowToggleApprovedItem);
         row.ContextMenu = menu;
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
