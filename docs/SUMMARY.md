@@ -6,7 +6,7 @@
 
 * [Getting Started](getting-started/README.md)
   * [Installation](getting-started/installation.md)
-  * [Access Through Visual Studio](getting-started/Access Through Visual Studio.md)
+  * [VS Tooling](getting-started/VS Tooling.md)
   * [First Run](getting-started/first-run.md)
 
 ## Features

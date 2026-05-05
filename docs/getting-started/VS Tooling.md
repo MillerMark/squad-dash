@@ -3,7 +3,6 @@ title: Access Through Visual Studio
 nav_order: 2
 parent: Getting Started
 ---
-
 # Access Through Visual Studio
 
 How to configure SquadDash as an **External Tool** in Visual Studio so you can launch it directly from the **Tools** menu while working in VS — automatically passing your solution folder as the workspace path.
