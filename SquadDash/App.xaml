@@ -281,7 +281,7 @@
                                                       VerticalAlignment="Center"/>
                                     <TextBlock x:Name="IGT" Grid.Column="2"
                                                Text="{TemplateBinding InputGestureText}"
-                                               Margin="6,0,0,0"
+                                               Margin="14,0,0,0"
                                                Foreground="{DynamicResource BodyText}"
                                                VerticalAlignment="Center"/>
                                     <Path x:Name="Arrow" Grid.Column="3"
