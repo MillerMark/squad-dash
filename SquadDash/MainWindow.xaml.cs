@@ -923,26 +923,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _markdownRenderer = new MarkdownDocumentRenderer(
             getFontSize: () => _transcriptFontSize,
             getWorkspaceGitHubUrl: () => _workspaceGitHubUrl,
-            onLinkClicked: target =>
-            {
-                if (target.StartsWith("app://open-loop-md:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var filePath = target["app://open-loop-md:".Length..];
-                    if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
-                    return;
-                }
-                if (target.StartsWith("app://show-rc-panel", StringComparison.OrdinalIgnoreCase))
-                {
-                    ShowRcPanel();
-                    return;
-                }
-                if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                    target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                    _ = OpenExternalLinkWithCommitCheckAsync(target);
-                else
-                    OpenTranscriptThread(target, scrollToStart: true);
-            },
+            onLinkClicked: target => HandleTranscriptLinkClick(target),
             onException: (op, ex) => HandleUiCallbackException(op, ex),
             resolveContinuationThread: entry => TryResolveQuickReplyContinuationThread(entry),
             onQuickReplyButtonClick: QuickReplyButton_Click,
@@ -11599,9 +11580,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 var prefixRun = new Run($"{_settingsSnapshot.UserName}: ") { FontWeight = FontWeights.SemiBold };
                 prefixRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
                 promptParagraph.Inlines.Add(prefixRun);
-                var bodyRun = new Run(promptBody) { FontWeight = FontWeights.SemiBold };
-                bodyRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptText");
-                promptParagraph.Inlines.Add(bodyRun);
+                AddPromptBodyInlines(promptParagraph.Inlines, promptBody, FontWeights.SemiBold, "UserPromptText");
             }
             else
             {
@@ -11612,9 +11591,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     prefixRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
                     promptParagraph.Inlines.Add(prefixRun);
                 }
-                var bodyRun = new Run(promptBody) { FontWeight = FontWeights.SemiBold };
-                bodyRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptText");
-                promptParagraph.Inlines.Add(bodyRun);
+                AddPromptBodyInlines(promptParagraph.Inlines, promptBody, FontWeights.SemiBold, "UserPromptText");
             }
 
             if (hasAttachments || hasDictation)
@@ -11673,6 +11650,74 @@ public partial class MainWindow : Window, ILiveElementLocator
             narrativeSection,
             topLevelBlocks);
         return view;
+    }
+
+    /// <summary>
+    /// Handles a link click that originated from the transcript — both from AI-rendered
+    /// markdown and from user-prompt inline links.
+    /// </summary>
+    private void HandleTranscriptLinkClick(string target)
+    {
+        if (target.StartsWith("app://open-loop-md:", StringComparison.OrdinalIgnoreCase))
+        {
+            var filePath = target["app://open-loop-md:".Length..];
+            if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
+            return;
+        }
+        if (target.StartsWith("app://show-rc-panel", StringComparison.OrdinalIgnoreCase))
+        {
+            ShowRcPanel();
+            return;
+        }
+        if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            _ = OpenExternalLinkWithCommitCheckAsync(target);
+        else
+            OpenTranscriptThread(target, scrollToStart: true);
+    }
+
+    /// <summary>
+    /// Adds runs and hyperlinks to <paramref name="inlines"/> by parsing inline
+    /// markdown link syntax (<c>[text](url)</c>) in <paramref name="text"/>.
+    /// Plain-text segments get a <see cref="Run"/> with the specified style;
+    /// link segments become a <see cref="System.Windows.Documents.Hyperlink"/> that
+    /// calls <see cref="HandleTranscriptLinkClick"/>.
+    /// </summary>
+    private void AddPromptBodyInlines(
+        System.Windows.Documents.InlineCollection inlines,
+        string text,
+        FontWeight fontWeight,
+        string colorKey)
+    {
+        var pattern = new System.Text.RegularExpressions.Regex(@"\[([^\]]+)\]\(([^)]+)\)");
+        int lastEnd = 0;
+        foreach (System.Text.RegularExpressions.Match m in pattern.Matches(text))
+        {
+            if (m.Index > lastEnd)
+            {
+                var run = new Run(text[lastEnd..m.Index]) { FontWeight = fontWeight };
+                run.SetResourceReference(TextElement.ForegroundProperty, colorKey);
+                inlines.Add(run);
+            }
+            var capturedUrl = m.Groups[2].Value;
+            var link = new System.Windows.Documents.Hyperlink(new Run(m.Groups[1].Value))
+            {
+                FontWeight      = fontWeight,
+                TextDecorations = null,
+                Cursor          = System.Windows.Input.Cursors.Hand,
+            };
+            link.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
+            link.Click += (_, _) => HandleTranscriptLinkClick(capturedUrl);
+            inlines.Add(link);
+            lastEnd = m.Index + m.Length;
+        }
+        if (lastEnd < text.Length)
+        {
+            var run = new Run(text[lastEnd..]) { FontWeight = fontWeight };
+            run.SetResourceReference(TextElement.ForegroundProperty, colorKey);
+            inlines.Add(run);
+        }
     }
 
     /// <summary>
