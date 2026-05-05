@@ -1764,7 +1764,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _promptQueue.Remove(item.Id);
         SyncQueuePanel();
 
-        AppendLine($"📤 Dispatching queued item #{seqNum}…", (Brush)FindResource("SubtleText"));
+        AppendLine("📤 Dispatching queued item…", (Brush)FindResource("SubtleText"));
 
         try
         {
@@ -1799,7 +1799,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
-            AppendLine($"📤 Dispatching queued item #{seqNum}…", (Brush)FindResource("SubtleText"));
+            AppendLine("📤 Dispatching queued item…", (Brush)FindResource("SubtleText"));
 
             try
             {
@@ -1849,7 +1849,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
-            AppendLine($"📤 Dispatching queued item #{seqNum} before loop iteration…", (Brush)FindResource("SubtleText"));
+            AppendLine("📤 Dispatching queued item…", (Brush)FindResource("SubtleText"));
 
             try
             {
