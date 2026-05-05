@@ -1800,7 +1800,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (_remoteAccessActive && !item.IsFromRemote)
                     _ = _bridge.BroadcastRcPromptAsync(item.Text);
                 _pec.PendingQueueItemCount = _promptQueue.Count;
-                await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
+                await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
             {
@@ -1850,7 +1850,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (_remoteAccessActive && !item.IsFromRemote)
                     _ = _bridge.BroadcastRcPromptAsync(item.Text);
                 _pec.PendingQueueItemCount = _promptQueue.Count;
-                await _pec.ExecutePromptAsync(ApplyDictationAnnotation(item), addToHistory: true, clearPromptBox: false);
+                await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
             {
