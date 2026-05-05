@@ -10100,7 +10100,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 {
                     var newId = _promptQueue.Items[^1].Id;
                     _followUpAttachments[newId] = entry.Attachments
-                        .Where(a => (!string.IsNullOrEmpty(a.CommitSha) || !string.IsNullOrEmpty(a.ContentBlock)) && !string.IsNullOrEmpty(a.Description))
+                        .Where(a => !string.IsNullOrEmpty(a.Description))
                         .Select(a => new FollowUpAttachment(a.CommitSha!, a.Description!, a.OriginalPrompt, a.TranscriptQuote, a.ContentBlock))
                         .ToList();
                 }
