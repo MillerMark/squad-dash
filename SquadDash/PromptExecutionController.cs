@@ -1483,9 +1483,10 @@ internal sealed class PromptExecutionController {
         string prompt,
         bool addToHistory,
         bool clearPromptBox,
-        string? sessionIdOverride = null) {
+        string? sessionIdOverride = null,
+        string? displayPrompt = null) {
         await ExecuteCoordinatorTurnAsync(
-            prompt,
+            displayPrompt ?? prompt,
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: true,

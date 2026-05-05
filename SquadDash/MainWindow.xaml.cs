@@ -892,13 +892,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         _loopController = new LoopController(
             // ExecutePromptAsync accesses WPF components — must run on the UI thread.
             executePromptAsync: (prompt, sessionId) =>
-                Dispatcher.InvokeAsync(() =>
-                    _pec.ExecutePromptAsync(
+                Dispatcher.InvokeAsync(() => {
+                    var loopMdPath = Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop.md");
+                    var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View loop.md](app://open-loop-md:{loopMdPath})";
+                    return _pec.ExecutePromptAsync(
                         prompt,
                         addToHistory: false,
                         clearPromptBox: false,
-                        sessionIdOverride: sessionId))
-                .Task.Unwrap(),
+                        sessionIdOverride: sessionId,
+                        displayPrompt: displayPrompt);
+                }).Task.Unwrap(),
             abortPrompt: () => _bridge.AbortPrompt(),
             onIterationStarted: n =>
                 Dispatcher.Invoke(() => OnNativeLoopIterationStarted(n)),
@@ -922,6 +925,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             getWorkspaceGitHubUrl: () => _workspaceGitHubUrl,
             onLinkClicked: target =>
             {
+                if (target.StartsWith("app://open-loop-md:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var filePath = target["app://open-loop-md:".Length..];
+                    if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(filePath) { UseShellExecute = true });
+                    return;
+                }
                 if (target.StartsWith("app://show-rc-panel", StringComparison.OrdinalIgnoreCase))
                 {
                     ShowRcPanel();
