@@ -32,7 +32,7 @@ internal sealed class DocRevisePopup : Window
         new CtrlDoubleTapGestureTracker(maxTapHoldMs: 250, doubleTapGapMs: 350);
     private bool _pttActive;
 
-    private const string PlaceholderText = "Describe revisions (Enter to apply, Esc to cancel)";
+    private const string HintText = "(enter your revision instructions here)";
 
     internal DocRevisePopup(
         string selectedText,
@@ -54,13 +54,12 @@ internal sealed class DocRevisePopup : Window
         _stopPtt        = stopPtt;
 
         WindowStyle        = WindowStyle.None;
-        AllowsTransparency = false;
+        AllowsTransparency = true;
+        Background         = Brushes.Transparent;
         ResizeMode         = ResizeMode.NoResize;
         SizeToContent      = SizeToContent.Height;
         Width              = 460;
         ShowInTaskbar      = false;
-
-        this.SetResourceReference(BackgroundProperty, "CardSurface");
 
         var outerBorder = new Border {
             CornerRadius    = new CornerRadius(10),
@@ -68,11 +67,11 @@ internal sealed class DocRevisePopup : Window
             Padding         = new Thickness(14)
         };
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "LineColor");
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
 
         var panel = new StackPanel { Orientation = Orientation.Vertical };
 
-        // Title bar row — drag handle + close button
+        // Title bar row — drag handle (normal cursor, still draggable)
         var titleRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
 
         var titleLabel = new TextBlock {
@@ -85,10 +84,8 @@ internal sealed class DocRevisePopup : Window
         DockPanel.SetDock(titleLabel, Dock.Left);
         titleRow.Children.Add(titleLabel);
 
-        // Dragging from title row moves the popup
+        // Dragging from title row moves the popup; keep default arrow cursor.
         titleRow.MouseLeftButtonDown += (_, _) => { try { DragMove(); } catch { } };
-        titleLabel.Cursor = Cursors.SizeAll;
-        titleRow.Cursor   = Cursors.SizeAll;
 
         _instructionBox = new TextBox {
             AcceptsReturn            = false,
@@ -101,23 +98,30 @@ internal sealed class DocRevisePopup : Window
             BorderThickness          = new Thickness(1),
             VerticalContentAlignment = VerticalAlignment.Top,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Text                     = PlaceholderText
         };
         _instructionBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _instructionBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
-        _instructionBox.SetResourceReference(TextBox.ForegroundProperty, "SubtleText");
+        _instructionBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
 
-        _instructionBox.GotFocus += (_, _) => {
-            if (_instructionBox.Text == PlaceholderText) {
-                _instructionBox.Text = "";
-                _instructionBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
-            }
+        // Hint overlay — shown when TextBox is empty, hidden once text is entered.
+        var hintBlock = new TextBlock {
+            Text                  = HintText,
+            FontSize              = 12,
+            IsHitTestVisible      = false,
+            VerticalAlignment     = VerticalAlignment.Top,
+            HorizontalAlignment   = HorizontalAlignment.Left,
+            Margin                = new Thickness(9, 8, 0, 0),
         };
-        _instructionBox.LostFocus += (_, _) => {
-            if (string.IsNullOrWhiteSpace(_instructionBox.Text)) {
-                _instructionBox.Text = PlaceholderText;
-                _instructionBox.SetResourceReference(TextBox.ForegroundProperty, "SubtleText");
-            }
+        hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+
+        var instructionGrid = new Grid();
+        instructionGrid.Children.Add(_instructionBox);
+        instructionGrid.Children.Add(hintBlock);
+
+        _instructionBox.TextChanged += (_, _) => {
+            bool hasText = !string.IsNullOrEmpty(_instructionBox.Text);
+            hintBlock.Visibility = hasText ? Visibility.Hidden : Visibility.Visible;
+            _okButton.IsEnabled  = !string.IsNullOrWhiteSpace(_instructionBox.Text);
         };
 
         _instructionBox.PreviewKeyDown += InstructionBox_PreviewKeyDown;
@@ -149,42 +153,45 @@ internal sealed class DocRevisePopup : Window
             Margin       = new Thickness(0, 4, 0, 0)
         };
 
-        // Button row
+        // Button row — both buttons aligned right, themed style
         _okButton = new Button {
-            Content = "Apply",
-            MinWidth = 70,
-            Height = 28,
-            FontSize = 12,
-            Padding = new Thickness(12, 0, 12, 0),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(8, 0, 0, 0),
+            Content   = "Apply",
+            MinWidth  = 70,
+            Height    = 28,
+            FontSize  = 12,
+            Padding   = new Thickness(12, 0, 12, 0),
+            Margin    = new Thickness(8, 0, 0, 0),
             IsDefault = true,
+            IsEnabled = false,
         };
+        _okButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         _okButton.Click += (_, _) => _ = SubmitAsync();
 
         _cancelButton = new Button {
-            Content = "Cancel",
+            Content  = "Cancel",
             MinWidth = 70,
-            Height = 28,
+            Height   = 28,
             FontSize = 12,
-            Padding = new Thickness(12, 0, 12, 0),
-            HorizontalAlignment = HorizontalAlignment.Right,
+            Padding  = new Thickness(12, 0, 12, 0),
             IsCancel = true,
         };
+        _cancelButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         _cancelButton.Click += (_, _) => {
             _cts?.Cancel();
             if (_cts is null)
                 Close();
         };
 
-        var buttonRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
+        var buttonRow = new StackPanel {
+            Orientation         = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin              = new Thickness(0, 10, 0, 0)
+        };
         buttonRow.Children.Add(_cancelButton);
-        DockPanel.SetDock(_cancelButton, Dock.Left);
         buttonRow.Children.Add(_okButton);
-        DockPanel.SetDock(_okButton, Dock.Right);
 
         panel.Children.Add(titleRow);
-        panel.Children.Add(_instructionBox);
+        panel.Children.Add(instructionGrid);
         panel.Children.Add(_progressLabel);
         panel.Children.Add(_errorLabel);
         panel.Children.Add(buttonRow);
@@ -193,7 +200,6 @@ internal sealed class DocRevisePopup : Window
         Content = outerBorder;
 
         Loaded += (_, _) => {
-            _instructionBox.SelectAll();
             _instructionBox.Focus();
             Keyboard.Focus(_instructionBox);
         };
@@ -233,7 +239,7 @@ internal sealed class DocRevisePopup : Window
     private async Task SubmitAsync()
     {
         var instructions = _instructionBox.Text.Trim();
-        if (string.IsNullOrEmpty(instructions) || instructions == PlaceholderText)
+        if (string.IsNullOrEmpty(instructions))
             return;
 
         _cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
@@ -318,7 +324,7 @@ internal sealed class DocRevisePopup : Window
         _errorLabel.Visibility    = Visibility.Visible;
         _progressLabel.Visibility = Visibility.Collapsed;
         _instructionBox.IsEnabled = true;
-        _okButton.IsEnabled       = true;
+        _okButton.IsEnabled       = !string.IsNullOrWhiteSpace(_instructionBox.Text);
         _instructionBox.Focus();
     }
 
