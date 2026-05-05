@@ -18039,6 +18039,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 listPanel:       NotesListPanel!,
                 scrollContainer: (FrameworkElement)NotesListPanel!.Parent,
                 openNote:        note => OpenNote(note),
+                editNote:        note => EditNote(note),
                 renameNote:      (note, title) => RenameNote(note, title),
                 deleteNote:      note => DeleteNote(note),
                 newNote:         () => CreateNewNote(),
@@ -18066,6 +18067,24 @@ public partial class MainWindow : Window, ILiveElementLocator
             showSource: true,
             BuildMarkdownCaptureContext(),
             autoSave: true);
+    }
+
+    private void EditNote(NoteItem note)
+    {
+        if (_notesStore is null) return;
+        var path = _notesStore.GetNotePath(note.Id);
+        if (!File.Exists(path)) return;
+        var liveNote = note;
+        MarkdownDocumentWindow.Show(
+            CanShowOwnedWindow() ? this : null,
+            liveNote.Title,
+            path,
+            showSource: true,
+            BuildMarkdownCaptureContext(),
+            autoSave: true,
+            noteContext: new NoteEditContext(
+                InitialTitle: liveNote.Title,
+                OnTitleCommit: newTitle => RenameNote(liveNote, newTitle)));
     }
 
     private void CreateNewNote()
@@ -18107,6 +18126,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var updated = oldNote with { Title = newTitle };
         _noteItems[idx] = updated;
         _notesStore.SaveAll(_noteItems);
+        _notesPanel?.Refresh(_noteItems);
     }
 
     private void DeleteNote(NoteItem note)

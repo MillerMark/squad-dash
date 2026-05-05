@@ -13,6 +13,7 @@ internal sealed class NotesPanelController {
     private readonly StackPanel          _listPanel;
     private readonly FrameworkElement    _scrollContainer;
     private readonly Action<NoteItem>    _openNote;
+    private readonly Action<NoteItem>    _editNote;
     private readonly Action<NoteItem, string> _renameNote;
     private readonly Action<NoteItem>    _deleteNote;
     private readonly Action              _newNote;
@@ -26,6 +27,7 @@ internal sealed class NotesPanelController {
         StackPanel               listPanel,
         FrameworkElement         scrollContainer,
         Action<NoteItem>         openNote,
+        Action<NoteItem>         editNote,
         Action<NoteItem, string> renameNote,
         Action<NoteItem>         deleteNote,
         Action                   newNote,
@@ -34,6 +36,7 @@ internal sealed class NotesPanelController {
         _listPanel       = listPanel;
         _scrollContainer = scrollContainer;
         _openNote        = openNote;
+        _editNote        = editNote;
         _renameNote      = renameNote;
         _deleteNote      = deleteNote;
         _newNote         = newNote;
@@ -111,6 +114,12 @@ internal sealed class NotesPanelController {
 
     private ContextMenu BuildRowContextMenu(NoteItem note, Border row, TextBlock titleLabel) {
         var menu = MakeMenu();
+
+        var editItem = MakeItem("Edit Note");
+        editItem.Click += (_, _) => _editNote(note);
+        menu.Items.Add(editItem);
+
+        menu.Items.Add(MakeSep());
 
         var newItem = MakeItem("New Note");
         newItem.Click += (_, _) => _newNote();

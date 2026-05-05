@@ -72,7 +72,8 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     private MarkdownDocumentCaptureContext? _captureContext;
 
-    private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents) {
+    private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents,
+        NoteEditContext? noteContext = null) {
         if (documents.Count == 0)
             throw new ArgumentException("At least one markdown document is required.", nameof(documents));
 
@@ -142,6 +143,59 @@ internal sealed class MarkdownDocumentWindow : Window {
         };
         _statusTextBlock.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         toolBar.Children.Add(_statusTextBlock);
+
+        // ── Note title row (only in Edit Note mode) ──────────────────────────
+        if (noteContext is not null) {
+            Title = $"Edit Note – {noteContext.InitialTitle}";
+            var currentNoteTitle = noteContext.InitialTitle;
+
+            var noteTitleRow = new DockPanel {
+                Margin       = new Thickness(12, 0, 12, 8),
+                LastChildFill = true,
+            };
+            DockPanel.SetDock(noteTitleRow, Dock.Top);
+
+            var noteLabel = new TextBlock {
+                Text              = "Note:",
+                FontSize          = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 8, 0),
+            };
+            noteLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            DockPanel.SetDock(noteLabel, Dock.Left);
+            noteTitleRow.Children.Add(noteLabel);
+
+            var noteTitleBox = new TextBox {
+                Text            = noteContext.InitialTitle,
+                FontSize        = 12,
+                Padding         = new Thickness(6, 4, 6, 4),
+                BorderThickness = new Thickness(1),
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            noteTitleBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
+            noteTitleBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+            noteTitleBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+            noteTitleRow.Children.Add(noteTitleBox);
+
+            void CommitNoteTitle() {
+                var newTitle = noteTitleBox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(newTitle)) {
+                    noteTitleBox.Text = currentNoteTitle;
+                    return;
+                }
+                currentNoteTitle = newTitle;
+                noteContext.OnTitleCommit(newTitle);
+                Title = $"Edit Note – {newTitle}";
+            }
+
+            noteTitleBox.LostFocus += (_, _) => CommitNoteTitle();
+            noteTitleBox.KeyDown   += (_, e) => {
+                if (e.Key == Key.Enter)  { CommitNoteTitle(); e.Handled = true; }
+                if (e.Key == Key.Escape) { noteTitleBox.Text = currentNoteTitle; e.Handled = true; }
+            };
+
+            _rootPanel.Children.Add(noteTitleRow);
+        }
 
         _contentGrid = new Grid {
             Margin = new Thickness(12, 0, 12, 12)
@@ -259,7 +313,8 @@ internal sealed class MarkdownDocumentWindow : Window {
     private bool _autoSave;
 
     public static void Show(Window? owner, string title, string filePath, bool showSource = false,
-        MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false) {
+        MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
+        NoteEditContext? noteContext = null) {
         // If a window already has this file open, bring it to the front instead of opening a duplicate.
         var existing = _openWindows.FirstOrDefault(w =>
             w._documents.Any(d => string.Equals(d.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
@@ -269,12 +324,13 @@ internal sealed class MarkdownDocumentWindow : Window {
             existing.Activate();
             return;
         }
-        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave);
+        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave, noteContext);
     }
 
     public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false,
-        MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false) {
-        var window = new MarkdownDocumentWindow(title, documents);
+        MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
+        NoteEditContext? noteContext = null) {
+        var window = new MarkdownDocumentWindow(title, documents, noteContext);
         window._captureContext = captureContext;
         window._autoSave       = autoSave;
         if (owner is not null)
@@ -1908,6 +1964,12 @@ internal static class MarkdownDocumentScripts {
 })();
 ";
 }
+
+/// <summary>
+/// Enables the note-title editing row and "Edit Note" window title when
+/// opening a MarkdownDocumentWindow for note editing.
+/// </summary>
+internal sealed record NoteEditContext(string InitialTitle, Action<string> OnTitleCommit);
 
 /// <summary>
 /// Optional services passed to <see cref="MarkdownDocumentWindow.Show"/> to enable
