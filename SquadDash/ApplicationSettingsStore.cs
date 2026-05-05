@@ -415,6 +415,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveApprovalShowRejected(bool show) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { ApprovalShowRejected = show };
+        SaveCore(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Persists the RC session token so the same QR code URL stays valid across restarts.
     /// </summary>
@@ -839,6 +847,12 @@ internal sealed record ApplicationSettingsSnapshot(
     /// Defaults to true (approved items shown by default). Machine-wide setting.
     /// </summary>
     public bool ApprovalShowApproved { get; init; } = true;
+
+    /// <summary>
+    /// Whether the Rejected section is visible in the Approvals panel.
+    /// Defaults to true (rejected items shown by default). Machine-wide setting.
+    /// </summary>
+    public bool ApprovalShowRejected { get; init; } = true;
 
     /// <summary>
     /// The RC session token from the last successful RC start.

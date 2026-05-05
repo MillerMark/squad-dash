@@ -33,6 +33,7 @@ internal sealed class CommitApprovalPanel {
     private MenuItem?  _toggleRejectedItem;
     private MenuItem?  _toggleApprovedItem;
     private readonly Action<bool>? _onShowApprovedChanged;
+    private readonly Action<bool>? _onShowRejectedChanged;
 
     public CommitApprovalPanel(
         StackPanel                               needsApprovalPanel,
@@ -49,7 +50,9 @@ internal sealed class CommitApprovalPanel {
         Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved,
         Action<CommitApprovalItem>                onFollowUp,
         bool                                     initialShowApproved = true,
-        Action<bool>?                            onShowApprovedChanged = null) {
+        Action<bool>?                            onShowApprovedChanged = null,
+        bool                                     initialShowRejected = true,
+        Action<bool>?                            onShowRejectedChanged = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -64,8 +67,11 @@ internal sealed class CommitApprovalPanel {
         _onFollowUp                = onFollowUp;
         _showApproved              = initialShowApproved;
         _onShowApprovedChanged     = onShowApprovedChanged;
+        _showRejected              = initialShowRejected;
+        _onShowRejectedChanged     = onShowRejectedChanged;
 
         AttachPanelContextMenu(outerBorder);
+        _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -139,6 +145,7 @@ internal sealed class CommitApprovalPanel {
         _toggleRejectedItem.Click += (_, _) => {
             _showRejected = !_showRejected;
             _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
+            _onShowRejectedChanged?.Invoke(_showRejected);
             UpdateToggleHeaders();
         };
 
@@ -192,6 +199,7 @@ internal sealed class CommitApprovalPanel {
         rowToggleRejectedItem.Click += (_, _) => {
             _showRejected = !_showRejected;
             _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
+            _onShowRejectedChanged?.Invoke(_showRejected);
             UpdateToggleHeaders();
         };
         rowToggleApprovedItem.Click += (_, _) => {

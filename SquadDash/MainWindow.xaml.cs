@@ -18280,7 +18280,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 onItemsRemoved: items => OnApprovalItemsRemoved(items),
                 onFollowUp: item => AttachFollowUpToActiveTab(item),
                 initialShowApproved: _settingsStore.Load().ApprovalShowApproved,
-                onShowApprovedChanged: show => _settingsStore.SaveApprovalShowApproved(show));
+                onShowApprovedChanged: show => _settingsStore.SaveApprovalShowApproved(show),
+                initialShowRejected: _settingsStore.Load().ApprovalShowRejected,
+                onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show));
             _approvalPanel.ReplaceAllItems(_approvalItems);
         }
     }
