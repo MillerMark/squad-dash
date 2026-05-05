@@ -67,6 +67,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     private PushToTalkWindow?         _editorPttWindow;
     private bool                      _editorVoiceStopOnCtrlRelease;
     private int                       _editorVoiceCaretIndex;
+    private int                       _editorVoiceSelectionLength; // consumed on first insert; replaces selection
     private readonly CtrlDoubleTapGestureTracker _editorPttGesture =
         new(maxTapHoldMs: 250, doubleTapGapMs: 350);
 
@@ -634,7 +635,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         var editorTb = _activeDocument?.EditorTextBox;
         if (editorTb is null) return;
 
-        _editorVoiceCaretIndex = editorTb.SelectionStart;
+        _editorVoiceCaretIndex    = editorTb.SelectionStart;
+        _editorVoiceSelectionLength = editorTb.SelectionLength;
 
         _editorVoiceService = new SpeechRecognitionService();
 
@@ -710,11 +712,17 @@ internal sealed class MarkdownDocumentWindow : Window {
         var editorTb = _activeDocument?.EditorTextBox;
         if (editorTb is null) return;
 
-        var current   = editorTb.Text;
+        var current    = editorTb.Text;
         var caretIndex = Math.Min(_editorVoiceCaretIndex, current.Length);
+        // Replace selection on first insert; subsequent phrases append at caret.
+        var selLength  = _editorVoiceSelectionLength;
+        _editorVoiceSelectionLength = 0;
+        var selEndIndex = Math.Min(caretIndex + selLength, current.Length);
         var left       = current[..caretIndex];
-        var right      = current[caretIndex..];
-        var prefix     = caretIndex > 0 && current[caretIndex - 1] != ' ' ? " " : string.Empty;
+        var right      = current[selEndIndex..];
+        var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
+        var prefix     = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' &&
+                         precedingChar != '\n' && precedingChar != '\r' ? " " : string.Empty;
         var processed  = VoiceInsertionHeuristics.Apply(left, text, right);
         var insert     = prefix + processed;
         editorTb.Text       = left + insert + right;
