@@ -9053,17 +9053,23 @@ public partial class MainWindow : Window, ILiveElementLocator
         var capturedStart = selStart;
         var capturedLen   = selLen;
 
+        RevisionPendingIndicator? indicator = null;
+
         var popup = new DocRevisePopup(
             originalText,
             fullText,
             filePath,
             (instructions, sel, doc, workingDir, ct) =>
                 _bridge.RunDocRevisionAsync(instructions, sel, doc, workingDir, ct),
-            onRevised: revised => Dispatcher.Invoke(
-                () => ApplyDocRevision(textBox, capturedStart, capturedLen, originalText, revised)),
+            onRevised: revised => Dispatcher.Invoke(() => {
+                indicator?.Remove();
+                indicator = null;
+                ApplyDocRevision(textBox, capturedStart, capturedLen, originalText, revised);
+            }),
             onSubmitting: popupCenter => {
                 priorFocus?.Focus();
                 Keyboard.Focus(priorFocus);
+                indicator = RevisionPendingIndicator.Insert(textBox, capturedStart + capturedLen);
                 ShowRevisionWorkingOverlay(popupCenter);
             },
             startPtt: (tb) => {
