@@ -773,12 +773,12 @@
                                     <MenuItem Header="Edit loop.md"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelEditLoopMdMenuItem_Click" />
-                                    <Separator />
+                                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                                      <MenuItem x:Name="LoopPanelViewOutputMenuItem"
                                               Header="View Loop Output"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelViewOutputMenuItem_Click" />
-                                    <Separator />
+                                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                                     <MenuItem x:Name="LoopPanelDequeueMenuItem"
                                               Header="Cancel Queued Loop"
                                               Style="{StaticResource ThemedMenuItemStyle}"
