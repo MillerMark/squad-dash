@@ -7554,6 +7554,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelCloseButton_Click), ex); }
     }
 
+    private void LoopPanelEditLoopMdMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null) return;
+            var loopMdPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop.md");
+            OpenOrCreateLoopMd(loopMdPath);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelEditLoopMdMenuItem_Click), ex); }
+    }
+
     private void TasksPanelCloseButton_Click(object sender, RoutedEventArgs e)
     {
         try

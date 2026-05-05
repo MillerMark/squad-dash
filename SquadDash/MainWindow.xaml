@@ -772,6 +772,13 @@
                                 <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
                             </MultiBinding>
                         </Border.Height>
+                        <Border.ContextMenu>
+                            <ContextMenu Style="{StaticResource ThemedContextMenuStyle}">
+                                <MenuItem Header="Edit loop.md"
+                                          Style="{StaticResource ThemedMenuItemStyle}"
+                                          Click="LoopPanelEditLoopMdMenuItem_Click" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <DockPanel LastChildFill="False">
                             <Grid DockPanel.Dock="Top">
                                 <TextBlock Text="Loop"
