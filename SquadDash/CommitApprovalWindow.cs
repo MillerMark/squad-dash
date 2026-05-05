@@ -149,8 +149,9 @@ internal sealed class CommitApprovalPanel {
             UpdateToggleHeaders();
         };
 
-        menu.Items.Add(_toggleRejectedItem);
+        menu.Items.Add(MakeSep());
         menu.Items.Add(_toggleApprovedItem);
+        menu.Items.Add(_toggleRejectedItem);
         outerBorder.ContextMenu = menu;
     }
 
@@ -199,8 +200,8 @@ internal sealed class CommitApprovalPanel {
             SyncApprovedSectionVisibility();
             UpdateToggleHeaders();
         };
-        menu.Items.Add(rowToggleRejectedItem);
         menu.Items.Add(rowToggleApprovedItem);
+        menu.Items.Add(rowToggleRejectedItem);
         row.ContextMenu = menu;
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
