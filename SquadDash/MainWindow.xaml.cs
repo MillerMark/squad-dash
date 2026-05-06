@@ -20019,9 +20019,18 @@ public partial class MainWindow : Window, ILiveElementLocator
                 TryUpdateTasksIntelliSense();
             // Suppress filtering while @ IntelliSense is open in the tasks filter — only commit
             // the filter once the user accepts (text changes) or dismisses (Escape handler below).
-            var filterText = (_intelliSenseState is not null && _intelliSenseOwnerBox == TasksFilterBox)
-                ? string.Empty
-                : text;
+            // Exception: if only one candidate remains, apply that agent's filter as a live preview.
+            string filterText;
+            if (_intelliSenseState is not null && _intelliSenseOwnerBox == TasksFilterBox)
+            {
+                filterText = _intelliSenseState.FilteredSuggestions.Count == 1
+                    ? "@" + _intelliSenseState.FilteredSuggestions[0]
+                    : string.Empty;
+            }
+            else
+            {
+                filterText = text;
+            }
             _tasksPanelController?.SetFilter(filterText);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
