@@ -13396,13 +13396,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             var rect = tp.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward);
 
             // rect is in coordinates relative to the scroll viewer's visible area.
-            // Skip scrolling if the target is already fully within the viewport.
-            var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
-            if (!isFullyVisible)
-            {
-                double targetOffset = sv.VerticalOffset + rect.Top;
-                _scrollController.ScrollToOffset(targetOffset);
-            }
+            // Always scroll to place this prompt at the viewport top.
+            double targetOffset = sv.VerticalOffset + rect.Top;
+            _scrollController.ScrollToOffset(targetOffset);
 
             SyncPromptNavButtons();
         });
@@ -13410,7 +13406,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void TranscriptScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
-        if (e.VerticalChange != 0)
+        // Re-evaluate enabled state whenever the scroll position, content height,
+        // or viewport height changes — the last two cover window resize, maximize,
+        // and F11 full-transcript mode toggling.
+        if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
             SyncPromptNavButtons();
     }
 
