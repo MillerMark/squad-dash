@@ -243,4 +243,174 @@ internal sealed class LoopMdParserTests {
         }
         finally { DeleteTempFile(path); }
     }
+
+    // ── ScanForLoopFiles ──────────────────────────────────────────────────────
+
+    [Test]
+    public void ScanForLoopFiles_DirectoryDoesNotExist_ReturnsEmpty() {
+        var result = LoopMdParser.ScanForLoopFiles(@"C:\this\path\does\not\exist");
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void ScanForLoopFiles_EmptyDirectory_ReturnsEmpty() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Is.Empty);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void ScanForLoopFiles_DescriptionWithHyphen_SplitsDisplayNameAndTooltip() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var loopPath = Path.Combine(dir, "loop.md");
+        File.WriteAllText(loopPath,
+            """
+            ---
+            configured: true
+            description: "Daily Build - runs tests and reports"
+            ---
+            Do the thing.
+            """);
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(result[0].DisplayName, Is.EqualTo("Daily Build"));
+            Assert.That(result[0].TooltipText, Is.EqualTo("runs tests and reports"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void ScanForLoopFiles_DescriptionWithEnDash_SplitsCorrectly() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var loopPath = Path.Combine(dir, "loop.md");
+        // Use an actual en-dash character (U+2013) in the description string.
+        File.WriteAllText(loopPath,
+            "---\nconfigured: true\ndescription: \"Fast Loop \u2013 lightweight check\"\n---\nBody.\n");
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(result[0].DisplayName, Is.EqualTo("Fast Loop"));
+            Assert.That(result[0].TooltipText, Is.EqualTo("lightweight check"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void ScanForLoopFiles_DescriptionNoDash_TooltipIsEmpty() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var loopPath = Path.Combine(dir, "loop.md");
+        File.WriteAllText(loopPath,
+            """
+            ---
+            configured: true
+            description: "Simple Loop"
+            ---
+            Body.
+            """);
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(result[0].DisplayName, Is.EqualTo("Simple Loop"));
+            Assert.That(result[0].TooltipText, Is.EqualTo(""));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void ScanForLoopFiles_NoDescription_FallsBackToFilename() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        // Use a filename without a hyphen so the fallback name isn't split.
+        var loopPath = Path.Combine(dir, "loopweekly.md");
+        File.WriteAllText(loopPath,
+            """
+            ---
+            configured: true
+            ---
+            Body.
+            """);
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(result[0].DisplayName, Is.EqualTo("loopweekly"));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void ScanForLoopFiles_LoopMdSortsFirst() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "loop-zzz.md"),
+            "---\nconfigured: true\ndescription: ZZZ\n---\n");
+        File.WriteAllText(Path.Combine(dir, "loop.md"),
+            "---\nconfigured: true\ndescription: Default\n---\n");
+        File.WriteAllText(Path.Combine(dir, "loop-aaa.md"),
+            "---\nconfigured: true\ndescription: AAA\n---\n");
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Has.Count.EqualTo(3));
+            Assert.That(Path.GetFileName(result[0].FilePath), Is.EqualTo("loop.md").IgnoreCase);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Test]
+    public void ScanForLoopFiles_NonDefaultFilesSortedAlphabetically() {
+        var dir = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"loopscan_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "loop-charlie.md"),
+            "---\nconfigured: true\ndescription: Charlie\n---\n");
+        File.WriteAllText(Path.Combine(dir, "loop-alpha.md"),
+            "---\nconfigured: true\ndescription: Alpha\n---\n");
+        File.WriteAllText(Path.Combine(dir, "loop-bravo.md"),
+            "---\nconfigured: true\ndescription: Bravo\n---\n");
+        try {
+            var result = LoopMdParser.ScanForLoopFiles(dir);
+            Assert.That(result, Has.Count.EqualTo(3));
+            Assert.That(Path.GetFileName(result[0].FilePath), Is.EqualTo("loop-alpha.md").IgnoreCase);
+            Assert.That(Path.GetFileName(result[1].FilePath), Is.EqualTo("loop-bravo.md").IgnoreCase);
+            Assert.That(Path.GetFileName(result[2].FilePath), Is.EqualTo("loop-charlie.md").IgnoreCase);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    // ── StripFrontmatter ──────────────────────────────────────────────────────
+
+    [Test]
+    public void StripFrontmatter_NormalContent_RemovesFrontmatter() {
+        var content =
+            "---\nconfigured: true\ninterval: 5\n---\nThis is the body.";
+        var result = LoopMdParser.StripFrontmatter(content);
+        Assert.That(result, Is.EqualTo("This is the body."));
+    }
+
+    [Test]
+    public void StripFrontmatter_NoFrontmatter_ReturnsOriginal() {
+        var content = "Just a plain body without frontmatter.";
+        var result = LoopMdParser.StripFrontmatter(content);
+        Assert.That(result, Is.EqualTo(content));
+    }
+
+    [Test]
+    public void StripFrontmatter_BlankLinesAfterClosingDelimiter_AreTrimmed() {
+        var content = "---\nconfigured: true\n---\n\n\nActual body here.";
+        var result = LoopMdParser.StripFrontmatter(content);
+        Assert.That(result, Is.EqualTo("Actual body here."));
+    }
+
+    [Test]
+    public void StripFrontmatter_MultiLineBody_PreservesInternalContent() {
+        var content = "---\nconfigured: true\n---\nLine one.\nLine two.\nLine three.";
+        var result = LoopMdParser.StripFrontmatter(content);
+        Assert.That(result, Is.EqualTo("Line one.\nLine two.\nLine three."));
+    }
 }
