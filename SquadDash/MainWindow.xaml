@@ -404,6 +404,9 @@
                     <MenuItem x:Name="RunDoctorMenuItem"
                               Header="Run Squad Doctor"
                               Click="RunDoctorMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem Header="Clear pasted images..."
+                              Click="ClearPastedImagesMenuItem_Click" />
                 </MenuItem>
             </Menu>
 

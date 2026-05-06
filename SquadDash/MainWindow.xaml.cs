@@ -111,6 +111,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private TreeViewItem? _docsRenameLastClickedItem;
     private bool _docsRenameIsFromAdd;
     private SessionWorkspace? _currentWorkspace;
+    private readonly PastedImageStore _pastedImageStore = new();
     private SquadInstallationState? _currentInstallationState;
     private SquadRoutingDocumentAssessment? _currentRoutingAssessment;
     private WorkspaceIssuePresentation? _startupIssue;
@@ -5900,6 +5901,26 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
+            // ── Ctrl+V clipboard-image intercept ──────────────────────────────────
+            if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                if (Clipboard.ContainsImage())
+                {
+                    e.Handled = true;
+                    var bitmap = Clipboard.GetImage();
+                    if (bitmap is not null && _currentWorkspace is not null)
+                    {
+                        var path = _pastedImageStore.SaveImage(bitmap, _currentWorkspace.FolderPath);
+                        var att  = new FollowUpAttachment("", "Image", null, null, null, ImagePath: path);
+                        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+                        list.Add(att);
+                        UpdateFollowUpStrip();
+                        PersistDraftFollowUp();
+                    }
+                    return;
+                }
+            }
+
             var modifiers = Keyboard.Modifiers;
 
             // Record Shift+Enter before dispatching so the hint hides even though WPF
@@ -7670,6 +7691,22 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             HandleUiCallbackException(nameof(RemoveTemporaryAgentsMenuItem_Click), ex);
         }
+    }
+
+    private void ClearPastedImagesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var folder = _currentWorkspace?.FolderPath;
+        if (folder is null) return;
+
+        var freed = _pastedImageStore.DeleteAll(folder);
+        var mb    = freed / (1024.0 * 1024.0);
+        MessageBox.Show(
+            freed == 0
+                ? "No pasted images to clear."
+                : $"Cleared {mb:F1} MB of pasted images.",
+            "Clear Pasted Images",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private void SetTranscriptFullScreen(bool enabled)
@@ -10253,6 +10290,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         AgentReportStore.PruneOld(AgentReportStore.GetReportsDir(reportStateDir));
 
+        // Fire-and-forget: prune expired pasted images for this workspace.
+        _ = _pastedImageStore.PruneAsync(_currentWorkspace.FolderPath);
+
         // Restore loop-queued-to-dequeue state from previous session.
         _loopQueued = _conversationManager.ConversationState.LoopQueuedToDequeue == true;
 
@@ -10270,7 +10310,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                     var newId = _promptQueue.Items[^1].Id;
                     _followUpAttachments[newId] = entry.Attachments
                         .Where(a => !string.IsNullOrEmpty(a.Description))
-                        .Select(a => new FollowUpAttachment(a.CommitSha!, a.Description!, a.OriginalPrompt, a.TranscriptQuote, a.ContentBlock))
+                        .Select(a => new FollowUpAttachment(
+                            a.CommitSha!,
+                            a.Description!,
+                            a.OriginalPrompt,
+                            a.TranscriptQuote,
+                            a.ContentBlock,
+                            a.ImagePath,
+                            a.ImageSubmittedAt is not null && DateTime.TryParse(a.ImageSubmittedAt, out var dt2) ? dt2 : null))
                         .ToList();
                 }
             }
@@ -17594,7 +17641,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 var items = System.Text.Json.JsonSerializer.Deserialize<List<FollowUpAttachmentDto>>(followUpsJson);
                 if (items != null)
-                    restoredList.AddRange(items.Select(d => new FollowUpAttachment(d.CommitSha ?? "", d.Description ?? "", d.OriginalPrompt, d.TranscriptQuote, d.ContentBlock)));
+                    restoredList.AddRange(items.Select(d => new FollowUpAttachment(
+                        d.CommitSha ?? "",
+                        d.Description ?? "",
+                        d.OriginalPrompt,
+                        d.TranscriptQuote,
+                        d.ContentBlock,
+                        d.ImagePath,
+                        d.ImageSubmittedAt is not null && DateTime.TryParse(d.ImageSubmittedAt, out var dt1) ? dt1 : null)));
             }
             catch { /* corrupt data — ignore */ }
         }
@@ -18734,7 +18788,19 @@ public partial class MainWindow : Window, ILiveElementLocator
                 };
                 label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
-                if (att.ContentBlock != null)
+                if (att.ImagePath != null)
+                {
+                    var icon    = new Run("📷 ");
+                    var descRun = new Run(att.Description);
+                    descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                    label.Inlines.Add(icon);
+                    label.Inlines.Add(descRun);
+                    label.Cursor = System.Windows.Input.Cursors.Hand;
+                    var capturedImg = capturedAtt;
+                    label.MouseLeftButtonUp += (_, _) =>
+                        PromptAttachmentViewerWindow.Show(new[] { capturedImg }, CanShowOwnedWindow() ? this : null);
+                }
+                else if (att.ContentBlock != null)
                 {
                     var icon = new Run("📎 ");
                     var descRun = new Run(att.Description);
@@ -18839,7 +18905,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         if (_followUpAttachments.TryGetValue("", out var list) && list.Count > 0)
         {
-            var dtos = list.Select(a => new FollowUpAttachmentDto(a.CommitSha, a.Description, a.OriginalPrompt, a.TranscriptQuote)).ToList();
+            var dtos = list.Select(a => new FollowUpAttachmentDto
+            {
+                CommitSha        = a.CommitSha,
+                Description      = a.Description,
+                OriginalPrompt   = a.OriginalPrompt,
+                TranscriptQuote  = a.TranscriptQuote,
+                ContentBlock     = a.ContentBlock,
+                ImagePath        = a.ImagePath,
+                ImageSubmittedAt = a.ImageSubmittedAt?.ToString("O"),
+            }).ToList();
             _docsPanelState = state with
             {
                 DraftFollowUpsJson          = System.Text.Json.JsonSerializer.Serialize(dtos),
@@ -18869,13 +18944,32 @@ public partial class MainWindow : Window, ILiveElementLocator
         _pendingTranscriptAttachments = null;
         if (!_followUpAttachments.TryGetValue(tabId, out var list) || list.Count == 0)
             return text;
-        _pendingTranscriptAttachments = list.ToList();
+
+        // Stamp SubmittedAt for image attachments and rebuild the list with the timestamp set.
+        var submittedAt = DateTime.UtcNow;
+        var stamped = new List<FollowUpAttachment>(list.Count);
+        foreach (var att in list)
+        {
+            if (att.ImagePath != null)
+            {
+                _pastedImageStore.SetSubmittedAt(att.ImagePath, submittedAt);
+                stamped.Add(att with { ImageSubmittedAt = submittedAt });
+            }
+            else
+            {
+                stamped.Add(att);
+            }
+        }
+
+        _pendingTranscriptAttachments = stamped;
         _followUpAttachments.Remove(tabId);
         if (tabId == "") PersistDraftFollowUp();
         UpdateFollowUpStrip();
 
-        var headers = list.Select(att =>
+        var headers = stamped.Select(att =>
         {
+            if (att.ImagePath != null)
+                return $"[Attached image: {att.ImagePath}]";
             if (att.ContentBlock != null)
                 return att.ContentBlock;
             if (att.TranscriptQuote != null)

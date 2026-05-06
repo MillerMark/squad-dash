@@ -5,7 +5,9 @@ internal sealed record FollowUpAttachment(
     string Description,
     string? OriginalPrompt,
     string? TranscriptQuote = null,
-    string? ContentBlock = null);
+    string? ContentBlock = null,
+    string? ImagePath = null,
+    DateTime? ImageSubmittedAt = null);
 
 /// <summary>DTO for persisting <see cref="FollowUpAttachment"/> items as JSON.</summary>
 internal sealed class FollowUpAttachmentDto
@@ -20,10 +22,12 @@ internal sealed class FollowUpAttachmentDto
         ContentBlock    = contentBlock;
     }
 
-    public string? CommitSha       { get; set; }
-    public string? Description     { get; set; }
-    public string? OriginalPrompt  { get; set; }
-    public string? TranscriptQuote { get; set; }
-    public string? ContentBlock    { get; set; }
+    public string? CommitSha        { get; set; }
+    public string? Description      { get; set; }
+    public string? OriginalPrompt   { get; set; }
+    public string? TranscriptQuote  { get; set; }
+    public string? ContentBlock     { get; set; }
+    public string? ImagePath        { get; set; }
+    public string? ImageSubmittedAt { get; set; }
 }
 

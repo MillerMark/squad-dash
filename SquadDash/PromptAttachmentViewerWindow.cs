@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace SquadDash;
 
@@ -62,7 +64,9 @@ internal sealed class PromptAttachmentViewerWindow : Window
     private static TabItem BuildTab(FollowUpAttachment att)
     {
         string label;
-        if (att.TranscriptQuote is not null)
+        if (att.ImagePath is not null)
+            label = "📷 " + TruncateLabel(att.Description, 30);
+        else if (att.TranscriptQuote is not null)
             label = "💬 " + TruncateLabel(att.Description, 30);
         else if (string.IsNullOrWhiteSpace(att.CommitSha))
             label = "📎 " + TruncateLabel(att.Description, 30);
@@ -79,6 +83,41 @@ internal sealed class PromptAttachmentViewerWindow : Window
 
     private static UIElement BuildAttachmentContent(FollowUpAttachment att)
     {
+        if (att.ImagePath is not null)
+        {
+            if (!File.Exists(att.ImagePath))
+            {
+                return new TextBlock
+                {
+                    Text                = "This image has expired and been deleted.",
+                    FontStyle           = FontStyles.Italic,
+                    VerticalAlignment   = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin              = new Thickness(20)
+                };
+            }
+
+            try
+            {
+                var img = new System.Windows.Controls.Image
+                {
+                    Stretch = Stretch.Uniform,
+                    Margin  = new Thickness(8),
+                    Source  = new BitmapImage(new Uri(att.ImagePath, UriKind.Absolute))
+                };
+                return new ScrollViewer
+                {
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+                    Content = img
+                };
+            }
+            catch
+            {
+                return new TextBlock { Text = "Could not load image.", FontStyle = FontStyles.Italic };
+            }
+        }
+
         string text;
         if (att.TranscriptQuote is not null)
         {
