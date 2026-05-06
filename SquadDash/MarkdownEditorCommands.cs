@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Windows.Controls;
 using System.Windows.Documents;
 
@@ -11,6 +12,83 @@ namespace SquadDash;
 /// </summary>
 internal static class MarkdownEditorCommands
 {
+    // Matches optional leading whitespace + bullet marker at the start of a line.
+    // Group "sym"  — unordered marker (- * +)
+    // Group "num"  — ordered list number (digits before the dot)
+    private static readonly Regex ListBulletRegex = new(
+        @"^(?<indent>[ \t]*)(?:(?<sym>[-*+]) |(?<num>\d+)\. )",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Handles the Enter key in a markdown TextBox: if the caret is at the end
+    /// of a bullet list line, inserts a new line that continues the list.
+    /// Unordered bullets (- * +) are repeated; ordered numbers are incremented.
+    /// Returns <see langword="true"/> if the keystroke was handled (caller should
+    /// set <c>e.Handled = true</c>).
+    /// </summary>
+    internal static bool ContinueListOnEnter(TextBox box)
+    {
+        var text  = box.Text;
+        var caret = box.CaretIndex;
+
+        if (caret == 0) return false;
+
+        // Only continue when caret is at end of its line.
+        var atEndOfLine = caret == text.Length || text[caret] == '\n' || text[caret] == '\r';
+        if (!atEndOfLine) return false;
+
+        // Find the start of the current line (character after last '\n').
+        var lineStart = text.LastIndexOf('\n', caret - 1) + 1;
+        var lineText  = text[lineStart..caret];
+
+        var m = ListBulletRegex.Match(lineText);
+        if (!m.Success) return false;
+
+        var indent = m.Groups["indent"].Value;
+        string nextPrefix;
+        if (m.Groups["num"].Success && int.TryParse(m.Groups["num"].Value, out int n))
+            nextPrefix = indent + (n + 1) + ". ";
+        else
+            nextPrefix = indent + m.Groups["sym"].Value + " ";
+
+        var insertion  = "\n" + nextPrefix;
+        box.Text       = text[..caret] + insertion + text[caret..];
+        box.CaretIndex = caret + insertion.Length;
+        return true;
+    }
+
+    /// <summary>
+    /// RichTextBox overload of <see cref="ContinueListOnEnter(TextBox)"/>.
+    /// </summary>
+    internal static bool ContinueListOnEnter(RichTextBox box)
+    {
+        var text  = box.GetPlainText();
+        var caret = box.GetCaretOffset();
+
+        if (caret == 0) return false;
+
+        var atEndOfLine = caret == text.Length || text[caret] == '\n' || text[caret] == '\r';
+        if (!atEndOfLine) return false;
+
+        var lineStart = text.LastIndexOf('\n', caret - 1) + 1;
+        var lineText  = text[lineStart..caret];
+
+        var m = ListBulletRegex.Match(lineText);
+        if (!m.Success) return false;
+
+        var indent = m.Groups["indent"].Value;
+        string nextPrefix;
+        if (m.Groups["num"].Success && int.TryParse(m.Groups["num"].Value, out int n))
+            nextPrefix = indent + (n + 1) + ". ";
+        else
+            nextPrefix = indent + m.Groups["sym"].Value + " ";
+
+        var insertion = "\n" + nextPrefix;
+        box.SetPlainText(text[..caret] + insertion + text[caret..]);
+        box.SetCaretOffset(caret + insertion.Length);
+        return true;
+    }
+
     internal static void ApplyBold(TextBox box)
     {
         var selStart = box.SelectionStart;

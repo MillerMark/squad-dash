@@ -6135,6 +6135,15 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
+        // ── List continuation: Enter at end of a bullet/numbered line ─────────────
+        if (e.Key == System.Windows.Input.Key.Return
+            && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            if (MarkdownEditorCommands.ContinueListOnEnter(DocSourceTextBox))
+                e.Handled = true;
+            return;
+        }
+
         if (e.Key == System.Windows.Input.Key.Tab)
         {
             e.Handled = true;

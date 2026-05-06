@@ -599,6 +599,14 @@ internal sealed class MarkdownDocumentWindow : Window {
             return;
         }
 
+        // ── List continuation: Enter at end of a bullet/numbered line ─────────
+        if (e.Key == System.Windows.Input.Key.Return
+            && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None) {
+            if (MarkdownEditorCommands.ContinueListOnEnter(tb))
+                e.Handled = true;
+            return;
+        }
+
         if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
         if (e.Key == System.Windows.Input.Key.B) {
             MarkdownEditorCommands.ApplyBold(tb);

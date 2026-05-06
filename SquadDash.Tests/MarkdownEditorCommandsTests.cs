@@ -89,6 +89,89 @@ internal sealed class MarkdownEditorCommandsTests {
         });
     }
 
+    // ── ContinueListOnEnter ──────────────────────────────────────────────────
+
+    [Test]
+    public void ContinueListOnEnter_HyphenBullet_ContinuesOnNextLine() {
+        var tb = MakeBox("- first item");
+        tb.CaretIndex = 12; // end of line
+        var handled = MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.Multiple(() => {
+            Assert.That(handled,       Is.True);
+            Assert.That(tb.Text,       Is.EqualTo("- first item\n- "));
+            Assert.That(tb.CaretIndex, Is.EqualTo(15));
+        });
+    }
+
+    [Test]
+    public void ContinueListOnEnter_AsteriskBullet_ContinuesOnNextLine() {
+        var tb = MakeBox("* item one");
+        tb.CaretIndex = 10;
+        var handled = MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(handled, Is.True);
+        Assert.That(tb.Text, Is.EqualTo("* item one\n* "));
+    }
+
+    [Test]
+    public void ContinueListOnEnter_PlusBullet_ContinuesOnNextLine() {
+        var tb = MakeBox("+ item one");
+        tb.CaretIndex = 10;
+        var handled = MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(handled, Is.True);
+        Assert.That(tb.Text, Is.EqualTo("+ item one\n+ "));
+    }
+
+    [Test]
+    public void ContinueListOnEnter_OrderedList_IncrementsNumber() {
+        var tb = MakeBox("1. first");
+        tb.CaretIndex = 8;
+        var handled = MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.Multiple(() => {
+            Assert.That(handled, Is.True);
+            Assert.That(tb.Text, Is.EqualTo("1. first\n2. "));
+        });
+    }
+
+    [Test]
+    public void ContinueListOnEnter_OrderedListHighNumber_IncrementsCorrectly() {
+        var tb = MakeBox("9. ninth");
+        tb.CaretIndex = 8;
+        MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(tb.Text, Is.EqualTo("9. ninth\n10. "));
+    }
+
+    [Test]
+    public void ContinueListOnEnter_MultiLineDocument_ContinuesFromCorrectLine() {
+        var tb = MakeBox("intro\n- alpha\n- beta");
+        tb.CaretIndex = 13; // end of "- alpha" line
+        MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(tb.Text, Is.EqualTo("intro\n- alpha\n- \n- beta"));
+    }
+
+    [Test]
+    public void ContinueListOnEnter_NotAtEndOfLine_DoesNotHandle() {
+        var tb = MakeBox("- item text");
+        tb.CaretIndex = 4; // mid-line (after "- it")
+        var handled = MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(handled, Is.False);
+    }
+
+    [Test]
+    public void ContinueListOnEnter_PlainLine_DoesNotHandle() {
+        var tb = MakeBox("just text");
+        tb.CaretIndex = 9;
+        var handled = MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(handled, Is.False);
+    }
+
+    [Test]
+    public void ContinueListOnEnter_IndentedBullet_PreservesIndent() {
+        var tb = MakeBox("  - nested");
+        tb.CaretIndex = 10;
+        MarkdownEditorCommands.ContinueListOnEnter(tb);
+        Assert.That(tb.Text, Is.EqualTo("  - nested\n  - "));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static TextBox MakeBox(string text) => new() { Text = text };
