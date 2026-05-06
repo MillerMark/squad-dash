@@ -12054,11 +12054,19 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (newBlocks.Count == 0)
             newBlocks.Add(CreateTranscriptParagraph(bottomMargin: 18));
 
-        // If the user has a selection, clear it before swapping blocks. When old blocks are
-        // removed from the document, their TextPointers become stale — WPF renders the selection
-        // highlight at the last known pixel coordinates (a "ghost" that doesn't scroll or resize).
+        // If the user has a selection inside this specific section, clear it before swapping
+        // blocks. When a block is removed, its TextPointers become stale and WPF renders the
+        // selection highlight at frozen pixel coordinates (a "ghost" that doesn't scroll or
+        // zoom). We only clear when the selection overlaps this entry — selections in any other
+        // completed turn are in unrelated blocks and must be left untouched.
         if (!OutputTextBox.Selection.IsEmpty)
-            OutputTextBox.Selection.Select(OutputTextBox.CaretPosition, OutputTextBox.CaretPosition);
+        {
+            var selStart = OutputTextBox.Selection.Start;
+            bool inThisSection = entry.Section.ContentStart.CompareTo(selStart) <= 0 &&
+                                 entry.Section.ContentEnd.CompareTo(selStart)   >= 0;
+            if (inThisSection)
+                OutputTextBox.Selection.Select(OutputTextBox.CaretPosition, OutputTextBox.CaretPosition);
+        }
 
         // Swap blocks in-place so the section never empties — Blocks.Clear() collapses the
         // document height synchronously, clamping VerticalOffset before the rebuild adds
