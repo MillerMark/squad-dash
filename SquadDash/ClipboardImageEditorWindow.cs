@@ -150,13 +150,22 @@ internal sealed class ClipboardImageEditorWindow : Window
     private bool _creatingNewSel;
     private Point _newSelAnchor;
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Constructor
+    // ── Editor mode ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// When true the editor was opened to annotate a clipboard image for a prompt attachment
+    /// (Ctrl+V / Shift+Insert in the prompt box). Round-corners button is hidden and the
+    /// Insert button label/tooltip reflect the prompt use case.
+    /// When false the editor was opened from a documentation panel context.
+    /// </summary>
+    private readonly bool _isPromptMode;
+
     // ────────────────────────────────────────────────────────────────────────
 
-    internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage)
+    internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage, bool isPromptMode = false)
     {
         _clipboardImage = clipboardImage ?? throw new ArgumentNullException(nameof(clipboardImage));
+        _isPromptMode = isPromptMode;
         _themeName = AgentStatusCard.IsDarkTheme ? "dark" : "light";
 
         Owner = owner;
@@ -309,14 +318,57 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private Border BuildToolbar()
     {
-        _addArrowBtn = new Button { Content = "↗ Arrow", Width = 80, Height = 28, Margin = new Thickness(0, 0, 4, 0) };
-        _addRectBtn = new Button { Content = "□ Rect", Width = 70, Height = 28, Margin = new Thickness(0, 0, 4, 0) };
-        var cursorBtn = new Button { Content = "⌖ Cursor", Width = 80, Height = 28, Margin = new Thickness(0, 0, 4, 0) };
-        var roundCornersBtn = new Button { Content = "⌐ Round Corners", Width = 112, Height = 28, Margin = new Thickness(0, 0, 4, 0), ToolTip = $"Mask the {CornerRadiusPx}px corners transparent in the output PNG" };
-        var insertBtn = new Button { Content = "Insert Image", Width = 96, Height = 28, Margin = new Thickness(0, 0, 4, 0) };
+        _addArrowBtn = new Button
+        {
+            Content  = "↗ Arrow",
+            Width    = 80, Height = 28,
+            Margin   = new Thickness(0, 0, 4, 0),
+            ToolTip  = "Add an arrow annotation — click on the image to place it"
+        };
+        _addRectBtn = new Button
+        {
+            Content  = "□ Rect",
+            Width    = 70, Height = 28,
+            Margin   = new Thickness(0, 0, 4, 0),
+            ToolTip  = "Draw a rectangle annotation — drag on the image to define the region"
+        };
+        var cursorBtn = new Button
+        {
+            Content  = "⌖ Cursor",
+            Width    = 80, Height = 28,
+            Margin   = new Thickness(0, 0, 4, 0),
+            ToolTip  = "Add a mouse-cursor indicator — click on the image to place it"
+        };
+        var roundCornersBtn = new Button
+        {
+            Content  = "⌐ Round Corners",
+            Width    = 112, Height = 28,
+            Margin   = new Thickness(0, 0, 4, 0),
+            ToolTip  = $"Mask the {CornerRadiusPx}px corners transparent in the output PNG"
+        };
+
+        string insertLabel   = _isPromptMode ? "Attach Image"  : "Insert Image";
+        string insertTooltip = _isPromptMode
+            ? "Attach this image to the prompt"
+            : "Insert this image into the documentation";
+        var insertBtn = new Button
+        {
+            Content = insertLabel,
+            Width   = _isPromptMode ? 100 : 96,
+            Height  = 28,
+            Margin  = new Thickness(0, 0, 4, 0),
+            ToolTip = insertTooltip
+        };
         var cancelBtn = new Button { Content = "Cancel", Width = 70, Height = 28 };
 
-        foreach (var btn in new[] { _addArrowBtn, _addRectBtn, cursorBtn, roundCornersBtn, insertBtn, cancelBtn })
+        // In prompt mode the Round Corners option is not relevant — hide it.
+        if (_isPromptMode)
+            roundCornersBtn.Visibility = Visibility.Collapsed;
+
+        var styleButtons = _isPromptMode
+            ? new[] { _addArrowBtn, _addRectBtn, cursorBtn, insertBtn, cancelBtn }
+            : new[] { _addArrowBtn, _addRectBtn, cursorBtn, roundCornersBtn, insertBtn, cancelBtn };
+        foreach (var btn in styleButtons)
             btn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
 
         _addArrowBtn.Click += (_, _) =>

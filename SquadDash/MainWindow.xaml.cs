@@ -5926,7 +5926,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     var bitmap = Clipboard.GetImage();
                     if (bitmap is not null && _currentWorkspace is not null)
                     {
-                        var editor = new ClipboardImageEditorWindow(this, bitmap);
+                        var editor = new ClipboardImageEditorWindow(this, bitmap, isPromptMode: true);
                         editor.ShowDialog();
                         var edited = editor.Result;
                         if (edited is not null)
