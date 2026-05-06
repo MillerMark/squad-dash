@@ -13,6 +13,7 @@
 
 * [Features](features/README.md)
   * [Entering Prompts](features/entering-prompts.md)
+  * [Paste Image](features/paste-image.md)
   * [Voice Input](features/voice-input.md)
   * [Fullscreen Transcript](features/fullscreen-transcript.md)
   * [Prompt Queue](features/prompt-queue.md)
