@@ -60,6 +60,12 @@ internal sealed class ClipboardImageEditorWindow : Window
     // Dim strips: four black 50%-opacity rects that cover the area outside _sel
     private readonly Rectangle _dimTop, _dimBottom, _dimLeft, _dimRight;
 
+    // Dimension readout labels shown while a crop selection exists
+    private readonly Border _dimWidthBadge;
+    private readonly TextBlock _dimWidthLabel;
+    private readonly Border _dimHeightBadge;
+    private readonly TextBlock _dimHeightLabel;
+
     // ── Round corners ─────────────────────────────────────────────────────────
 
     private bool _roundCorners;
@@ -265,7 +271,50 @@ internal sealed class ClipboardImageEditorWindow : Window
             h.SetResourceReference(Shape.StrokeProperty, "AppSurface");
             _handles[i] = h;
             _canvas.Children.Add(h);
+            Panel.SetZIndex(h, 10); // above dim strips (2) and sel border (5)
         }
+
+        // ── Dimension readout badges ─────────────────────────────────────────
+        // Width badge: shown below the selection, centred on the bottom edge.
+        // Height badge: shown to the right of the selection, centred on the right edge.
+        var badgeBg = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0));
+        _dimWidthLabel = new TextBlock
+        {
+            Foreground = Brushes.White,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            IsHitTestVisible = false
+        };
+        _dimWidthBadge = new Border
+        {
+            Background = badgeBg,
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(4, 2, 4, 2),
+            Child = _dimWidthLabel,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        };
+        _canvas.Children.Add(_dimWidthBadge);
+        Panel.SetZIndex(_dimWidthBadge, 15);
+
+        _dimHeightLabel = new TextBlock
+        {
+            Foreground = Brushes.White,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            IsHitTestVisible = false
+        };
+        _dimHeightBadge = new Border
+        {
+            Background = badgeBg,
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(4, 2, 4, 2),
+            Child = _dimHeightLabel,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        };
+        _canvas.Children.Add(_dimHeightBadge);
+        Panel.SetZIndex(_dimHeightBadge, 15);
 
         // ── Canvas events ────────────────────────────────────────────────────
 
@@ -472,6 +521,8 @@ internal sealed class ClipboardImageEditorWindow : Window
                 d.Width = d.Height = 0;
             _selBorderRect.Visibility = Visibility.Collapsed;
             foreach (var hdl in _handles) hdl.Visibility = Visibility.Collapsed;
+            _dimWidthBadge.Visibility = Visibility.Collapsed;
+            _dimHeightBadge.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -518,6 +569,39 @@ internal sealed class ClipboardImageEditorWindow : Window
         PlaceHandle(5, cx - hh, s.Bottom - hh);
         PlaceHandle(6, s.Left - hh, s.Bottom - hh);
         PlaceHandle(7, s.Left - hh, cy - hh);
+
+        // ── Dimension readout badges ─────────────────────────────────────────
+        // Canvas logical coords = pixels (canvas is always full image resolution).
+        var pixW = (int)Math.Round(s.Width);
+        var pixH = (int)Math.Round(s.Height);
+        _dimWidthLabel.Text = $"{pixW} px";
+        _dimHeightLabel.Text = $"{pixH} px";
+        _dimWidthBadge.Visibility = Visibility.Visible;
+        _dimHeightBadge.Visibility = Visibility.Visible;
+
+        // Force measure so DesiredSize is accurate for positioning.
+        _dimWidthBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        _dimHeightBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        var bwW = _dimWidthBadge.DesiredSize.Width;
+        var bwH = _dimWidthBadge.DesiredSize.Height;
+        var bhW = _dimHeightBadge.DesiredSize.Width;
+        var bhH = _dimHeightBadge.DesiredSize.Height;
+
+        // Width badge: centred below the selection bottom edge (or above if too close to canvas bottom)
+        const double BadgeGap = 5.0;
+        var wBadgeLeft = cx - bwW / 2;
+        var wBadgeTop = s.Bottom + BadgeGap;
+        if (wBadgeTop + bwH > h) wBadgeTop = s.Top - bwH - BadgeGap;
+        Canvas.SetLeft(_dimWidthBadge, Math.Max(0, Math.Min(w - bwW, wBadgeLeft)));
+        Canvas.SetTop(_dimWidthBadge, Math.Max(0, wBadgeTop));
+
+        // Height badge: centred to the right of the selection right edge (or left if too close to canvas right)
+        var hBadgeLeft = s.Right + BadgeGap;
+        var hBadgeTop = cy - bhH / 2;
+        if (hBadgeLeft + bhW > w) hBadgeLeft = s.Left - bhW - BadgeGap;
+        Canvas.SetLeft(_dimHeightBadge, Math.Max(0, hBadgeLeft));
+        Canvas.SetTop(_dimHeightBadge, Math.Max(0, Math.Min(h - bhH, hBadgeTop)));
 
         if (_modeHintBorder?.Visibility == Visibility.Visible)
             PositionModeHint();
