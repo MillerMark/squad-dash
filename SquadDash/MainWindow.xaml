@@ -786,7 +786,7 @@
                                               Click="LoopPanelShowInFolderMenuItem_Click" />
                                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                                      <MenuItem x:Name="LoopPanelViewOutputMenuItem"
-                                              Header="View Loop Output"
+                                              Header="Show Loop Output"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelViewOutputMenuItem_Click" />
                                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
@@ -838,7 +838,7 @@
                                                  Style="{StaticResource ThemedRadioButtonStyle}"
                                                  Click="LoopModeNativeRadio_Click" />
                                     <RadioButton x:Name="LoopModeCliRadio"
-                                                 Content="squad CLI"
+                                                 Content="Squad CLI"
                                                  GroupName="LoopMode"
                                                  Margin="0,2,0,0"
                                                  Style="{StaticResource ThemedRadioButtonStyle}"

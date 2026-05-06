@@ -8,9 +8,9 @@ using System.Windows.Shell;
 namespace SquadDash;
 
 /// <summary>
-/// Floating window that streams loop CLI output in real time.
-/// Open via right-click "View Loop Output" on the Loop panel, or auto-shown
-/// when CLI loop output first arrives.  Close with the × button or "Close".
+/// Floating window that streams loop output in real time.
+/// Open via right-click "Show Loop Output" on the Loop panel, or auto-shown
+/// when loop output first arrives.  Dismiss with the × button or "Close" (hides, preserves history).
 /// </summary>
 internal sealed class LoopOutputWindow : Window
 {
@@ -61,7 +61,7 @@ internal sealed class LoopOutputWindow : Window
         var closeButton = new Button { Content = "Close", MinWidth = 76, Height = 30 };
         closeButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(closeButton, true);
-        closeButton.Click += (_, _) => Close();
+        closeButton.Click += (_, _) => Hide();
         DockPanel.SetDock(closeButton, Dock.Right);
         header.Children.Add(closeButton);
 

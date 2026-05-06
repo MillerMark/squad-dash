@@ -3754,9 +3754,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
-        _loopOutputWindow = new LoopOutputWindow();
-        _loopOutputWindow.Owner = this;
-        _loopOutputWindow.Closed += (_, _) => _loopOutputWindow = null;
+        if (_loopOutputWindow is null)
+        {
+            _loopOutputWindow = new LoopOutputWindow();
+            _loopOutputWindow.Owner = this;
+        }
 
         // Position upper-right of the main window
         var w = _loopOutputWindow.Width;
@@ -3765,6 +3767,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _loopOutputWindow.Top  = Top + margin;
 
         _loopOutputWindow.Show();
+        _loopOutputWindow.Activate();
     }
 
     private void EnsureLoopOutputWindow()
@@ -3808,7 +3811,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void LoopOutputHideMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        try { _loopOutputWindow?.Close(); }
+        try { _loopOutputWindow?.Hide(); }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopOutputHideMenuItem_Click), ex); }
     }
 
@@ -4369,8 +4372,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         LoopModeNativeRadio.IsChecked = nativeMode;
         LoopModeCliRadio.IsChecked = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
 
-        LoopContinuousContextCheckBox.IsEnabled = !running;
-        LoopContinuousContextCheckBox.IsChecked = _settingsSnapshot.LoopContinuousContext;
+        bool isCli = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
+        LoopContinuousContextCheckBox.IsEnabled = !running && !isCli;
+        LoopContinuousContextCheckBox.IsChecked = !isCli && _settingsSnapshot.LoopContinuousContext;
 
         string status;
         if (_loopQueued)
@@ -4753,11 +4757,12 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static readonly Regex _committedSuffixRe =
         new(@"[,;.]?\s+committed\s+[0-9a-f]{5,}\S*\.?\s*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Matches "Committed <sha><punct> " at the START of an approval description.
+    // Matches "Committed" + optional SHA + optional punctuation at the START of an approval description.
     // e.g. "Committed d2d48a8: Fixed login bug" → "Fixed login bug"
-    // SHA is [0-9a-f]{5,}; followed by optional punctuation and a space.
+    //      "Committed: Fixed login bug"         → "Fixed login bug"
+    //      "Committed Fixed login bug"           → "Fixed login bug"
     private static readonly Regex _committedPrefixRe =
-        new(@"^committed\s+[0-9a-f]{5,}[^\w\s]*\s+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"^committed(\s+[0-9a-f]{5,}[^\w\s]*)?\s*[,;:!?]*\s+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // Matches " as <commit-code><punctuation>" at the end of a notification summary.
     // e.g. "Fixed the login bug as abc1234.", "Refactored auth as 3f9a2bc,"
