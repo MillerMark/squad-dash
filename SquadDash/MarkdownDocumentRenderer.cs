@@ -683,9 +683,10 @@ internal sealed class MarkdownDocumentRenderer {
         nextIndex = startIndex;
         url = string.Empty;
 
-        // Must start with http:// or https://
+        // Must start with a recognised URL scheme
         if (!text.AsSpan(startIndex).StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-            !text.AsSpan(startIndex).StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            !text.AsSpan(startIndex).StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+            !text.AsSpan(startIndex).StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
             return false;
 
         // Must not be preceded by a non-whitespace character (avoid matching mid-word)
@@ -706,7 +707,8 @@ internal sealed class MarkdownDocumentRenderer {
         var candidate = text[startIndex..end];
         if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) ||
             (!uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
-             !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+             !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+             !uri.Scheme.Equals("chrome", StringComparison.OrdinalIgnoreCase)))
             return false;
 
         url = candidate;
@@ -773,7 +775,8 @@ internal sealed class MarkdownDocumentRenderer {
 
         if (Uri.TryCreate(trimmedTarget, UriKind.Absolute, out var absoluteUri) &&
             (absoluteUri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-             absoluteUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))) {
+             absoluteUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+             absoluteUri.Scheme.Equals("chrome", StringComparison.OrdinalIgnoreCase))) {
             hyperlink = new Hyperlink(new Run(trimmedLabel)) {
                 Tag = absoluteUri.AbsoluteUri
             };

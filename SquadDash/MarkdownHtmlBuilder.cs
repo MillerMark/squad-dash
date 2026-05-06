@@ -13,7 +13,7 @@ internal static class MarkdownHtmlBuilder {
     private static readonly Regex LinkRegex = new(@"\[([^\]]+)\]\(([^)]+)\)", RegexOptions.Compiled);
     private static readonly Regex BoldRegex = new(@"\*\*(.+?)\*\*", RegexOptions.Compiled);
     private static readonly Regex ItalicRegex = new(@"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", RegexOptions.Compiled);
-    private static readonly Regex BareUrlRegex = new(@"https?://[^\s\[\]()'`""*_<>]+", RegexOptions.Compiled);
+    private static readonly Regex BareUrlRegex = new(@"(?:https?|chrome)://[^\s\[\]()'`""*_<>]+", RegexOptions.Compiled);
 
     public static string Build(string markdown, string title, string? filePath = null, bool isDark = false) {
         var body = BuildBody(markdown ?? string.Empty);

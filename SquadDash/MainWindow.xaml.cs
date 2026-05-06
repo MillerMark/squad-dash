@@ -7956,7 +7956,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         e.Cancel = true;
 
         // External URLs: open in system browser
-        if (uriString.StartsWith("http://") || uriString.StartsWith("https://"))
+        if (uriString.StartsWith("http://") || uriString.StartsWith("https://") || uriString.StartsWith("chrome://"))
         {
             try
             {
@@ -11671,7 +11671,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
         if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            target.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
             _ = OpenExternalLinkWithCommitCheckAsync(target);
         else
             OpenTranscriptThread(target, scrollToStart: true);
@@ -12508,7 +12509,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
 
             if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                target.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
             {
                 _squadCliAdapter.OpenExternalLink(target);
                 return;
@@ -16939,7 +16941,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (string.IsNullOrEmpty(href)) return;
 
         if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            href.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            href.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
         {
             try { Process.Start(new ProcessStartInfo { FileName = href, UseShellExecute = true }); }
             catch { }
