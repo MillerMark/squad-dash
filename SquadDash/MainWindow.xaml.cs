@@ -20012,14 +20012,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             var text = TasksFilterBox?.Text ?? string.Empty;
             if (TasksFilterClearButton is not null)
                 TasksFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            // Update IntelliSense first — a character like space may dismiss it (returning null).
+            // The suppression check below must see the post-update state so that typing e.g. "@me "
+            // doesn't spuriously show all tasks due to stale open-popup state.
+            if (TasksFilterBox is not null)
+                TryUpdateTasksIntelliSense();
             // Suppress filtering while @ IntelliSense is open in the tasks filter — only commit
             // the filter once the user accepts (text changes) or dismisses (Escape handler below).
             var filterText = (_intelliSenseState is not null && _intelliSenseOwnerBox == TasksFilterBox)
                 ? string.Empty
                 : text;
             _tasksPanelController?.SetFilter(filterText);
-            if (TasksFilterBox is not null)
-                TryUpdateTasksIntelliSense();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
     }
