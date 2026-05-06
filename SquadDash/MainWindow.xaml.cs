@@ -11842,15 +11842,30 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 var prefix = displayPrompt[..nnIdx];
                 if (prefix.StartsWith("[Follow-up on ", StringComparison.Ordinal) ||
-                    prefix.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal))
+                    prefix.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal) ||
+                    prefix.Contains("[Attached image:", StringComparison.Ordinal))
                 {
-                    hasAttachments      = true;
-                    attachmentsForViewer = null;  // no structured objects — viewer shows raw header
-                    displayPrompt       = displayPrompt[(nnIdx + 2)..];
-                    var rawHeader       = prefix;
-                    // Use a local variable so the lambda captures the right value.
-                    var capturedRaw     = rawHeader;
-                    attachmentsForViewer = new[] { new FollowUpAttachment("", "Attachment", capturedRaw, null) };
+                    hasAttachments = true;
+                    displayPrompt  = displayPrompt[(nnIdx + 2)..];
+
+                    // Reconstruct structured attachment objects from saved header lines so the
+                    // viewer can show image thumbnails for [Attached image: path] entries.
+                    var lines = prefix.Split('\n');
+                    var reconstructed = new List<FollowUpAttachment>();
+                    foreach (var line in lines)
+                    {
+                        const string imgPrefix = "[Attached image: ";
+                        if (line.StartsWith(imgPrefix, StringComparison.Ordinal) && line.EndsWith("]"))
+                        {
+                            var imagePath = line[imgPrefix.Length..^1];
+                            reconstructed.Add(new FollowUpAttachment("", "Image", null, null, null, ImagePath: imagePath));
+                        }
+                        else if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            reconstructed.Add(new FollowUpAttachment("", "Attachment", line, null));
+                        }
+                    }
+                    attachmentsForViewer = reconstructed.Count > 0 ? reconstructed : null;
                 }
             }
         }
