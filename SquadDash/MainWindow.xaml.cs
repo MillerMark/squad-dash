@@ -256,6 +256,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private LoopOutputWindow? _loopOutputWindow;
     private bool _loopQueued;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
+    private bool _startupShiftHeld;       // set in MainWindow_Loaded when Shift is down; suppresses auto-resume
     private string? _loopMdPathForConfig; // stored when loop config flyout is shown
     private bool _tasksPanelVisible = false;
     private bool _approvalPanelVisible = false;
@@ -1170,6 +1171,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
 
             _startupInitialized = true;
+
+            // Capture Shift state once, before any async work, while we're still on the UI thread.
+            _startupShiftHeld = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
+
             var loadedSw = Stopwatch.StartNew();
             var phaseSw = Stopwatch.StartNew();
             SquadDashTrace.Write(TraceCategory.Startup, "MainWindow_Loaded: begin deferred init.");
@@ -1180,6 +1185,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             phaseSw.Restart();
             await InitializeWorkspace(_startupFolderArgument);
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: InitializeWorkspace {phaseSw.ElapsedMilliseconds}ms.");
+
+            // If Shift was held and we actually suppressed something, show a single transcript hint.
+            if (_startupShiftHeld && (_promptQueue.HasReadyItems || _loopQueued || _settingsSnapshot.LoopActiveOnExit))
+            {
+                AppendLine("⏸ Startup paused — Shift was held. Queue and loop auto-resume suppressed.",
+                           (Brush)FindResource("SubtleText"));
+            }
 
             phaseSw.Restart();
             RestoreUtilityWindowVisibility();
@@ -10091,11 +10103,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             SyncQueuePanel();
 
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
-            SquadDashTrace.Write("Queue", $"Restore(entries): count={_promptQueue.Count} wasHeld={wasHeld}");
-            if (wasHeld && _promptQueue.Count > 0)
+            SquadDashTrace.Write("Queue", $"Restore(entries): count={_promptQueue.Count} wasHeld={wasHeld} shiftHeld={_startupShiftHeld}");
+            if ((wasHeld || _startupShiftHeld) && _promptQueue.Count > 0)
             {
-                // Restore the rightmost-tab hold: select the first item's tab so the user
-                // must explicitly Send or switch away before it dispatches.
+                // Restore the rightmost-tab hold (or Shift-hold on startup): select the first
+                // item's tab so the user must explicitly Send or switch away before it dispatches.
                 _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
@@ -10107,15 +10119,24 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             // If the loop was paused to dequeue at last shutdown, auto-resume once the queue drains.
             // If there are no queue items to drain, resume immediately.
+            // Suppressed when Shift is held on startup — loop stays paused until manually started.
             if (_loopQueued)
             {
-                if (!_promptQueue.HasReadyItems)
+                if (_startupShiftHeld)
+                {
+                    AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
+                }
+                else if (!_promptQueue.HasReadyItems)
                 {
                     _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
                         System.Windows.Threading.DispatcherPriority.Background);
+                    AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
                 }
-                // else: DrainQueueIfNeededAsync already scheduled above will call MaybeFireQueuedLoopAsync when done
-                AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
+                else
+                {
+                    // DrainQueueIfNeededAsync already scheduled above will call MaybeFireQueuedLoopAsync when done
+                    AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
+                }
                 SyncLoopPanel();
             }
         }
@@ -10127,11 +10148,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             SyncQueuePanel();
 
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
-            SquadDashTrace.Write("Queue", $"Restore(legacy): count={_promptQueue.Count} wasHeld={wasHeld}");
-            if (wasHeld && _promptQueue.Count > 0)
+            SquadDashTrace.Write("Queue", $"Restore(legacy): count={_promptQueue.Count} wasHeld={wasHeld} shiftHeld={_startupShiftHeld}");
+            if ((wasHeld || _startupShiftHeld) && _promptQueue.Count > 0)
             {
-                // Restore the rightmost-tab hold: select the first item's tab so the user
-                // must explicitly Send or switch away before it dispatches.
+                // Restore the rightmost-tab hold (or Shift-hold on startup): select the first
+                // item's tab so the user must explicitly Send or switch away before it dispatches.
                 _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
@@ -10144,24 +10165,40 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             // If the loop was paused to dequeue at last shutdown, auto-resume once the queue drains.
             // If there are no queue items to drain, resume immediately.
+            // Suppressed when Shift is held on startup — loop stays paused until manually started.
             if (_loopQueued)
             {
-                if (!_promptQueue.HasReadyItems)
+                if (_startupShiftHeld)
+                {
+                    AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
+                }
+                else if (!_promptQueue.HasReadyItems)
                 {
                     _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
                         System.Windows.Threading.DispatcherPriority.Background);
+                    AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
                 }
-                // else: DrainQueueIfNeededAsync already scheduled above will call MaybeFireQueuedLoopAsync when done
-                AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
+                else
+                {
+                    // DrainQueueIfNeededAsync already scheduled above will call MaybeFireQueuedLoopAsync when done
+                    AppendLoopOutputLine("⏸ Loop paused — resuming after queue drains…", LoopLifecycleBrush);
+                }
                 SyncLoopPanel();
             }
         }
         else if (_loopQueued)
         {
-            // No queue items but loop was paused — resume immediately.
-            _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
-                System.Windows.Threading.DispatcherPriority.Background);
-            AppendLoopOutputLine("⏸ Loop paused — resuming…", LoopLifecycleBrush);
+            // No queue items but loop was paused — resume immediately (unless Shift held on startup).
+            if (_startupShiftHeld)
+            {
+                AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
+            }
+            else
+            {
+                _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
+                    System.Windows.Threading.DispatcherPriority.Background);
+                AppendLoopOutputLine("⏸ Loop paused — resuming…", LoopLifecycleBrush);
+            }
             SyncLoopPanel();
         }
 
@@ -10174,14 +10211,23 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         // Auto-resume the loop if it was active when the app last exited.
         // Clear the flag first so a crash-loop can't occur if the loop fails to start.
+        // Suppressed when Shift is held on startup.
         if (_settingsSnapshot.LoopActiveOnExit)
         {
             _settingsSnapshot = _settingsStore.SaveLoopActive(false);
-            _ = Dispatcher.InvokeAsync(async () =>
+            if (_startupShiftHeld)
             {
-                AppendLoopOutputLine("🔄 Resuming loop from previous session…", LoopLifecycleBrush);
-                await StartLoopImmediateAsync();
-            }, System.Windows.Threading.DispatcherPriority.Background);
+                AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
+                SyncLoopPanel();
+            }
+            else
+            {
+                _ = Dispatcher.InvokeAsync(async () =>
+                {
+                    AppendLoopOutputLine("🔄 Resuming loop from previous session…", LoopLifecycleBrush);
+                    await StartLoopImmediateAsync();
+                }, System.Windows.Threading.DispatcherPriority.Background);
+            }
         }
 
         // Auto-resume Remote Access if it was active when the app last exited.
