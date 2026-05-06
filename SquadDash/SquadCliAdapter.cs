@@ -89,13 +89,40 @@ internal sealed class SquadCliAdapter {
 
     public void OpenExternalLink(string target) {
         try {
-            Process.Start(new ProcessStartInfo(target) {
-                UseShellExecute = true
-            });
+            if (target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase) ||
+                target.StartsWith("edge://", StringComparison.OrdinalIgnoreCase)) {
+                if (!TryOpenBrowserInternalUrl(target))
+                    Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+                return;
+            }
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
         }
         catch (Exception ex) {
             _onError("Open Link", ex);
         }
+    }
+
+    private static bool TryOpenBrowserInternalUrl(string url) {
+        string[] candidates = url.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase)
+            ? [
+                @"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                             @"Google\Chrome\Application\chrome.exe"),
+              ]
+            : [
+                @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                @"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+              ];
+
+        var exe = Array.Find(candidates, File.Exists);
+        if (exe is null) return false;
+
+        Process.Start(new ProcessStartInfo(exe) {
+            ArgumentList = { url },
+            UseShellExecute = false
+        });
+        return true;
     }
 
     private static string? TryFetchLatestSquadVersion() {

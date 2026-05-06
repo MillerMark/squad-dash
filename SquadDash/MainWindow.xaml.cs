@@ -7956,12 +7956,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         e.Cancel = true;
 
         // External URLs: open in system browser
-        if (uriString.StartsWith("http://") || uriString.StartsWith("https://") || uriString.StartsWith("chrome://"))
+        if (uriString.StartsWith("http://") || uriString.StartsWith("https://") ||
+            uriString.StartsWith("chrome://") || uriString.StartsWith("edge://"))
         {
-            try
-            {
-                Process.Start(new ProcessStartInfo { FileName = uriString, UseShellExecute = true });
-            }
+            try { _squadCliAdapter.OpenExternalLink(uriString); }
             catch { /* ignore */ }
             return;
         }
@@ -11672,7 +11670,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             target.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-            target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
+            target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase) ||
+            target.StartsWith("edge://", StringComparison.OrdinalIgnoreCase))
             _ = OpenExternalLinkWithCommitCheckAsync(target);
         else
             OpenTranscriptThread(target, scrollToStart: true);
@@ -12510,7 +12509,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                 target.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-                target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
+                target.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase) ||
+                target.StartsWith("edge://", StringComparison.OrdinalIgnoreCase))
             {
                 _squadCliAdapter.OpenExternalLink(target);
                 return;
@@ -16942,9 +16942,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             href.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-            href.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase))
+            href.StartsWith("chrome://", StringComparison.OrdinalIgnoreCase) ||
+            href.StartsWith("edge://", StringComparison.OrdinalIgnoreCase))
         {
-            try { Process.Start(new ProcessStartInfo { FileName = href, UseShellExecute = true }); }
+            try { _squadCliAdapter.OpenExternalLink(href); }
             catch { }
             return;
         }
