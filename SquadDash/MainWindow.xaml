@@ -1864,6 +1864,7 @@
                              Background="{DynamicResource TextBoxBackground}"
                              TextChanged="PromptTextBox_TextChanged"
                              PreviewKeyDown="PromptTextBox_KeyDown"
+                             ContextMenuOpening="PromptTextBox_ContextMenuOpening"
                              PreviewMouseWheel="PromptTextBox_PreviewMouseWheel" />
                 </DockPanel>
 

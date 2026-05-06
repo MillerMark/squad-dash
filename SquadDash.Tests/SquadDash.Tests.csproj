@@ -151,6 +151,8 @@
     <Compile Include="..\SquadDash\DocStatusStore.cs" Link="Source\DocStatusStore.cs" />
     <Compile Include="..\SquadDash\LoopOutputStore.cs" Link="Source\LoopOutputStore.cs" />
     <Compile Include="..\SquadDash\DocTopicsLoader.cs" Link="Source\DocTopicsLoader.cs" />
+    <Compile Include="..\SquadDash\SmoothDictationHelper.cs" Link="Source\SmoothDictationHelper.cs" />
+    <Compile Include="..\SquadDash\NotesSortOrder.cs" Link="Source\NotesSortOrder.cs" />
   </ItemGroup>
 
 </Project>

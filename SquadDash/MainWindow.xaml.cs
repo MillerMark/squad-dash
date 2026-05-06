@@ -6025,6 +6025,61 @@ public partial class MainWindow : Window, ILiveElementLocator
         PromptTextBox.FontSize = _promptFontSize;
     }
 
+    private void PromptTextBox_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        // Build a themed context menu, appending Smooth Dictation when text is selected.
+        var menu = new ContextMenu { Style = (Style)FindResource("ThemedContextMenuStyle") };
+
+        var cut = new MenuItem
+        {
+            Header  = "Cu_t",
+            Style   = (Style)FindResource("ThemedMenuItemStyle"),
+            Command = ApplicationCommands.Cut,
+            CommandTarget = PromptTextBox,
+            IsEnabled = PromptTextBox.SelectionLength > 0
+        };
+        var copy = new MenuItem
+        {
+            Header  = "_Copy",
+            Style   = (Style)FindResource("ThemedMenuItemStyle"),
+            Command = ApplicationCommands.Copy,
+            CommandTarget = PromptTextBox,
+            IsEnabled = PromptTextBox.SelectionLength > 0
+        };
+        var paste = new MenuItem
+        {
+            Header  = "_Paste",
+            Style   = (Style)FindResource("ThemedMenuItemStyle"),
+            Command = ApplicationCommands.Paste,
+            CommandTarget = PromptTextBox,
+            IsEnabled = Clipboard.ContainsText()
+        };
+        menu.Items.Add(cut);
+        menu.Items.Add(copy);
+        menu.Items.Add(paste);
+
+        if (PromptTextBox.SelectionLength > 0)
+        {
+            menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
+
+            var capturedStart  = PromptTextBox.SelectionStart;
+            var capturedLength = PromptTextBox.SelectionLength;
+            var smoothItem = new MenuItem
+            {
+                Header           = "✨ Smooth Dictation",
+                InputGestureText = "Shift+Space",
+                Style            = (Style)FindResource("ThemedMenuItemStyle")
+            };
+            smoothItem.Click += (_, _) => {
+                PromptTextBox.Select(capturedStart, capturedLength);
+                SmoothDictationHelper.ApplyToTextBox(PromptTextBox);
+            };
+            menu.Items.Add(smoothItem);
+        }
+
+        PromptTextBox.ContextMenu = menu;
+    }
+
     private void ApplyDocSourceFontSize()
     {
         if (DocSourceTextBox is not null)
@@ -6055,6 +6110,15 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void DocSourceTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        // ── Smooth Dictation: Shift+Space on selection ────────────────────────────
+        if (e.Key == System.Windows.Input.Key.Space
+            && Keyboard.Modifiers == ModifierKeys.Shift
+            && DocSourceTextBox.GetSelectionLength() > 0)
+        {
+            e.Handled = SmoothDictationHelper.ApplyToRichTextBox(DocSourceTextBox);
+            return;
+        }
+
         if (e.Key == System.Windows.Input.Key.Tab)
         {
             e.Handled = true;
@@ -6124,6 +6188,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
 
             var modifiers = Keyboard.Modifiers;
+
+            // ── Smooth Dictation: Shift+Space on selection ────────────────────────
+            if (e.Key == Key.Space && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
+            {
+                e.Handled = SmoothDictationHelper.ApplyToTextBox(PromptTextBox);
+                return;
+            }
 
             // Record Shift+Enter before dispatching so the hint hides even though WPF
             // handles the newline insertion itself (action resolves to None for Shift+Enter).
@@ -9509,6 +9580,18 @@ public partial class MainWindow : Window, ILiveElementLocator
                 };
                 reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "", capturedSelStart, capturedSelLen);
                 menu.Items.Add(reviseItem);
+
+                var smoothItem = new MenuItem
+                {
+                    Header           = "✨ Smooth Dictation",
+                    InputGestureText = "Shift+Space",
+                    Style            = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                smoothItem.Click += (_, _) => {
+                    DocSourceTextBox.SelectRange(capturedSelStart, capturedSelLen);
+                    SmoothDictationHelper.ApplyToRichTextBox(DocSourceTextBox);
+                };
+                menu.Items.Add(smoothItem);
             }
 
             menu.PlacementTarget = DocSourceTextBox;
