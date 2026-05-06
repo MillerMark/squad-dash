@@ -314,8 +314,17 @@ internal sealed class TasksPanelController {
             }
 
             bool isFading = false;
+            bool isMouseOverPopup = false;
+
+            void CancelFade() {
+                if (!isFading) return;
+                popupBorder.BeginAnimation(UIElement.OpacityProperty, null);
+                popupBorder.Opacity = 1.0;
+                isFading = false;
+            }
+
             void BeginFadeOut() {
-                if (!popup.IsOpen || isFading) return;
+                if (!popup.IsOpen || isFading || isMouseOverPopup) return;
                 isFading = true;
                 var anim = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(350)) {
                     EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
@@ -328,6 +337,16 @@ internal sealed class TasksPanelController {
                 };
                 popupBorder.BeginAnimation(UIElement.OpacityProperty, anim);
             }
+
+            // When the mouse moves into the popup keep it visible; fade only when it leaves.
+            popupBorder.MouseEnter += (_, _) => {
+                isMouseOverPopup = true;
+                CancelFade();
+            };
+            popupBorder.MouseLeave += (_, _) => {
+                isMouseOverPopup = false;
+                BeginFadeOut();
+            };
 
             DispatcherTimer? openTimer = null;
             Point hoverOrigin = default;
