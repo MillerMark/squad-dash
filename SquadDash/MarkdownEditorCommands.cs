@@ -89,6 +89,92 @@ internal static class MarkdownEditorCommands
         return true;
     }
 
+    /// <summary>
+    /// Converts the selected lines to an unordered bullet list using <paramref name="marker"/>
+    /// (one of <c>-</c>, <c>*</c>, <c>+</c>). If there is no selection the current line is
+    /// converted. Any existing list marker on a line is replaced rather than doubled.
+    /// </summary>
+    internal static void ApplyBulletList(TextBox box, char marker = '-')
+    {
+        var (lines, rangeStart, rangeEnd) = GetSelectedLines(box.Text, box.SelectionStart, box.SelectionLength);
+        var updated = lines.Select(l => ListBulletRegex.IsMatch(l)
+            ? ListBulletRegex.Replace(l, m => m.Groups["indent"].Value + marker + " ")
+            : marker + " " + l).ToArray();
+        ReplaceLines(box, string.Join("\n", updated), rangeStart, rangeEnd);
+    }
+
+    /// <summary>
+    /// Converts the selected lines to an ordered numbered list starting at 1.
+    /// Any existing list marker is replaced.
+    /// </summary>
+    internal static void ApplyNumberedList(TextBox box)
+    {
+        var (lines, rangeStart, rangeEnd) = GetSelectedLines(box.Text, box.SelectionStart, box.SelectionLength);
+        var updated = lines.Select((l, i) =>
+        {
+            var m      = ListBulletRegex.Match(l);
+            var indent = m.Success ? m.Groups["indent"].Value : "";
+            var body   = m.Success ? l[m.Length..] : l;
+            return indent + (i + 1) + ". " + body;
+        }).ToArray();
+        ReplaceLines(box, string.Join("\n", updated), rangeStart, rangeEnd);
+    }
+
+    /// <summary>RichTextBox overload of <see cref="ApplyBulletList(TextBox, char)"/>.</summary>
+    internal static void ApplyBulletList(RichTextBox box, char marker = '-')
+    {
+        var text    = box.GetPlainText();
+        var (lines, rangeStart, rangeEnd) = GetSelectedLines(text, box.GetSelectionStart(), box.GetSelectionLength());
+        var updated = lines.Select(l => ListBulletRegex.IsMatch(l)
+            ? ListBulletRegex.Replace(l, m => m.Groups["indent"].Value + marker + " ")
+            : marker + " " + l).ToArray();
+        ReplaceLines(box, text, string.Join("\n", updated), rangeStart, rangeEnd);
+    }
+
+    /// <summary>RichTextBox overload of <see cref="ApplyNumberedList(TextBox)"/>.</summary>
+    internal static void ApplyNumberedList(RichTextBox box)
+    {
+        var text    = box.GetPlainText();
+        var (lines, rangeStart, rangeEnd) = GetSelectedLines(text, box.GetSelectionStart(), box.GetSelectionLength());
+        var updated = lines.Select((l, i) =>
+        {
+            var m      = ListBulletRegex.Match(l);
+            var indent = m.Success ? m.Groups["indent"].Value : "";
+            var body   = m.Success ? l[m.Length..] : l;
+            return indent + (i + 1) + ". " + body;
+        }).ToArray();
+        ReplaceLines(box, text, string.Join("\n", updated), rangeStart, rangeEnd);
+    }
+
+    // ── Shared helpers ────────────────────────────────────────────────────────
+
+    private static (string[] lines, int rangeStart, int rangeEnd) GetSelectedLines(
+        string text, int selStart, int selLen)
+    {
+        text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        int rangeEnd   = selLen > 0 ? selStart + selLen : selStart;
+        int lineStart  = selStart == 0 ? 0 : (text.LastIndexOf('\n', selStart - 1) + 1);
+        int lineEnd    = text.IndexOf('\n', rangeEnd);
+        if (lineEnd < 0) lineEnd = text.Length;
+        var lines = text[lineStart..lineEnd].Split('\n');
+        return (lines, lineStart, lineEnd);
+    }
+
+    private static void ReplaceLines(TextBox box, string replacement, int rangeStart, int rangeEnd)
+    {
+        var text = box.Text.Replace("\r\n", "\n").Replace("\r", "\n");
+        box.Text            = text[..rangeStart] + replacement + text[rangeEnd..];
+        box.SelectionStart  = rangeStart;
+        box.SelectionLength = replacement.Length;
+    }
+
+    private static void ReplaceLines(RichTextBox box, string text, string replacement, int rangeStart, int rangeEnd)
+    {
+        text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        box.SetPlainText(text[..rangeStart] + replacement + text[rangeEnd..]);
+        box.SelectRange(rangeStart, replacement.Length);
+    }
+
     internal static void ApplyBold(TextBox box)
     {
         var selStart = box.SelectionStart;

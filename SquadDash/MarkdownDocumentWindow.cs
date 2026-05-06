@@ -51,6 +51,8 @@ internal sealed class MarkdownDocumentWindow : Window {
     private readonly Border _sourceToolbarBorder;
     private Button? _srcBoldButton;
     private Button? _srcItalicButton;
+    private Button? _srcBulletButton;
+    private Button? _srcNumberedButton;
     private bool _showSource;
     private bool _isSwitchingDocument;
     private bool _isClosingAfterPrompt;
@@ -269,6 +271,10 @@ internal sealed class MarkdownDocumentWindow : Window {
         var srcCodeBtn   = MakeToolbarButton("`code`", "Insert inline code", enabled: true);
         var srcBlockBtn  = MakeToolbarButton("{ }", "Insert code block",    enabled: true);
         var srcHrBtn     = MakeToolbarButton("—",   "Insert horizontal rule (---)", enabled: true);
+        var srcBulletBtn = MakeToolbarButton("• List", "Convert selection to bullet list (requires selection)", enabled: false);
+        var srcNumBtn    = MakeToolbarButton("1. List", "Convert selection to numbered list (requires selection)", enabled: false);
+        _srcBulletButton   = srcBulletBtn;
+        _srcNumberedButton = srcNumBtn;
 
         foreach (var document in _documents) {
             document.EditorTextBox.SelectionChanged += EditorTextBox_SelectionChanged;
@@ -277,7 +283,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
 
         var tbStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new System.Windows.Thickness(0, 0, 0, 6) };
-        foreach (var btn in new[] { (Button)_srcBoldButton, _srcItalicButton, srcLinkBtn, srcTableBtn, srcCodeBtn, srcBlockBtn, srcHrBtn })
+        foreach (var btn in new[] { (Button)_srcBoldButton, _srcItalicButton, srcLinkBtn, srcTableBtn, srcCodeBtn, srcBlockBtn, srcHrBtn, srcBulletBtn, srcNumBtn })
             tbStack.Children.Add(btn);
 
         var sourceColumnPanel = new DockPanel { LastChildFill = true };
@@ -392,8 +398,10 @@ internal sealed class MarkdownDocumentWindow : Window {
         if (sender is not TextBox { Tag: MarkdownDocumentTabState doc } tb || !ReferenceEquals(doc, _activeDocument))
             return;
         var hasSelection = tb.SelectionLength > 0;
-        if (_srcBoldButton   is not null) _srcBoldButton.IsEnabled   = hasSelection;
-        if (_srcItalicButton is not null) _srcItalicButton.IsEnabled = hasSelection;
+        if (_srcBoldButton     is not null) _srcBoldButton.IsEnabled     = hasSelection;
+        if (_srcItalicButton   is not null) _srcItalicButton.IsEnabled   = hasSelection;
+        if (_srcBulletButton   is not null) _srcBulletButton.IsEnabled   = hasSelection;
+        if (_srcNumberedButton is not null) _srcNumberedButton.IsEnabled = hasSelection;
     }
 
     private void EditorTextBox_ContextMenuOpening(object sender, ContextMenuEventArgs e) {
@@ -793,6 +801,8 @@ internal sealed class MarkdownDocumentWindow : Window {
             case "`code`":  MarkdownEditorCommands.InsertInlineCode(tb);     break;
             case "{ }":     MarkdownEditorCommands.InsertCodeBlock(tb);      break;
             case "—":       MarkdownEditorCommands.InsertHorizontalRule(tb); break;
+            case "• List":  MarkdownEditorCommands.ApplyBulletList(tb);      break;
+            case "1. List": MarkdownEditorCommands.ApplyNumberedList(tb);    break;
         }
         tb.Focus();
     }

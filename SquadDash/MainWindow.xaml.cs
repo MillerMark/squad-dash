@@ -9562,8 +9562,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {
         var hasSelection = DocSourceTextBox?.GetSelectionLength() > 0;
-        if (DocBoldButton is not null) DocBoldButton.IsEnabled = hasSelection;
-        if (DocItalicButton is not null) DocItalicButton.IsEnabled = hasSelection;
+        if (DocBoldButton         is not null) DocBoldButton.IsEnabled         = hasSelection;
+        if (DocItalicButton       is not null) DocItalicButton.IsEnabled       = hasSelection;
+        if (DocBulletListButton   is not null) DocBulletListButton.IsEnabled   = hasSelection;
+        if (DocNumberedListButton is not null) DocNumberedListButton.IsEnabled = hasSelection;
     }
 
     private void DocBoldButton_Click(object sender, RoutedEventArgs e)
@@ -9646,6 +9648,20 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         if (DocSourceTextBox is null) return;
         MarkdownEditorCommands.InsertCodeBlock(DocSourceTextBox);
+    }
+
+    private void DocBulletListButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        MarkdownEditorCommands.ApplyBulletList(DocSourceTextBox);
+        DocSourceTextBox.Focus();
+    }
+
+    private void DocNumberedListButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is null) return;
+        MarkdownEditorCommands.ApplyNumberedList(DocSourceTextBox);
+        DocSourceTextBox.Focus();
     }
 
     private void DocSourceTextBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)

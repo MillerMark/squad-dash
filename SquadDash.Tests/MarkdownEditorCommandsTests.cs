@@ -89,6 +89,143 @@ internal sealed class MarkdownEditorCommandsTests {
         });
     }
 
+    // ── ApplyBulletList ──────────────────────────────────────────────────────
+
+    [Test]
+    public void ApplyBulletList_SingleLine_AddsBullet() {
+        var tb = MakeBox("hello world");
+        Select(tb, 0, 11);
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- hello world"));
+    }
+
+    [Test]
+    public void ApplyBulletList_MultiLine_PrefixesEachLine() {
+        var tb = MakeBox("alpha\nbeta\ngamma");
+        Select(tb, 0, 16);
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- alpha\n- beta\n- gamma"));
+    }
+
+    [Test]
+    public void ApplyBulletList_AlreadyBulleted_ReplacesMarker() {
+        var tb = MakeBox("* old");
+        Select(tb, 0, 5);
+        MarkdownEditorCommands.ApplyBulletList(tb, '-');
+        Assert.That(tb.Text, Is.EqualTo("- old"));
+    }
+
+    [Test]
+    public void ApplyBulletList_PartialSelection_ConvertsFullLines() {
+        var tb = MakeBox("line one\nline two\nline three");
+        Select(tb, 5, 9); // "one\nline" spans line 1 and part of line 2
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- line one\n- line two\nline three"));
+    }
+
+    // ── ApplyNumberedList ────────────────────────────────────────────────────
+
+    [Test]
+    public void ApplyNumberedList_SingleLine_AddsPrefixOne() {
+        var tb = MakeBox("first");
+        Select(tb, 0, 5);
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. first"));
+    }
+
+    [Test]
+    public void ApplyNumberedList_MultiLine_IncrementsNumbers() {
+        var tb = MakeBox("alpha\nbeta\ngamma");
+        Select(tb, 0, 16);
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. alpha\n2. beta\n3. gamma"));
+    }
+
+    [Test]
+    public void ApplyNumberedList_AlreadyBulleted_ReplacesMarker() {
+        var tb = MakeBox("- item a\n- item b");
+        Select(tb, 0, 17);
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. item a\n2. item b"));
+    }
+
+    [Test]
+    public void ApplyNumberedList_NoSelection_ConvertsCurrentLine() {
+        var tb = MakeBox("just text");
+        tb.CaretIndex = 4;
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. just text"));
+    }
+
+    // ── ApplyBulletList ──────────────────────────────────────────────────────
+
+    [Test]
+    public void ApplyBulletList_SingleLine_AddsBulletPrefix() {
+        var tb = MakeBox("hello world");
+        Select(tb, 0, 11);
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- hello world"));
+    }
+
+    [Test]
+    public void ApplyBulletList_MultipleLines_PrefixesEachLine() {
+        var tb = MakeBox("alpha\nbeta\ngamma");
+        Select(tb, 0, 16);
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- alpha\n- beta\n- gamma"));
+    }
+
+    [Test]
+    public void ApplyBulletList_PartialSelection_ExpandsToFullLines() {
+        var tb = MakeBox("alpha\nbeta\ngamma");
+        Select(tb, 3, 5); // mid-alpha through mid-beta
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        // alpha and beta lines both get prefixed
+        Assert.That(tb.Text, Does.StartWith("- alpha\n- beta"));
+    }
+
+    [Test]
+    public void ApplyBulletList_AlreadyBulleted_ReplacesExistingPrefix() {
+        var tb = MakeBox("- item one\n* item two");
+        Select(tb, 0, 21);
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- item one\n- item two"));
+    }
+
+    [Test]
+    public void ApplyBulletList_NoSelection_ConvertesCurrentLine() {
+        var tb = MakeBox("no selection");
+        tb.CaretIndex = 5;
+        MarkdownEditorCommands.ApplyBulletList(tb);
+        Assert.That(tb.Text, Is.EqualTo("- no selection"));
+    }
+
+    // ── ApplyNumberedList ────────────────────────────────────────────────────
+
+    [Test]
+    public void ApplyNumberedList_MultipleLines_NumbersSequentially() {
+        var tb = MakeBox("alpha\nbeta\ngamma");
+        Select(tb, 0, 16);
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. alpha\n2. beta\n3. gamma"));
+    }
+
+    [Test]
+    public void ApplyNumberedList_AlreadyBulleted_ReplacesWithNumbers() {
+        var tb = MakeBox("- alpha\n- beta");
+        Select(tb, 0, 14);
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. alpha\n2. beta"));
+    }
+
+    [Test]
+    public void ApplyNumberedList_NoSelection_ConvertesCurrentLine() {
+        var tb = MakeBox("no selection");
+        tb.CaretIndex = 5;
+        MarkdownEditorCommands.ApplyNumberedList(tb);
+        Assert.That(tb.Text, Is.EqualTo("1. no selection"));
+    }
+
     // ── ContinueListOnEnter ──────────────────────────────────────────────────
 
     [Test]
