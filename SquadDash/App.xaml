@@ -611,7 +611,7 @@
             <Style TargetType="Hyperlink">
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="{DynamicResource HoverSurface}" />
+                        <Setter Property="Background" Value="{DynamicResource TranscriptLinkHoverSurface}" />
                     </Trigger>
                 </Style.Triggers>
             </Style>

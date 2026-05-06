@@ -12751,25 +12751,16 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void AppendAgentReportButton(string agentLabel, string reportPath, TranscriptTurnView? view = null)
     {
-        var button = new Button
-        {
-            Content         = $"📋 {agentLabel}'s report",
-            Margin          = new Thickness(0),
-            Padding         = new Thickness(10, 4, 10, 4),
-            BorderThickness = new Thickness(1),
-            Cursor          = Cursors.Hand,
-            MinHeight       = 28,
-            ToolTip         = "Click to open the full agent report",
-        };
-        if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style style)
-            button.Style = style;
-        button.SetResourceReference(Control.BackgroundProperty, "QuickReplySurface");
-        button.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
-        button.SetResourceReference(Control.BorderBrushProperty, "QuickReplyBorder");
-
         var capturedPath  = reportPath;
         var capturedLabel = agentLabel;
-        button.Click += (_, _) =>
+
+        var link = new Hyperlink(new Run($"📋 {agentLabel}'s report"))
+        {
+            ToolTip = "Click to open the full agent report",
+            Cursor  = Cursors.Hand,
+        };
+        link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        link.Click += (_, _) =>
         {
             if (File.Exists(capturedPath))
                 MarkdownDocumentWindow.Show(
@@ -12784,17 +12775,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                     MessageBoxImage.Information);
         };
 
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
-        panel.Children.Add(button);
-        var container = new BlockUIContainer(panel) { Margin = new Thickness(0, 4, 0, 6) };
+        var para = new Paragraph(link) { Margin = new Thickness(0, 4, 0, 6) };
 
-        // Scope the button to the owning turn's NarrativeSection so it stays
+        // Scope the link to the owning turn's NarrativeSection so it stays
         // with the turn both during live streaming and on transcript reload.
         var targetView = view ?? CoordinatorThread.CurrentTurn;
         if (targetView is not null)
-            targetView.NarrativeSection.Blocks.Add(container);
+            targetView.NarrativeSection.Blocks.Add(para);
         else
-            CoordinatorThread.Document.Blocks.Add(container);
+            CoordinatorThread.Document.Blocks.Add(para);
     }
 
     // ── End agent report button ───────────────────────────────────────────────
