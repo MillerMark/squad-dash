@@ -831,18 +831,18 @@
                                           SelectionChanged="LoopFilePicker_SelectionChanged" />
                                 <StackPanel DockPanel.Dock="Top"
                                             Margin="0,0,0,6">
+                                    <RadioButton x:Name="LoopModeCliRadio"
+                                                 Content="Squad CLI"
+                                                 GroupName="LoopMode"
+                                                 Style="{StaticResource ThemedRadioButtonStyle}"
+                                                 Click="LoopModeCliRadio_Click" />
                                     <RadioButton x:Name="LoopModeNativeRadio"
                                                  Content="SquadDash Agents"
                                                  GroupName="LoopMode"
                                                  IsChecked="True"
-                                                 Style="{StaticResource ThemedRadioButtonStyle}"
-                                                 Click="LoopModeNativeRadio_Click" />
-                                    <RadioButton x:Name="LoopModeCliRadio"
-                                                 Content="Squad CLI"
-                                                 GroupName="LoopMode"
                                                  Margin="0,2,0,0"
                                                  Style="{StaticResource ThemedRadioButtonStyle}"
-                                                 Click="LoopModeCliRadio_Click" />
+                                                 Click="LoopModeNativeRadio_Click" />
                                 </StackPanel>
                                 <CheckBox x:Name="LoopContinuousContextCheckBox"
                                           DockPanel.Dock="Top"
