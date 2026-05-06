@@ -501,8 +501,8 @@ internal sealed class TasksPanelController {
         assignItem.SubmenuOpened += (_, _) => {
             assignItem.Items.Clear();
 
-            // "Me / You" always first
-            var meItem = MakeItem("Me / You");
+            // "Me" always first
+            var meItem = MakeItem("Me");
             meItem.Click += (_, _) => _ = HandleAssignOwnerAsync(item, "you");
             if (string.Equals(item.Owner, "you", StringComparison.OrdinalIgnoreCase) ||
                 item.IsUserOwned)
