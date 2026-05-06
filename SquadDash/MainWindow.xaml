@@ -818,6 +818,8 @@
                                 <ComboBox x:Name="LoopFilePicker"
                                           DockPanel.Dock="Top"
                                           Margin="0,0,0,6"
+                                          MaxWidth="144"
+                                          HorizontalAlignment="Left"
                                           Visibility="Collapsed"
                                           ToolTip="Select which loop file to run"
                                           SelectionChanged="LoopFilePicker_SelectionChanged" />
