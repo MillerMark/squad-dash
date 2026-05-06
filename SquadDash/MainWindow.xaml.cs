@@ -2597,20 +2597,25 @@ public partial class MainWindow : Window, ILiveElementLocator
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
         if (item is null) return;
 
+        // When this item is the active tab, live edits are in PromptTextBox — not
+        // yet written back to item.Text (that flush only happens on tab switch).
+        // Read the live text so the empty-check reflects what the user sees.
+        var effectiveText = _activeTabId == id ? PromptTextBox.Text : item.Text;
+
         // Empty items have nothing to confirm — delete immediately.
-        if (string.IsNullOrWhiteSpace(item.Text))
+        if (string.IsNullOrWhiteSpace(effectiveText))
         {
             OnQueueTabRemove(id);
             return;
         }
 
-        var preview = item.Text.Length > 60 ? item.Text[..57] + "…" : item.Text;
+        var preview = effectiveText.Length > 60 ? effectiveText[..57] + "…" : effectiveText;
 
         var dialog = new QueueItemDeleteConfirmWindow(
             $"#{item.SequenceNumber}",
             preview,
             GetScreenRect(anchor),
-            item.Text)
+            effectiveText)
         {
             Owner = this
         };
