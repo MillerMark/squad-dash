@@ -653,8 +653,10 @@ internal sealed class ClipboardImageEditorWindow : Window
         var pixH = (int)Math.Round(s.Height);
         _dimWidthLabel.Text = $"{pixW} px";
         _dimHeightLabel.Text = $"{pixH} px";
-        _dimWidthBadge.Visibility = Visibility.Visible;
-        _dimHeightBadge.Visibility = Visibility.Visible;
+        // Badges are only shown during an interactive crop drag in doc-editor mode.
+        // In prompt mode (attach image flow) crop UI is suppressed entirely.
+        _dimWidthBadge.Visibility  = _isPromptMode ? Visibility.Collapsed : Visibility.Visible;
+        _dimHeightBadge.Visibility = _isPromptMode ? Visibility.Collapsed : Visibility.Visible;
 
         // Force measure so DesiredSize is accurate for positioning.
         _dimWidthBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -2231,7 +2233,9 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         // Hide chrome before rendering so handles/color-picker don't appear in the output.
         foreach (var h in _handles) h.Visibility = Visibility.Collapsed;
-        _selBorderRect.Visibility = Visibility.Collapsed;
+        _selBorderRect.Visibility  = Visibility.Collapsed;
+        _dimWidthBadge.Visibility  = Visibility.Collapsed;
+        _dimHeightBadge.Visibility = Visibility.Collapsed;
         HideColorPicker();
         HideModeHint();
         HideEyedropperTooltip();
