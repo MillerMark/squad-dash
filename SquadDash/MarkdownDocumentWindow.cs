@@ -383,10 +383,10 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void EditorTextBox_TextChanged(object sender, TextChangedEventArgs e) {
-        if (_isSwitchingDocument || sender is not TextBox { Tag: MarkdownDocumentTabState document } editorTextBox)
+        if (_isSwitchingDocument || sender is not RichTextBox { Tag: MarkdownDocumentTabState document } editorTextBox)
             return;
 
-        document.WorkingText = editorTextBox.Text;
+        document.WorkingText = editorTextBox.GetPlainText();
         document.IsDirty = !string.Equals(document.WorkingText, document.SavedText, StringComparison.Ordinal);
         RenderPreview(document, preserveScroll: true);
         if (_autoSave && document.IsDirty)
@@ -395,9 +395,9 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void EditorTextBox_SelectionChanged(object sender, System.Windows.RoutedEventArgs e) {
-        if (sender is not TextBox { Tag: MarkdownDocumentTabState doc } tb || !ReferenceEquals(doc, _activeDocument))
+        if (sender is not RichTextBox { Tag: MarkdownDocumentTabState doc } tb || !ReferenceEquals(doc, _activeDocument))
             return;
-        var hasSelection = tb.SelectionLength > 0;
+        var hasSelection = tb.GetSelectionLength() > 0;
         if (_srcBoldButton     is not null) _srcBoldButton.IsEnabled     = hasSelection;
         if (_srcItalicButton   is not null) _srcItalicButton.IsEnabled   = hasSelection;
         if (_srcBulletButton   is not null) _srcBulletButton.IsEnabled   = hasSelection;
@@ -405,7 +405,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void EditorTextBox_ContextMenuOpening(object sender, ContextMenuEventArgs e) {
-        if (sender is not TextBox tb || tb.ContextMenu is null) return;
+        if (sender is not RichTextBox tb || tb.ContextMenu is null) return;
 
         // Remove any previously-injected "Add to Notes" items so they don't stack
         for (int i = tb.ContextMenu.Items.Count - 1; i >= 0; i--) {
@@ -418,22 +418,22 @@ internal sealed class MarkdownDocumentWindow : Window {
         foreach (var obj in tb.ContextMenu.Items) {
             if (obj is not MenuItem mi) continue;
             if (mi.Command == ApplicationCommands.Cut   || mi.Command == ApplicationCommands.Copy)
-                mi.IsEnabled = tb.SelectionLength > 0;
+                mi.IsEnabled = tb.GetSelectionLength() > 0;
             if (mi.Command == ApplicationCommands.Paste)
                 mi.IsEnabled = Clipboard.ContainsText();
             if (mi.Tag is "SmoothDictation")
-                mi.IsEnabled = tb.SelectionLength > 0;
+                mi.IsEnabled = tb.GetSelectionLength() > 0;
         }
 
         // Add "Add to Notes" if callback is set and there's a selection
-        if (_captureContext?.AddToNotesCallback is { } callback && tb.SelectionLength > 0) {
+        if (_captureContext?.AddToNotesCallback is { } callback && tb.GetSelectionLength() > 0) {
             var sep = new Separator { Tag = "AddToNotesSep" };
             sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
 
             var noteItem = new MenuItem { Header = "Add to Notes", Tag = "AddToNotes" };
             noteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             noteItem.Click += (_, _) => {
-                var text = tb.SelectedText;
+                var text = tb.GetSelectedText();
                 if (!string.IsNullOrWhiteSpace(text))
                     callback(text);
             };
@@ -450,7 +450,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
 
         // Add "Revise with AI" if callback is set and there's a selection
-        if (_captureContext?.ReviseWithAiCallback is { } reviseCallback && tb.SelectionLength > 0) {
+        if (_captureContext?.ReviseWithAiCallback is { } reviseCallback && tb.GetSelectionLength() > 0) {
             var sep2 = new Separator { Tag = "ReviseWithAiSep" };
             sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
 
@@ -464,18 +464,22 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void TriggerReviseWithAi(
-        TextBox tb,
+        RichTextBox tb,
         Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback)
     {
-        if (tb.SelectionLength == 0) return;
+        if (tb.GetSelectionLength() == 0) return;
         var doc          = tb.Tag as MarkdownDocumentTabState;
-        var selectedText = tb.SelectedText;
-        var fullText     = tb.Text;
-        var selStart     = tb.SelectionStart;
-        var selLen       = tb.SelectionLength;
+        var selectedText = tb.GetSelectedText();
+        var fullText     = tb.GetPlainText();
+        var selStart     = tb.GetSelectionStart();
+        var selLen       = tb.GetSelectionLength();
         var docPath      = doc?.FilePath ?? "";
 
         var priorFocus = Keyboard.FocusedElement as IInputElement;
+
+        // Capture adorner and indicator references for lifecycle management
+        RevisionHighlightAdorner? adorner = null;
+        RevisionPendingIndicator? indicator = null;
 
         var popup = new DocRevisePopup(
             selectedText,
@@ -483,14 +487,17 @@ internal sealed class MarkdownDocumentWindow : Window {
             docPath,
             reviseCallback,
             onRevised: revised => Dispatcher.Invoke(() => {
-                var currentText = tb.Text;
+                // Clean up adorner and indicator when revision completes
+                adorner?.Remove();
+                indicator?.Remove();
+
+                var currentText = tb.GetPlainText();
                 var intact = selStart >= 0 &&
                              selStart + selLen <= currentText.Length &&
                              currentText.Substring(selStart, selLen) == selectedText;
                 if (intact) {
-                    tb.SelectionStart  = selStart;
-                    tb.SelectionLength = selLen;
-                    tb.SelectedText    = revised;
+                    tb.SelectRange(selStart, selLen);
+                    tb.ReplaceSelection(revised);
                 } else {
                     var win = new RevisionResultWindow(revised) { Owner = this };
                     win.Show();
@@ -500,6 +507,10 @@ internal sealed class MarkdownDocumentWindow : Window {
                 priorFocus?.Focus();
                 Keyboard.Focus(priorFocus);
                 RevisionWorkingOverlay.ShowAt(popupCenter, this);
+
+                // Attach adorner and indicator after the popup starts the revision
+                adorner = RevisionHighlightAdorner.Attach(tb, selStart, selLen);
+                indicator = RevisionPendingIndicator.Insert(tb, selStart + selLen);
             },
             startPtt: _captureContext?.StartPttCallback,
             stopPtt:  _captureContext?.StopPttCallback);
@@ -509,13 +520,13 @@ internal sealed class MarkdownDocumentWindow : Window {
         popup.Show();
     }
 
-    private void PositionPopupNearCaret(Window popup, System.Windows.Controls.TextBox textBox, int charIndex)
+    private void PositionPopupNearCaret(Window popup, RichTextBox richTextBox, int charIndex)
     {
         try
         {
-            var rect        = textBox.GetRectFromCharacterIndex(Math.Max(0, charIndex));
-            var screenBottom = textBox.PointToScreen(new Point(rect.Left, rect.Bottom));
-            var screenTop    = textBox.PointToScreen(new Point(rect.Left, rect.Top));
+            var rect        = richTextBox.GetRectFromOffset(Math.Max(0, charIndex));
+            var screenBottom = richTextBox.PointToScreen(new Point(rect.Left, rect.Bottom));
+            var screenTop    = richTextBox.PointToScreen(new Point(rect.Left, rect.Top));
             var dpi         = System.Windows.Media.VisualTreeHelper.GetDpi(this);
             var workArea    = NativeMethods.GetWorkAreaForPhysicalPoint((int)screenBottom.X, (int)screenBottom.Y);
 
@@ -550,7 +561,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
     }
 
-    private static ContextMenu BuildSourceEditorContextMenu(TextBox tb) {
+    private static ContextMenu BuildSourceEditorContextMenu(RichTextBox tb) {
         var menu = new ContextMenu();
         menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
@@ -584,7 +595,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             Tag              = "SmoothDictation",
         };
         smoothItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-        smoothItem.Click += (_, _) => SmoothDictationHelper.ApplyToTextBox(tb);
+        smoothItem.Click += (_, _) => SmoothDictationHelper.ApplyToRichTextBox(tb);
 
         menu.Items.Add(cutItem);
         menu.Items.Add(copyItem);
@@ -596,14 +607,14 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void EditorTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e) {
-        if (sender is not TextBox tb) return;
+        if (sender is not RichTextBox tb) return;
 
         // ── Smooth Dictation: Shift+Space on selection ────────────────────────
         if (e.Key == System.Windows.Input.Key.Space
             && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0
             && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0
-            && tb.SelectionLength > 0) {
-            e.Handled = SmoothDictationHelper.ApplyToTextBox(tb);
+            && tb.GetSelectionLength() > 0) {
+            e.Handled = SmoothDictationHelper.ApplyToRichTextBox(tb);
             return;
         }
 
@@ -628,7 +639,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         } else if (e.Key == System.Windows.Input.Key.A
             && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0
             && _captureContext?.ReviseWithAiCallback is { } revCb
-            && tb.SelectionLength > 0) {
+            && tb.GetSelectionLength() > 0) {
             TriggerReviseWithAi(tb, revCb);
             e.Handled = true;
         }
@@ -678,8 +689,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         var editorTb = _activeDocument?.EditorTextBox;
         if (editorTb is null) return;
 
-        _editorVoiceCaretIndex    = editorTb.SelectionStart;
-        _editorVoiceSelectionLength = editorTb.SelectionLength;
+        _editorVoiceCaretIndex    = editorTb.GetCaretOffset();
+        _editorVoiceSelectionLength = editorTb.GetSelectionLength();
 
         _editorVoiceService = new SpeechRecognitionService();
 
@@ -699,7 +710,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             // Get caret position in physical screen pixels (PointToScreen returns physical coords).
             System.Windows.Point physicalPt;
             try {
-                var caretRect = editorTb.GetRectFromCharacterIndex(_editorVoiceCaretIndex);
+                var caretRect = editorTb.GetRectFromOffset(_editorVoiceCaretIndex);
                 physicalPt = editorTb.PointToScreen(new System.Windows.Point(caretRect.Left, caretRect.Bottom));
             } catch {
                 physicalPt = editorTb.PointToScreen(new System.Windows.Point(0, editorTb.ActualHeight + 4));
@@ -755,7 +766,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         var editorTb = _activeDocument?.EditorTextBox;
         if (editorTb is null) return;
 
-        var current    = editorTb.Text;
+        var current    = editorTb.GetPlainText();
         var caretIndex = Math.Min(_editorVoiceCaretIndex, current.Length);
         // Replace selection on first insert; subsequent phrases append at caret.
         var selLength  = _editorVoiceSelectionLength;
@@ -768,8 +779,8 @@ internal sealed class MarkdownDocumentWindow : Window {
                          precedingChar != '\n' && precedingChar != '\r' ? " " : string.Empty;
         var processed  = VoiceInsertionHeuristics.Apply(left, text, right);
         var insert     = prefix + processed;
-        editorTb.Text       = left + insert + right;
-        editorTb.CaretIndex = caretIndex + insert.Length;
+        editorTb.SetPlainText(left + insert + right);
+        editorTb.SetCaretOffset(caretIndex + insert.Length);
         _editorVoiceCaretIndex = caretIndex + insert.Length;
     }
 
@@ -881,7 +892,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             return;
 
         foreach (UIElement child in _sourceEditorHost.Children) {
-            if (child is TextBox { Tag: MarkdownDocumentTabState doc } tb)
+            if (child is RichTextBox { Tag: MarkdownDocumentTabState doc } tb)
                 tb.Visibility = ReferenceEquals(doc, _activeDocument) ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -895,7 +906,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void SaveDocument(MarkdownDocumentTabState document) {
-        document.WorkingText = document.EditorTextBox.Text;
+        document.WorkingText = document.EditorTextBox.GetPlainText();
         File.WriteAllText(document.FilePath, document.FrontMatter + document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         document.SavedText = document.WorkingText;
         document.IsDirty = false;
@@ -1095,7 +1106,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     /// image tag for <paramref name="imagePath"/> in the document.
     /// </summary>
     private static void RemoveScreenshotPlaceholder(MarkdownDocumentTabState doc, string imagePath) {
-        var text         = doc.EditorTextBox.Text.Replace("\r\n", "\n");
+        var text         = doc.EditorTextBox.GetPlainText().Replace("\r\n", "\n");
         var lines        = text.Split('\n').ToList();
         var fwdSlashPath = imagePath.Replace('\\', '/');
 
@@ -1111,7 +1122,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             }
         }
 
-        doc.EditorTextBox.Text = string.Join("\n", lines);
+        doc.EditorTextBox.SetPlainText(string.Join("\n", lines));
     }
 
     /// <summary>
@@ -1119,7 +1130,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     /// for <paramref name="imagePath"/> (used when replacing an existing image).
     /// </summary>
     private static void RemoveScreenshotPlaceholderAfterImage(MarkdownDocumentTabState doc, string imagePath) {
-        var text         = doc.EditorTextBox.Text.Replace("\r\n", "\n");
+        var text         = doc.EditorTextBox.GetPlainText().Replace("\r\n", "\n");
         var lines        = text.Split('\n').ToList();
         var fwdSlashPath = imagePath.Replace('\\', '/');
 
@@ -1137,7 +1148,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             }
         }
 
-        doc.EditorTextBox.Text = string.Join("\n", lines);
+        doc.EditorTextBox.SetPlainText(string.Join("\n", lines));
     }
 
     /// <summary>
@@ -1354,7 +1365,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         var textBox = _activeDocument.EditorTextBox;
         if (textBox.Visibility != Visibility.Visible) return;
 
-        var lines = textBox.Text.Split('\n');
+        var lines = textBox.GetPlainText().Split('\n');
         if (lineNum > lines.Length) return;
 
         int startPos = 0;
@@ -1383,11 +1394,11 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
     }
 
-    private void HighlightSourceRange(TextBox textBox, int start, int length) {
+    private void HighlightSourceRange(RichTextBox textBox, int start, int length) {
         ClearSourceHoverHighlight();
         if (length <= 0) return;
 
-        var rect = textBox.GetRectFromCharacterIndex(start);
+        var rect = textBox.GetRectFromOffset(start);
         if (rect == Rect.Empty) return;
 
         var overlayCanvas = EnsureSourceOverlayCanvas();
@@ -1492,7 +1503,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         doc.FrontMatter = newFrontMatter;
         doc.SavedText = strippedNew;
         doc.WorkingText = strippedNew;
-        doc.EditorTextBox.Text = strippedNew;
+        doc.EditorTextBox.SetPlainText(strippedNew);
         RenderPreview(doc, preserveScroll: true);
         UpdateChrome();
         if (doc == _activeDocument)
@@ -1553,11 +1564,7 @@ internal sealed class MarkdownDocumentTabState {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         FallbackViewer.SetResourceReference(Control.BackgroundProperty, "TranscriptSurface");
-        EditorTextBox = new TextBox {
-            Text = stripped,
-            AcceptsReturn = true,
-            AcceptsTab = true,
-            TextWrapping = TextWrapping.Wrap,
+        EditorTextBox = new RichTextBox {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             FontFamily = new FontFamily("Consolas, Segoe UI Emoji"),
@@ -1565,8 +1572,19 @@ internal sealed class MarkdownDocumentTabState {
             BorderThickness = new Thickness(0),
             Visibility = Visibility.Collapsed
         };
-        EditorTextBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
-        EditorTextBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        EditorTextBox.SetPlainText(stripped);
+        EditorTextBox.SetResourceReference(RichTextBox.BackgroundProperty, "InputSurface");
+        EditorTextBox.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        
+        // Force plain-text paste — RichTextBox defaults to rich paste which would preserve formatting
+        DataObject.AddPastingHandler(EditorTextBox, (s, e) => {
+            if (e.FormatToApply != DataFormats.UnicodeText && e.FormatToApply != DataFormats.Text) {
+                if (Clipboard.ContainsText())
+                    e.FormatToApply = DataFormats.UnicodeText;
+                else
+                    e.CancelCommand();
+            }
+        });
 
         PreviewHost = new Grid();
         PreviewHost.Children.Add(WebBrowser);
@@ -1582,7 +1600,7 @@ internal sealed class MarkdownDocumentTabState {
     public bool IsDirty { get; set; }
     public WebBrowser WebBrowser { get; }
     public FlowDocumentScrollViewer FallbackViewer { get; }
-    public TextBox EditorTextBox { get; }
+    public RichTextBox EditorTextBox { get; }
     public Grid PreviewHost { get; }
     public TabItem? TabItem { get; set; }
     internal double? PendingScrollFraction { get; set; }
