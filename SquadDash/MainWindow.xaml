@@ -1783,21 +1783,39 @@
                                        Background="{DynamicResource PanelBorder}" />
                             <Button x:Name="DocBulletListButton"
                                     Style="{StaticResource ThemedButtonStyle}"
-                                    Width="38" Height="22"
-                                    Padding="2,0" Margin="0,0,2,0"
+                                    Width="26" Height="22"
+                                    Padding="0" Margin="0,0,2,0"
                                     IsEnabled="False"
                                     ToolTip="Convert selection to bullet list"
                                     Click="DocBulletListButton_Click">
-                                <TextBlock FontSize="11" Text="• List" />
+                                <Viewbox Width="20" Height="16" Stretch="Uniform">
+                                    <Canvas Width="20" Height="16">
+                                        <Ellipse   Canvas.Left="0" Canvas.Top="1.25"  Width="3.5" Height="3.5" Fill="{DynamicResource LabelText}"/>
+                                        <Rectangle Canvas.Left="5" Canvas.Top="2"     Width="15"  Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <Ellipse   Canvas.Left="0" Canvas.Top="6.25"  Width="3.5" Height="3.5" Fill="{DynamicResource LabelText}"/>
+                                        <Rectangle Canvas.Left="5" Canvas.Top="7"     Width="15"  Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <Ellipse   Canvas.Left="0" Canvas.Top="11.25" Width="3.5" Height="3.5" Fill="{DynamicResource LabelText}"/>
+                                        <Rectangle Canvas.Left="5" Canvas.Top="12"    Width="15"  Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                    </Canvas>
+                                </Viewbox>
                             </Button>
                             <Button x:Name="DocNumberedListButton"
                                     Style="{StaticResource ThemedButtonStyle}"
-                                    Width="44" Height="22"
-                                    Padding="2,0" Margin="0,0,0,0"
+                                    Width="26" Height="22"
+                                    Padding="0" Margin="0,0,0,0"
                                     IsEnabled="False"
                                     ToolTip="Convert selection to numbered list"
                                     Click="DocNumberedListButton_Click">
-                                <TextBlock FontSize="11" Text="1. List" />
+                                <Viewbox Width="20" Height="16" Stretch="Uniform">
+                                    <Canvas Width="20" Height="16">
+                                        <TextBlock Canvas.Left="0" Canvas.Top="-0.5" FontSize="5" Foreground="{DynamicResource LabelText}" Text="1"/>
+                                        <Rectangle Canvas.Left="5.5" Canvas.Top="2"  Width="14.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <TextBlock Canvas.Left="0" Canvas.Top="4.5"  FontSize="5" Foreground="{DynamicResource LabelText}" Text="2"/>
+                                        <Rectangle Canvas.Left="5.5" Canvas.Top="7"  Width="14.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <TextBlock Canvas.Left="0" Canvas.Top="9.5"  FontSize="5" Foreground="{DynamicResource LabelText}" Text="3"/>
+                                        <Rectangle Canvas.Left="5.5" Canvas.Top="12" Width="14.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                    </Canvas>
+                                </Viewbox>
                             </Button>
                         </StackPanel>
                     </Border>

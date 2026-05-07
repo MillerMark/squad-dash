@@ -284,8 +284,8 @@ internal sealed class MarkdownDocumentWindow : Window {
         var srcCodeBtn   = MakeToolbarButton("`code`", "Insert inline code", enabled: true);
         var srcBlockBtn  = MakeToolbarButton("{ }", "Insert code block",    enabled: true);
         var srcHrBtn     = MakeToolbarButton("—",   "Insert horizontal rule (---)", enabled: true);
-        var srcBulletBtn = MakeToolbarButton("• List", "Convert selection to bullet list (requires selection)", enabled: false);
-        var srcNumBtn    = MakeToolbarButton("1. List", "Convert selection to numbered list (requires selection)", enabled: false);
+        var srcBulletBtn = MakeToolbarButton(CreateBulletListIcon(), "• List",   "Convert selection to bullet list (requires selection)",   enabled: false);
+        var srcNumBtn    = MakeToolbarButton(CreateNumberedListIcon(), "1. List", "Convert selection to numbered list (requires selection)", enabled: false);
         _srcBulletButton   = srcBulletBtn;
         _srcNumberedButton = srcNumBtn;
 
@@ -869,6 +869,53 @@ internal sealed class MarkdownDocumentWindow : Window {
         btn.Click += (_, _) => OnToolbarButtonClick(label);
         return btn;
     }
+
+    private Button MakeToolbarButton(UIElement content, string dispatchKey, string tooltip, bool enabled = true) {
+        var btn = new Button {
+            Content   = content,
+            Width     = 28,
+            Height    = 24,
+            Margin    = new System.Windows.Thickness(0, 0, 3, 0),
+            ToolTip   = tooltip,
+            IsEnabled = enabled,
+        };
+        btn.SetResourceReference(StyleProperty, "ThemedButtonStyle");
+        btn.Click += (_, _) => OnToolbarButtonClick(dispatchKey);
+        return btn;
+    }
+
+    private static UIElement CreateBulletListIcon() {
+        var canvas = new Canvas { Width = 20, Height = 16 };
+        void AddRow(double cy) {
+            var dot = new System.Windows.Shapes.Ellipse { Width = 3.5, Height = 3.5 };
+            dot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "LabelText");
+            Canvas.SetLeft(dot, 0); Canvas.SetTop(dot, cy - 1.75);
+            var line = new System.Windows.Shapes.Rectangle { Width = 15, Height = 2, RadiusX = 1, RadiusY = 1 };
+            line.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "LabelText");
+            Canvas.SetLeft(line, 5); Canvas.SetTop(line, cy - 1);
+            canvas.Children.Add(dot);
+            canvas.Children.Add(line);
+        }
+        AddRow(3); AddRow(8); AddRow(13);
+        return new Viewbox { Child = canvas, Width = 20, Height = 16, Stretch = Stretch.Uniform };
+    }
+
+    private static UIElement CreateNumberedListIcon() {
+        var canvas = new Canvas { Width = 20, Height = 16 };
+        void AddRow(double cy, string number) {
+            var text = new TextBlock { Text = number, FontSize = 5 };
+            text.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            Canvas.SetLeft(text, 0); Canvas.SetTop(text, cy - 4.5);
+            var line = new System.Windows.Shapes.Rectangle { Width = 14.5, Height = 2, RadiusX = 1, RadiusY = 1 };
+            line.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "LabelText");
+            Canvas.SetLeft(line, 5.5); Canvas.SetTop(line, cy - 1);
+            canvas.Children.Add(text);
+            canvas.Children.Add(line);
+        }
+        AddRow(3, "1"); AddRow(8, "2"); AddRow(13, "3");
+        return new Viewbox { Child = canvas, Width = 20, Height = 16, Stretch = Stretch.Uniform };
+    }
+
 
     private void OnToolbarButtonClick(string label) {
         var tb = _activeDocument?.EditorTextBox;
