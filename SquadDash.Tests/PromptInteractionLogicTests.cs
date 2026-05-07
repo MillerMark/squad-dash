@@ -181,17 +181,26 @@ internal sealed class PromptInteractionLogicTests {
     }
 
     [Test]
-    public void LocalPromptSubmissionPolicy_RetainsBusySafeCommandWhilePromptRunning() {
+    public void LocalPromptSubmissionPolicy_ClearsBareCommandWhilePromptRunning() {
+        // A bare slash command (no arguments) is always cleared after execution.
         Assert.That(
             LocalPromptSubmissionPolicy.ShouldRetainPromptAfterLocalSubmit("/tasks", isPromptRunning: true),
+            Is.False);
+    }
+
+    [Test]
+    public void LocalPromptSubmissionPolicy_RetainsBusySafeCommandWithArgsWhilePromptRunning() {
+        // When there are arguments after the command, retain so text isn't lost.
+        Assert.That(
+            LocalPromptSubmissionPolicy.ShouldRetainPromptAfterLocalSubmit("/activate SomeAgent", isPromptRunning: true),
             Is.True);
     }
 
     [Test]
-    public void LocalPromptSubmissionPolicy_RetainsDropTasksWhilePromptRunning() {
+    public void LocalPromptSubmissionPolicy_ClearsDropTasksCommandWhilePromptRunning() {
         Assert.That(
             LocalPromptSubmissionPolicy.ShouldRetainPromptAfterLocalSubmit("/dropTasks", isPromptRunning: true),
-            Is.True);
+            Is.False);
     }
 
     [Test]

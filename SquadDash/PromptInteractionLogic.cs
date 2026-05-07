@@ -243,8 +243,16 @@ internal static class LocalPromptSubmissionPolicy {
 
     public static bool ShouldRetainPromptAfterLocalSubmit(
         string? prompt,
-        bool isPromptRunning) =>
-        isPromptRunning && CanSubmitWhilePromptRunning(prompt);
+        bool isPromptRunning) {
+        if (!isPromptRunning || !CanSubmitWhilePromptRunning(prompt))
+            return false;
+        // Clear when the box contains only the bare slash command — the user doesn't
+        // need it back after it executed.  Retain only when there is additional text
+        // (e.g. "/activate AgentName") so that text isn't lost.
+        var trimmed = prompt?.Trim() ?? string.Empty;
+        var cmd = GetSlashCommand(trimmed);
+        return trimmed.Length > cmd.Length; // has trailing arguments
+    }
 
     private static string GetSlashCommand(string? prompt) {
         var trimmed = prompt?.Trim() ?? string.Empty;
