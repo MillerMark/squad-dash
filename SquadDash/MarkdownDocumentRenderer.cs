@@ -661,10 +661,73 @@ internal sealed class MarkdownDocumentRenderer {
                 continue;
             }
 
+            // Color hex swatch: #RRGGBB or #RGB
+            if (text[i] == '#' && TryReadColorHex(text, i, out var hexEnd, out var swatchColor)) {
+                flush(buffer.ToString()); buffer.Clear();
+                inlines.Add(new Run(text[i..hexEnd]));
+                var rect = new System.Windows.Shapes.Rectangle {
+                    Width            = 12,
+                    Height           = 12,
+                    Fill             = new SolidColorBrush(swatchColor),
+                    Stroke           = new SolidColorBrush(Color.FromArgb(100, 128, 128, 128)),
+                    StrokeThickness  = 0.5,
+                    Margin           = new Thickness(3, 0, 0, -2),
+                    SnapsToDevicePixels = true,
+                };
+                inlines.Add(new InlineUIContainer(rect) { BaselineAlignment = BaselineAlignment.Center });
+                i = hexEnd;
+                continue;
+            }
+
             buffer.Append(text[i++]);
         }
 
         flush(buffer.ToString());
+    }
+
+    // internal for unit testing via InternalsVisibleTo
+    internal static bool TryReadColorHex(string text, int startIndex, out int nextIndex, out Color color) {
+        nextIndex = startIndex;
+        color = default;
+
+        if (startIndex >= text.Length || text[startIndex] != '#')
+            return false;
+
+        // Don't match mid-word (e.g. "foo#bar")
+        if (startIndex > 0 && char.IsLetterOrDigit(text[startIndex - 1]))
+            return false;
+
+        var pos = startIndex + 1;
+        var count = 0;
+        while (pos + count < text.Length && IsHexDigit(text[pos + count]))
+            count++;
+
+        if (count != 6 && count != 3)
+            return false;
+
+        // Don't match if followed by more alphanumeric chars (e.g. #D8C8B0FF has 8 digits)
+        var afterPos = pos + count;
+        if (afterPos < text.Length && char.IsLetterOrDigit(text[afterPos]))
+            return false;
+
+        var hex = text[pos..(pos + count)];
+        if (count == 3) {
+            var r3 = Convert.ToByte(new string(hex[0], 2), 16);
+            var g3 = Convert.ToByte(new string(hex[1], 2), 16);
+            var b3 = Convert.ToByte(new string(hex[2], 2), 16);
+            color = Color.FromRgb(r3, g3, b3);
+        } else {
+            var r = Convert.ToByte(hex[0..2], 16);
+            var g = Convert.ToByte(hex[2..4], 16);
+            var b = Convert.ToByte(hex[4..6], 16);
+            color = Color.FromRgb(r, g, b);
+        }
+
+        nextIndex = afterPos;
+        return true;
+
+        static bool IsHexDigit(char c) =>
+            c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
     }
 
     // internal for unit testing via InternalsVisibleTo
