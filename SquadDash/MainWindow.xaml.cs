@@ -14233,6 +14233,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         // and F11 full-transcript mode toggling.
         if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
             SyncPromptNavButtons();
+
+        // When the transcript scrolls while OutputTextBox does not hold keyboard focus
+        // (e.g. mouse-wheel from another window), the WPF selection adorner layer can get
+        // out of sync, leaving a ghost highlight frozen at the old scroll position.
+        // Forcing the adorner layer to repaint fixes the stale render.
+        if (e.VerticalChange != 0 && !OutputTextBox.IsKeyboardFocusWithin)
+            AdornerLayer.GetAdornerLayer(OutputTextBox)?.InvalidateVisual();
     }
 
     /// <summary>
