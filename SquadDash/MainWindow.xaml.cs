@@ -5620,6 +5620,22 @@ public partial class MainWindow : Window, ILiveElementLocator
             : Brushes.Transparent;
     }
 
+    /// <summary>
+    /// Lightweight post-selection sync: updates only chip appearance and card indicators.
+    /// Used by SelectTranscriptThread to avoid the full SyncAgentCardsWithThreads cost
+    /// (which rebuilds Threads collections and triggers ScheduleAgentPanelLayoutRefresh).
+    /// </summary>
+    private void SyncAgentCardsForSelectionChange(TranscriptThreadState? previousThread, TranscriptThreadState newThread)
+    {
+        // Re-sync chip visuals for threads that changed selection state
+        if (previousThread is not null && !ReferenceEquals(previousThread, newThread))
+            SyncThreadChip(previousThread);
+        SyncThreadChip(newThread);
+
+        SyncTranscriptTargetIndicators();
+        SyncSelectionControllerWithUiState("SelectTranscriptThread");
+    }
+
     private static string BuildThreadChipToolTip(TranscriptThreadState thread)
     {
         var lines = new List<string> {
@@ -11451,6 +11467,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void SelectTranscriptThread(TranscriptThreadState thread, bool scrollToStart = false)
     {
         var swSelect = System.Diagnostics.Stopwatch.StartNew();
+        var previousThread = _selectedTranscriptThread;
         _selectedTranscriptThread = thread;
 
         // Preserve search state when navigating to a match in a different thread.
@@ -11509,7 +11526,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var t3 = swSelect.ElapsedMilliseconds;
 
         UpdateTranscriptThreadBadge();
-        SyncAgentCardsWithThreads();
+        SyncAgentCardsForSelectionChange(previousThread, thread);
         var t4 = swSelect.ElapsedMilliseconds;
 
         SyncPromptNavButtons();
