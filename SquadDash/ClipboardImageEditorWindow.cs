@@ -653,10 +653,11 @@ internal sealed class ClipboardImageEditorWindow : Window
         var pixH = (int)Math.Round(s.Height);
         _dimWidthLabel.Text = $"{pixW} px";
         _dimHeightLabel.Text = $"{pixH} px";
-        // Badges are only shown during an interactive crop drag in doc-editor mode.
-        // In prompt mode (attach image flow) crop UI is suppressed entirely.
-        _dimWidthBadge.Visibility  = _isPromptMode ? Visibility.Collapsed : Visibility.Visible;
-        _dimHeightBadge.Visibility = _isPromptMode ? Visibility.Collapsed : Visibility.Visible;
+        // Badges are always shown during an active crop drag in both doc-editor and prompt modes.
+        // DoInsertImage() collapses them immediately before the RenderTargetBitmap call so they
+        // are never baked into the output image.
+        _dimWidthBadge.Visibility  = Visibility.Visible;
+        _dimHeightBadge.Visibility = Visibility.Visible;
 
         // Force measure so DesiredSize is accurate for positioning.
         _dimWidthBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
