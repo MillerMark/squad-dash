@@ -5866,6 +5866,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void ApplyTranscriptFontSizeToDocument(FlowDocument document)
     {
+        // Skip the O(N) document walk if the font size hasn't changed since last apply.
+        if (document.FontSize == _transcriptFontSize) return;
+
         document.FontSize = _transcriptFontSize;
 
         var codeBlockFontSize = _transcriptFontSize * 0.9;
@@ -11445,6 +11448,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void SelectTranscriptThread(TranscriptThreadState thread, bool scrollToStart = false)
     {
+        var swSelect = System.Diagnostics.Stopwatch.StartNew();
         _selectedTranscriptThread = thread;
 
         // Preserve search state when navigating to a match in a different thread.
@@ -11464,9 +11468,12 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         foreach (var candidate in EnumerateTranscriptThreads())
             candidate.IsSelected = ReferenceEquals(candidate, thread);
+        var t0 = swSelect.ElapsedMilliseconds;
 
         UpdateTransientTranscriptFooters(thread);
         UpdateCompletedTimeFooters();
+        var t1 = swSelect.ElapsedMilliseconds;
+
         // close that panel before assigning to AgentTranscriptBox — FlowDocument can only
         // belong to one RichTextBox at a time. Coordinator doc stays permanently in OutputTextBox.
         if (thread.Document.Parent is RichTextBox secondaryOwner
@@ -11494,10 +11501,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             AgentTranscriptBox.Visibility = Visibility.Visible;
             OutputTextBox.Visibility = Visibility.Collapsed;
         }
+        var t2 = swSelect.ElapsedMilliseconds;
+
         ApplyTranscriptFontSizeToDocument(thread.Document);
+        var t3 = swSelect.ElapsedMilliseconds;
+
         UpdateTranscriptThreadBadge();
         SyncAgentCardsWithThreads();
+        var t4 = swSelect.ElapsedMilliseconds;
+
         SyncPromptNavButtons();
+        var t5 = swSelect.ElapsedMilliseconds;
 
         // If this agent thread's turns were deferred at startup (lazy rendering),
         // render them now.  The document is already assigned to OutputTextBox above so
@@ -11519,6 +11533,14 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         ScrollTranscriptThread(thread, scrollToStart);
         UpdateInteractiveControlState();
+        swSelect.Stop();
+
+        if (swSelect.ElapsedMilliseconds >= 20)
+            SquadDashTrace.Write(TraceCategory.Performance,
+                $"SELECT_THREAD ({thread.Kind}): total={swSelect.ElapsedMilliseconds}ms " +
+                $"search/sel={t0}ms footers={t1 - t0}ms vis={t2 - t1}ms " +
+                $"fontsize={t3 - t2}ms syncCards={t4 - t3}ms promptNav={t5 - t4}ms " +
+                $"rest={swSelect.ElapsedMilliseconds - t5}ms");
     }
 
     private void UpdateTranscriptThreadBadge()
