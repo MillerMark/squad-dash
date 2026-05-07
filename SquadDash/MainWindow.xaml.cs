@@ -11708,17 +11708,25 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
+        var sw = Stopwatch.StartNew();
         var entry = CreateSecondaryTranscriptPanel(agent, thread);
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_OPEN CreatePanel={sw.ElapsedMilliseconds}ms thread={thread.ThreadId} turns={thread.SavedTurns.Count}");
+        sw.Restart();
         entry.IsAutoOpenedInMultiMode = isAutoOpenedInMultiMode;
         _secondaryTranscripts.Add(entry);
         EnsureTranscriptTitleRefreshTimerRunning();
         thread.IsSecondaryPanelOpen = true;
         UpdateCompletedTimeFooters();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_OPEN UpdateFooters={sw.ElapsedMilliseconds}ms");
         SquadDashTrace.Write(TraceCategory.TranscriptPanels,
             $"OpenSecondaryPanel opened thread={thread.ThreadId} agent={agent.Name} seq={thread.SequenceNumber} auto={isAutoOpenedInMultiMode} title=\"{entry.TitleBlock.Text}\"");
+        sw.Restart();
         SyncSelectionControllerWithUiState("OpenSecondaryPanel.opened");
         SyncTranscriptTargetIndicators();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_OPEN SyncState={sw.ElapsedMilliseconds}ms");
+        sw.Restart();
         RebuildTranscriptPanelsGrid();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_OPEN RebuildGrid={sw.ElapsedMilliseconds}ms");
         FlashGlowHighlight(entry.PanelBorder, ColorFromHex(agent.AccentColorHex));
         _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
@@ -11730,18 +11738,26 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void CloseSecondaryPanel(SecondaryTranscriptEntry entry)
     {
         CancelAutoCloseCountdown(entry);
+        var sw = Stopwatch.StartNew();
         if (ReferenceEquals(entry.TranscriptBox.Document, entry.Thread.Document))
             entry.TranscriptBox.Document = new FlowDocument();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE DetachDoc={sw.ElapsedMilliseconds}ms thread={entry.Thread.ThreadId}");
         SquadDashTrace.Write(TraceCategory.TranscriptPanels,
             $"CloseSecondaryPanel closing thread={entry.Thread.ThreadId} agent={entry.Agent.Name} seq={entry.Thread.SequenceNumber} title=\"{entry.TitleBlock.Text}\"");
         _secondaryTranscripts.Remove(entry);
         entry.Thread.IsSecondaryPanelOpen = false;
         if (_secondaryTranscripts.Count == 0)
             _transcriptTitleRefreshTimer?.Stop();
+        sw.Restart();
         UpdateCompletedTimeFooters();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE UpdateFooters={sw.ElapsedMilliseconds}ms");
+        sw.Restart();
         SyncSelectionControllerWithUiState("CloseSecondaryPanel.closed");
         SyncTranscriptTargetIndicators();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE SyncState={sw.ElapsedMilliseconds}ms");
+        sw.Restart();
         RebuildTranscriptPanelsGrid();
+        SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE RebuildGrid={sw.ElapsedMilliseconds}ms");
     }
 
     private void ShowMainTranscript()
@@ -11980,6 +11996,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         closeViewbox.Child = closePath;
         closeBtn.Content = closeViewbox;
 
+        var sw = Stopwatch.StartNew();
         var rtb = new RichTextBox
         {
             Background = Brushes.Transparent,
@@ -11992,6 +12009,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        SquadDashTrace.Write(TraceCategory.Performance, $"CREATE_PANEL RtbCreated={sw.ElapsedMilliseconds}ms turns={thread.SavedTurns.Count} docBlocks={thread.Document.Blocks.Count}");
+        sw.Restart();
         rtb.PreviewMouseRightButtonDown += (_, e) =>
         {
             try
@@ -12155,6 +12174,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         rtb.Document = thread.Document;
         if (_conversationManager.HasPendingRender(thread))
             _ = _conversationManager.EnsureAgentThreadRenderedAsync(thread);
+        SquadDashTrace.Write(TraceCategory.Performance, $"CREATE_PANEL DocAssigned+Border={sw.ElapsedMilliseconds}ms");
 
         return entry;
     }
