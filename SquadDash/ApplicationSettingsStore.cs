@@ -623,6 +623,7 @@ internal sealed class ApplicationSettingsStore {
                 DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
                 SelectedLoopFile = state.SelectedLoopFile ?? existing.SelectedLoopFile,
                 NotesSortOrder = state.NotesSortOrder ?? existing.NotesSortOrder,
+                PromptPanelOnTop = state.PromptPanelOnTop ?? existing.PromptPanelOnTop,
             };
         }
         dict[key] = state;
@@ -691,6 +692,12 @@ internal sealed record WorkspaceDocsPanelState
     /// Sort order for the Notes panel. Null = default (MostRecentOnTop).
     /// </summary>
     public NotesSortOrder? NotesSortOrder { get; init; }
+
+    /// <summary>
+    /// Whether the prompt input panel is docked above the transcript instead of below.
+    /// <c>null</c> / <c>false</c> = default (below). <c>true</c> = user moved it above.
+    /// </summary>
+    public bool? PromptPanelOnTop { get; init; }
 
     /// <summary>
     /// Legacy single-item follow-up fields — kept for reading old settings files.

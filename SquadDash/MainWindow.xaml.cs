@@ -191,6 +191,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
     private bool _fullScreenPromptVisible;
+    private bool _promptPanelOnTop;
     private WindowState _preFullScreenWindowState;
     private Rect _preFullScreenBounds;
     private bool _documentationModeEnabled;
@@ -6373,6 +6374,28 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }
             }
 
+            // ── Ctrl+Alt+Shift+PageUp: move prompt panel above the transcript ─────────
+            if (e.Key == Key.PageUp
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0)
+            {
+                SetPromptPanelOnTop(true);
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Alt+Shift+PageDown: return prompt panel to the bottom ─────────────
+            if (e.Key == Key.PageDown
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0)
+            {
+                SetPromptPanelOnTop(false);
+                e.Handled = true;
+                return;
+            }
+
             // ── Feature 1: Guard against rerouting input when DocSourceTextBox has focus ──
             if (DocSourceTextBox?.IsFocused == true)
             {
@@ -8414,6 +8437,44 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (PromptBorder is not null)
             PromptBorder.Visibility = Visibility.Collapsed;
         PromptTextBox.Clear();
+    }
+
+    private void SetPromptPanelOnTop(bool onTop)
+    {
+        if (_promptPanelOnTop == onTop) return;
+        _promptPanelOnTop = onTop;
+
+        // Row 3 is the transcript (Height="*"), Row 4 is the prompt (Height="Auto").
+        // Swap Grid.Row assignments and also swap the RowDefinition heights so that
+        // whichever panel is in the star-height slot stretches to fill available space.
+        if (TranscriptPanelsGrid is null || PromptBorder is null || MainGrid is null) return;
+
+        var transcriptRow = MainGrid.RowDefinitions[3];
+        var promptRow     = MainGrid.RowDefinitions[4];
+
+        if (onTop)
+        {
+            Grid.SetRow(PromptBorder,        3);
+            Grid.SetRow(TranscriptPanelsGrid, 4);
+            transcriptRow.Height = new GridLength(1, GridUnitType.Auto);
+            promptRow.Height     = new GridLength(1, GridUnitType.Star);
+            PromptBorder.Margin        = new Thickness(0, 0, 0, 14);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 14);
+        }
+        else
+        {
+            Grid.SetRow(PromptBorder,        4);
+            Grid.SetRow(TranscriptPanelsGrid, 3);
+            transcriptRow.Height = new GridLength(1, GridUnitType.Star);
+            promptRow.Height     = new GridLength(1, GridUnitType.Auto);
+            PromptBorder.Margin        = new Thickness(0);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 14, 0, 14);
+        }
+
+        // Persist per workspace.
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { PromptPanelOnTop = onTop };
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
     }
 
     private void ViewDocumentationMenuItem_Click(object sender, RoutedEventArgs e)
@@ -18622,6 +18683,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (ViewLoopPanelMenuItem is not null)
                 ViewLoopPanelMenuItem.IsChecked = false;
         }
+
+        // Restore prompt panel position (above/below transcript).
+        if (_docsPanelState.PromptPanelOnTop == true)
+            SetPromptPanelOnTop(true);
 
         // Restore selected loop file and populate the file picker.
         _selectedLoopMdPath = _docsPanelState.SelectedLoopFile;
