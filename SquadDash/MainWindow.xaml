@@ -1416,8 +1416,7 @@
                                  ContextMenu="{x:Null}"
                                  Foreground="{DynamicResource LabelText}"
                                  SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
-                                 SelectionOpacity="1"
-                                 PreviewMouseRightButtonDown="OutputTextBox_PreviewMouseRightButtonDown"
+                                 SelectionOpacity="0.4"
                                  PreviewMouseWheel="OutputTextBox_PreviewMouseWheel"
                                  PreviewMouseDown="OutputTextBox_PreviewMouseDown" />
 
@@ -1798,8 +1797,7 @@
                              ContextMenu="{x:Null}"
                              SpellCheck.IsEnabled="False"
                              SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
-                             SelectionOpacity="1"
-                             PreviewKeyDown="DocSourceTextBox_PreviewKeyDown"
+                             SelectionOpacity="0.4"
                              PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
                              PreviewMouseWheel="DocSourceTextBox_PreviewMouseWheel"
                              SelectionChanged="DocSourceTextBox_SelectionChanged"
