@@ -349,7 +349,8 @@ internal sealed class WorkspaceConversationStore {
             tools,
             thoughts,
             responseSegments) {
-            ToolsSuppressedCount = toolsSuppressedCount
+            ToolsSuppressedCount = toolsSuppressedCount,
+            AgentReports = turn.AgentReports is { Count: > 0 } ? turn.AgentReports : null
         };
     }
 
