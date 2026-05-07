@@ -665,9 +665,10 @@ internal sealed class MarkdownDocumentRenderer {
             if (text[i] == '#' && TryReadColorHex(text, i, out var hexEnd, out var swatchColor)) {
                 flush(buffer.ToString()); buffer.Clear();
                 inlines.Add(new Run(text[i..hexEnd]));
+                var swatchSize = Math.Round(_getFontSize() * 0.75);
                 var rect = new System.Windows.Shapes.Rectangle {
-                    Width            = 12,
-                    Height           = 12,
+                    Width            = swatchSize,
+                    Height           = swatchSize,
                     Fill             = new SolidColorBrush(swatchColor),
                     Stroke           = new SolidColorBrush(Color.FromArgb(100, 128, 128, 128)),
                     StrokeThickness  = 0.5,
