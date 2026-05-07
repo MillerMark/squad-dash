@@ -1774,9 +1774,6 @@ internal static class MarkdownFlowDocumentBuilder {
     private static readonly Brush DefaultForegroundBrush    = new SolidColorBrush(Color.FromRgb(0x32, 0x2A, 0x23));
     private static readonly Brush DefaultQuoteFillBrush     = new SolidColorBrush(Color.FromRgb(0xF6, 0xF1, 0xE8));
     private static readonly Brush DefaultQuoteBorderBrush   = new SolidColorBrush(Color.FromRgb(0xD5, 0xCA, 0xBA));
-    private static readonly Brush DefaultCodeFillBrush      = new SolidColorBrush(Color.FromRgb(0xFA, 0xF6, 0xF0));
-    private static readonly Brush DefaultCodeBorderBrush    = new SolidColorBrush(Color.FromRgb(0xE2, 0xD7, 0xC8));
-    private static readonly Brush DefaultCodeTextBrush      = new SolidColorBrush(Color.FromRgb(0x2A, 0x1E, 0x12));
     private static readonly Brush DefaultTableBorderBrush   = new SolidColorBrush(Color.FromArgb(0x38, 0x40, 0x40, 0x40));
     private static readonly Brush DefaultTableHeaderBrush   = new SolidColorBrush(Color.FromArgb(0x18, 0x40, 0x40, 0x40));
 
@@ -1787,9 +1784,6 @@ internal static class MarkdownFlowDocumentBuilder {
         var foreground   = Res("LabelText",          DefaultForegroundBrush);
         var quoteFill    = Res("QuoteSurface",        DefaultQuoteFillBrush);
         var quoteBorder  = Res("QuoteBorder",         DefaultQuoteBorderBrush);
-        var codeFill     = Res("CodeSurface",         DefaultCodeFillBrush);
-        var codeBorder   = Res("InputBorder",         DefaultCodeBorderBrush);
-        var codeText     = Res("CodeText",            DefaultCodeTextBrush);
         var tableRule    = Res("TableRule",           DefaultTableBorderBrush);
         var tableHeader  = Res("TableHeaderSurface",  DefaultTableHeaderBrush);
 
@@ -1819,7 +1813,7 @@ internal static class MarkdownFlowDocumentBuilder {
                     index++;
                 }
 
-                document.Blocks.Add(BuildCodeBlock(string.Join(Environment.NewLine, codeLines), codeFill, codeBorder, codeText));
+                document.Blocks.Add(BuildCodeBlock(string.Join(Environment.NewLine, codeLines)));
                 continue;
             }
 
@@ -1834,7 +1828,7 @@ internal static class MarkdownFlowDocumentBuilder {
             }
 
             if (trimmed.StartsWith("> ", StringComparison.Ordinal)) {
-                document.Blocks.Add(BuildQuote(trimmed[2..].Trim(), quoteFill, quoteBorder, codeFill, codeText));
+                document.Blocks.Add(BuildQuote(trimmed[2..].Trim(), quoteFill, quoteBorder));
                 continue;
             }
 
@@ -1851,7 +1845,7 @@ internal static class MarkdownFlowDocumentBuilder {
                     index++;
                 }
 
-                document.Blocks.Add(BuildList(listItems, codeFill, codeText));
+                document.Blocks.Add(BuildList(listItems));
                 continue;
             }
 
@@ -1864,7 +1858,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 continue;
             }
 
-            document.Blocks.Add(BuildParagraph(trimmed, codeFill, codeText));
+            document.Blocks.Add(BuildParagraph(trimmed));
         }
 
         return document;
@@ -1896,19 +1890,19 @@ internal static class MarkdownFlowDocumentBuilder {
         return paragraph;
     }
 
-    private static Paragraph BuildParagraph(string text, Brush codeFill, Brush codeText) {
+    private static Paragraph BuildParagraph(string text) {
         var paragraph = new Paragraph {
             Margin = new Thickness(0, 0, 0, 10)
         };
-        AddInlineText(paragraph.Inlines, text, codeFill, codeText);
+        AddInlineText(paragraph.Inlines, text);
         return paragraph;
     }
 
-    private static BlockUIContainer BuildQuote(string text, Brush quoteFill, Brush quoteBorder, Brush codeFill, Brush codeText) {
+    private static BlockUIContainer BuildQuote(string text, Brush quoteFill, Brush quoteBorder) {
         var paragraph = new Paragraph {
             Margin = new Thickness(0)
         };
-        AddInlineText(paragraph.Inlines, text, codeFill, codeText);
+        AddInlineText(paragraph.Inlines, text);
 
         return new BlockUIContainer(new Border {
             Background = quoteFill,
@@ -1927,7 +1921,7 @@ internal static class MarkdownFlowDocumentBuilder {
         });
     }
 
-    private static List BuildList(IEnumerable<string> items, Brush codeFill, Brush codeText) {
+    private static List BuildList(IEnumerable<string> items) {
         var list = new List {
             Margin = new Thickness(16, 0, 0, 10),
             MarkerStyle = TextMarkerStyle.Disc
@@ -1937,35 +1931,38 @@ internal static class MarkdownFlowDocumentBuilder {
             var paragraph = new Paragraph {
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            AddInlineText(paragraph.Inlines, item, codeFill, codeText);
+            AddInlineText(paragraph.Inlines, item);
             list.ListItems.Add(new ListItem(paragraph));
         }
 
         return list;
     }
 
-    private static BlockUIContainer BuildCodeBlock(string code, Brush codeFill, Brush codeBorder, Brush codeText) {
-        return new BlockUIContainer(new Border {
-            Background = codeFill,
-            BorderBrush = codeBorder,
+    private static BlockUIContainer BuildCodeBlock(string code) {
+        var textBox = new TextBox {
+            Text = code,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            TextWrapping = TextWrapping.NoWrap,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            FontFamily = new FontFamily("Consolas"),
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
+
+        var border = new Border {
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(12, 10, 12, 10),
             Margin = new Thickness(0, 2, 0, 10),
-            Child = new TextBox {
-                Text = code,
-                IsReadOnly = true,
-                AcceptsReturn = true,
-                AcceptsTab = true,
-                TextWrapping = TextWrapping.NoWrap,
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Foreground = codeText,
-                FontFamily = new FontFamily("Consolas"),
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-            }
-        });
+            Child = textBox
+        };
+        border.SetResourceReference(Border.BackgroundProperty, "CodeSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        return new BlockUIContainer(border);
     }
 
     private static bool TryReadTable(string[] lines, ref int index, out List<string[]> rows) {
@@ -2010,9 +2007,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 var paragraph = new Paragraph {
                     Margin = new Thickness(0)
                 };
-                var codeFill = Res("CodeSurface", DefaultCodeFillBrush);
-                var codeText = Res("CodeText",    DefaultCodeTextBrush);
-                AddInlineText(paragraph.Inlines, text, codeFill, codeText);
+                AddInlineText(paragraph.Inlines, text);
 
                 row.Cells.Add(new TableCell(paragraph) {
                     BorderBrush = tableRule,
@@ -2067,7 +2062,7 @@ internal static class MarkdownFlowDocumentBuilder {
         { "🟤", Color.FromRgb(0x6D, 0x4C, 0x41) },
     };
 
-    private static void AddInlineText(InlineCollection inlines, string text, Brush codeFill, Brush codeText) {
+    private static void AddInlineText(InlineCollection inlines, string text) {
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var segments = normalized.Split('`');
 
@@ -2079,9 +2074,9 @@ internal static class MarkdownFlowDocumentBuilder {
                 // Inside backtick code span — emit as-is in monospace.
                 var run = new Run(segments[index]) {
                     FontFamily = new FontFamily("Consolas"),
-                    Background = codeFill,
-                    Foreground = codeText,
                 };
+                run.SetResourceReference(TextElement.BackgroundProperty, "CodeSurface");
+                run.SetResourceReference(TextElement.ForegroundProperty, "CodeText");
                 inlines.Add(run);
                 continue;
             }
