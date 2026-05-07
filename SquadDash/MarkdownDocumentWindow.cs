@@ -491,16 +491,15 @@ internal sealed class MarkdownDocumentWindow : Window {
             docPath,
             reviseCallback,
             onRevised: revised => Dispatcher.Invoke(() => {
-                // Clean up adorner and indicator when revision completes
                 adorner?.Remove();
                 indicator?.Detach();
+                tb.IsReadOnly = false;
 
                 // Use live TextPointers to get current text after any edits; normalize to \n
                 var currentSelectedText = new TextRange(startPointer, endPointer).Text.Replace("\r\n", "\n");
                 
                 // Check if the original selection is still intact
                 if (currentSelectedText == selectedText) {
-                    // Replace using live TextPointers
                     var replaceRange = new TextRange(startPointer, endPointer);
                     replaceRange.Text = revised;
                 } else {
@@ -512,11 +511,16 @@ internal sealed class MarkdownDocumentWindow : Window {
                 priorFocus?.Focus();
                 Keyboard.Focus(priorFocus);
                 RevisionWorkingOverlay.ShowAt(popupCenter, this);
-
-                // Attach adorner and indicator after the popup starts the revision
+                tb.IsReadOnly = true;
                 adorner = RevisionHighlightAdorner.Attach(tb, startPointer, endPointer);
                 indicator = RevisionPendingIndicator.Attach(tb, endPointer);
             },
+            onRevisionComplete: () => Dispatcher.Invoke(() => {
+                // Fallback unlock — fires on failure/cancel as well as success
+                adorner?.Remove();
+                indicator?.Detach();
+                tb.IsReadOnly = false;
+            }),
             startPtt: _captureContext?.StartPttCallback,
             stopPtt:  _captureContext?.StopPttCallback);
 
@@ -1584,6 +1588,9 @@ internal sealed class MarkdownDocumentTabState {
         };
         EditorTextBox.SetResourceReference(RichTextBox.BackgroundProperty, "InputSurface");
         EditorTextBox.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        EditorTextBox.SetResourceReference(RichTextBox.SelectionBrushProperty, "DocEditorSelectionBrush");
+        EditorTextBox.SelectionOpacity = 1.0;
+        EditorTextBox.SetResourceReference(RichTextBox.SelectionTextBrushProperty, "DocEditorSelectionTextBrush");
         
         // Force plain-text paste — RichTextBox defaults to rich paste which would preserve formatting
         DataObject.AddPastingHandler(EditorTextBox, (s, e) => {

@@ -15,6 +15,7 @@ internal sealed class DocRevisePopup : Window {
     private readonly Func<string, string, string, string, CancellationToken, Task<string>> _reviseCallback;
     private readonly Action<string> _onRevised;
     private readonly Action<Point>? _onSubmitting;
+    private readonly Action? _onRevisionComplete;
     private readonly Action<TextBox>? _startPtt;
     private readonly Action? _stopPtt;
 
@@ -40,6 +41,7 @@ internal sealed class DocRevisePopup : Window {
         Func<string, string, string, string, CancellationToken, Task<string>> reviseCallback,
         Action<string> onRevised,
         Action<Point>? onSubmitting = null,
+        Action? onRevisionComplete = null,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null) {
         _selectedText = selectedText;
@@ -48,6 +50,7 @@ internal sealed class DocRevisePopup : Window {
         _reviseCallback = reviseCallback;
         _onRevised = onRevised;
         _onSubmitting = onSubmitting;
+        _onRevisionComplete = onRevisionComplete;
         _startPtt = startPtt;
         _stopPtt = stopPtt;
 
@@ -296,6 +299,7 @@ internal sealed class DocRevisePopup : Window {
         }
         catch { /* popup already dismissed — swallow silently */ }
         finally {
+            _onRevisionComplete?.Invoke();
             _cts?.Dispose();
             _cts = null;
         }
