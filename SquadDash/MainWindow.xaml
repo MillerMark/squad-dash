@@ -1422,7 +1422,8 @@
                                  PreviewMouseDown="OutputTextBox_PreviewMouseDown"
                                  PreviewMouseRightButtonDown="OutputTextBox_PreviewMouseRightButtonDown" />
                     <RichTextBox x:Name="AgentTranscriptBox"
-                                 Visibility="Collapsed"
+                                 Opacity="0"
+                                 IsHitTestVisible="False"
                                  VerticalScrollBarVisibility="Auto"
                                  Background="Transparent"
                                  BorderThickness="0"

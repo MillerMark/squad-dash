@@ -11507,9 +11507,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         // Toggle visibility instead of reassigning documents.
+        // Both RTBs stay Visible at all times; hide/show via Opacity so WPF keeps
+        // the compositor texture alive and avoids a full layout+repaint on every switch.
         // Coordinator: OutputTextBox stays permanently attached — no StructuralCache invalidation.
-        // Agent: AgentTranscriptBox gets the doc; OutputTextBox uses Hidden (not Collapsed) so
-        //        its layout stays valid and the next coordinator switch costs zero re-measure.
+        // Agent: AgentTranscriptBox gets the doc; both boxes use Opacity=0/1 (not Collapsed/Visible)
+        //        so their layout and render textures survive the switch.
         if (thread.Kind == TranscriptThreadKind.Coordinator)
         {
             // Reveal coordinator via Opacity (compositor-only — no repaint needed).
@@ -11517,12 +11519,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             // alive while an agent transcript is showing. Setting Opacity=1 is instant.
             OutputTextBox.Opacity = 1;
             OutputTextBox.IsHitTestVisible = true;
-            AgentTranscriptBox.Visibility = Visibility.Collapsed;
+            AgentTranscriptBox.Opacity = 0;
+            AgentTranscriptBox.IsHitTestVisible = false;
         }
         else
         {
             AgentTranscriptBox.Document = thread.Document;
-            AgentTranscriptBox.Visibility = Visibility.Visible;
+            AgentTranscriptBox.Opacity = 1;
+            AgentTranscriptBox.IsHitTestVisible = true;
             // Hide coordinator with Opacity=0 rather than Visibility.Hidden/Collapsed.
             // Opacity=0 keeps the compositor texture live so switching back is instant.
             OutputTextBox.Opacity = 0;
