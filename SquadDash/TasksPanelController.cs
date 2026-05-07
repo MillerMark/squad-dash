@@ -1,7 +1,9 @@
 namespace SquadDash;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -469,7 +471,7 @@ internal sealed class TasksPanelController {
     }
 
     private void ApplyFilterToPanel(StackPanel panel, bool syncHeadings) {
-        var (ownerFilter, textFilter) = ParseFilter(_filterText);
+        var (ownerCandidates, textFilter) = ParseFilter(_filterText);
 
         // Pass 1: show/hide item rows.
         foreach (UIElement child in panel.Children) {
@@ -477,10 +479,13 @@ internal sealed class TasksPanelController {
                 bool visible = true;
 
                 // Owner filter (from @handle or @me).
-                if (ownerFilter is not null)
-                    visible = ownerFilter == UserOwnedSentinel
-                        ? item.IsUserOwned
-                        : string.Equals(item.Owner?.Trim(), ownerFilter, StringComparison.OrdinalIgnoreCase);
+                if (ownerCandidates is not null) {
+                    if (ownerCandidates.Count == 1 && ownerCandidates[0] == UserOwnedSentinel)
+                        visible = item.IsUserOwned;
+                    else
+                        visible = ownerCandidates.Any(
+                            c => string.Equals(item.Owner?.Trim(), c, StringComparison.OrdinalIgnoreCase));
+                }
 
                 // Text filter applied on top — both conditions must hold.
                 if (visible && !string.IsNullOrEmpty(textFilter))
@@ -515,16 +520,16 @@ internal sealed class TasksPanelController {
     private const string UserOwnedSentinel = "\u0002USER_OWNED";
 
     /// <summary>
-    /// Parses <paramref name="filter"/> into an optional owner filter and an optional text filter.
+    /// Parses <paramref name="filter"/> into an optional owner candidate list and an optional text filter.
     /// <list type="bullet">
     ///   <item><c>""</c> or <c>"@"</c> alone → (null, "") — show everything</item>
-    ///   <item><c>"@handle"</c> → (resolvedOwner, "") — owner-only filter</item>
-    ///   <item><c>"@handle text"</c> → (resolvedOwner, "text") — both must match</item>
+    ///   <item><c>"@handle"</c> — exact match → ([resolvedName], "") — owner-only filter</item>
+    ///   <item><c>"@partial"</c> — prefix match → ([name1, name2, …], "") — all matching agents</item>
+    ///   <item><c>"@handle text"</c> → (candidates, "text") — both must match</item>
     ///   <item><c>"text"</c> → (null, "text") — plain text filter</item>
-    ///   <item>unresolved <c>"@handle"</c> → (null, full filter string) — plain text fallback</item>
     /// </list>
     /// </summary>
-    private (string? ownerFilter, string textFilter) ParseFilter(string filter) {
+    private (IReadOnlyList<string>? ownerCandidates, string textFilter) ParseFilter(string filter) {
         if (string.IsNullOrEmpty(filter))
             return (null, string.Empty);
 
@@ -542,30 +547,36 @@ internal sealed class TasksPanelController {
         if (string.IsNullOrEmpty(handle))
             return (null, remaining);
 
-        var ownerName = ResolveHandle(handle);
-        if (ownerName is not null)
-            return (ownerName, remaining);
+        // "@me" sentinel.
+        if (string.Equals(handle, "me", StringComparison.OrdinalIgnoreCase))
+            return (new[] { UserOwnedSentinel }, remaining);
+
+        var roster = _getRoster?.Invoke();
+        if (roster is not null) {
+            // Try exact match first.
+            foreach (var member in roster) {
+                var memberHandle = member.FolderPath is not null
+                    ? System.IO.Path.GetFileName(member.FolderPath)
+                    : member.Name.ToLowerInvariant().Replace(" ", "-");
+                if (string.Equals(memberHandle, handle, StringComparison.OrdinalIgnoreCase))
+                    return (new[] { member.Name }, remaining);
+            }
+
+            // Prefix match — collect all agents whose handle starts with the typed prefix.
+            var prefixMatches = new List<string>();
+            foreach (var member in roster) {
+                var memberHandle = member.FolderPath is not null
+                    ? System.IO.Path.GetFileName(member.FolderPath)
+                    : member.Name.ToLowerInvariant().Replace(" ", "-");
+                if (memberHandle.StartsWith(handle, StringComparison.OrdinalIgnoreCase))
+                    prefixMatches.Add(member.Name);
+            }
+            if (prefixMatches.Count > 0)
+                return (prefixMatches, remaining);
+        }
 
         // Unresolved handle — treat the whole filter as plain text.
         return (null, filter);
-    }
-
-    /// <summary>Resolves an @-handle to the agent display name, or the user-owned sentinel for "me".</summary>
-    private string? ResolveHandle(string handle) {
-        if (string.Equals(handle, "me", StringComparison.OrdinalIgnoreCase))
-            return UserOwnedSentinel;
-
-        var roster = _getRoster?.Invoke();
-        if (roster is null) return null;
-
-        foreach (var member in roster) {
-            var memberHandle = member.FolderPath is not null
-                ? System.IO.Path.GetFileName(member.FolderPath)
-                : member.Name.ToLowerInvariant().Replace(" ", "-");
-            if (string.Equals(memberHandle, handle, StringComparison.OrdinalIgnoreCase))
-                return member.Name;
-        }
-        return null;
     }
 
 

@@ -20089,20 +20089,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             // doesn't spuriously show all tasks due to stale open-popup state.
             if (TasksFilterBox is not null)
                 TryUpdateTasksIntelliSense();
-            // Suppress filtering while @ IntelliSense is open in the tasks filter — only commit
-            // the filter once the user accepts (text changes) or dismisses (Escape handler below).
-            // Exception: if only one candidate remains, apply that agent's filter as a live preview.
-            string filterText;
-            if (_intelliSenseState is not null && _intelliSenseOwnerBox == TasksFilterBox)
-            {
-                filterText = _intelliSenseState.FilteredSuggestions.Count == 1
-                    ? "@" + _intelliSenseState.FilteredSuggestions[0]
-                    : string.Empty;
-            }
-            else
-            {
-                filterText = text;
-            }
+            // While @ IntelliSense is open, pass the live typed text so the Tasks panel can do
+            // prefix-based owner filtering (e.g. "@v" shows all tasks owned by any agent whose
+            // handle starts with "v"). Once the user accepts a suggestion the full resolved handle
+            // is committed and the exact filter takes over.
+            string filterText = text;
             _tasksPanelController?.SetFilter(filterText);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
