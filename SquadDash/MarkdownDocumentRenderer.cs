@@ -147,7 +147,11 @@ internal sealed class MarkdownDocumentRenderer {
 
     internal Paragraph CreateTranscriptParagraph(double bottomMargin = 6) {
         return new Paragraph {
-            Margin = new Thickness(0, 0, 0, bottomMargin)
+            // Use Padding (not Margin) for the bottom gap so that WPF selection
+            // painting covers the space — Margin is outside the painted selection
+            // region, which causes a visible break when selecting across paragraphs.
+            Margin  = new Thickness(0),
+            Padding = new Thickness(0, 0, 0, bottomMargin)
         };
     }
 
@@ -327,9 +331,10 @@ internal sealed class MarkdownDocumentRenderer {
 
     private Paragraph BuildNumberedListParagraph(int number, string text, bool isLast = false) {
         var p = new Paragraph {
-            Margin = new Thickness(16, 1, 0, isLast ? 12 : 1),
-            TextIndent = -12,
-            Tag = $"{number}. {text}"
+            Margin      = new Thickness(16, 0, 0, 0),
+            Padding     = new Thickness(0, 1, 0, isLast ? 12 : 1),
+            TextIndent  = -12,
+            Tag         = $"{number}. {text}"
         };
         var markerRun = new Run($"{number}. ");
         markerRun.SetResourceReference(TextElement.ForegroundProperty, "ListMarkerText");
@@ -340,9 +345,10 @@ internal sealed class MarkdownDocumentRenderer {
 
     private Paragraph BuildBulletParagraph(string text, bool isLast = false) {
         var p = new Paragraph {
-            Margin = new Thickness(16, 1, 0, isLast ? 12 : 1),
-            TextIndent = -12,
-            Tag = $"- {text}"
+            Margin      = new Thickness(16, 0, 0, 0),
+            Padding     = new Thickness(0, 1, 0, isLast ? 12 : 1),
+            TextIndent  = -12,
+            Tag         = $"- {text}"
         };
         var markerRun = new Run("• ");
         markerRun.SetResourceReference(TextElement.ForegroundProperty, "ListMarkerText");
