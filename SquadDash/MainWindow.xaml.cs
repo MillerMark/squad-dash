@@ -3255,7 +3255,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                             if (turn.Tools is not null)
                                 allToolOutputs.AddRange(turn.Tools.Select(t => t.OutputText));
                         }
-                        if (agentThread.CurrentTurn?.ToolEntries is not null)
+                        if (agentThread.CurrentTurn?.ToolEntries is not null &&
+                            agentThread.CurrentTurn.StartedAt >= turnStartedAt)
                             allToolOutputs.AddRange(agentThread.CurrentTurn.ToolEntries.Select(e => e.OutputText));
                     }
 
@@ -3278,9 +3279,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                         var item = CommitApprovalItem.Create(commitInfo.CommitSha, commitUrl, description,
                                                                       turnStartedAt, hint,
                                                                       originalPrompt: doneCurrentTurn?.Prompt?.Trim());
-                        _approvalItems.Add(item);
-                        _approvalStore?.Save(_approvalItems);
-                        _approvalPanel?.AddItem(item);
+                        // Guard: never add a duplicate SHA — a stale agent CurrentTurn or context
+                        // echo can cause the same SHA to be detected on a subsequent turn.
+                        if (!_approvalItems.Any(a => string.Equals(a.CommitSha, item.CommitSha,
+                                                                    StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _approvalItems.Add(item);
+                            _approvalStore?.Save(_approvalItems);
+                            _approvalPanel?.AddItem(item);
+                        }
                         // ─────────────────────────────────────────────────────────────────
                     }
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
