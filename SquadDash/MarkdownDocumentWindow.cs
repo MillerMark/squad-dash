@@ -664,7 +664,11 @@ internal sealed class MarkdownDocumentWindow : Window {
         }
 
         if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
-        if (e.Key == System.Windows.Input.Key.B) {
+        if (e.Key == System.Windows.Input.Key.Z
+            && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0) {
+            if (tb.CanRedo) tb.Redo();
+            e.Handled = true;
+        } else if (e.Key == System.Windows.Input.Key.B) {
             MarkdownEditorCommands.ApplyBold(tb);
             e.Handled = true;
         } else if (e.Key == System.Windows.Input.Key.I) {

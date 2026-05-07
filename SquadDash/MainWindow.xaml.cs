@@ -6154,6 +6154,16 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void DocSourceTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        // ── Ctrl+Shift+Z → Redo ───────────────────────────────────────────────────
+        if (e.Key == System.Windows.Input.Key.Z
+            && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            if (DocSourceTextBox.CanRedo)
+                DocSourceTextBox.Redo();
+            e.Handled = true;
+            return;
+        }
+
         // ── Smooth Dictation: Shift+Space on selection ────────────────────────────
         if (e.Key == System.Windows.Input.Key.Space
             && Keyboard.Modifiers == ModifierKeys.Shift
@@ -6328,6 +6338,25 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
+            // ── Ctrl+Shift+Z: Redo — works in any focused text control ─────────────
+            if (e.Key == Key.Z
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                if (Keyboard.FocusedElement is RichTextBox rtb && rtb.CanRedo)
+                {
+                    rtb.Redo();
+                    e.Handled = true;
+                    return;
+                }
+                if (Keyboard.FocusedElement is TextBox txb && txb.CanUndo)
+                {
+                    ApplicationCommands.Redo.Execute(null, txb);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             // ── Ctrl+Shift+A: Revise with AI — fires from ANY focused text box with a selection ──
             if (e.Key == Key.A
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
