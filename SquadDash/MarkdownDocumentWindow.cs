@@ -1644,6 +1644,8 @@ internal sealed class MarkdownDocumentTabState {
         };
         EditorTextBox.SetResourceReference(RichTextBox.BackgroundProperty, "InputSurface");
         EditorTextBox.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        EditorTextBox.SetResourceReference(RichTextBox.SelectionBrushProperty, "DocEditorSelectionBrush");
+        EditorTextBox.SelectionOpacity = 1.0;
         
         // Force plain-text paste — RichTextBox defaults to rich paste which would preserve formatting
         DataObject.AddPastingHandler(EditorTextBox, (s, e) => {
