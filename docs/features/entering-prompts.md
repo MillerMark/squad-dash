@@ -65,6 +65,31 @@ See the [Keyboard Shortcuts](../reference/keyboard-shortcuts.md) reference for t
 
 ---
 
+## @ Agent References
+
+Type `@` anywhere in the prompt box to address a specific agent directly. An IntelliSense dropdown appears below the cursor listing the agents on your squad.
+
+![Screenshot: @ IntelliSense dropdown appearing below the cursor after typing @ in the prompt box](images/prompt-at-intellisense.png)
+> 📸 *Screenshot needed: Prompt box with `@` or a few letters typed (e.g. `@ly`), IntelliSense dropdown open beneath the cursor showing matching agent names with one entry highlighted.*
+
+Use **↑** / **↓** to move through the list, **Tab** or **Enter** to accept, and **Escape** to dismiss without inserting.
+
+Accepting a suggestion inserts `@handle ` into your prompt — the agent's kebab-case handle followed by a space. The prompt is **not submitted automatically**; you can continue typing, add more text, or mention additional agents before sending.
+
+![Screenshot: Prompt box after accepting an @ suggestion — showing @handle inserted mid-prompt](images/prompt-at-accepted.png)
+> 📸 *Screenshot needed: Prompt text box after accepting a suggestion — show the resulting `@handle` text in the box with the cursor positioned after the trailing space, ready for more input.*
+
+### What happens when you send a prompt with `@handle`
+
+| Scenario | Result |
+|---|---|
+| One agent mentioned — `@lyra-morn please fix the dialog` | Coordinator routes the request **directly to that specialist**. |
+| Multiple agents mentioned — `@lyra-morn update the UI and @arjun-sen wire the backend` | Coordinator **orchestrates both named specialists** for the request. |
+
+> **Tip:** You can place `@handle` mentions anywhere in your prompt — at the start, mid-sentence, or at the end. SquadDash scans the full prompt text for recognized handles before routing.
+
+---
+
 ## See Also
 
 - **[Prompt Queue](prompt-queue.md)** — What happens when you send a prompt while an agent is already running
