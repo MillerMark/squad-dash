@@ -829,39 +829,68 @@
                                 </ContextMenu>
                             </Border.ContextMenu>
                             <DockPanel LastChildFill="False">
-                                <Grid DockPanel.Dock="Top">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                        <TextBlock Text="Loop"
-                                                   FontSize="15"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource RosterPanelTitle}" />
-                                    </StackPanel>
+                                <!-- Title row: "Loop" | file picker | close button -->
+                                <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="Loop"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               Foreground="{DynamicResource RosterPanelTitle}" />
+                                    <ComboBox x:Name="LoopFilePicker"
+                                              Grid.Column="1"
+                                              Margin="8,0,6,0"
+                                              VerticalAlignment="Center"
+                                              Visibility="Collapsed"
+                                              Style="{StaticResource ThemedComboBoxStyle}"
+                                              ToolTip="Select which loop file to run"
+                                              SelectionChanged="LoopFilePicker_SelectionChanged" />
                                     <Button x:Name="LoopPanelCloseButton"
+                                            Grid.Column="2"
                                             Content="×"
                                             Width="22"
                                             Height="22"
                                             FontSize="13"
-                                            HorizontalAlignment="Right"
                                             VerticalAlignment="Top"
                                             Style="{StaticResource PanelCloseButtonStyle}"
                                             ToolTip="Hide Loop panel"
                                             Click="LoopPanelCloseButton_Click" />
                                 </Grid>
+                                <!-- Status text -->
                                 <TextBlock x:Name="LoopStatusLabel"
                                            DockPanel.Dock="Top"
                                            Text=""
                                            Visibility="Collapsed"
-                                           Margin="0,4,0,6"
+                                           Margin="0,0,0,6"
                                            Foreground="{DynamicResource BodyText}" />
-                                <ComboBox x:Name="LoopFilePicker"
-                                          DockPanel.Dock="Top"
-                                          Margin="0,0,0,6"
-                                          MaxWidth="144"
-                                          HorizontalAlignment="Left"
-                                          Visibility="Collapsed"
-                                          Style="{StaticResource ThemedComboBoxStyle}"
-                                          ToolTip="Select which loop file to run"
-                                          SelectionChanged="LoopFilePicker_SelectionChanged" />
+                                <!-- Loop mode options (always visible, not inside scroll) -->
+                                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                    <RadioButton x:Name="LoopModeCliRadio"
+                                                 Content="Squad CLI"
+                                                 GroupName="LoopMode"
+                                                 ToolTipService.ShowOnDisabled="True"
+                                                 Style="{StaticResource ThemedRadioButtonStyle}"
+                                                 Click="LoopModeCliRadio_Click" />
+                                    <RadioButton x:Name="LoopModeNativeRadio"
+                                                 Content="SquadDash Agents"
+                                                 GroupName="LoopMode"
+                                                 IsChecked="True"
+                                                 Margin="0,2,0,4"
+                                                 Style="{StaticResource ThemedRadioButtonStyle}"
+                                                 Click="LoopModeNativeRadio_Click" />
+                                    <CheckBox x:Name="LoopContinuousContextCheckBox"
+                                              Content="Continuous context"
+                                              IsChecked="True"
+                                              Foreground="{DynamicResource LabelText}"
+                                              ToolTip="When checked, each iteration continues in the same session and can see prior results. Uncheck for a fresh, lower-cost session each iteration."
+                                              Click="LoopContinuousContextCheckBox_Click" />
+                                </StackPanel>
+                                <!-- Action buttons -->
                                 <Button x:Name="StartLoopButton"
                                         DockPanel.Dock="Top"
                                         Content="▶ Start Loop"
@@ -884,37 +913,14 @@
                                         Style="{StaticResource ThemedButtonStyle}"
                                         ToolTip="Abort Loop (Ctrl+Shift+Break)"
                                         Click="AbortLoopButton_Click" />
+                                <!-- Per-loop custom UI (scrollable) -->
                                 <ScrollViewer DockPanel.Dock="Top"
                                               Margin="0,8,0,0"
                                               MaxHeight="200"
                                               VerticalScrollBarVisibility="Auto">
-                                    <StackPanel>
-                                        <StackPanel Margin="0,0,0,6">
-                                            <RadioButton x:Name="LoopModeCliRadio"
-                                                         Content="Squad CLI"
-                                                         GroupName="LoopMode"
-                                                         ToolTipService.ShowOnDisabled="True"
-                                                         Style="{StaticResource ThemedRadioButtonStyle}"
-                                                         Click="LoopModeCliRadio_Click" />
-                                            <RadioButton x:Name="LoopModeNativeRadio"
-                                                         Content="SquadDash Agents"
-                                                         GroupName="LoopMode"
-                                                         IsChecked="True"
-                                                         Margin="0,2,0,0"
-                                                         Style="{StaticResource ThemedRadioButtonStyle}"
-                                                         Click="LoopModeNativeRadio_Click" />
-                                        </StackPanel>
-                                        <CheckBox x:Name="LoopContinuousContextCheckBox"
-                                                  Content="Continuous context"
-                                                  IsChecked="True"
-                                                  Margin="0,0,0,8"
-                                                  Foreground="{DynamicResource LabelText}"
-                                                  ToolTip="When checked, each iteration continues in the same session and can see prior results. Uncheck for a fresh, lower-cost session each iteration."
-                                                  Click="LoopContinuousContextCheckBox_Click" />
-                                        <StackPanel x:Name="LoopOptionsPanel"
-                                                    Margin="0,0,0,6"
-                                                    Visibility="Collapsed" />
-                                    </StackPanel>
+                                    <StackPanel x:Name="LoopOptionsPanel"
+                                                Margin="0,0,0,6"
+                                                Visibility="Collapsed" />
                                 </ScrollViewer>
                             </DockPanel>
                         </Border>
