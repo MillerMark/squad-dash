@@ -69,6 +69,9 @@ internal sealed class ClipboardImageEditorWindow : Window
     // Zoom percentage label (declared as field so the wheel handler can update it)
     private TextBlock? _zoomLabel;
 
+    // ScrollViewer wrapping the canvas (field so the wheel handler can adjust offsets)
+    private ScrollViewer _scrollViewer = null!;
+
     // ── Round corners ─────────────────────────────────────────────────────────
 
     private bool _roundCorners;
@@ -373,12 +376,31 @@ internal sealed class ClipboardImageEditorWindow : Window
         PreviewMouseWheel += (_, e) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+
+            var mouseInViewport = e.GetPosition(_scrollViewer);
+            double oldZoom = _zoom;
+
             var factor = e.Delta > 0 ? 1.1 : 1.0 / 1.1;
             _zoom = Math.Max(0.1, Math.Min(8.0, _zoom * factor));
             _scaleTransform.ScaleX = _zoom;
             _scaleTransform.ScaleY = _zoom;
             if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
             UpdateWindowSizeForZoom();
+
+            // Force a synchronous layout pass so scroll extents reflect the new zoom.
+            _scrollViewer.UpdateLayout();
+
+            // Pin the image pixel under the cursor when scrollbars are active.
+            // Skip if any drag is in progress (mouse is captured by a canvas element).
+            if (Mouse.Captured == null &&
+                (_scrollViewer.ScrollableWidth > 0 || _scrollViewer.ScrollableHeight > 0))
+            {
+                double imagePointX = (_scrollViewer.HorizontalOffset + mouseInViewport.X) / oldZoom;
+                double imagePointY = (_scrollViewer.VerticalOffset + mouseInViewport.Y) / oldZoom;
+                _scrollViewer.ScrollToHorizontalOffset(imagePointX * _zoom - mouseInViewport.X);
+                _scrollViewer.ScrollToVerticalOffset(imagePointY * _zoom - mouseInViewport.Y);
+            }
+
             e.Handled = true;
         };
 
@@ -392,19 +414,19 @@ internal sealed class ClipboardImageEditorWindow : Window
             Margin = new Thickness(4)
         };
 
-        var scrollViewer = new ScrollViewer
+        _scrollViewer = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = canvasWrapper
         };
-        scrollViewer.SetResourceReference(BackgroundProperty, "AppSurface");
+        _scrollViewer.SetResourceReference(BackgroundProperty, "AppSurface");
 
         var toolbar = BuildToolbar();
         var root = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(toolbar, Dock.Bottom);
         root.Children.Add(toolbar);
-        root.Children.Add(scrollViewer);
+        root.Children.Add(_scrollViewer);
         Content = root;
 
         Loaded += (_, _) =>
