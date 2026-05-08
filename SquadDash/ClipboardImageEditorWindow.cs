@@ -802,7 +802,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     // P/Invoke for per-monitor work area (used when System.Windows.Forms is unavailable)
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out Rect32 lpRect);
@@ -813,14 +813,13 @@ internal sealed class ClipboardImageEditorWindow : Window
     private struct Rect32 { public int Left, Top, Right, Bottom; }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct MonitorInfo
     {
         public uint cbSize;
         public Rect32 rcMonitor;
         public Rect32 rcWork;
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.ByValTStr, SizeConst = 32)]
-        public string szDevice;
+        public uint dwFlags;  // required field — was missing, causing GetMonitorInfo to return false
     }
 
     private const uint MONITOR_DEFAULTTONEAREST = 2;
