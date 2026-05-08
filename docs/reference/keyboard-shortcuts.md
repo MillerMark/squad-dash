@@ -85,6 +85,10 @@ See **[Fullscreen Transcript Mode](../features/fullscreen-transcript.md)** for f
 |---|---|
 | **Ctrl+Page Up** | Navigate to the previous prompt in history |
 | **Ctrl+Page Down** | Navigate to the next prompt in history |
+| **Ctrl+Shift+Page Up** | Jump to the very first prompt |
+| **Ctrl+Shift+Page Down** | Jump to the very latest prompt |
+| **Alt+▲ (nav button)** | Jump to the previous prompt containing a `?` (question review mode) |
+| **Alt+▼ (nav button)** | Jump to the next prompt containing a `?` (question review mode) |
 
 ---
 

@@ -16058,13 +16058,33 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
-            GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
+            // Alt+click: find the nearest prompt above that contains a question mark.
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            {
+                GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
+                var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx : thread.PromptParagraphs.Count - 1;
+                for (int i = startIdx; i >= 0; i--)
+                {
+                    var text = new System.Windows.Documents.TextRange(
+                        thread.PromptParagraphs[i].Paragraph.ContentStart,
+                        thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
+                    if (text.Contains('?'))
+                    {
+                        thread.PromptNavIndex = i;
+                        ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                        return;
+                    }
+                }
+                return;
+            }
+
+            GetScrollBasedNavState(out _, out _, out int nearestAboveIdx2, out _);
 
             int target;
-            if (nearestAboveIdx >= 0)
+            if (nearestAboveIdx2 >= 0)
             {
                 // Jump to the nearest prompt above the viewport.
-                target = nearestAboveIdx;
+                target = nearestAboveIdx2;
             }
             else
             {
@@ -16101,11 +16121,31 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
-            GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
-            if (nearestBelowIdx < 0) return;
+            // Alt+click: find the nearest prompt below that contains a question mark.
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            {
+                GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
+                if (nearestBelowIdx < 0) return;
+                for (int i = nearestBelowIdx; i < thread.PromptParagraphs.Count; i++)
+                {
+                    var text = new System.Windows.Documents.TextRange(
+                        thread.PromptParagraphs[i].Paragraph.ContentStart,
+                        thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
+                    if (text.Contains('?'))
+                    {
+                        thread.PromptNavIndex = i;
+                        ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                        return;
+                    }
+                }
+                return;
+            }
 
-            thread.PromptNavIndex = nearestBelowIdx;
-            ScrollToPromptParagraph(thread.PromptParagraphs[nearestBelowIdx].Paragraph);
+            GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx2);
+            if (nearestBelowIdx2 < 0) return;
+
+            thread.PromptNavIndex = nearestBelowIdx2;
+            ScrollToPromptParagraph(thread.PromptParagraphs[nearestBelowIdx2].Paragraph);
         }
         catch (Exception ex)
         {
