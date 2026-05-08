@@ -267,6 +267,11 @@ internal sealed class ClipboardImageEditorWindow : Window
         Left = monitorArea.Left + (monitorArea.Width  - Width)  / 2.0;
         Top  = monitorArea.Top  + (monitorArea.Height - Height) / 2.0;
 
+        System.Diagnostics.Trace.WriteLine(
+            $"[ClipboardImageEditor] owner.Left={owner.Left} owner.Top={owner.Top} " +
+            $"owner.State={owner.WindowState} monitorArea={monitorArea} " +
+            $"dialog Left={Left} Top={Top}");
+
         // ── Canvas ───────────────────────────────────────────────────────────
 
         _canvas = new Canvas
@@ -757,9 +762,15 @@ internal sealed class ClipboardImageEditorWindow : Window
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Rect32 lpRect);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Rect32 { public int Left, Top, Right, Bottom; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
     private struct MonitorInfo
     {
@@ -775,29 +786,70 @@ internal sealed class ClipboardImageEditorWindow : Window
     /// <summary>
     /// Returns the work area of the monitor that <paramref name="w"/> is on as a WPF DIP
     /// <see cref="Rect"/> (origin = top-left of work area in screen coordinates).
-    /// Falls back to <see cref="SystemParameters.WorkArea"/> if the call fails.
+    /// Uses GetWindowRect → center point → MonitorFromPoint for robustness when the window
+    /// is maximized or the HWND is not yet materialized. Falls back through WPF coordinates
+    /// and finally to <see cref="SystemParameters.WorkArea"/> (primary monitor).
     /// </summary>
     private static Rect GetMonitorWorkAreaRect(Window w)
     {
         try
         {
             var helper = new System.Windows.Interop.WindowInteropHelper(w);
-            var hMonitor = MonitorFromWindow(helper.Handle, MONITOR_DEFAULTTONEAREST);
-            var mi = new MonitorInfo { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MonitorInfo>() };
-            if (GetMonitorInfo(hMonitor, ref mi))
+            IntPtr hwnd = helper.Handle;
+
+            // Strategy 1: GetWindowRect gives actual pixel bounds even when maximized,
+            // unlike WPF Left/Top which reflects restore bounds. MonitorFromPoint on the
+            // center is more reliable than MonitorFromWindow when HWND may be transitional.
+            if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out Rect32 wr))
             {
-                var source = System.Windows.Interop.HwndSource.FromHwnd(helper.Handle);
-                double sx = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-                double sy = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-                double l = mi.rcWork.Left   / sx;
-                double t = mi.rcWork.Top    / sy;
-                double ww = (mi.rcWork.Right  - mi.rcWork.Left) / sx;
-                double wh = (mi.rcWork.Bottom - mi.rcWork.Top)  / sy;
-                return new Rect(l, t, ww, wh);
+                int cx = (wr.Left + wr.Right)  / 2;
+                int cy = (wr.Top  + wr.Bottom) / 2;
+                var hMon = MonitorFromPoint(new POINT { X = cx, Y = cy }, MONITOR_DEFAULTTONEAREST);
+                if (hMon != IntPtr.Zero)
+                {
+                    var mi = new MonitorInfo { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MonitorInfo>() };
+                    if (GetMonitorInfo(hMon, ref mi))
+                    {
+                        var source = System.Windows.Interop.HwndSource.FromHwnd(hwnd);
+                        double sx = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                        double sy = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+                        return new Rect(
+                            mi.rcWork.Left   / sx,
+                            mi.rcWork.Top    / sy,
+                            (mi.rcWork.Right  - mi.rcWork.Left) / sx,
+                            (mi.rcWork.Bottom - mi.rcWork.Top)  / sy);
+                    }
+                }
+            }
+
+            // Strategy 2: HWND not yet available — use WPF Left/Top to estimate screen center.
+            // For maximized windows this is the restore position, but still beats falling back
+            // all the way to the primary monitor.
+            double dpiX = 1.0, dpiY = 1.0;
+            if (hwnd != IntPtr.Zero)
+            {
+                var src = System.Windows.Interop.HwndSource.FromHwnd(hwnd);
+                dpiX = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                dpiY = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            }
+            int wpfCx = (int)((w.Left + w.Width  / 2) * dpiX);
+            int wpfCy = (int)((w.Top  + w.Height / 2) * dpiY);
+            var hMon2 = MonitorFromPoint(new POINT { X = wpfCx, Y = wpfCy }, MONITOR_DEFAULTTONEAREST);
+            if (hMon2 != IntPtr.Zero)
+            {
+                var mi2 = new MonitorInfo { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MonitorInfo>() };
+                if (GetMonitorInfo(hMon2, ref mi2))
+                {
+                    return new Rect(
+                        mi2.rcWork.Left   / dpiX,
+                        mi2.rcWork.Top    / dpiY,
+                        (mi2.rcWork.Right  - mi2.rcWork.Left) / dpiX,
+                        (mi2.rcWork.Bottom - mi2.rcWork.Top)  / dpiY);
+                }
             }
         }
         catch { }
-        return SystemParameters.WorkArea;
+        return SystemParameters.WorkArea; // last resort: primary monitor
     }
 
     /// <summary>
