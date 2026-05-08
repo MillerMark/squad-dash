@@ -57,14 +57,14 @@ internal sealed class DiffHoverPopup : Popup {
             switch (line.Kind) {
                 case DiffLineKind.Added:
                     textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
-                    // Blue tint at ~15% opacity
-                    textBlock.Background = new SolidColorBrush(Color.FromArgb(38, 107, 174, 214));
+                    // Blue tint at ~25% opacity
+                    textBlock.Background = new SolidColorBrush(Color.FromArgb(65, 107, 174, 214));
                     break;
 
                 case DiffLineKind.Removed:
                     textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffRemovedText");
-                    // Red tint at ~15% opacity
-                    textBlock.Background = new SolidColorBrush(Color.FromArgb(38, 224, 112, 112));
+                    // Red tint at ~25% opacity
+                    textBlock.Background = new SolidColorBrush(Color.FromArgb(65, 224, 112, 112));
                     break;
 
                 case DiffLineKind.Header:
