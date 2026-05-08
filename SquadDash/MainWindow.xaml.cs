@@ -5718,6 +5718,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _pendingPrimaryTranscriptVisualThread = thread;
 
+        foreach (var card in _agents)
+            card.IsTranscriptTargetSelected = ReferenceEquals(card, agent);
+
         if (!ReferenceEquals(previousVisualThread, thread))
         {
             previousVisualThread.IsSelected = false;
@@ -5733,9 +5736,6 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         thread.IsSelected = true;
         SyncThreadChip(thread);
-
-        foreach (var card in _agents)
-            card.IsTranscriptTargetSelected = ReferenceEquals(card, agent);
 
         UpdateTranscriptThreadBadge(thread);
         var clearedSelections = CollapseTranscriptSelectionsForFastSwitch("primary-visual");
