@@ -2233,7 +2233,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
 
-        _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
+        _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive(), loopQueuedToDequeue: _loopQueued);
         SyncSendButton();
         BuildShortcutsHint();
         SquadDashTrace.Write(TraceCategory.Performance,
@@ -2266,7 +2266,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         UpdateQueueTabHint(hintBlock, newId);
 
         _conversationManager.UpdateQueuedPromptsState(
-            _promptQueue.Items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
+            _promptQueue.Items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive(), loopQueuedToDequeue: _loopQueued);
         SyncSendButton();
 
         SquadDashTrace.Write(TraceCategory.Performance,
