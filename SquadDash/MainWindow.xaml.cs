@@ -7888,10 +7888,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (card is null) return;
 
             bool shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-            var visualSw = Stopwatch.StartNew();
-            SyncSelectionControllerWithUiState("AgentThreadChipButton_Click");
-            _selectionController.HandleChipClick(card, thread, shiftHeld);
-            SyncImmediatePanelToggleVisuals(card, shiftHeld ? "chip-shift-click" : "chip-click", visualSw);
+            if (shiftHeld)
+            {
+                var visualSw = Stopwatch.StartNew();
+                SyncSelectionControllerWithUiState("AgentThreadChipButton_Click.Shift");
+                _selectionController.HandleChipClick(card, thread, shiftHeld: true);
+                SyncImmediatePanelToggleVisuals(card, "chip-shift-click", visualSw);
+            }
+            else
+            {
+                ShowThreadInMainTranscript(card, thread);
+            }
             e.Handled = true;
         }
         catch (Exception ex)
@@ -7949,12 +7956,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             var card = FindAgentCardForThread(thread);
             if (card is not null)
-            {
-                var visualSw = Stopwatch.StartNew();
-                SyncSelectionControllerWithUiState("OverflowMenuThreadItem_Click");
-                _selectionController.HandleChipClick(card, thread, shiftHeld: false);
-                SyncImmediatePanelToggleVisuals(card, "overflow-chip-click", visualSw);
-            }
+                ShowThreadInMainTranscript(card, thread);
         }
         catch (Exception ex)
         {
@@ -12767,6 +12769,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         var thread = GetTranscriptThreadForAgent(agent);
         var previousThread = ApplyImmediatePrimaryTranscriptSelectionVisuals(agent, thread);
         QueueDeferredPrimaryTranscriptSelection(agent, thread, previousThread);
+    }
+
+    /// <summary>
+    /// Shows a specific agent thread full-screen in the main transcript area (plain chip click).
+    /// Closes all secondary panels and shows main, identical to ShowSingleTranscript but
+    /// targeting an explicit thread rather than the agent's most recent one.
+    /// </summary>
+    private void ShowThreadInMainTranscript(AgentStatusCard card, TranscriptThreadState thread)
+    {
+        var previousThread = ApplyImmediatePrimaryTranscriptSelectionVisuals(card, thread);
+        QueueDeferredPrimaryTranscriptSelection(card, thread, previousThread);
     }
 
     private void ToggleAgentTranscriptVisibility(AgentStatusCard agent)
