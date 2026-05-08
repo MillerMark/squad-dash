@@ -115,8 +115,8 @@
     <SolidColorBrush x:Key="TranscriptActionHoverSurface" Color="#D4E8F6"/>
     <SolidColorBrush x:Key="TranscriptActionBorder" Color="#B0C8E0"/>
     <SolidColorBrush x:Key="TranscriptActionText" Color="#2E70B4"/>
-    <SolidColorBrush x:Key="DiffAddedText" Color="#2E6898"/>
-    <SolidColorBrush x:Key="DiffRemovedText" Color="#B03030"/>
+    <SolidColorBrush x:Key="DiffAddedText" Color="#26557D"/>
+    <SolidColorBrush x:Key="DiffRemovedText" Color="#902727"/>
     <SolidColorBrush x:Key="DiffDeletedFileText" Color="#A77575"/>
     <!-- Chip State Tokens -->
     <SolidColorBrush x:Key="ChipSelectedSurface" Color="#E5F0FF"/>
