@@ -115,6 +115,12 @@ internal sealed class ClipboardImageEditorWindow : Window
     private Line? _arrowDragPreviewLine;
     private Polygon? _arrowDragPreviewHead;
 
+    // Crosshair shown at target point while dragging arrow tip/tail
+    private Line? _crosshairWhiteH;
+    private Line? _crosshairWhiteV;
+    private Line? _crosshairRedH;
+    private Line? _crosshairRedV;
+
     // Color picker
     private StackPanel? _colorPickerPanel;
     private AnnotationArrow? _colorPickerArrow;
@@ -1308,6 +1314,12 @@ internal sealed class ClipboardImageEditorWindow : Window
                     new Point(baseX + px * HeadHalf, baseY + py * HeadHalf),
                     new Point(baseX - px * HeadHalf, baseY - py * HeadHalf)
                 };
+                // Show crosshair at 1/4 of drag length past the tip (toward target).
+                ShowCrosshair(headPt.X + ux2 * dist2 * 0.25, headPt.Y + uy2 * dist2 * 0.25);
+            }
+            else
+            {
+                HideCrosshair();
             }
             e.Handled = true;
             return;
@@ -1413,6 +1425,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             _canvas.ReleaseMouseCapture();
             if (_arrowDragPreviewLine != null) { _canvas.Children.Remove(_arrowDragPreviewLine); _arrowDragPreviewLine = null; }
             if (_arrowDragPreviewHead != null) { _canvas.Children.Remove(_arrowDragPreviewHead); _arrowDragPreviewHead = null; }
+            HideCrosshair();
 
             var headPt = e.GetPosition(_canvas);
             var tailPt = _arrowDragTailPt;
@@ -1491,6 +1504,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                     _canvas.ReleaseMouseCapture();
                     if (_arrowDragPreviewLine != null) { _canvas.Children.Remove(_arrowDragPreviewLine); _arrowDragPreviewLine = null; }
                     if (_arrowDragPreviewHead != null) { _canvas.Children.Remove(_arrowDragPreviewHead); _arrowDragPreviewHead = null; }
+                    HideCrosshair();
                     _preDragSnapshot = null;
                 }
                 ExitArrowMode(); e.Handled = true; return;
@@ -1754,6 +1768,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                 ? Math.Max(64, Math.Min(arrow.UserTailLength, maxFromTip))
                 : ComputeInitialTailLength(pivot, newAngle, arrow.ArrowLength);
             UpdateArrowGeometry(arrow);
+            ShowCrosshairForArrow(arrow, pivot);
             e.Handled = true;
         };
         tipHandle.MouseLeftButtonUp += (_, e) =>
@@ -1764,6 +1779,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             SaveArrowDefaults();
             CommitDragUndo();
             _draggingArrow = null;
+            HideCrosshair();
             tipHandle.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -1795,6 +1811,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             var total = Math.Max(arrow.ArrowLength + MinTail, dist);
             arrow.TailLength = Math.Max(MinTail, total - arrow.ArrowLength);
             UpdateArrowGeometry(arrow);
+            ShowCrosshairForArrow(arrow, pivot);
             e.Handled = true;
         };
         tailHandle.MouseLeftButtonUp += (_, e) =>
@@ -1807,6 +1824,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             CommitDragUndo();
             _draggingArrow = null;
             _tailDragging = false;
+            HideCrosshair();
             tailHandle.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -1931,6 +1949,65 @@ internal sealed class ClipboardImageEditorWindow : Window
         });
         arrow.ShadowHead.Points = new PointCollection(
             arrow.Head.Points.Select(p => p + new Vector(2, 2)));
+    }
+
+    // ── Crosshair overlay (shown while dragging arrow tip/tail) ──────────────
+
+    private void EnsureCrosshairLines()
+    {
+        if (_crosshairRedH != null) return;
+        const double Thick = 1.5;
+        _crosshairWhiteH = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, IsHitTestVisible = false };
+        _crosshairWhiteV = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, IsHitTestVisible = false };
+        _crosshairRedH   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,       IsHitTestVisible = false };
+        _crosshairRedV   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,       IsHitTestVisible = false };
+        foreach (var l in new[] { _crosshairWhiteH, _crosshairWhiteV, _crosshairRedH, _crosshairRedV })
+        {
+            Panel.SetZIndex(l, 100);
+            l.Visibility = Visibility.Collapsed;
+            _canvas.Children.Add(l);
+        }
+    }
+
+    private void ShowCrosshair(double cx, double cy)
+    {
+        EnsureCrosshairLines();
+        const double Half   = 10.0;
+        const double Shadow = 1.2;   // white offset to create a shadow behind the red lines
+        _crosshairWhiteH!.X1 = cx - Half + Shadow; _crosshairWhiteH.Y1 = cy + Shadow;
+        _crosshairWhiteH.X2  = cx + Half + Shadow; _crosshairWhiteH.Y2 = cy + Shadow;
+        _crosshairWhiteV!.X1 = cx + Shadow; _crosshairWhiteV.Y1 = cy - Half + Shadow;
+        _crosshairWhiteV.X2  = cx + Shadow; _crosshairWhiteV.Y2 = cy + Half + Shadow;
+        _crosshairRedH!.X1 = cx - Half; _crosshairRedH.Y1 = cy;
+        _crosshairRedH.X2  = cx + Half; _crosshairRedH.Y2 = cy;
+        _crosshairRedV!.X1 = cx; _crosshairRedV.Y1 = cy - Half;
+        _crosshairRedV.X2  = cx; _crosshairRedV.Y2 = cy + Half;
+        _crosshairWhiteH.Visibility = _crosshairWhiteV.Visibility =
+        _crosshairRedH.Visibility   = _crosshairRedV.Visibility   = Visibility.Visible;
+    }
+
+    private void HideCrosshair()
+    {
+        if (_crosshairRedH is null) return;
+        _crosshairWhiteH!.Visibility = _crosshairWhiteV!.Visibility =
+        _crosshairRedH.Visibility    = _crosshairRedV!.Visibility   = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Computes the "target" crosshair position for a placed arrow — 1/4 of
+    /// the total arrow length past the tip in the pointing direction — and
+    /// shows it.  <paramref name="pivot"/> is (TargetCenterOnCanvas + Offset).
+    /// </summary>
+    private void ShowCrosshairForArrow(AnnotationArrow arrow, Point pivot)
+    {
+        var rad = arrow.ArrowheadAngleDeg * Math.PI / 180.0;
+        var ux = Math.Sin(rad);
+        var uy = -Math.Cos(rad);
+        // Tip is at pivot + ux*ArrowLength.  Direction PAST tip = -ux, -uy.
+        var total = arrow.ArrowLength + arrow.TailLength;
+        var ahX = pivot.X + ux * arrow.ArrowLength;
+        var ahY = pivot.Y + uy * arrow.ArrowLength;
+        ShowCrosshair(ahX - ux * total * 0.25, ahY - uy * total * 0.25);
     }
 
     private double ComputeInitialTailLength(Point targetCenter, double angleDeg, double arrowheadOffset)
