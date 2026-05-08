@@ -60,12 +60,10 @@
 
 ## 🔴 High Priority
 
-- [ ] **[Orion audit] AgentThreadRegistry — lock down mutable backing collections** *(Owner: Arjun Sen)*
-  `AgentThreadRegistry` exposes `ThreadsByKey`, `ThreadsByToolCallId`, `LaunchesByToolCallId`,
-  and `ThreadOrder` as public mutable dictionaries. Callers can write directly to them, silently
-  bypassing the aliasing invariants enforced by `GetOrCreateAgentThread`/`AliasThreadKeys`.
-  Make the exposed collections read-only wrappers (e.g. `IReadOnlyDictionary`) so the correctness
-  contract cannot be violated externally.
+- [x] **[Orion audit] AgentThreadRegistry — lock down mutable backing collections** *(Owner: Arjun Sen)*
+  Already implemented: all four collections (`ThreadsByKey`, `ThreadsByToolCallId`, `LaunchesByToolCallId`,
+  `ThreadOrder`) expose `IReadOnlyDictionary`/`IReadOnlyList` interfaces. Backing fields are
+  `private readonly` — external callers cannot mutate them.
 
 - [x] **[Vesper audit] Test coverage — CommitApprovalStore, DocStatusStore, DocTopicsLoader, LoopOutputStore** *(Owner: Vesper Knox)*
   All four classes have zero test coverage despite critical responsibilities:
