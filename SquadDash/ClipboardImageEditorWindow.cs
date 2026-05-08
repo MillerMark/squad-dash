@@ -935,8 +935,9 @@ internal sealed class ClipboardImageEditorWindow : Window
             return;
         }
 
-        // Draw a new crop region from scratch when no selection exists.
-        if (_sel.IsEmpty && !_inArrowMode && !_inCursorPlacementMode && !_inRectMode)
+        // Draw a new crop region from scratch — works whether or not a selection already exists.
+        // Clicking outside the current selection (zone == None) replaces it; undo restores the old one.
+        if (!_inArrowMode && !_inCursorPlacementMode && !_inRectMode)
         {
             _creatingNewSel = true;
             _newSelAnchor = pt;
