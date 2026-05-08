@@ -225,6 +225,12 @@ internal sealed class PromptAttachmentViewerWindow : Window
         {
             text = att.TranscriptQuote;
         }
+        else if (!string.IsNullOrWhiteSpace(att.ContentBlock))
+        {
+            // Task/topic/doc/note attachments store their full rendered block here.
+            // Prefer it directly over the generic Summary/OriginalPrompt fallback.
+            text = att.ContentBlock!.TrimEnd();
+        }
         else
         {
             var sb = new System.Text.StringBuilder();
@@ -242,9 +248,6 @@ internal sealed class PromptAttachmentViewerWindow : Window
                 sb.Append(att.OriginalPrompt);
             }
             text = sb.ToString().TrimEnd();
-            // Task/topic/doc attachments store content in ContentBlock with OriginalPrompt=null.
-            if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(att.ContentBlock))
-                text = att.ContentBlock!.TrimEnd();
         }
 
         var textBox = new TextBox
