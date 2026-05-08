@@ -254,6 +254,11 @@ internal sealed class PromptExecutionController {
     private int              _toolCompleteCount;
     private bool             _promptNoActivityWarningShown;
     private bool             _promptStallWarningShown;
+    /// <summary>
+    /// Set when the user aborts a running prompt. Causes the next prompt to be prefixed
+    /// with a retraction notice so the AI ignores the aborted turn.
+    /// </summary>
+    private bool             _nextPromptShouldRetractAborted;
     private SquadSdkEvent?   _lastSessionReadyEvent;
     private PromptContextDiagnostics? _currentPromptContextDiagnostics;
 
@@ -1627,6 +1632,7 @@ internal sealed class PromptExecutionController {
             MarkActiveToolsAsFailed("Aborted");
             _appendLine("[aborted]", ThemeBrush("SystemInfoText"));
             _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
+            _nextPromptShouldRetractAborted = true;
         }
         catch (Exception ex) {
             SquadDashTrace.Write("UI", $"ExecutePromptAsync failed: {ex}");
@@ -1712,6 +1718,16 @@ internal sealed class PromptExecutionController {
         var docsCtx   = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
         var tasksCtx  = BuildTasksContextInstruction();
         var queueCtx  = PendingQueueItemCount > 0 ? BuildQueueContextInstruction(PendingQueueItemCount) : null;
+
+        if (_nextPromptShouldRetractAborted) {
+            _nextPromptShouldRetractAborted = false;
+            SquadDashTrace.Write("UI", "Injecting abort retraction prefix for next prompt.");
+            prompt =
+                "[System note: The previous user message in this conversation was cancelled mid-stream by the user. " +
+                "Disregard it entirely — do not act on it, refer to it, or treat it as a pending task. " +
+                "The user's actual request follows below.]\n\n" +
+                prompt;
+        }
 
         var triggeredCtx = BuildTriggeredInjections(prompt);
 
