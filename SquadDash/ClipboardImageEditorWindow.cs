@@ -202,6 +202,12 @@ internal sealed class ClipboardImageEditorWindow : Window
     private double _panStartH;    // HorizontalOffset at drag start
     private double _panStartV;    // VerticalOffset at drag start
 
+    // Custom hand cursors — lazy-initialised, generated programmatically at runtime
+    private static Cursor? _openHandCursor;
+    private static Cursor? _closedHandCursor;
+    private static Cursor OpenHandCursor   => _openHandCursor   ??= CreateCursorFromDrawing(CreateOpenHandDrawing(),   32, 32, 10, 3);
+    private static Cursor ClosedHandCursor => _closedHandCursor ??= CreateCursorFromDrawing(CreateClosedHandDrawing(), 32, 32, 14, 14);
+
     // ────────────────────────────────────────────────────────────────────────
 
     internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage, bool isPromptMode = false)
@@ -388,8 +394,8 @@ internal sealed class ClipboardImageEditorWindow : Window
             {
                 if (Keyboard.FocusedElement is TextBox) return;
                 _isPanMode = true;
-                _canvas.Cursor = Cursors.Hand;
-                _scrollViewer.Cursor = Cursors.Hand;
+                _canvas.Cursor = OpenHandCursor;
+                _scrollViewer.Cursor = OpenHandCursor;
                 e.Handled = true;
             }
         };
@@ -470,7 +476,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             _panStartH = _scrollViewer.HorizontalOffset;
             _panStartV = _scrollViewer.VerticalOffset;
             _scrollViewer.CaptureMouse();
-            _scrollViewer.Cursor = Cursors.SizeAll;
+            _scrollViewer.Cursor = ClosedHandCursor;
             e.Handled = true;
         };
 
@@ -490,7 +496,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             if (!_isPanning) return;
             _isPanning = false;
             _scrollViewer.ReleaseMouseCapture();
-            _scrollViewer.Cursor = _isPanMode ? Cursors.Hand : null;
+            _scrollViewer.Cursor = _isPanMode ? OpenHandCursor : null;
             e.Handled = true;
         };
 
@@ -2970,4 +2976,98 @@ internal sealed class ClipboardImageEditorWindow : Window
         double OffsetY);
 
     private sealed record RectSnap(Rect Bounds, Color RectColor);
+
+    // ── Custom hand cursors ───────────────────────────────────────────────────
+
+    private static Cursor CreateCursorFromDrawing(Drawing drawing, int widthPx, int heightPx, int hotX, int hotY)
+    {
+        var rtb = new RenderTargetBitmap(widthPx, heightPx, 96, 96, PixelFormats.Pbgra32);
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+            dc.DrawDrawing(drawing);
+        rtb.Render(dv);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(rtb));
+        using var pngStream = new MemoryStream();
+        encoder.Save(pngStream);
+        var png = pngStream.ToArray();
+
+        using var cur = new MemoryStream();
+        using var bw = new BinaryWriter(cur);
+        bw.Write((short)0);
+        bw.Write((short)2);
+        bw.Write((short)1);
+        bw.Write((byte)widthPx);
+        bw.Write((byte)heightPx);
+        bw.Write((byte)0);
+        bw.Write((byte)0);
+        bw.Write((short)hotX);
+        bw.Write((short)hotY);
+        bw.Write((int)png.Length);
+        bw.Write((int)22);
+        bw.Write(png);
+        cur.Position = 0;
+        return new Cursor(cur);
+    }
+
+    private static Drawing CreateOpenHandDrawing()
+    {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            var fill   = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3)
+                { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+            // Palm
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 16, 18, 13), 3, 3);
+
+            // Thumb (left side)
+            var thumbGeo = new PathGeometry();
+            var thumbFig = new PathFigure { StartPoint = new Point(5, 20), IsClosed = true };
+            thumbFig.Segments.Add(new BezierSegment(new Point(2, 19), new Point(1, 15), new Point(3, 12), true));
+            thumbFig.Segments.Add(new BezierSegment(new Point(4, 9),  new Point(6, 10), new Point(6, 13), true));
+            thumbFig.Segments.Add(new LineSegment(new Point(5, 16), true));
+            thumbGeo.Figures.Add(thumbFig);
+            dc.DrawGeometry(fill, stroke, thumbGeo);
+
+            // Four fingers: index, middle, ring, pinky
+            double[] fingerX    = { 7,  10, 13, 17 };
+            double[] fingerW    = { 3,   3,  3,  2.5 };
+            double[] fingerTopY = { 5,   3,  4,   7 };
+            for (int i = 0; i < 4; i++)
+                dc.DrawRoundedRectangle(fill, stroke,
+                    new Rect(fingerX[i], fingerTopY[i], fingerW[i], 16 - fingerTopY[i] + 1),
+                    1.5, 1.5);
+        }
+        return dg;
+    }
+
+    private static Drawing CreateClosedHandDrawing()
+    {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            var fill   = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3)
+                { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+            // Knuckle row
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 11, 19, 8), 3, 3);
+
+            // Palm
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 17, 19, 11), 3, 3);
+
+            // Thumb tucked left
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(2, 14, 5, 7), 2, 2);
+
+            // Finger separation lines on knuckle row
+            var linePen = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 0.8);
+            dc.DrawLine(linePen, new Point(10, 11), new Point(10, 19));
+            dc.DrawLine(linePen, new Point(14, 11), new Point(14, 19));
+            dc.DrawLine(linePen, new Point(18, 11), new Point(18, 19));
+        }
+        return dg;
+    }
 }
