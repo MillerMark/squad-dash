@@ -113,6 +113,17 @@ internal sealed class PromptExecutionController {
     private const string QuickReplyInstruction =
         "When you offer quick replies, append a machine-readable block exactly in this format:\nQUICK_REPLIES_JSON:\n[\n  {\n    \"label\": \"Option A\",\n    \"routeMode\": \"continue_current_agent\",\n    \"reason\": \"One short routing reason.\"\n  },\n  {\n    \"label\": \"Option B\",\n    \"routeMode\": \"start_named_agent\",\n    \"targetAgent\": \"orion-vale\",\n    \"reason\": \"One short routing reason.\"\n  }\n]\nOnly emit quick replies when the user can act on them immediately. Do not emit quick replies while background agents are still working, while you are only reporting progress, or while the next step is blocked on unfinished work. Do not emit quick replies in the same response where you launch, assign, queue, delegate, or hand off new background work. If you tell the user that an agent is starting, is running, will continue in the background, that you will report back later, or that they should use `/tasks` for status, emit no quick replies at all in that response. Quick replies are only allowed after the relevant agent work has finished and the user can immediately choose the next real step. Each quick reply must include `label` and `routeMode`. `routeMode` must be one of `continue_current_agent`, `start_named_agent`, `start_coordinator`, `fanout_team`, or `done`. Include `targetAgent` only when `routeMode` is `start_named_agent`, using a roster handle from `.squad/team.md`. Use `continue_current_agent` only when the next step should stay with the same agent who produced the current response. Use `.squad/team.md` and `.squad/routing.md` to choose the correct owner. Keep the label and metadata aligned: if the button says to run, ask, hand off to, or start a different agent, utility agent, or specialist, do not use `continue_current_agent`; use `start_named_agent` with the correct `targetAgent` instead. In particular, if the next step is to run Scribe, Ralph, or any agent other than the one who produced the current response, the quick reply must use `start_named_agent` and name that agent explicitly. When a quick reply names or implies an owner for follow-up work, delegated work, backlog items, reviews, or test work, keep that owner aligned with `.squad/routing.md` instead of assigning by convenience. Do not assign testing, QA, verification, or coverage work to a non-testing specialist unless `.squad/routing.md` explicitly gives them that ownership or you clearly describe the work as collaboration under the testing lead. Never include no-op buttons — every quick reply must cause something meaningful to happen. Do not include a lone \"Done\" button when it would just send an empty acknowledgement. Do not include a \"No\" or \"Cancel\" button on a yes/no question unless clicking it would actually trigger a useful action; if declining means doing nothing, omit it entirely. If the only honest reply is \"you're finished\", emit no quick replies at all. Do NOT emit buttons like \"Looks good — what's next?\", \"Looks good\", \"What's next?\", \"All done\", or any variant that is just an acknowledgement or a vague invitation to continue — these are no-ops because clicking them gives the AI nothing actionable to act on. A quick reply is only valid if clicking it causes a specific, identifiable action: routing to a named agent, starting a named task, or asking a concrete question. If there is no active task list and no specific next step you can name, emit no quick replies at all.";
 
+    private const string CoordinatorDelegationAccountabilityInstruction =
+        """
+        Coordinator delegation accountability:
+        Before doing implementation, investigation, testing, review, documentation, or performance work yourself, decide whether a roster agent should own it according to `.squad/team.md` and `.squad/routing.md`.
+
+        If you keep the work in the Coordinator instead of launching an appropriate agent, include one short sentence at the start of your visible response:
+        "Doing this myself because <reason>."
+
+        Valid reasons are narrow: quick factual answer, the task is quick/trivial, user explicitly asked the Coordinator to handle it, no clear specialist exists, or launching an agent is somehow blocked. Otherwise, launch the appropriate agent instead of doing the work inline.
+        """;
+
     private static readonly TimeSpan PromptNoActivityWarningThreshold = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan PromptNoActivityStallThreshold   = TimeSpan.FromMinutes(2);
 
@@ -1716,8 +1727,9 @@ internal sealed class PromptExecutionController {
             _getPendingQuickReplyRoutingInstruction(),
             _getPendingQuickReplyRouteMode(),
             supplemental,
-            _getCurrentWorkspace()?.FolderPath);
-        SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary}");
+            _getCurrentWorkspace()?.FolderPath,
+            CoordinatorDelegationAccountabilityInstruction);
+        SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary} accountability=included");
         return buildResult.PromptText;
     }
 

@@ -157,6 +157,48 @@ internal sealed class SquadBridgePromptBuilderTests {
     }
 
     [Test]
+    public void Build_AppendsCoordinatorAccountabilityAfterGenericRoutingGuidance() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", """
+            # Squad Team
+
+            ## Members
+
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            | Lyra Morn | UI Specialist | agents/lyra-morn/charter.md | active |
+            """);
+        workspace.CreateFile(".squad/routing.md", """
+            # Work Routing
+
+            ## Routing Table
+
+            | Work Type | Route To | Examples |
+            |-----------|----------|----------|
+            | UI | Lyra Morn | `MainWindow.xaml` |
+            """);
+
+        var built = SquadBridgePromptBuilder.Build(
+            "Please update the transcript layout.",
+            "Quick replies enabled.",
+            null,
+            null,
+            null,
+            workspace.RootPath,
+            "Coordinator delegation accountability.").PromptText;
+
+        var genericIndex = built.IndexOf("The active squad roster", StringComparison.Ordinal);
+        var accountabilityIndex = built.IndexOf("Coordinator delegation accountability.", StringComparison.Ordinal);
+        var quickReplyIndex = built.IndexOf("Quick replies enabled.", StringComparison.Ordinal);
+
+        Assert.Multiple(() => {
+            Assert.That(genericIndex, Is.GreaterThanOrEqualTo(0));
+            Assert.That(accountabilityIndex, Is.GreaterThan(genericIndex));
+            Assert.That(quickReplyIndex, Is.GreaterThan(accountabilityIndex));
+        });
+    }
+
+    [Test]
     public void Build_AddsExplicitMentionRouting_WhenPromptMentionsKnownAgentHandle() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/team.md", """
