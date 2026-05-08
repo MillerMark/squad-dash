@@ -880,7 +880,7 @@
                                     <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverSurface}"/>
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverSurface}"/>
+                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ChipSelectedSurface}"/>
                                     <Setter Property="Foreground" Value="{DynamicResource LabelText}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
@@ -931,7 +931,9 @@
                                                 CornerRadius="4"/>
                                         <ScrollViewer Margin="1"
                                                       SnapsToDevicePixels="True"
-                                                      Background="Transparent">
+                                                      Background="Transparent"
+                                                      VerticalScrollBarVisibility="Hidden"
+                                                      HorizontalScrollBarVisibility="Disabled">
                                             <StackPanel IsItemsHost="True"
                                                         KeyboardNavigation.DirectionalNavigation="Contained"/>
                                         </ScrollViewer>
