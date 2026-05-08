@@ -1314,8 +1314,8 @@ internal sealed class ClipboardImageEditorWindow : Window
                     new Point(baseX + px * HeadHalf, baseY + py * HeadHalf),
                     new Point(baseX - px * HeadHalf, baseY - py * HeadHalf)
                 };
-                // Show crosshair at 1/4 of drag length past the tip (toward target).
-                ShowCrosshair(headPt.X + ux2 * dist2 * 0.25, headPt.Y + uy2 * dist2 * 0.25);
+                // Show crosshair at the future pivot center (ArrowLength past the tip).
+                ShowCrosshair(headPt.X + ux2 * _defaultArrowLength, headPt.Y + uy2 * _defaultArrowLength);
             }
             else
             {
@@ -1632,12 +1632,6 @@ internal sealed class ClipboardImageEditorWindow : Window
 
         var arrow = CreateArrow(targetBounds);
 
-        // Record where the crosshair should stay anchored for this arrow.
-        // headPt is the arrowhead tip; extend 1/4 of the total drag past the tip.
-        arrow.CrosshairCenter = new Point(
-            headPt.X + ux * dist * 0.25,
-            headPt.Y + uy * dist * 0.25);
-
         _defaultArrowAngleDeg = savedAngle;
         _defaultTailLength = savedTailLen;
 
@@ -1774,7 +1768,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                 ? Math.Max(64, Math.Min(arrow.UserTailLength, maxFromTip))
                 : ComputeInitialTailLength(pivot, newAngle, arrow.ArrowLength);
             UpdateArrowGeometry(arrow);
-            if (arrow.CrosshairCenter is { } ch) ShowCrosshair(ch.X, ch.Y);
+            ShowCrosshair(pivot.X, pivot.Y);
             e.Handled = true;
         };
         tipHandle.MouseLeftButtonUp += (_, e) =>
@@ -1817,7 +1811,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             var total = Math.Max(arrow.ArrowLength + MinTail, dist);
             arrow.TailLength = Math.Max(MinTail, total - arrow.ArrowLength);
             UpdateArrowGeometry(arrow);
-            if (arrow.CrosshairCenter is { } ch2) ShowCrosshair(ch2.X, ch2.Y);
+            ShowCrosshair(pivot.X, pivot.Y);
             e.Handled = true;
         };
         tailHandle.MouseLeftButtonUp += (_, e) =>
@@ -1882,23 +1876,14 @@ internal sealed class ClipboardImageEditorWindow : Window
             arrow.OffsetY = _bodyDragStartOffsetY + (pt.Y - _bodyDragStartMouse.Y);
             UpdateArrowGeometry(arrow);
             if (_colorPickerArrow == arrow) ShowColorPicker(arrow);
-            // Translate the stored crosshair center with the body drag.
-            if (arrow.CrosshairCenter is { } chBase)
-            {
-                var dragDx = arrow.OffsetX - _bodyDragStartOffsetX;
-                var dragDy = arrow.OffsetY - _bodyDragStartOffsetY;
-                ShowCrosshair(chBase.X + dragDx, chBase.Y + dragDy);
-            }
+            ShowCrosshair(
+                arrow.TargetCenterOnCanvas.X + arrow.OffsetX,
+                arrow.TargetCenterOnCanvas.Y + arrow.OffsetY);
             e.Handled = true;
         };
         shape.MouseLeftButtonUp += (_, e) =>
         {
             if (_draggingArrow != arrow || !_bodyDragging) return;
-            // Commit the crosshair offset so future tip/tail drags use the new location.
-            if (arrow.CrosshairCenter is { } chBase)
-                arrow.CrosshairCenter = new Point(
-                    chBase.X + (arrow.OffsetX - _bodyDragStartOffsetX),
-                    chBase.Y + (arrow.OffsetY - _bodyDragStartOffsetY));
             HideCrosshair();
             CommitDragUndo();
             _draggingArrow = null;
@@ -1976,10 +1961,10 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         if (_crosshairRedH != null) return;
         const double Thick = 1.5;
-        _crosshairWhiteH = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, IsHitTestVisible = false };
-        _crosshairWhiteV = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, IsHitTestVisible = false };
-        _crosshairRedH   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,       IsHitTestVisible = false };
-        _crosshairRedV   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,       IsHitTestVisible = false };
+        _crosshairWhiteH = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, Opacity = 0.5, IsHitTestVisible = false };
+        _crosshairWhiteV = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, Opacity = 0.5, IsHitTestVisible = false };
+        _crosshairRedH   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,                         IsHitTestVisible = false };
+        _crosshairRedV   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,                         IsHitTestVisible = false };
         foreach (var l in new[] { _crosshairWhiteH, _crosshairWhiteV, _crosshairRedH, _crosshairRedV })
         {
             Panel.SetZIndex(l, 100);
@@ -1992,7 +1977,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         EnsureCrosshairLines();
         const double Half   = 10.0;
-        const double Shadow = 1.2;   // white offset to create a shadow behind the red lines
+        const double Shadow = 1.0;   // white offset (1px right + 1px down) behind the red lines
         _crosshairWhiteH!.X1 = cx - Half + Shadow; _crosshairWhiteH.Y1 = cy + Shadow;
         _crosshairWhiteH.X2  = cx + Half + Shadow; _crosshairWhiteH.Y2 = cy + Shadow;
         _crosshairWhiteV!.X1 = cx + Shadow; _crosshairWhiteV.Y1 = cy - Half + Shadow;

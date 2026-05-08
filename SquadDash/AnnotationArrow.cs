@@ -73,11 +73,4 @@ internal sealed class AnnotationArrow
 
     /// <summary>Transparent 9 px line used as a wider hit-test proxy for click-to-select.</summary>
     public Line HitLine { get; set; } = null!;
-
-    /// <summary>
-    /// Canvas-space point the crosshair should be anchored to.
-    /// Set when the arrow is first placed and stays fixed unless the whole arrow is body-dragged.
-    /// Null if this arrow was created before crosshairs were introduced.
-    /// </summary>
-    public Point? CrosshairCenter { get; set; }
 }
