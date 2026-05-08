@@ -923,37 +923,9 @@
                                               Margin="0,8,0,0"
                                               MaxHeight="300"
                                               VerticalScrollBarVisibility="Auto">
-                                    <StackPanel>
-                                        <StackPanel x:Name="LoopOptionsPanel"
-                                                    Margin="0,0,0,6"
-                                                    Visibility="Collapsed" />
-                                        <Border x:Name="LoopMergedViewBorder"
-                                                Visibility="Collapsed"
-                                                BorderThickness="1"
-                                                CornerRadius="4"
-                                                Padding="6"
-                                                Margin="0,4,0,0"
-                                                BorderBrush="{DynamicResource RosterPanelBorder}"
-                                                Background="{DynamicResource DocEditorBackground}">
-                                            <StackPanel>
-                                                <TextBlock Text="Merged loop file"
-                                                           FontSize="10"
-                                                           FontWeight="SemiBold"
-                                                           Margin="0,0,0,4"
-                                                           Foreground="{DynamicResource SubtleText}" />
-                                                <TextBox x:Name="LoopMergedBodyTextBox"
-                                                         IsReadOnly="True"
-                                                         TextWrapping="Wrap"
-                                                         BorderThickness="0"
-                                                         Background="Transparent"
-                                                         FontFamily="Consolas, Courier New, monospace"
-                                                         FontSize="11"
-                                                         Foreground="{DynamicResource BodyText}"
-                                                         AcceptsReturn="True"
-                                                         VerticalScrollBarVisibility="Disabled" />
-                                            </StackPanel>
-                                        </Border>
-                                    </StackPanel>
+                                    <StackPanel x:Name="LoopOptionsPanel"
+                                                Margin="0,0,0,6"
+                                                Visibility="Collapsed" />
                                 </ScrollViewer>
                             </DockPanel>
                         </Border>

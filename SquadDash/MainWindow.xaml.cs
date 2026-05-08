@@ -139,6 +139,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _pendingPowerShellInstallRecheck;
     private TasksStatusWindow?      _tasksStatusWindow;
     private TraceWindow?            _traceWindow;
+    private LoopMergedViewWindow?   _loopMergedViewWindow;
     private ScreenshotHealthWindow? _screenshotHealthWindow;
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
@@ -9092,39 +9093,43 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
-            var isVisible = LoopMergedViewBorder.Visibility == Visibility.Visible;
-            if (isVisible)
+            if (_loopMergedViewWindow is not null)
             {
-                LoopMergedViewBorder.Visibility = Visibility.Collapsed;
+                _loopMergedViewWindow.Close();
+                // _loopMergedViewWindow set to null in Closed handler (see below)
+                return;
+            }
+            _loopMergedViewWindow = new LoopMergedViewWindow();
+            _loopMergedViewWindow.Closed += (_, _) => {
+                _loopMergedViewWindow = null;
                 LoopPanelShowMergedMenuItem.Header = "Show merged loop file";
-            }
-            else
-            {
-                LoopMergedViewBorder.Visibility = Visibility.Visible;
-                LoopPanelShowMergedMenuItem.Header = "Hide merged loop file";
-                RefreshLoopMergedView();
-            }
+            };
+            _loopMergedViewWindow.Owner = CanShowOwnedWindow() ? this : null;
+            LoopPanelShowMergedMenuItem.Header = "Hide merged loop file";
+            RefreshLoopMergedView();
+            _loopMergedViewWindow.Show();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelShowMergedMenuItem_Click), ex); }
     }
 
     private void RefreshLoopMergedView()
     {
-        if (LoopMergedViewBorder.Visibility != Visibility.Visible) return;
-        if (_selectedLoopMdPath is null) { LoopMergedBodyTextBox.Text = ""; return; }
+        if (_loopMergedViewWindow is null) return;
+        if (_selectedLoopMdPath is null) { _loopMergedViewWindow.UpdateContent(""); return; }
 
         try
         {
             var config = LoopMdParser.Parse(_selectedLoopMdPath);
-            LoopMergedBodyTextBox.Text = config is not null
+            var text = config is not null
                 ? LoopMdParser.BuildMergedBody(config)
                 : File.Exists(_selectedLoopMdPath)
                     ? LoopMdParser.StripFrontmatter(File.ReadAllText(_selectedLoopMdPath))
                     : "";
+            _loopMergedViewWindow.UpdateContent(text);
         }
         catch
         {
-            LoopMergedBodyTextBox.Text = "";
+            _loopMergedViewWindow.UpdateContent("");
         }
     }
 
