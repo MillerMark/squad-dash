@@ -622,9 +622,23 @@ internal sealed class ClipboardImageEditorWindow : Window
     /// </summary>
     private UIElement MakeToolIcon(string resourceKey, bool active = false)
     {
-        var icon = (UIElement?)TryFindResource(resourceKey);
-        if (icon == null)
+        var resource = TryFindResource(resourceKey);
+        if (resource == null)
             return new TextBlock { Text = resourceKey };
+
+        // Clone the resource element — TryFindResource returns the same singleton instance
+        // every time, which WPF rejects if already parented to another element.
+        UIElement icon;
+        try
+        {
+            var xaml = System.Windows.Markup.XamlWriter.Save(resource);
+            icon = (UIElement)System.Windows.Markup.XamlReader.Parse(xaml);
+        }
+        catch
+        {
+            // Fallback: if serialization fails (e.g. dynamic resources), return a placeholder.
+            return new TextBlock { Text = resourceKey };
+        }
 
         if (!active) return icon;
 
