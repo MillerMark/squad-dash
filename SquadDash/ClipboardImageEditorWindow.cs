@@ -194,6 +194,14 @@ internal sealed class ClipboardImageEditorWindow : Window
     /// </summary>
     private readonly bool _isPromptMode;
 
+    // ── Spacebar pan mode ─────────────────────────────────────────────────────
+
+    private bool _isPanMode;      // true while Space is held and focus not in a TextBox
+    private bool _isPanning;      // true while actively dragging to pan
+    private Point _panStartMouse; // viewport coords at drag start
+    private double _panStartH;    // HorizontalOffset at drag start
+    private double _panStartV;    // VerticalOffset at drag start
+
     // ────────────────────────────────────────────────────────────────────────
 
     internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage, bool isPromptMode = false)
@@ -374,6 +382,34 @@ internal sealed class ClipboardImageEditorWindow : Window
         _canvas.MouseUp += Canvas_MouseUp;
         KeyDown += Window_KeyDown;
 
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Space && !_isPanMode)
+            {
+                if (Keyboard.FocusedElement is TextBox) return;
+                _isPanMode = true;
+                _canvas.Cursor = Cursors.Hand;
+                _scrollViewer.Cursor = Cursors.Hand;
+                e.Handled = true;
+            }
+        };
+
+        PreviewKeyUp += (_, e) =>
+        {
+            if (e.Key == Key.Space && _isPanMode)
+            {
+                _isPanMode = false;
+                if (_isPanning)
+                {
+                    _isPanning = false;
+                    _scrollViewer.ReleaseMouseCapture();
+                }
+                _canvas.Cursor = Cursors.Arrow;
+                _scrollViewer.Cursor = null;
+                e.Handled = true;
+            }
+        };
+
         // Ctrl+scroll = zoom in/out. The ScaleTransform lives on the wrapper (not
         // the canvas), so DoInsertImage renders _canvas at its original logical size.
         PreviewMouseWheel += (_, e) =>
@@ -424,6 +460,39 @@ internal sealed class ClipboardImageEditorWindow : Window
             Content = canvasWrapper
         };
         _scrollViewer.SetResourceReference(BackgroundProperty, "AppSurface");
+
+        _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (!_isPanMode) return;
+            if (_scrollViewer.ScrollableWidth <= 0 && _scrollViewer.ScrollableHeight <= 0) return;
+            _isPanning = true;
+            _panStartMouse = e.GetPosition(_scrollViewer);
+            _panStartH = _scrollViewer.HorizontalOffset;
+            _panStartV = _scrollViewer.VerticalOffset;
+            _scrollViewer.CaptureMouse();
+            _scrollViewer.Cursor = Cursors.SizeAll;
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseMove += (_, e) =>
+        {
+            if (!_isPanning) return;
+            var pos = e.GetPosition(_scrollViewer);
+            double dx = pos.X - _panStartMouse.X;
+            double dy = pos.Y - _panStartMouse.Y;
+            _scrollViewer.ScrollToHorizontalOffset(_panStartH - dx);
+            _scrollViewer.ScrollToVerticalOffset(_panStartV - dy);
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (!_isPanning) return;
+            _isPanning = false;
+            _scrollViewer.ReleaseMouseCapture();
+            _scrollViewer.Cursor = _isPanMode ? Cursors.Hand : null;
+            e.Handled = true;
+        };
 
         var toolbar = BuildToolbar();
         var root = new DockPanel { LastChildFill = true };
