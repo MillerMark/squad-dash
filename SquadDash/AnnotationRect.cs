@@ -23,7 +23,7 @@ internal sealed class AnnotationRect
     public Rectangle Shadow { get; set; } = null!;
 
     /// <summary>
-    /// Corner drag handles: [0]=NW, [1]=NE, [2]=SW, [3]=SE.
+    /// Resize handles: [0]=NW, [1]=NE, [2]=SW, [3]=SE, [4]=N, [5]=S, [6]=W, [7]=E.
     /// Hidden unless the rect is selected.
     /// </summary>
     public Ellipse[] Handles { get; set; } = null!;

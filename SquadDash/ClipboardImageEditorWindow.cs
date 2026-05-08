@@ -1159,6 +1159,14 @@ internal sealed class ClipboardImageEditorWindow : Window
                 var hoverZone = HitTest(e.GetPosition(_canvas));
                 _canvas.Cursor = ZoneCursor(hoverZone);
             }
+
+            // Override with directional cursor when hovering over a selected annotation rect's edge/corner.
+            if (_selectedAnnotRect != null)
+            {
+                var az = HitTestAnnotRect(_selectedAnnotRect, e.GetPosition(_canvas));
+                if (az != HitZone.None)
+                    _canvas.Cursor = ZoneCursor(az);
+            }
         }
     }
 
@@ -1919,9 +1927,17 @@ internal sealed class ClipboardImageEditorWindow : Window
             Cursor = Cursors.SizeAll
         };
 
-        var handles = new Ellipse[4];
-        for (int i = 0; i < 4; i++)
+        var handles = new Ellipse[8];
+        for (int i = 0; i < 8; i++)
         {
+            var cursor = i switch
+            {
+                0 or 3 => Cursors.SizeNWSE,  // NW, SE
+                1 or 2 => Cursors.SizeNESW,  // NE, SW
+                4 or 5 => Cursors.SizeNS,    // N, S
+                6 or 7 => Cursors.SizeWE,    // W, E
+                _ => Cursors.SizeAll
+            };
             handles[i] = new Ellipse
             {
                 Width = 8,
@@ -1929,7 +1945,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                 Fill = brush,
                 Stroke = Brushes.White,
                 StrokeThickness = 1.5,
-                Cursor = Cursors.SizeAll,
+                Cursor = cursor,
                 Visibility = Visibility.Hidden
             };
             _canvas.Children.Add(handles[i]);
@@ -2049,7 +2065,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             e.Handled = true;
         };
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 8; i++)
         {
             int handleIdx = i;
             var handle = handles[i];
@@ -2077,11 +2093,11 @@ internal sealed class ClipboardImageEditorWindow : Window
                 var ch = _canvas.Height;
 
                 double nl = o.Left, nt = o.Top, nr = o.Right, nb2 = o.Bottom;
-                // 0=NW(left+top), 1=NE(right+top), 2=SW(left+bottom), 3=SE(right+bottom)
-                if (handleIdx == 0 || handleIdx == 2) nl = Math.Max(0, Math.Min(nl + dx, nr - MinSize));
-                if (handleIdx == 1 || handleIdx == 3) nr = Math.Max(nl + MinSize, Math.Min(nr + dx, cw));
-                if (handleIdx == 0 || handleIdx == 1) nt = Math.Max(0, Math.Min(nt + dy, nb2 - MinSize));
-                if (handleIdx == 2 || handleIdx == 3) nb2 = Math.Max(nt + MinSize, Math.Min(nb2 + dy, ch));
+                // 0=NW(left+top), 1=NE(right+top), 2=SW(left+bottom), 3=SE(right+bottom), 4=N, 5=S, 6=W, 7=E
+                if (handleIdx == 0 || handleIdx == 2 || handleIdx == 6) nl = Math.Max(0, Math.Min(nl + dx, nr - MinSize));
+                if (handleIdx == 1 || handleIdx == 3 || handleIdx == 7) nr = Math.Max(nl + MinSize, Math.Min(nr + dx, cw));
+                if (handleIdx == 0 || handleIdx == 1 || handleIdx == 4) nt = Math.Max(0, Math.Min(nt + dy, nb2 - MinSize));
+                if (handleIdx == 2 || handleIdx == 3 || handleIdx == 5) nb2 = Math.Max(nt + MinSize, Math.Min(nb2 + dy, ch));
 
                 annotRect.Bounds = new Rect(nl, nt, nr - nl, nb2 - nt);
                 UpdateRectGeometry(annotRect);
@@ -2129,11 +2145,15 @@ internal sealed class ClipboardImageEditorWindow : Window
         rect.Border.Width = b.Width;
         rect.Border.Height = b.Height;
 
-        // Handles: NW(0), NE(1), SW(2), SE(3)
-        PlaceRectHandle(rect.Handles[0], b.Left, b.Top);
-        PlaceRectHandle(rect.Handles[1], b.Right, b.Top);
-        PlaceRectHandle(rect.Handles[2], b.Left, b.Bottom);
-        PlaceRectHandle(rect.Handles[3], b.Right, b.Bottom);
+        // Handles: NW(0), NE(1), SW(2), SE(3), N(4), S(5), W(6), E(7)
+        PlaceRectHandle(rect.Handles[0], b.Left,                  b.Top);
+        PlaceRectHandle(rect.Handles[1], b.Right,                 b.Top);
+        PlaceRectHandle(rect.Handles[2], b.Left,                  b.Bottom);
+        PlaceRectHandle(rect.Handles[3], b.Right,                 b.Bottom);
+        PlaceRectHandle(rect.Handles[4], b.Left + b.Width  / 2,  b.Top);
+        PlaceRectHandle(rect.Handles[5], b.Left + b.Width  / 2,  b.Bottom);
+        PlaceRectHandle(rect.Handles[6], b.Left,                  b.Top + b.Height / 2);
+        PlaceRectHandle(rect.Handles[7], b.Right,                 b.Top + b.Height / 2);
 
         if (rect.HitZoneRect != null)
         {
@@ -2149,6 +2169,27 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         Canvas.SetLeft(h, cx - 4);
         Canvas.SetTop(h, cy - 4);
+    }
+
+    private static HitZone HitTestAnnotRect(AnnotationRect r, Point pt)
+    {
+        const double ep = 6.0;
+        var b = r.Bounds;
+
+        // Corners (check first — tighter region)
+        if (Math.Abs(pt.X - b.Left)  <= ep && Math.Abs(pt.Y - b.Top)    <= ep) return HitZone.NW;
+        if (Math.Abs(pt.X - b.Right) <= ep && Math.Abs(pt.Y - b.Top)    <= ep) return HitZone.NE;
+        if (Math.Abs(pt.X - b.Left)  <= ep && Math.Abs(pt.Y - b.Bottom) <= ep) return HitZone.SW;
+        if (Math.Abs(pt.X - b.Right) <= ep && Math.Abs(pt.Y - b.Bottom) <= ep) return HitZone.SE;
+
+        // Edges
+        if (Math.Abs(pt.Y - b.Top)    <= ep && pt.X > b.Left && pt.X < b.Right)  return HitZone.N;
+        if (Math.Abs(pt.Y - b.Bottom) <= ep && pt.X > b.Left && pt.X < b.Right)  return HitZone.S;
+        if (Math.Abs(pt.X - b.Left)   <= ep && pt.Y > b.Top  && pt.Y < b.Bottom) return HitZone.W;
+        if (Math.Abs(pt.X - b.Right)  <= ep && pt.Y > b.Top  && pt.Y < b.Bottom) return HitZone.E;
+
+        if (b.Contains(pt)) return HitZone.Move;
+        return HitZone.None;
     }
 
     private void RemoveAnnotationRect(AnnotationRect rect)
