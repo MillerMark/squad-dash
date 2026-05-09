@@ -1,6 +1,70 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildNamedAgentExecutionPrompt } from "./squadService.js";
+import {
+    approvePermissionRequest,
+    buildNamedAgentExecutionPrompt,
+    resolvePermissionApprovalKind,
+    resolvePermissionApprovalKindFromSchema
+} from "./squadService.js";
+
+test("permission approval supports legacy Copilot runtime response shape", () => {
+    assert.equal(resolvePermissionApprovalKind("1.0.24"), "approved");
+});
+
+test("permission approval supports current Copilot runtime response shape", () => {
+    assert.equal(resolvePermissionApprovalKind("1.0.36"), "approve-once");
+});
+
+test("permission approval detects legacy Copilot schema", () => {
+    const schema = JSON.stringify({
+        session: {
+            permissions: {
+                handlePendingPermissionRequest: {
+                    params: {
+                        properties: {
+                            result: {
+                                anyOf: [
+                                    { properties: { kind: { const: "approved" } } }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    assert.equal(resolvePermissionApprovalKindFromSchema(schema), "approved");
+});
+
+test("permission approval detects current Copilot schema", () => {
+    const schema = JSON.stringify({
+        session: {
+            permissions: {
+                handlePendingPermissionRequest: {
+                    params: {
+                        properties: {
+                            result: { $ref: "#/definitions/PermissionDecision" }
+                        }
+                    }
+                }
+            }
+        },
+        definitions: {
+            PermissionDecision: {
+                anyOf: [
+                    { properties: { kind: { const: "approve-once" } } }
+                ]
+            }
+        }
+    });
+
+    assert.equal(resolvePermissionApprovalKindFromSchema(schema), "approve-once");
+});
+
+test("permission approval returns a supported response shape", () => {
+    assert.match(approvePermissionRequest().kind, /^(approved|approve-once)$/);
+});
 
 test("named-agent quick-reply prompt includes handoff in the submitted prompt", () => {
     const prompt = buildNamedAgentExecutionPrompt(

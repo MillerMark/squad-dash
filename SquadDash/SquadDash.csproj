@@ -71,7 +71,7 @@
     <EmbeddedResource Include="Assets\squaddash.md" />
     <EmbeddedResource Include="Assets\squaddash-profiles.md" />
     <EmbeddedResource Include="Assets\casting-reference.md" />
-    <EmbeddedResource Include="Assets\loop-tasks.md" />
+    <EmbeddedResource Include="Assets\loop-filtered-tasks.md" />
   </ItemGroup>
 
   <ItemGroup>

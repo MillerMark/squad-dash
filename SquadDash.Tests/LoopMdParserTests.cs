@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -383,7 +384,173 @@ internal sealed class LoopMdParserTests {
         finally { Directory.Delete(dir, true); }
     }
 
-    // ── StripFrontmatter ──────────────────────────────────────────────────────
+    // ── options: block parsing ────────────────────────────────────────────────
+
+    [Test]
+    public void Parse_OptionsBlock_IntervalAndTimeoutDerivedFromOptions() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              interval:
+                value: 3
+                type: int
+                label: "Interval (min)"
+              timeout:
+                value: 30
+                type: int
+                label: "Timeout (min)"
+            description: "Test loop"
+            ---
+            Do work.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.IntervalMinutes, Is.EqualTo(3));
+            Assert.That(config.TimeoutMinutes,   Is.EqualTo(30));
+            Assert.That(config.Options, Is.Not.Null);
+            Assert.That(config.Options, Has.Count.EqualTo(2));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_OptionsBlock_AllFieldsParsedCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              commit_after_task:
+                value: ask
+                type: enum
+                choices: [always, never, ask]
+                label: "Commit after task"
+                hint: "When to commit"
+              build_verify:
+                value: true
+                type: bool
+                label: "Verify build"
+                hint: "Run build check"
+            ---
+            Body text.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Has.Count.EqualTo(2));
+
+            var commitOpt = config.Options!.First(o => o.Key == "commit_after_task");
+            Assert.That(commitOpt.RawValue, Is.EqualTo("ask"));
+            Assert.That(commitOpt.Type,     Is.EqualTo("enum"));
+            Assert.That(commitOpt.Label,    Is.EqualTo("Commit after task"));
+            Assert.That(commitOpt.Hint,     Is.EqualTo("When to commit"));
+            Assert.That(commitOpt.Choices,  Is.Not.Null);
+            Assert.That(commitOpt.Choices,  Has.Count.EqualTo(3));
+            Assert.That(commitOpt.Choices,  Does.Contain("always"));
+            Assert.That(commitOpt.Choices,  Does.Contain("never"));
+            Assert.That(commitOpt.Choices,  Does.Contain("ask"));
+
+            var buildOpt = config.Options.First(o => o.Key == "build_verify");
+            Assert.That(buildOpt.RawValue, Is.EqualTo("true"));
+            Assert.That(buildOpt.Type,     Is.EqualTo("bool"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_OptionsBlock_FlatIntervalStillWorksForBackwardsCompat() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            interval: 7
+            timeout: 2
+            ---
+            Body.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.IntervalMinutes, Is.EqualTo(7));
+            Assert.That(config.TimeoutMinutes,   Is.EqualTo(2));
+            Assert.That(config.Options, Is.Null);
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── UpdateOptionValue ─────────────────────────────────────────────────────
+
+    [Test]
+    public void UpdateOptionValue_ExistingKey_UpdatesValueInFile() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              interval:
+                value: 5
+                type: int
+              timeout:
+                value: 60
+                type: int
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateOptionValue(path, "interval", "15");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.IntervalMinutes, Is.EqualTo(15));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptionValue_SecondKey_UpdatesCorrectOption() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              interval:
+                value: 5
+                type: int
+              timeout:
+                value: 60
+                type: int
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateOptionValue(path, "timeout", "90");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.TimeoutMinutes, Is.EqualTo(90));
+            Assert.That(config.IntervalMinutes, Is.EqualTo(5), "other option unchanged");
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptionValue_NonExistentKey_DoesNothing() {
+        var content = "---\nconfigured: true\noptions:\n  interval:\n    value: 5\n    type: int\n---\nBody.";
+        var path = WriteTempFile(content);
+        try {
+            LoopMdParser.UpdateOptionValue(path, "nonexistent", "999");
+            Assert.That(File.ReadAllText(path), Does.Contain("value: 5"), "file should be unchanged");
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptionValue_FileNotFound_DoesNotThrow() {
+        Assert.DoesNotThrow(() =>
+            LoopMdParser.UpdateOptionValue(@"C:\does\not\exist\loop.md", "interval", "5"));
+    }
+
 
     [Test]
     public void StripFrontmatter_NormalContent_RemovesFrontmatter() {
@@ -412,5 +579,241 @@ internal sealed class LoopMdParserTests {
         var content = "---\nconfigured: true\n---\nLine one.\nLine two.\nLine three.";
         var result = LoopMdParser.StripFrontmatter(content);
         Assert.That(result, Is.EqualTo("Line one.\nLine two.\nLine three."));
+    }
+
+    // ── Options: YAML insertion order ─────────────────────────────────────────
+
+    [Test]
+    public void Parse_Options_PreservesYamlInsertionOrder() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              alpha:
+                value: 1
+                type: int
+              beta:
+                value: 2
+                type: int
+              gamma:
+                value: 3
+                type: int
+            ---
+            Body.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Has.Count.EqualTo(3));
+            Assert.That(config.Options![0].Key, Is.EqualTo("alpha"));
+            Assert.That(config.Options[1].Key,  Is.EqualTo("beta"));
+            Assert.That(config.Options[2].Key,  Is.EqualTo("gamma"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── Options: group type ───────────────────────────────────────────────────
+
+    [Test]
+    public void Parse_Options_GroupType_ParsedCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              after_task_header:
+                type: group
+                label: "After Task Completes:"
+              build_verify:
+                value: true
+                type: bool
+                label: "Verify build"
+            ---
+            Body.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Has.Count.EqualTo(2));
+
+            var groupOpt = config.Options![0];
+            Assert.That(groupOpt.Key,      Is.EqualTo("after_task_header"));
+            Assert.That(groupOpt.Type,     Is.EqualTo("group"));
+            Assert.That(groupOpt.Label,    Is.EqualTo("After Task Completes:"));
+            Assert.That(groupOpt.RawValue, Is.EqualTo(""));
+            Assert.That(groupOpt.Hint,     Is.Null);
+            Assert.That(groupOpt.Choices,  Is.Null);
+
+            var boolOpt = config.Options[1];
+            Assert.That(boolOpt.Key,  Is.EqualTo("build_verify"));
+            Assert.That(boolOpt.Type, Is.EqualTo("bool"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_Options_GroupFollowedByChildren_OrderPreserved() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              after_task_header:
+                type: group
+                label: "After Task Completes:"
+              build_verify:
+                value: true
+                type: bool
+                label: "Verify build"
+              test_after_task:
+                value: true
+                type: bool
+                label: "Write tests"
+              commit_after_task:
+                value: ask
+                type: enum
+                choices: [always, never, ask]
+                label: "Commit"
+              interval:
+                value: 1
+                type: int
+                label: "Interval (min)"
+              timeout:
+                value: 60
+                type: int
+                label: "Timeout (min)"
+              max_iterations:
+                value: 0
+                type: int
+                label: "Max iterations"
+            ---
+            Body.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Has.Count.EqualTo(7));
+
+            Assert.That(config.Options![0].Key, Is.EqualTo("after_task_header"), "index 0");
+            Assert.That(config.Options[0].Type, Is.EqualTo("group"));
+            Assert.That(config.Options[1].Key,  Is.EqualTo("build_verify"),      "index 1");
+            Assert.That(config.Options[2].Key,  Is.EqualTo("test_after_task"),   "index 2");
+            Assert.That(config.Options[3].Key,  Is.EqualTo("commit_after_task"), "index 3");
+            Assert.That(config.Options[4].Key,  Is.EqualTo("interval"),          "index 4");
+            Assert.That(config.Options[5].Key,  Is.EqualTo("timeout"),           "index 5");
+            Assert.That(config.Options[6].Key,  Is.EqualTo("max_iterations"),    "index 6");
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── UpdateOptionValue: bool and enum ──────────────────────────────────────
+
+    [Test]
+    public void UpdateOptionValue_Bool_UpdatesCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              build_verify:
+                value: true
+                type: bool
+                label: "Verify build"
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateOptionValue(path, "build_verify", "false");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            var opt = config!.Options!.First(o => o.Key == "build_verify");
+            Assert.That(opt.RawValue, Is.EqualTo("false"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptionValue_Enum_UpdatesCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              commit_after_task:
+                value: ask
+                type: enum
+                choices: [always, never, ask]
+                label: "Commit"
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateOptionValue(path, "commit_after_task", "always");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            var opt = config!.Options!.First(o => o.Key == "commit_after_task");
+            Assert.That(opt.RawValue, Is.EqualTo("always"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── Variable injection ────────────────────────────────────────────────────
+
+    [Test]
+    public void VariableInjection_OptionValues_AreSubstituted() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              build_verify:
+                value: true
+                type: bool
+              commit_after_task:
+                value: ask
+                type: enum
+                choices: [always, never, ask]
+            ---
+            Body.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+
+            string text = "build_verify = {{build_verify}}, commit = {{commit_after_task}}";
+            foreach (var opt in config!.Options!)
+                text = text.Replace($"{{{{{opt.Key}}}}}", opt.RawValue, StringComparison.Ordinal);
+
+            Assert.That(text, Is.EqualTo("build_verify = true, commit = ask"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void VariableInjection_GroupOption_ReplacesPlaceholderWithEmpty() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              after_task_header:
+                type: group
+                label: "After Task Completes:"
+            ---
+            Body.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+
+            string text = "header={{after_task_header}}end";
+            foreach (var opt in config!.Options!)
+                text = text.Replace($"{{{{{opt.Key}}}}}", opt.RawValue, StringComparison.Ordinal);
+
+            Assert.That(text, Is.EqualTo("header=end"),
+                "group option RawValue is empty string, so placeholder is replaced with nothing");
+        }
+        finally { DeleteTempFile(path); }
     }
 }

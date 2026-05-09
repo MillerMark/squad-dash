@@ -113,8 +113,20 @@ internal sealed class PromptExecutionController {
     private const string QuickReplyInstruction =
         "When you offer quick replies, append a machine-readable block exactly in this format:\nQUICK_REPLIES_JSON:\n[\n  {\n    \"label\": \"Option A\",\n    \"routeMode\": \"continue_current_agent\",\n    \"reason\": \"One short routing reason.\"\n  },\n  {\n    \"label\": \"Option B\",\n    \"routeMode\": \"start_named_agent\",\n    \"targetAgent\": \"orion-vale\",\n    \"reason\": \"One short routing reason.\"\n  }\n]\nOnly emit quick replies when the user can act on them immediately. Do not emit quick replies while background agents are still working, while you are only reporting progress, or while the next step is blocked on unfinished work. Do not emit quick replies in the same response where you launch, assign, queue, delegate, or hand off new background work. If you tell the user that an agent is starting, is running, will continue in the background, that you will report back later, or that they should use `/tasks` for status, emit no quick replies at all in that response. Quick replies are only allowed after the relevant agent work has finished and the user can immediately choose the next real step. Each quick reply must include `label` and `routeMode`. `routeMode` must be one of `continue_current_agent`, `start_named_agent`, `start_coordinator`, `fanout_team`, or `done`. Include `targetAgent` only when `routeMode` is `start_named_agent`, using a roster handle from `.squad/team.md`. Use `continue_current_agent` only when the next step should stay with the same agent who produced the current response. Use `.squad/team.md` and `.squad/routing.md` to choose the correct owner. Keep the label and metadata aligned: if the button says to run, ask, hand off to, or start a different agent, utility agent, or specialist, do not use `continue_current_agent`; use `start_named_agent` with the correct `targetAgent` instead. In particular, if the next step is to run Scribe, Ralph, or any agent other than the one who produced the current response, the quick reply must use `start_named_agent` and name that agent explicitly. When a quick reply names or implies an owner for follow-up work, delegated work, backlog items, reviews, or test work, keep that owner aligned with `.squad/routing.md` instead of assigning by convenience. Do not assign testing, QA, verification, or coverage work to a non-testing specialist unless `.squad/routing.md` explicitly gives them that ownership or you clearly describe the work as collaboration under the testing lead. Never include no-op buttons — every quick reply must cause something meaningful to happen. Do not include a lone \"Done\" button when it would just send an empty acknowledgement. Do not include a \"No\" or \"Cancel\" button on a yes/no question unless clicking it would actually trigger a useful action; if declining means doing nothing, omit it entirely. If the only honest reply is \"you're finished\", emit no quick replies at all. Do NOT emit buttons like \"Looks good — what's next?\", \"Looks good\", \"What's next?\", \"All done\", or any variant that is just an acknowledgement or a vague invitation to continue — these are no-ops because clicking them gives the AI nothing actionable to act on. A quick reply is only valid if clicking it causes a specific, identifiable action: routing to a named agent, starting a named task, or asking a concrete question. If there is no active task list and no specific next step you can name, emit no quick replies at all.";
 
+    private const string CoordinatorDelegationAccountabilityInstruction =
+        """
+        Coordinator delegation accountability:
+        Before doing implementation, investigation, testing, review, documentation, or performance work yourself, decide whether a roster agent should own it according to `.squad/team.md` and `.squad/routing.md`.
+
+        If you keep the work in the Coordinator instead of launching an appropriate agent, include one short sentence at the start of your visible response:
+        "Doing this myself because <reason>."
+
+        Valid reasons are narrow: quick factual answer, the task is quick/trivial, user explicitly asked the Coordinator to handle it, no clear specialist exists, or launching an agent is somehow blocked. Otherwise, launch the appropriate agent instead of doing the work inline.
+        """;
+
     private static readonly TimeSpan PromptNoActivityWarningThreshold = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan PromptNoActivityStallThreshold   = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PromptHealthDeltaTraceInterval   = TimeSpan.FromSeconds(1);
 
     // ── Injected — Bridge ─────────────────────────────────────────────────
     private readonly Func<string, string, string?, string?, Task> _runPromptAsync;
@@ -239,10 +251,20 @@ internal sealed class PromptExecutionController {
     private int              _thinkingCharacterCount;
     private TimeSpan         _longestThinkingGap;
     private TimeSpan         _totalThinkingGap;
+    private DateTimeOffset?  _lastPromptHealthDeltaTraceAt;
+    private int              _pendingHealthThinkingChunks;
+    private int              _pendingHealthThinkingChars;
+    private int              _pendingHealthResponseChunks;
+    private int              _pendingHealthResponseChars;
     private int              _toolStartCount;
     private int              _toolCompleteCount;
     private bool             _promptNoActivityWarningShown;
     private bool             _promptStallWarningShown;
+    /// <summary>
+    /// Set when the user aborts a running prompt. Causes the next prompt to be prefixed
+    /// with a retraction notice so the AI ignores the aborted turn.
+    /// </summary>
+    private bool             _nextPromptShouldRetractAborted;
     private SquadSdkEvent?   _lastSessionReadyEvent;
     private PromptContextDiagnostics? _currentPromptContextDiagnostics;
 
@@ -485,6 +507,11 @@ internal sealed class PromptExecutionController {
         _thinkingCharacterCount       = 0;
         _longestThinkingGap           = TimeSpan.Zero;
         _totalThinkingGap             = TimeSpan.Zero;
+        _lastPromptHealthDeltaTraceAt = now;
+        _pendingHealthThinkingChunks  = 0;
+        _pendingHealthThinkingChars   = 0;
+        _pendingHealthResponseChunks  = 0;
+        _pendingHealthResponseChars   = 0;
         _toolStartCount               = 0;
         _toolCompleteCount            = 0;
         _promptNoActivityWarningShown = false;
@@ -502,6 +529,10 @@ internal sealed class PromptExecutionController {
             return;
 
         var now = DateTimeOffset.Now;
+        RecordPromptActivity(activityName, now, writeActivityTrace: true);
+    }
+
+    private void RecordPromptActivity(string activityName, DateTimeOffset now, bool writeActivityTrace) {
         if (_promptNoActivityWarningShown || _promptStallWarningShown) {
             SquadDashTrace.Write(
                 "PromptHealth",
@@ -513,7 +544,7 @@ internal sealed class PromptExecutionController {
         _lastPromptActivityAt = now;
         _lastPromptActivityName = activityName;
 
-        if (_currentPromptStartedAt is { } startedAt) {
+        if (writeActivityTrace && _currentPromptStartedAt is { } startedAt) {
             var elapsed = now - startedAt;
             SquadDashTrace.Write(
                 "PromptHealth",
@@ -523,12 +554,19 @@ internal sealed class PromptExecutionController {
 
     internal void MarkActivity(SquadSdkEvent evt) {
         var activityName = evt.Type ?? "event";
-        MarkActivity(activityName);
-
         if (!_getIsPromptRunning())
             return;
 
         var now = _lastPromptActivityAt ?? DateTimeOffset.Now;
+        var isStreamingDelta = evt.Type is "thinking_delta" or "response_delta";
+        if (isStreamingDelta)
+            RecordPromptActivity(activityName, DateTimeOffset.Now, writeActivityTrace: false);
+        else {
+            FlushPromptHealthDeltaTrace(DateTimeOffset.Now, force: true);
+            MarkActivity(activityName);
+        }
+
+        now = _lastPromptActivityAt ?? DateTimeOffset.Now;
         switch (evt.Type) {
             case "session_ready":
                 _lastSessionReadyEvent = evt;
@@ -584,9 +622,9 @@ internal sealed class PromptExecutionController {
                     _thinkingTextDeltaCount++;
                     _thinkingCharacterCount += thinkingTextLength;
                     if (thinkingTextLength > 0) {
-                        SquadDashTrace.Write(
-                            "PromptHealth",
-                            $"Thinking chunk chars={thinkingTextLength} totalThinkingChars={_thinkingCharacterCount} totalThinkingChunks={_thinkingTextDeltaCount} avgThinkingCharsPerSec={FormatThinkingCharsPerSecond()}");
+                        _pendingHealthThinkingChunks++;
+                        _pendingHealthThinkingChars += thinkingTextLength;
+                        FlushPromptHealthDeltaTrace(now, force: false);
                     }
                 }
                 break;
@@ -616,13 +654,42 @@ internal sealed class PromptExecutionController {
                 _lastResponseAt = now;
                 _responseDeltaCount++;
                 _responseCharacterCount += chunkLength;
+                if (chunkLength > 0) {
+                    _pendingHealthResponseChunks++;
+                    _pendingHealthResponseChars += chunkLength;
+                    FlushPromptHealthDeltaTrace(now, force: false);
+                }
                 break;
         }
+    }
+
+    private void FlushPromptHealthDeltaTrace(DateTimeOffset now, bool force) {
+        if (!force &&
+            _lastPromptHealthDeltaTraceAt is { } last &&
+            now - last < PromptHealthDeltaTraceInterval)
+            return;
+
+        if (_pendingHealthThinkingChunks == 0 && _pendingHealthResponseChunks == 0)
+            return;
+
+        SquadDashTrace.Write(
+            "PromptHealth",
+            $"Stream chunk summary thinkingChunks={_pendingHealthThinkingChunks} thinkingChars={_pendingHealthThinkingChars} " +
+            $"totalThinkingChars={_thinkingCharacterCount} totalThinkingChunks={_thinkingTextDeltaCount} avgThinkingCharsPerSec={FormatThinkingCharsPerSecond()} " +
+            $"responseChunks={_pendingHealthResponseChunks} responseChars={_pendingHealthResponseChars} " +
+            $"totalResponseChars={_responseCharacterCount} totalResponseChunks={_responseDeltaCount}");
+
+        _pendingHealthThinkingChunks = 0;
+        _pendingHealthThinkingChars = 0;
+        _pendingHealthResponseChunks = 0;
+        _pendingHealthResponseChars = 0;
+        _lastPromptHealthDeltaTraceAt = now;
     }
 
     private void StopPromptHealthMonitoring(string outcome) {
         if (_currentPromptStartedAt is { } startedAt) {
             var finishedAt = DateTimeOffset.Now;
+            FlushPromptHealthDeltaTrace(finishedAt, force: true);
             SquadDashTrace.Write(
                 "PromptHealth",
                 $"Prompt finished outcome={outcome} totalMs={(finishedAt - startedAt).TotalMilliseconds:0} " +
@@ -662,6 +729,11 @@ internal sealed class PromptExecutionController {
         _thinkingCharacterCount       = 0;
         _longestThinkingGap           = TimeSpan.Zero;
         _totalThinkingGap             = TimeSpan.Zero;
+        _lastPromptHealthDeltaTraceAt = null;
+        _pendingHealthThinkingChunks  = 0;
+        _pendingHealthThinkingChars   = 0;
+        _pendingHealthResponseChunks  = 0;
+        _pendingHealthResponseChars   = 0;
         _toolStartCount               = 0;
         _toolCompleteCount            = 0;
         _promptNoActivityWarningShown = false;
@@ -1616,6 +1688,7 @@ internal sealed class PromptExecutionController {
             MarkActiveToolsAsFailed("Aborted");
             _appendLine("[aborted]", ThemeBrush("SystemInfoText"));
             _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
+            _nextPromptShouldRetractAborted = true;
         }
         catch (Exception ex) {
             SquadDashTrace.Write("UI", $"ExecutePromptAsync failed: {ex}");
@@ -1702,6 +1775,16 @@ internal sealed class PromptExecutionController {
         var tasksCtx  = BuildTasksContextInstruction();
         var queueCtx  = PendingQueueItemCount > 0 ? BuildQueueContextInstruction(PendingQueueItemCount) : null;
 
+        if (_nextPromptShouldRetractAborted) {
+            _nextPromptShouldRetractAborted = false;
+            SquadDashTrace.Write("UI", "Injecting abort retraction prefix for next prompt.");
+            prompt =
+                "[System note: The previous user message in this conversation was cancelled mid-stream by the user. " +
+                "Disregard it entirely — do not act on it, refer to it, or treat it as a pending task. " +
+                "The user's actual request follows below.]\n\n" +
+                prompt;
+        }
+
         var triggeredCtx = BuildTriggeredInjections(prompt);
 
         var hostCmdCtx = GetHostCommandCatalogInstruction?.Invoke();
@@ -1716,8 +1799,9 @@ internal sealed class PromptExecutionController {
             _getPendingQuickReplyRoutingInstruction(),
             _getPendingQuickReplyRouteMode(),
             supplemental,
-            _getCurrentWorkspace()?.FolderPath);
-        SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary}");
+            _getCurrentWorkspace()?.FolderPath,
+            CoordinatorDelegationAccountabilityInstruction);
+        SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary} accountability=included");
         return buildResult.PromptText;
     }
 

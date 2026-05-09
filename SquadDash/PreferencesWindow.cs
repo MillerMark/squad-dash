@@ -1,10 +1,10 @@
-using System.Collections.Generic;
 using System;
-using System.Net.Http;
-using System.Threading.Tasks;
 using System.Windows;
+using System.Net.Http;
 using System.Windows.Input;
+using System.Threading.Tasks;
 using System.Windows.Controls;
+using System.Collections.Generic;
 
 namespace SquadDash;
 
@@ -38,6 +38,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly PasswordBox _byokApiKeyPasswordBox;
     private readonly TextBox _byokApiKeyRevealBox;
     private readonly TextBlock _byokTestStatusText;
+    private readonly TextBox _cleanupPromptBox;
 
     private readonly UIElement[] _pages;
     private readonly Button[] _navButtons;
@@ -95,6 +96,19 @@ internal sealed class PreferencesWindow : Window {
             Height = 30
         };
 
+        _cleanupPromptBox = new TextBox {
+            Text = currentSettings.CleanupPrompt,
+            Padding = new Thickness(6, 4, 6, 4),
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = false,
+            Height = 60,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        _cleanupPromptBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
+        _cleanupPromptBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        _cleanupPromptBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+
         _tunnelModeComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "None", Tag = (string?)null });
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "ngrok", Tag = "ngrok" });
@@ -120,12 +134,12 @@ internal sealed class PreferencesWindow : Window {
         };
 
         _byokProviderUrlBox = new TextBox {
-            Text = currentSettings.ByokProviderUrl ?? "",
+            Text = currentSettings.ByokProviderUrl ?? string.Empty,
             Padding = new Thickness(6, 4, 6, 4),
             Height = 30
         };
         _byokModelBox = new TextBox {
-            Text = currentSettings.ByokModel ?? "",
+            Text = currentSettings.ByokModel ?? string.Empty,
             Padding = new Thickness(6, 4, 6, 4),
             Height = 30,
             Margin = new Thickness(0, 0, 0, 12)
@@ -195,12 +209,12 @@ internal sealed class PreferencesWindow : Window {
         };
         _ntfyUrlText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
 
-        _notifyAiTurnCheckBox        = MakeCheckBox("AI turn completes",                           GetToggle(currentSettings, "assistant_turn_complete", true));
-        _notifyGitCommitCheckBox     = MakeCheckBox("Git commit pushed (agent-authored only)",      GetToggle(currentSettings, "git_commit_pushed", false));
-        _notifyLoopIterationCheckBox = MakeCheckBox("Loop iteration completes",                     GetToggle(currentSettings, "loop_iteration_complete", false));
-        _notifyLoopStoppedCheckBox   = MakeCheckBox("Loop stopped",                                 GetToggle(currentSettings, "loop_stopped", true));
-        _notifyRcEstablishedCheckBox = MakeCheckBox("Remote connection established",                GetToggle(currentSettings, "rc_connection_established", false));
-        _notifyRcDroppedCheckBox     = MakeCheckBox("Remote connection dropped",                    GetToggle(currentSettings, "rc_connection_dropped", true));
+        _notifyAiTurnCheckBox = MakeCheckBox("AI turn completes", GetToggle(currentSettings, "assistant_turn_complete", true));
+        _notifyGitCommitCheckBox = MakeCheckBox("Git commit pushed (agent-authored only)", GetToggle(currentSettings, "git_commit_pushed", false));
+        _notifyLoopIterationCheckBox = MakeCheckBox("Loop iteration completes", GetToggle(currentSettings, "loop_iteration_complete", false));
+        _notifyLoopStoppedCheckBox = MakeCheckBox("Loop stopped", GetToggle(currentSettings, "loop_stopped", true));
+        _notifyRcEstablishedCheckBox = MakeCheckBox("Remote connection established", GetToggle(currentSettings, "rc_connection_established", false));
+        _notifyRcDroppedCheckBox = MakeCheckBox("Remote connection dropped", GetToggle(currentSettings, "rc_connection_dropped", true));
 
         if (showDevOptions) {
             _startupIssueSimulationComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 14) };
@@ -268,14 +282,16 @@ internal sealed class PreferencesWindow : Window {
 
         var pageList = new List<(string label, UIElement page)> {
             ("General",       BuildGeneralPage()),
+            ("Speech",        BuildSpeechPage()),
             ("Remote Access", BuildRemoteAccessPage()),
             ("Custom Model",  BuildByokPage()),
             ("Notifications", BuildNotificationsPage(currentSettings)),
+            ("AI",            BuildAiPage()),
         };
         if (showDevOptions)
             pageList.Add(("Dev / Diag.", BuildDevPage()));
 
-        _pages      = new UIElement[pageList.Count];
+        _pages = new UIElement[pageList.Count];
         _navButtons = new Button[pageList.Count];
         for (int i = 0; i < pageList.Count; i++) {
             var (label, page) = pageList[i];
@@ -304,6 +320,14 @@ internal sealed class PreferencesWindow : Window {
 
         AddLabel(form, "User Name (appears in the Transcript, before user prompts)");
         form.Children.Add(_userNameBox);
+
+        return WrapInScrollViewer(form);
+    }
+
+    private UIElement BuildSpeechPage() {
+        var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
+
+        AddSectionHeader(form, "Speech");
 
         AddLabel(form, "Azure Speech API Key");
         var apiKeyHost = new Grid();
@@ -543,6 +567,26 @@ internal sealed class PreferencesWindow : Window {
         return WrapInScrollViewer(form);
     }
 
+    private UIElement BuildAiPage() {
+        var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
+
+        AddSectionHeader(form, "AI");
+
+        AddLabel(form, "Quick Cleanup prompt (Ctrl+Shift+C):", wrap: true);
+        form.Children.Add(_cleanupPromptBox);
+
+        var hint = new TextBlock {
+            Text = "This prompt is sent automatically when you press Ctrl+Shift+C with text selected in any markdown source editor. The selection passed to the AI with this instruction and after a moment replaced with the edited version from AI.",
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        form.Children.Add(hint);
+
+        return WrapInScrollViewer(form);
+    }
+
     private void RevealLink_MouseDown(object sender, MouseButtonEventArgs e) {
         _apiKeyRevealBox.Text = _apiKeyPasswordBox.Password;
         _apiKeyPasswordBox.Visibility = Visibility.Collapsed;
@@ -573,10 +617,12 @@ internal sealed class PreferencesWindow : Window {
             if (ids.Count > 0) {
                 var names = string.Join(", ", System.Linq.Enumerable.Select(ids.Cast<System.Text.RegularExpressions.Match>(), m => m.Groups[1].Value));
                 _byokTestStatusText.Text = $"✅ Connected — {ids.Count} model(s): {names}";
-            } else {
+            }
+            else {
                 _byokTestStatusText.Text = "✅ Reachable (no models listed)";
             }
-        } catch (Exception ex) {
+        }
+        catch (Exception ex) {
             _byokTestStatusText.Text = $"❌ {ex.Message}";
         }
     }
@@ -603,12 +649,12 @@ internal sealed class PreferencesWindow : Window {
                 ? new System.Collections.Generic.Dictionary<string, string> { ["topic"] = notifTopic }
                 : null,
             new System.Collections.Generic.Dictionary<string, bool> {
-                ["assistant_turn_complete"]   = _notifyAiTurnCheckBox.IsChecked == true,
-                ["git_commit_pushed"]         = _notifyGitCommitCheckBox.IsChecked == true,
-                ["loop_iteration_complete"]   = _notifyLoopIterationCheckBox.IsChecked == true,
-                ["loop_stopped"]             = _notifyLoopStoppedCheckBox.IsChecked == true,
+                ["assistant_turn_complete"] = _notifyAiTurnCheckBox.IsChecked == true,
+                ["git_commit_pushed"] = _notifyGitCommitCheckBox.IsChecked == true,
+                ["loop_iteration_complete"] = _notifyLoopIterationCheckBox.IsChecked == true,
+                ["loop_stopped"] = _notifyLoopStoppedCheckBox.IsChecked == true,
                 ["rc_connection_established"] = _notifyRcEstablishedCheckBox.IsChecked == true,
-                ["rc_connection_dropped"]     = _notifyRcDroppedCheckBox.IsChecked == true,
+                ["rc_connection_dropped"] = _notifyRcDroppedCheckBox.IsChecked == true,
             });
         _pushNotificationService.ReloadProvider();
         var tunnelMode = (_tunnelModeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
@@ -621,6 +667,7 @@ internal sealed class PreferencesWindow : Window {
             string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim(),
             byokProviderType,
             string.IsNullOrWhiteSpace(byokApiKey) ? null : byokApiKey);
+        updated = _settingsStore.SaveCleanupPrompt(_cleanupPromptBox.Text.Trim());
         _onSaved(updated);
         Close();
 
@@ -721,8 +768,8 @@ internal sealed class PreferencesWindow : Window {
     private static string GenerateRandomTopic(ApplicationSettingsSnapshot settings) {
         var userName = (settings.UserName ?? Environment.UserName ?? "user")
             .ToLowerInvariant()
-            .Replace(" ", "")
-            .Replace("-", "");
+            .Replace(" ", string.Empty)
+            .Replace("-", string.Empty);
         if (userName.Length > 8) userName = userName[..8];
         var suffix = Guid.NewGuid().ToString("N")[..8];
         return $"squad-dash-{userName}-{suffix}";

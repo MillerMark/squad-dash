@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,6 +27,7 @@ internal sealed class LoopController {
 
     private volatile bool         _stopRequested;
     private CancellationTokenSource? _cts;
+    private string? _workspacePath;
 
     internal bool          IsRunning  { get; private set; }
     internal LoopStopState StopState  { get; private set; }
@@ -68,11 +71,12 @@ internal sealed class LoopController {
     /// Starts the loop on a background Task and returns immediately.
     /// Does nothing if already running.
     /// </summary>
-    internal Task StartAsync(LoopMdConfig config, bool continuousContext) {
+    internal Task StartAsync(LoopMdConfig config, bool continuousContext, string? workspacePath = null) {
         if (IsRunning)
             return Task.CompletedTask;
 
         _stopRequested = false;
+        _workspacePath = workspacePath;
         _cts           = new CancellationTokenSource();
         // Fire-and-forget; the loop reports completion via callbacks.
         _ = Task.Run(() => RunLoopAsync(config, continuousContext, _cts.Token));
@@ -116,7 +120,8 @@ internal sealed class LoopController {
                 // agent state does not accumulate across rounds.
                 var sessionId = continuousContext ? null : Guid.NewGuid().ToString("N");
 
-                var prompt     = BuildAugmentedPrompt(config.Instructions, config.Commands);
+                var expandedInstructions = ExpandVariables(config.Instructions, config, iteration, _workspacePath);
+                var prompt     = BuildAugmentedPrompt(expandedInstructions, config.Commands);
                 var promptTask = _executePromptAsync(prompt, sessionId);
 
                 // Race the prompt against the per-iteration wall-clock timeout.
@@ -138,6 +143,18 @@ internal sealed class LoopController {
                 await promptTask; // propagate any exception thrown by the prompt itself
 
                 _onIterationCompleted(iteration);
+
+                // Check max_iterations (0 = unlimited)
+                if (config.Options != null) {
+                    var maxOpt = config.Options.FirstOrDefault(o => o.Key == "max_iterations");
+                    if (maxOpt != null &&
+                        int.TryParse(maxOpt.RawValue, out var maxIter) &&
+                        maxIter > 0 &&
+                        iteration >= maxIter) {
+                        _stopRequested = true;
+                    }
+                }
+
                 if (_stopRequested) break;
 
                 await _onBeforeWait();
@@ -201,5 +218,37 @@ internal sealed class LoopController {
         sb.AppendLine();
         sb.AppendLine("Only emit HOST_COMMAND_JSON when the condition for that command has been met. Do not emit it on every iteration.");
         return sb.ToString().TrimEnd();
+    }
+
+    private static string ExpandVariables(string text, LoopMdConfig config, int iteration, string? workspacePath) {
+        // Option variables — replace {{key}} with the raw value from the options block
+        if (config.Options != null)
+            foreach (var opt in config.Options)
+                text = text.Replace($"{{{{{opt.Key}}}}}", opt.RawValue, StringComparison.Ordinal);
+
+        // System variables
+        text = text.Replace("{{iteration}}", iteration.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        text = text.Replace("{{copilot_trailer}}", "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>", StringComparison.Ordinal);
+        text = text.Replace("{{workspace_path}}", workspacePath ?? string.Empty, StringComparison.Ordinal);
+        text = text.Replace("{{build_command}}", DetectBuildCommand(workspacePath), StringComparison.Ordinal);
+
+        return text;
+    }
+
+    private static string DetectBuildCommand(string? workspacePath) {
+        if (workspacePath == null || !Directory.Exists(workspacePath))
+            return string.Empty;
+        if (Directory.GetFiles(workspacePath, "*.sln").Length > 0 ||
+            Directory.GetFiles(workspacePath, "*.csproj").Length > 0)
+            return "dotnet build";
+        if (File.Exists(Path.Combine(workspacePath, "package.json")))
+            return "npm run build";
+        if (File.Exists(Path.Combine(workspacePath, "Cargo.toml")))
+            return "cargo build";
+        if (File.Exists(Path.Combine(workspacePath, "go.mod")))
+            return "go build ./...";
+        if (File.Exists(Path.Combine(workspacePath, "Makefile")))
+            return "make";
+        return string.Empty;
     }
 }

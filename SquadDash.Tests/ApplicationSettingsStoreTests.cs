@@ -308,13 +308,90 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
-    public void SaveRcPort_SurvivesSubsequentSaves() {
+    public void SaveLoopMode_SquadCli_PersistsLoopMode() {
         using var workspace = new TestWorkspace();
         var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
 
-        store.SaveRcPort(51234);
+        store.SaveLoopMode(LoopMode.SquadCli);
+
+        Assert.That(store.Load().LoopMode, Is.EqualTo(LoopMode.SquadCli));
+    }
+
+    [Test]
+    public void SaveLoopMode_NativeAgents_PersistsLoopMode() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveLoopMode(LoopMode.SquadCli);
+        store.SaveLoopMode(LoopMode.NativeAgents);
+
+        Assert.That(store.Load().LoopMode, Is.EqualTo(LoopMode.NativeAgents));
+    }
+
+    [Test]
+    public void SaveLoopMode_SurvivesSubsequentSaves() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveLoopMode(LoopMode.SquadCli);
+        store.RememberFolder(repo);
         store.SavePromptFontSize(16);
 
-        Assert.That(store.Load().RcPersistentPort, Is.EqualTo(51234));
+        Assert.That(store.Load().LoopMode, Is.EqualTo(LoopMode.SquadCli));
+    }
+
+    [Test]
+    public void SaveLoopContinuousContext_False_Persists() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveLoopContinuousContext(false);
+
+        Assert.That(store.Load().LoopContinuousContext, Is.False);
+    }
+
+    [Test]
+    public void SaveLoopContinuousContext_FalseAfterTrue_Persists() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveLoopContinuousContext(true);
+        store.SaveLoopContinuousContext(false);
+
+        Assert.That(store.Load().LoopContinuousContext, Is.False);
+    }
+
+    [Test]
+    public void SaveLoopContinuousContext_True_SurvivesSubsequentSaves() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveLoopContinuousContext(false);
+        store.RememberFolder(repo);
+        store.SavePromptFontSize(16);
+        store.SaveLoopActive(true);
+
+        Assert.That(store.Load().LoopContinuousContext, Is.False);
+    }
+
+    [Test]
+    public void SaveLoopMode_AndLoopContinuousContext_PersistIndependently() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveLoopMode(LoopMode.SquadCli);
+        store.SaveLoopContinuousContext(false);
+
+        var loaded = store.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.LoopMode,             Is.EqualTo(LoopMode.SquadCli));
+            Assert.That(loaded.LoopContinuousContext, Is.False);
+        });
     }
 }

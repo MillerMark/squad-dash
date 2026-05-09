@@ -44,6 +44,8 @@ While an agent is running, the **⚠ Abort...** button (below the Send button) b
 
 Clicking it opens a confirmation dialog listing the currently running agent turns you can stop. Select the targets you want to abort and confirm.
 
+> **Keyboard shortcut:** Press **Ctrl+Break** to trigger the Abort dialog instantly, without reaching for the mouse.
+
 ![Screenshot: Abort button active while a prompt is running](images/prompt-input-abort.png)
 > 📸 *Screenshot needed: The prompt area with an agent actively running — Abort button visible and enabled, ideally with the confirmation dialog also shown or a separate shot of each state.*
 

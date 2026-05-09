@@ -2715,3 +2715,16 @@ Extended `PushNotificationService.ExtractGitCommitInfo()` to accept both tool ou
 
 - `CommitApprovalItem.cs` — stores extracted SHA for approvals panel
 - `PushNotificationService.cs` — new extraction method
+
+
+---
+
+### 2026-05-08 — Convention: Keyboard shortcuts must be discoverable and documented
+
+**What:** Whenever a keyboard shortcut is added to any UI element in SquadDash, two things are required:
+1. **Discoverable in the UI** — the shortcut must be surfaced where users can encounter it naturally. The standard mechanism is tooltip text on the associated button or control (e.g. "Abort (Ctrl+Break)"). Users who never read docs must still be able to discover the shortcut by hovering.
+2. **Documented** — the shortcut must be added to the relevant docs page (typically the feature page where the control lives) AND to the docs/reference/keyboard-shortcuts.md reference table.
+
+**Why:** Users won't discover shortcuts unless they're visible somewhere in the product. Tooltips are the natural discovery surface — they require no prior knowledge and appear on demand. Documentation ensures shortcuts are findable in help content and the keyboard reference. A shortcut that exists only in code is effectively invisible.
+
+**Established:** 2026-05-08

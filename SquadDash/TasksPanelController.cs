@@ -25,6 +25,7 @@ internal sealed class TasksPanelController {
     private readonly Action          _editTasksAction;
     private readonly Func<string, Brush> _priorityDotColor;
     private readonly Action<TaskItem>?  _attachFollowUp;
+    private readonly Action<TaskItem>?  _addToNotes;
     private readonly Func<IReadOnlyList<SquadTeamMember>>? _getRoster;
 
     private bool      _showCompleted;
@@ -45,6 +46,7 @@ internal sealed class TasksPanelController {
         Func<string, Brush>  priorityDotColor,
         Action               reloadPanel,
         Action<TaskItem>?    attachFollowUp = null,
+        Action<TaskItem>?    addToNotes     = null,
         Func<IReadOnlyList<SquadTeamMember>>? getRoster = null) {
 
         _activePanel      = activePanel;
@@ -55,6 +57,7 @@ internal sealed class TasksPanelController {
         _priorityDotColor = priorityDotColor;
         _reloadPanel      = reloadPanel;
         _attachFollowUp   = attachFollowUp;
+        _addToNotes       = addToNotes;
         _getRoster        = getRoster;
 
         AttachPanelContextMenu(outerBorder);
@@ -185,18 +188,27 @@ internal sealed class TasksPanelController {
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
         var menu           = MakeMenu();
+        if (_attachFollowUp is not null || _addToNotes is not null)
+        {
+            if (_attachFollowUp is not null)
+            {
+                var followUpItem = MakeItem("Add to chat");
+                followUpItem.Click += (_, _) => _attachFollowUp(item);
+                menu.Items.Add(followUpItem);
+            }
+            if (_addToNotes is not null)
+            {
+                var notesItem = MakeItem("Add to Notes");
+                notesItem.Click += (_, _) => _addToNotes(item);
+                menu.Items.Add(notesItem);
+            }
+            menu.Items.Add(MakeSep());
+        }
         var markCompleteItem = MakeItem("Mark as Complete");
         markCompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: true);
         menu.Items.Add(markCompleteItem);
         menu.Items.Add(MakeSep());
         menu.Items.Add(BuildAssignToMenuItem(item));
-        if (_attachFollowUp is not null)
-        {
-            menu.Items.Add(MakeSep());
-            var followUpItem = MakeItem("Attach to Prompt");
-            followUpItem.Click += (_, _) => _attachFollowUp(item);
-            menu.Items.Add(followUpItem);
-        }
         menu.Items.Add(MakeSep());
         menu.Items.Add(BuildToggleCompletedMenuItem());
         menu.Items.Add(MakeSep());
@@ -447,16 +459,25 @@ internal sealed class TasksPanelController {
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
         var menu             = MakeMenu();
+        if (_attachFollowUp is not null || _addToNotes is not null)
+        {
+            if (_attachFollowUp is not null)
+            {
+                var followUpItem = MakeItem("Add to chat");
+                followUpItem.Click += (_, _) => _attachFollowUp(item);
+                menu.Items.Add(followUpItem);
+            }
+            if (_addToNotes is not null)
+            {
+                var notesItem = MakeItem("Add to Notes");
+                notesItem.Click += (_, _) => _addToNotes(item);
+                menu.Items.Add(notesItem);
+            }
+            menu.Items.Add(MakeSep());
+        }
         var markIncompleteItem = MakeItem("Mark as Incomplete");
         markIncompleteItem.Click += (_, _) => _ = HandleMarkCompleteAsync(item, isDone: false);
         menu.Items.Add(markIncompleteItem);
-        if (_attachFollowUp is not null)
-        {
-            menu.Items.Add(MakeSep());
-            var followUpItem = MakeItem("Attach to Prompt");
-            followUpItem.Click += (_, _) => _attachFollowUp(item);
-            menu.Items.Add(followUpItem);
-        }
         menu.Items.Add(MakeSep());
         menu.Items.Add(BuildToggleCompletedMenuItem());
         menu.Items.Add(MakeSep());
@@ -499,7 +520,7 @@ internal sealed class TasksPanelController {
                 // Owner filter (from @handle or @me).
                 if (ownerCandidates is not null) {
                     visible = ownerCandidates.Any(c =>
-                        c == UserOwnedSentinel
+                        c == TasksPanelFilter.UserOwnedSentinel
                             ? item.IsUserOwned
                             : string.Equals(item.Owner?.Trim(), c, StringComparison.OrdinalIgnoreCase));
                 }
@@ -533,77 +554,8 @@ internal sealed class TasksPanelController {
             currentHeading.Visibility = headingHasVisible ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    // Sentinel returned by ParseFilter when the owner filter is "@me".
-    private const string UserOwnedSentinel = "\u0002USER_OWNED";
-
-    /// <summary>
-    /// Parses <paramref name="filter"/> into an optional owner candidate list and an optional text filter.
-    /// <list type="bullet">
-    ///   <item><c>""</c> or <c>"@"</c> alone → (null, "") — show everything</item>
-    ///   <item><c>"@handle"</c> — exact match → ([resolvedName], "") — owner-only filter</item>
-    ///   <item><c>"@partial"</c> — prefix match → ([name1, name2, …], "") — all matching agents</item>
-    ///   <item><c>"@handle text"</c> → (candidates, "text") — both must match</item>
-    ///   <item><c>"text"</c> → (null, "text") — plain text filter</item>
-    /// </list>
-    /// </summary>
-    private (IReadOnlyList<string>? ownerCandidates, string textFilter) ParseFilter(string filter) {
-        if (string.IsNullOrEmpty(filter))
-            return (null, string.Empty);
-
-        if (!filter.StartsWith('@'))
-            return (null, filter);
-
-        // Extract handle = first token after '@'.
-        int spaceIdx = filter.IndexOf(' ');
-        string handle   = spaceIdx < 0 ? filter[1..] : filter[1..spaceIdx];
-        string remaining = spaceIdx < 0
-            ? string.Empty
-            : string.Join(' ', filter[(spaceIdx + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries));
-
-        // Bare "@" (no handle yet) — show all tasks.
-        if (string.IsNullOrEmpty(handle))
-            return (null, remaining);
-
-        // "@me" — exact match resolves immediately.
-        if (string.Equals(handle, "me", StringComparison.OrdinalIgnoreCase))
-            return (new[] { UserOwnedSentinel }, remaining);
-
-        var roster = _getRoster?.Invoke();
-
-        // Collect all candidates: exact handle match, roster prefix matches,
-        // and the "me" sentinel when the typed prefix is a prefix of "me" (e.g. "@m").
-        var candidates = new List<string>();
-
-        // Include @me sentinel when typed prefix matches the start of "me".
-        if ("me".StartsWith(handle, StringComparison.OrdinalIgnoreCase))
-            candidates.Add(UserOwnedSentinel);
-
-        if (roster is not null) {
-            // Try exact handle match first — if found, use only that one agent.
-            foreach (var member in roster) {
-                var memberHandle = member.FolderPath is not null
-                    ? System.IO.Path.GetFileName(member.FolderPath)
-                    : member.Name.ToLowerInvariant().Replace(" ", "-");
-                if (string.Equals(memberHandle, handle, StringComparison.OrdinalIgnoreCase))
-                    return (new[] { member.Name }, remaining);
-            }
-
-            // Prefix match — collect all agents whose handle starts with the typed prefix.
-            foreach (var member in roster) {
-                var memberHandle = member.FolderPath is not null
-                    ? System.IO.Path.GetFileName(member.FolderPath)
-                    : member.Name.ToLowerInvariant().Replace(" ", "-");
-                if (memberHandle.StartsWith(handle, StringComparison.OrdinalIgnoreCase))
-                    candidates.Add(member.Name);
-            }
-        }
-
-        if (candidates.Count > 0)
-            return (candidates, remaining);
-
-        // Unresolved handle — treat the whole filter as plain text.
-        return (null, filter);
-    }
+    private (IReadOnlyList<string>? ownerCandidates, string textFilter) ParseFilter(string filter)
+        => TasksPanelFilter.Parse(filter, _getRoster?.Invoke());
 
 
     // ── Empty state ───────────────────────────────────────────────────────────

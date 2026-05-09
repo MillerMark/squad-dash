@@ -38,7 +38,8 @@ internal static class SquadBridgePromptBuilder {
         string? quickReplyRoutingInstruction,
         string? quickReplyRouteMode,
         string? supplementalInstruction,
-        string? workspaceFolder) {
+        string? workspaceFolder,
+        string? coordinatorDelegationAccountabilityInstruction = null) {
         var trimmedPrompt = string.IsNullOrWhiteSpace(prompt)
             ? null
             : prompt.TrimEnd();
@@ -64,6 +65,7 @@ internal static class SquadBridgePromptBuilder {
         AppendSegment(builder, routingContext.StrongInstruction);
         AppendSegment(builder, supplementalInstruction);
         AppendSegment(builder, routingContext.GenericInstruction);
+        AppendSegment(builder, coordinatorDelegationAccountabilityInstruction);
 
         var customUniverseContext = BuildCustomUniverseContext(prompt, workspaceFolder);
         AppendSegment(builder, customUniverseContext);

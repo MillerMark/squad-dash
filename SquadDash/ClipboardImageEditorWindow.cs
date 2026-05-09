@@ -66,6 +66,12 @@ internal sealed class ClipboardImageEditorWindow : Window
     private readonly Border _dimHeightBadge;
     private readonly TextBlock _dimHeightLabel;
 
+    // Zoom percentage label (declared as field so the wheel handler can update it)
+    private TextBlock? _zoomLabel;
+
+    // ScrollViewer wrapping the canvas (field so the wheel handler can adjust offsets)
+    private ScrollViewer _scrollViewer = null!;
+
     // ── Round corners ─────────────────────────────────────────────────────────
 
     private bool _roundCorners;
@@ -102,6 +108,18 @@ internal sealed class ClipboardImageEditorWindow : Window
     private Point _bodyDragStartMouse;
     private double _bodyDragStartOffsetX;
     private double _bodyDragStartOffsetY;
+
+    // Arrow drag-to-draw state
+    private bool _creatingArrowByDrag;
+    private Point _arrowDragTailPt;
+    private Line? _arrowDragPreviewLine;
+    private Polygon? _arrowDragPreviewHead;
+
+    // Crosshair shown at target point while dragging arrow tip/tail
+    private Line? _crosshairWhiteH;
+    private Line? _crosshairWhiteV;
+    private Line? _crosshairRedH;
+    private Line? _crosshairRedV;
 
     // Color picker
     private StackPanel? _colorPickerPanel;
@@ -150,6 +168,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     private Border? _eyedropperSwatch;
     private TextBlock? _eyedropperHexLabel;
     private Border? _eyedropperTooltipBorder;
+    private Border? _eyedropperTooltipSwatch;
     private TextBlock? _eyedropperTooltipText;
     private byte[]? _cachedPixels;
     private int _cachedStride;
@@ -181,6 +200,20 @@ internal sealed class ClipboardImageEditorWindow : Window
     /// </summary>
     private readonly bool _isPromptMode;
 
+    // ── Spacebar pan mode ─────────────────────────────────────────────────────
+
+    private bool _isPanMode;      // true while Space is held and focus not in a TextBox
+    private bool _isPanning;      // true while actively dragging to pan
+    private Point _panStartMouse; // viewport coords at drag start
+    private double _panStartH;    // HorizontalOffset at drag start
+    private double _panStartV;    // VerticalOffset at drag start
+
+    // Custom hand cursors — lazy-initialised, generated programmatically at runtime
+    private static Cursor? _openHandCursor;
+    private static Cursor? _closedHandCursor;
+    private static Cursor OpenHandCursor   => _openHandCursor   ??= CreateCursorFromDrawing(CreateOpenHandDrawing(),   32, 32, 10, 3);
+    private static Cursor ClosedHandCursor => _closedHandCursor ??= CreateCursorFromDrawing(CreateClosedHandDrawing(), 32, 32, 14, 14);
+
     // ────────────────────────────────────────────────────────────────────────
 
     internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage, bool isPromptMode = false)
@@ -194,10 +227,20 @@ internal sealed class ClipboardImageEditorWindow : Window
         WindowStyle = WindowStyle.SingleBorderWindow;
         ResizeMode = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar = false;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        WindowStartupLocation = WindowStartupLocation.Manual;
         this.SetResourceReference(BackgroundProperty, "AppSurface");
 
         LoadArrowDefaults();
+
+        // Resolve owner screen position early so all monitor lookups use the physical
+        // top-left of the owner window — reliable even when the window is maximized.
+        // PointToScreen returns physical pixel coords; TransformFromDevice converts them
+        // to WPF logical units.  We use the physical coords directly for MonitorFromPoint
+        // so we never misidentify the monitor (GetWindowRect on a maximized window returns
+        // an inflated rect that can straddle the boundary between adjacent monitors).
+        var ownerTopLeft = owner.PointToScreen(new Point(0, 0));
+        var pSrc = PresentationSource.FromVisual(owner);
+        var toLogical = pSrc?.CompositionTarget.TransformFromDevice ?? Matrix.Identity;
 
         // ── Compute display size ─────────────────────────────────────────────
         // Canvas shows image at its intended logical size, correcting for source DPI.
@@ -206,11 +249,13 @@ internal sealed class ClipboardImageEditorWindow : Window
         // the image appears at the intended physical size on any monitor.
         // Ctrl+scroll zoom is applied via ScaleTransform on the wrapper so
         // DoInsertImage always renders at the original pixel dimensions.
-        var workArea = SystemParameters.WorkArea;
+        var monitorArea = pSrc != null
+            ? GetMonitorWorkAreaRect(ownerTopLeft, toLogical)
+            : GetMonitorWorkAreaRect(owner);
         double imgW = clipboardImage.PixelWidth;
         double imgH = clipboardImage.PixelHeight;
-        double maxWinW = workArea.Width * 0.85;
-        double maxWinH = workArea.Height * 0.85;
+        double maxWinW = monitorArea.Width  * 0.95;
+        double maxWinH = monitorArea.Height * 0.95;
 
         double imageDpiX = clipboardImage.DpiX > 0 ? clipboardImage.DpiX : 96.0;
         double imageDpiY = clipboardImage.DpiY > 0 ? clipboardImage.DpiY : 96.0;
@@ -221,12 +266,59 @@ internal sealed class ClipboardImageEditorWindow : Window
         _canvasScaleX = imgW / dispW;  // = imageDpiX / 96
         _canvasScaleY = imgH / dispH;
 
-        // Set initial window size: image + chrome, capped to 85% work area.
-        // MinWidth ensures the toolbar buttons are never clipped even for tiny images.
         const double MinWindowWidth = 580;
-        Width = Math.Max(MinWindowWidth, Math.Min(maxWinW, dispW + 20));
-        Height = Math.Min(maxWinH, dispH + 110); // toolbar ~40 + chrome ~70
+        const double toolbarH = 110.0;
+
+        // Compute initial zoom so the image fits inside the capped window on first open.
+        // Never zoom in (max 1.0), only zoom out if the image is too large.
+        double fitZoomW = (maxWinW - 24) / dispW;
+        double fitZoomH = (maxWinH - toolbarH) / dispH;
+        _zoom = Math.Min(1.0, Math.Min(fitZoomW, fitZoomH));
+        _scaleTransform.ScaleX = _zoom;
+        _scaleTransform.ScaleY = _zoom;
+
+        // Window size = scaled image + chrome, capped to work area.
+        Width  = Math.Max(MinWindowWidth, Math.Min(maxWinW, dispW * _zoom + 24));
+        Height = Math.Min(maxWinH, dispH * _zoom + toolbarH);
         MinWidth = MinWindowWidth;
+
+        // Center dialog on owner's actual screen position.
+        // ownerTopLeft (physical pixels from PointToScreen) and toLogical are resolved above.
+        Point waTopLeft = default, waBottomRight = default;
+        if (pSrc != null)
+        {
+            var logicalOrigin = toLogical.Transform(ownerTopLeft);
+            double ownerLogicalW = owner.ActualWidth;
+            double ownerLogicalH = owner.ActualHeight;
+            Left = logicalOrigin.X + (ownerLogicalW - Width)  / 2.0;
+            Top  = logicalOrigin.Y + (ownerLogicalH - Height) / 2.0;
+
+            // Clamp to monitor work area identified via the physical owner top-left.
+            // Using ownerTopLeft (physical pixels from PointToScreen) for MonitorFromPoint
+            // ensures we pick the correct monitor even when the owner is maximized, because
+            // GetWindowRect on a maximized window returns an inflated rect that can straddle
+            // the boundary between adjacent monitors (e.g. secondary above primary at Y<0).
+            var work = GetMonitorWorkAreaRect(ownerTopLeft, toLogical);
+            waTopLeft     = new Point(work.Left,  work.Top);
+            waBottomRight = new Point(work.Right, work.Bottom);
+            Left = Math.Max(waTopLeft.X, Math.Min(Left, waBottomRight.X - Width));
+            Top  = Math.Max(waTopLeft.Y, Math.Min(Top,  waBottomRight.Y - Height));
+        }
+        else
+        {
+            // Fallback: use monitor work area center (pSrc null means window not yet rendered)
+            var work = GetMonitorWorkAreaRect(owner);
+            Left = work.Left + (work.Width  - Width)  / 2.0;
+            Top  = work.Top  + (work.Height - Height) / 2.0;
+        }
+
+        // Write to SquadDash trace log (visible in the Trace panel) for diagnostics
+        SquadDashTrace.Write("UI",
+            $"[ClipboardImageEditor] owner.WindowState={owner.WindowState} " +
+            $"owner.ActualWidth={owner.ActualWidth:F0} owner.ActualHeight={owner.ActualHeight:F0} " +
+            $"ownerTopLeft={ownerTopLeft.X:F0},{ownerTopLeft.Y:F0} " +
+            $"workArea=({waTopLeft.X:F0},{waTopLeft.Y:F0},{waBottomRight.X:F0},{waBottomRight.Y:F0}) " +
+            $"dialog Left={Left:F0} Top={Top:F0} Width={Width:F0} Height={Height:F0}");
 
         // ── Canvas ───────────────────────────────────────────────────────────
 
@@ -349,15 +441,72 @@ internal sealed class ClipboardImageEditorWindow : Window
         _canvas.MouseUp += Canvas_MouseUp;
         KeyDown += Window_KeyDown;
 
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter && Keyboard.FocusedElement is not TextBox)
+            {
+                e.Handled = true;
+                DoInsertImage();
+                return;
+            }
+            if (e.Key == Key.Space && !_isPanMode)
+            {
+                if (Keyboard.FocusedElement is TextBox) return;
+                _isPanMode = true;
+                _canvas.Cursor = OpenHandCursor;
+                _canvas.ForceCursor = true;   // prevent child elements (shapes) from overriding cursor
+                _scrollViewer.Cursor = OpenHandCursor;
+                e.Handled = true;
+            }
+        };
+
+        PreviewKeyUp += (_, e) =>
+        {
+            if (e.Key == Key.Space && _isPanMode)
+            {
+                _isPanMode = false;
+                _canvas.ForceCursor = false;
+                if (_isPanning)
+                {
+                    _isPanning = false;
+                    _scrollViewer.ReleaseMouseCapture();
+                }
+                _canvas.Cursor = Cursors.Arrow;
+                _scrollViewer.Cursor = null;
+                e.Handled = true;
+            }
+        };
+
         // Ctrl+scroll = zoom in/out. The ScaleTransform lives on the wrapper (not
         // the canvas), so DoInsertImage renders _canvas at its original logical size.
         PreviewMouseWheel += (_, e) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+
+            var mouseInViewport = e.GetPosition(_scrollViewer);
+            double oldZoom = _zoom;
+
             var factor = e.Delta > 0 ? 1.1 : 1.0 / 1.1;
             _zoom = Math.Max(0.1, Math.Min(8.0, _zoom * factor));
             _scaleTransform.ScaleX = _zoom;
             _scaleTransform.ScaleY = _zoom;
+            if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
+            UpdateWindowSizeForZoom();
+
+            // Force a synchronous layout pass so scroll extents reflect the new zoom.
+            _scrollViewer.UpdateLayout();
+
+            // Pin the image pixel under the cursor when scrollbars are active.
+            // Skip if any drag is in progress (mouse is captured by a canvas element).
+            if (Mouse.Captured == null &&
+                (_scrollViewer.ScrollableWidth > 0 || _scrollViewer.ScrollableHeight > 0))
+            {
+                double imagePointX = (_scrollViewer.HorizontalOffset + mouseInViewport.X) / oldZoom;
+                double imagePointY = (_scrollViewer.VerticalOffset + mouseInViewport.Y) / oldZoom;
+                _scrollViewer.ScrollToHorizontalOffset(imagePointX * _zoom - mouseInViewport.X);
+                _scrollViewer.ScrollToVerticalOffset(imagePointY * _zoom - mouseInViewport.Y);
+            }
+
             e.Handled = true;
         };
 
@@ -371,22 +520,60 @@ internal sealed class ClipboardImageEditorWindow : Window
             Margin = new Thickness(4)
         };
 
-        var scrollViewer = new ScrollViewer
+        _scrollViewer = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = canvasWrapper
         };
-        scrollViewer.SetResourceReference(BackgroundProperty, "AppSurface");
+        _scrollViewer.SetResourceReference(BackgroundProperty, "AppSurface");
+
+        _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (!_isPanMode) return;
+            _isPanning = true;
+            _panStartMouse = e.GetPosition(_scrollViewer);
+            _panStartH = _scrollViewer.HorizontalOffset;
+            _panStartV = _scrollViewer.VerticalOffset;
+            _scrollViewer.CaptureMouse();
+            _canvas.Cursor = ClosedHandCursor;
+            _scrollViewer.Cursor = ClosedHandCursor;
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseMove += (_, e) =>
+        {
+            if (!_isPanning) return;
+            var pos = e.GetPosition(_scrollViewer);
+            double dx = pos.X - _panStartMouse.X;
+            double dy = pos.Y - _panStartMouse.Y;
+            _scrollViewer.ScrollToHorizontalOffset(_panStartH - dx);
+            _scrollViewer.ScrollToVerticalOffset(_panStartV - dy);
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (!_isPanning) return;
+            _isPanning = false;
+            _scrollViewer.ReleaseMouseCapture();
+            _canvas.Cursor = _isPanMode ? OpenHandCursor : Cursors.Arrow;
+            _scrollViewer.Cursor = _isPanMode ? OpenHandCursor : null;
+            e.Handled = true;
+        };
 
         var toolbar = BuildToolbar();
         var root = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(toolbar, Dock.Bottom);
         root.Children.Add(toolbar);
-        root.Children.Add(scrollViewer);
+        root.Children.Add(_scrollViewer);
         Content = root;
 
-        Loaded += (_, _) => RefreshLayout();
+        Loaded += (_, _) =>
+        {
+            RefreshLayout();
+            UpdateWindowSizeForZoom(); // center on first paint
+        };
     }
 
     // ── Toolbar ───────────────────────────────────────────────────────────────
@@ -395,36 +582,41 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         _addArrowBtn = new Button
         {
-            Content  = "↗ Arrow",
-            Width    = 80, Height = 28,
+            Content  = MakeToolIcon("ImageEditorArrowIcon"),
+            Width    = 32, Height = 28,
+            Padding  = new Thickness(4, 3, 4, 3),
             Margin   = new Thickness(0, 0, 4, 0),
-            ToolTip  = "Add an arrow annotation — click on the image to place it"
+            ToolTip  = "Arrow (drag to draw)"
         };
         _addRectBtn = new Button
         {
-            Content  = "□ Rect",
-            Width    = 70, Height = 28,
+            Content  = MakeToolIcon("ImageEditorRectIcon"),
+            Width    = 32, Height = 28,
+            Padding  = new Thickness(4, 3, 4, 3),
             Margin   = new Thickness(0, 0, 4, 0),
-            ToolTip  = "Draw a rectangle annotation — drag on the image to define the region"
+            ToolTip  = "Rectangle annotation (drag to draw)"
         };
         var cursorBtn = new Button
         {
-            Content  = "⌖ Cursor",
-            Width    = 80, Height = 28,
+            Content  = MakeToolIcon("ImageEditorCursorIcon"),
+            Width    = 32, Height = 28,
+            Padding  = new Thickness(4, 3, 4, 3),
             Margin   = new Thickness(0, 0, 4, 0),
-            ToolTip  = "Add a mouse-cursor indicator — click on the image to place it"
+            ToolTip  = "Add a mouse-cursor indicator"
         };
         _eyedropperBtn = new Button
         {
-            Content  = "⊕ Color",
-            Width    = 76, Height = 28,
+            Content  = MakeToolIcon("ImageEditorEyedropperIcon"),
+            Width    = 32, Height = 28,
+            Padding  = new Thickness(4, 3, 4, 3),
             Margin   = new Thickness(0, 0, 4, 0),
-            ToolTip  = "Pick a color from the image — hover to preview RGB and HSL, click to capture"
+            ToolTip  = "Pick a color from the image"
         };
         var roundCornersBtn = new Button
         {
-            Content  = "⌐ Round Corners",
-            Width    = 112, Height = 28,
+            Content  = MakeToolIcon("ImageEditorRoundCornersIcon"),
+            Width    = 32, Height = 28,
+            Padding  = new Thickness(4, 3, 4, 3),
             Margin   = new Thickness(0, 0, 4, 0),
             ToolTip  = $"Mask the {CornerRadiusPx}px corners transparent in the output PNG"
         };
@@ -485,31 +677,34 @@ internal sealed class ClipboardImageEditorWindow : Window
 
         _addArrowBtn.Click += (_, _) =>
         {
+            if (_inEyedropperMode) ExitEyedropperMode();
             if (_inArrowMode) { ExitArrowMode(); return; }
             EnterArrowMode();
-            _addArrowBtn.Content = "✓ ↗ Arrow";
+            _addArrowBtn.Content = MakeToolIcon("ImageEditorArrowIcon", active: true);
         };
 
         _addRectBtn.Click += (_, _) =>
         {
+            if (_inEyedropperMode) ExitEyedropperMode();
             if (_inRectMode) { ExitRectMode(); return; }
             EnterRectMode();
-            _addRectBtn.Content = "✓ □ Rect";
+            _addRectBtn.Content = MakeToolIcon("ImageEditorRectIcon", active: true);
         };
 
         cursorBtn.Click += (_, _) =>
         {
+            if (_inEyedropperMode) ExitEyedropperMode();
             _cursorEnabled = !_cursorEnabled;
             if (_cursorEnabled)
             {
                 _inCursorPlacementMode = true;
-                cursorBtn.Content = "✓ ⌖ Cursor";
+                cursorBtn.Content = MakeToolIcon("ImageEditorCursorIcon", active: true);
                 ShowModeHint("Click to place the cursor indicator");
             }
             else
             {
                 _inCursorPlacementMode = false;
-                cursorBtn.Content = "⌖ Cursor";
+                cursorBtn.Content = MakeToolIcon("ImageEditorCursorIcon");
                 ToggleCursorOverlay(false);
                 HideModeHint();
             }
@@ -531,9 +726,9 @@ internal sealed class ClipboardImageEditorWindow : Window
         insertBtn.Click += (_, _) => DoInsertImage();
         cancelBtn.Click += (_, _) => Close();
 
-        var _zoomLabel = new TextBlock
+        _zoomLabel = new TextBlock
         {
-            Text = "100%",
+            Text = $"{_zoom * 100:F0}%",
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 4, 0),
             FontSize = 11
@@ -542,20 +737,16 @@ internal sealed class ClipboardImageEditorWindow : Window
 
         var resetZoomBtn = new Button { Content = "1:1", Width = 36, Height = 28, Margin = new Thickness(0, 0, 4, 0), ToolTip = "Reset zoom to 100% (Ctrl+0)" };
         resetZoomBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        resetZoomBtn.Click += (_, _) => { _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0; _zoomLabel.Text = "100%"; };
+        resetZoomBtn.Click += (_, _) => { _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0; _zoomLabel.Text = "100%"; UpdateWindowSizeForZoom(); };
 
-        // Update label whenever zoom changes
-        PreviewMouseWheel += (_, e) =>
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
-                _zoomLabel.Text = $"{_zoom * 100:F0}%";
-        };
+        // Update label whenever zoom changes via keyboard shortcut
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.D0 && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
                 _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0;
                 _zoomLabel.Text = "100%";
+                UpdateWindowSizeForZoom();
                 e.Handled = true;
             }
         };
@@ -583,7 +774,205 @@ internal sealed class ClipboardImageEditorWindow : Window
         return border;
     }
 
+    /// <summary>
+    /// Creates button content displaying the named icon resource (a Viewbox from
+    /// ImageEditorIcons.xaml). When <paramref name="active"/> is true a small accent
+    /// underline is added so the user can see which tool is currently engaged.
+    /// </summary>
+    private UIElement MakeToolIcon(string resourceKey, bool active = false)
+    {
+        var resource = TryFindResource(resourceKey);
+        if (resource == null)
+            return new TextBlock { Text = resourceKey };
+
+        // Clone the resource element — TryFindResource returns the same singleton instance
+        // every time, which WPF rejects if already parented to another element.
+        UIElement icon;
+        try
+        {
+            var xaml = System.Windows.Markup.XamlWriter.Save(resource);
+            icon = (UIElement)System.Windows.Markup.XamlReader.Parse(xaml);
+        }
+        catch
+        {
+            // Fallback: if serialization fails (e.g. dynamic resources), return a placeholder.
+            return new TextBlock { Text = resourceKey };
+        }
+
+        if (!active) return icon;
+
+        // Active state: stack icon over a 2px accent bar at the bottom.
+        var accent = new Border
+        {
+            Height = 2,
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        accent.SetResourceReference(Border.BackgroundProperty, "AccentBrush");
+
+        var grid = new Grid();
+        grid.Children.Add(icon);
+        grid.Children.Add(accent);
+        return grid;
+    }
+
     // ── Visual layout ─────────────────────────────────────────────────────────
+
+    // P/Invoke for per-monitor work area (used when System.Windows.Forms is unavailable)
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfo lpmi);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Rect32 lpRect);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct Rect32 { public int Left, Top, Right, Bottom; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public uint cbSize;
+        public Rect32 rcMonitor;
+        public Rect32 rcWork;
+        public uint dwFlags;  // required field — was missing, causing GetMonitorInfo to return false
+    }
+
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    /// <summary>
+    /// Returns the work area of the monitor that <paramref name="w"/> is on as a WPF DIP
+    /// <see cref="Rect"/> (origin = top-left of work area in screen coordinates).
+    /// Uses GetWindowRect → center point → MonitorFromPoint for robustness when the window
+    /// is maximized or the HWND is not yet materialized. Falls back through WPF coordinates
+    /// and finally to <see cref="SystemParameters.WorkArea"/> (primary monitor).
+    /// </summary>
+    private static Rect GetMonitorWorkAreaRect(Window w)
+    {
+        try
+        {
+            var helper = new System.Windows.Interop.WindowInteropHelper(w);
+            IntPtr hwnd = helper.Handle;
+
+            // Strategy 1: GetWindowRect gives actual pixel bounds even when maximized,
+            // unlike WPF Left/Top which reflects restore bounds. MonitorFromPoint on the
+            // center is more reliable than MonitorFromWindow when HWND may be transitional.
+            if (hwnd != IntPtr.Zero && GetWindowRect(hwnd, out Rect32 wr))
+            {
+                int cx = (wr.Left + wr.Right)  / 2;
+                int cy = (wr.Top  + wr.Bottom) / 2;
+                var hMon = MonitorFromPoint(new POINT { X = cx, Y = cy }, MONITOR_DEFAULTTONEAREST);
+                if (hMon != IntPtr.Zero)
+                {
+                    var mi = new MonitorInfo { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MonitorInfo>() };
+                    if (GetMonitorInfo(hMon, ref mi))
+                    {
+                        var source = System.Windows.Interop.HwndSource.FromHwnd(hwnd);
+                        double sx = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                        double sy = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+                        return new Rect(
+                            mi.rcWork.Left   / sx,
+                            mi.rcWork.Top    / sy,
+                            (mi.rcWork.Right  - mi.rcWork.Left) / sx,
+                            (mi.rcWork.Bottom - mi.rcWork.Top)  / sy);
+                    }
+                }
+            }
+
+            // Strategy 2: HWND not yet available — use WPF Left/Top to estimate screen center.
+            // For maximized windows this is the restore position, but still beats falling back
+            // all the way to the primary monitor.
+            double dpiX = 1.0, dpiY = 1.0;
+            if (hwnd != IntPtr.Zero)
+            {
+                var src = System.Windows.Interop.HwndSource.FromHwnd(hwnd);
+                dpiX = src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                dpiY = src?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            }
+            int wpfCx = (int)((w.Left + w.Width  / 2) * dpiX);
+            int wpfCy = (int)((w.Top  + w.Height / 2) * dpiY);
+            var hMon2 = MonitorFromPoint(new POINT { X = wpfCx, Y = wpfCy }, MONITOR_DEFAULTTONEAREST);
+            if (hMon2 != IntPtr.Zero)
+            {
+                var mi2 = new MonitorInfo { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MonitorInfo>() };
+                if (GetMonitorInfo(hMon2, ref mi2))
+                {
+                    return new Rect(
+                        mi2.rcWork.Left   / dpiX,
+                        mi2.rcWork.Top    / dpiY,
+                        (mi2.rcWork.Right  - mi2.rcWork.Left) / dpiX,
+                        (mi2.rcWork.Bottom - mi2.rcWork.Top)  / dpiY);
+                }
+            }
+        }
+        catch { }
+        return SystemParameters.WorkArea; // last resort: primary monitor
+    }
+
+    /// <summary>
+    /// Returns the work area of the monitor that contains <paramref name="physPt"/>
+    /// (physical screen pixel coordinates, e.g. from <c>PointToScreen</c>) as a WPF DIP
+    /// <see cref="Rect"/>, using <paramref name="transformFromDevice"/> to convert from
+    /// physical pixels to logical units.
+    /// </summary>
+    private static Rect GetMonitorWorkAreaRect(Point physPt, Matrix transformFromDevice)
+    {
+        try
+        {
+            var hMon = MonitorFromPoint(new POINT { X = (int)physPt.X, Y = (int)physPt.Y }, MONITOR_DEFAULTTONEAREST);
+            if (hMon != IntPtr.Zero)
+            {
+                var mi = new MonitorInfo { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MonitorInfo>() };
+                if (GetMonitorInfo(hMon, ref mi))
+                {
+                    var tl = transformFromDevice.Transform(new Point(mi.rcWork.Left,  mi.rcWork.Top));
+                    var br = transformFromDevice.Transform(new Point(mi.rcWork.Right, mi.rcWork.Bottom));
+                    return new Rect(tl, br);
+                }
+            }
+        }
+        catch { }
+        return SystemParameters.WorkArea;
+    }
+
+    /// <summary>
+    /// Resizes the window to fit the scaled image within the current monitor's work area.
+    /// Preserves the current window center so zooming never jumps the window to a different
+    /// monitor (important for monitors with negative screen coordinates).
+    /// </summary>
+    private void UpdateWindowSizeForZoom()
+    {
+        var work = GetMonitorWorkAreaRect(this);
+        const double toolbarH = 110.0;
+        const double minW = 580.0;
+
+        double scaledImgW = _canvas.Width  * _zoom;
+        double scaledImgH = _canvas.Height * _zoom;
+        double desiredW = Math.Max(minW, scaledImgW + 24);
+        double desiredH = scaledImgH + toolbarH;
+
+        double newW = Math.Min(work.Width,  desiredW);
+        double newH = Math.Min(work.Height, desiredH);
+
+        // Keep the current window center fixed — don't re-centre on the monitor.
+        // This prevents the window from jumping to a different monitor when the work-area
+        // DIP conversion is imprecise (e.g. monitors with negative screen coordinates).
+        double newLeft = Left + (Width  - newW) / 2.0;
+        double newTop  = Top  + (Height - newH) / 2.0;
+
+        // Clamp to stay fully within the current monitor's work area.
+        if (newLeft < work.Left) newLeft = work.Left;
+        if (newTop  < work.Top)  newTop  = work.Top;
+        if (newLeft + newW > work.Right)  newLeft = work.Right  - newW;
+        if (newTop  + newH > work.Bottom) newTop  = work.Bottom - newH;
+
+        Width  = newW;
+        Height = newH;
+        Left   = newLeft;
+        Top    = newTop;
+    }
 
     /// <summary>
     /// Repositions the selection border, resize handles, and mode-hint overlay to
@@ -819,10 +1208,31 @@ internal sealed class ClipboardImageEditorWindow : Window
             return;
         }
 
-        // Arrow placement mode: drop arrow at click point.
+        // Arrow placement mode: start drag to define tail→head.
         if (_inArrowMode)
         {
-            PlaceArrowAtPoint(pt);
+            _creatingArrowByDrag = true;
+            _arrowDragTailPt = pt;
+            _preDragSnapshot = CaptureSnapshot();
+            _canvas.CaptureMouse();
+            _arrowDragPreviewLine = new Line
+            {
+                Stroke = new SolidColorBrush(_defaultArrowColor),
+                StrokeThickness = 2.5,
+                Opacity = 0.7,
+                IsHitTestVisible = false,
+                X1 = pt.X, Y1 = pt.Y, X2 = pt.X, Y2 = pt.Y
+            };
+            _arrowDragPreviewHead = new Polygon
+            {
+                Fill = new SolidColorBrush(_defaultArrowColor),
+                Opacity = 0.7,
+                IsHitTestVisible = false
+            };
+            Panel.SetZIndex(_arrowDragPreviewLine, 99);
+            Panel.SetZIndex(_arrowDragPreviewHead, 99);
+            _canvas.Children.Add(_arrowDragPreviewLine);
+            _canvas.Children.Add(_arrowDragPreviewHead);
             e.Handled = true;
             return;
         }
@@ -857,8 +1267,9 @@ internal sealed class ClipboardImageEditorWindow : Window
             return;
         }
 
-        // Draw a new crop region from scratch when no selection exists.
-        if (_sel.IsEmpty && !_inArrowMode && !_inCursorPlacementMode && !_inRectMode)
+        // Draw a new crop region from scratch — works whether or not a selection already exists.
+        // Clicking outside the current selection (zone == None) replaces it; undo restores the old one.
+        if (!_inArrowMode && !_inCursorPlacementMode && !_inRectMode)
         {
             _creatingNewSel = true;
             _newSelAnchor = pt;
@@ -871,6 +1282,52 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private void Canvas_MouseMove(object sender, MouseEventArgs e)
     {
+        // Pan mode owns the cursor and all mouse interaction while Space is held.
+        if (_isPanMode) return;
+
+        // Live preview for arrow drag-to-draw.
+        if (_creatingArrowByDrag && _arrowDragPreviewLine != null && _arrowDragPreviewHead != null)
+        {
+            var headPt = e.GetPosition(_canvas);
+            var tailPt = _arrowDragTailPt;
+            _arrowDragPreviewLine.X1 = tailPt.X;
+            _arrowDragPreviewLine.Y1 = tailPt.Y;
+            _arrowDragPreviewLine.X2 = headPt.X;
+            _arrowDragPreviewLine.Y2 = headPt.Y;
+
+            var dx = headPt.X - tailPt.X;
+            var dy = headPt.Y - tailPt.Y;
+            var dist2 = Math.Sqrt(dx * dx + dy * dy);
+            if (dist2 > 4)
+            {
+                var ux2 = dx / dist2; var uy2 = dy / dist2;
+                const double HeadLen = 16.0;
+                const double HeadHalf = 6.0;
+                var baseX = headPt.X - ux2 * HeadLen;
+                var baseY = headPt.Y - uy2 * HeadLen;
+                var px = -uy2; var py = ux2;
+                // Stop the shaft at the head base so the line and polygon don't overlap.
+                // When both shapes share Opacity < 1 and overlap, WPF composites them
+                // independently, making the head appear semi-transparent over the shaft.
+                _arrowDragPreviewLine.X2 = baseX;
+                _arrowDragPreviewLine.Y2 = baseY;
+                _arrowDragPreviewHead.Points = new PointCollection
+                {
+                    headPt,
+                    new Point(baseX + px * HeadHalf, baseY + py * HeadHalf),
+                    new Point(baseX - px * HeadHalf, baseY - py * HeadHalf)
+                };
+                // Show crosshair at the future pivot center (ArrowLength past the tip).
+                ShowCrosshair(headPt.X + ux2 * _defaultArrowLength * 1.5, headPt.Y + uy2 * _defaultArrowLength * 1.5);
+            }
+            else
+            {
+                HideCrosshair();
+            }
+            e.Handled = true;
+            return;
+        }
+
         // Rubber-band draw of an annotation rectangle.
         if (_creatingAnnotRect)
         {
@@ -952,11 +1409,46 @@ internal sealed class ClipboardImageEditorWindow : Window
                 var hoverZone = HitTest(e.GetPosition(_canvas));
                 _canvas.Cursor = ZoneCursor(hoverZone);
             }
+
+            // Override with directional cursor when hovering over a selected annotation rect's edge/corner.
+            if (_selectedAnnotRect != null)
+            {
+                var az = HitTestAnnotRect(_selectedAnnotRect, e.GetPosition(_canvas));
+                if (az != HitZone.None)
+                    _canvas.Cursor = ZoneCursor(az);
+            }
         }
     }
 
     private void Canvas_MouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (_creatingArrowByDrag)
+        {
+            _creatingArrowByDrag = false;
+            _canvas.ReleaseMouseCapture();
+            if (_arrowDragPreviewLine != null) { _canvas.Children.Remove(_arrowDragPreviewLine); _arrowDragPreviewLine = null; }
+            if (_arrowDragPreviewHead != null) { _canvas.Children.Remove(_arrowDragPreviewHead); _arrowDragPreviewHead = null; }
+            HideCrosshair();
+
+            var headPt = e.GetPosition(_canvas);
+            var tailPt = _arrowDragTailPt;
+            var dx = headPt.X - tailPt.X;
+            var dy = headPt.Y - tailPt.Y;
+            var dist = Math.Sqrt(dx * dx + dy * dy);
+
+            if (dist >= 20.0)
+            {
+                _preDragSnapshot = null; // let CreateArrow handle its own undo push
+                PlaceArrowFromDrag(tailPt, headPt, dist);
+            }
+            else
+            {
+                _preDragSnapshot = null;
+            }
+            e.Handled = true;
+            return;
+        }
+
         if (_creatingAnnotRect)
         {
             _creatingAnnotRect = false;
@@ -1007,7 +1499,19 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         if (e.Key == Key.Escape)
         {
-            if (_inArrowMode) { ExitArrowMode(); e.Handled = true; return; }
+            if (_inArrowMode)
+            {
+                if (_creatingArrowByDrag)
+                {
+                    _creatingArrowByDrag = false;
+                    _canvas.ReleaseMouseCapture();
+                    if (_arrowDragPreviewLine != null) { _canvas.Children.Remove(_arrowDragPreviewLine); _arrowDragPreviewLine = null; }
+                    if (_arrowDragPreviewHead != null) { _canvas.Children.Remove(_arrowDragPreviewHead); _arrowDragPreviewHead = null; }
+                    HideCrosshair();
+                    _preDragSnapshot = null;
+                }
+                ExitArrowMode(); e.Handled = true; return;
+            }
             if (_inRectMode) { ExitRectMode(); e.Handled = true; return; }
             if (_inCursorPlacementMode)
             {
@@ -1064,7 +1568,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         _inArrowMode = true;
         Cursor = Cursors.Cross;
-        ShowModeHint("Click to place an arrow");
+        ShowModeHint("Drag to draw an arrow");
     }
 
     private void ExitArrowMode()
@@ -1072,7 +1576,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         _inArrowMode = false;
         Cursor = Cursors.Arrow;
         HideModeHint();
-        if (_addArrowBtn != null) _addArrowBtn.Content = "↗ Arrow";
+        if (_addArrowBtn != null) _addArrowBtn.Content = MakeToolIcon("ImageEditorArrowIcon");
     }
 
     /// <summary>
@@ -1089,6 +1593,52 @@ internal sealed class ClipboardImageEditorWindow : Window
         // Use a 2×2 rect centred on the click as the "target bounds".
         var targetBounds = new Rect(clamped.X - 1, clamped.Y - 1, 2, 2);
         CreateArrow(targetBounds);
+        ExitArrowMode();
+    }
+
+    /// <summary>
+    /// Creates an arrow where <paramref name="tailPt"/> is the blunt tail end
+    /// and <paramref name="headPt"/> is the arrowhead tip (pointy end).
+    /// </summary>
+    private void PlaceArrowFromDrag(Point tailPt, Point headPt, double dist)
+    {
+        headPt = new Point(
+            Math.Max(0, Math.Min(headPt.X, _canvas.Width)),
+            Math.Max(0, Math.Min(headPt.Y, _canvas.Height)));
+        tailPt = new Point(
+            Math.Max(0, Math.Min(tailPt.X, _canvas.Width)),
+            Math.Max(0, Math.Min(tailPt.Y, _canvas.Height)));
+
+        // ux,uy = direction from arrowhead tip toward tail (UpdateArrowGeometry convention)
+        var ux = (tailPt.X - headPt.X) / dist;
+        var uy = (tailPt.Y - headPt.Y) / dist;
+
+        double arrowLen = _defaultArrowLength;
+        // TailLength represents the shaft length from center to tail-end.
+        // With center placed at headPt - ux*arrowLen, tailX = center + ux*(arrowLen+tailLen).
+        // We want tailX == tailPt, so: tailLen = dist (not dist - arrowLen).
+        double tailLen = Math.Max(20.0, dist);
+
+        // ux = sin(rad), uy = -cos(rad) => rad = atan2(ux, -uy)
+        double angleDeg = Math.Atan2(ux, -uy) * 180.0 / Math.PI;
+
+        // Center such that ahX = center.X + ux*arrowLen = headPt.X
+        double centerX = headPt.X - ux * arrowLen;
+        double centerY = headPt.Y - uy * arrowLen;
+
+        var targetBounds = new Rect(centerX - 1, centerY - 1, 2, 2);
+
+        var savedAngle = _defaultArrowAngleDeg;
+        var savedTailLen = _defaultTailLength;
+        _defaultArrowAngleDeg = angleDeg;
+        _defaultTailLength = tailLen;
+
+        var arrow = CreateArrow(targetBounds);
+
+        _defaultArrowAngleDeg = savedAngle;
+        _defaultTailLength = savedTailLen;
+
+        SelectArrow(arrow);
         ExitArrowMode();
     }
 
@@ -1200,6 +1750,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             _preDragSnapshot = CaptureSnapshot();
             _draggingArrow = arrow;
             _tailDragging = false;
+            HideColorPicker();
             tipHandle.CaptureMouse();
             e.Handled = true;
         };
@@ -1221,6 +1772,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                 ? Math.Max(64, Math.Min(arrow.UserTailLength, maxFromTip))
                 : ComputeInitialTailLength(pivot, newAngle, arrow.ArrowLength);
             UpdateArrowGeometry(arrow);
+            ShowCrosshair(pivot.X, pivot.Y);
             e.Handled = true;
         };
         tipHandle.MouseLeftButtonUp += (_, e) =>
@@ -1231,6 +1783,8 @@ internal sealed class ClipboardImageEditorWindow : Window
             SaveArrowDefaults();
             CommitDragUndo();
             _draggingArrow = null;
+            HideCrosshair();
+            ShowColorPicker(arrow);
             tipHandle.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -1242,6 +1796,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             _draggingArrow = arrow;
             _tailDragging = true;
             _tailDragStartMouse = e.GetPosition(_canvas);
+            HideColorPicker();
             tailHandle.CaptureMouse();
             e.Handled = true;
         };
@@ -1262,6 +1817,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             var total = Math.Max(arrow.ArrowLength + MinTail, dist);
             arrow.TailLength = Math.Max(MinTail, total - arrow.ArrowLength);
             UpdateArrowGeometry(arrow);
+            ShowCrosshair(pivot.X, pivot.Y);
             e.Handled = true;
         };
         tailHandle.MouseLeftButtonUp += (_, e) =>
@@ -1274,6 +1830,8 @@ internal sealed class ClipboardImageEditorWindow : Window
             CommitDragUndo();
             _draggingArrow = null;
             _tailDragging = false;
+            HideCrosshair();
+            ShowColorPicker(arrow);
             tailHandle.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -1308,6 +1866,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         {
             if (_draggingArrow != null) return;
             SelectArrow(arrow);
+            HideColorPicker();
             _preDragSnapshot = CaptureSnapshot();
             _draggingArrow = arrow;
             _bodyDragging = true;
@@ -1324,15 +1883,19 @@ internal sealed class ClipboardImageEditorWindow : Window
             arrow.OffsetX = _bodyDragStartOffsetX + (pt.X - _bodyDragStartMouse.X);
             arrow.OffsetY = _bodyDragStartOffsetY + (pt.Y - _bodyDragStartMouse.Y);
             UpdateArrowGeometry(arrow);
-            if (_colorPickerArrow == arrow) ShowColorPicker(arrow);
+            ShowCrosshair(
+                arrow.TargetCenterOnCanvas.X + arrow.OffsetX,
+                arrow.TargetCenterOnCanvas.Y + arrow.OffsetY);
             e.Handled = true;
         };
         shape.MouseLeftButtonUp += (_, e) =>
         {
             if (_draggingArrow != arrow || !_bodyDragging) return;
+            HideCrosshair();
             CommitDragUndo();
             _draggingArrow = null;
             _bodyDragging = false;
+            ShowColorPicker(arrow);
             shape.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -1364,18 +1927,19 @@ internal sealed class ClipboardImageEditorWindow : Window
         var tailX = center.X + ux * (arrow.ArrowLength + arrow.TailLength);
         var tailY = center.Y + uy * (arrow.ArrowLength + arrow.TailLength);
 
+        const double HeadLen = 16.0;
+        const double HeadHalf = 6.0;
+        var baseX = ahX + ux * HeadLen;
+        var baseY = ahY + uy * HeadLen;
+
+        // Stop shaft at the head base so it doesn't poke through the arrowhead tip.
         arrow.Line.X1 = tailX; arrow.Line.Y1 = tailY;
-        arrow.Line.X2 = ahX; arrow.Line.Y2 = ahY;
+        arrow.Line.X2 = baseX; arrow.Line.Y2 = baseY;
 
         arrow.HitLine.X1 = arrow.Line.X1;
         arrow.HitLine.Y1 = arrow.Line.Y1;
         arrow.HitLine.X2 = arrow.Line.X2;
         arrow.HitLine.Y2 = arrow.Line.Y2;
-
-        const double HeadLen = 16.0;
-        const double HeadHalf = 6.0;
-        var baseX = ahX + ux * HeadLen;
-        var baseY = ahY + uy * HeadLen;
         var px = -uy;
         var py = ux;
 
@@ -1394,10 +1958,52 @@ internal sealed class ClipboardImageEditorWindow : Window
         arrow.ShadowLine.Points = new PointCollection(new[]
         {
             new Point(tailX + 2, tailY + 2),
-            new Point(ahX   + 2, ahY   + 2)
+            new Point(baseX + 2, baseY + 2)
         });
         arrow.ShadowHead.Points = new PointCollection(
             arrow.Head.Points.Select(p => p + new Vector(2, 2)));
+    }
+
+    // ── Crosshair overlay (shown while dragging arrow tip/tail) ──────────────
+
+    private void EnsureCrosshairLines()
+    {
+        if (_crosshairRedH != null) return;
+        const double Thick = 1.5;
+        _crosshairWhiteH = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, Opacity = 0.5, IsHitTestVisible = false };
+        _crosshairWhiteV = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, Opacity = 0.5, IsHitTestVisible = false };
+        _crosshairRedH   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,                         IsHitTestVisible = false };
+        _crosshairRedV   = new Line { Stroke = System.Windows.Media.Brushes.Red,   StrokeThickness = Thick,                         IsHitTestVisible = false };
+        foreach (var l in new[] { _crosshairWhiteH, _crosshairWhiteV, _crosshairRedH, _crosshairRedV })
+        {
+            Panel.SetZIndex(l, 100);
+            l.Visibility = Visibility.Collapsed;
+            _canvas.Children.Add(l);
+        }
+    }
+
+    private void ShowCrosshair(double cx, double cy)
+    {
+        EnsureCrosshairLines();
+        const double Half   = 10.0;
+        const double Shadow = 1.0;   // white offset (1px right + 1px down) behind the red lines
+        _crosshairWhiteH!.X1 = cx - Half + Shadow; _crosshairWhiteH.Y1 = cy + Shadow;
+        _crosshairWhiteH.X2  = cx + Half + Shadow; _crosshairWhiteH.Y2 = cy + Shadow;
+        _crosshairWhiteV!.X1 = cx + Shadow; _crosshairWhiteV.Y1 = cy - Half + Shadow;
+        _crosshairWhiteV.X2  = cx + Shadow; _crosshairWhiteV.Y2 = cy + Half + Shadow;
+        _crosshairRedH!.X1 = cx - Half; _crosshairRedH.Y1 = cy;
+        _crosshairRedH.X2  = cx + Half; _crosshairRedH.Y2 = cy;
+        _crosshairRedV!.X1 = cx; _crosshairRedV.Y1 = cy - Half;
+        _crosshairRedV.X2  = cx; _crosshairRedV.Y2 = cy + Half;
+        _crosshairWhiteH.Visibility = _crosshairWhiteV.Visibility =
+        _crosshairRedH.Visibility   = _crosshairRedV.Visibility   = Visibility.Visible;
+    }
+
+    private void HideCrosshair()
+    {
+        if (_crosshairRedH is null) return;
+        _crosshairWhiteH!.Visibility = _crosshairWhiteV!.Visibility =
+        _crosshairRedH.Visibility    = _crosshairRedV!.Visibility   = Visibility.Collapsed;
     }
 
     private double ComputeInitialTailLength(Point targetCenter, double angleDeg, double arrowheadOffset)
@@ -1407,7 +2013,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         var dy = -Math.Cos(rad);
         var ahX = targetCenter.X + dx * arrowheadOffset;
         var ahY = targetCenter.Y + dy * arrowheadOffset;
-        var s = _sel;
+        var s = _sel.IsEmpty ? new Rect(0, 0, _canvas.Width, _canvas.Height) : _sel;
 
         double tMin = double.MaxValue;
         if (Math.Abs(dx) > 1e-9)
@@ -1428,7 +2034,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         var rad = angleDeg * Math.PI / 180.0;
         var dx = Math.Sin(rad);
         var dy = -Math.Cos(rad);
-        var s = _sel;
+        var s = _sel.IsEmpty ? new Rect(0, 0, _canvas.Width, _canvas.Height) : _sel;
 
         double tMin = double.MaxValue;
         if (Math.Abs(dx) > 1e-9)
@@ -1468,32 +2074,22 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     // ── Color picker ──────────────────────────────────────────────────────────
 
-    private static Color[] GetArrowPalette(bool isDark) => isDark
-        ? new[]
-          {
-              Color.FromRgb(255,  80,  80),
-              Color.FromRgb(255, 160,  40),
-              Color.FromRgb(255, 230,  60),
-              Color.FromRgb( 80, 220,  80),
-              Color.FromRgb( 80, 160, 255),
-              Color.FromRgb(255, 255, 255)
-          }
-        : new[]
-          {
-              Color.FromRgb(180,  30,  30),
-              Color.FromRgb(180,  80,   0),
-              Color.FromRgb(140, 120,   0),
-              Color.FromRgb( 20, 130,  20),
-              Color.FromRgb( 20,  80, 200),
-              Color.FromRgb(  0,   0,   0)
-          };
+    private static Color[] GetArrowPalette() => new[]
+    {
+        Color.FromRgb(220,  50,  50),
+        Color.FromRgb(255, 140,   0),
+        Color.FromRgb(240, 210,  40),
+        Color.FromRgb( 50, 185,  50),
+        Color.FromRgb( 50, 130, 230),
+        Color.FromRgb(255, 255, 255),
+        Color.FromRgb(  0,   0,   0),
+    };
 
     private void ShowColorPicker(AnnotationArrow arrow)
     {
         HideColorPicker();
         _colorPickerArrow = arrow;
-        bool isDark = _themeName.IndexOf("dark", StringComparison.OrdinalIgnoreCase) >= 0;
-        var palette = GetArrowPalette(isDark);
+        var palette = GetArrowPalette();
 
         _colorPickerPanel = new StackPanel { Orientation = Orientation.Horizontal };
         Panel.SetZIndex(_colorPickerPanel, 300);
@@ -1501,28 +2097,16 @@ internal sealed class ClipboardImageEditorWindow : Window
         foreach (var color in palette)
         {
             var c = color;
-            var dot = new Ellipse
+            bool isSelected = c == arrow.ArrowColor;
+            var swatch = MakeColorSwatch(c, isSelected, picked =>
             {
-                Width = 16,
-                Height = 16,
-                Fill = new SolidColorBrush(c),
-                Stroke = c == arrow.ArrowColor
-                                      ? (isDark ? Brushes.White : Brushes.Black)
-                                      : Brushes.Transparent,
-                StrokeThickness = 2,
-                Margin = new Thickness(3, 0, 3, 0),
-                Cursor = Cursors.Hand
-            };
-            dot.MouseLeftButtonDown += (_, e) =>
-            {
-                arrow.ArrowColor = c;
-                _defaultArrowColor = c;
+                arrow.ArrowColor = picked;
+                _defaultArrowColor = picked;
                 SaveArrowDefaults();
                 UpdateArrowGeometry(arrow);
                 ShowColorPicker(arrow);
-                e.Handled = true;
-            };
-            _colorPickerPanel.Children.Add(dot);
+            });
+            _colorPickerPanel.Children.Add(swatch);
         }
 
         _canvas.Children.Add(_colorPickerPanel);
@@ -1533,6 +2117,40 @@ internal sealed class ClipboardImageEditorWindow : Window
         double pw = _colorPickerPanel.DesiredSize.Width;
         Canvas.SetLeft(_colorPickerPanel, Math.Max(0, cx - pw / 2));
         Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy - 30));
+    }
+
+    private static FrameworkElement MakeColorSwatch(Color c, bool isSelected, Action<Color> onPick)
+    {
+        if (isSelected)
+        {
+            var grid = new Grid { Width = 20, Height = 20, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand };
+            grid.Children.Add(new Ellipse { Fill = Brushes.Black });
+            grid.Children.Add(new Ellipse
+            {
+                Width = 16,
+                Height = 16,
+                Fill = new SolidColorBrush(c),
+                Stroke = Brushes.White,
+                StrokeThickness = 1.5,
+            });
+            grid.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
+            return grid;
+        }
+        else
+        {
+            var dot = new Ellipse
+            {
+                Width = 16,
+                Height = 16,
+                Fill = new SolidColorBrush(c),
+                Stroke = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+                StrokeThickness = 1,
+                Margin = new Thickness(3, 0, 3, 0),
+                Cursor = Cursors.Hand,
+            };
+            dot.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
+            return dot;
+        }
     }
 
     private void HideColorPicker()
@@ -1574,7 +2192,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         _inRectMode = false;
         Cursor = Cursors.Arrow;
         HideModeHint();
-        if (_addRectBtn != null) _addRectBtn.Content = "□ Rect";
+        if (_addRectBtn != null) _addRectBtn.Content = MakeToolIcon("ImageEditorRectIcon");
     }
 
     private Rectangle EnsureAnnotRectPreview()
@@ -1632,9 +2250,17 @@ internal sealed class ClipboardImageEditorWindow : Window
             Cursor = Cursors.SizeAll
         };
 
-        var handles = new Ellipse[4];
-        for (int i = 0; i < 4; i++)
+        var handles = new Ellipse[8];
+        for (int i = 0; i < 8; i++)
         {
+            var cursor = i switch
+            {
+                0 or 3 => Cursors.SizeNWSE,  // NW, SE
+                1 or 2 => Cursors.SizeNESW,  // NE, SW
+                4 or 5 => Cursors.SizeNS,    // N, S
+                6 or 7 => Cursors.SizeWE,    // W, E
+                _ => Cursors.SizeAll
+            };
             handles[i] = new Ellipse
             {
                 Width = 8,
@@ -1642,7 +2268,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                 Fill = brush,
                 Stroke = Brushes.White,
                 StrokeThickness = 1.5,
-                Cursor = Cursors.SizeAll,
+                Cursor = cursor,
                 Visibility = Visibility.Hidden
             };
             _canvas.Children.Add(handles[i]);
@@ -1762,7 +2388,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             e.Handled = true;
         };
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 8; i++)
         {
             int handleIdx = i;
             var handle = handles[i];
@@ -1790,11 +2416,11 @@ internal sealed class ClipboardImageEditorWindow : Window
                 var ch = _canvas.Height;
 
                 double nl = o.Left, nt = o.Top, nr = o.Right, nb2 = o.Bottom;
-                // 0=NW(left+top), 1=NE(right+top), 2=SW(left+bottom), 3=SE(right+bottom)
-                if (handleIdx == 0 || handleIdx == 2) nl = Math.Max(0, Math.Min(nl + dx, nr - MinSize));
-                if (handleIdx == 1 || handleIdx == 3) nr = Math.Max(nl + MinSize, Math.Min(nr + dx, cw));
-                if (handleIdx == 0 || handleIdx == 1) nt = Math.Max(0, Math.Min(nt + dy, nb2 - MinSize));
-                if (handleIdx == 2 || handleIdx == 3) nb2 = Math.Max(nt + MinSize, Math.Min(nb2 + dy, ch));
+                // 0=NW(left+top), 1=NE(right+top), 2=SW(left+bottom), 3=SE(right+bottom), 4=N, 5=S, 6=W, 7=E
+                if (handleIdx == 0 || handleIdx == 2 || handleIdx == 6) nl = Math.Max(0, Math.Min(nl + dx, nr - MinSize));
+                if (handleIdx == 1 || handleIdx == 3 || handleIdx == 7) nr = Math.Max(nl + MinSize, Math.Min(nr + dx, cw));
+                if (handleIdx == 0 || handleIdx == 1 || handleIdx == 4) nt = Math.Max(0, Math.Min(nt + dy, nb2 - MinSize));
+                if (handleIdx == 2 || handleIdx == 3 || handleIdx == 5) nb2 = Math.Max(nt + MinSize, Math.Min(nb2 + dy, ch));
 
                 annotRect.Bounds = new Rect(nl, nt, nr - nl, nb2 - nt);
                 UpdateRectGeometry(annotRect);
@@ -1842,11 +2468,15 @@ internal sealed class ClipboardImageEditorWindow : Window
         rect.Border.Width = b.Width;
         rect.Border.Height = b.Height;
 
-        // Handles: NW(0), NE(1), SW(2), SE(3)
-        PlaceRectHandle(rect.Handles[0], b.Left, b.Top);
-        PlaceRectHandle(rect.Handles[1], b.Right, b.Top);
-        PlaceRectHandle(rect.Handles[2], b.Left, b.Bottom);
-        PlaceRectHandle(rect.Handles[3], b.Right, b.Bottom);
+        // Handles: NW(0), NE(1), SW(2), SE(3), N(4), S(5), W(6), E(7)
+        PlaceRectHandle(rect.Handles[0], b.Left,                  b.Top);
+        PlaceRectHandle(rect.Handles[1], b.Right,                 b.Top);
+        PlaceRectHandle(rect.Handles[2], b.Left,                  b.Bottom);
+        PlaceRectHandle(rect.Handles[3], b.Right,                 b.Bottom);
+        PlaceRectHandle(rect.Handles[4], b.Left + b.Width  / 2,  b.Top);
+        PlaceRectHandle(rect.Handles[5], b.Left + b.Width  / 2,  b.Bottom);
+        PlaceRectHandle(rect.Handles[6], b.Left,                  b.Top + b.Height / 2);
+        PlaceRectHandle(rect.Handles[7], b.Right,                 b.Top + b.Height / 2);
 
         if (rect.HitZoneRect != null)
         {
@@ -1862,6 +2492,27 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         Canvas.SetLeft(h, cx - 4);
         Canvas.SetTop(h, cy - 4);
+    }
+
+    private static HitZone HitTestAnnotRect(AnnotationRect r, Point pt)
+    {
+        const double ep = 6.0;
+        var b = r.Bounds;
+
+        // Corners (check first — tighter region)
+        if (Math.Abs(pt.X - b.Left)  <= ep && Math.Abs(pt.Y - b.Top)    <= ep) return HitZone.NW;
+        if (Math.Abs(pt.X - b.Right) <= ep && Math.Abs(pt.Y - b.Top)    <= ep) return HitZone.NE;
+        if (Math.Abs(pt.X - b.Left)  <= ep && Math.Abs(pt.Y - b.Bottom) <= ep) return HitZone.SW;
+        if (Math.Abs(pt.X - b.Right) <= ep && Math.Abs(pt.Y - b.Bottom) <= ep) return HitZone.SE;
+
+        // Edges
+        if (Math.Abs(pt.Y - b.Top)    <= ep && pt.X > b.Left && pt.X < b.Right)  return HitZone.N;
+        if (Math.Abs(pt.Y - b.Bottom) <= ep && pt.X > b.Left && pt.X < b.Right)  return HitZone.S;
+        if (Math.Abs(pt.X - b.Left)   <= ep && pt.Y > b.Top  && pt.Y < b.Bottom) return HitZone.W;
+        if (Math.Abs(pt.X - b.Right)  <= ep && pt.Y > b.Top  && pt.Y < b.Bottom) return HitZone.E;
+
+        if (b.Contains(pt)) return HitZone.Move;
+        return HitZone.None;
     }
 
     private void RemoveAnnotationRect(AnnotationRect rect)
@@ -1897,8 +2548,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         HideColorPicker();
         _colorPickerRect = rect;
-        bool isDark = _themeName.IndexOf("dark", StringComparison.OrdinalIgnoreCase) >= 0;
-        var palette = GetArrowPalette(isDark);
+        var palette = GetArrowPalette();
 
         _colorPickerPanel = new StackPanel { Orientation = Orientation.Horizontal };
         Panel.SetZIndex(_colorPickerPanel, 300);
@@ -1906,27 +2556,15 @@ internal sealed class ClipboardImageEditorWindow : Window
         foreach (var color in palette)
         {
             var c = color;
-            var dot = new Ellipse
+            bool isSelected = c == rect.RectColor;
+            var swatch = MakeColorSwatch(c, isSelected, picked =>
             {
-                Width = 16,
-                Height = 16,
-                Fill = new SolidColorBrush(c),
-                Stroke = c == rect.RectColor
-                    ? (isDark ? Brushes.White : Brushes.Black)
-                    : Brushes.Transparent,
-                StrokeThickness = 2,
-                Margin = new Thickness(3, 0, 3, 0),
-                Cursor = Cursors.Hand
-            };
-            dot.MouseLeftButtonDown += (_, e) =>
-            {
-                rect.RectColor = c;
-                _defaultRectColor = c;
+                rect.RectColor = picked;
+                _defaultRectColor = picked;
                 UpdateRectGeometry(rect);
                 ShowColorPickerForRect(rect);
-                e.Handled = true;
-            };
-            _colorPickerPanel.Children.Add(dot);
+            });
+            _colorPickerPanel.Children.Add(swatch);
         }
 
         _canvas.Children.Add(_colorPickerPanel);
@@ -2177,25 +2815,43 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         if (_eyedropperTooltipBorder == null)
         {
+            _eyedropperTooltipSwatch = new Border
+            {
+                Width = 36, Height = 36,
+                CornerRadius = new CornerRadius(3),
+                Margin = new Thickness(0, 0, 8, 0),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF)),
+                IsHitTestVisible = false
+            };
             _eyedropperTooltipText = new TextBlock
             {
                 FontSize = 13,
                 FontFamily = new FontFamily("Consolas"),
                 Foreground = Brushes.White,
+                IsHitTestVisible = false,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
                 IsHitTestVisible = false
             };
+            row.Children.Add(_eyedropperTooltipSwatch);
+            row.Children.Add(_eyedropperTooltipText);
             _eyedropperTooltipBorder = new Border
             {
                 Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x10, 0x10, 0x10)),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(6, 4, 6, 4),
-                Child = _eyedropperTooltipText,
+                Child = row,
                 IsHitTestVisible = false,
                 Visibility = Visibility.Collapsed
             };
             Panel.SetZIndex(_eyedropperTooltipBorder, 200);
             _canvas.Children.Add(_eyedropperTooltipBorder);
         }
+        _eyedropperTooltipSwatch!.Background = new SolidColorBrush(color);
         var (h, s, l) = RgbToHsl(color);
         _eyedropperTooltipText!.Text =
             $"R:{color.R}  G:{color.G}  B:{color.B}\nH:{h:F0}°  S:{s:F0}%  L:{l:F0}%";
@@ -2531,4 +3187,98 @@ internal sealed class ClipboardImageEditorWindow : Window
         double OffsetY);
 
     private sealed record RectSnap(Rect Bounds, Color RectColor);
+
+    // ── Custom hand cursors ───────────────────────────────────────────────────
+
+    private static Cursor CreateCursorFromDrawing(Drawing drawing, int widthPx, int heightPx, int hotX, int hotY)
+    {
+        var rtb = new RenderTargetBitmap(widthPx, heightPx, 96, 96, PixelFormats.Pbgra32);
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+            dc.DrawDrawing(drawing);
+        rtb.Render(dv);
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(rtb));
+        using var pngStream = new MemoryStream();
+        encoder.Save(pngStream);
+        var png = pngStream.ToArray();
+
+        using var cur = new MemoryStream();
+        using var bw = new BinaryWriter(cur);
+        bw.Write((short)0);
+        bw.Write((short)2);
+        bw.Write((short)1);
+        bw.Write((byte)widthPx);
+        bw.Write((byte)heightPx);
+        bw.Write((byte)0);
+        bw.Write((byte)0);
+        bw.Write((short)hotX);
+        bw.Write((short)hotY);
+        bw.Write((int)png.Length);
+        bw.Write((int)22);
+        bw.Write(png);
+        cur.Position = 0;
+        return new Cursor(cur);
+    }
+
+    private static Drawing CreateOpenHandDrawing()
+    {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            var fill   = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3)
+                { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+            // Palm
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 16, 18, 13), 3, 3);
+
+            // Thumb (left side)
+            var thumbGeo = new PathGeometry();
+            var thumbFig = new PathFigure { StartPoint = new Point(5, 20), IsClosed = true };
+            thumbFig.Segments.Add(new BezierSegment(new Point(2, 19), new Point(1, 15), new Point(3, 12), true));
+            thumbFig.Segments.Add(new BezierSegment(new Point(4, 9),  new Point(6, 10), new Point(6, 13), true));
+            thumbFig.Segments.Add(new LineSegment(new Point(5, 16), true));
+            thumbGeo.Figures.Add(thumbFig);
+            dc.DrawGeometry(fill, stroke, thumbGeo);
+
+            // Four fingers: index, middle, ring, pinky
+            double[] fingerX    = { 7,  10, 13, 17 };
+            double[] fingerW    = { 3,   3,  3,  2.5 };
+            double[] fingerTopY = { 5,   3,  4,   7 };
+            for (int i = 0; i < 4; i++)
+                dc.DrawRoundedRectangle(fill, stroke,
+                    new Rect(fingerX[i], fingerTopY[i], fingerW[i], 16 - fingerTopY[i] + 1),
+                    1.5, 1.5);
+        }
+        return dg;
+    }
+
+    private static Drawing CreateClosedHandDrawing()
+    {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            var fill   = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3)
+                { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+            // Knuckle row
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 11, 19, 8), 3, 3);
+
+            // Palm
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 17, 19, 11), 3, 3);
+
+            // Thumb tucked left
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(2, 14, 5, 7), 2, 2);
+
+            // Finger separation lines on knuckle row
+            var linePen = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 0.8);
+            dc.DrawLine(linePen, new Point(10, 11), new Point(10, 19));
+            dc.DrawLine(linePen, new Point(14, 11), new Point(14, 19));
+            dc.DrawLine(linePen, new Point(18, 11), new Point(18, 19));
+        }
+        return dg;
+    }
 }

@@ -8,6 +8,7 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/Light.xaml" />
                 <ResourceDictionary Source="Themes/ToolIcons.xaml" />
+                <ResourceDictionary Source="Themes/ImageEditorIcons.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
             <!-- Transcript selection dimmed at 50% opacity when context menu is open (focus leaves RTB) -->
@@ -681,6 +682,12 @@
                 <Setter Property="BorderThickness"  Value="1"/>
                 <Setter Property="Cursor"           Value="Hand"/>
                 <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <!-- Non-focusable: prevents the button from stealing focus from the transcript
+                     RichTextBox when clicked. If focus moves away from the RichTextBox, WPF
+                     emits a scroll-to-caret event that sets IsUserScrolledAway=true before
+                     ExecutePendingScrollToEnd fires, causing the deferred scroll to be skipped. -->
+                <Setter Property="Focusable"        Value="False"/>
+                <Setter Property="IsTabStop"        Value="False"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
@@ -824,6 +831,121 @@
                                     <Setter TargetName="OuterRing" Property="Opacity" Value="0.7"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <ControlTemplate x:Key="ThemedComboBoxToggleButtonTemplate" TargetType="{x:Type ToggleButton}">
+                <Border x:Name="Border"
+                        Background="{DynamicResource InputSurface}"
+                        BorderBrush="{DynamicResource ChipBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition Width="20"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="Transparent"/>
+                        <Border Grid.Column="1" Background="Transparent">
+                            <Path x:Name="ArrowPath"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  Data="M 0 0 L 4 4 L 8 0 Z"
+                                  Fill="{DynamicResource BodyText}"/>
+                        </Border>
+                    </Grid>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="Border" Property="Background" Value="{DynamicResource HoverSurface}"/>
+                    </Trigger>
+                    <Trigger Property="IsChecked" Value="True">
+                        <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource LabelText}"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+
+            <Style x:Key="ThemedComboBoxItemStyle" TargetType="{x:Type ComboBoxItem}">
+                <Setter Property="OverridesDefaultStyle" Value="True"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Foreground" Value="{DynamicResource LabelText}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+                            <Border x:Name="ItemBorder"
+                                    Background="{TemplateBinding Background}"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverSurface}"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ChipSelectedSurface}"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource LabelText}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="ThemedComboBoxStyle" TargetType="{x:Type ComboBox}" BasedOn="{x:Null}">
+                <Setter Property="OverridesDefaultStyle" Value="True"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="Foreground" Value="{DynamicResource LabelText}"/>
+                <Setter Property="ItemContainerStyle" Value="{StaticResource ThemedComboBoxItemStyle}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ComboBox}">
+                            <Grid>
+                                <ToggleButton x:Name="ToggleButton"
+                                              OverridesDefaultStyle="True"
+                                              Focusable="False"
+                                              IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                              ClickMode="Press"
+                                              Template="{StaticResource ThemedComboBoxToggleButtonTemplate}"/>
+                                <ContentPresenter x:Name="ContentSite"
+                                                  IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                  Margin="8,3,26,3"
+                                                  VerticalAlignment="Center"
+                                                  HorizontalAlignment="Left"
+                                                  TextElement.Foreground="{DynamicResource LabelText}"/>
+                                <Popup x:Name="Popup"
+                                       Placement="Bottom"
+                                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                                       AllowsTransparency="True"
+                                       Focusable="False"
+                                       PopupAnimation="Slide">
+                                    <Grid x:Name="DropDown"
+                                          SnapsToDevicePixels="True"
+                                          MinWidth="{TemplateBinding ActualWidth}"
+                                          MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                        <Border x:Name="DropDownBorder"
+                                                Background="{DynamicResource CardSurface}"
+                                                BorderBrush="{DynamicResource ChipBorder}"
+                                                BorderThickness="1"
+                                                CornerRadius="4"/>
+                                        <ScrollViewer Margin="1"
+                                                      SnapsToDevicePixels="True"
+                                                      Background="Transparent"
+                                                      VerticalScrollBarVisibility="Auto"
+                                                      HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel IsItemsHost="True"
+                                                        KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                        </ScrollViewer>
+                                    </Grid>
+                                </Popup>
+                            </Grid>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>

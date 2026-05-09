@@ -31,7 +31,8 @@
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>
     <SolidColorBrush x:Key="PopupSurface" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ToastSurface" Color="#FFF4D9"/>
-    <SolidColorBrush x:Key="ChipSurface" Color="#F3F6FB"/>
+    <SolidColorBrush x:Key="ChipSurface" Color="#F4EFE7"/>
+    <SolidColorBrush x:Key="ChipHoverSurface" Color="#E8E0D4"/>
     <SolidColorBrush x:Key="CodeSurface" Color="#F6F1E9"/>
     <SolidColorBrush x:Key="QuoteSurface" Color="#F7F2E9"/>
     <SolidColorBrush x:Key="TrackSurface" Color="#E0D5C8"/>
@@ -61,7 +62,7 @@
     <SolidColorBrush x:Key="ThreadBadgeBorder" Color="#E2D4BE"/>
     <SolidColorBrush x:Key="PopupBorder" Color="#CCCCCC"/>
     <SolidColorBrush x:Key="ToastBorder" Color="#E7C75F"/>
-    <SolidColorBrush x:Key="ChipBorder" Color="#A9BDDB"/>
+    <SolidColorBrush x:Key="ChipBorder" Color="#C4B8A4"/>
     <SolidColorBrush x:Key="QuoteBorder" Color="#C0A070"/>
     <SolidColorBrush x:Key="AvatarImageBorder" Color="#444444"/>
     <SolidColorBrush x:Key="TableRule" Color="#D8D0C4"/>
@@ -82,13 +83,14 @@
     <SolidColorBrush x:Key="AlertBodyText" Color="#6A4A2C"/>
     <SolidColorBrush x:Key="ThreadBadgeText" Color="#6E5035"/>
     <SolidColorBrush x:Key="ToastText" Color="#6F5520"/>
-    <SolidColorBrush x:Key="ChipText" Color="#4682B4"/>
+    <SolidColorBrush x:Key="ChipText" Color="#3C2B1E"/>
     <!-- Document Part Tokens -->
     <SolidColorBrush x:Key="TurnDividerText" Color="#A0522D"/>
     <SolidColorBrush x:Key="AgentTaskStartText" Color="#B8860B"/>
     <SolidColorBrush x:Key="UserPromptText" Color="#483D8B"/>
     <SolidColorBrush x:Key="UserPromptPrefixText" Color="#7672A8"/>
     <SolidColorBrush x:Key="VoiceAnnotationText" Color="#A09AB8"/>
+    <SolidColorBrush x:Key="SelfHandledText" Color="#AC9D8E"/>
     <SolidColorBrush x:Key="SystemErrorText" Color="#CC2222"/>
     <SolidColorBrush x:Key="AbortButtonText"  Color="#991010"/>
     <SolidColorBrush x:Key="SystemInfoText" Color="#B8860B"/>
@@ -115,8 +117,10 @@
     <SolidColorBrush x:Key="TranscriptActionHoverSurface" Color="#D4E8F6"/>
     <SolidColorBrush x:Key="TranscriptActionBorder" Color="#B0C8E0"/>
     <SolidColorBrush x:Key="TranscriptActionText" Color="#2E70B4"/>
-    <SolidColorBrush x:Key="DiffAddedText" Color="#4682B4"/>
-    <SolidColorBrush x:Key="DiffRemovedText" Color="#CD5C5C"/>
+    <SolidColorBrush x:Key="DiffAddedText" Color="#26557D"/>
+    <SolidColorBrush x:Key="DiffRemovedText" Color="#902727"/>
+    <SolidColorBrush x:Key="DiffAddedSummary" Color="#4682B4"/>
+    <SolidColorBrush x:Key="DiffRemovedSummary" Color="#CD5C5C"/>
     <SolidColorBrush x:Key="DiffDeletedFileText" Color="#A77575"/>
     <!-- Chip State Tokens -->
     <SolidColorBrush x:Key="ChipSelectedSurface" Color="#E5F0FF"/>

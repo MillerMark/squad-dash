@@ -17,7 +17,8 @@ internal enum PromptInputKey {
     Up,
     Down,
     Tab,
-    Escape
+    Escape,
+    Q
 }
 
 internal enum PromptInputAction {
@@ -29,7 +30,8 @@ internal enum PromptInputAction {
     IntelliSenseUp,
     IntelliSenseDown,
     IntelliSenseAccept,
-    IntelliSenseDismiss
+    IntelliSenseDismiss,
+    AddQueueSlot
 }
 
 internal sealed record PromptHistoryNavigationResult(
@@ -66,6 +68,9 @@ internal static class PromptInputBehavior {
 
         if (ctrlPressed && key == PromptInputKey.Down)
             return PromptInputAction.NavigateHistoryNext;
+
+        if (ctrlPressed && key == PromptInputKey.Q)
+            return PromptInputAction.AddQueueSlot;
 
         return PromptInputAction.None;
     }

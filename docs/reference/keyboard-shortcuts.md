@@ -23,6 +23,8 @@ Known keyboard shortcuts and hotkeys in SquadDash.
 | **Ctrl+Shift+C** | Open the screenshot capture overlay |
 | **Ctrl+Scroll** (on transcript) | Adjust transcript font size (persisted globally) |
 | **Ctrl+Scroll** (on prompt) | Adjust prompt font size (persisted globally) |
+| **Ctrl+Break** | Abort the running prompt (same as clicking the Abort button) |
+| **Ctrl+Shift+Break** | Abort the running loop (when the loop panel is active) |
 
 ---
 
@@ -83,6 +85,10 @@ See **[Fullscreen Transcript Mode](../features/fullscreen-transcript.md)** for f
 |---|---|
 | **Ctrl+Page Up** | Navigate to the previous prompt in history |
 | **Ctrl+Page Down** | Navigate to the next prompt in history |
+| **Ctrl+Shift+Page Up** | Jump to the very first prompt |
+| **Ctrl+Shift+Page Down** | Jump to the very latest prompt |
+| **Alt+▲ (nav button)** | Jump to the previous prompt containing a `?` (question review mode) |
+| **Alt+▼ (nav button)** | Jump to the next prompt containing a `?` (question review mode) |
 
 ---
 

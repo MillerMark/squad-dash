@@ -51,6 +51,8 @@ internal sealed class BackgroundTaskPresenter {
     private bool             _skipNextBackgroundCompletionFallback;
     private readonly Dictionary<string, int> _backgroundReportPromotionGenerations
         = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingBackgroundReportPromotion> _pendingBackgroundReportPromotions
+        = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Exposed state (MainWindow reads/writes these) ────────────────────────
 
@@ -116,14 +118,47 @@ internal sealed class BackgroundTaskPresenter {
         _lastBackgroundAnnouncementKey      = null;
         _lastBackgroundAnnouncementAt       = null;
         _skipNextBackgroundCompletionFallback = false;
+        _pendingBackgroundReportPromotions.Clear();
     }
 
     /// <summary>
     /// Removes a thread's pending report-promotion entry — called by
     /// MainWindow.RemoveTemporaryAgents when purging inactive threads.
     /// </summary>
-    internal void RemovePromotionEntry(string threadId) =>
+    internal void RemovePromotionEntry(string threadId) {
         _backgroundReportPromotionGenerations.Remove(threadId);
+        _pendingBackgroundReportPromotions.Remove(threadId);
+    }
+
+    internal int PendingBackgroundReportPromotionCount => _pendingBackgroundReportPromotions.Count;
+
+    internal int PromoteDeferredBackgroundAgentReports(string reason) {
+        if (_pendingBackgroundReportPromotions.Count == 0)
+            return 0;
+
+        var pending = _pendingBackgroundReportPromotions.ToArray();
+        var promotedCount = 0;
+        foreach (var (threadId, pendingPromotion) in pending) {
+            if (!_agentThreadRegistry.ThreadsByKey.TryGetValue(threadId, out var thread)) {
+                _pendingBackgroundReportPromotions.Remove(threadId);
+                _backgroundReportPromotionGenerations.Remove(threadId);
+                continue;
+            }
+
+            var promotionReason = CombinePromotionReasons(pendingPromotion.Reason, reason);
+            if (TryPromoteBackgroundAgentReportToCoordinator(thread, promotionReason, allowDuringCurrentTurn: false)) {
+                promotedCount++;
+            }
+        }
+
+        if (promotedCount > 0) {
+            SquadDashTrace.Write(
+                "UI",
+                $"Promoted {promotedCount} deferred background report(s) reason={NormalizePromotionReason(reason)} remaining={_pendingBackgroundReportPromotions.Count}");
+        }
+
+        return promotedCount;
+    }
 
     // ── Public-facing query ──────────────────────────────────────────────────
 
@@ -636,6 +671,7 @@ internal sealed class BackgroundTaskPresenter {
             ? currentGeneration + 1
             : 1;
         _backgroundReportPromotionGenerations[thread.ThreadId] = nextGeneration;
+        var normalizedReason = NormalizePromotionReason(reason);
 
         _ = Task.Run(async () => {
             try {
@@ -646,7 +682,7 @@ internal sealed class BackgroundTaskPresenter {
             }
 
             _tryPostToUi(
-                () => TryPromoteScheduledBackgroundAgentReport(thread.ThreadId, nextGeneration, reason),
+                () => TryPromoteScheduledBackgroundAgentReport(thread.ThreadId, nextGeneration, normalizedReason),
                 "BackgroundAgentReportPromotion");
         });
     }
@@ -676,12 +712,11 @@ internal sealed class BackgroundTaskPresenter {
         var isPromptRunning = _isPromptRunning();
         var hasCurrentTurn  = _currentTurn() is not null;
         if ((isPromptRunning || hasCurrentTurn) && !(allowDuringCurrentTurn && hasCurrentTurn)) {
-            SquadDashTrace.Write(
-                "UI",
-                $"Deferred background report promotion thread={thread.ThreadId} reason={reason} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn}");
-            ScheduleBackgroundAgentReportPromotion(thread, reason + ":deferred");
+            RememberDeferredBackgroundReportPromotion(thread, reason, isPromptRunning, hasCurrentTurn);
             return false;
         }
+
+        _pendingBackgroundReportPromotions.Remove(thread.ThreadId);
 
         var isLiveBackgroundTask = IsThreadBackedByLiveBackgroundTask(thread);
         var isTerminal           = AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText);
@@ -714,7 +749,51 @@ internal sealed class BackgroundTaskPresenter {
         SquadDashTrace.Write(
             "UI",
             $"Promoted background report thread={thread.ThreadId} reason={reason} chars={announcement.Body.Length} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn}");
+        _backgroundReportPromotionGenerations.Remove(thread.ThreadId);
         return true;
+    }
+
+    private void RememberDeferredBackgroundReportPromotion(
+        TranscriptThreadState thread,
+        string                reason,
+        bool                  isPromptRunning,
+        bool                  hasCurrentTurn) {
+        var normalizedReason = NormalizePromotionReason(reason);
+        var wasAlreadyPending = _pendingBackgroundReportPromotions.ContainsKey(thread.ThreadId);
+        _pendingBackgroundReportPromotions[thread.ThreadId] = new PendingBackgroundReportPromotion(
+            normalizedReason,
+            DateTimeOffset.Now);
+
+        SquadDashTrace.Write(
+            "UI",
+            (wasAlreadyPending ? "Kept" : "Deferred") +
+            $" background report promotion thread={thread.ThreadId} reason={normalizedReason} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} pending={_pendingBackgroundReportPromotions.Count}");
+    }
+
+    private static string CombinePromotionReasons(string first, string second) {
+        var normalizedFirst = NormalizePromotionReason(first);
+        var normalizedSecond = NormalizePromotionReason(second);
+        if (string.IsNullOrWhiteSpace(normalizedFirst))
+            return normalizedSecond;
+        if (string.IsNullOrWhiteSpace(normalizedSecond) ||
+            string.Equals(normalizedFirst, normalizedSecond, StringComparison.OrdinalIgnoreCase))
+            return normalizedFirst;
+
+        return NormalizePromotionReason(normalizedFirst + "+" + normalizedSecond);
+    }
+
+    private static string NormalizePromotionReason(string reason) {
+        if (string.IsNullOrWhiteSpace(reason))
+            return "background_report";
+
+        var normalized = reason.Trim();
+        var deferredIndex = normalized.IndexOf(":deferred", StringComparison.OrdinalIgnoreCase);
+        if (deferredIndex >= 0)
+            normalized = normalized[..deferredIndex];
+
+        return normalized.Length <= 96
+            ? normalized
+            : normalized[..96];
     }
 
     // ── Thread ↔ background-task mapping ────────────────────────────────────
@@ -989,6 +1068,10 @@ internal sealed class BackgroundTaskPresenter {
             _ => false
         };
 }
+
+internal sealed record PendingBackgroundReportPromotion(
+    string Reason,
+    DateTimeOffset DeferredAt);
 
 internal sealed record BackgroundAbortTarget(
     string TaskId,

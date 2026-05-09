@@ -324,6 +324,38 @@ internal sealed class SquadSdkProcessTests {
         Assert.That(ex!.Message, Does.Contain("without bridge activity"));
     }
 
+    [Test]
+    public async Task DisposeAsync_ActivePrompt_CompletesPromptImmediately() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sut = new SquadSdkProcess(
+            () => BuildPowerShellScriptStartInfo("""
+                Write-Output '{"type":"session_ready","sessionId":"session-1"}'
+                Start-Sleep -Seconds 60
+                """),
+            new SquadSdkProcessOptions {
+                PromptInactivityTimeout = TimeSpan.FromSeconds(60),
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50)
+            });
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "session_ready")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        await sut.DisposeAsync();
+
+        Assert.That(
+            await Task.WhenAny(promptTask, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptTask));
+        Assert.That(
+            async () => await promptTask,
+            Throws.TypeOf<OperationCanceledException>());
+    }
+
     // ------------------------------------------------------------------
     // Error event
     // ------------------------------------------------------------------

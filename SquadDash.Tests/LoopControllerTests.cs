@@ -345,4 +345,218 @@ internal sealed class LoopControllerTests {
         Assert.That(execCount, Is.EqualTo(0), "loop should exit before executing the iteration prompt");
         Assert.That(controller.IsRunning, Is.False);
     }
+
+    // ── onBeforeWait ──────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task OnBeforeWait_IsCalledAfterEachIterationAndBeforeDelay() {
+        var callOrder  = new System.Collections.Generic.List<string>();
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int iterCount  = 0;
+
+        var controller = new LoopController(
+            executePromptAsync:   (_, __) => { callOrder.Add($"exec{++iterCount}"); return Task.CompletedTask; },
+            abortPrompt:          () => { },
+            onIterationStarted:   n  => callOrder.Add($"started{n}"),
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: n  => callOrder.Add($"completed{n}"),
+            onWaiting:            _  => callOrder.Add("waiting"),
+            onBeforeWait:         () => { callOrder.Add("beforeWait"); return Task.CompletedTask; });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        await Task.Delay(100); // allow at least one full iteration
+        controller.RequestStop();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // After each completed iteration: beforeWait must appear before waiting
+        for (int i = 0; i < callOrder.Count - 1; i++) {
+            if (callOrder[i] == "beforeWait")
+                Assert.That(callOrder[i + 1], Is.EqualTo("waiting"),
+                    "onBeforeWait must be immediately followed by onWaiting");
+        }
+        Assert.That(callOrder, Does.Contain("beforeWait"), "onBeforeWait must fire at least once");
+    }
+
+    [Test]
+    public async Task OnBeforeWait_StopRequestedDuringHook_LoopExitsBeforeDelay() {
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool waitingFired = false;
+
+        LoopController? controller = null;
+        controller = new LoopController(
+            executePromptAsync:   (_, __) => Task.CompletedTask,
+            abortPrompt:          () => { },
+            onIterationStarted:   _  => { },
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { waitingFired = true; },
+            onBeforeWait: () => {
+                controller!.RequestStop();
+                return Task.CompletedTask;
+            });
+
+        _ = controller!.StartAsync(MakeConfig(), continuousContext: true);
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(waitingFired,          Is.False, "onWaiting must not fire when stopped in onBeforeWait");
+        Assert.That(controller.IsRunning,  Is.False);
+    }
+
+    // ── StartAsync no-op guard ────────────────────────────────────────────────
+
+    [Test]
+    public async Task StartAsync_WhenAlreadyRunning_DoesNotStartSecondLoop() {
+        var iterStartedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var promptTcs      = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppedTcs     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int execCount      = 0;
+
+        var controller = new LoopController(
+            executePromptAsync:   (_, __) => { execCount++; iterStartedTcs.TrySetResult(); return promptTcs.Task; },
+            abortPrompt:          () => { },
+            onIterationStarted:   _  => { },
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        await iterStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Second call while loop is running — must be a no-op
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+
+        Assert.That(controller.IsRunning, Is.True);
+
+        controller.RequestStop();
+        promptTcs.SetResult();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(execCount, Is.EqualTo(1), "only one iteration should have been started");
+        Assert.That(controller.IsRunning, Is.False);
+    }
+
+    // ── continuousContext=false ───────────────────────────────────────────────
+
+    [Test]
+    public async Task ContinuousContext_False_EachIterationReceivesDistinctSessionId() {
+        var sessionIds = new System.Collections.Generic.List<string?>();
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var controller = new LoopController(
+            executePromptAsync:   (_, sessionId) => { lock (sessionIds) sessionIds.Add(sessionId); return Task.CompletedTask; },
+            abortPrompt:          () => { },
+            onIterationStarted:   _  => { },
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: false);
+        await Task.Delay(150); // let 2+ iterations run
+        controller.RequestStop();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(sessionIds.Count,        Is.GreaterThanOrEqualTo(2), "need ≥2 iterations to compare");
+        Assert.That(sessionIds,              Has.None.Null,              "each session id must be non-null");
+        Assert.That(sessionIds.Distinct().Count(), Is.EqualTo(sessionIds.Count), "all session ids must be unique");
+    }
+
+    [Test]
+    public async Task ContinuousContext_True_AllIterationsReceiveNullSessionId() {
+        var sessionIds = new System.Collections.Generic.List<string?>();
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var controller = new LoopController(
+            executePromptAsync:   (_, sessionId) => { lock (sessionIds) sessionIds.Add(sessionId); return Task.CompletedTask; },
+            abortPrompt:          () => { },
+            onIterationStarted:   _  => { },
+            onStopped:            () => stoppedTcs.TrySetResult(),
+            onError:              _  => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _  => { },
+            onWaiting:            _  => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        await Task.Delay(150);
+        controller.RequestStop();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(sessionIds.Count,   Is.GreaterThanOrEqualTo(2));
+        Assert.That(sessionIds,         Has.All.Null, "continuousContext=true must pass null session id every time");
+    }
+
+    // ── BuildAugmentedPrompt ──────────────────────────────────────────────────
+
+    [Test]
+    public void BuildAugmentedPrompt_NullCommands_ReturnsInstructionsUnchanged() {
+        const string instructions = "Run the test suite.";
+
+        var result = LoopController.BuildAugmentedPrompt(instructions, null);
+
+        Assert.That(result, Is.EqualTo(instructions));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_EmptyCommands_ReturnsInstructionsUnchanged() {
+        const string instructions = "Run the test suite.";
+
+        var result = LoopController.BuildAugmentedPrompt(instructions, System.Array.Empty<string>());
+
+        Assert.That(result, Is.EqualTo(instructions));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_StopLoopCommand_AppendsSectionWithDescription() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", new[] { "stop_loop" });
+
+        Assert.That(result, Does.Contain("HOST_COMMAND_JSON"));
+        Assert.That(result, Does.Contain("stop_loop"));
+        Assert.That(result, Does.Contain("Stops the loop after this iteration completes."));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_StartLoopCommand_AppendsSectionWithDescription() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", new[] { "start_loop" });
+
+        Assert.That(result, Does.Contain("start_loop"));
+        Assert.That(result, Does.Contain("Starts (or restarts) the SquadDash native loop."));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_UnknownCommand_AppendsCommandNameLiteral() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", new[] { "custom_cmd" });
+
+        Assert.That(result, Does.Contain("**custom_cmd**"));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_MultipleCommands_IncludesAll() {
+        var result = LoopController.BuildAugmentedPrompt(
+            "Do work.", new[] { "stop_loop", "start_loop", "custom_cmd" });
+
+        Assert.That(result, Does.Contain("stop_loop"));
+        Assert.That(result, Does.Contain("start_loop"));
+        Assert.That(result, Does.Contain("custom_cmd"));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_CommandsCaseInsensitive_StopLoopUpperCase_StillDescribed() {
+        var result = LoopController.BuildAugmentedPrompt("Do work.", new[] { "STOP_LOOP" });
+
+        Assert.That(result, Does.Contain("Stops the loop after this iteration completes."));
+    }
+
+    [Test]
+    public void BuildAugmentedPrompt_WithCommands_InstructionsAppearBeforeCommandSection() {
+        const string instructions = "Do work.";
+        var result = LoopController.BuildAugmentedPrompt(instructions, new[] { "stop_loop" });
+
+        int instrIdx   = result.IndexOf(instructions,      StringComparison.Ordinal);
+        int headerIdx  = result.IndexOf("HOST_COMMAND_JSON", StringComparison.Ordinal);
+
+        Assert.That(instrIdx,  Is.GreaterThanOrEqualTo(0));
+        Assert.That(headerIdx, Is.GreaterThan(instrIdx));
+    }
 }

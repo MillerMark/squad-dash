@@ -89,7 +89,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     private MarkdownDocumentCaptureContext? _captureContext;
 
     private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents,
-        NoteEditContext? noteContext = null) {
+        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null) {
         if (documents.Count == 0)
             throw new ArgumentException("At least one markdown document is required.", nameof(documents));
 
@@ -211,6 +211,75 @@ internal sealed class MarkdownDocumentWindow : Window {
             };
 
             _rootPanel.Children.Add(noteTitleRow);
+        }
+
+        // ── Loop description row (only in loop edit mode) ─────────────────────
+        if (loopEditContext is not null) {
+            var displayName = loopEditContext.InitialDescription;
+            var dashIdx     = displayName.IndexOf(" - ", StringComparison.Ordinal);
+            var titlePart   = dashIdx > 0 ? displayName[..dashIdx].Trim() : displayName;
+            Title = $"Edit Loop – {titlePart}";
+
+            var currentLoopDescription = loopEditContext.InitialDescription;
+
+            var loopDescRow = new DockPanel {
+                Margin        = new Thickness(12, 0, 12, 8),
+                LastChildFill = true,
+            };
+            DockPanel.SetDock(loopDescRow, Dock.Top);
+
+            var loopDescLabel = new TextBlock {
+                Text              = "Description:",
+                FontSize          = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 8, 0),
+            };
+            loopDescLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            DockPanel.SetDock(loopDescLabel, Dock.Left);
+            loopDescRow.Children.Add(loopDescLabel);
+
+            var loopDescHint = new TextBlock {
+                Text              = "e.g. 'My Loop - tooltip hint shown on hover'",
+                FontSize          = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 8, 0),
+                FontStyle         = FontStyles.Italic,
+            };
+            loopDescHint.SetResourceReference(TextBlock.ForegroundProperty, "MutedText");
+            DockPanel.SetDock(loopDescHint, Dock.Right);
+            loopDescRow.Children.Add(loopDescHint);
+
+            var loopDescBox = new TextBox {
+                Text                     = loopEditContext.InitialDescription,
+                FontSize                 = 12,
+                Padding                  = new Thickness(6, 4, 6, 4),
+                BorderThickness          = new Thickness(1),
+                Height                   = 28,
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            loopDescBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
+            loopDescBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+            loopDescBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+            loopDescRow.Children.Add(loopDescBox);
+
+            void CommitLoopDescription() {
+                var newDesc = loopDescBox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(newDesc) || newDesc == currentLoopDescription)
+                    return;
+                currentLoopDescription = newDesc;
+                loopEditContext.OnDescriptionCommit(newDesc);
+                var di     = newDesc.IndexOf(" - ", StringComparison.Ordinal);
+                var tp     = di > 0 ? newDesc[..di].Trim() : newDesc;
+                Title = $"Edit Loop – {tp}";
+            }
+
+            loopDescBox.LostFocus += (_, _) => CommitLoopDescription();
+            loopDescBox.KeyDown   += (_, e) => {
+                if (e.Key == Key.Enter)  { CommitLoopDescription(); e.Handled = true; }
+                if (e.Key == Key.Escape) { loopDescBox.Text = currentLoopDescription; e.Handled = true; }
+            };
+
+            _rootPanel.Children.Add(loopDescRow);
         }
 
         _contentGrid = new Grid {
@@ -335,7 +404,7 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     public static void Show(Window? owner, string title, string filePath, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
-        NoteEditContext? noteContext = null) {
+        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null) {
         // If a window already has this file open, bring it to the front instead of opening a duplicate.
         var existing = _openWindows.FirstOrDefault(w =>
             w._documents.Any(d => string.Equals(d.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
@@ -345,13 +414,13 @@ internal sealed class MarkdownDocumentWindow : Window {
             existing.Activate();
             return;
         }
-        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave, noteContext);
+        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave, noteContext, loopEditContext);
     }
 
     public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
-        NoteEditContext? noteContext = null) {
-        var window = new MarkdownDocumentWindow(title, documents, noteContext);
+        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null) {
+        var window = new MarkdownDocumentWindow(title, documents, noteContext, loopEditContext);
         window._captureContext = captureContext;
         window._autoSave       = autoSave;
         if (owner is not null)
@@ -421,9 +490,9 @@ internal sealed class MarkdownDocumentWindow : Window {
     private void EditorTextBox_ContextMenuOpening(object sender, ContextMenuEventArgs e) {
         if (sender is not RichTextBox tb || tb.ContextMenu is null) return;
 
-        // Remove any previously-injected "Add to Notes" items so they don't stack
+        // Remove any previously-injected items so they don't stack
         for (int i = tb.ContextMenu.Items.Count - 1; i >= 0; i--) {
-            if (tb.ContextMenu.Items[i] is MenuItem { Tag: "AddToNotes" } ||
+            if (tb.ContextMenu.Items[i] is MenuItem { Tag: "AddToChat" or "AddToNotes" } ||
                 tb.ContextMenu.Items[i] is Separator { Tag: "AddToNotesSep" })
                 tb.ContextMenu.Items.RemoveAt(i);
         }
@@ -439,21 +508,37 @@ internal sealed class MarkdownDocumentWindow : Window {
                 mi.IsEnabled = tb.GetSelectionLength() > 0;
         }
 
-        // Add "Add to Notes" if callback is set and there's a selection
-        if (_captureContext?.AddToNotesCallback is { } callback && tb.GetSelectionLength() > 0) {
-            var sep = new Separator { Tag = "AddToNotesSep" };
-            sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+        // Inject "Add to chat" and "Add to Notes" at the top when there is a selection
+        if (tb.GetSelectionLength() > 0) {
+            int insertIdx = 0;
 
-            var noteItem = new MenuItem { Header = "Add to Notes", Tag = "AddToNotes" };
-            noteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            noteItem.Click += (_, _) => {
-                var text = tb.GetSelectedText();
-                if (!string.IsNullOrWhiteSpace(text))
-                    callback(text);
-            };
+            if (_captureContext?.AddToChatCallback is { } chatCallback) {
+                var chatItem = new MenuItem { Header = "Add to chat", Tag = "AddToChat" };
+                chatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                chatItem.Click += (_, _) => {
+                    var text = tb.GetSelectedText();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        chatCallback(text);
+                };
+                tb.ContextMenu.Items.Insert(insertIdx++, chatItem);
+            }
 
-            tb.ContextMenu.Items.Add(sep);
-            tb.ContextMenu.Items.Add(noteItem);
+            if (_captureContext?.AddToNotesCallback is { } callback) {
+                var noteItem = new MenuItem { Header = "Add to Notes", Tag = "AddToNotes" };
+                noteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                noteItem.Click += (_, _) => {
+                    var text = tb.GetSelectedText();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        callback(text);
+                };
+                tb.ContextMenu.Items.Insert(insertIdx++, noteItem);
+            }
+
+            if (insertIdx > 0) {
+                var topSep = new Separator { Tag = "AddToNotesSep" };
+                topSep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                tb.ContextMenu.Items.Insert(insertIdx, topSep);
+            }
         }
 
         // Remove any previously-injected "Revise with AI" items
@@ -758,7 +843,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         var editorTb = _activeDocument?.EditorTextBox;
         if (editorTb is null) return;
 
-        _editorVoiceCaretIndex    = editorTb.GetCaretOffset();
+        _editorVoiceCaretIndex    = editorTb.GetSelectionStart();
         _editorVoiceSelectionLength = editorTb.GetSelectionLength();
 
         _editorVoiceService = new SpeechRecognitionService();
@@ -848,7 +933,8 @@ internal sealed class MarkdownDocumentWindow : Window {
                          precedingChar != '\n' && precedingChar != '\r' ? " " : string.Empty;
         var processed  = VoiceInsertionHeuristics.Apply(left, text, right);
         var insert     = prefix + processed;
-        editorTb.SetPlainText(left + insert + right);
+        editorTb.SelectRange(caretIndex, selEndIndex - caretIndex);
+        editorTb.ReplaceSelection(insert);
         editorTb.SetCaretOffset(caretIndex + insert.Length);
         _editorVoiceCaretIndex = caretIndex + insert.Length;
     }
@@ -2183,6 +2269,12 @@ internal static class MarkdownDocumentScripts {
 internal sealed record NoteEditContext(string InitialTitle, Action<string> OnTitleCommit);
 
 /// <summary>
+/// Enables the description editing row and "Edit Loop" window title when
+/// opening a MarkdownDocumentWindow for loop editing.
+/// </summary>
+internal sealed record LoopEditContext(string InitialDescription, Action<string> OnDescriptionCommit);
+
+/// <summary>
 /// Optional services passed to <see cref="MarkdownDocumentWindow.Show"/> to enable
 /// the "Capture image" context-menu action on screenshot placeholders.
 /// </summary>
@@ -2207,6 +2299,12 @@ internal sealed record MarkdownDocumentCaptureContext(
     string?                             ScreenshotsDirectory,
     string                              ThemeName,
     string                              SpeechRegion) {
+    /// <summary>
+    /// Optional callback invoked when the user chooses "Add to chat" from the source
+    /// editor context menu. Receives the selected markdown text.
+    /// </summary>
+    public Action<string>? AddToChatCallback { get; init; }
+
 
     /// <summary>
     /// Optional callback invoked when the user chooses "Add to Notes" from the source

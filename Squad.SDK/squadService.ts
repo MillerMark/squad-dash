@@ -1,6 +1,9 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { SquadClient } from "@bradygaster/squad-sdk/client";
 
-const SessionIdleTimeoutMs = 40 * 60 * 1000;
+const SessionIdleTimeoutMs = 60 * 60 * 1000;
 
 export type SquadPromptRequest = {
     cwd: string;
@@ -709,6 +712,174 @@ export function buildNamedAgentPrompt(request: Pick<SquadNamedAgentRequest, "sel
     return sections.join("\n");
 }
 
+type LegacyPermissionApproval = { kind: "approved" };
+type PermissionApprovalKind = "approved" | "approve-once";
+
+export function approvePermissionRequest(): LegacyPermissionApproval {
+    return { kind: resolveRuntimePermissionApprovalKind() } as unknown as LegacyPermissionApproval;
+}
+
+export function resolvePermissionApprovalKind(copilotVersion = resolveCopilotPackageVersion()): PermissionApprovalKind {
+    return isCopilotUserPermissionDecisionVersion(copilotVersion)
+        ? "approve-once"
+        : "approved";
+}
+
+function resolveRuntimePermissionApprovalKind(): PermissionApprovalKind {
+    return resolveCopilotSchemaApprovalKind() ??
+        resolvePermissionApprovalKind(resolveCopilotPackageVersion());
+}
+
+export function resolvePermissionApprovalKindFromSchema(schemaText: string): PermissionApprovalKind | undefined {
+    try {
+        const schema = JSON.parse(schemaText);
+        const resultSchema = schema?.session?.permissions?.handlePendingPermissionRequest?.params?.properties?.result;
+        const constValues = collectSchemaConstValues(resultSchema, schema);
+
+        if (constValues.has("approve-once"))
+            return "approve-once";
+
+        if (constValues.has("approved"))
+            return "approved";
+    }
+    catch {
+    }
+
+    return undefined;
+}
+
+function isCopilotUserPermissionDecisionVersion(version?: string): boolean {
+    if (!version)
+        return false;
+
+    const parsed = version.split(/[.-]/).map(part => Number.parseInt(part, 10));
+    const major = Number.isFinite(parsed[0]) ? parsed[0] : 0;
+    const minor = Number.isFinite(parsed[1]) ? parsed[1] : 0;
+    const patch = Number.isFinite(parsed[2]) ? parsed[2] : 0;
+
+    return major > 1 ||
+        (major === 1 && (minor > 0 || patch >= 36));
+}
+
+function resolveCopilotPackageVersion(): string | undefined {
+    try {
+        const packageRoot = resolveCopilotPackageRoot();
+        if (!packageRoot)
+            return undefined;
+
+        const packageJsonPath = path.join(packageRoot, "package.json");
+        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { version?: unknown };
+        return typeof packageJson.version === "string"
+            ? packageJson.version
+            : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+
+function resolveCopilotSchemaApprovalKind(): PermissionApprovalKind | undefined {
+    try {
+        const packageRoot = resolveCopilotPackageRoot();
+        if (!packageRoot)
+            return undefined;
+
+        const schemaPath = path.join(packageRoot, "schemas", "api.schema.json");
+        if (!existsSync(schemaPath))
+            return undefined;
+
+        return resolvePermissionApprovalKindFromSchema(readFileSync(schemaPath, "utf8"));
+    }
+    catch {
+        return undefined;
+    }
+}
+
+function resolveCopilotPackageRoot(): string | undefined {
+    const copilotSdkRoot = findPackageRoot(fileURLToPath(import.meta.resolve("@github/copilot-sdk")));
+    return copilotSdkRoot
+        ? findCopilotPackageRoot(copilotSdkRoot)
+        : undefined;
+}
+
+function findPackageRoot(startPath: string): string | undefined {
+    let directory = path.dirname(startPath);
+    while (true) {
+        if (existsSync(path.join(directory, "package.json")))
+            return directory;
+
+        const parent = path.dirname(directory);
+        if (parent === directory)
+            return undefined;
+
+        directory = parent;
+    }
+}
+
+function findCopilotPackageRoot(copilotSdkRoot: string): string | undefined {
+    const candidates = [
+        path.join(copilotSdkRoot, "node_modules", "@github", "copilot"),
+        path.join(path.dirname(copilotSdkRoot), "copilot")
+    ];
+
+    for (const candidate of candidates) {
+        if (existsSync(path.join(candidate, "package.json")))
+            return candidate;
+    }
+
+    let directory = path.dirname(copilotSdkRoot);
+    while (true) {
+        const candidate = path.join(directory, "node_modules", "@github", "copilot");
+        if (existsSync(path.join(candidate, "package.json")))
+            return candidate;
+
+        const parent = path.dirname(directory);
+        if (parent === directory)
+            return undefined;
+
+        directory = parent;
+    }
+}
+
+function collectSchemaConstValues(node: unknown, root: unknown, values = new Set<string>(), seenRefs = new Set<string>()): Set<string> {
+    if (!node || typeof node !== "object")
+        return values;
+
+    const record = node as Record<string, unknown>;
+    if (typeof record.const === "string")
+        values.add(record.const);
+
+    if (typeof record.$ref === "string" && record.$ref.startsWith("#/") && !seenRefs.has(record.$ref)) {
+        seenRefs.add(record.$ref);
+        collectSchemaConstValues(resolveJsonPointer(root, record.$ref), root, values, seenRefs);
+    }
+
+    for (const value of Object.values(record)) {
+        if (Array.isArray(value)) {
+            for (const item of value)
+                collectSchemaConstValues(item, root, values, seenRefs);
+        }
+        else if (value && typeof value === "object") {
+            collectSchemaConstValues(value, root, values, seenRefs);
+        }
+    }
+
+    return values;
+}
+
+function resolveJsonPointer(root: unknown, pointer: string): unknown {
+    return pointer
+        .slice(2)
+        .split("/")
+        .reduce<unknown>((current, part) => {
+            if (!current || typeof current !== "object")
+                return undefined;
+
+            const key = part.replace(/~1/g, "/").replace(/~0/g, "~");
+            return (current as Record<string, unknown>)[key];
+        }, root);
+}
+
 function buildDelegationHiddenContext(selectedOption: string, targetAgent: string): string {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
@@ -1100,7 +1271,7 @@ export class SquadBridgeService {
 
         let stateRef: SessionState | undefined;
         const sessionConfig = {
-            onPermissionRequest: async () => ({ kind: "approved" as const }),
+            onPermissionRequest: async () => approvePermissionRequest(),
             streaming: true,
             workingDirectory: options.cwd,
             configDir: options.configDir,

@@ -13,6 +13,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private static readonly TimeSpan DefaultPromptInactivityTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan DefaultBackgroundCancelResponseTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BridgeDeltaTraceInterval = TimeSpan.FromSeconds(1);
     private const string SessionResetEventType = "session_reset";
 
     public event EventHandler<SquadSdkEvent>? EventReceived;
@@ -29,10 +30,16 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private readonly TimeSpan _promptTimeoutPollInterval;
     private readonly IWorkspacePaths? _workspacePaths;
 
+    private bool _disposed;
     private Process? _activeProcess;
     private StreamWriter? _activeProcessInput;
     private Task? _outputReaderTask;
     private string? _activePromptRequestId;
+    private DateTimeOffset _lastBridgeDeltaTraceAt = DateTimeOffset.Now;
+    private int _pendingBridgeThinkingDeltaCount;
+    private int _pendingBridgeThinkingDeltaChars;
+    private int _pendingBridgeResponseDeltaCount;
+    private int _pendingBridgeResponseDeltaChars;
 
     /// <summary>
     /// Optional BYOK provider settings. When set (and <see cref="ByokProviderSettings.ProviderUrl"/> is
@@ -82,6 +89,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         await _promptLock.WaitAsync().ConfigureAwait(false);
         try {
+            ThrowIfDisposed();
             await RunPromptWithSessionRecoveryAsync(
                 prompt,
                 workingDirectory,
@@ -465,9 +473,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                     if (evt is null)
                         continue;
 
-                    SquadDashTrace.Write(
-                        "Bridge",
-                        $"Received event type={evt.Type ?? "(null)"} requestId={evt.RequestId ?? "(none)"}");
+                    TraceReceivedEvent(evt);
                     HandleBridgeEvent(evt);
                 }
                 catch {
@@ -689,14 +695,20 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// Kills the active bridge process (if any) so it will restart with fresh env vars on the next request.
     /// Call this after updating <see cref="ByokProviderSettings"/> to ensure the new settings take effect.
     /// </summary>
-    internal void RestartBridgeForNewSettings() => ResetProcess();
+    internal void RestartBridgeForNewSettings() =>
+        ResetProcess(new OperationCanceledException("The Squad bridge was restarted before the prompt completed."));
 
-    private void ResetProcess() {
+    private void ResetProcess(Exception? pendingPromptException = null) {
         Process? processToKill;
+        PendingBridgeRequest[] pendingRequests = [];
         PendingBackgroundCancelRequest[] pendingCancels;
 
         lock (_stateLock) {
             processToKill = _activeProcess;
+            if (pendingPromptException is not null) {
+                pendingRequests = _pendingRequests.Values.ToArray();
+                _pendingRequests.Clear();
+            }
             pendingCancels = _pendingBackgroundCancels.Values.ToArray();
             _pendingBackgroundCancels.Clear();
             _activeProcess = null;
@@ -707,6 +719,11 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         foreach (var pendingCancel in pendingCancels)
             pendingCancel.Completion.TrySetResult(false);
+
+        if (pendingPromptException is Exception promptException) {
+            foreach (var pendingRequest in pendingRequests)
+                pendingRequest.Completion.TrySetException(promptException);
+        }
 
         if (processToKill is not null)
             TryKill(processToKill);
@@ -723,11 +740,25 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
     public async ValueTask DisposeAsync() {
         var sw = Stopwatch.StartNew();
-        ResetProcess();
+        _disposed = true;
+        ResetProcess(new OperationCanceledException("The Squad bridge was disposed before the prompt completed."));
         SquadDashTrace.Write(TraceCategory.Shutdown, $"SDK DisposeAsync: ResetProcess (kill) {sw.ElapsedMilliseconds}ms.");
+
+        try {
+            if (await _promptLock.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false))
+                _promptLock.Release();
+        }
+        catch {
+        }
+
         _stdinWriteLock.Dispose();
         _promptLock.Dispose();
         await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    private void ThrowIfDisposed() {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(SquadSdkProcess));
     }
 
     public void AbortPrompt() {
@@ -821,6 +852,50 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             SquadDashTrace.Write("Bridge", $"Failed to send abort request for {requestId}: {ex.Message}");
             ErrorReceived?.Invoke(this, ex.Message);
         }
+    }
+
+    private void TraceReceivedEvent(SquadSdkEvent evt) {
+        switch (evt.Type) {
+            case "thinking_delta":
+                _pendingBridgeThinkingDeltaCount++;
+                _pendingBridgeThinkingDeltaChars += evt.Text?.Length ?? 0;
+                FlushBridgeDeltaTrace(force: false);
+                return;
+
+            case "response_delta":
+                _pendingBridgeResponseDeltaCount++;
+                _pendingBridgeResponseDeltaChars += evt.Chunk?.Length ?? 0;
+                FlushBridgeDeltaTrace(force: false);
+                return;
+
+            default:
+                FlushBridgeDeltaTrace(force: true);
+                SquadDashTrace.Write(
+                    "Bridge",
+                    $"Received event type={evt.Type ?? "(null)"} requestId={evt.RequestId ?? "(none)"}");
+                return;
+        }
+    }
+
+    private void FlushBridgeDeltaTrace(bool force) {
+        var now = DateTimeOffset.Now;
+        if (!force && now - _lastBridgeDeltaTraceAt < BridgeDeltaTraceInterval)
+            return;
+
+        if (_pendingBridgeThinkingDeltaCount == 0 && _pendingBridgeResponseDeltaCount == 0)
+            return;
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"Received stream_delta summary elapsedMs={(now - _lastBridgeDeltaTraceAt).TotalMilliseconds:0} " +
+            $"thinkingCount={_pendingBridgeThinkingDeltaCount} thinkingChars={_pendingBridgeThinkingDeltaChars} " +
+            $"responseCount={_pendingBridgeResponseDeltaCount} responseChars={_pendingBridgeResponseDeltaChars}");
+
+        _pendingBridgeThinkingDeltaCount = 0;
+        _pendingBridgeThinkingDeltaChars = 0;
+        _pendingBridgeResponseDeltaCount = 0;
+        _pendingBridgeResponseDeltaChars = 0;
+        _lastBridgeDeltaTraceAt = now;
     }
 
     public async Task StopLoopAsync() {

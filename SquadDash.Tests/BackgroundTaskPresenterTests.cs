@@ -313,6 +313,52 @@ internal sealed class BackgroundTaskPresenterTests {
         });
     }
 
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void PromoteDeferredBackgroundAgentReports_FlushesOnce_WhenCoordinatorBecomesIdle() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 5, 8, 17, 10, 42, TimeSpan.FromHours(-4));
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-arjun",
+            agentId: "arjun-sen",
+            agentName: "arjun-sen",
+            agentDisplayName: "Arjun Sen",
+            agentDescription: "Testing specialist",
+            status: "completed",
+            prompt: "Verify timeout recovery",
+            startedAt: startedAt.ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.StatusText = "Completed";
+        thread.LatestResponse = "Finished verification and left the working tree clean.";
+
+        var isPromptRunning = true;
+        var appendedLines = new List<string>();
+        var presenter = MakePresenter(
+            registry,
+            isPromptRunningAccessor: () => isPromptRunning,
+            appendedLines: appendedLines);
+
+        var promotedWhileBusy = presenter.PromoteBackgroundAgentReportNow(
+            thread,
+            "subagent_completed:deferred:deferred");
+        var promotedAgainWhileBusy = presenter.PromoteBackgroundAgentReportNow(
+            thread,
+            "subagent_completed:deferred:deferred:deferred");
+
+        isPromptRunning = false;
+        var flushedCount = presenter.PromoteDeferredBackgroundAgentReports("coordinator_idle");
+
+        Assert.Multiple(() => {
+            Assert.That(promotedWhileBusy, Is.False);
+            Assert.That(promotedAgainWhileBusy, Is.False);
+            Assert.That(flushedCount, Is.EqualTo(1));
+            Assert.That(presenter.PendingBackgroundReportPromotionCount, Is.EqualTo(0));
+            Assert.That(appendedLines, Has.Count.EqualTo(1));
+            Assert.That(appendedLines[0], Does.StartWith("Arjun Sen (arjun-sen) reported back:"));
+            Assert.That(appendedLines[0], Does.Contain("Finished verification"));
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static AgentThreadRegistry MakeRegistry() =>
@@ -339,6 +385,7 @@ internal sealed class BackgroundTaskPresenterTests {
     private static BackgroundTaskPresenter MakePresenter(
         AgentThreadRegistry? registry = null,
         bool isPromptRunning = false,
+        Func<bool>? isPromptRunningAccessor = null,
         TranscriptTurnView? currentTurn = null,
         List<string>? appendedLines = null,
         List<TranscriptThreadState>? persistedThreads = null) {
@@ -348,7 +395,7 @@ internal sealed class BackgroundTaskPresenterTests {
             agentThreadRegistry:          registry,
             appendLine:                   (text, _) => appendedLines?.Add(text),
             syncAgentCards:               () => { },
-            isPromptRunning:              () => isPromptRunning,
+            isPromptRunning:              isPromptRunningAccessor ?? (() => isPromptRunning),
             currentTurn:                  () => currentTurn,
             themeBrush:                   _ => Brushes.Transparent,
             tryPostToUi:                  (action, _) => action(),

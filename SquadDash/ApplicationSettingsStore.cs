@@ -227,6 +227,18 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveCleanupPrompt(string? prompt) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            CleanupPrompt = string.IsNullOrWhiteSpace(prompt)
+                ? "Clean up and clarify this text."
+                : prompt.Trim()
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveSpeechRegion(string? region) {
         using var mutex = AcquireMutex();
 
@@ -719,6 +731,11 @@ internal sealed record ApplicationSettingsSnapshot(
 
     public string? UserName { get; init; }
     public string? SpeechRegion { get; init; }
+
+    /// <summary>
+    /// Prompt sent to AI when the user triggers the Quick Cleanup (Ctrl+Shift+C) command.
+    /// </summary>
+    public string CleanupPrompt { get; init; } = "Clean up and clarify this text.";
     public double TranscriptFontSize { get; init; } = 14;
 
     /// <summary>
@@ -1068,6 +1085,9 @@ internal sealed record ApplicationSettingsSnapshot(
             RcPersistentPort = RcPersistentPort,
             ApprovalShowApproved = ApprovalShowApproved,
             ApprovalShowRejected = ApprovalShowRejected,
+            CleanupPrompt = string.IsNullOrWhiteSpace(CleanupPrompt)
+                ? "Clean up and clarify this text."
+                : CleanupPrompt,
         };
     }
 

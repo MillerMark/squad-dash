@@ -30,7 +30,33 @@
   coordination flows) are not exercised. Audit the existing tests, identify missing paths, and fill
   them in. Focus on correctness contracts rather than line-count.
 
-- [ ] **RC browser UI — review and improvement pass** *(Owner: Lyra Morn)*
+- [ ] **Loop Settings popup — render loop file frontmatter as UI controls** *(Owner: Lyra Morn)*
+  When the user right-clicks the gear/settings icon in the Loop panel, parse the YAML frontmatter
+  of the active loop `.md` file and render its keys as controls in a popup:
+  - Known UI keys get typed controls: `commit_after_task` → 3-way radio/dropdown (`always`/`never`/`ask`);
+    bool keys (`build_verify`, `test_after_task`) → toggle/checkbox.
+  - Unknown string keys get a text field (injection variables such as `build_command`, `commit_trailer`).
+  - On save, write updated values back to the frontmatter block of the loop file.
+  - Keys prefixed with `#` (comments) or without a recognized type hint should be ignored or shown as read-only labels.
+  Scope: parsing, popup XAML, save-back logic. The `{{variable}}` substitution at prompt send time is a separate task.
+
+- [ ] **Loop "Do these" — inject TasksFilterBox text into live loop prompt** *(Owner: Lyra Morn)*
+  When the "▶ Do these" button starts the loop, the active Tasks panel filter text is currently only
+  substituted in the preview window (`RefreshLoopMergedView`), not in the actual prompt sent to the AI.
+  The `[**FILTER**]` placeholder (and its smart context-aware expansion) must also be applied at loop
+  start time — either by writing a temporary substituted copy of the loop file, or by injecting the
+  filter as a `{{variable}}` that the loop controller resolves before sending the prompt.
+  **See TODO comment in `TasksPanelDoTheseButton_Click` (commit 9460f90).**
+
+- [ ] **Loop Settings — `{{variable}}` injection at prompt send time** *(Owner: Arjun Sen)*
+  Before sending the loop prompt, substitute `{{key}}` tokens in the prompt body with the
+  corresponding frontmatter values from the active loop file. Known UI keys (`commit_after_task`,
+  `build_verify`, `test_after_task`) and user-defined injection variables (`build_command`,
+  `commit_trailer`, etc.) should all be substituted. Missing keys should substitute as empty string
+  or be left as-is (configurable). Implement in `SquadBridgePromptBuilder` or equivalent injection layer.
+  **Blocked by:** Loop Settings popup task (frontmatter schema must be stable first).
+
+
 
 - [x] **Transcript — ghost selection highlight when content streams in** *(Owner: Arjun Sen)*
 
@@ -60,12 +86,10 @@
 
 ## 🔴 High Priority
 
-- [ ] **[Orion audit] AgentThreadRegistry — lock down mutable backing collections** *(Owner: Arjun Sen)*
-  `AgentThreadRegistry` exposes `ThreadsByKey`, `ThreadsByToolCallId`, `LaunchesByToolCallId`,
-  and `ThreadOrder` as public mutable dictionaries. Callers can write directly to them, silently
-  bypassing the aliasing invariants enforced by `GetOrCreateAgentThread`/`AliasThreadKeys`.
-  Make the exposed collections read-only wrappers (e.g. `IReadOnlyDictionary`) so the correctness
-  contract cannot be violated externally.
+- [x] **[Orion audit] AgentThreadRegistry — lock down mutable backing collections** *(Owner: Arjun Sen)*
+  Already implemented: all four collections (`ThreadsByKey`, `ThreadsByToolCallId`, `LaunchesByToolCallId`,
+  `ThreadOrder`) expose `IReadOnlyDictionary`/`IReadOnlyList` interfaces. Backing fields are
+  `private readonly` — external callers cannot mutate them.
 
 - [x] **[Vesper audit] Test coverage — CommitApprovalStore, DocStatusStore, DocTopicsLoader, LoopOutputStore** *(Owner: Vesper Knox)*
   All four classes have zero test coverage despite critical responsibilities:

@@ -28,7 +28,7 @@ The panel is shown by default. Close it with its **×** button; reopen via the V
 | **Continuous Context** checkbox | When unchecked (default), each iteration runs in a fresh session so agent state does not accumulate across rounds. Check it to reuse the same conversation session across all iterations. |
 | **Start Loop** / **Queue Loop** | Starts the loop. In Native Agents mode, if the coordinator is currently busy, the button becomes **Queue Loop** and auto-starts once the current prompt finishes. |
 | **Stop** | Graceful stop — the current iteration finishes normally, then the loop halts. |
-| **Abort** | Immediate stop — cancels the running prompt right now. Only visible while the loop is running. |
+| **Abort** | Immediate stop — cancels the running prompt right now. Only visible while the loop is running. Keyboard shortcut: **Ctrl+Shift+Break**. |
 | **Status label** | Live status: `● Running · Round N`, `⏳ Waiting · next in Xm`, `◌ Stopping after this iteration…`, `⏸ Loop queued — waiting for coordinator`. |
 
 ---

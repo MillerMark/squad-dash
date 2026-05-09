@@ -26,8 +26,9 @@ internal sealed class DiffLine {
 }
 
 internal sealed class DiffHoverPopup : Popup {
-    private const int MaxDisplayLines = 40;
-    private const double MaxPopupHeight = 300;
+    internal const int MaxDisplayLines = 40;
+    internal const double MaxPopupHeight = 300;
+    private const double LineHeightEstimate = 16.0; // FontSize 13 + padding
 
     public DiffHoverPopup() {
         AllowsTransparency = true;
@@ -35,6 +36,14 @@ internal sealed class DiffHoverPopup : Popup {
         Placement = PlacementMode.Absolute;
         IsHitTestVisible = true;
     }
+
+    /// <summary>
+    /// Returns an estimated rendered height for a popup showing <paramref name="lineCount"/> diff lines,
+    /// capped at <see cref="MaxPopupHeight"/>. Used by the caller to decide above-vs-below placement
+    /// before the popup is shown.
+    /// </summary>
+    internal static double EstimateHeight(int lineCount) =>
+        Math.Min(Math.Min(lineCount, MaxDisplayLines) * LineHeightEstimate + 20, MaxPopupHeight);
 
     public void ShowDiff(IEnumerable<DiffLine> diffLines) {
         var linesList = diffLines.ToList();
@@ -57,14 +66,14 @@ internal sealed class DiffHoverPopup : Popup {
             switch (line.Kind) {
                 case DiffLineKind.Added:
                     textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
-                    // Blue tint at ~15% opacity
-                    textBlock.Background = new SolidColorBrush(Color.FromArgb(38, 107, 174, 214));
+                    // Blue tint at ~10% opacity
+                    textBlock.Background = new SolidColorBrush(Color.FromArgb(26, 107, 174, 214));
                     break;
 
                 case DiffLineKind.Removed:
                     textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffRemovedText");
-                    // Red tint at ~15% opacity
-                    textBlock.Background = new SolidColorBrush(Color.FromArgb(38, 224, 112, 112));
+                    // Red tint at ~10% opacity
+                    textBlock.Background = new SolidColorBrush(Color.FromArgb(26, 224, 112, 112));
                     break;
 
                 case DiffLineKind.Header:

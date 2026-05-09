@@ -18,6 +18,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<CommitApprovalItem>                   _onItemChanged;
     private readonly Action<IReadOnlyList<CommitApprovalItem>>    _onItemsRemoved;
     private readonly Action<CommitApprovalItem>                   _onFollowUp;
+    private readonly Action<CommitApprovalItem>?                _addToNotes;
 
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
@@ -49,6 +50,7 @@ internal sealed class CommitApprovalPanel {
         Action<CommitApprovalItem>                onItemChanged,
         Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved,
         Action<CommitApprovalItem>                onFollowUp,
+        Action<CommitApprovalItem>?               addToNotes    = null,
         bool                                     initialShowApproved = true,
         Action<bool>?                            onShowApprovedChanged = null,
         bool                                     initialShowRejected = true,
@@ -65,6 +67,7 @@ internal sealed class CommitApprovalPanel {
         _onItemChanged             = onItemChanged;
         _onItemsRemoved            = onItemsRemoved;
         _onFollowUp                = onFollowUp;
+        _addToNotes                = addToNotes;
         _showApproved              = initialShowApproved;
         _onShowApprovedChanged     = onShowApprovedChanged;
         _showRejected              = initialShowRejected;
@@ -182,9 +185,15 @@ internal sealed class CommitApprovalPanel {
         };
 
         var menu = MakeMenu();
-        var followUpItem = MakeItem("Attach to Prompt");
+        var followUpItem = MakeItem("Add to chat");
         followUpItem.Click += (_, _) => _onFollowUp(item);
         menu.Items.Add(followUpItem);
+        if (_addToNotes is not null)
+        {
+            var notesItem = MakeItem("Add to Notes");
+            notesItem.Click += (_, _) => _addToNotes(item);
+            menu.Items.Add(notesItem);
+        }
         menu.Items.Add(MakeSep());
         var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);

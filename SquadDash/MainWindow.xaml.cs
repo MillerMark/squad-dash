@@ -94,6 +94,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private readonly DispatcherTimer _promptHealthTimer;
     private readonly DispatcherTimer _statusPresentationTimer;
     private readonly DispatcherTimer _responseRenderTimer;
+    private readonly Stopwatch _sdkDeltaTraceStopwatch = Stopwatch.StartNew();
     private PromptExecutionController _pec = null!; // initialized in constructor after all services
     private LoopController _loopController = null!; // initialized in constructor after _pec
     private FileSystemWatcher? _inboxWatcher;
@@ -114,6 +115,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private SessionWorkspace? _currentWorkspace;
     private readonly PastedImageStore _pastedImageStore = new();
     private SquadInstallationState? _currentInstallationState;
+    private int _pendingThinkingDeltaTraceCount;
+    private int _pendingThinkingDeltaTraceChars;
+    private int _pendingResponseDeltaTraceCount;
+    private int _pendingResponseDeltaTraceChars;
     private SquadRoutingDocumentAssessment? _currentRoutingAssessment;
     private WorkspaceIssuePresentation? _startupIssue;
     private WorkspaceIssuePresentation? _runtimeIssue;
@@ -139,6 +144,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _pendingPowerShellInstallRecheck;
     private TasksStatusWindow?      _tasksStatusWindow;
     private TraceWindow?            _traceWindow;
+    private LoopMergedViewWindow?   _loopMergedViewWindow;
+    private DispatcherTimer?        _loopPreviewFilterDebounce;
     private ScreenshotHealthWindow? _screenshotHealthWindow;
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
@@ -303,6 +310,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _loopPanelVisible = true;
     private LoopOutputWindow? _loopOutputWindow;
     private bool _loopQueued;
+    private LoopMode _activeLoopMode = LoopMode.NativeAgents; // set at loop start; Shift+click overrides to SquadCli
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _startupShiftHeld;       // set in MainWindow_Loaded when Shift is down; suppresses auto-resume
     private string? _loopMdPathForConfig; // stored when loop config flyout is shown
@@ -346,7 +354,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private TranscriptThreadState CoordinatorThread => _coordinatorThread ??= CreateCoordinatorTranscriptThread();
     private bool IsLoopRunning => _pec is { IsLoopRunning: true };
-    private bool IsNativeLoopRunning => IsLoopRunning && _settingsSnapshot.LoopMode == LoopMode.NativeAgents;
+    private bool IsNativeLoopRunning => IsLoopRunning && _activeLoopMode == LoopMode.NativeAgents;
     private TranscriptTurnView? _currentTurn
     {
         get => CoordinatorThread.CurrentTurn;
@@ -424,6 +432,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _promptNavHintTimer;
+    private InteractiveControlState? _lastInteractiveControlState;
+    private bool _lastCanAbortBackgroundTask;
     private string? _workspaceGitHubUrl;
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private const int PttMaxTapHoldMs = 250;
@@ -881,6 +891,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 {
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     UpdateCompletedTimeFooters();
+                    _backgroundTaskPresenter.PromoteDeferredBackgroundAgentReports("coordinator_idle");
                     SquadDashTrace.Write("Queue", $"setIsPromptRunning(false): queueCount={_promptQueue.Count} deferred={_deferredShutdown} restartPending={_restartPending} isClosing={_isClosing}");
                     if (_deferredShutdown == DeferredShutdownMode.AfterCurrentTurn)
                     {
@@ -1119,7 +1130,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _fixtureLoaderRegistry.Register("loopPanel", new Screenshots.Fixtures.LoopPanelFixtureLoader(
             getStatusText: () => LoopStatusLabel.Text,
-            setStatusText: v => LoopStatusLabel.Text = v,
+            setStatusText: v => { LoopStatusLabel.Text = v; LoopStatusLabel.Visibility = string.IsNullOrEmpty(v) ? Visibility.Collapsed : Visibility.Visible; },
             getStopEnabled: () => StopLoopButton.IsEnabled,
             setStopEnabled: v => StopLoopButton.IsEnabled = v,
             getStartEnabled: () => StartLoopButton.IsEnabled,
@@ -1863,6 +1874,15 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private void AddEmptyQueueSlot()
+    {
+        _promptQueue.Enqueue(string.Empty, ++_promptQueueSeq);
+        var newId = _promptQueue.Items[^1].Id;
+        SyncQueuePanel();
+        OnQueueTabClicked(newId);
+        PromptTextBox.Focus();
+    }
+
     /// <summary>
     /// Records <paramref name="id"/> as the recently-prioritized item and starts a 3-second
     /// timer that clears the feedback label once it expires. <see cref="SyncQueuePanel"/> reads
@@ -2233,7 +2253,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
 
-        _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
+        _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive(), loopQueuedToDequeue: _loopQueued);
         SyncSendButton();
         BuildShortcutsHint();
         SquadDashTrace.Write(TraceCategory.Performance,
@@ -2266,7 +2286,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         UpdateQueueTabHint(hintBlock, newId);
 
         _conversationManager.UpdateQueuedPromptsState(
-            _promptQueue.Items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive());
+            _promptQueue.Items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive(), loopQueuedToDequeue: _loopQueued);
         SyncSendButton();
 
         SquadDashTrace.Write(TraceCategory.Performance,
@@ -3057,15 +3077,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void HandleEvent(SquadSdkEvent evt)
     {
-        var loggedChunkLength = evt.Type switch
-        {
-            "thinking_delta" => evt.Text?.Length ?? 0,
-            "response_delta" => evt.Chunk?.Length ?? 0,
-            _ => evt.Chunk?.Length ?? 0
-        };
-        SquadDashTrace.Write(
-            "UI",
-            $"HandleEvent type={evt.Type ?? "(null)"} tool={evt.ToolName ?? "(none)"} chunkLen={loggedChunkLength}");
+        TraceSdkEvent(evt);
         if (!string.Equals(evt.Type, "sdk_diagnostics", StringComparison.Ordinal))
             _pec.MarkActivity(evt);
 
@@ -3395,6 +3407,55 @@ public partial class MainWindow : Window, ILiveElementLocator
                 FlushDeferredSystemLines();
                 break;
         }
+    }
+
+    private void TraceSdkEvent(SquadSdkEvent evt)
+    {
+        switch (evt.Type)
+        {
+            case "thinking_delta":
+                _pendingThinkingDeltaTraceCount++;
+                _pendingThinkingDeltaTraceChars += evt.Text?.Length ?? 0;
+                FlushSdkDeltaTraceIfDue(force: false);
+                return;
+
+            case "response_delta":
+                _pendingResponseDeltaTraceCount++;
+                _pendingResponseDeltaTraceChars += evt.Chunk?.Length ?? 0;
+                FlushSdkDeltaTraceIfDue(force: false);
+                return;
+
+            default:
+                FlushSdkDeltaTraceIfDue(force: true);
+                SquadDashTrace.Write(
+                    "UI",
+                    $"HandleEvent type={evt.Type ?? "(null)"} tool={evt.ToolName ?? "(none)"} chunkLen={evt.Chunk?.Length ?? 0}");
+                return;
+        }
+    }
+
+    private void FlushSdkDeltaTraceIfDue(bool force)
+    {
+        if (!force && _sdkDeltaTraceStopwatch.ElapsedMilliseconds < 1000)
+            return;
+
+        var thinkingCount = _pendingThinkingDeltaTraceCount;
+        var responseCount = _pendingResponseDeltaTraceCount;
+        if (thinkingCount == 0 && responseCount == 0)
+            return;
+
+        var elapsedMs = Math.Max(1, _sdkDeltaTraceStopwatch.ElapsedMilliseconds);
+        SquadDashTrace.Write(
+            "UI",
+            $"HandleEvent stream_delta summary elapsed={elapsedMs}ms " +
+            $"thinkingCount={thinkingCount} thinkingChars={_pendingThinkingDeltaTraceChars} " +
+            $"responseCount={responseCount} responseChars={_pendingResponseDeltaTraceChars}");
+
+        _pendingThinkingDeltaTraceCount = 0;
+        _pendingThinkingDeltaTraceChars = 0;
+        _pendingResponseDeltaTraceCount = 0;
+        _pendingResponseDeltaTraceChars = 0;
+        _sdkDeltaTraceStopwatch.Restart();
     }
 
     private void HandleSdkDiagnostics(SquadSdkEvent evt)
@@ -4480,25 +4541,15 @@ public partial class MainWindow : Window, ILiveElementLocator
         StopLoopButton.Content = (_loopQueued && !running) ? "✕ Dequeue Loop" : "■ Stop After This";
         AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
-        LoopModeNativeRadio.IsEnabled = !running;
-        bool cliLoopSupported = SquadCliSupportsLoop(_squadCliAdapter.SquadVersion);
-        LoopModeCliRadio.IsEnabled = !running && cliLoopSupported;
-        LoopModeCliRadio.ToolTip = cliLoopSupported
-            ? null
-            : "Disabled (upgrade Squad for CLI looping)";
         if (LoopFilePicker is not null) LoopFilePicker.IsEnabled = !running;
-        LoopModeNativeRadio.IsChecked = nativeMode;
-        LoopModeCliRadio.IsChecked = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
-
-        bool isCli = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
-        LoopContinuousContextCheckBox.IsEnabled = !running && !isCli;
-        LoopContinuousContextCheckBox.IsChecked = !isCli && _settingsSnapshot.LoopContinuousContext;
+        LoopContinuousContextCheckBox.IsEnabled = !running;
+        LoopContinuousContextCheckBox.IsChecked = _settingsSnapshot.LoopContinuousContext;
 
         string status;
         if (_loopQueued)
             status = "⏸ Paused — dequeuing prompts";
         else if (running
-            && nativeMode
+            && _activeLoopMode == LoopMode.NativeAgents
             && _loopController.StopState == LoopStopState.StopRequested)
             status = "◌ Stopping after this iteration…";
         else if (running && _loopIsWaiting)
@@ -4518,6 +4569,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             status = string.Empty;
 
         LoopStatusLabel.Text = status;
+        LoopStatusLabel.Visibility = string.IsNullOrEmpty(status) ? Visibility.Collapsed : Visibility.Visible;
 
         if (LoopPanelDequeueMenuItem is not null)
             LoopPanelDequeueMenuItem.Visibility = _loopQueued ? Visibility.Visible : Visibility.Collapsed;
@@ -4578,10 +4630,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             _suppressLoopPickerChange = false;
         }
+        // Sync _selectedLoopMdPath so RefreshLoopOptionsPanel (called by callers right after)
+        // has a valid path even when SelectionChanged was suppressed during population.
+        _selectedLoopMdPath = GetSelectedLoopFileEntry()?.FilePath;
         UpdateLoopPanelButtonStates();
     }
 
-    private void UpdateLoopFileSubtitle() { }  // subtitle removed; kept to avoid call-site churn
+    private void UpdateLoopFileSubtitle(){ }  // subtitle removed; kept to avoid call-site churn
 
     private LoopFileEntry? GetSelectedLoopFileEntry()
     {
@@ -4607,6 +4662,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         PersistLoopFileSelection();
         UpdateLoopFileSubtitle();
         UpdateLoopPanelButtonStates();
+        RefreshLoopOptionsPanel();
     }
 
     private void PersistLoopFileSelection()
@@ -4614,6 +4670,178 @@ public partial class MainWindow : Window, ILiveElementLocator
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { SelectedLoopFile = _selectedLoopMdPath };
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    private void RefreshLoopOptionsPanel()
+    {
+        LoopOptionsPanel.Children.Clear();
+        LoopOptionsPanel.Visibility = Visibility.Collapsed;
+
+        if (_selectedLoopMdPath is null) return;
+
+        LoopMdConfig? config;
+        try { config = LoopMdParser.Parse(_selectedLoopMdPath); }
+        catch { return; }
+
+        if (config?.Options is not { Count: > 0 }) return;
+
+        bool inGroup = false;
+        foreach (var opt in config.Options)
+        {
+            if (opt.Type == "group")
+            {
+                var header = new TextBlock
+                {
+                    Text       = opt.Label ?? opt.Key,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin     = new Thickness(0, 6, 0, 2),
+                };
+                header.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                LoopOptionsPanel.Children.Add(header);
+                inGroup = true;
+                continue;
+            }
+
+            UIElement control = opt.Type switch
+            {
+                "bool" => CreateBoolOptionControl(opt),
+                "int"  => CreateIntOptionControl(opt),
+                "enum" => CreateEnumOptionControl(opt),
+                _      => CreateIntOptionControl(opt),
+            };
+
+            if (inGroup && control is FrameworkElement fe)
+                fe.Margin = new Thickness(fe.Margin.Left + 12, fe.Margin.Top, fe.Margin.Right, fe.Margin.Bottom);
+
+            LoopOptionsPanel.Children.Add(control);
+        }
+
+        LoopOptionsPanel.Visibility = Visibility.Visible;
+        RefreshLoopMergedView();
+    }
+
+    private CheckBox CreateBoolOptionControl(LoopOption opt)
+    {
+        var cb = new CheckBox
+        {
+            Content   = opt.Label ?? opt.Key,
+            IsChecked = opt.RawValue.Equals("true", StringComparison.OrdinalIgnoreCase),
+            ToolTip   = opt.Hint,
+            Margin    = new Thickness(0, 0, 0, 4),
+        };
+        if (TryFindResource("ThemedCheckBoxStyle") is Style cbStyle)
+            cb.Style = cbStyle;
+        else
+            cb.Foreground = (System.Windows.Media.Brush)FindResource("LabelText");
+
+        var capturedPath = _selectedLoopMdPath;
+        var capturedKey  = opt.Key;
+        cb.Checked   += (_, _) => { LoopMdParser.UpdateOptionValue(capturedPath!, capturedKey, "true");  RefreshLoopMergedView(); };
+        cb.Unchecked += (_, _) => { LoopMdParser.UpdateOptionValue(capturedPath!, capturedKey, "false"); RefreshLoopMergedView(); };
+        return cb;
+    }
+
+    private UIElement CreateIntOptionControl(LoopOption opt)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var label = new TextBlock
+        {
+            Text              = opt.Label ?? opt.Key,
+            ToolTip           = opt.Hint,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 0, 6, 0),
+        };
+        if (TryFindResource("LabelText") is System.Windows.Media.Brush labelBrush)
+            label.Foreground = labelBrush;
+
+        var tb = new TextBox
+        {
+            Text   = opt.RawValue,
+            Width  = 50,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        if (TryFindResource("InputSurface") is System.Windows.Media.Brush bg)
+            tb.Background = bg;
+        if (TryFindResource("InputBorder") is System.Windows.Media.Brush border)
+            tb.BorderBrush = border;
+        if (TryFindResource("LabelText") is System.Windows.Media.Brush fg)
+            tb.Foreground = fg;
+
+        var capturedPath = _selectedLoopMdPath;
+        var capturedKey  = opt.Key;
+        tb.LostFocus += (_, _) =>
+        {
+            var text = tb.Text.Trim();
+            if (int.TryParse(text, out _))
+            {
+                tb.ClearValue(TextBox.BorderBrushProperty);
+                if (TryFindResource("InputBorder") is System.Windows.Media.Brush b)
+                    tb.BorderBrush = b;
+                LoopMdParser.UpdateOptionValue(capturedPath!, capturedKey, text);
+                RefreshLoopMergedView();
+            }
+            else
+            {
+                tb.BorderBrush = System.Windows.Media.Brushes.Red;
+            }
+        };
+
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(tb, 1);
+        grid.Children.Add(label);
+        grid.Children.Add(tb);
+        return grid;
+    }
+
+    private UIElement CreateEnumOptionControl(LoopOption opt)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var label = new TextBlock
+        {
+            Text              = opt.Label ?? opt.Key,
+            ToolTip           = opt.Hint,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 0, 6, 0),
+        };
+        if (TryFindResource("LabelText") is System.Windows.Media.Brush labelBrush)
+            label.Foreground = labelBrush;
+
+        var combo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MaxWidth            = 90,
+        };
+        if (TryFindResource("ThemedComboBoxStyle") is Style comboStyle)
+            combo.Style = comboStyle;
+
+        if (opt.Choices is not null)
+            foreach (var choice in opt.Choices)
+                combo.Items.Add(choice);
+
+        combo.SelectedItem = opt.RawValue;
+
+        var capturedPath = _selectedLoopMdPath;
+        var capturedKey  = opt.Key;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is string selected)
+            {
+                LoopMdParser.UpdateOptionValue(capturedPath!, capturedKey, selected);
+                RefreshLoopMergedView();
+            }
+        };
+
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(combo, 1);
+        grid.Children.Add(label);
+        grid.Children.Add(combo);
+        return grid;
     }
 
     private void LoadTasksPanel()
@@ -4633,6 +4861,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             reloadPanel: () => Dispatcher.BeginInvoke(LoadTasksPanel),
             attachFollowUp: task => AttachContextFollowUp(
                 $"Task: {task.Text}",
+                BuildTaskContentBlock(task)),
+            addToNotes: task => AddNoteFromTextWithTitle(
+                $"Task - {task.Text}",
                 BuildTaskContentBlock(task)),
             getRoster: () => _currentWorkspace is null
                                  ? []
@@ -4712,8 +4943,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             if (_currentWorkspace is null) return;
 
+            var effectiveLoopMode = (Keyboard.Modifiers & ModifierKeys.Shift) != 0
+                ? LoopMode.SquadCli
+                : LoopMode.NativeAgents;
+
             // In native-agents mode, if the coordinator is busy, queue the loop start.
-            if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
+            if (effectiveLoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
             {
                 _loopQueued = true;
                 _conversationManager.UpdateQueuedPromptsState(
@@ -4725,6 +4960,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+            _activeLoopMode = effectiveLoopMode;
             await StartLoopImmediateAsync();
         }
         catch (Exception ex)
@@ -4739,7 +4975,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         BackupAndClearLoopOutput();
         var loopMdPath = GetEffectiveLoopMdPath();
 
-        if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+        if (_activeLoopMode == LoopMode.NativeAgents)
         {
             var config = LoopMdParser.Parse(loopMdPath);
             if (config == null)
@@ -4747,7 +4983,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 OpenLoopConfigFlyout(loopMdPath, LoopConfigFlyoutMode.Configure, existingConfig: null);
                 return;
             }
-            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext);
+            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext, _currentWorkspace?.FolderPath);
         }
         else
         {
@@ -4849,6 +5085,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             // Just refresh the picker labels to reflect the new description.
             PopulateLoopFilePicker();
+            RefreshLoopOptionsPanel();
             UpdateLoopFileSubtitle();
             return;
         }
@@ -5191,7 +5428,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 SyncLoopPanel();
                 return;
             }
-            if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+            if (_activeLoopMode == LoopMode.NativeAgents)
             {
                 AppendLoopOutputLine("⏹ Clean loop termination requested — current iteration will finish then stop.", LoopLifecycleBrush);
                 _loopController.RequestStop();
@@ -5209,25 +5446,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private void LoopModeNativeRadio_Click(object sender, RoutedEventArgs e)
-    {
-        _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.NativeAgents);
-        _conversationManager.UpdateLoopSettingsState(LoopMode.NativeAgents, _settingsSnapshot.LoopContinuousContext);
-        SyncLoopPanel();
-    }
-
-    private void LoopModeCliRadio_Click(object sender, RoutedEventArgs e)
-    {
-        _settingsSnapshot = _settingsStore.SaveLoopMode(LoopMode.SquadCli);
-        _conversationManager.UpdateLoopSettingsState(LoopMode.SquadCli, _settingsSnapshot.LoopContinuousContext);
-        SyncLoopPanel();
-    }
-
     private void LoopContinuousContextCheckBox_Click(object sender, RoutedEventArgs e)
     {
         _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(
             LoopContinuousContextCheckBox.IsChecked == true);
-        _conversationManager.UpdateLoopSettingsState(_settingsSnapshot.LoopMode, _settingsSnapshot.LoopContinuousContext);
+        _conversationManager.UpdateLoopSettingsState(_activeLoopMode, _settingsSnapshot.LoopContinuousContext);
     }
 
     private async void AbortLoopButton_Click(object sender, RoutedEventArgs e)
@@ -5242,7 +5465,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (result == MessageBoxResult.OK)
             {
                 AppendLoopOutputLine("⚡ Loop abruptly terminated via Abort — current iteration may be incomplete.", new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x44)));
-                if (_settingsSnapshot.LoopMode == LoopMode.NativeAgents)
+                if (_activeLoopMode == LoopMode.NativeAgents)
                     _loopController.RequestAbort();
                 else
                     await _bridge.StopLoopAsync();
@@ -5608,49 +5831,38 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void SyncThreadChip(TranscriptThreadState thread)
     {
+        var isFailed = thread.StatusText.Trim() is "Failed" or "Cancelled";
+
         var chipLabel = thread.SequenceNumber > 0 ? $"#{thread.SequenceNumber}" : "#";
         if (!string.IsNullOrWhiteSpace(thread.RequestedAgentHandle))
             chipLabel += "*";
-        thread.ChipLabel = chipLabel;
-        thread.ChipToolTip = BuildThreadChipToolTip(thread);
-        thread.ChipFontWeight = thread.IsSelected ? FontWeights.SemiBold : FontWeights.Normal;
+        if (isFailed)
+            chipLabel += "!";
+        thread.ChipLabel    = chipLabel;
+        thread.ChipToolTip  = BuildThreadChipToolTip(thread);
+        thread.ChipFontWeight = FontWeights.Normal;
 
-        var status = thread.StatusText.Trim();
-        if (thread.IsSelected)
+        thread.ChipBackground = (Brush)Application.Current.Resources["ChipSurface"];
+        if (isFailed)
         {
-            thread.ChipBackground = (Brush)Application.Current.Resources["ChipSelectedSurface"];
-            thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipSelectedBorder"];
-            thread.ChipForeground = (Brush)Application.Current.Resources["ChipSelectedText"];
+            thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipFailedBorder"];
+            thread.ChipForeground  = (Brush)Application.Current.Resources["ChipFailedText"];
         }
         else
         {
-            switch (status)
-            {
-                case "Completed":
-                    thread.ChipBackground = (Brush)Application.Current.Resources["ChipCompletedSurface"];
-                    thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipCompletedBorder"];
-                    thread.ChipForeground = (Brush)Application.Current.Resources["ChipCompletedText"];
-                    break;
-
-                case "Failed":
-                case "Cancelled":
-                    thread.ChipBackground = (Brush)Application.Current.Resources["ChipFailedSurface"];
-                    thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipFailedBorder"];
-                    thread.ChipForeground = (Brush)Application.Current.Resources["ChipFailedText"];
-                    break;
-
-                default:
-                    thread.ChipBackground = (Brush)Application.Current.Resources["ChipSurface"];
-                    thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipBorder"];
-                    thread.ChipForeground = (Brush)Application.Current.Resources["ChipText"];
-                    break;
-            }
+            thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipBorder"];
+            thread.ChipForeground  = (Brush)Application.Current.Resources["ChipText"];
         }
 
         var chipCard = FindAgentCardForThread(thread);
-        thread.ChipSelectionIndicatorBrush = (thread.IsSelected || thread.IsSecondaryPanelOpen) && chipCard is not null
-            ? chipCard.EffectiveAccentBrush
-            : Brushes.Transparent;
+        // Guard on IsTranscriptTargetSelected so that chips never show an underline after their
+        // parent card's selection bar has been cleared.
+        thread.ChipSelectionIndicatorBrush =
+            chipCard is not null &&
+            chipCard.IsTranscriptTargetSelected &&
+            (thread.IsSelected || thread.IsSecondaryPanelOpen)
+                ? chipCard.EffectiveAccentBrush
+                : Brushes.Transparent;
     }
 
     /// <summary>
@@ -5729,6 +5941,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _pendingPrimaryTranscriptVisualThread = thread;
 
+        foreach (var card in _agents)
+            card.IsTranscriptTargetSelected = ReferenceEquals(card, agent);
+
         if (!ReferenceEquals(previousVisualThread, thread))
         {
             previousVisualThread.IsSelected = false;
@@ -5744,9 +5959,6 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         thread.IsSelected = true;
         SyncThreadChip(thread);
-
-        foreach (var card in _agents)
-            card.IsTranscriptTargetSelected = ReferenceEquals(card, agent);
 
         UpdateTranscriptThreadBadge(thread);
         var clearedSelections = CollapseTranscriptSelectionsForFastSwitch("primary-visual");
@@ -6256,23 +6468,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             var activeRtb = (sender as RichTextBox) ?? OutputTextBox;
             var hasSelection = !activeRtb.Selection.IsEmpty;
 
-            var copyItem = new MenuItem { Header = "_Copy" };
-            copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            copyItem.IsEnabled = hasSelection;
-            copyItem.Click += (_, _) => {
-                var text = TranscriptCopyService.BuildSelectionText(activeRtb);
-                if (!string.IsNullOrEmpty(text))
-                    SetClipboardTextWithRetry(text);
-            };
-            menu.Items.Add(copyItem);
-
             if (hasSelection)
             {
-                var sep = new Separator();
-                sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
-                menu.Items.Add(sep);
-
-                var followUpItem = new MenuItem { Header = "Attach to Prompt" };
+                var followUpItem = new MenuItem { Header = "Add to chat" };
                 followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 followUpItem.Click += (_, _) => AttachTranscriptFollowUp(activeRtb);
                 menu.Items.Add(followUpItem);
@@ -6286,8 +6484,21 @@ public partial class MainWindow : Window, ILiveElementLocator
                     activeRtb.Selection.Select(activeRtb.CaretPosition, activeRtb.CaretPosition);
                 };
                 menu.Items.Add(addToNotesItem);
+
+                var sep = new Separator();
+                sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(sep);
             }
 
+            var copyItem = new MenuItem { Header = "_Copy" };
+            copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            copyItem.IsEnabled = hasSelection;
+            copyItem.Click += (_, _) => {
+                var text = TranscriptCopyService.BuildSelectionText(activeRtb);
+                if (!string.IsNullOrEmpty(text))
+                    SetClipboardTextWithRetry(text);
+            };
+            menu.Items.Add(copyItem);
             menu.PlacementTarget = activeRtb;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
             menu.IsOpen = true;
@@ -6475,6 +6686,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
     {
+        var sw = Stopwatch.StartNew();
         try
         {
             // ── Ctrl+V / Shift+Insert clipboard-image intercept ───────────────────
@@ -6542,7 +6754,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ctrlPressed: modifiers.HasFlag(ModifierKeys.Control),
                 shiftPressed: modifiers.HasFlag(ModifierKeys.Shift),
                 runButtonEnabled: RunButton.IsEnabled,
-                isMultiLinePrompt: IsMultiLinePrompt(),
+                isMultiLinePrompt: false,
                 isIntelliSenseOpen: _intelliSenseState is not null);
 
             switch (action)
@@ -6593,11 +6805,26 @@ public partial class MainWindow : Window, ILiveElementLocator
                     UpdateIntelliSensePopup();
                     e.Handled = true;
                     break;
+
+                case PromptInputAction.AddQueueSlot:
+                    AddEmptyQueueSlot();
+                    e.Handled = true;
+                    break;
             }
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(PromptTextBox_KeyDown), ex);
+        }
+        finally
+        {
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= 20)
+            {
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"PROMPT_KEYDOWN elapsed={sw.ElapsedMilliseconds}ms key={e.Key} repeat={e.IsRepeat} " +
+                    $"handled={e.Handled} textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex}");
+            }
         }
     }
 
@@ -6611,6 +6838,28 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
+            // ── Ctrl+Shift+Break: abort loop (more-specific, checked first) ──────────
+            if (e.Key == Key.Cancel
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
+                && AbortLoopButton.IsEnabled)
+            {
+                AbortLoopButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Break: abort running prompt (from anywhere in the window) ─────
+            if (e.Key == Key.Cancel
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
+                && AbortButton.IsEnabled)
+            {
+                AbortButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
             // ── Ctrl+Shift+Z: Redo — works in any focused text control ─────────────
             if (e.Key == Key.Z
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
@@ -6642,6 +6891,18 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }
             }
 
+            // ── Ctrl+Shift+C: Quick AI Cleanup — directly revises selection with the configured cleanup prompt ──
+            if (e.Key == Key.C
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                if (TryDirectReviseForFocusedTextBox(_settingsSnapshot.CleanupPrompt))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             // ── Ctrl+Alt+Shift+PageUp: move prompt panel above the transcript ─────────
             if (e.Key == Key.PageUp
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
@@ -6660,6 +6921,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                 && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0)
             {
                 SetPromptPanelOnTop(false);
+                e.Handled = true;
+                return;
+            }
+
+            // ── Escape: dismiss doc find bar from any focus position (incl. WebBrowser preview) ──
+            if (e.Key == Key.Escape && _docSourceFindBar is not null)
+            {
+                HideDocSourceFindBar();
                 e.Handled = true;
                 return;
             }
@@ -6718,6 +6987,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             // ── Search shortcuts ─────────────────────────────────────────────────
             if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
+                // If docs panel is open, Ctrl+F searches the doc — even if focus is on
+                // a toolbar button, the topics tree, or the rendered preview.
+                if (DocsPanel.Visibility == Visibility.Visible && DocSourceTextBox != null)
+                {
+                    ShowDocSourceFindBar();
+                    e.Handled = true;
+                    return;
+                }
                 SearchBox?.Focus();
                 SearchBox?.SelectAll();
                 e.Handled = true;
@@ -7430,6 +7707,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void PromptTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        var sw = Stopwatch.StartNew();
         try
         {
             if (_conversationManager.IsApplyingHistoryEntry)
@@ -7446,12 +7724,22 @@ public partial class MainWindow : Window, ILiveElementLocator
             _conversationManager.HistoryIndex = null;
             _conversationManager.HistoryDraft = PromptTextBox.Text;
             _conversationManager.UpdatePromptDraftState();
-            UpdateInteractiveControlState();
+            UpdateInteractiveControlState(promptTextOnly: true);
             TryUpdateIntelliSense();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(PromptTextBox_TextChanged), ex);
+        }
+        finally
+        {
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= 20)
+            {
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"PROMPT_TEXT_CHANGED elapsed={sw.ElapsedMilliseconds}ms textLen={PromptTextBox.Text.Length} " +
+                    $"caret={PromptTextBox.CaretIndex} primaryHosts={_primaryAgentTranscriptHosts.Count}");
+            }
         }
     }
 
@@ -7517,11 +7805,14 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// start-of-text or whitespace (i.e. not embedded in a word like an email address).
     /// Returns the index of '@', or -1 if not found.
     /// </summary>
+    private const int MaxAtTriggerScanChars = 96;
+
     private static int FindAtTriggerPosition(string text, int caret)
     {
         if (caret <= 0) return -1;
+        var scanStart = Math.Max(0, caret - MaxAtTriggerScanChars);
         int i = caret - 1;
-        while (i >= 0 && !char.IsWhiteSpace(text[i]))
+        while (i >= scanStart && !char.IsWhiteSpace(text[i]))
         {
             if (text[i] == '@')
                 return (i == 0 || char.IsWhiteSpace(text[i - 1])) ? i : -1;
@@ -7746,8 +8037,22 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 var visualSw = Stopwatch.StartNew();
                 SyncSelectionControllerWithUiState("AgentCardBorder_MouseLeftButtonUp.Shift");
-                _selectionController.HandleCardClick(agentCard, shiftHeld: true);
-                SyncImmediatePanelToggleVisuals(agentCard, "card-shift-click", visualSw);
+                // If one of this agent's threads is the current main transcript selection and there
+                // are no secondary panels, shift-click should dismiss it and revert to the
+                // coordinator rather than opening a redundant secondary panel.
+                bool isCurrentMain = _mainTranscriptVisible &&
+                                     agentCard.Threads.Any(t => ReferenceEquals(t, _selectedTranscriptThread)) &&
+                                     _secondaryTranscripts.Count == 0;
+                if (isCurrentMain)
+                {
+                    SelectTranscriptThread(CoordinatorThread);
+                    SyncTranscriptTargetIndicators();
+                }
+                else
+                {
+                    _selectionController.HandleCardClick(agentCard, shiftHeld: true);
+                    SyncImmediatePanelToggleVisuals(agentCard, "card-shift-click", visualSw);
+                }
             }
             else
             {
@@ -7904,10 +8209,30 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (card is null) return;
 
             bool shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-            var visualSw = Stopwatch.StartNew();
-            SyncSelectionControllerWithUiState("AgentThreadChipButton_Click");
-            _selectionController.HandleChipClick(card, thread, shiftHeld);
-            SyncImmediatePanelToggleVisuals(card, shiftHeld ? "chip-shift-click" : "chip-click", visualSw);
+            if (shiftHeld)
+            {
+                var visualSw = Stopwatch.StartNew();
+                SyncSelectionControllerWithUiState("AgentThreadChipButton_Click.Shift");
+                // If this thread is the current main transcript selection and there are no secondary
+                // panels, shift-click should dismiss it and revert to the coordinator rather than
+                // opening a redundant secondary panel.
+                bool isCurrentMain = _mainTranscriptVisible &&
+                                     ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread);
+                if (isCurrentMain && _secondaryTranscripts.Count == 0)
+                {
+                    SelectTranscriptThread(CoordinatorThread);
+                    SyncTranscriptTargetIndicators();
+                }
+                else
+                {
+                    _selectionController.HandleChipClick(card, thread, shiftHeld: true);
+                    SyncImmediatePanelToggleVisuals(card, "chip-shift-click", visualSw);
+                }
+            }
+            else
+            {
+                ShowThreadInMainTranscript(card, thread);
+            }
             e.Handled = true;
         }
         catch (Exception ex)
@@ -7965,12 +8290,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             var card = FindAgentCardForThread(thread);
             if (card is not null)
-            {
-                var visualSw = Stopwatch.StartNew();
-                SyncSelectionControllerWithUiState("OverflowMenuThreadItem_Click");
-                _selectionController.HandleChipClick(card, thread, shiftHeld: false);
-                SyncImmediatePanelToggleVisuals(card, "overflow-chip-click", visualSw);
-            }
+                ShowThreadInMainTranscript(card, thread);
         }
         catch (Exception ex)
         {
@@ -8837,6 +9157,159 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelShowInFolderMenuItem_Click), ex); }
+    }
+
+    private void LoopPanelShowMergedMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_loopMergedViewWindow is not null)
+            {
+                _loopMergedViewWindow.Close();
+                // _loopMergedViewWindow set to null in Closed handler (see below)
+                return;
+            }
+            _loopMergedViewWindow = new LoopMergedViewWindow();
+            _loopMergedViewWindow.Closed += (_, _) => {
+                _loopMergedViewWindow = null;
+                LoopPanelShowMergedMenuItem.Header = "Preview merged loop";
+            };
+            _loopMergedViewWindow.Owner = CanShowOwnedWindow() ? this : null;
+            LoopPanelShowMergedMenuItem.Header = "Close preview";
+            RefreshLoopMergedView();
+            _loopMergedViewWindow.Show();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelShowMergedMenuItem_Click), ex); }
+    }
+
+    private void ScheduleLoopPreviewRefreshFromFilter()
+    {
+        if (_loopMergedViewWindow is null) return;
+        if (_loopPreviewFilterDebounce is null)
+        {
+            _loopPreviewFilterDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _loopPreviewFilterDebounce.Tick += (_, _) =>
+            {
+                _loopPreviewFilterDebounce.Stop();
+                RefreshLoopMergedView();
+            };
+        }
+        _loopPreviewFilterDebounce.Stop();
+        _loopPreviewFilterDebounce.Start();
+    }
+
+    private void RefreshLoopMergedView()
+    {
+        if (_loopMergedViewWindow is null) return;
+        if (_selectedLoopMdPath is null) { _loopMergedViewWindow.UpdateContent(""); return; }
+
+        try
+        {
+            var tasksFilter = TasksFilterBox?.Text?.Trim() ?? "";
+            var config = LoopMdParser.Parse(_selectedLoopMdPath);
+
+            // Resolve option-conditional instructions into flat sentences
+            var buildInstruction   = "";
+            var commitInstruction  = "";
+            var testInstruction    = "";
+
+            if (config?.Options != null)
+            {
+                var optDict = config.Options
+                    .Where(o => o.Type != "group")
+                    .ToDictionary(o => o.Key, o => o.RawValue, StringComparer.Ordinal);
+
+                if (optDict.TryGetValue("build_verify", out var bv) && bv == "true")
+                    buildInstruction = "   - Build the project and verify it succeeds before proceeding.\n";
+
+                if (optDict.TryGetValue("commit_after_task", out var cat))
+                    commitInstruction = cat switch
+                    {
+                        "always" => "   - Commit your changes immediately and report the SHA. Include trailer: " +
+                                    "`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`\n",
+                        "never"  => "   - Do not commit your changes; describe the diff instead.\n",
+                        "ask"    => "   - Before committing, emit a quick-reply \"Commit changes?\" and wait for user confirmation.\n",
+                        _        => ""
+                    };
+
+                if (optDict.TryGetValue("test_after_task", out var tat))
+                    testInstruction = tat == "true"
+                        ? "Write comprehensive test cases for what was built this iteration."
+                        : "Skip tests this iteration.";
+            }
+
+            var extraSubs = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["iteration"]          = "1",
+                ["copilot_trailer"]    = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+                ["build_instruction"]  = buildInstruction,
+                ["commit_instruction"] = commitInstruction,
+                ["test_instruction"]   = testInstruction,
+                // build_command intentionally omitted — AI resolves build tooling automatically
+                // Preview always shows NativeAgents routing; Shift+click overrides mode at runtime only.
+                ["routing_instruction"] = _settingsSnapshot.LoopMode == LoopMode.NativeAgents
+                    ? "Spawn the correct specialist agent per `.squad/routing.md` to handle this task."
+                    : "Route to and adopt the role of the correct specialist per `.squad/routing.md` for this iteration.",
+            };
+
+            var isCliMode = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
+            string text;
+            if (config is not null)
+            {
+                text = LoopMdParser.BuildMergedBody(config, extraSubs);
+                // For Squad CLI mode, prepend a clean frontmatter block
+                if (isCliMode)
+                    text = LoopMdParser.BuildMergedFull(config, text);
+            }
+            else if (File.Exists(_selectedLoopMdPath))
+            {
+                text = LoopMdParser.StripFrontmatter(File.ReadAllText(_selectedLoopMdPath));
+            }
+            else
+            {
+                text = "";
+            }
+
+            // Substitute [**FILTER**] placeholder with a context-aware filter instruction
+            // Parse filter: extract @mentions anywhere, remainder is keyword filter
+            var filterText = tasksFilter.Trim();
+            var mentionMatches = Regex.Matches(
+                filterText, @"@(\w[\w\-\.]*)", RegexOptions.IgnoreCase);
+            var agentNames = mentionMatches.Cast<Match>()
+                .Select(m => m.Groups[1].Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var keyword = Regex.Replace(filterText, @"@\w[\w\-\.]*", "")
+                .Trim();
+
+            string filterInstruction;
+            if (string.IsNullOrWhiteSpace(filterText))
+            {
+                filterInstruction = "No filter — process any unchecked task not owned by User.";
+            }
+            else
+            {
+                var parts = new List<string>();
+                if (agentNames.Count > 0)
+                {
+                    var agentList = string.Join(", ", agentNames.Select(a => $"**@{a}**"));
+                    var ownerList = string.Join(" or ", agentNames.Select(a => $"`*(Owner: {a})*`"));
+                    parts.Add($"Only process tasks assigned to {agentList} — i.e., tasks that include {ownerList} on the task line or in its description.");
+                }
+                if (!string.IsNullOrWhiteSpace(keyword))
+                {
+                    parts.Add($"Only process tasks whose description or content contains: **{keyword}**.");
+                }
+                filterInstruction = string.Join(" ", parts);
+            }
+            text = text.Replace("[**FILTER**]", filterInstruction, StringComparison.Ordinal);
+
+            _loopMergedViewWindow.UpdateContent(text);
+        }
+        catch
+        {
+            _loopMergedViewWindow?.UpdateContent("");
+        }
     }
 
     private void TasksPanelCloseButton_Click(object sender, RoutedEventArgs e)
@@ -9962,6 +10435,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             _docSaveSuppressionUntil = DateTime.UtcNow.AddMilliseconds(500);
             File.WriteAllText(_currentDocPath, _currentDocFrontMatter + DocSourceTextBox.GetPlainText());
+
+            // If the saved file is a loop file, re-scan so the combo box picks up
+            // any frontmatter changes (e.g. updated description / display name).
+            if (_loopFileEntries.Any(e => string.Equals(e.FilePath, _currentDocPath, StringComparison.OrdinalIgnoreCase)))
+                PopulateLoopFilePicker();
         }
         catch (Exception ex)
         {
@@ -10112,6 +10590,50 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             var menu = MakeMenu();
 
+            var hasSelection = DocSourceTextBox.GetSelectionLength() > 0;
+            var capturedSelStart = hasSelection ? DocSourceTextBox.GetSelectionStart() : 0;
+            var capturedSelLen   = hasSelection ? DocSourceTextBox.GetSelectionLength() : 0;
+
+            if (hasSelection)
+            {
+                // Capture now — WPF clears the selection when the ContextMenu takes focus.
+                var docTitle = _currentDocPath is not null
+                    ? System.IO.Path.GetFileNameWithoutExtension(_currentDocPath)
+                    : "Documentation";
+
+                var addToChatItem = new MenuItem
+                {
+                    Header = "Add to chat",
+                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                addToChatItem.Click += (_, _) => {
+                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
+                    if (!string.IsNullOrWhiteSpace(text)) {
+                        var sb = new System.Text.StringBuilder();
+                        sb.AppendLine($"## Documentation: {docTitle}");
+                        if (_currentDocPath is not null) sb.AppendLine($"File: {_currentDocPath}");
+                        sb.AppendLine();
+                        sb.AppendLine(text.Trim());
+                        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
+                    }
+                };
+                menu.Items.Add(addToChatItem);
+
+                var addToNotesItem = new MenuItem
+                {
+                    Header = "Add to Notes",
+                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                addToNotesItem.Click += (_, _) => {
+                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        AddNoteFromText(text);
+                };
+                menu.Items.Add(addToNotesItem);
+
+                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
+            }
+
             var cutItem = new MenuItem
             {
                 Header = "Cu_t",
@@ -10134,8 +10656,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 CommandTarget = DocSourceTextBox
             };
 
-            cutItem.IsEnabled = DocSourceTextBox.GetSelectionLength() > 0;
-            copyItem.IsEnabled = DocSourceTextBox.GetSelectionLength() > 0;
+            cutItem.IsEnabled = hasSelection;
+            copyItem.IsEnabled = hasSelection;
             pasteItem.IsEnabled = Clipboard.ContainsText();
 
             menu.Items.Add(cutItem);
@@ -10154,24 +10676,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 menu.Items.Add(imgItem);
             }
 
-            if (DocSourceTextBox.GetSelectionLength() > 0)
+            if (hasSelection)
             {
-                // Capture now — WPF clears the selection when the ContextMenu takes focus.
-                var capturedSelStart = DocSourceTextBox.GetSelectionStart();
-                var capturedSelLen   = DocSourceTextBox.GetSelectionLength();
-
                 menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-                var addToNotesItem = new MenuItem
-                {
-                    Header = "Add to Notes",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToNotesItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text))
-                        AddNoteFromText(text);
-                };
-                menu.Items.Add(addToNotesItem);
 
                 var reviseItem = new MenuItem
                 {
@@ -10181,6 +10688,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                 };
                 reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "", capturedSelStart, capturedSelLen);
                 menu.Items.Add(reviseItem);
+
+                var cleanupItem = new MenuItem
+                {
+                    Header           = "⚡ _Quick Cleanup",
+                    InputGestureText = "Ctrl+Shift+C",
+                };
+                cleanupItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                cleanupItem.Click += (_, _) => DirectReviseRichTextBox(DocSourceTextBox, _currentDocPath ?? "", _settingsSnapshot.CleanupPrompt);
+                menu.Items.Add(cleanupItem);
 
                 var smoothItem = new MenuItem
                 {
@@ -10641,6 +11157,130 @@ public partial class MainWindow : Window, ILiveElementLocator
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Directly runs the Revise with AI operation on the focused text box's current selection
+    /// using <paramref name="instructions"/>, bypassing the popup. Shows the working overlay
+    /// and highlight adorner, then applies the result when the AI responds.
+    /// </summary>
+    private bool TryDirectReviseForFocusedTextBox(string instructions)
+    {
+        if (string.IsNullOrWhiteSpace(instructions)) return false;
+
+        if (Keyboard.FocusedElement is RichTextBox rtb)
+        {
+            if (rtb.GetSelectionLength() <= 0) return false;
+            var filePath = ReferenceEquals(rtb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+            DirectReviseRichTextBox(rtb, filePath, instructions);
+            return true;
+        }
+        if (Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+        {
+            if (tb.SelectionLength <= 0) return false;
+            DirectReviseTextBox(tb, "", instructions);
+            return true;
+        }
+        return false;
+    }
+
+    private void DirectReviseTextBox(
+        System.Windows.Controls.TextBox textBox,
+        string filePath,
+        string instructions)
+    {
+        var selStart      = textBox.SelectionStart;
+        var selLen        = textBox.SelectionLength;
+        if (selLen <= 0) return;
+
+        var originalText  = textBox.Text.Substring(selStart, selLen);
+        var fullText      = textBox.Text;
+        var capturedStart = selStart;
+        var capturedLen   = selLen;
+
+        ShowRevisionWorkingOverlay(new Point(Left + Width / 2, Top + Height / 2));
+
+        var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(120));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var cwd = string.IsNullOrEmpty(filePath)
+                    ? string.Empty
+                    : System.IO.Path.GetDirectoryName(filePath) ?? string.Empty;
+                var revised = await _bridge.RunDocRevisionAsync(
+                    instructions, originalText, fullText, cwd, cts.Token);
+                if (!string.IsNullOrWhiteSpace(revised))
+                    Dispatcher.Invoke(() => ApplyDocRevision(textBox, capturedStart, capturedLen, originalText, revised));
+            }
+            catch { /* swallow — user may have navigated away */ }
+            finally
+            {
+                cts.Dispose();
+            }
+        });
+    }
+
+    private void DirectReviseRichTextBox(
+        RichTextBox textBox,
+        string filePath,
+        string instructions)
+    {
+        var selStart = textBox.GetSelectionStart();
+        var selLen   = textBox.GetSelectionLength();
+        if (selLen <= 0) return;
+
+        var originalText = textBox.GetSubstring(selStart, selLen);
+        var fullText     = textBox.GetPlainText();
+        var startPointer = textBox.GetTextPointerAt(selStart);
+        var endPointer   = textBox.GetTextPointerAt(selStart + selLen);
+
+        RevisionHighlightAdorner? highlight = RevisionHighlightAdorner.Attach(textBox, startPointer, endPointer);
+        RevisionPendingIndicator? indicator = RevisionPendingIndicator.Attach(textBox, endPointer);
+
+        ShowRevisionWorkingOverlay(new Point(Left + Width / 2, Top + Height / 2));
+
+        var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(120));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var cwd = string.IsNullOrEmpty(filePath)
+                    ? string.Empty
+                    : System.IO.Path.GetDirectoryName(filePath) ?? string.Empty;
+                var revised = await _bridge.RunDocRevisionAsync(
+                    instructions, originalText, fullText, cwd, cts.Token);
+                if (!string.IsNullOrWhiteSpace(revised))
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        indicator?.Detach();
+                        highlight?.Remove();
+                        var currentText = new TextRange(startPointer, endPointer).Text;
+                        if (currentText == originalText)
+                        {
+                            var replaceRange = new TextRange(startPointer, endPointer);
+                            replaceRange.Text = revised;
+                        }
+                        else
+                        {
+                            var win = new RevisionResultWindow(revised) { Owner = this };
+                            win.Show();
+                        }
+                    });
+                }
+            }
+            catch { /* swallow */ }
+            finally
+            {
+                cts.Dispose();
+                Dispatcher.Invoke(() =>
+                {
+                    indicator?.Detach();
+                    highlight?.Remove();
+                });
+            }
+        });
     }
 
     private static bool IsCharacterIndexVisible(System.Windows.Controls.TextBox textBox, int charIndex)
@@ -12785,6 +13425,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         QueueDeferredPrimaryTranscriptSelection(agent, thread, previousThread);
     }
 
+    /// <summary>
+    /// Shows a specific agent thread full-screen in the main transcript area (plain chip click).
+    /// Closes all secondary panels and shows main, identical to ShowSingleTranscript but
+    /// targeting an explicit thread rather than the agent's most recent one.
+    /// </summary>
+    private void ShowThreadInMainTranscript(AgentStatusCard card, TranscriptThreadState thread)
+    {
+        var previousThread = ApplyImmediatePrimaryTranscriptSelectionVisuals(card, thread);
+        QueueDeferredPrimaryTranscriptSelection(card, thread, previousThread);
+    }
+
     private void ToggleAgentTranscriptVisibility(AgentStatusCard agent)
     {
         if (agent.IsLeadAgent)
@@ -12892,6 +13543,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             $"CloseSecondaryPanel closing thread={entry.Thread.ThreadId} agent={entry.Agent.Name} seq={entry.Thread.SequenceNumber} title=\"{entry.TitleBlock.Text}\"");
         _secondaryTranscripts.Remove(entry);
         entry.Thread.IsSecondaryPanelOpen = false;
+        SyncThreadChip(entry.Thread);
         if (_secondaryTranscripts.Count == 0)
             _transcriptTitleRefreshTimer?.Stop();
         sw.Restart();
@@ -13196,6 +13848,28 @@ public partial class MainWindow : Window, ILiveElementLocator
 
                 var hasSelection = !rtb.Selection.IsEmpty;
 
+                if (hasSelection)
+                {
+                    var followUpItem = new MenuItem { Header = "Add to chat" };
+                    followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    followUpItem.Click += (_, _) => AttachTranscriptFollowUp(rtb);
+                    menu.Items.Add(followUpItem);
+
+                    var addToNotesItem = new MenuItem { Header = "Add to Notes" };
+                    addToNotesItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    addToNotesItem.Click += (_, _) => {
+                        var text = TranscriptCopyService.BuildSelectionMarkdown(rtb);
+                        if (!string.IsNullOrWhiteSpace(text))
+                            AddNoteFromText(text);
+                        rtb.Selection.Select(rtb.CaretPosition, rtb.CaretPosition);
+                    };
+                    menu.Items.Add(addToNotesItem);
+
+                    var sep = new Separator();
+                    sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                    menu.Items.Add(sep);
+                }
+
                 var copyItem = new MenuItem { Header = "_Copy" };
                 copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 copyItem.IsEnabled = hasSelection;
@@ -13206,18 +13880,6 @@ public partial class MainWindow : Window, ILiveElementLocator
                         SetClipboardTextWithRetry(text);
                 };
                 menu.Items.Add(copyItem);
-
-                if (hasSelection)
-                {
-                    var sep = new Separator();
-                    sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
-                    menu.Items.Add(sep);
-
-                    var followUpItem = new MenuItem { Header = "Attach to Prompt" };
-                    followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                    followUpItem.Click += (_, _) => AttachTranscriptFollowUp(rtb);
-                    menu.Items.Add(followUpItem);
-                }
 
                 menu.PlacementTarget = rtb;
                 menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
@@ -14514,7 +15176,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                 {
                     var p = CreateTranscriptParagraph(bottomMargin: 4);
                     p.Tag = pl;
-                    _markdownRenderer.AppendInlineMarkdown(p.Inlines, pl.TrimStart());
+                    var trimmedPl = pl.TrimStart();
+                    if (trimmedPl.StartsWith("Doing this myself because", StringComparison.OrdinalIgnoreCase))
+                        p.SetResourceReference(TextElement.ForegroundProperty, "SelfHandledText");
+                    _markdownRenderer.AppendInlineMarkdown(p.Inlines, trimmedPl);
                     yield return p;
                 }
             }
@@ -15624,13 +16289,33 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
-            GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
+            // Alt+click: find the nearest prompt above that contains a question mark.
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            {
+                GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
+                var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx : thread.PromptParagraphs.Count - 1;
+                for (int i = startIdx; i >= 0; i--)
+                {
+                    var text = new System.Windows.Documents.TextRange(
+                        thread.PromptParagraphs[i].Paragraph.ContentStart,
+                        thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
+                    if (text.Contains('?'))
+                    {
+                        thread.PromptNavIndex = i;
+                        ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                        return;
+                    }
+                }
+                return;
+            }
+
+            GetScrollBasedNavState(out _, out _, out int nearestAboveIdx2, out _);
 
             int target;
-            if (nearestAboveIdx >= 0)
+            if (nearestAboveIdx2 >= 0)
             {
                 // Jump to the nearest prompt above the viewport.
-                target = nearestAboveIdx;
+                target = nearestAboveIdx2;
             }
             else
             {
@@ -15667,11 +16352,31 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
-            GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
-            if (nearestBelowIdx < 0) return;
+            // Alt+click: find the nearest prompt below that contains a question mark.
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            {
+                GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
+                if (nearestBelowIdx < 0) return;
+                for (int i = nearestBelowIdx; i < thread.PromptParagraphs.Count; i++)
+                {
+                    var text = new System.Windows.Documents.TextRange(
+                        thread.PromptParagraphs[i].Paragraph.ContentStart,
+                        thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
+                    if (text.Contains('?'))
+                    {
+                        thread.PromptNavIndex = i;
+                        ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                        return;
+                    }
+                }
+                return;
+            }
 
-            thread.PromptNavIndex = nearestBelowIdx;
-            ScrollToPromptParagraph(thread.PromptParagraphs[nearestBelowIdx].Paragraph);
+            GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx2);
+            if (nearestBelowIdx2 < 0) return;
+
+            thread.PromptNavIndex = nearestBelowIdx2;
+            ScrollToPromptParagraph(thread.PromptParagraphs[nearestBelowIdx2].Paragraph);
         }
         catch (Exception ex)
         {
@@ -15997,13 +16702,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (diff.added > 0)
             {
                 var addedRun = new Run($" +{diff.added}") { FontWeight = FontWeights.SemiBold };
-                addedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffAddedText");
+                addedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffAddedSummary");
                 header.Inlines.Add(addedRun);
             }
             if (diff.removed > 0)
             {
                 var removedRun = new Run($" -{diff.removed}") { FontWeight = FontWeights.SemiBold };
-                removedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffRemovedText");
+                removedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffRemovedSummary");
                 header.Inlines.Add(removedRun);
             }
         }
@@ -16336,12 +17041,37 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (diffLines.Count == 0)
                     return;
 
-                // Capture the screen position once and lock it
-                var screenPos = headerPanel.PointToScreen(new Point(0, 0));
+                // Compute above-vs-below placement using work-area-aware screen geometry.
+                // Above:  bottom of popup flush with top of entry (preferred — shows the entry
+                //         and everything below it unobscured).
+                // Below:  popup top starts 1.5 row-heights below the entry top so the hovered
+                //         entry and the first half-row of the next entry are both visible.
+                var physTopLeft    = headerPanel.PointToScreen(new Point(0, 0));
+                var physBottomLeft = headerPanel.PointToScreen(new Point(0, headerPanel.ActualHeight));
+                var physWa         = NativeMethods.GetWorkAreaForPhysicalPoint((int)physTopLeft.X, (int)physTopLeft.Y);
+
+                var logTopLeft  = DpiHelper.PhysicalToLogical(headerPanel, physTopLeft);
+                var logWaTop    = DpiHelper.PhysicalToLogical(headerPanel, new Point(physWa.Left, physWa.Top));
+                var logWaBottom = DpiHelper.PhysicalToLogical(headerPanel, new Point(physWa.Left, physWa.Bottom));
+
+                double entryTopY    = logTopLeft.Y;
+                double rowHeight    = DpiHelper.PhysicalToLogical(headerPanel, physBottomLeft).Y - entryTopY;
+                double estimatedH   = DiffHoverPopup.EstimateHeight(diffLines.Count);
+                double waTop        = logWaTop.Y;
+                double waBottom     = logWaBottom.Y;
+
+                // Prefer above: bottom of popup = top of entry (2px gap).
+                double aboveTop = entryTopY - estimatedH - 2;
+                double popupTop = aboveTop >= waTop
+                    ? aboveTop
+                    : Math.Min(entryTopY + 1.5 * rowHeight, waBottom - estimatedH);
+
+                double popupLeft = logTopLeft.X + 12;
+
                 diffPopup = new DiffHoverPopup {
-                    PlacementTarget = headerPanel,
-                    HorizontalOffset = screenPos.X + 12,
-                    VerticalOffset = screenPos.Y + 12
+                    PlacementTarget  = headerPanel,
+                    HorizontalOffset = popupLeft,
+                    VerticalOffset   = popupTop
                 };
                 diffPopup.MouseLeave += (_, _) => {
                     diffPopup.IsOpen = false;
@@ -16522,14 +17252,14 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 FontWeight = FontWeights.SemiBold
             };
-            addedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffAddedText");
+            addedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffAddedSummary");
             entry.MessageTextBlock.Inlines.Add(addedRun);
             entry.MessageTextBlock.Inlines.Add(new Run(" "));
             var removedRun = new Run($"-{diffSummary.RemovedLineCount}")
             {
                 FontWeight = FontWeights.SemiBold
             };
-            removedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffRemovedText");
+            removedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffRemovedSummary");
             entry.MessageTextBlock.Inlines.Add(removedRun);
 
             if (diffSummary.IsNewFile)
@@ -17185,34 +17915,56 @@ public partial class MainWindow : Window, ILiveElementLocator
         };
     }
 
-    private void UpdateInteractiveControlState()
+    private void UpdateInteractiveControlState(bool promptTextOnly = false)
     {
+        var canAbortBackgroundTask = promptTextOnly && _lastInteractiveControlState is not null
+            ? _lastCanAbortBackgroundTask
+            : _backgroundTaskPresenter.GetAbortTargets().Count > 0;
+        if (!promptTextOnly || _lastInteractiveControlState is null)
+            _lastCanAbortBackgroundTask = canAbortBackgroundTask;
+
         var state = InteractiveControlStateCalculator.Calculate(
             hasWorkspace: _currentWorkspace is not null,
             squadInstalled: _currentInstallationState?.IsSquadInstalledForActiveDirectory == true,
             isInstallingSquad: _isInstallingSquad,
             isPromptRunning: _isPromptRunning,
-            canAbortBackgroundTask: _backgroundTaskPresenter.GetAbortTargets().Count > 0,
+            canAbortBackgroundTask: canAbortBackgroundTask,
             currentPromptText: PromptTextBox.Text);
+        var previous = _lastInteractiveControlState;
+        _lastInteractiveControlState = state;
 
-        StatusAgentPanelsGrid.IsEnabled = state.AgentItemsEnabled;
-        ActiveAgentItemsControl.IsEnabled = state.AgentItemsEnabled;
-        InactiveAgentItemsControl.IsEnabled = state.AgentItemsEnabled;
-        OutputTextBox.IsEnabled = state.OutputEnabled;
-        foreach (var entry in _primaryAgentTranscriptHosts.Values)
-            entry.TranscriptBox.IsEnabled = state.OutputEnabled;
-        PromptTextBox.IsEnabled = state.PromptEnabled;
-        RunButton.IsEnabled = state.RunEnabled
-            || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null);
-        AbortButton.IsEnabled = state.AbortEnabled;
+        if (previous?.AgentItemsEnabled != state.AgentItemsEnabled)
+        {
+            SetIsEnabledIfChanged(StatusAgentPanelsGrid, state.AgentItemsEnabled);
+            SetIsEnabledIfChanged(ActiveAgentItemsControl, state.AgentItemsEnabled);
+            SetIsEnabledIfChanged(InactiveAgentItemsControl, state.AgentItemsEnabled);
+        }
+
+        if (previous?.OutputEnabled != state.OutputEnabled)
+        {
+            SetIsEnabledIfChanged(OutputTextBox, state.OutputEnabled);
+            foreach (var entry in _primaryAgentTranscriptHosts.Values)
+                SetIsEnabledIfChanged(entry.TranscriptBox, state.OutputEnabled);
+        }
+
+        SetIsEnabledIfChanged(PromptTextBox, state.PromptEnabled);
+        SetIsEnabledIfChanged(RunButton, state.RunEnabled
+            || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null));
+        SetIsEnabledIfChanged(AbortButton, state.AbortEnabled);
         if (RunDoctorMenuItem is not null)
-            RunDoctorMenuItem.IsEnabled = state.RunDoctorEnabled;
-        InstallSquadButton.IsEnabled = state.InstallSquadEnabled;
-        IssueHelpButton.IsEnabled = true;
-        IssueActionButton.IsEnabled = true;
-        IssueSecondaryActionButton.IsEnabled = true;
-        IssuePrimaryLinkButton.IsEnabled = true;
-        IssueSecondaryLinkButton.IsEnabled = true;
+            SetIsEnabledIfChanged(RunDoctorMenuItem, state.RunDoctorEnabled);
+        SetIsEnabledIfChanged(InstallSquadButton, state.InstallSquadEnabled);
+        SetIsEnabledIfChanged(IssueHelpButton, true);
+        SetIsEnabledIfChanged(IssueActionButton, true);
+        SetIsEnabledIfChanged(IssueSecondaryActionButton, true);
+        SetIsEnabledIfChanged(IssuePrimaryLinkButton, true);
+        SetIsEnabledIfChanged(IssueSecondaryLinkButton, true);
+    }
+
+    private static void SetIsEnabledIfChanged(UIElement element, bool isEnabled)
+    {
+        if (element.IsEnabled != isEnabled)
+            element.IsEnabled = isEnabled;
     }
 
     private void UpdateWindowTitle()
@@ -18079,6 +18831,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             Key.Down => PromptInputKey.Down,
             Key.Tab => PromptInputKey.Tab,
             Key.Escape => PromptInputKey.Escape,
+            Key.Q => PromptInputKey.Q,
             _ => PromptInputKey.Other
         };
     }
@@ -18153,6 +18906,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _squadFileMenuEntries.Clear();
 
         PopulateLoopFilePicker();
+        RefreshLoopOptionsPanel();
         UpdateLoopPanelButtonStates();
         _pec.TasksFilePath = tasksMdPath;
 
@@ -18295,10 +19049,22 @@ public partial class MainWindow : Window, ILiveElementLocator
                     "]\n" +
                     "```\n");
                 PopulateLoopFilePicker();
+                RefreshLoopOptionsPanel();
                 UpdateLoopPanelButtonStates();
             }
 
-            OpenMarkdownFile(loopMdPath, "Loop Instructions", showSource: true);
+            var config          = LoopMdParser.Parse(loopMdPath);
+            var initialDesc     = config?.Description ?? "";
+            var loopEditCtx     = new LoopEditContext(initialDesc, newDesc => {
+                LoopMdParser.UpdateDescription(loopMdPath, newDesc);
+                PopulateLoopFilePicker();
+            });
+            MarkdownDocumentWindow.Show(
+                CanShowOwnedWindow() ? this : null,
+                "Loop Instructions",
+                loopMdPath,
+                showSource: true,
+                loopEditContext: loopEditCtx);
         }
         catch (Exception ex)
         {
@@ -18443,6 +19209,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase))
         {
             PopulateLoopFilePicker();
+            RefreshLoopOptionsPanel();
             UpdateLoopPanelButtonStates();
         }
 
@@ -19762,6 +20529,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             ScreenshotsDirectory: _workspacePaths.ScreenshotsDirectory,
             ThemeName: _activeThemeName,
             SpeechRegion: _settingsSnapshot.SpeechRegion ?? string.Empty) {
+            AddToChatCallback = text => Dispatcher.Invoke(() => {
+                if (!string.IsNullOrWhiteSpace(text))
+                    AttachContextFollowUp(NotesStore.DeriveTitle(text), text.TrimEnd());
+            }),
             AddToNotesCallback = text => Dispatcher.Invoke(() => AddNoteFromText(text)),
             ReviseWithAiCallback = (instructions, sel, doc, cwd, ct) =>
                 _bridge.RunDocRevisionAsync(instructions, sel, doc, cwd, ct),
@@ -19948,6 +20719,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Restore selected loop file and populate the file picker.
         _selectedLoopMdPath = _docsPanelState.SelectedLoopFile;
         PopulateLoopFilePicker();
+        RefreshLoopOptionsPanel();
 
         // Restore draft follow-up attachments if any were persisted.
         var restoredList = new List<FollowUpAttachment>();
@@ -20052,22 +20824,33 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             item.IsSelected = true;
 
-            var renameItem = MakeItem("Rename…");
+            var renameItem = MakeItem("Rename\u2026");
             renameItem.Click += (_, _) => EnterInPlaceRename(item, filePath);
 
             var copyLinkItem = MakeItem("Copy markdown link to this topic");
             copyLinkItem.Click += (_, _) => DocTopicsTreeView_CopyMarkdownLink(item);
 
             var menu = MakeMenu();
+
+            // Add to chat first
+            var followUpItem = MakeItem("Add to chat");
+            followUpItem.Click += (_, _) => AttachTopicFollowUp(item, filePath);
+            menu.Items.Add(followUpItem);
+
+            // Add to Notes second
+            var addToNotesItem = MakeItem("Add to Notes");
+            addToNotesItem.Click += (_, _) => {
+                var topicTitle = GetTopicItemTitle(item) ?? System.IO.Path.GetFileNameWithoutExtension(filePath);
+                string content = "";
+                try { content = System.IO.File.ReadAllText(filePath); } catch { }
+                AddNoteFromTextWithTitle($"Topic - {topicTitle}", content);
+            };
+            menu.Items.Add(addToNotesItem);
+
+            menu.Items.Add(MakeSep());
             menu.Items.Add(renameItem);
             menu.Items.Add(MakeSep());
             menu.Items.Add(copyLinkItem);
-
-            // Attach to Prompt
-            var followUpItem = MakeItem("Attach to Prompt");
-            followUpItem.Click += (_, _) => AttachTopicFollowUp(item, filePath);
-            menu.Items.Add(MakeSep());
-            menu.Items.Add(followUpItem);
 
             if (_docStatusStore?.GetStatus(filePath) == DocApprovalStatus.Approved)
             {
@@ -20898,6 +21681,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 onItemChanged: item => OnApprovalItemChanged(item),
                 onItemsRemoved: items => OnApprovalItemsRemoved(items),
                 onFollowUp: item => AttachFollowUpToActiveTab(item),
+                addToNotes: item => AddNoteFromTextWithTitle(
+                    $"Approval - {item.Description}",
+                    BuildApprovalContentBlock(item)),
                 initialShowApproved: _settingsStore.Load().ApprovalShowApproved,
                 onShowApprovedChanged: show => _settingsStore.SaveApprovalShowApproved(show),
                 initialShowRejected: _settingsStore.Load().ApprovalShowRejected,
@@ -21027,6 +21813,22 @@ public partial class MainWindow : Window, ILiveElementLocator
         return sb.ToString().TrimEnd();
     }
 
+    private static string BuildApprovalContentBlock(CommitApprovalItem item)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Approval context");
+        sb.AppendLine($"Description: {item.Description}");
+        if (!string.IsNullOrWhiteSpace(item.CommitSha))
+            sb.AppendLine($"Commit: {item.CommitSha}");
+        if (!string.IsNullOrWhiteSpace(item.OriginalPrompt))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Original prompt:");
+            sb.AppendLine(item.OriginalPrompt!.Trim());
+        }
+        return sb.ToString().TrimEnd();
+    }
+
     private void AttachContextFollowUp(string description, string contentBlock)
     {
         var list = GetOrCreateFollowUpList(_activeTabId ?? "");
@@ -21106,8 +21908,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
                 if (att.ImagePath != null)
                 {
+                    int imgIndex = list.Take(i + 1).Count(a => a.ImagePath != null);
                     var icon    = new Run("📷 ");
-                    var descRun = new Run(att.Description);
+                    var descRun = new Run($"(image {imgIndex})");
                     descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
@@ -21118,15 +21921,35 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }
                 else if (att.ContentBlock != null)
                 {
-                    var icon = new Run("📎 ");
-                    var descRun = new Run(att.Description);
-                    descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
-                    label.Inlines.Add(icon);
-                    label.Inlines.Add(descRun);
+                    if (att.Description.StartsWith("Note: ", StringComparison.Ordinal))
+                    {
+                        var icon = new Run("📝 ");
+                        var descRun = new Run(att.Description["Note: ".Length..]);
+                        descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                        label.Inlines.Add(icon);
+                        label.Inlines.Add(descRun);
+                    }
+                    else
+                    {
+                        var icon = new Run("📎 ");
+                        var displayText = att.Description.StartsWith("Task: ", StringComparison.Ordinal)
+                            ? att.Description["Task: ".Length..]
+                            : att.Description.StartsWith("Topic: ", StringComparison.Ordinal)
+                                ? att.Description["Topic: ".Length..]
+                                : att.Description;
+                        var descRun = new Run(displayText);
+                        descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                        label.Inlines.Add(icon);
+                        label.Inlines.Add(descRun);
+                    }
+                    label.Cursor = System.Windows.Input.Cursors.Hand;
+                    var capturedContent = capturedAtt;
+                    label.MouseLeftButtonUp += (_, _) =>
+                        PromptAttachmentViewerWindow.Show(new[] { capturedContent }, CanShowOwnedWindow() ? this : null);
                 }
                 else if (att.TranscriptQuote != null)
                 {
-                    var prefix = new Run("↩ Regarding: ");
+                    var prefix = new Run("↩ ");
                     prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
                     var quoteRun = new Run($"\"{att.Description}\"");
                     quoteRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
@@ -21154,7 +21977,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         var shaDisplay = att.CommitSha.Length >= 7 ? att.CommitSha[..7] : att.CommitSha;
 
-        var prefix = new Run("↩ Follow-up: ");
+        var prefix = new Run("↩ ");
         prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
 
         var shaRun = new Run(shaDisplay)
@@ -21453,6 +22276,29 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private void AddNoteFromTextWithTitle(string title, string text)
+    {
+        if (_notesStore is null) return;
+        var note = new NoteItem(Guid.NewGuid(), title, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        _notesStore.WriteContent(note.Id, text);
+        _noteItems.Insert(0, note);
+        _notesStore.SaveAll(_noteItems);
+
+        // Show the panel if hidden
+        if (!_notesPanelVisible)
+        {
+            _notesPanelVisible = true;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = true;
+            PersistNotesPanelVisible();
+        }
+        else
+        {
+            _notesPanel?.AddNote(note);
+        }
+    }
+
     private void ApprovalPanelCloseButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -21509,6 +22355,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // is committed and the exact filter takes over.
             string filterText = text;
             _tasksPanelController?.SetFilter(filterText);
+            ScheduleLoopPreviewRefreshFromFilter();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
     }
@@ -21561,6 +22408,35 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterClearButton_Click), ex); }
+    }
+
+    private async void TasksPanelDoTheseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var workspaceFolder = _currentWorkspace?.FolderPath;
+            if (string.IsNullOrEmpty(workspaceFolder)) return;
+
+            var loopFilePath = Path.Combine(workspaceFolder, ".squad", "loop-filtered-tasks.md");
+            if (!File.Exists(loopFilePath)) return;
+
+            // Select the filtered-tasks loop file and persist the choice
+            _selectedLoopMdPath = loopFilePath;
+            PersistLoopFileSelection();
+
+            // Ensure the loop panel is visible and fully refreshed
+            _loopPanelVisible = true;
+            SyncLoopPanel();
+            PopulateLoopFilePicker();
+            RefreshLoopOptionsPanel();
+
+            // TODO: The [**FILTER**] placeholder in loop-filtered-tasks.md is substituted only
+            // in the merged-view preview (RefreshLoopMergedView), not during actual loop execution.
+            // StartLoopImmediateAsync parses the raw config without injecting TasksFilterBox.Text.
+            // Wiring the live filter into the loop run is a known gap to address in a future change.
+            await StartLoopImmediateAsync();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
     }
 
     private void NotesFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
