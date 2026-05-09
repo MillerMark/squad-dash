@@ -140,6 +140,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private TasksStatusWindow?      _tasksStatusWindow;
     private TraceWindow?            _traceWindow;
     private LoopMergedViewWindow?   _loopMergedViewWindow;
+    private DispatcherTimer?        _loopPreviewFilterDebounce;
     private ScreenshotHealthWindow? _screenshotHealthWindow;
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
@@ -425,6 +426,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _promptNavHintTimer;
+    private InteractiveControlState? _lastInteractiveControlState;
+    private bool _lastCanAbortBackgroundTask;
     private string? _workspaceGitHubUrl;
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private const int PttMaxTapHoldMs = 250;
@@ -6646,6 +6649,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
     {
+        var sw = Stopwatch.StartNew();
         try
         {
             // ── Ctrl+V / Shift+Insert clipboard-image intercept ───────────────────
@@ -6769,6 +6773,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(PromptTextBox_KeyDown), ex);
+        }
+        finally
+        {
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= 20)
+            {
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"PROMPT_KEYDOWN elapsed={sw.ElapsedMilliseconds}ms key={e.Key} repeat={e.IsRepeat} " +
+                    $"handled={e.Handled} textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex}");
+            }
         }
     }
 
@@ -7651,6 +7665,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void PromptTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        var sw = Stopwatch.StartNew();
         try
         {
             if (_conversationManager.IsApplyingHistoryEntry)
@@ -7667,12 +7682,22 @@ public partial class MainWindow : Window, ILiveElementLocator
             _conversationManager.HistoryIndex = null;
             _conversationManager.HistoryDraft = PromptTextBox.Text;
             _conversationManager.UpdatePromptDraftState();
-            UpdateInteractiveControlState();
+            UpdateInteractiveControlState(promptTextOnly: true);
             TryUpdateIntelliSense();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(PromptTextBox_TextChanged), ex);
+        }
+        finally
+        {
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= 20)
+            {
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"PROMPT_TEXT_CHANGED elapsed={sw.ElapsedMilliseconds}ms textLen={PromptTextBox.Text.Length} " +
+                    $"caret={PromptTextBox.CaretIndex} primaryHosts={_primaryAgentTranscriptHosts.Count}");
+            }
         }
     }
 
@@ -7738,11 +7763,14 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// start-of-text or whitespace (i.e. not embedded in a word like an email address).
     /// Returns the index of '@', or -1 if not found.
     /// </summary>
+    private const int MaxAtTriggerScanChars = 96;
+
     private static int FindAtTriggerPosition(string text, int caret)
     {
         if (caret <= 0) return -1;
+        var scanStart = Math.Max(0, caret - MaxAtTriggerScanChars);
         int i = caret - 1;
-        while (i >= 0 && !char.IsWhiteSpace(text[i]))
+        while (i >= scanStart && !char.IsWhiteSpace(text[i]))
         {
             if (text[i] == '@')
                 return (i == 0 || char.IsWhiteSpace(text[i - 1])) ? i : -1;
@@ -9112,6 +9140,22 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelShowMergedMenuItem_Click), ex); }
     }
 
+    private void ScheduleLoopPreviewRefreshFromFilter()
+    {
+        if (_loopMergedViewWindow is null) return;
+        if (_loopPreviewFilterDebounce is null)
+        {
+            _loopPreviewFilterDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _loopPreviewFilterDebounce.Tick += (_, _) =>
+            {
+                _loopPreviewFilterDebounce.Stop();
+                RefreshLoopMergedView();
+            };
+        }
+        _loopPreviewFilterDebounce.Stop();
+        _loopPreviewFilterDebounce.Start();
+    }
+
     private void RefreshLoopMergedView()
     {
         if (_loopMergedViewWindow is null) return;
@@ -9120,15 +9164,49 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             var tasksFilter = TasksFilterBox?.Text?.Trim() ?? "";
+            var config = LoopMdParser.Parse(_selectedLoopMdPath);
+
+            // Resolve option-conditional instructions into flat sentences
+            var buildInstruction   = "";
+            var commitInstruction  = "";
+            var testInstruction    = "";
+
+            if (config?.Options != null)
+            {
+                var optDict = config.Options
+                    .Where(o => o.Type != "group")
+                    .ToDictionary(o => o.Key, o => o.RawValue, StringComparer.Ordinal);
+
+                if (optDict.TryGetValue("build_verify", out var bv) && bv == "true")
+                    buildInstruction = "   - Build the project and verify it succeeds before proceeding.\n";
+
+                if (optDict.TryGetValue("commit_after_task", out var cat))
+                    commitInstruction = cat switch
+                    {
+                        "always" => "   - Commit your changes immediately and report the SHA. Include trailer: " +
+                                    "`Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`\n",
+                        "never"  => "   - Do not commit your changes; describe the diff instead.\n",
+                        "ask"    => "   - Before committing, emit a quick-reply \"Commit changes?\" and wait for user confirmation.\n",
+                        _        => ""
+                    };
+
+                if (optDict.TryGetValue("test_after_task", out var tat))
+                    testInstruction = tat == "true"
+                        ? "Write comprehensive test cases for what was built this iteration."
+                        : "Skip tests this iteration.";
+            }
+
             var extraSubs = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["iteration"]       = "1",
-                ["copilot_trailer"] = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
-                ["build_command"]   = "",   // not stored in app settings; leave empty for preview
+                ["iteration"]          = "1",
+                ["copilot_trailer"]    = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+                ["build_instruction"]  = buildInstruction,
+                ["commit_instruction"] = commitInstruction,
+                ["test_instruction"]   = testInstruction,
+                // build_command intentionally omitted — AI resolves build tooling automatically
             };
 
             var isCliMode = _settingsSnapshot.LoopMode == LoopMode.SquadCli;
-            var config = LoopMdParser.Parse(_selectedLoopMdPath);
             string text;
             if (config is not null)
             {
@@ -9146,11 +9224,24 @@ public partial class MainWindow : Window, ILiveElementLocator
                 text = "";
             }
 
-            // Substitute [**FILTER**] placeholder with the tasks filter text
-            if (!string.IsNullOrEmpty(tasksFilter))
-                text = text.Replace("[**FILTER**]", tasksFilter, StringComparison.Ordinal);
+            // Substitute [**FILTER**] placeholder with a context-aware filter instruction
+            string filterInstruction;
+            if (string.IsNullOrWhiteSpace(tasksFilter))
+            {
+                filterInstruction = "No filter — process any unchecked task not owned by User.";
+            }
+            else if (tasksFilter.StartsWith("@", StringComparison.Ordinal))
+            {
+                var agentName = tasksFilter.TrimStart('@').Trim();
+                filterInstruction = $"Only process tasks assigned to **@{agentName}** — " +
+                    $"i.e., tasks that include `*(Owner: {agentName})*` on the task line or in its description.";
+            }
             else
-                text = text.Replace("[**FILTER**]", "(no filter — all tasks)", StringComparison.Ordinal);
+            {
+                filterInstruction = $"Only process tasks whose description or content contains: **{tasksFilter}**. " +
+                    "Skip any task that does not match this keyword or phrase.";
+            }
+            text = text.Replace("[**FILTER**]", filterInstruction, StringComparison.Ordinal);
 
             _loopMergedViewWindow.UpdateContent(text);
         }
@@ -17763,34 +17854,56 @@ public partial class MainWindow : Window, ILiveElementLocator
         };
     }
 
-    private void UpdateInteractiveControlState()
+    private void UpdateInteractiveControlState(bool promptTextOnly = false)
     {
+        var canAbortBackgroundTask = promptTextOnly && _lastInteractiveControlState is not null
+            ? _lastCanAbortBackgroundTask
+            : _backgroundTaskPresenter.GetAbortTargets().Count > 0;
+        if (!promptTextOnly || _lastInteractiveControlState is null)
+            _lastCanAbortBackgroundTask = canAbortBackgroundTask;
+
         var state = InteractiveControlStateCalculator.Calculate(
             hasWorkspace: _currentWorkspace is not null,
             squadInstalled: _currentInstallationState?.IsSquadInstalledForActiveDirectory == true,
             isInstallingSquad: _isInstallingSquad,
             isPromptRunning: _isPromptRunning,
-            canAbortBackgroundTask: _backgroundTaskPresenter.GetAbortTargets().Count > 0,
+            canAbortBackgroundTask: canAbortBackgroundTask,
             currentPromptText: PromptTextBox.Text);
+        var previous = _lastInteractiveControlState;
+        _lastInteractiveControlState = state;
 
-        StatusAgentPanelsGrid.IsEnabled = state.AgentItemsEnabled;
-        ActiveAgentItemsControl.IsEnabled = state.AgentItemsEnabled;
-        InactiveAgentItemsControl.IsEnabled = state.AgentItemsEnabled;
-        OutputTextBox.IsEnabled = state.OutputEnabled;
-        foreach (var entry in _primaryAgentTranscriptHosts.Values)
-            entry.TranscriptBox.IsEnabled = state.OutputEnabled;
-        PromptTextBox.IsEnabled = state.PromptEnabled;
-        RunButton.IsEnabled = state.RunEnabled
-            || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null);
-        AbortButton.IsEnabled = state.AbortEnabled;
+        if (previous?.AgentItemsEnabled != state.AgentItemsEnabled)
+        {
+            SetIsEnabledIfChanged(StatusAgentPanelsGrid, state.AgentItemsEnabled);
+            SetIsEnabledIfChanged(ActiveAgentItemsControl, state.AgentItemsEnabled);
+            SetIsEnabledIfChanged(InactiveAgentItemsControl, state.AgentItemsEnabled);
+        }
+
+        if (previous?.OutputEnabled != state.OutputEnabled)
+        {
+            SetIsEnabledIfChanged(OutputTextBox, state.OutputEnabled);
+            foreach (var entry in _primaryAgentTranscriptHosts.Values)
+                SetIsEnabledIfChanged(entry.TranscriptBox, state.OutputEnabled);
+        }
+
+        SetIsEnabledIfChanged(PromptTextBox, state.PromptEnabled);
+        SetIsEnabledIfChanged(RunButton, state.RunEnabled
+            || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null));
+        SetIsEnabledIfChanged(AbortButton, state.AbortEnabled);
         if (RunDoctorMenuItem is not null)
-            RunDoctorMenuItem.IsEnabled = state.RunDoctorEnabled;
-        InstallSquadButton.IsEnabled = state.InstallSquadEnabled;
-        IssueHelpButton.IsEnabled = true;
-        IssueActionButton.IsEnabled = true;
-        IssueSecondaryActionButton.IsEnabled = true;
-        IssuePrimaryLinkButton.IsEnabled = true;
-        IssueSecondaryLinkButton.IsEnabled = true;
+            SetIsEnabledIfChanged(RunDoctorMenuItem, state.RunDoctorEnabled);
+        SetIsEnabledIfChanged(InstallSquadButton, state.InstallSquadEnabled);
+        SetIsEnabledIfChanged(IssueHelpButton, true);
+        SetIsEnabledIfChanged(IssueActionButton, true);
+        SetIsEnabledIfChanged(IssueSecondaryActionButton, true);
+        SetIsEnabledIfChanged(IssuePrimaryLinkButton, true);
+        SetIsEnabledIfChanged(IssueSecondaryLinkButton, true);
+    }
+
+    private static void SetIsEnabledIfChanged(UIElement element, bool isEnabled)
+    {
+        if (element.IsEnabled != isEnabled)
+            element.IsEnabled = isEnabled;
     }
 
     private void UpdateWindowTitle()
@@ -22180,6 +22293,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // is committed and the exact filter takes over.
             string filterText = text;
             _tasksPanelController?.SetFilter(filterText);
+            ScheduleLoopPreviewRefreshFromFilter();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
     }
