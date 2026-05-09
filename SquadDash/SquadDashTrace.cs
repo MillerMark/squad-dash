@@ -7,6 +7,8 @@ namespace SquadDash;
 internal static class SquadDashTrace {
     private static readonly object Gate = new();
     private static readonly string LogPath = BuildLogPath();
+    private const long MaxLogBytes = 32L * 1024L * 1024L;
+    private static long ApproxLogBytes = GetInitialLogLength();
 
     /// <summary>
     /// When non-null, receives every trace entry in real time via
@@ -26,7 +28,7 @@ internal static class SquadDashTrace {
         try {
             var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{category}] {message}";
             lock (Gate) {
-                File.AppendAllText(LogPath, line + Environment.NewLine, Encoding.UTF8);
+                AppendLineToLog(line);
             }
         }
         catch {
@@ -44,7 +46,7 @@ internal static class SquadDashTrace {
         try {
             var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{source}] {message}";
             lock (Gate) {
-                File.AppendAllText(LogPath, line + Environment.NewLine, Encoding.UTF8);
+                AppendLineToLog(line);
             }
         }
         catch {
@@ -74,5 +76,41 @@ internal static class SquadDashTrace {
         var directory = Path.Combine(appData, "SquadDash");
         Directory.CreateDirectory(directory);
         return Path.Combine(directory, "trace.log");
+    }
+
+    private static long GetInitialLogLength() {
+        try {
+            return File.Exists(LogPath) ? new FileInfo(LogPath).Length : 0;
+        }
+        catch {
+            return 0;
+        }
+    }
+
+    private static void AppendLineToLog(string line) {
+        var payload = line + Environment.NewLine;
+        var byteCount = Encoding.UTF8.GetByteCount(payload);
+        RotateIfNeeded(byteCount);
+        File.AppendAllText(LogPath, payload, Encoding.UTF8);
+        ApproxLogBytes += byteCount;
+    }
+
+    private static void RotateIfNeeded(int nextWriteBytes) {
+        if (ApproxLogBytes + nextWriteBytes <= MaxLogBytes)
+            return;
+
+        var archivePath = Path.Combine(Path.GetDirectoryName(LogPath)!, "trace.1.log");
+        try {
+            if (File.Exists(archivePath))
+                File.Delete(archivePath);
+            if (File.Exists(LogPath))
+                File.Move(LogPath, archivePath);
+            ApproxLogBytes = 0;
+        }
+        catch {
+            // If rotation loses a race with another process, keep tracing rather than
+            // surfacing diagnostics failures to the app.
+            ApproxLogBytes = File.Exists(LogPath) ? new FileInfo(LogPath).Length : 0;
+        }
     }
 }

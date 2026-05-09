@@ -126,6 +126,7 @@ internal sealed class PromptExecutionController {
 
     private static readonly TimeSpan PromptNoActivityWarningThreshold = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan PromptNoActivityStallThreshold   = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PromptHealthDeltaTraceInterval   = TimeSpan.FromSeconds(1);
 
     // ── Injected — Bridge ─────────────────────────────────────────────────
     private readonly Func<string, string, string?, string?, Task> _runPromptAsync;
@@ -250,6 +251,11 @@ internal sealed class PromptExecutionController {
     private int              _thinkingCharacterCount;
     private TimeSpan         _longestThinkingGap;
     private TimeSpan         _totalThinkingGap;
+    private DateTimeOffset?  _lastPromptHealthDeltaTraceAt;
+    private int              _pendingHealthThinkingChunks;
+    private int              _pendingHealthThinkingChars;
+    private int              _pendingHealthResponseChunks;
+    private int              _pendingHealthResponseChars;
     private int              _toolStartCount;
     private int              _toolCompleteCount;
     private bool             _promptNoActivityWarningShown;
@@ -501,6 +507,11 @@ internal sealed class PromptExecutionController {
         _thinkingCharacterCount       = 0;
         _longestThinkingGap           = TimeSpan.Zero;
         _totalThinkingGap             = TimeSpan.Zero;
+        _lastPromptHealthDeltaTraceAt = now;
+        _pendingHealthThinkingChunks  = 0;
+        _pendingHealthThinkingChars   = 0;
+        _pendingHealthResponseChunks  = 0;
+        _pendingHealthResponseChars   = 0;
         _toolStartCount               = 0;
         _toolCompleteCount            = 0;
         _promptNoActivityWarningShown = false;
@@ -518,6 +529,10 @@ internal sealed class PromptExecutionController {
             return;
 
         var now = DateTimeOffset.Now;
+        RecordPromptActivity(activityName, now, writeActivityTrace: true);
+    }
+
+    private void RecordPromptActivity(string activityName, DateTimeOffset now, bool writeActivityTrace) {
         if (_promptNoActivityWarningShown || _promptStallWarningShown) {
             SquadDashTrace.Write(
                 "PromptHealth",
@@ -529,7 +544,7 @@ internal sealed class PromptExecutionController {
         _lastPromptActivityAt = now;
         _lastPromptActivityName = activityName;
 
-        if (_currentPromptStartedAt is { } startedAt) {
+        if (writeActivityTrace && _currentPromptStartedAt is { } startedAt) {
             var elapsed = now - startedAt;
             SquadDashTrace.Write(
                 "PromptHealth",
@@ -539,12 +554,19 @@ internal sealed class PromptExecutionController {
 
     internal void MarkActivity(SquadSdkEvent evt) {
         var activityName = evt.Type ?? "event";
-        MarkActivity(activityName);
-
         if (!_getIsPromptRunning())
             return;
 
         var now = _lastPromptActivityAt ?? DateTimeOffset.Now;
+        var isStreamingDelta = evt.Type is "thinking_delta" or "response_delta";
+        if (isStreamingDelta)
+            RecordPromptActivity(activityName, DateTimeOffset.Now, writeActivityTrace: false);
+        else {
+            FlushPromptHealthDeltaTrace(DateTimeOffset.Now, force: true);
+            MarkActivity(activityName);
+        }
+
+        now = _lastPromptActivityAt ?? DateTimeOffset.Now;
         switch (evt.Type) {
             case "session_ready":
                 _lastSessionReadyEvent = evt;
@@ -600,9 +622,9 @@ internal sealed class PromptExecutionController {
                     _thinkingTextDeltaCount++;
                     _thinkingCharacterCount += thinkingTextLength;
                     if (thinkingTextLength > 0) {
-                        SquadDashTrace.Write(
-                            "PromptHealth",
-                            $"Thinking chunk chars={thinkingTextLength} totalThinkingChars={_thinkingCharacterCount} totalThinkingChunks={_thinkingTextDeltaCount} avgThinkingCharsPerSec={FormatThinkingCharsPerSecond()}");
+                        _pendingHealthThinkingChunks++;
+                        _pendingHealthThinkingChars += thinkingTextLength;
+                        FlushPromptHealthDeltaTrace(now, force: false);
                     }
                 }
                 break;
@@ -632,13 +654,42 @@ internal sealed class PromptExecutionController {
                 _lastResponseAt = now;
                 _responseDeltaCount++;
                 _responseCharacterCount += chunkLength;
+                if (chunkLength > 0) {
+                    _pendingHealthResponseChunks++;
+                    _pendingHealthResponseChars += chunkLength;
+                    FlushPromptHealthDeltaTrace(now, force: false);
+                }
                 break;
         }
+    }
+
+    private void FlushPromptHealthDeltaTrace(DateTimeOffset now, bool force) {
+        if (!force &&
+            _lastPromptHealthDeltaTraceAt is { } last &&
+            now - last < PromptHealthDeltaTraceInterval)
+            return;
+
+        if (_pendingHealthThinkingChunks == 0 && _pendingHealthResponseChunks == 0)
+            return;
+
+        SquadDashTrace.Write(
+            "PromptHealth",
+            $"Stream chunk summary thinkingChunks={_pendingHealthThinkingChunks} thinkingChars={_pendingHealthThinkingChars} " +
+            $"totalThinkingChars={_thinkingCharacterCount} totalThinkingChunks={_thinkingTextDeltaCount} avgThinkingCharsPerSec={FormatThinkingCharsPerSecond()} " +
+            $"responseChunks={_pendingHealthResponseChunks} responseChars={_pendingHealthResponseChars} " +
+            $"totalResponseChars={_responseCharacterCount} totalResponseChunks={_responseDeltaCount}");
+
+        _pendingHealthThinkingChunks = 0;
+        _pendingHealthThinkingChars = 0;
+        _pendingHealthResponseChunks = 0;
+        _pendingHealthResponseChars = 0;
+        _lastPromptHealthDeltaTraceAt = now;
     }
 
     private void StopPromptHealthMonitoring(string outcome) {
         if (_currentPromptStartedAt is { } startedAt) {
             var finishedAt = DateTimeOffset.Now;
+            FlushPromptHealthDeltaTrace(finishedAt, force: true);
             SquadDashTrace.Write(
                 "PromptHealth",
                 $"Prompt finished outcome={outcome} totalMs={(finishedAt - startedAt).TotalMilliseconds:0} " +
@@ -678,6 +729,11 @@ internal sealed class PromptExecutionController {
         _thinkingCharacterCount       = 0;
         _longestThinkingGap           = TimeSpan.Zero;
         _totalThinkingGap             = TimeSpan.Zero;
+        _lastPromptHealthDeltaTraceAt = null;
+        _pendingHealthThinkingChunks  = 0;
+        _pendingHealthThinkingChars   = 0;
+        _pendingHealthResponseChunks  = 0;
+        _pendingHealthResponseChars   = 0;
         _toolStartCount               = 0;
         _toolCompleteCount            = 0;
         _promptNoActivityWarningShown = false;

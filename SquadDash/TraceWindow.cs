@@ -26,6 +26,7 @@ namespace SquadDash;
 internal sealed class TraceWindow : Window, ILiveTraceTarget
 {
     private const int MaxFlushEntries = 200;
+    private const int MaxLogTextChars = 250_000;
     private readonly TextBox _logTextBox = null!;
     private readonly WrapPanel _checkboxPanel = null!;
     private readonly ApplicationSettingsStore _settingsStore;
@@ -324,6 +325,7 @@ internal sealed class TraceWindow : Window, ILiveTraceTarget
         }
 
         _logTextBox.AppendText(builder.ToString());
+        TrimLogTextIfNeeded();
         _logTextBox.ScrollToEnd();
 
         if (_pendingEntries.Count > 0)
@@ -331,5 +333,21 @@ internal sealed class TraceWindow : Window, ILiveTraceTarget
             _flushPending = true;
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, FlushPendingEntries);
         }
+    }
+
+    private void TrimLogTextIfNeeded()
+    {
+        var text = _logTextBox.Text;
+        if (text.Length <= MaxLogTextChars)
+            return;
+
+        var trimTo = text.Length - MaxLogTextChars;
+        var newlineIndex = text.IndexOf(Environment.NewLine, trimTo, StringComparison.Ordinal);
+        var keepStart = newlineIndex >= 0
+            ? newlineIndex + Environment.NewLine.Length
+            : trimTo;
+
+        _logTextBox.Text = text[keepStart..];
+        _logTextBox.CaretIndex = _logTextBox.Text.Length;
     }
 }
