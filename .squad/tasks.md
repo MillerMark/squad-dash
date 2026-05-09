@@ -40,6 +40,14 @@
   - Keys prefixed with `#` (comments) or without a recognized type hint should be ignored or shown as read-only labels.
   Scope: parsing, popup XAML, save-back logic. The `{{variable}}` substitution at prompt send time is a separate task.
 
+- [ ] **Loop "Do these" — inject TasksFilterBox text into live loop prompt** *(Owner: Lyra Morn)*
+  When the "▶ Do these" button starts the loop, the active Tasks panel filter text is currently only
+  substituted in the preview window (`RefreshLoopMergedView`), not in the actual prompt sent to the AI.
+  The `[**FILTER**]` placeholder (and its smart context-aware expansion) must also be applied at loop
+  start time — either by writing a temporary substituted copy of the loop file, or by injecting the
+  filter as a `{{variable}}` that the loop controller resolves before sending the prompt.
+  **See TODO comment in `TasksPanelDoTheseButton_Click` (commit 9460f90).**
+
 - [ ] **Loop Settings — `{{variable}}` injection at prompt send time** *(Owner: Arjun Sen)*
   Before sending the loop prompt, substitute `{{key}}` tokens in the prompt body with the
   corresponding frontmatter values from the active loop file. Known UI keys (`commit_after_task`,

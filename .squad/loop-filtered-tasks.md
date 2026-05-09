@@ -1,5 +1,8 @@
 ---
 configured: true
+interval: 5
+timeout: 60
+max_iterations: 0
 options:
   after_task_header:
     type: group
@@ -15,29 +18,11 @@ options:
     label: "Write tests"
     hint: "Write comprehensive tests after each implementation task"
   commit_after_task:
-    value: never
+    value: always
     type: enum
     choices: [always, never, ask]
     label: "Commit"
     hint: "When to automatically commit completed work"
-  loop_params_header:
-    type: group
-    label: "Loop Parameters:"
-  interval:
-    value: 1
-    type: int
-    label: "Interval (min)"
-    hint: "Minutes to wait between iterations"
-  timeout:
-    value: 60
-    type: int
-    label: "Timeout (min)"
-    hint: "Max minutes per iteration before aborting"
-  max_iterations:
-    value: 0
-    type: int
-    label: "Max iterations"
-    hint: "Stop after this many iterations. 0 = unlimited."
 description: "Filtered Tasks — picks the top open task, implements it, marks it done, repeats"
 commands: [stop_loop]
 ---
