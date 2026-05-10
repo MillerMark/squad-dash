@@ -2,7 +2,8 @@
 # Builds the SquadDash installer locally.
 #
 # Usage:
-#   .\installer\build-installer.ps1 -Version 1.0.0
+#   .\installer\build-installer.ps1              # auto-detects version from csproj + git commit count
+#   .\installer\build-installer.ps1 -Version 1.0.0.819  # override version explicitly
 #
 # Prerequisites:
 #   - .NET 10 SDK
@@ -15,7 +16,7 @@
 # should document installing it first.
 
 param(
-    [string]$Version = "1.0.0"
+    [string]$Version = ""
 )
 
 Set-StrictMode -Version Latest
@@ -23,6 +24,29 @@ $ErrorActionPreference = "Stop"
 
 $root      = Split-Path $PSScriptRoot -Parent
 $artifacts = Join-Path $root "artifacts"
+$logs      = Join-Path $artifacts "logs"
+
+# Keep build output friendly to transcript renderers. MSBuild's terminal logger
+# emits ANSI cursor updates that look great in a real console but can overwhelm
+# captured terminals.
+$env:NO_COLOR = "1"
+$env:DOTNET_NOLOGO = "1"
+$env:npm_config_audit = "false"
+$env:npm_config_fund = "false"
+$env:npm_config_progress = "false"
+$dotnetLogOptions = @("--tl:off", "--verbosity", "minimal", "/nologo")
+
+# Derive version from csproj + git commit count when not supplied
+if (-not $Version) {
+    $csproj      = Join-Path $root "SquadDash\SquadDash.csproj"
+    $xml         = [xml](Get-Content $csproj -Raw)
+    $prefix      = $xml.Project.PropertyGroup.VersionPrefix | Where-Object { $_ } | Select-Object -First 1
+    $commitCount = git -C $root rev-list --count HEAD 2>$null
+    if (-not $prefix)      { Write-Error "Could not read VersionPrefix from $csproj"; exit 1 }
+    if (-not $commitCount) { Write-Error "Could not determine git commit count.";      exit 1 }
+    $Version = "$prefix.$commitCount"
+    Write-Host "Auto-detected version: $Version"
+}
 
 # ---------------------------------------------------------------------------
 # 1. Clean staging directories
@@ -31,6 +55,7 @@ Remove-Item $artifacts -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$artifacts\publish\launcher" | Out-Null
 New-Item -ItemType Directory -Force "$artifacts\publish\app"      | Out-Null
 New-Item -ItemType Directory -Force "$artifacts\publish\sdk"      | Out-Null
+New-Item -ItemType Directory -Force $logs                         | Out-Null
 
 # ---------------------------------------------------------------------------
 # 2. Publish launcher  (SquadDash.exe — the thin wrapper that opens the app)
@@ -39,7 +64,9 @@ Write-Host "`n▶ Publishing launcher..."
 dotnet publish "$root\SquadDashLauncher\SquadDashLauncher.csproj" `
     -c Release -r win-x64 --no-self-contained `
     -p:VersionPrefix=$Version `
-    -o "$artifacts\publish\launcher"
+    -o "$artifacts\publish\launcher" `
+    @dotnetLogOptions `
+    *>&1 | Tee-Object -FilePath "$logs\publish-launcher.log"
 
 if ($LASTEXITCODE -ne 0) { Write-Error "Launcher publish failed."; exit 1 }
 
@@ -54,7 +81,9 @@ Write-Host "`n▶ Publishing app payload..."
 dotnet publish "$root\SquadDash\SquadDash.csproj" `
     -c Release -r win-x64 --no-self-contained `
     -p:VersionPrefix=$Version `
-    -o "$artifacts\publish\app"
+    -o "$artifacts\publish\app" `
+    @dotnetLogOptions `
+    *>&1 | Tee-Object -FilePath "$logs\publish-app.log"
 
 if ($LASTEXITCODE -ne 0) { Write-Error "App publish failed."; exit 1 }
 
@@ -64,8 +93,8 @@ if ($LASTEXITCODE -ne 0) { Write-Error "App publish failed."; exit 1 }
 Write-Host "`n▶ Bundling Squad.SDK..."
 Push-Location "$root\Squad.SDK"
 try {
-    npm ci --omit=dev
-    if ($LASTEXITCODE -ne 0) { Write-Error "npm ci failed."; exit 1 }
+    npm install --omit=dev *>&1 | Tee-Object -FilePath "$logs\npm-install.log"
+    if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed."; exit 1 }
 
     # Copy runtime JS files and package manifest
     Get-ChildItem -File -Filter "*.js" | Copy-Item -Destination "$artifacts\publish\sdk\"
@@ -88,7 +117,7 @@ if (-not (Test-Path $iscc)) {
 }
 
 Write-Host "`n▶ Compiling installer..."
-& $iscc /DAppVersion=$Version "$root\installer\SquadDash.iss"
+& $iscc /DAppVersion=$Version "$root\installer\SquadDash.iss" *>&1 | Tee-Object -FilePath "$logs\inno-setup.log"
 if ($LASTEXITCODE -ne 0) { Write-Error "ISCC compilation failed."; exit 1 }
 
 # ---------------------------------------------------------------------------
