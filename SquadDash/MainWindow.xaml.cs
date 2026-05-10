@@ -18722,9 +18722,78 @@ public partial class MainWindow : Window, ILiveElementLocator
             Left = SystemParameters.WorkArea.Left;
             Top = SystemParameters.WorkArea.Top;
         }
+        else
+        {
+            // Validate that the restored bounds fit within the work area of the
+            // nearest monitor. IsPlacementOnScreen only checks the title-bar strip
+            // (Left .. Left+200, Top .. Top+30), so it passes even when a stale
+            // narrow Width (saved from a remote/phone session) causes Left + Width
+            // to overflow the monitor's right edge. When that happens, Windows
+            // keeps the snapped HWND at the full docked width while WPF's layout
+            // commits to the narrow saved Width — producing a solid black void to
+            // the right of the visible content area. Clamping here prevents that.
+            ClampRestoredBoundsToMonitor();
+        }
 
         if (placement.IsMaximized)
             WindowState = WindowState.Maximized;
+    }
+
+    /// <summary>
+    /// After applying a persisted placement, verifies that the window's right
+    /// and bottom edges lie within the work area of the nearest monitor.
+    /// If either edge overflows — which happens when a placement saved on a
+    /// narrow display (e.g. an iPhone remote session) is restored on a wider
+    /// one while the window is snapped/docked — the window is reset to a safe
+    /// default size centred on that monitor's work area.
+    /// </summary>
+    private void ClampRestoredBoundsToMonitor()
+    {
+        try
+        {
+            // Convert WPF logical origin to physical pixels for the monitor query.
+            var dpi   = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            int physX = (int)(Left * dpi.DpiScaleX);
+            int physY = (int)(Top  * dpi.DpiScaleY);
+
+            var physWa  = NativeMethods.GetWorkAreaForPhysicalPoint(physX, physY);
+
+            // Convert physical work-area edges back to WPF logical units.
+            double waLeft   = physWa.Left   / dpi.DpiScaleX;
+            double waTop    = physWa.Top    / dpi.DpiScaleY;
+            double waRight  = physWa.Right  / dpi.DpiScaleX;
+            double waBottom = physWa.Bottom / dpi.DpiScaleY;
+            double waWidth  = waRight  - waLeft;
+            double waHeight = waBottom - waTop;
+
+            // Allow 1 logical pixel of rounding slack.
+            bool overflowsRight  = Left + Width  > waRight  + 1.0;
+            bool overflowsBottom = Top  + Height > waBottom + 1.0;
+
+            if (overflowsRight || overflowsBottom)
+            {
+                // The persisted dimensions don't fit on the current monitor — most
+                // likely the window was saved on a narrower display. Reset to a
+                // comfortable default, centred on this monitor's work area.
+                double safeWidth  = Math.Min(1200.0, waWidth);
+                double safeHeight = Math.Min( 820.0, waHeight);
+
+                // Never shrink below the window's declared minimum dimensions.
+                if (safeWidth  < MinWidth)  safeWidth  = MinWidth;
+                if (safeHeight < MinHeight) safeHeight = MinHeight;
+
+                Width  = safeWidth;
+                Height = safeHeight;
+                Left   = waLeft + (waWidth  - safeWidth)  / 2.0;
+                Top    = waTop  + (waHeight - safeHeight) / 2.0;
+            }
+        }
+        catch
+        {
+            // Non-critical: if anything goes wrong the already-applied placement
+            // is left as-is. The window may not be perfectly positioned but it
+            // will still be functional.
+        }
     }
 
     private static bool IsPlacementOnScreen(WorkspaceWindowPlacement placement)
