@@ -9993,7 +9993,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
                     if (anchorFilePath is not null)
                     {
-                        // Insert as sibling: find anchor line and insert after it
+                        // Insert as child: find anchor line and insert after it, indented one level deeper.
+                        // When a leaf is selected we make the new doc a child of it so the selected
+                        // node becomes the parent (matching the "add child" intent of the + button).
                         var anchorRelPath = Path.GetRelativePath(docsRoot, anchorFilePath).Replace('\\', '/');
                         int insertAfter = -1;
                         for (int i = 0; i < summaryLines.Count; i++)
@@ -10004,11 +10006,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                                 break;
                             }
                         }
-                        // Preserve sibling indentation
+                        // Add two extra spaces beyond the anchor's indentation → child level
                         if (insertAfter >= 0)
                         {
                             var anchorIndent = new string(' ', summaryLines[insertAfter].TakeWhile(char.IsWhiteSpace).Count());
-                            summaryLines.Insert(insertAfter + 1, anchorIndent + $"* [{newTitle}]({newRelPath})");
+                            summaryLines.Insert(insertAfter + 1, anchorIndent + "  " + $"* [{newTitle}]({newRelPath})");
                         }
                         else
                         {
@@ -21627,13 +21629,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         var itemBounds = hitItem.TransformToAncestor(DocTopicsTreeView).TransformBounds(
             new Rect(0, 0, hitItem.ActualWidth, hitItem.ActualHeight));
 
-        bool isGroupTarget = hitItem.Items.Count > 0;
+        // A node is a valid InsideAsChild target when it is at the root level of the tree
+        // (parent == TreeView). Child-level nodes only support Before/After to avoid creating
+        // three-level nesting that the tree loader cannot represent. Critically, this includes
+        // childless root nodes — previously Items.Count > 0 excluded them, causing Bug 2.
+        bool isGroupTarget = hitItem.Parent is TreeView;
         bool draggedIsGroup = draggedItem?.Items.Count > 0;
         double relY = posInTreeView.Y - itemBounds.Y;
         double height = itemBounds.Height;
 
         DropZone zone;
-        // Groups cannot be dropped InsideAsChild of another group — use 50/50 zones instead.
+        // Groups (items with children) cannot be nested inside other groups — use 50/50 zones.
         if (isGroupTarget && !draggedIsGroup)
         {
             if (relY < height * 0.25)
@@ -21709,12 +21715,14 @@ public partial class MainWindow : Window, ILiveElementLocator
         var itemBounds = hitItem.TransformToAncestor(DocTopicsTreeView).TransformBounds(
             new Rect(0, 0, hitItem.ActualWidth, hitItem.ActualHeight));
 
-        bool isGroupTarget = hitItem.Items.Count > 0;
+        bool isGroupTarget = hitItem.Parent is TreeView;
         bool draggedIsGroup = draggedItem?.Items.Count > 0;
         double relY = posInTreeView.Y - itemBounds.Y;
         double height = itemBounds.Height;
 
-        // Groups cannot be dropped InsideAsChild of another group — use 50/50 zones instead.
+        // Groups (items with children) cannot be nested inside other groups — use 50/50 zones.
+        // Root-level nodes (isGroupTarget) allow InsideAsChild regardless of their current
+        // child count, fixing the bug where childless root nodes couldn't accept dropped items.
         if (isGroupTarget && !draggedIsGroup)
         {
             if (relY < height * 0.25)
