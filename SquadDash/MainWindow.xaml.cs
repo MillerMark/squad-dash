@@ -1522,10 +1522,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                     var cropBounds = liveBounds ?? e.CaptureBounds;
                     if (cropBounds is { } bounds)
                     {
-                        var pixelX = (int)Math.Round(bounds.X * bounds.DpiX);
-                        var pixelY = (int)Math.Round(bounds.Y * bounds.DpiY);
-                        var pixelW = (int)Math.Round(bounds.Width * bounds.DpiX);
-                        var pixelH = (int)Math.Round(bounds.Height * bounds.DpiY);
+                        // Always convert the logical-pixel bounds using the *current* runtime DPI
+                        // scale — NOT the DPI stored in CaptureBounds.  The RTB was rendered at
+                        // the current dpi.PixelsPerInchX/Y, so pixel coordinates must use the
+                        // same scale.  Using the stored bounds.DpiX/Y would produce the wrong
+                        // crop on any machine whose DPI differs from the original capture machine.
+                        var pixelX = (int)Math.Round(bounds.X * dpi.DpiScaleX);
+                        var pixelY = (int)Math.Round(bounds.Y * dpi.DpiScaleY);
+                        var pixelW = (int)Math.Round(bounds.Width * dpi.DpiScaleX);
+                        var pixelH = (int)Math.Round(bounds.Height * dpi.DpiScaleY);
 
                         // Clamp to the RTB dimensions so we never request an out-of-bounds rect.
                         pixelX = Math.Max(0, Math.Min(pixelX, rtb.PixelWidth - 1));
@@ -1536,6 +1541,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                         bitmapToSave = new CroppedBitmap(
                             rtb, new System.Windows.Int32Rect(pixelX, pixelY, pixelW, pixelH));
                     }
+
+                    // Normalise DPI metadata to 96 DPI so the saved PNG has a consistent,
+                    // predictable size in documentation viewers regardless of the monitor's
+                    // physical DPI.  Physical pixels are copied 1:1 — no resampling.
+                    bitmapToSave = DpiHelper.NormalizeTo96Dpi(bitmapToSave);
 
                     var dir = Path.GetDirectoryName(e.OutputPath);
                     if (!string.IsNullOrEmpty(dir))
@@ -6273,6 +6283,108 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _ = rtb.Focus();
         _ = Keyboard.Focus(rtb);
+    }
+
+    /// <summary>
+    /// Window-level pre-processing for left mouse button presses.
+    /// Releases stale RichTextBox mouse capture when the user presses the mouse
+    /// outside the captured RTB's visual subtree.
+    ///
+    /// <para>
+    /// When a RichTextBox starts a drag-select it captures the mouse.  Normally the
+    /// capture is released on <c>MouseLeftButtonUp</c>.  In rare edge cases (rapid
+    /// panel switches, focus changes mid-gesture) the capture can survive beyond the
+    /// drag, silently redirecting the next click away from its intended target — for
+    /// example, the floating scroll-to-bottom button in a different transcript panel.
+    /// </para>
+    /// <para>
+    /// The check is intentionally narrow: only stale RichTextBox capture is released,
+    /// and only when the physical click position is outside the captured RTB.
+    /// Normal in-progress drag-selects (where the cursor is still over the RTB)
+    /// are unaffected.
+    /// </para>
+    /// </summary>
+    protected override void OnPreviewMouseLeftButtonDown(System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try
+        {
+            // If a RichTextBox has mouse capture but the user is pressing the mouse
+            // somewhere outside it, the capture is stale.  Release it so the click
+            // reaches its intended target.
+            if (Mouse.Captured is RichTextBox capturedRtb)
+            {
+                // Use visual hit-testing at the raw mouse position to determine the
+                // actual element under the cursor, bypassing the capture redirect.
+                var mousePos   = e.GetPosition(this);
+                var hitResult  = VisualTreeHelper.HitTest(this, mousePos);
+                var hitElement = hitResult?.VisualHit as DependencyObject;
+
+                if (hitElement is not null && !IsVisualDescendantOf(capturedRtb, hitElement))
+                {
+                    capturedRtb.ReleaseMouseCapture();
+
+                    // The current event was already routed to the captured RTB.
+                    // Schedule a synthetic click on the intended target at Input priority
+                    // so it fires after the current routing completes and the capture is
+                    // fully released.  This gives the user a one-click experience rather
+                    // than requiring a second press.
+                    var hitButton = FindVisualAncestorOrSelf<Button>(hitElement);
+                    if (hitButton is not null)
+                    {
+                        _ = Dispatcher.BeginInvoke(
+                            System.Windows.Threading.DispatcherPriority.Input,
+                            () =>
+                            {
+                                try
+                                {
+                                    if (hitButton.IsEnabled && hitButton.IsVisible)
+                                        hitButton.RaiseEvent(
+                                            new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, hitButton));
+                                }
+                                catch (Exception ex)
+                                {
+                                    HandleUiCallbackException("StaleCaptureRelease.SyntheticClick", ex);
+                                }
+                            });
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OnPreviewMouseLeftButtonDown), ex);
+        }
+
+        base.OnPreviewMouseLeftButtonDown(e);
+    }
+
+    /// <summary>Returns <c>true</c> if <paramref name="descendant"/> is the same as
+    /// or is a visual descendant of <paramref name="ancestor"/>.</summary>
+    private static bool IsVisualDescendantOf(DependencyObject ancestor, DependencyObject descendant)
+    {
+        var current = descendant;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Walks the visual tree upward from <paramref name="element"/> (inclusive) and
+    /// returns the first ancestor of type <typeparamref name="T"/>, or <c>null</c>.
+    /// </summary>
+    private static T? FindVisualAncestorOrSelf<T>(DependencyObject element)
+        where T : DependencyObject
+    {
+        var current = element;
+        while (current is not null)
+        {
+            if (current is T match) return match;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
     }
 
     /// <summary>
@@ -13564,6 +13676,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         SyncTranscriptTargetIndicators();
         SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_OPEN SyncState={sw.ElapsedMilliseconds}ms");
         sw.Restart();
+        ClearAllTranscriptSelections();
         ScheduleGridRebuild();
         SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_OPEN RebuildGrid=scheduled");
         FlashGlowHighlight(entry.PanelBorder, ColorFromHex(agent.AccentColorHex));
@@ -13596,6 +13709,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         SyncTranscriptTargetIndicators();
         SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE SyncState={sw.ElapsedMilliseconds}ms");
         sw.Restart();
+        ClearAllTranscriptSelections();
+        try { entry.TranscriptBox?.Selection.Select(entry.TranscriptBox.Document?.ContentStart, entry.TranscriptBox.Document?.ContentStart); } catch { }
         ScheduleGridRebuild();
         SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE RebuildGrid=scheduled");
     }
@@ -13654,6 +13769,33 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (entry.CountdownTimer is null)
                 StartAutoCloseCountdown(entry);
         }
+    }
+
+    /// <summary>
+    /// Clears the selection on all transcript RichTextBoxes that do not currently
+    /// have keyboard focus. Called when the panel layout changes (panel open/close)
+    /// to prevent the inactive-selection adorner from rendering with stale coordinates
+    /// across the layout reflow.
+    /// </summary>
+    private void ClearAllTranscriptSelections()
+    {
+        void TryClear(RichTextBox rtb)
+        {
+            if (rtb is null || rtb.IsKeyboardFocusWithin) return;
+            try
+            {
+                var doc = rtb.Document;
+                if (doc is not null)
+                    rtb.Selection.Select(doc.ContentStart, doc.ContentStart);
+            }
+            catch { /* TextPointers can be temporarily invalid during document transitions */ }
+        }
+
+        TryClear(OutputTextBox);
+        foreach (var entry in _secondaryTranscripts)
+            TryClear(entry.TranscriptBox);
+        foreach (var entry in _primaryAgentTranscriptHosts.Values)
+            TryClear(entry.TranscriptBox);
     }
 
     private void ScheduleGridRebuild()
@@ -20656,6 +20798,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _ = StartPushToTalkAsync();
             },
             StopPttCallback = () => _ = StopPushToTalkAsync(send: false),
+            CleanupPrompt = _settingsSnapshot.CleanupPrompt,
         };
 
     private void ShowTextWindow(string title, string content)

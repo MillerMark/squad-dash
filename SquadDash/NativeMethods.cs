@@ -381,6 +381,10 @@ internal static class NativeMethods {
             h = win.Bottom - win.Top;
         }
 
-        return CaptureScreenRegionPixels(x, y, w, h);
+        // Normalise the captured bitmap to 96 DPI so that the saved PNG has
+        // predictable metadata regardless of the monitor's physical DPI.
+        // The physical pixel content is preserved 1:1 — no resampling occurs.
+        var raw = CaptureScreenRegionPixels(x, y, w, h);
+        return raw is null ? null : DpiHelper.NormalizeTo96Dpi(raw);
     }
 }

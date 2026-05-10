@@ -17,15 +17,19 @@ namespace SquadDash;
 
 /// <summary>
 /// Transparent owned window that lets the user drag-select a region of the
-/// MainWindow content and captures it as a PNG via <see cref="RenderTargetBitmap"/>.
+/// MainWindow content and captures it as a PNG via
+/// <see cref="NativeMethods.CaptureWindowRegion"/> (GDI BitBlt).
 ///
 /// Pattern: code-behind only (no XAML), all colours via SetResourceReference —
 /// consistent with <see cref="PushToTalkWindow"/> and <see cref="AgentInfoWindow"/>.
 ///
-/// DPI correctness: physical pixel dimensions come from
-/// <c>VisualTreeHelper.GetDpi(_mainWindow)</c>.  The selection rect is stored and
-/// compared in logical units; conversion to physical pixels happens only at
-/// capture time.
+/// DPI correctness: the selection rect is stored and compared in WPF logical units
+/// (DIPs).  <see cref="NativeMethods.CaptureWindowRegion"/> converts the logical
+/// rect to physical pixels using <c>VisualTreeHelper.GetDpi(_mainWindow)</c> at
+/// capture time so the BitBlt always addresses the correct screen region regardless
+/// of the monitor's DPI scale.  The returned <see cref="BitmapSource"/> is
+/// normalised to 96 DPI by <see cref="DpiHelper.NormalizeTo96Dpi"/> so that the
+/// saved PNG renders at the expected visual size in documentation viewers.
 /// </summary>
 internal sealed class ScreenshotOverlayWindow : Window
 {
