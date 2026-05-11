@@ -44,6 +44,12 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private readonly BitmapSource _clipboardImage;
 
+    // Mutable working image — starts as _clipboardImage, replaced after each Enter-crop.
+    private BitmapSource _workingImage = null!;
+
+    // Image control on the canvas whose Source we update after Enter-crop.
+    private Image _imageCtrl = null!;
+
     // ── Selection ─────────────────────────────────────────────────────────────
 
     private Rect _sel;
@@ -223,6 +229,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage, bool isPromptMode = false)
     {
         _clipboardImage = clipboardImage ?? throw new ArgumentNullException(nameof(clipboardImage));
+        _workingImage   = clipboardImage;
         _isPromptMode = isPromptMode;
         _themeName = AgentStatusCard.IsDarkTheme ? "dark" : "light";
 
@@ -336,7 +343,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         };
 
         // Image fills the entire canvas (background layer).
-        var imageCtrl = new Image
+        _imageCtrl = new Image
         {
             Source = clipboardImage,
             Width = dispW,
@@ -344,10 +351,10 @@ internal sealed class ClipboardImageEditorWindow : Window
             Stretch = Stretch.Fill,
             IsHitTestVisible = false
         };
-        RenderOptions.SetBitmapScalingMode(imageCtrl, BitmapScalingMode.HighQuality);
-        _canvas.Children.Add(imageCtrl);
-        Canvas.SetLeft(imageCtrl, 0);
-        Canvas.SetTop(imageCtrl, 0);
+        RenderOptions.SetBitmapScalingMode(_imageCtrl, BitmapScalingMode.HighQuality);
+        _canvas.Children.Add(_imageCtrl);
+        Canvas.SetLeft(_imageCtrl, 0);
+        Canvas.SetTop(_imageCtrl, 0);
 
         // No initial crop selection — user drags one if they want to crop.
         // DoInsertImage falls back to the full canvas rect when _sel.IsEmpty.
@@ -1649,7 +1656,10 @@ internal sealed class ClipboardImageEditorWindow : Window
         }
         else if (e.Key is Key.Return or Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
         {
-            DoInsertImage();
+            if (!_sel.IsEmpty)
+                DoCropInPlace();
+            else
+                DoInsertImage();
             e.Handled = true;
         }
     }
@@ -2897,7 +2907,7 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private void CachePixels()
     {
-        var conv = new FormatConvertedBitmap(_clipboardImage, PixelFormats.Bgra32, null, 0);
+        var conv = new FormatConvertedBitmap(_workingImage, PixelFormats.Bgra32, null, 0);
         _cachedStride = conv.PixelWidth * 4;
         _cachedPixels = new byte[_cachedStride * conv.PixelHeight];
         conv.CopyPixels(_cachedPixels, _cachedStride, 0);
@@ -2907,8 +2917,8 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         if (_cachedPixels == null) CachePixels();
         // Canvas coordinates are in logical (96-dpi) units; convert to image pixels.
-        int px = (int)Math.Max(0, Math.Min(pt.X * _canvasScaleX, _clipboardImage.PixelWidth - 1));
-        int py = (int)Math.Max(0, Math.Min(pt.Y * _canvasScaleY, _clipboardImage.PixelHeight - 1));
+        int px = (int)Math.Max(0, Math.Min(pt.X * _canvasScaleX, _workingImage.PixelWidth - 1));
+        int py = (int)Math.Max(0, Math.Min(pt.Y * _canvasScaleY, _workingImage.PixelHeight - 1));
         int offset = py * _cachedStride + px * 4;
         byte bv = _cachedPixels![offset];
         byte gv = _cachedPixels[offset + 1];
@@ -3005,6 +3015,125 @@ internal sealed class ClipboardImageEditorWindow : Window
             _eyedropperHexLabel.Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
     }
 
+    // ── Crop In-Place ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Commits the current crop selection in-place: the working image is replaced with
+    /// the cropped bitmap, annotations outside the crop rect are removed, and those
+    /// that overlap are shifted so their coordinates are relative to the new origin.
+    /// The full editor state before the crop is pushed onto the undo stack, so
+    /// Ctrl+Z restores the original image, annotations, canvas size, and crop rect.
+    /// </summary>
+    private void DoCropInPlace()
+    {
+        if (_sel.IsEmpty) return;
+
+        PushUndo();  // full snapshot before crop — Ctrl+Z will restore everything
+
+        var sel = _sel;
+
+        // Crop _workingImage to the selection (pixel coordinates).
+        var pxW = _workingImage.PixelWidth;
+        var pxH = _workingImage.PixelHeight;
+        var cropX = (int)Math.Round(sel.Left   * _canvasScaleX);
+        var cropY = (int)Math.Round(sel.Top    * _canvasScaleY);
+        var cropW = (int)Math.Round(sel.Width  * _canvasScaleX);
+        var cropH = (int)Math.Round(sel.Height * _canvasScaleY);
+        cropX = Math.Max(0, cropX);
+        cropY = Math.Max(0, cropY);
+        cropW = Math.Max(1, Math.Min(cropW, pxW - cropX));
+        cropH = Math.Max(1, Math.Min(cropH, pxH - cropY));
+
+        var cropped = new CroppedBitmap(_workingImage, new Int32Rect(cropX, cropY, cropW, cropH));
+        cropped.Freeze();
+        _workingImage  = cropped;
+        _cachedPixels  = null;
+
+        // Resize the image control and canvas to the selection's logical dimensions.
+        // _canvasScaleX/Y are unchanged — DPI ratio stays constant after crop.
+        var newW = sel.Width;
+        var newH = sel.Height;
+        _imageCtrl.Source = cropped;
+        _imageCtrl.Width  = newW;
+        _imageCtrl.Height = newH;
+        _canvas.Width  = newW;
+        _canvas.Height = newH;
+
+        // Shift/remove annotations so their coords are relative to the new origin.
+        var dx = sel.Left;
+        var dy = sel.Top;
+
+        foreach (var arrow in _arrows.ToList())
+        {
+            // Arrow spans from target center through arrowhead to tail end.
+            var rad  = arrow.ArrowheadAngleDeg * Math.PI / 180.0;
+            var ux   = Math.Sin(rad);
+            var uy   = -Math.Cos(rad);
+            var cx   = arrow.TargetCenterOnCanvas.X + arrow.OffsetX;
+            var cy   = arrow.TargetCenterOnCanvas.Y + arrow.OffsetY;
+            var ahX  = cx + ux * arrow.ArrowLength;
+            var ahY  = cy + uy * arrow.ArrowLength;
+            var tlX  = cx + ux * (arrow.ArrowLength + arrow.TailLength);
+            var tlY  = cy + uy * (arrow.ArrowLength + arrow.TailLength);
+            var bbox = new Rect(
+                Math.Min(cx, Math.Min(ahX, tlX)),
+                Math.Min(cy, Math.Min(ahY, tlY)),
+                Math.Abs(Math.Max(cx, Math.Max(ahX, tlX)) - Math.Min(cx, Math.Min(ahX, tlX))),
+                Math.Abs(Math.Max(cy, Math.Max(ahY, tlY)) - Math.Min(cy, Math.Min(ahY, tlY))));
+
+            if (!sel.IntersectsWith(bbox))
+            {
+                RemoveArrow(arrow);
+            }
+            else
+            {
+                arrow.TargetCenterOnCanvas = new Point(
+                    arrow.TargetCenterOnCanvas.X - dx,
+                    arrow.TargetCenterOnCanvas.Y - dy);
+                UpdateArrowGeometry(arrow);
+            }
+        }
+
+        foreach (var ar in _annotRects.ToList())
+        {
+            if (!sel.IntersectsWith(ar.Bounds))
+            {
+                RemoveAnnotationRect(ar);
+            }
+            else
+            {
+                ar.Bounds = new Rect(ar.Bounds.Left - dx, ar.Bounds.Top - dy,
+                                     ar.Bounds.Width, ar.Bounds.Height);
+                UpdateRectGeometry(ar);
+            }
+        }
+
+        if (_cursorEnabled && _cursorImage != null)
+        {
+            const double CursorW = 22, CursorH = 26;
+            var curX = Canvas.GetLeft(_cursorImage);
+            var curY = Canvas.GetTop(_cursorImage);
+            var cursorBounds = new Rect(curX, curY, CursorW, CursorH);
+            if (!sel.IntersectsWith(cursorBounds))
+            {
+                _cursorEnabled = false;
+                _cursorImage.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                Canvas.SetLeft(_cursorImage, curX - dx);
+                Canvas.SetTop(_cursorImage, curY - dy);
+            }
+        }
+
+        // Clear the selection and deselect any annotation so we start fresh.
+        _sel = Rect.Empty;
+        SelectArrow(null);
+        SelectAnnotationRect(null);
+        HideColorPicker();
+        RefreshLayout();
+    }
+
     // ── Insert Image ──────────────────────────────────────────────────────────
 
     private void DoInsertImage()
@@ -3031,8 +3160,8 @@ internal sealed class ClipboardImageEditorWindow : Window
         {
             // Always render at original pixel dimensions regardless of monitor DPI or
             // the display scaling applied in the constructor.
-            var pxW = _clipboardImage.PixelWidth;
-            var pxH = _clipboardImage.PixelHeight;
+            var pxW = _workingImage.PixelWidth;
+            var pxH = _workingImage.PixelHeight;
             if (pxW < 1 || pxH < 1) return;
 
             // Use a DrawingVisual so we can scale from canvas logical size to pixel size.
@@ -3143,7 +3272,12 @@ internal sealed class ClipboardImageEditorWindow : Window
         CursorEnabled: _cursorEnabled,
         CursorPos: _cursorImage != null
                            ? new Point(Canvas.GetLeft(_cursorImage), Canvas.GetTop(_cursorImage))
-                           : default);
+                           : default,
+        WorkingImage: _workingImage,
+        CanvasW: _canvas.Width,
+        CanvasH: _canvas.Height,
+        CanvasScaleX: _canvasScaleX,
+        CanvasScaleY: _canvasScaleY);
 
     private void PushUndo()
     {
@@ -3219,6 +3353,17 @@ internal sealed class ClipboardImageEditorWindow : Window
             _sel = snap.Sel;
             _cursorEnabled = snap.CursorEnabled;
 
+            // Restore working image and canvas dimensions (changed by Enter-crop).
+            _workingImage = snap.WorkingImage;
+            _canvasScaleX = snap.CanvasScaleX;
+            _canvasScaleY = snap.CanvasScaleY;
+            _canvas.Width  = snap.CanvasW;
+            _canvas.Height = snap.CanvasH;
+            _imageCtrl.Source = snap.WorkingImage;
+            _imageCtrl.Width  = snap.CanvasW;
+            _imageCtrl.Height = snap.CanvasH;
+            _cachedPixels = null;
+
             if (snap.CursorEnabled)
             {
                 EnsureCursorImageCreated();
@@ -3293,7 +3438,12 @@ internal sealed class ClipboardImageEditorWindow : Window
         IReadOnlyList<ArrowSnap> Arrows,
         IReadOnlyList<RectSnap> Rects,
         bool CursorEnabled,
-        Point CursorPos);
+        Point CursorPos,
+        BitmapSource WorkingImage,
+        double CanvasW,
+        double CanvasH,
+        double CanvasScaleX,
+        double CanvasScaleY);
 
     private sealed record ArrowSnap(
         string TargetElementName,
