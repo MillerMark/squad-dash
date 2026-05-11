@@ -26,6 +26,7 @@ internal static class AnnotationCursors
     private static Cursor? _dropCursorTool;
     private static Cursor? _cropTool;
     private static Cursor? _eyedropperTool;
+    private static Cursor? _textTool;
 
     // ── Public properties ─────────────────────────────────────────────────────
 
@@ -73,6 +74,13 @@ internal static class AnnotationCursors
     /// </summary>
     public static Cursor EyedropperTool
         => _eyedropperTool ??= CreateCursorFromDrawing(CreateEyedropperToolDrawing(), 32, 32, hotX: 2, hotY: 28);
+
+    /// <summary>
+    /// Text-tool cursor: an I-beam with horizontal crosshair arms at centre.
+    /// The I-beam's vertical bar serves as the crosshair vertical arm. Hotspot = (16, 16).
+    /// </summary>
+    public static Cursor TextTool
+        => _textTool ??= CreateCursorFromDrawing(CreateTextToolDrawing(), 32, 32, hotX: 16, hotY: 16);
 
     // ── Cursor factory ────────────────────────────────────────────────────────
 
@@ -373,6 +381,41 @@ internal static class AnnotationCursors
             dc.DrawLine(darkPen, new Point(E - B, E), new Point(E, E));
             dc.DrawLine(darkPen, new Point(E, E),     new Point(E, E - B));
             DrawCrosshair(dc, cx: 16, cy: 16);
+        }
+        return dg;
+    }
+
+    private static Drawing CreateTextToolDrawing()
+    {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            const double cx       = 16;
+            const double cy       = 16;
+            const double serifY1  = 5;
+            const double serifY2  = 27;
+            const double serifHW  = 4;  // half-width → 8 px total serif
+            const double armGap   = 3;
+            const double armLen   = 7;
+
+            var whitePen = new Pen(Brushes.White, 2.0)
+                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2)
+                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+            // White outline first for legibility
+            dc.DrawLine(whitePen, new Point(cx - serifHW, serifY1), new Point(cx + serifHW, serifY1));
+            dc.DrawLine(whitePen, new Point(cx - serifHW, serifY2), new Point(cx + serifHW, serifY2));
+            dc.DrawLine(whitePen, new Point(cx, serifY1),           new Point(cx, serifY2));
+            dc.DrawLine(whitePen, new Point(cx - armLen, cy),       new Point(cx - armGap, cy));
+            dc.DrawLine(whitePen, new Point(cx + armGap, cy),       new Point(cx + armLen, cy));
+
+            // Dark grey on top
+            dc.DrawLine(darkPen, new Point(cx - serifHW, serifY1), new Point(cx + serifHW, serifY1));
+            dc.DrawLine(darkPen, new Point(cx - serifHW, serifY2), new Point(cx + serifHW, serifY2));
+            dc.DrawLine(darkPen, new Point(cx, serifY1),           new Point(cx, serifY2));
+            dc.DrawLine(darkPen, new Point(cx - armLen, cy),       new Point(cx - armGap, cy));
+            dc.DrawLine(darkPen, new Point(cx + armGap, cy),       new Point(cx + armLen, cy));
         }
         return dg;
     }

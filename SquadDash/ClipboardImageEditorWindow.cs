@@ -246,6 +246,9 @@ internal sealed class ClipboardImageEditorWindow : Window
     private AnnotationText? _textHandleDragAnnotation;
     private Color _defaultTextFgColor = Colors.White;
     private Color _defaultTextBgColor = Colors.Black;
+    private bool _textDragCreating;
+    private Point _textDragStart;
+    private Rectangle? _textDragPreview;
 
     // ────────────────────────────────────────────────────────────────────────
 
@@ -1423,11 +1426,18 @@ internal sealed class ClipboardImageEditorWindow : Window
             return;
         }
 
-        // Text placement mode: click canvas to begin a new text annotation at this point.
-        // (The active TextBox loses focus → LostFocus handler commits it before this fires.)
+        // Text placement mode: start drag to define text box dimensions.
         if (_inTextMode)
         {
-            BeginEditText(pt);
+            if (_activeTextBox != null)
+            {
+                // A text box is already active; let its LostFocus commit+exit — don't start another.
+                e.Handled = true;
+                return;
+            }
+            _textDragStart    = pt;
+            _textDragCreating = true;
+            _canvas.CaptureMouse();
             e.Handled = true;
             return;
         }
@@ -1501,6 +1511,43 @@ internal sealed class ClipboardImageEditorWindow : Window
             else
             {
                 HideCrosshair();
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // Text drag: show a dashed preview rectangle while the user defines the text box width.
+        if (_textDragCreating)
+        {
+            var curPt = e.GetPosition(_canvas);
+            var l = Math.Min(_textDragStart.X, curPt.X);
+            var t = Math.Min(_textDragStart.Y, curPt.Y);
+            var r = Math.Max(_textDragStart.X, curPt.X);
+            var b = Math.Max(_textDragStart.Y, curPt.Y);
+            if (r - l >= 5)
+            {
+                if (_textDragPreview == null)
+                {
+                    _textDragPreview = new Rectangle
+                    {
+                        Stroke          = Brushes.White,
+                        StrokeThickness = 1.5,
+                        StrokeDashArray = new DoubleCollection { 4, 2 },
+                        Fill            = new SolidColorBrush(Color.FromArgb(20, 255, 255, 255)),
+                        IsHitTestVisible = false,
+                    };
+                    Panel.SetZIndex(_textDragPreview, 200);
+                    _canvas.Children.Add(_textDragPreview);
+                }
+                Canvas.SetLeft(_textDragPreview, l);
+                Canvas.SetTop(_textDragPreview, t);
+                _textDragPreview.Width  = r - l;
+                _textDragPreview.Height = Math.Max(b - t, AnnotationText.MinFontSize * 1.5);
+            }
+            else if (_textDragPreview != null)
+            {
+                _canvas.Children.Remove(_textDragPreview);
+                _textDragPreview = null;
             }
             e.Handled = true;
             return;
@@ -1598,7 +1645,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             else if (_inRectMode)
                 _canvas.Cursor = AnnotationCursors.RectTool;
             else if (_inTextMode)
-                _canvas.Cursor = Cursors.IBeam;
+                _canvas.Cursor = AnnotationCursors.TextTool;
             else if (_inCursorPlacementMode)
                 _canvas.Cursor = AnnotationCursors.DropCursorTool;
             else if (_sel.IsEmpty)
@@ -1632,6 +1679,25 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private void Canvas_MouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (_textDragCreating)
+        {
+            _textDragCreating = false;
+            _canvas.ReleaseMouseCapture();
+            if (_textDragPreview != null)
+            {
+                _canvas.Children.Remove(_textDragPreview);
+                _textDragPreview = null;
+            }
+            var upPt = e.GetPosition(_canvas);
+            var dragW = Math.Abs(upPt.X - _textDragStart.X);
+            if (dragW < 5)
+                BeginEditText(_textDragStart);
+            else
+                BeginEditTextWithWidth(_textDragStart, dragW);
+            e.Handled = true;
+            return;
+        }
+
         if (_creatingArrowByDrag)
         {
             _creatingArrowByDrag = false;
@@ -2401,11 +2467,24 @@ internal sealed class ClipboardImageEditorWindow : Window
         Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy - 30));
     }
 
+    private static string ColorName(Color c) => c switch
+    {
+        { R: 255, G:   0, B:   0 } => "Red",
+        { R:   0, G: 200, B:   0 } or { R:   0, G: 255, B:   0 } => "Green",
+        { R:   0, G:   0, B: 255 } => "Blue",
+        { R: 255, G: 255, B:   0 } => "Yellow",
+        { R: 255, G: 165, B:   0 } or { R: 255, G: 120, B:  20 } => "Orange",
+        { R: 255, G: 255, B: 255 } => "White",
+        { R:   0, G:   0, B:   0 } => "Black",
+        _ => $"#{c.R:X2}{c.G:X2}{c.B:X2}"
+    };
+
     private static FrameworkElement MakeColorSwatch(Color c, bool isSelected, Action<Color> onPick)
     {
+        var tip = $"Set text color to {ColorName(c)}";
         if (isSelected)
         {
-            var grid = new Grid { Width = 20, Height = 20, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand };
+            var grid = new Grid { Width = 20, Height = 20, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand, ToolTip = tip };
             grid.Children.Add(new Ellipse { Fill = Brushes.Black });
             grid.Children.Add(new Ellipse
             {
@@ -2429,6 +2508,7 @@ internal sealed class ClipboardImageEditorWindow : Window
                 StrokeThickness = 1,
                 Margin = new Thickness(3, 0, 3, 0),
                 Cursor = Cursors.Hand,
+                ToolTip = tip,
             };
             dot.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
             return dot;
@@ -3293,7 +3373,7 @@ internal sealed class ClipboardImageEditorWindow : Window
     private void EnterTextMode()
     {
         _inTextMode = true;
-        _canvas.Cursor = Cursors.IBeam;
+        _canvas.Cursor = AnnotationCursors.TextTool;
         ShowModeHint("Click to place text · ESC to exit");
     }
 
@@ -3315,15 +3395,103 @@ internal sealed class ClipboardImageEditorWindow : Window
         PushUndo(); // save state before the annotation is born
         var annotation = new AnnotationText
         {
-            Bounds          = new Rect(pt.X, pt.Y, 0, 0),
+            FontSize        = AnnotationText.MaxFontSize,
+            TextColor       = _defaultTextFgColor,
+            BackgroundColor = _defaultTextBgColor
+        };
+        // Shift up so the click point is the baseline (cap-height ≈ FontSize × 0.85)
+        var adjustedPt = new Point(pt.X, Math.Max(0, pt.Y - annotation.FontSize * 0.85));
+        annotation.Bounds = new Rect(adjustedPt.X, adjustedPt.Y, 0, 0);
+        _texts.Add(annotation);
+        _editingText = annotation;
+        CreateTextBoxOverlay(annotation);
+        // Revert canvas cursor immediately — TextBox will show IBeam on its own when hovered
+        if (!_inTextMultiDropMode)
+            _canvas.Cursor = Cursors.Arrow;
+    }
+
+    /// <summary>
+    /// Creates a width-constrained text annotation. The drag width defines the text box width;
+    /// text wraps within that fixed width.
+    /// </summary>
+    private void BeginEditTextWithWidth(Point topLeft, double width)
+    {
+        PushUndo();
+        var fixedWidth = Math.Max(60, width);
+        var annotation = new AnnotationText
+        {
+            Bounds          = new Rect(topLeft.X, topLeft.Y, fixedWidth, 0),
             FontSize        = AnnotationText.MaxFontSize,
             TextColor       = _defaultTextFgColor,
             BackgroundColor = _defaultTextBgColor
         };
         _texts.Add(annotation);
         _editingText = annotation;
-        CreateTextBoxOverlay(annotation);
-        // Revert canvas cursor immediately — TextBox will show IBeam on its own when hovered
+
+        var tb = new TextBox
+        {
+            FontFamily    = new FontFamily("Calibri"),
+            FontSize      = annotation.FontSize,
+            FontWeight    = FontWeights.Bold,
+            Foreground    = new SolidColorBrush(annotation.TextColor),
+            Background    = annotation.BackgroundColor.A == 0
+                ? new SolidColorBrush(Color.FromArgb(40, 0, 0, 0))
+                : new SolidColorBrush(annotation.BackgroundColor),
+            BorderBrush   = new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            AcceptsReturn  = false,
+            TextWrapping   = TextWrapping.Wrap,
+            Width          = fixedWidth,
+            MinWidth       = 60,
+            Padding        = new Thickness(4, 2, 4, 2),
+            CaretBrush     = annotation.BackgroundColor.A > 0 && annotation.BackgroundColor.R < 128
+                ? Brushes.White
+                : Brushes.Black,
+            SelectionBrush = new SolidColorBrush(Color.FromArgb(120, 100, 160, 255)),
+            Text           = annotation.Text
+        };
+
+        tb.KeyDown += (_, e) =>
+        {
+            if (e.Key is Key.Return or Key.Enter)
+            {
+                CommitActiveTextBox();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                var editingCopy = _editingText;
+                var wasNew      = string.IsNullOrEmpty(editingCopy?.Text ?? "");
+                var tbRef2      = _activeTextBox;
+                _activeTextBox = null;
+                _editingText   = null;
+                _canvas.Children.Remove(tbRef2);
+                if (wasNew && editingCopy != null)
+                    _texts.Remove(editingCopy);
+                else if (editingCopy?.Display != null)
+                {
+                    editingCopy.Display.Visibility = Visibility.Visible;
+                    if (editingCopy.Shadow != null) editingCopy.Shadow.Visibility = Visibility.Visible;
+                }
+                if (_undoStack.Count > 0) _undoStack.Pop();
+                e.Handled = true;
+            }
+        };
+
+        tb.LostFocus += (_, _) =>
+        {
+            if (_activeTextBox == tb)
+                CommitActiveTextBox();
+        };
+
+        Canvas.SetLeft(tb, annotation.Bounds.Left);
+        Canvas.SetTop(tb,  annotation.Bounds.Top);
+        Panel.SetZIndex(tb, 200);
+        _canvas.Children.Add(tb);
+        _activeTextBox = tb;
+
+        tb.Focus();
+        tb.SelectAll();
         if (!_inTextMultiDropMode)
             _canvas.Cursor = Cursors.Arrow;
     }
@@ -3342,7 +3510,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         {
             ExitAllToolModes();
             _inTextMode = true;
-            _canvas.Cursor = Cursors.IBeam;
+            _canvas.Cursor = AnnotationCursors.TextTool;
             if (_addTextBtn != null) _addTextBtn.Content = MakeToolIcon("ImageEditorTextIcon", active: true);
             ShowModeHint("Click to place text · ESC to exit");
         }
@@ -3466,7 +3634,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         {
             editCopy.Text     = text;
             editCopy.FontSize = tbRef.FontSize;
-            editCopy.Bounds   = new Rect(Canvas.GetLeft(tbRef), Canvas.GetTop(tbRef), 0, 0);
+            editCopy.Bounds   = new Rect(Canvas.GetLeft(tbRef), Canvas.GetTop(tbRef), double.IsNaN(tbRef.Width) ? 0 : tbRef.Width, 0);
             UpdateTextDisplay(editCopy);
             if (autoExit)
             {
@@ -4344,15 +4512,26 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private static FrameworkElement MakeBgSwatch(Color bgColor, bool isSelected, Action<Color> onPick)
     {
+        string tip = bgColor.A == 0
+            ? "Transparent background (no fill)"
+            : bgColor.R == 0
+                ? "Black background"
+                : "White background";
+
         FrameworkElement fill;
         if (bgColor.A == 0)
         {
-            fill = new Rectangle
+            // Transparent: checker + red diagonal line to indicate "no fill"
+            var checkerGrid = new Grid { Width = 16, Height = 16 };
+            checkerGrid.Children.Add(new Rectangle { Width = 16, Height = 16, Fill = MakeCheckerBrush(), RadiusX = 2, RadiusY = 2 });
+            checkerGrid.Children.Add(new Line
             {
-                Width = 16, Height = 16,
-                Fill = MakeCheckerBrush(),
-                RadiusX = 2, RadiusY = 2,
-            };
+                X1 = 1, Y1 = 1, X2 = 15, Y2 = 15,
+                Stroke = Brushes.Red, StrokeThickness = 1.5,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                IsHitTestVisible = false
+            });
+            fill = checkerGrid;
         }
         else
         {
@@ -4366,7 +4545,7 @@ internal sealed class ClipboardImageEditorWindow : Window
 
         if (isSelected)
         {
-            var grid = new Grid { Width = 20, Height = 20, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand };
+            var grid = new Grid { Width = 20, Height = 20, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand, ToolTip = tip };
             grid.Children.Add(new Rectangle { Fill = Brushes.Black, RadiusX = 3, RadiusY = 3 });
             var inner = new Border
             {
@@ -4384,7 +4563,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         }
         else
         {
-            var grid = new Grid { Width = 16, Height = 16, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand };
+            var grid = new Grid { Width = 16, Height = 16, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand, ToolTip = tip };
             grid.Children.Add(fill);
             grid.Children.Add(new Rectangle
             {
