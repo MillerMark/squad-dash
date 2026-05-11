@@ -661,4 +661,111 @@ internal sealed class VoiceInsertionHeuristicsTests {
         Assert.That(VoiceInsertionHeuristics.StripFillerWords("the uh thing"),
                     Is.EqualTo("the thing"));
     }
+
+    // ── IsMarkdownPathContext ────────────────────────────────────────────────
+
+    [Test]
+    public void IsMarkdownPathContext_InsideImageLink_ReturnsTrue() {
+        // Caret inside: ![Screenshot: brief description](images/|foo.png)
+        var left  = "![Screenshot: brief description](images/";
+        var right = "foo.png)";
+        Assert.That(VoiceInsertionHeuristics.IsMarkdownPathContext(left, right), Is.True);
+    }
+
+    [Test]
+    public void IsMarkdownPathContext_InsideTextLink_ReturnsTrue() {
+        var left  = "[some text](";
+        var right = ")";
+        Assert.That(VoiceInsertionHeuristics.IsMarkdownPathContext(left, right), Is.True);
+    }
+
+    [Test]
+    public void IsMarkdownPathContext_CaretOnSelectedSlugInImagePath_ReturnsTrue() {
+        // User selected "screenshot-bf15ba21" — left ends at images/, right is .png)
+        var left  = "![Screenshot: brief description](images/";
+        var right = ".png)";
+        Assert.That(VoiceInsertionHeuristics.IsMarkdownPathContext(left, right), Is.True);
+    }
+
+    [Test]
+    public void IsMarkdownPathContext_OutsideParens_ReturnsFalse() {
+        var left  = "some prose text";
+        var right = " more text";
+        Assert.That(VoiceInsertionHeuristics.IsMarkdownPathContext(left, right), Is.False);
+    }
+
+    [Test]
+    public void IsMarkdownPathContext_InsideRegularParens_ReturnsFalse() {
+        // Regular parens without preceding ']' should not trigger path mode.
+        var left  = "some text (";
+        var right = ")";
+        Assert.That(VoiceInsertionHeuristics.IsMarkdownPathContext(left, right), Is.False);
+    }
+
+    [Test]
+    public void IsMarkdownPathContext_EmptyLeft_ReturnsFalse() {
+        Assert.That(VoiceInsertionHeuristics.IsMarkdownPathContext("", ")"), Is.False);
+    }
+
+    // ── SlugifyForPath ────────────────────────────────────────────────────────
+
+    [Test]
+    public void SlugifyForPath_SimpleWords_ReturnsDashSeparatedLowercase() {
+        Assert.That(VoiceInsertionHeuristics.SlugifyForPath("Coordinator agent card"),
+                    Is.EqualTo("coordinator-agent-card"));
+    }
+
+    [Test]
+    public void SlugifyForPath_WordsWithDotExtension_ReturnsSlugWithExtension() {
+        Assert.That(VoiceInsertionHeuristics.SlugifyForPath("coordinator agent card dot PNG"),
+                    Is.EqualTo("coordinator-agent-card.png"));
+    }
+
+    [Test]
+    public void SlugifyForPath_DotJpg_ReturnsLowercaseExtension() {
+        Assert.That(VoiceInsertionHeuristics.SlugifyForPath("my screenshot dot jpg"),
+                    Is.EqualTo("my-screenshot.jpg"));
+    }
+
+    [Test]
+    public void SlugifyForPath_SpecialCharsStripped() {
+        Assert.That(VoiceInsertionHeuristics.SlugifyForPath("My Screenshot!"),
+                    Is.EqualTo("my-screenshot"));
+    }
+
+    [Test]
+    public void SlugifyForPath_EmptyString_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.SlugifyForPath(""), Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void SlugifyForPath_FillerWordsStripped() {
+        Assert.That(VoiceInsertionHeuristics.SlugifyForPath("Uh, coordinator agent card"),
+                    Is.EqualTo("coordinator-agent-card"));
+    }
+
+    // ── Apply — path context integration ─────────────────────────────────────
+
+    [Test]
+    public void Apply_InMarkdownPath_SlugsTheText() {
+        var left  = "![Screenshot: brief description](images/";
+        var right = ")";
+        var result = VoiceInsertionHeuristics.Apply(left, "Coordinator agent card", right);
+        Assert.That(result, Is.EqualTo("coordinator-agent-card"));
+    }
+
+    [Test]
+    public void Apply_InMarkdownPath_WithDotExtension_SlugsWithExt() {
+        var left  = "![Screenshot: brief description](images/";
+        var right = ")";
+        var result = VoiceInsertionHeuristics.Apply(left, "Coordinator agent card dot PNG", right);
+        Assert.That(result, Is.EqualTo("coordinator-agent-card.png"));
+    }
+
+    [Test]
+    public void Apply_OutsideMarkdownPath_DoesNotSlug() {
+        // Normal prose should still get normal heuristics (not slugified).
+        var result = VoiceInsertionHeuristics.Apply("some prose ", "Hello world");
+        Assert.That(result, Is.EqualTo("hello world"));
+    }
 }

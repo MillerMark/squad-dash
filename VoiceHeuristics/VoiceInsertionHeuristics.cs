@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace VoiceHeuristics;
@@ -49,6 +50,16 @@ public static class VoiceInsertionHeuristics
         @"  +",
         RegexOptions.Compiled);
 
+    // Detects "dot <extension>" at the end of dictated path text.
+    // e.g. "coordinator agent card dot PNG" → extension token = "png"
+    // Matches: "dot <word>" (case-insensitive) at the very end.
+    private static readonly Regex s_dotExtension = new(
+        @"\s+dot\s+([a-zA-Z0-9]+)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Consecutive dashes (from collapsing non-alphanumeric chars) → single dash.
+    private static readonly Regex s_multipleDashes = new(@"-{2,}", RegexOptions.Compiled);
+
     // ── Public entry point ────────────────────────────────────────────────────
 
     /// <summary>
@@ -71,6 +82,12 @@ public static class VoiceInsertionHeuristics
     public static string Apply(string leftContext, string incomingText, string rightContext = "")
     {
         if (string.IsNullOrEmpty(incomingText)) return incomingText;
+
+        // 0a. If the caret is inside a markdown path context (e.g. inside the ()
+        //     of a ![alt](path) image link), slugify the dictated text and return
+        //     immediately — all normal prose heuristics are skipped.
+        if (IsMarkdownPathContext(leftContext, rightContext))
+            return SlugifyForPath(incomingText);
 
         var result = incomingText;
 
@@ -466,6 +483,105 @@ public static class VoiceInsertionHeuristics
     /// <paramref name="targetWord"/> begins in <paramref name="text"/> so the
     /// caller can reconstruct the corrected string.
     /// </summary>
+    /// <summary>
+    /// Returns <c>true</c> when the insertion caret is inside a markdown path
+    /// context — specifically inside the URL/path parentheses of a markdown link
+    /// or image: <c>![alt](|)</c>, <c>[text](|)</c>, or any <c>](|</c> followed
+    /// by <c>)</c> on the same line.
+    ///
+    /// Detection looks at the nearest unmatched <c>(</c> to the left that is
+    /// preceded by <c>]</c>, and confirms the right context contains the closing
+    /// <c>)</c> before any newline.
+    /// </summary>
+    public static bool IsMarkdownPathContext(string leftContext, string rightContext)
+    {
+        if (string.IsNullOrEmpty(leftContext)) return false;
+
+        // Walk backwards through leftContext looking for an unmatched '(' that
+        // is immediately preceded by ']'.
+        var depth = 0;
+        for (var i = leftContext.Length - 1; i >= 1; i--)
+        {
+            var ch = leftContext[i];
+            if (ch == ')') { depth++; continue; }
+            if (ch == '(')
+            {
+                if (depth > 0) { depth--; continue; }
+                // Found unmatched '(' — check it is preceded by ']'.
+                if (leftContext[i - 1] == ']')
+                {
+                    // Confirm right context closes before newline.
+                    foreach (var rc in rightContext)
+                    {
+                        if (rc == ')') return true;
+                        if (rc == '\n' || rc == '\r') return false;
+                    }
+                    // No ')' found in right context — caret may be at end of line,
+                    // e.g. the ')' was already to the left of the selection.
+                    // Still treat as path context if the '(' pattern matched.
+                    return true;
+                }
+                return false;
+            }
+            // Newline: the path can't span lines, abort.
+            if (ch == '\n' || ch == '\r') return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Converts dictated text into a lowercase, dash-separated path slug suitable
+    /// for use inside a markdown link path.
+    ///
+    /// Rules:
+    /// <list type="bullet">
+    ///   <item>"dot &lt;ext&gt;" at the end is converted to ".&lt;ext&gt;" (e.g. "dot PNG" → ".png").</item>
+    ///   <item>All letters are lowercased.</item>
+    ///   <item>Non-alphanumeric characters (excluding the preserved final dot from
+    ///         the extension) are replaced with dashes.</item>
+    ///   <item>Consecutive dashes are collapsed to one.</item>
+    ///   <item>Leading and trailing dashes are trimmed.</item>
+    /// </list>
+    ///
+    /// Examples:
+    /// <code>
+    /// SlugifyForPath("Coordinator agent card")     → "coordinator-agent-card"
+    /// SlugifyForPath("Coordinator agent card dot PNG") → "coordinator-agent-card.png"
+    /// SlugifyForPath("My Screenshot!")             → "my-screenshot"
+    /// </code>
+    /// </summary>
+    public static string SlugifyForPath(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+
+        // Strip leading filler before slugifying so "Uh, coordinator" → "coordinator".
+        text = StripFillerWords(text);
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+
+        // Detect and extract "dot <ext>" at the end.
+        string extension = string.Empty;
+        var extMatch = s_dotExtension.Match(text);
+        if (extMatch.Success)
+        {
+            extension = "." + extMatch.Groups[1].Value.ToLowerInvariant();
+            text = text[..extMatch.Index];
+        }
+
+        // Build slug: lowercase alphanumeric, everything else → dash.
+        var sb = new StringBuilder(text.Length);
+        foreach (var ch in text.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch))
+                sb.Append(ch);
+            else
+                sb.Append('-');
+        }
+
+        var slug = s_multipleDashes.Replace(sb.ToString(), "-").Trim('-');
+        return slug + extension;
+    }
+
     private static bool TryMatchTrailingWord(string text, string targetWord, out int stemLength)
     {
         // Trim trailing whitespace (speech recognizers sometimes append a space).
