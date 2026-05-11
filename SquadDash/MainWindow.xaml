@@ -1989,6 +1989,7 @@
                                            Text="Queue is running"
                                            FontSize="11"
                                            VerticalAlignment="Center"
+                                           Padding="4,2"
                                            Margin="0,0,6,0"
                                            Foreground="{DynamicResource SubtleText}" />
                                 <Button x:Name="QueuePlayPauseButton"

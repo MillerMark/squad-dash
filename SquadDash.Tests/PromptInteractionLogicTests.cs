@@ -753,6 +753,34 @@ internal sealed class RunButtonLabelPolicyTests {
         Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSubmit));
     }
 
+    // ── queueManuallyPaused overrides "Submit" for any tab ────────────────────
+
+    [Test]
+    public void Compute_ActiveTab_NotRightmost_QueueManuallyPaused_ReturnsSend() {
+        // While the queue is manually paused, non-rightmost tabs also show "Send".
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: false,
+            queueCount: 3, activeTabId: "tab-42", queueManuallyPaused: true, isRightmostTab: false);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_ActiveTab_Rightmost_QueueManuallyPaused_ReturnsSend() {
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: false, queuePausedAwaitingInput: false,
+            queueCount: 1, activeTabId: "tab-42", queueManuallyPaused: true, isRightmostTab: true);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+    }
+
+    [Test]
+    public void Compute_ActiveTab_QueueManuallyPaused_CoordinatorBusy_ReturnsQueue() {
+        // Busy coordinator still takes priority even when manually paused.
+        var label = RunButtonLabelPolicy.Compute(
+            coordinatorBusy: true, queuePausedAwaitingInput: false,
+            queueCount: 2, activeTabId: "tab-42", queueManuallyPaused: true, isRightmostTab: false);
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
+    }
+
     [Test]
     public void Compute_ActiveTab_CoordinatorBusy_ReturnsQueue() {
         var label = RunButtonLabelPolicy.Compute(

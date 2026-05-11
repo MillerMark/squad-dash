@@ -289,6 +289,8 @@ internal static class RunButtonLabelPolicy {
     /// i.e. the queue has been halted because the last AI turn requested human input.</param>
     /// <param name="queueCount">Number of items currently in the prompt queue.</param>
     /// <param name="activeTabId">The currently-active queued-tab ID, or null if on the live tab.</param>
+    /// <param name="queueManuallyPaused">True when the user has manually paused the queue.
+    /// While paused, any queue tab shows "Send" so it can be dispatched immediately.</param>
     /// <param name="isRightmostTab">True when the active tab is the rightmost (oldest/first-to-dispatch)
     /// queue item — the one that will actually be sent on the next dispatch cycle.</param>
     public static string Compute(
@@ -296,12 +298,16 @@ internal static class RunButtonLabelPolicy {
         bool queuePausedAwaitingInput,
         int  queueCount,
         string? activeTabId,
+        bool queueManuallyPaused = false,
         bool isRightmostTab = false) {
 
         // Editing a specific queued tab.
         if (activeTabId is not null)
         {
             if (coordinatorBusy) return LabelQueue;
+            // While the queue is manually paused, any tab shows "Send" — clicking it
+            // dispatches that item immediately and clears the pause.
+            if (queueManuallyPaused) return LabelSend;
             // "Send" only on the rightmost tab (the one about to be dispatched).
             // Non-rightmost tabs show "Submit" to indicate they are queued behind others.
             return isRightmostTab ? LabelSend : LabelSubmit;

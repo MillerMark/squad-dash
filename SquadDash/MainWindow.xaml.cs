@@ -2130,22 +2130,12 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private bool _queuePausedNotificationFired;
     private bool _rightmostTabHoldNotificationFired;
-    private Paragraph? _queuePausedLine1;
-    private Paragraph? _queuePausedLine2;
-    // Transcript paragraph injected when the user manually pauses the queue; removed on resume.
-    private Paragraph? _queueManualPauseParagraph;
 
     private void HandleQueuePausedForInput()
     {
         // Only show the message once per pause to avoid spam.
         if (_queuePausedNotificationFired) return;
         _queuePausedNotificationFired = true;
-
-        // Build paragraphs directly so we can hold references for later removal.
-        _queuePausedLine1 = AppendQueuePausedParagraph(
-            "⏸ Queue paused — AI is waiting for your response before continuing.");
-        _queuePausedLine2 = AppendQueuePausedParagraph(
-            "You can also select or enter a prompt below and click Send.");
 
         SyncSendButton();
 
@@ -2155,45 +2145,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             "AI needs your input before the queue continues.");
     }
 
-    private Paragraph? AppendQueuePausedParagraph(string text)
-    {
-        // If a turn is in progress the text goes into the response flow — don't track it.
-        if (CoordinatorThread.CurrentTurn is not null)
-        {
-            AppendLine(text, (Brush)FindResource("SubtleText"));
-            return null;
-        }
-
-        var paragraph = CreateTranscriptParagraph();
-        paragraph.Inlines.Add(new Run(text) { Foreground = (Brush)FindResource("SubtleText") });
-        CoordinatorThread.Document.Blocks.Add(paragraph);
-        ScrollToEndIfAtBottom(CoordinatorThread);
-        return paragraph;
-    }
-
     private void ResetQueuePausedState()
     {
         _queuePausedNotificationFired = false;
         _rightmostTabHoldNotificationFired = false;
-
-        // Remove the "queue paused" status lines from the transcript now that we're resuming.
-        RemoveQueuePausedLines();
-
         SyncSendButton();
-    }
-
-    private void RemoveQueuePausedLines()
-    {
-        if (_queuePausedLine1 is not null)
-        {
-            CoordinatorThread.Document.Blocks.Remove(_queuePausedLine1);
-            _queuePausedLine1 = null;
-        }
-        if (_queuePausedLine2 is not null)
-        {
-            CoordinatorThread.Document.Blocks.Remove(_queuePausedLine2);
-            _queuePausedLine2 = null;
-        }
     }
 
     /// <summary>
@@ -2320,10 +2276,16 @@ public partial class MainWindow : Window, ILiveElementLocator
             QueuePlayIcon.Visibility  = paused ? Visibility.Visible   : Visibility.Collapsed;
             QueuePauseIcon.Visibility = paused ? Visibility.Collapsed : Visibility.Visible;
 
-            if (!paused && _queueManualPauseParagraph is not null)
+            // High-contrast styling: black/yellow when paused, default when running.
+            if (paused)
             {
-                CoordinatorThread.Document.Blocks.Remove(_queueManualPauseParagraph);
-                _queueManualPauseParagraph = null;
+                QueueStatusLabel.Background = Brushes.Black;
+                QueueStatusLabel.Foreground = Brushes.Yellow;
+            }
+            else
+            {
+                QueueStatusLabel.ClearValue(BackgroundProperty);
+                QueueStatusLabel.ClearValue(ForegroundProperty);
             }
         }
         _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? true : null };
@@ -2339,8 +2301,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             // Turn has completed so the pending pause is now fully in effect.
             // Icon is already showing play ▶ (set during Case 2); update tooltip only.
             QueuePlayPauseButton.ToolTip = "Click to resume";
-            // Case 4: append transcript message now that the turn has finished.
-            _queueManualPauseParagraph = AppendQueuePausedParagraph("\u23f8 Queue is paused. Click \u25b6 to resume.");
+            // Apply high-contrast styling now that pause is fully active.
+            QueueStatusLabel.Background = Brushes.Black;
+            QueueStatusLabel.Foreground = Brushes.Yellow;
         }
     }
 
@@ -2356,7 +2319,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_queueManuallyPaused)
         {
             // Case 5: Resume from fully-paused state.
-            SetQueuePaused(false);  // also removes _queueManualPauseParagraph
+            SetQueuePaused(false);
 
             // If the rightmost tab is holding the queue, resume by submitting it directly.
             if (_rightmostTabHoldNotificationFired && _activeTabId is not null)
@@ -2368,10 +2331,6 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             // Case 1 or 2: Pause (or schedule pause if a turn is active).
             SetQueuePaused(true);
-
-            // Case 1: No turn running — queue is paused immediately, show transcript message.
-            if (!_queuePausePending)
-                _queueManualPauseParagraph = AppendQueuePausedParagraph("\u23f8 Queue is paused. Click \u25b6 to resume.");
         }
     }
 
@@ -3095,6 +3054,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             queuePausedAwaitingInput: _queuePausedNotificationFired,
             queueCount: _promptQueue.Count,
             activeTabId: _activeTabId,
+            queueManuallyPaused: _queueManuallyPaused,
             isRightmostTab: IsRightmostQueueTabActive());
     }
 
@@ -21347,10 +21307,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         // Restore queue paused state.
         if (_docsPanelState.QueuePaused == true)
-        {
             SetQueuePaused(true);
-            _queueManualPauseParagraph = AppendQueuePausedParagraph("\u23f8 Queue is paused. Click \u25b6 to resume.");
-        }
 
         // Restore selected loop file and populate the file picker.
         _selectedLoopMdPath = _docsPanelState.SelectedLoopFile;
