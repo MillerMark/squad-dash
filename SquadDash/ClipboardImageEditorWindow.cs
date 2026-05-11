@@ -1321,6 +1321,31 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         if (e.LeftButton != MouseButtonState.Pressed) return;
 
+        // Text annotation resize handle hit test — ABSOLUTE HIGHEST PRIORITY.
+        // Runs before every other mode check so handles always respond regardless of active tool.
+        var textHandleTarget = _selectedText ?? _editingText;
+        if (textHandleTarget != null && _textResizeHandles.Count == 8)
+        {
+            double hs = HandleSize / _zoom / 2;
+            var ptHandle = e.GetPosition(_canvas);
+            foreach (var handle in _textResizeHandles)
+            {
+                double hx = Canvas.GetLeft(handle) + hs;
+                double hy = Canvas.GetTop(handle)  + hs;
+                if (Math.Abs(ptHandle.X - hx) <= hs + 2 && Math.Abs(ptHandle.Y - hy) <= hs + 2)
+                {
+                    _draggingTextHandle         = true;
+                    _textHandleDragStart        = ptHandle;
+                    _textHandleDragOrigFontSize = textHandleTarget.FontSize;
+                    _textHandleDragAnnotation   = textHandleTarget;
+                    _preDragSnapshot            = CaptureSnapshot();
+                    _canvas.CaptureMouse();
+                    e.Handled = true;
+                    return;
+                }
+            }
+        }
+
         // Eyedropper mode: sample pixel on click.
         if (_inEyedropperMode)
         {
@@ -1345,29 +1370,6 @@ internal sealed class ClipboardImageEditorWindow : Window
 
         SelectArrow(null);
         SelectAnnotationRect(null);
-
-        // Text annotation resize handle hit test
-        if (_selectedText != null && _textResizeHandles.Count == 8)
-        {
-            double hs = HandleSize / _zoom / 2;
-            var ptHandle = e.GetPosition(_canvas);
-            foreach (var handle in _textResizeHandles)
-            {
-                double hx = Canvas.GetLeft(handle) + hs;
-                double hy = Canvas.GetTop(handle)  + hs;
-                if (Math.Abs(ptHandle.X - hx) <= hs + 2 && Math.Abs(ptHandle.Y - hy) <= hs + 2)
-                {
-                    _draggingTextHandle       = true;
-                    _textHandleDragStart      = ptHandle;
-                    _textHandleDragOrigFontSize = _selectedText.FontSize;
-                    _textHandleDragAnnotation = _selectedText;
-                    _preDragSnapshot          = CaptureSnapshot();
-                    _canvas.CaptureMouse();
-                    e.Handled = true;
-                    return;
-                }
-            }
-        }
 
         // Clicking canvas background deselects any selected text annotation.
         // Skip if a text annotation was just committed by this same click (LostFocus → commit → select).
