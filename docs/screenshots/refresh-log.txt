@@ -1,4 +1,4 @@
-[2026-05-10 12:56:49.134Z] [screenshot] Starting: status-panel-border-agent-light
-[2026-05-10 12:56:49.431Z] [screenshot] Comparison: 42.24% match (60805 of 105270 pixels differ) — diff: D:\Drive\Source\SquadDash-public\docs\screenshots\diff\status-panel-border-agent-light-light.png
-[2026-05-10 12:56:49.431Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\status-panel-border-agent-light-light.png
-[2026-05-10 12:56:49.432Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\panels\images\descriptive-filename.png
+[2026-05-11 01:39:54.694Z] [screenshot] Starting: agent-card-border-lyra-morn-light
+[2026-05-11 01:39:55.196Z] [screenshot] Comparison: 15.09% match (48515 of 57138 pixels differ) — diff: D:\Drive\Source\SquadDash-public\docs\screenshots\diff\agent-card-border-lyra-morn-light-light.png
+[2026-05-11 01:39:55.196Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\agent-card-border-lyra-morn-light-light.png
+[2026-05-11 01:39:55.196Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\concepts\images\agent-82c2d144.png

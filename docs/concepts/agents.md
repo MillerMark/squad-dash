@@ -11,7 +11,7 @@ What agents are in the Squad context, how they work, and how SquadDash visualize
 ---
 
 ## What is an Agent?
-
+![Screenshot: brief description](images/agent-82c2d144.png)
 An **agent** is a specialized AI assistant with:
 - A **name** (e.g., "Lyra Morn", "Arjun Sen")
 - A **role** (e.g., "WPF & UI Specialist", "Backend Services Specialist")

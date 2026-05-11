@@ -965,5 +965,70 @@
     },
     "docImagePath": "..\\images\\descriptive-filename.png",
     "elementInventory": null
+  },
+  {
+    "name": "agent-card-border-lyra-morn-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "AgentCardBorder(Lyra Morn)"
+      ],
+      "needsName": false,
+      "elementLeft": 208,
+      "elementTop": 115.91,
+      "elementWidth": 170,
+      "elementHeight": 296.51000000000005,
+      "distanceToEdge": 4
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "AgentCardBorder(Lyra Morn)"
+      ],
+      "needsName": false,
+      "elementLeft": 208,
+      "elementTop": 115.91,
+      "elementWidth": 170,
+      "elementHeight": 296.51000000000005,
+      "distanceToEdge": 4
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "DetailTextBlock(Lyra Morn)"
+      ],
+      "needsName": false,
+      "elementLeft": 222,
+      "elementTop": 320.7900000000001,
+      "elementWidth": 142,
+      "elementHeight": 108,
+      "distanceToEdge": 4
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "AgentCardBorder(Lyra Morn)"
+      ],
+      "needsName": false,
+      "elementLeft": 208,
+      "elementTop": 115.91,
+      "elementWidth": 170,
+      "elementHeight": 296.51000000000005,
+      "distanceToEdge": 4
+    },
+    "bounds": {
+      "x": 204,
+      "y": 111.91,
+      "width": 178,
+      "height": 320.8800000000001,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\concepts\\images\\agent-82c2d144.png",
+    "elementInventory": null
   }
 ]
