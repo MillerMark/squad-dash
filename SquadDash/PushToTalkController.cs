@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
@@ -31,7 +31,7 @@ internal sealed class PushToTalkController : IDisposable {
     private bool                        _promptHasVoiceInput;
     private DateTime                    _ctrlFirstDownTime;
     private DateTime                    _ctrlFirstReleaseTime;
-    private SpeechRecognitionService?   _speechService;
+    private ISpeechRecognitionService?  _speechService;
     private Func<IEnumerable<string>>?  _phraseHintsProvider;
     private bool                        _voiceStartedWithSendEnabled;
     private int                         _sessionCaretIndex;
@@ -155,10 +155,18 @@ internal sealed class PushToTalkController : IDisposable {
 
     // ── PTT session management ─────────────────────────────────────────────
     private async Task StartPushToTalkAsync() {
-        var key    = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
-        var region = _settingsSnapshotProvider().SpeechRegion;
+        var settings = _settingsSnapshotProvider();
+        string key, region;
+        if (settings.SpeechProvider == SpeechProvider.OpenAI) {
+            key = settings.OpenAiSpeechApiKey ?? string.Empty;
+            region = string.Empty;
+        } else {
+            key = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User) ?? string.Empty;
+            region = settings.SpeechRegion ?? string.Empty;
+        }
 
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(region)) {
+        if (string.IsNullOrWhiteSpace(key) ||
+            (settings.SpeechProvider == SpeechProvider.Azure && string.IsNullOrWhiteSpace(region))) {
             _pttState = PttState.Idle;
             return;
         }
@@ -171,7 +179,9 @@ internal sealed class PushToTalkController : IDisposable {
         _pushToTalkPanel.Visibility = Visibility.Visible;
         _volumeBar.Height = 0;
 
-        _speechService = new SpeechRecognitionService();
+        _speechService = settings.SpeechProvider == SpeechProvider.OpenAI
+            ? new WhisperSpeechRecognitionService()
+            : new AzureSpeechRecognitionService();
 
         _speechService.PhraseRecognized += (_, text) =>
             _dispatcher.BeginInvoke(() => AppendSpeechToPrompt(text));
@@ -240,10 +250,16 @@ internal sealed class PushToTalkController : IDisposable {
 
     // ── UI hint ────────────────────────────────────────────────────────────
     internal void UpdateVoiceHintVisibility() {
-        var hasKey    = !string.IsNullOrWhiteSpace(
-            Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User));
-        var hasRegion = !string.IsNullOrWhiteSpace(_settingsSnapshotProvider().SpeechRegion);
-        _voiceHintText.Visibility = hasKey && hasRegion ? Visibility.Collapsed : Visibility.Visible;
+        var settings = _settingsSnapshotProvider();
+        bool configured;
+        if (settings.SpeechProvider == SpeechProvider.OpenAI)
+            configured = !string.IsNullOrWhiteSpace(settings.OpenAiSpeechApiKey);
+        else {
+            var hasKey = !string.IsNullOrWhiteSpace(
+                Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User));
+            configured = hasKey && !string.IsNullOrWhiteSpace(settings.SpeechRegion);
+        }
+        _voiceHintText.Visibility = configured ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // ── IDisposable ────────────────────────────────────────────────────────

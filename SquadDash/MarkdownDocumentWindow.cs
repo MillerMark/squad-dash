@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -78,7 +78,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     private DispatcherTimer? _sourceHoverTimer;
 
     // ── Editor voice / PTT ─────────────────────────────────────────────────
-    private SpeechRecognitionService? _editorVoiceService;
+    private AzureSpeechRecognitionService? _editorVoiceService;
     private PushToTalkWindow?         _editorPttWindow;
     private bool                      _editorVoiceStopOnCtrlRelease;
     private int                       _editorVoiceCaretIndex;
@@ -1017,7 +1017,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         _editorVoiceCaretIndex    = editorTb.GetSelectionStart();
         _editorVoiceSelectionLength = editorTb.GetSelectionLength();
 
-        _editorVoiceService = new SpeechRecognitionService();
+        _editorVoiceService = new AzureSpeechRecognitionService();
 
         _editorVoiceService.PhraseRecognized += (_, text) =>
             Dispatcher.BeginInvoke(() => AppendSpeechToEditor(text));

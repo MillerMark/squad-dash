@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7754,10 +7754,20 @@ public partial class MainWindow : Window, ILiveElementLocator
             ShowFullScreenPrompt();
         _pttShiftTappedDuringRecording = false;
         _pttLostFocusDuringRecording = false;
-        var key = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
-        var region = _settingsSnapshot.SpeechRegion;
+        string key, region;
+        if (_settingsSnapshot.SpeechProvider == SpeechProvider.OpenAI)
+        {
+            key = _settingsSnapshot.OpenAiSpeechApiKey ?? string.Empty;
+            region = string.Empty;
+        }
+        else
+        {
+            key = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User) ?? string.Empty;
+            region = _settingsSnapshot.SpeechRegion ?? string.Empty;
+        }
 
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(region))
+        if (string.IsNullOrWhiteSpace(key) ||
+            (_settingsSnapshot.SpeechProvider == SpeechProvider.Azure && string.IsNullOrWhiteSpace(region)))
         {
             _pttState = PttState.Idle;
             return;
@@ -7771,7 +7781,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         _speechService = _settingsSnapshot.SpeechProvider == SpeechProvider.OpenAI
             ? new WhisperSpeechRecognitionService()
-            : new SpeechRecognitionService();
+            : new AzureSpeechRecognitionService();
 
         _speechService.PhraseRecognized += (_, text) =>
             Dispatcher.BeginInvoke(() => AppendSpeechToPrompt(text));
@@ -8029,11 +8039,18 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void UpdateVoiceHintVisibility()
     {
+        var hasSpeech = IsSpeechConfigured();
+        VoiceHintText.Visibility = hasSpeech ? Visibility.Collapsed : Visibility.Visible;
+        BuildShortcutsHint();
+    }
+
+    private bool IsSpeechConfigured()
+    {
+        if (_settingsSnapshot.SpeechProvider == SpeechProvider.OpenAI)
+            return !string.IsNullOrWhiteSpace(_settingsSnapshot.OpenAiSpeechApiKey);
         var hasKey = !string.IsNullOrWhiteSpace(
             Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User));
-        var hasRegion = !string.IsNullOrWhiteSpace(_settingsSnapshot.SpeechRegion);
-        VoiceHintText.Visibility = hasKey && hasRegion ? Visibility.Collapsed : Visibility.Visible;
-        BuildShortcutsHint();
+        return hasKey && !string.IsNullOrWhiteSpace(_settingsSnapshot.SpeechRegion);
     }
 
     private static Run Bold(string text) => new Run(text) { FontWeight = FontWeights.Bold };
@@ -8048,9 +8065,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     private void BuildShortcutsHint()
     {
-        var hasKey = !string.IsNullOrWhiteSpace(
-            Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User));
-        var includePtt = hasKey && !string.IsNullOrWhiteSpace(_settingsSnapshot?.SpeechRegion);
+        var includePtt = IsSpeechConfigured();
 
         var inlines = PromptShortcutsHintTextBlock.Inlines;
         inlines.Clear();

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.CognitiveServices.Speech;
@@ -7,7 +7,7 @@ using NAudio.Wave;
 
 namespace SquadDash;
 
-internal sealed class SpeechRecognitionService : ISpeechRecognitionService {
+internal sealed class AzureSpeechRecognitionService : ISpeechRecognitionService {
     private SpeechRecognizer? _recognizer;
     private WaveInEvent? _waveIn;
     private PushAudioInputStream? _pushStream;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -163,7 +163,7 @@ internal sealed class ScreenshotOverlayWindow : Window
     private FrameworkElement? _highlightedElement;
 
     // Description-box voice state
-    private SpeechRecognitionService? _descVoiceService;
+    private AzureSpeechRecognitionService? _descVoiceService;
     private PushToTalkWindow?         _descPttWindow;
     private bool                      _descVoiceStopOnCtrlRelease;
     private int                       _descVoiceCaretIndex     = -1;
@@ -1490,7 +1490,7 @@ internal sealed class ScreenshotOverlayWindow : Window
         }
 
         _descVoiceStopOnCtrlRelease = true;
-        _descVoiceService = new SpeechRecognitionService();
+        _descVoiceService = new AzureSpeechRecognitionService();
 
         _descVoiceService.PhraseRecognized += (_, text) =>
             Dispatcher.BeginInvoke(() =>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CognitiveServices.Speech.Audio;
@@ -6,11 +6,11 @@ using Microsoft.CognitiveServices.Speech.Audio;
 namespace SquadDash;
 
 /// <summary>
-/// Wraps a <see cref="SpeechRecognitionService"/> for a single RC (remote phone) PTT session.
+/// Wraps a <see cref="AzureSpeechRecognitionService"/> for a single RC (remote phone) PTT session.
 /// Created when <c>rc_audio_start</c> arrives, disposed on <c>rc_audio_end</c>.
 /// </summary>
 internal sealed class RemoteSpeechSession : IAsyncDisposable {
-    private readonly SpeechRecognitionService _service = new();
+    private readonly AzureSpeechRecognitionService _service = new();
     private readonly PushAudioInputStream _pushStream;
     private int _disposed;
 
