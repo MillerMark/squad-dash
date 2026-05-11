@@ -1775,71 +1775,71 @@
                         <StackPanel Orientation="Horizontal">
                             <Button x:Name="DocBoldButton"
                                     Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     IsEnabled="False"
                                     ToolTip="Bold selection (Ctrl+B)"
                                     Click="DocBoldButton_Click">
-                                <TextBlock FontWeight="Bold" FontSize="12" Text="B" />
+                                <TextBlock FontWeight="Bold" FontSize="15" Text="B" />
                             </Button>
                             <Button x:Name="DocItalicButton"
                                     Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     IsEnabled="False"
                                     ToolTip="Italic selection (Ctrl+I)"
                                     Click="DocItalicButton_Click">
-                                <TextBlock FontStyle="Italic" FontSize="12" Text="I" />
+                                <TextBlock FontStyle="Italic" FontSize="15" Text="I" />
                             </Button>
-                            <Separator Width="1" Height="14" Margin="2,0,4,0"
+                            <Separator Width="1" Height="18" Margin="2,0,4,0"
                                        Background="{DynamicResource PanelBorder}" />
                             <Button Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     ToolTip="Insert link"
                                     Click="DocLinkButton_Click">
-                                <TextBlock FontSize="11" Text="🔗" />
+                                <TextBlock FontSize="14" Text="🔗" />
                             </Button>
                             <Button Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     ToolTip="Insert image placeholder"
                                     Click="DocImageButton_Click">
-                                <TextBlock FontSize="11" Text="🖼" />
+                                <TextBlock FontSize="14" Text="🖼" />
                             </Button>
                             <Button Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     ToolTip="Insert table"
                                     Click="DocTableButton_Click">
-                                <TextBlock FontSize="11" Text="⊞" />
+                                <TextBlock FontSize="16" Text="⊞" />
                             </Button>
-                            <Separator Width="1" Height="14" Margin="2,0,4,0"
+                            <Separator Width="1" Height="18" Margin="2,0,4,0"
                                        Background="{DynamicResource PanelBorder}" />
                             <Button Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     ToolTip="Inline code"
                                     Click="DocInlineCodeButton_Click">
-                                <TextBlock FontFamily="Consolas" FontSize="11" Text="`" />
+                                <TextBlock FontFamily="Consolas" FontSize="14" Text="`" />
                             </Button>
                             <Button Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,0,0"
                                     ToolTip="Code block"
                                     Click="DocCodeBlockButton_Click">
-                                <TextBlock FontSize="11" Text="{}{}" />
+                                <TextBlock FontFamily="Consolas" FontSize="13" Text="&lt;/&gt;" />
                             </Button>
-                            <Separator Width="1" Height="14" Margin="2,0,4,0"
+                            <Separator Width="1" Height="18" Margin="2,0,4,0"
                                        Background="{DynamicResource PanelBorder}" />
                             <Button x:Name="DocBulletListButton"
                                     Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,2,0"
                                     IsEnabled="False"
                                     ToolTip="Convert selection to bullet list"
                                     Click="DocBulletListButton_Click">
-                                <Viewbox Width="20" Height="16" Stretch="Uniform">
+                                <Viewbox Width="24" Height="20" Stretch="Uniform">
                                     <Canvas Width="20" Height="16">
                                         <Ellipse   Canvas.Left="0" Canvas.Top="1.25"  Width="3.5" Height="3.5" Fill="{DynamicResource LabelText}"/>
                                         <Rectangle Canvas.Left="5" Canvas.Top="2"     Width="15"  Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
@@ -1852,19 +1852,19 @@
                             </Button>
                             <Button x:Name="DocNumberedListButton"
                                     Style="{StaticResource ThemedButtonStyle}"
-                                    Width="26" Height="22"
+                                    Width="34" Height="29"
                                     Padding="0" Margin="0,0,0,0"
                                     IsEnabled="False"
                                     ToolTip="Convert selection to numbered list"
                                     Click="DocNumberedListButton_Click">
-                                <Viewbox Width="20" Height="16" Stretch="Uniform">
+                                <Viewbox Width="24" Height="20" Stretch="Uniform">
                                     <Canvas Width="20" Height="16">
-                                        <TextBlock Canvas.Left="0" Canvas.Top="-0.5" FontSize="5" Foreground="{DynamicResource LabelText}" Text="1"/>
-                                        <Rectangle Canvas.Left="5.5" Canvas.Top="2"  Width="14.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
-                                        <TextBlock Canvas.Left="0" Canvas.Top="4.5"  FontSize="5" Foreground="{DynamicResource LabelText}" Text="2"/>
-                                        <Rectangle Canvas.Left="5.5" Canvas.Top="7"  Width="14.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
-                                        <TextBlock Canvas.Left="0" Canvas.Top="9.5"  FontSize="5" Foreground="{DynamicResource LabelText}" Text="3"/>
-                                        <Rectangle Canvas.Left="5.5" Canvas.Top="12" Width="14.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <TextBlock Canvas.Left="0" Canvas.Top="-0.5" FontSize="7" Foreground="{DynamicResource LabelText}" Text="1"/>
+                                        <Rectangle Canvas.Left="6.5" Canvas.Top="2"  Width="13.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <TextBlock Canvas.Left="0" Canvas.Top="4.5"  FontSize="7" Foreground="{DynamicResource LabelText}" Text="2"/>
+                                        <Rectangle Canvas.Left="6.5" Canvas.Top="7"  Width="13.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
+                                        <TextBlock Canvas.Left="0" Canvas.Top="9.5"  FontSize="7" Foreground="{DynamicResource LabelText}" Text="3"/>
+                                        <Rectangle Canvas.Left="6.5" Canvas.Top="12" Width="13.5" Height="2"   Fill="{DynamicResource LabelText}" RadiusX="1" RadiusY="1"/>
                                     </Canvas>
                                 </Viewbox>
                             </Button>
