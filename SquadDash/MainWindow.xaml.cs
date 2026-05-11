@@ -170,6 +170,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _isPromptRunning;
     private readonly PromptQueue _promptQueue = new();
     private bool _queueManuallyPaused;
+    private bool _queuePausePending;
     private int _promptQueueSeq;
     private readonly HostCommandRegistry _hostCommandRegistry = new();
     private HostCommandExecutor? _hostCommandExecutor;
@@ -898,6 +899,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 else
                 {
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
+                    SyncQueuePauseLabel();
                     UpdateCompletedTimeFooters();
                     _backgroundTaskPresenter.PromoteDeferredBackgroundAgentReports("coordinator_idle");
                     SquadDashTrace.Write("Queue", $"setIsPromptRunning(false): queueCount={_promptQueue.Count} deferred={_deferredShutdown} restartPending={_restartPending} isClosing={_isClosing}");
@@ -2292,12 +2294,30 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void SetQueuePaused(bool paused)
     {
         _queueManuallyPaused = paused;
-        QueueStatusLabel.Text = paused ? "Queue is paused" : "Queue is running";
+        if (paused && _isPromptRunning)
+        {
+            _queuePausePending = true;
+            QueueStatusLabel.Text = "Pausing queue when turn completes\u2026";
+        }
+        else
+        {
+            _queuePausePending = false;
+            QueueStatusLabel.Text = paused ? "Queue is paused" : "Queue is running";
+        }
         QueuePlayPauseButton.ToolTip = paused ? "Click to resume" : "Click to pause";
         QueuePlayIcon.Visibility = paused ? Visibility.Collapsed : Visibility.Visible;
         QueuePauseIcon.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
         _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? true : null };
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    private void SyncQueuePauseLabel()
+    {
+        if (_queuePausePending)
+        {
+            _queuePausePending = false;
+            QueueStatusLabel.Text = "Queue is paused";
+        }
     }
 
     private void QueuePlayPauseButton_Click(object sender, RoutedEventArgs e)
