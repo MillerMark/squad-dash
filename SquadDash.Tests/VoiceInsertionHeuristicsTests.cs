@@ -768,4 +768,43 @@ internal sealed class VoiceInsertionHeuristicsTests {
         var result = VoiceInsertionHeuristics.Apply("some prose ", "Hello world");
         Assert.That(result, Is.EqualTo("hello world"));
     }
+
+    // ── LeadingInsertionSpace ──────────────────────────────────────────────────
+
+    [Test]
+    public void LeadingInsertionSpace_AfterSlashInMarkdownPath_ReturnsEmpty() {
+        // Regression: dictating a slug inside images/ must not prepend a space.
+        var left  = "![Screenshot: brief description](images/";
+        var right = "screenshot-4c4637cd.png)";
+        Assert.That(VoiceInsertionHeuristics.LeadingInsertionSpace(left, right), Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void LeadingInsertionSpace_SelectionReplacementInPath_ReturnsEmpty() {
+        // When the user selected "screenshot-4c4637cd" and left context ends at images/,
+        // right context starts at ".png)" — still inside a markdown path.
+        var left  = "![Screenshot: brief description](images/";
+        var right = ".png)";
+        Assert.That(VoiceInsertionHeuristics.LeadingInsertionSpace(left, right), Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void LeadingInsertionSpace_AfterWordInProse_ReturnsSpace() {
+        Assert.That(VoiceInsertionHeuristics.LeadingInsertionSpace("some text", ""), Is.EqualTo(" "));
+    }
+
+    [Test]
+    public void LeadingInsertionSpace_AfterSpace_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.LeadingInsertionSpace("some text ", ""), Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void LeadingInsertionSpace_AfterOpenParen_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.LeadingInsertionSpace("see (", ")"), Is.EqualTo(string.Empty));
+    }
+
+    [Test]
+    public void LeadingInsertionSpace_EmptyLeft_ReturnsEmpty() {
+        Assert.That(VoiceInsertionHeuristics.LeadingInsertionSpace("", ""), Is.EqualTo(string.Empty));
+    }
 }

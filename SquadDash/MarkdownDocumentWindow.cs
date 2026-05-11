@@ -1099,9 +1099,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         var selEndIndex = Math.Min(caretIndex + selLength, current.Length);
         var left       = current[..caretIndex];
         var right      = current[selEndIndex..];
-        var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
-        var prefix     = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '(' &&
-                         precedingChar != '\n' && precedingChar != '\r' ? " " : string.Empty;
+        var prefix     = VoiceInsertionHeuristics.LeadingInsertionSpace(left, right);
         var processed  = VoiceInsertionHeuristics.Apply(left, text, right);
         var insert     = prefix + processed;
         var rules      = new ApplicationSettingsStore().Load().VoiceReplacementRules;

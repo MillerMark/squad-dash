@@ -493,6 +493,24 @@ public static class VoiceInsertionHeuristics
     /// preceded by <c>]</c>, and confirms the right context contains the closing
     /// <c>)</c> before any newline.
     /// </summary>
+    /// <summary>
+    /// Returns the leading space string to prepend before inserting voice-dictated
+    /// text at a document caret position. Returns <c>" "</c> when the character
+    /// immediately to the left of the caret is not a natural word boundary (space,
+    /// open-paren, newline), and <c>""</c> otherwise.
+    ///
+    /// <para>Always returns <c>""</c> inside a markdown path context (e.g. inside
+    /// the <c>()</c> of an image link) — slug-mode text must never receive a leading
+    /// space.</para>
+    /// </summary>
+    public static string LeadingInsertionSpace(string leftContext, string rightContext)
+    {
+        if (IsMarkdownPathContext(leftContext, rightContext)) return string.Empty;
+        if (string.IsNullOrEmpty(leftContext)) return string.Empty;
+        var ch = leftContext[^1];
+        return ch != ' ' && ch != '(' && ch != '\n' && ch != '\r' ? " " : string.Empty;
+    }
+
     public static bool IsMarkdownPathContext(string leftContext, string rightContext)
     {
         if (string.IsNullOrEmpty(leftContext)) return false;
