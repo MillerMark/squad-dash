@@ -27,6 +27,7 @@ internal static class AnnotationCursors
     private static Cursor? _cropTool;
     private static Cursor? _eyedropperTool;
     private static Cursor? _textTool;
+    private static Cursor? _rotateEndpoint;
 
     // ── Public properties ─────────────────────────────────────────────────────
 
@@ -81,6 +82,14 @@ internal static class AnnotationCursors
     /// </summary>
     public static Cursor TextTool
         => _textTool ??= CreateCursorFromDrawing(CreateTextToolDrawing(), 32, 32, hotX: 16, hotY: 16);
+
+    /// <summary>
+    /// Rotate-endpoint cursor: a ~270° circular arc with arrowheads at each end,
+    /// indicating that the arrow endpoint can be orbited around the other end.
+    /// Hotspot = (16, 16) — centre of the 32×32 bitmap.
+    /// </summary>
+    public static Cursor RotateEndpoint
+        => _rotateEndpoint ??= CreateCursorFromDrawing(CreateRotateEndpointDrawing(), 32, 32, hotX: 16, hotY: 16);
 
     // ── Cursor factory ────────────────────────────────────────────────────────
 
@@ -418,6 +427,92 @@ internal static class AnnotationCursors
             dc.DrawLine(darkPen, new Point(cx + armGap, cy),       new Point(cx + armLen, cy));
         }
         return dg;
+    }
+
+    /// <summary>
+    /// Rotate-endpoint cursor (32×32): a ~270° circular arc centred at (16, 16) with
+    /// a radius of 11 px, rendered white-outline then dark, with a small arrowhead
+    /// at each end of the arc to indicate bi-directional rotation.
+    /// </summary>
+    private static Drawing CreateRotateEndpointDrawing()
+    {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open())
+        {
+            const double Cx = 16, Cy = 16, R = 11;
+            // Arc spans 270° starting at 45° (gap in upper-right quadrant).
+            const double StartDeg = 45;
+            const double SweepDeg = 270;
+
+            var whitePen = new Pen(Brushes.White, 3.5)
+                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 2.0)
+                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+
+            // Build an arc geometry: a PathFigure with an ArcSegment.
+            // WPF ArcSegment needs a start point and end point on the circle.
+            static (double x, double y) CirclePt(double deg)
+            {
+                double rad = deg * Math.PI / 180.0;
+                return (Cx + R * Math.Cos(rad), Cy + R * Math.Sin(rad));
+            }
+
+            var (sx, sy) = CirclePt(StartDeg);
+            var (ex, ey) = CirclePt(StartDeg + SweepDeg);
+
+            var arcFig = new PathFigure
+            {
+                StartPoint = new Point(sx, sy),
+                IsClosed   = false
+            };
+            // isLargeArc = true because 270° > 180°; sweep direction = clockwise.
+            arcFig.Segments.Add(new ArcSegment(
+                new Point(ex, ey),
+                new Size(R, R),
+                rotationAngle: 0,
+                isLargeArc: true,
+                sweepDirection: SweepDirection.Clockwise,
+                isStroked: true));
+
+            var arcGeo = new PathGeometry();
+            arcGeo.Figures.Add(arcFig);
+
+            dc.DrawGeometry(null, whitePen, arcGeo);
+            dc.DrawGeometry(null, darkPen,  arcGeo);
+
+            // Arrowheads — tangent direction at each arc end.
+            // At angle θ on a CW arc the tangent (CW) is perpendicular: (−sin θ, cos θ) → rotated +90°.
+            // At start (45°): tangent points towards increasing angle → (−sin45, cos45) = (−√2/2, √2/2).
+            // We want the arrowhead to face *backward* along that tangent (i.e. as if the arc arrives there
+            // from outside), so flip the direction at the start end.
+            DrawArcArrowhead(dc, darkPen, whitePen, sx, sy,  45 + 90 + 180);   // tip end (arc "leaves" here going CW)
+            DrawArcArrowhead(dc, darkPen, whitePen, ex, ey, (StartDeg + SweepDeg) + 90); // tail end
+        }
+        return dg;
+    }
+
+    /// <summary>
+    /// Draws a small two-line arrowhead at (<paramref name="tipX"/>, <paramref name="tipY"/>)
+    /// pointing in <paramref name="directionDeg"/> degrees.
+    /// </summary>
+    private static void DrawArcArrowhead(
+        DrawingContext dc, Pen darkPen, Pen whitePen,
+        double tipX, double tipY, double directionDeg)
+    {
+        const double Size = 5.5;
+        const double HalfSpread = 0.45; // radians ≈ 26°
+        double rad = directionDeg * Math.PI / 180.0;
+        double ax = tipX + Size * Math.Cos(rad + HalfSpread);
+        double ay = tipY + Size * Math.Sin(rad + HalfSpread);
+        double bx = tipX + Size * Math.Cos(rad - HalfSpread);
+        double by = tipY + Size * Math.Sin(rad - HalfSpread);
+        var tip = new Point(tipX, tipY);
+        var pa  = new Point(ax, ay);
+        var pb  = new Point(bx, by);
+        dc.DrawLine(whitePen, tip, pa);
+        dc.DrawLine(whitePen, tip, pb);
+        dc.DrawLine(darkPen,  tip, pa);
+        dc.DrawLine(darkPen,  tip, pb);
     }
 
     private static void DrawCrosshair(DrawingContext dc, double cx, double cy)

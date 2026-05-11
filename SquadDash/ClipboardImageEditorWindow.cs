@@ -1644,6 +1644,11 @@ internal sealed class ClipboardImageEditorWindow : Window
             && _textResizeHandles.Contains(hoveredHandle))
             return;
 
+        // Skip the override when the mouse is directly over an arrow endpoint handle — its own Cursor wins.
+        if (_selectedArrow != null && Mouse.DirectlyOver is Ellipse hoveredEndpoint
+            && (hoveredEndpoint == _selectedArrow.TipHandle || hoveredEndpoint == _selectedArrow.TailHandle))
+            return;
+
         if (!_draggingCursor && _draggingArrow == null && !_bodyDragging && _draggingAnnotRect == null)
         {
             // In a tool mode keep the tool cursor — don't override it with zone/cross cursors.
@@ -2076,7 +2081,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             Fill = colorBrush,
             Stroke = Brushes.White,
             StrokeThickness = 1.5,
-            Cursor = Cursors.SizeAll,
+            Cursor = AnnotationCursors.RotateEndpoint,
             Visibility = Visibility.Hidden
         };
         var tailHandle = new Ellipse
@@ -2086,7 +2091,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             Fill = colorBrush,
             Stroke = Brushes.White,
             StrokeThickness = 1.5,
-            Cursor = Cursors.SizeAll,
+            Cursor = AnnotationCursors.RotateEndpoint,
             Visibility = Visibility.Hidden
         };
 
