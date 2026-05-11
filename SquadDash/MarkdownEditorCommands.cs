@@ -489,7 +489,8 @@ internal static class MarkdownEditorCommands
         var raw = box.SelectedText;
         if (raw.Contains('\n'))
         {
-            var result = $"```\n{raw}\n```";
+            var (leading, core, trailing) = SplitBoundaryBlanks(raw);
+            var result = $"{leading}```\n{core}\n```{trailing}";
             box.SelectedText    = result;
             box.SelectionStart  = selStart;
             box.SelectionLength = result.Length;
@@ -541,7 +542,8 @@ internal static class MarkdownEditorCommands
         var raw = box.GetSelectedText();
         if (raw.Contains('\n'))
         {
-            var result = $"```\n{raw}\n```";
+            var (leading, core, trailing) = SplitBoundaryBlanks(raw);
+            var result = $"{leading}```\n{core}\n```{trailing}";
             box.SelectRange(selStart, selLen);
             box.ReplaceSelection(result);
             box.SelectRange(selStart, result.Length);
@@ -621,6 +623,30 @@ internal static class MarkdownEditorCommands
         box.ReplaceSelection(result);
         box.SelectRange(selStart + leadingSpaces.Length, 1 + trimmed.Length + 1);
         return true;
+    }
+
+    /// <summary>
+    /// Splits <paramref name="raw"/> into leading blank lines, core content, and
+    /// trailing blank lines. A "blank line" is one containing only whitespace.
+    /// The three parts reconstruct the original: <c>leading + core + trailing == normalized</c>.
+    /// Leading/trailing parts include their terminating/leading newline so they can be
+    /// placed directly outside the fence without adding extra blank lines.
+    /// </summary>
+    private static (string Leading, string Core, string Trailing) SplitBoundaryBlanks(string raw)
+    {
+        raw = raw.Replace("\r\n", "\n").Replace("\r", "\n");
+        var lines = raw.Split('\n');
+        int lo = 0, hi = lines.Length - 1;
+        while (lo <= hi && string.IsNullOrWhiteSpace(lines[lo])) lo++;
+        while (hi >= lo && string.IsNullOrWhiteSpace(lines[hi])) hi--;
+
+        if (lo > hi) // entire selection was blank lines
+            return (raw, string.Empty, string.Empty);
+
+        var leading  = lo > 0               ? string.Join("\n", lines[..lo])          + "\n" : string.Empty;
+        var core     = string.Join("\n", lines[lo..(hi + 1)]);
+        var trailing = hi < lines.Length - 1 ? "\n" + string.Join("\n", lines[(hi + 1)..]) : string.Empty;
+        return (leading, core, trailing);
     }
 
     private static string ToCamelCaseIdentifier(string raw)

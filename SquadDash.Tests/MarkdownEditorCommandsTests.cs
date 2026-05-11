@@ -375,6 +375,45 @@ internal sealed class MarkdownEditorCommandsTests {
     }
 
     [Test]
+    public void ApplyInlineCodeOrFence_MultiLineWithLeadingBlankLine_BlankLineMovesOutsideFence() {
+        // Selection: "\nline1\nline2" — leading blank should move above the fence
+        var tb = MakeBox("\nline1\nline2");
+        Select(tb, 0, 12);
+        MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
+        const string expected = "\n```\nline1\nline2\n```";
+        Assert.That(tb.Text, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ApplyInlineCodeOrFence_MultiLineWithTrailingBlankLine_BlankLineMovesOutsideFence() {
+        // Selection: "line1\nline2\n" — trailing blank should move below the fence
+        var tb = MakeBox("line1\nline2\n");
+        Select(tb, 0, 12);
+        MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
+        const string expected = "```\nline1\nline2\n```\n";
+        Assert.That(tb.Text, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ApplyInlineCodeOrFence_MultiLineWithLeadingAndTrailingBlanks_BlanksMovedOutside() {
+        var tb = MakeBox("\n\nsome code\nmore code\n\n");
+        Select(tb, 0, 22);
+        MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
+        const string expected = "\n\n```\nsome code\nmore code\n```\n\n";
+        Assert.That(tb.Text, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ApplyInlineCodeOrFence_MultiLineNoBlankLines_UnchangedBehavior() {
+        // No blank lines → result identical to before
+        var tb = MakeBox("line1\nline2\nline3");
+        Select(tb, 0, 17);
+        MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
+        const string expected = "```\nline1\nline2\nline3\n```";
+        Assert.That(tb.Text, Is.EqualTo(expected));
+    }
+
+    [Test]
     public void ApplyInlineCodeOrFence_EmptySelection_ReturnsFalse_AndTextUnchanged() {
         var tb = MakeBox("hello");
         tb.CaretIndex = 2;
