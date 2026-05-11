@@ -171,6 +171,7 @@ internal sealed class PreferencesWindow : Window {
                 new VoiceReplacementRuleViewModel { Pattern = r.Pattern, Replacement = r.Replacement }));
 
         _tunnelModeComboBox= new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
+        _tunnelModeComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "None", Tag = (string?)null });
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "ngrok", Tag = "ngrok" });
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "Cloudflare", Tag = "cloudflare" });
@@ -219,6 +220,7 @@ internal sealed class PreferencesWindow : Window {
         _byokModelBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
 
         _byokProviderTypeComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
+        _byokProviderTypeComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
         _byokProviderTypeComboBox.Items.Add(new ComboBoxItem { Content = "OpenAI / Ollama (default)", Tag = "openai" });
         _byokProviderTypeComboBox.Items.Add(new ComboBoxItem { Content = "Azure", Tag = "azure" });
         _byokProviderTypeComboBox.Items.Add(new ComboBoxItem { Content = "Anthropic", Tag = "anthropic" });
@@ -300,6 +302,7 @@ internal sealed class PreferencesWindow : Window {
 
         if (showDevOptions) {
             _startupIssueSimulationComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 14) };
+            _startupIssueSimulationComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
             AddSimulationOption(_startupIssueSimulationComboBox, "None", DeveloperStartupIssueSimulation.None);
             AddSimulationOption(_startupIssueSimulationComboBox, "Missing Node.js tooling", DeveloperStartupIssueSimulation.MissingNodeTooling);
             AddSimulationOption(_startupIssueSimulationComboBox, "Squad not installed", DeveloperStartupIssueSimulation.SquadNotInstalled);
@@ -307,6 +310,7 @@ internal sealed class PreferencesWindow : Window {
             SelectSimulationOption(_startupIssueSimulationComboBox, currentSettings.StartupIssueSimulation);
 
             _runtimeIssueSimulationComboBox = new ComboBox { Height = 30 };
+            _runtimeIssueSimulationComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
             AddSimulationOption(_runtimeIssueSimulationComboBox, "None", DeveloperRuntimeIssueSimulation.None);
             AddSimulationOption(_runtimeIssueSimulationComboBox, "Copilot auth required", DeveloperRuntimeIssueSimulation.CopilotAuthRequired);
             AddSimulationOption(_runtimeIssueSimulationComboBox, "Bundled SDK repair", DeveloperRuntimeIssueSimulation.BundledSdkRepair);
@@ -723,6 +727,7 @@ internal sealed class PreferencesWindow : Window {
         deliveryLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         deliveryRow.Children.Add(deliveryLabel);
         var deliveryCombo = new ComboBox { Width = 140, Height = 28 };
+        deliveryCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
         deliveryCombo.Items.Add(new ComboBoxItem { Content = "ntfy.sh", IsSelected = true });
         deliveryRow.Children.Add(deliveryCombo);
         form.Children.Add(deliveryRow);
