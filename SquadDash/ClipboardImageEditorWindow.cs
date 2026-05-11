@@ -2965,8 +2965,17 @@ internal sealed class ClipboardImageEditorWindow : Window
     private void PlaceCursorAtPoint(Point pt)
     {
         PushUndo();
-        var x = Math.Max(_sel.Left, Math.Min(pt.X, _sel.Right - 20));
-        var y = Math.Max(_sel.Top, Math.Min(pt.Y, _sel.Bottom - 24));
+        double x, y;
+        if (!_sel.IsEmpty)
+        {
+            x = Math.Max(_sel.Left, Math.Min(pt.X, _sel.Right - 20));
+            y = Math.Max(_sel.Top, Math.Min(pt.Y, _sel.Bottom - 24));
+        }
+        else
+        {
+            x = pt.X;
+            y = pt.Y;
+        }
         EnsureCursorImageCreated();
         Canvas.SetLeft(_cursorImage!, x);
         Canvas.SetTop(_cursorImage!, y);
