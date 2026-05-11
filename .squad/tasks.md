@@ -136,6 +136,54 @@
 
 ---
 
+## 🟡 Mid Priority — Annotation Editor (Paste Image Window)
+
+- [ ] **[Annot #1] Shift-click multi-drop mode indicator** *(Owner: Lyra Morn)*
+  When arrow or rectangle button is shift-clicked to enter multi-drop mode, show a rounded-rect
+  underline beneath the active button (same style as document chips / orientation buttons).
+  Update tooltip/hover hint to say "Shift+click to drop multiples in a row". Update docs.
+
+- [ ] **[Annot #2] Bug: double undo for each rectangle in shift-click mode** *(Owner: Lyra Morn)*
+  Each rectangle dropped in shift-click multi-drop mode adds 2 undo entries instead of 1.
+  Dropping 3 rectangles requires 6 Ctrl+Z presses. Not observed for arrows. Find duplicate push
+  to the undo stack in the rectangle placement path and remove it.
+
+- [ ] **[Annot #3] Arrow drag: origin point too close to arrowhead** *(Owner: Lyra Morn)*
+  When click-dragging to place an arrow, the drag origin starts too close to the tip.
+  At minimum double the initial drag distance so the arrow has meaningful length on first drag.
+
+- [ ] **[Annot #4] Enter key crops to crop rectangle + undo + window resize** *(Owner: Lyra Morn)*
+  When the crop rectangle is visible and the user presses Enter:
+  - Crop the image to the rectangle bounds
+  - Resize the annotation window to fit the new (smaller) image
+  - Push a full undo entry so Ctrl+Z restores the full image + window size
+  - After cropping, user should be able to zoom (Ctrl+wheel) and annotate the smaller region
+
+- [ ] **[Annot #5] Text annotation tool (T button)** *(Owner: Lyra Morn)*
+  New toolbar button "T". On click, user draws a rectangle on the canvas. That rectangle becomes
+  a text annotation box with: flashing I-beam caret, character entry + paste + backspace/delete,
+  word-wrap within box, auto-shrink font to fit (min 12pt Calibri), drag handles to resize/reposition,
+  Shift+Enter for newline, Enter to deselect. Font: Calibri ≥12pt (OCR-legible).
+
+- [ ] **[Annot #6] Bug: mouse cursor drop tool — nothing happens on click** *(Owner: Lyra Morn)*
+  After using arrow tool, clicking the "drop cursor" tool does nothing. Likely a tool-state
+  machine bug — tool mode may not be resetting correctly when switching from arrow to cursor tool.
+  Investigate state transitions between annotation tool modes.
+
+- [ ] **[Annot #7] Cropping tool cursor (Photoshop-style)** *(Owner: Lyra Morn)*
+  When the crop tool / default crop state is active, show a Photoshop-style crop cursor
+  (overlapping rectangles / corner brackets). Add to AnnotationCursors class.
+
+- [ ] **[Annot #8] Drop mouse-cursor tool cursor: arrow + plus** *(Owner: Lyra Morn)*
+  When the "drop mouse cursor" tool is active, the canvas cursor should show a mouse-arrow icon
+  with a small plus/crosshair next to it (same pattern as arrow/rectangle tool cursors).
+  The center of the crosshair is the hotspot. Add to AnnotationCursors class.
+
+- [ ] **[Annot #9] Attach Image + Cancel buttons — move to far right** *(Owner: Lyra Morn)*
+  Reposition the Attach Image and Cancel buttons to be right-aligned in the toolbar/footer bar.
+
+---
+
 ## 🔵 Low Priority
 
 - [ ] **SubSquads — investigate and expose in UI** *(Owner: Orion Vale → Lyra Morn)*
