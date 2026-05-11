@@ -487,17 +487,22 @@ internal static class MarkdownEditorCommands
         if (raw.Contains('\n'))
         {
             result = $"```\n{raw}\n```";
+            box.SelectedText    = result;
+            box.SelectionStart  = selStart;
+            box.SelectionLength = result.Length;
         }
         else
         {
             var trimmed        = raw.Trim(' ');
             var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
             var trailingSpaces = raw[(raw.Length - raw.TrimEnd(' ').Length)..];
+            // NEW: convert voice-dictated phrase to camelCase identifier
+            trimmed = ToCamelCaseIdentifier(trimmed);
             result = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
+            box.SelectedText    = result;
+            box.SelectionStart  = selStart + leadingSpaces.Length;
+            box.SelectionLength = 1 + trimmed.Length + 1;
         }
-        box.SelectedText    = result;
-        box.SelectionStart  = selStart;
-        box.SelectionLength = result.Length;
         return true;
     }
 
@@ -515,8 +520,8 @@ internal static class MarkdownEditorCommands
         var trailingSpaces = raw[(raw.Length - raw.TrimEnd(' ').Length)..];
         var result         = $"{leadingSpaces}\"{trimmed}\"{trailingSpaces}";
         box.SelectedText    = result;
-        box.SelectionStart  = selStart;
-        box.SelectionLength = result.Length;
+        box.SelectionStart  = selStart + leadingSpaces.Length;
+        box.SelectionLength = 1 + trimmed.Length + 1;
         return true;
     }
 
@@ -531,17 +536,22 @@ internal static class MarkdownEditorCommands
         if (raw.Contains('\n'))
         {
             result = $"```\n{raw}\n```";
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection(result);
+            box.SelectRange(selStart, result.Length);
         }
         else
         {
             var trimmed        = raw.Trim(' ');
             var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
             var trailingSpaces = raw[(raw.Length - raw.TrimEnd(' ').Length)..];
+            // NEW: convert voice-dictated phrase to camelCase identifier
+            trimmed = ToCamelCaseIdentifier(trimmed);
             result = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
+            box.SelectRange(selStart, selLen);
+            box.ReplaceSelection(result);
+            box.SelectRange(selStart + leadingSpaces.Length, 1 + trimmed.Length + 1);
         }
-        box.SelectRange(selStart, selLen);
-        box.ReplaceSelection(result);
-        box.SelectRange(selStart, result.Length);
         return true;
     }
 
@@ -560,7 +570,43 @@ internal static class MarkdownEditorCommands
         var result         = $"{leadingSpaces}\"{trimmed}\"{trailingSpaces}";
         box.SelectRange(selStart, selLen);
         box.ReplaceSelection(result);
-        box.SelectRange(selStart, result.Length);
+        box.SelectRange(selStart + leadingSpaces.Length, 1 + trimmed.Length + 1);
         return true;
+    }
+
+    private static string ToCamelCaseIdentifier(string raw)
+    {
+        if (!raw.Contains(' ') && !raw.Contains('\t')) return raw;
+
+        // Normalize "dot EXTENSION" at end → ".extension"
+        var normalized = Regex.Replace(raw.Trim(),
+            @"\s+[Dd][Oo][Tt]\s+([A-Za-z]{1,6})\s*$",
+            m => "." + m.Groups[1].Value.ToLower());
+
+        // Split by whitespace
+        var parts = normalized.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return raw;
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var part = parts[i];
+            if (part.Length == 0) continue;
+            if (i == 0)
+            {
+                sb.Append(part.ToLower());
+            }
+            else if (part[0] == '.')
+            {
+                // Already a .extension segment — keep as-is (already lowercased)
+                sb.Append(part);
+            }
+            else
+            {
+                sb.Append(char.ToUpper(part[0]));
+                sb.Append(part[1..].ToLower());
+            }
+        }
+        return sb.ToString();
     }
 }

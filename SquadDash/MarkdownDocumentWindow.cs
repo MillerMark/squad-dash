@@ -441,6 +441,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private bool _autoSave;
+    private bool _suppressEditorNextTextInput;
 
     public static void Show(Window? owner, string title, string filePath, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
@@ -871,6 +872,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None
             && tb.GetSelectionLength() > 0) {
             if (MarkdownEditorCommands.ApplyInlineCodeOrFence(tb)) {
+                _suppressEditorNextTextInput = true;
                 e.Handled = true;
                 return;
             }
@@ -881,6 +883,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift
             && tb.GetSelectionLength() > 0) {
             if (MarkdownEditorCommands.ApplyInlineQuote(tb)) {
+                _suppressEditorNextTextInput = true;
                 e.Handled = true;
                 return;
             }
@@ -925,6 +928,11 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private void EditorTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e) {
+        if (_suppressEditorNextTextInput) {
+            _suppressEditorNextTextInput = false;
+            e.Handled = true;
+            return;
+        }
         if (sender is not RichTextBox tb) return;
         if (tb.Tag is MarkdownDocumentTabState doc
             && doc.HasLockedRanges

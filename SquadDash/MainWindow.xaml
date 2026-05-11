@@ -1884,6 +1884,8 @@
                              SpellCheck.IsEnabled="False"
                              SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
                              SelectionOpacity="{DynamicResource DocEditorSelectionOpacity}"
+                             PreviewKeyDown="DocSourceTextBox_PreviewKeyDown"
+                             PreviewTextInput="DocSourceTextBox_PreviewTextInput"
                              PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
                              PreviewMouseWheel="DocSourceTextBox_PreviewMouseWheel"
                              SelectionChanged="DocSourceTextBox_SelectionChanged"
@@ -1982,7 +1984,8 @@
                              TextChanged="PromptTextBox_TextChanged"
                              PreviewKeyDown="PromptTextBox_KeyDown"
                              ContextMenuOpening="PromptTextBox_ContextMenuOpening"
-                             PreviewMouseWheel="PromptTextBox_PreviewMouseWheel" />
+                             PreviewMouseWheel="PromptTextBox_PreviewMouseWheel"
+                             PreviewTextInput="PromptTextBox_PreviewTextInput" />
                 </DockPanel>
 
                 <Popup x:Name="IntelliSensePopup"

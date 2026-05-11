@@ -420,6 +420,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private PttState _pttState = PttState.Idle;
     private bool _pttDraining; // true while speech service is draining after PTT release
     private bool _promptHasVoiceInput;
+    private bool _suppressPromptNextTextInput;
     private bool _pttHadPreexistingText;
     private bool _pttShiftTappedDuringRecording;
     private bool _voiceStartedWithSendEnabled;
@@ -6712,6 +6713,15 @@ public partial class MainWindow : Window, ILiveElementLocator
         PromptTextBox.FontSize = _promptFontSize;
     }
 
+    private void PromptTextBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+    {
+        if (_suppressPromptNextTextInput)
+        {
+            _suppressPromptNextTextInput = false;
+            e.Handled = true;
+        }
+    }
+
     private void PromptTextBox_ContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
         // Build a themed context menu, appending Smooth Dictation when text is selected.
@@ -6823,6 +6833,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             if (MarkdownEditorCommands.ApplyInlineCodeOrFence(DocSourceTextBox))
             {
+                _suppressDocSourceNextTextInput = true;
                 e.Handled = true;
                 return;
             }
@@ -6835,6 +6846,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             if (MarkdownEditorCommands.ApplyInlineQuote(DocSourceTextBox))
             {
+                _suppressDocSourceNextTextInput = true;
                 e.Handled = true;
                 return;
             }
@@ -6936,6 +6948,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 if (MarkdownEditorCommands.ApplyInlineCodeOrFence(PromptTextBox))
                 {
+                    _suppressPromptNextTextInput = true;
                     e.Handled = true;
                     return;
                 }
@@ -6947,6 +6960,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 if (MarkdownEditorCommands.ApplyInlineQuote(PromptTextBox))
                 {
+                    _suppressPromptNextTextInput = true;
                     e.Handled = true;
                     return;
                 }
@@ -10233,6 +10247,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     private bool _suppressDocSourceTextChanged;
+    private bool _suppressDocSourceNextTextInput;
     private DispatcherTimer? _docSourceSaveTimer;
 
     private void ViewSourceButton_Click(object sender, RoutedEventArgs e)
@@ -10814,6 +10829,15 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (DocSourceTextBox is null) return;
         MarkdownEditorCommands.ApplyNumberedList(DocSourceTextBox);
         DocSourceTextBox.Focus();
+    }
+
+    private void DocSourceTextBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+    {
+        if (_suppressDocSourceNextTextInput)
+        {
+            _suppressDocSourceNextTextInput = false;
+            e.Handled = true;
+        }
     }
 
     private void DocSourceTextBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
