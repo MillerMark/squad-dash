@@ -253,6 +253,12 @@ internal sealed class ClipboardImageEditorWindow : Window
     // Canvas_MouseDown reads and clears this flag to prevent immediately deselecting the annotation
     // that was just committed by the same click.
     private bool _suppressNextTextDeselect;
+    // Canvas-level text annotation drag — handles clicks in the selection-rect border zone
+    // (the 4–8 px margin around the TextBlock that display.MouseLeftButtonDown misses).
+    private bool           _canvasTextDragActive;
+    private AnnotationText? _canvasTextDragAnnotation;
+    private Point           _canvasTextDragStart;
+    private Rect            _canvasTextDragOrigBounds;
     private Color _defaultTextFgColor = Colors.White;
     private Color _defaultTextBgColor = Colors.Black;
     private bool _textDragCreating;
@@ -1420,6 +1426,35 @@ internal sealed class ClipboardImageEditorWindow : Window
         SelectArrow(null);
         SelectAnnotationRect(null);
 
+        var pt = e.GetPosition(_canvas);
+
+        // If a selected text annotation exists, check whether this click lands within its
+        // hit-test bounds (= selection-rect area, which is 4px/2px larger than the TextBlock).
+        // If it does, start a canvas-level body drag instead of deselecting.
+        // This handles the common case where display.MouseLeftButtonDown was NOT reached because
+        // the click landed in the border margin outside the TextBlock's actual bounding box.
+        if (_selectedText != null && !_suppressNextTextDeselect && e.ClickCount == 1
+            && !_inTextMode && !_inArrowMode && !_inRectMode && !_inCursorPlacementMode && !_inEyedropperMode)
+        {
+            var ann        = _selectedText;
+            var dispW      = ann.Bounds.Width  > 0 ? ann.Bounds.Width  : ann.Display?.DesiredSize.Width  ?? 30;
+            var dispH      = ann.Bounds.Height > 0 ? ann.Bounds.Height : ann.Display?.DesiredSize.Height ?? 20;
+            var hitBounds  = new Rect(ann.Bounds.Left - 4, ann.Bounds.Top - 2, dispW + 8, dispH + 4);
+            SquadDashTrace.Write("AnnotatorDrag", $"Canvas_MouseDown: pt=({pt.X:F0},{pt.Y:F0}) textHitBounds=({hitBounds.Left:F0},{hitBounds.Top:F0} {hitBounds.Width:F0}×{hitBounds.Height:F0}) inBounds={hitBounds.Contains(pt)}");
+            if (hitBounds.Contains(pt))
+            {
+                _preDragSnapshot          = CaptureSnapshot();
+                _canvasTextDragActive     = true;
+                _canvasTextDragAnnotation = ann;
+                _canvasTextDragStart      = pt;
+                _canvasTextDragOrigBounds = ann.Bounds;
+                _canvas.CaptureMouse();
+                SquadDashTrace.Write("AnnotatorDrag", $"Canvas text-body drag start at ({pt.X:F0},{pt.Y:F0}) via border-zone intercept");
+                e.Handled = true;
+                return;
+            }
+        }
+
         // Clicking canvas background deselects any selected text annotation.
         // Skip if a text annotation was just committed by this same click (LostFocus → commit → select).
         if (_selectedText != null)
@@ -1430,7 +1465,6 @@ internal sealed class ClipboardImageEditorWindow : Window
                 SelectText(null);
         }
 
-        var pt = e.GetPosition(_canvas);
         var zone = HitTest(pt);
 
         // Resize handles take priority.
@@ -1689,10 +1723,32 @@ internal sealed class ClipboardImageEditorWindow : Window
             return;
         }
 
+        if (_canvasTextDragActive && _canvasTextDragAnnotation != null)
+        {
+            var movePt  = e.GetPosition(_canvas);
+            var ann     = _canvasTextDragAnnotation;
+            var newX    = Math.Max(0, Math.Min(_canvasTextDragOrigBounds.X + (movePt.X - _canvasTextDragStart.X), _canvas.Width  - 20));
+            var newY    = Math.Max(0, Math.Min(_canvasTextDragOrigBounds.Y + (movePt.Y - _canvasTextDragStart.Y), _canvas.Height - 16));
+            ann.Bounds  = new Rect(newX, newY, ann.Bounds.Width, ann.Bounds.Height);
+            if (ann.Display != null)
+            {
+                Canvas.SetLeft(ann.Display, newX);
+                Canvas.SetTop(ann.Display,  newY);
+            }
+            if (ann.Shadow != null)
+            {
+                Canvas.SetLeft(ann.Shadow, newX + 1.5);
+                Canvas.SetTop(ann.Shadow,  newY + 1.5);
+            }
+            UpdateTextSelectionBorder();
+            e.Handled = true;
+            return;
+        }
+
         if (_draggingTextHandle && _textHandleDragAnnotation != null)
         {
-            var pt    = e.GetPosition(_canvas);
-            var ann   = _textHandleDragAnnotation;
+            var pt  = e.GetPosition(_canvas);
+            var ann = _textHandleDragAnnotation;
             double origW = _textHandleDragOrigDisplayW > 0 ? _textHandleDragOrigDisplayW : 80;
             double origH = _textHandleDragOrigDisplayH > 0 ? _textHandleDragOrigDisplayH : 20;
             double dx = pt.X - _textHandleDragStart.X;
@@ -1820,6 +1876,18 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private void Canvas_MouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (_canvasTextDragActive)
+        {
+            SquadDashTrace.Write("AnnotatorDrag", $"Canvas text-body drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0})");
+            CommitDragUndo();
+            _canvasTextDragActive     = false;
+            _canvasTextDragAnnotation = null;
+            _canvas.ReleaseMouseCapture();
+            if (_selectedText != null) SelectText(_selectedText);  // refresh handles position
+            e.Handled = true;
+            return;
+        }
+
         if (_textDragCreating)
         {
             _textDragCreating = false;
