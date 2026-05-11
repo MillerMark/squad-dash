@@ -72,6 +72,9 @@ internal sealed class ClipboardImageEditorWindow : Window
     private readonly TextBlock _dimWidthLabel;
     private readonly Border _dimHeightBadge;
     private readonly TextBlock _dimHeightLabel;
+    // Inverse-zoom transforms applied to the badges so they stay at a constant screen size.
+    private readonly ScaleTransform _dimWidthBadgeScale  = new(1.0, 1.0);
+    private readonly ScaleTransform _dimHeightBadgeScale = new(1.0, 1.0);
 
     // Zoom percentage label (declared as field so the wheel handler can update it)
     private TextBlock? _zoomLabel;
@@ -442,7 +445,9 @@ internal sealed class ClipboardImageEditorWindow : Window
             Padding = new Thickness(4, 2, 4, 2),
             Child = _dimWidthLabel,
             IsHitTestVisible = false,
-            Visibility = Visibility.Collapsed
+            Visibility = Visibility.Collapsed,
+            RenderTransform = _dimWidthBadgeScale,
+            RenderTransformOrigin = new Point(0, 0)
         };
         _canvas.Children.Add(_dimWidthBadge);
         Panel.SetZIndex(_dimWidthBadge, 15);
@@ -461,7 +466,9 @@ internal sealed class ClipboardImageEditorWindow : Window
             Padding = new Thickness(4, 2, 4, 2),
             Child = _dimHeightLabel,
             IsHitTestVisible = false,
-            Visibility = Visibility.Collapsed
+            Visibility = Visibility.Collapsed,
+            RenderTransform = _dimHeightBadgeScale,
+            RenderTransformOrigin = new Point(0, 0)
         };
         _canvas.Children.Add(_dimHeightBadge);
         Panel.SetZIndex(_dimHeightBadge, 15);
@@ -1162,17 +1169,26 @@ internal sealed class ClipboardImageEditorWindow : Window
         _dimWidthBadge.Visibility  = Visibility.Visible;
         _dimHeightBadge.Visibility = Visibility.Visible;
 
+        // Scale badges inversely to _zoom so they stay at constant screen size.
+        double invZ = 1.0 / _zoom;
+        _dimWidthBadgeScale.ScaleX  = invZ;
+        _dimWidthBadgeScale.ScaleY  = invZ;
+        _dimHeightBadgeScale.ScaleX = invZ;
+        _dimHeightBadgeScale.ScaleY = invZ;
+
         // Force measure so DesiredSize is accurate for positioning.
         _dimWidthBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         _dimHeightBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
 
-        var bwW = _dimWidthBadge.DesiredSize.Width;
-        var bwH = _dimWidthBadge.DesiredSize.Height;
-        var bhW = _dimHeightBadge.DesiredSize.Width;
-        var bhH = _dimHeightBadge.DesiredSize.Height;
+        // After the inverse RenderTransform the badge occupies DesiredSize/zoom canvas
+        // logical units, so scale down the footprint used for collision/positioning.
+        var bwW = _dimWidthBadge.DesiredSize.Width  * invZ;
+        var bwH = _dimWidthBadge.DesiredSize.Height * invZ;
+        var bhW = _dimHeightBadge.DesiredSize.Width  * invZ;
+        var bhH = _dimHeightBadge.DesiredSize.Height * invZ;
 
-        // Width badge: centred below the selection bottom edge (or above if too close to canvas bottom)
-        const double BadgeGap = 5.0;
+        // Gap stays at a constant 5 screen-pixels — convert to canvas logical units.
+        double BadgeGap = 5.0 * invZ;
         var wBadgeLeft = cx - bwW / 2;
         var wBadgeTop = s.Bottom + BadgeGap;
         if (wBadgeTop + bwH > h) wBadgeTop = s.Top - bwH - BadgeGap;
