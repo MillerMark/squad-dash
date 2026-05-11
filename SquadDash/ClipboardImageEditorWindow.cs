@@ -808,7 +808,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             if (_inEyedropperMode) { ExitEyedropperMode(); return; }
             ExitAllToolModes();
             EnterEyedropperMode();
-            _eyedropperBtn.Content = "✓ ⊕ Color";
+            _eyedropperBtn.Content = MakeToolIcon("ImageEditorEyedropperIcon", active: true);
         };
 
         roundCornersBtn.Click += (_, _) =>
@@ -3255,7 +3255,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         _canvas.Cursor = Cursors.Arrow;
         HideModeHint();
         HideEyedropperTooltip();
-        if (_eyedropperBtn != null) _eyedropperBtn.Content = "⊕ Color";
+        if (_eyedropperBtn != null) _eyedropperBtn.Content = MakeToolIcon("ImageEditorEyedropperIcon");
     }
 
     private void CachePixels()
