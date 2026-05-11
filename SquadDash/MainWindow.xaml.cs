@@ -195,6 +195,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private const double DragThreshold = 4.0; // px of movement before drag mode activates
     private bool _restartPending;
     private bool _clipboardEditorOpen; // true while ClipboardImageEditorWindow is open; defers restart
+    private bool _pendingShutdown;     // true when a close was requested while ClipboardImageEditorWindow was open
     private bool _programmaticExpanderChange;
     private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
@@ -18623,6 +18624,27 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+            // If the clipboard image editor is open, block the close and let the user finish
+            // (or dismiss) the editor first.  Once it closes, OnClipboardEditorClosed will
+            // call Close() again.  This is a ShowDialog() scenario so it can only happen via
+            // the taskbar button or an external close signal while the nested message pump runs.
+            if (_clipboardEditorOpen)
+            {
+                e.Cancel = true;
+                _pendingShutdown = true;
+                // Bring the editor to the foreground so the user sees why the close was blocked.
+                foreach (Window w in Application.Current.Windows)
+                {
+                    if (w is ClipboardImageEditorWindow editorWin)
+                    {
+                        editorWin.Activate();
+                        break;
+                    }
+                }
+                SquadDashTrace.Write("Shutdown", "Close requested while ClipboardImageEditorWindow is open. Deferring until editor closes.");
+                return;
+            }
+
             bool isBusy = _isPromptRunning || IsNativeLoopRunning || _promptQueue.Count > 0;
             if (isBusy && !isDeferredClose)
             {
@@ -19842,6 +19864,15 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     private void OnClipboardEditorClosed()
     {
+        // If the user tried to close the main window while the editor was open, honour
+        // that deferred close now that the editor has been dismissed (Insert or Cancel).
+        if (_pendingShutdown)
+        {
+            _pendingShutdown = false;
+            Close();
+            return;
+        }
+
         if (!_restartPending) return;
         if (_isPromptRunning) return;
         if (_pttState == PttState.Active || _pttDraining) return;
