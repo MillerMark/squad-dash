@@ -489,6 +489,11 @@ internal sealed class ClipboardImageEditorWindow : Window
         _canvas.MouseDown += Canvas_MouseDown;
         _canvas.MouseMove += Canvas_MouseMove;
         _canvas.MouseUp += Canvas_MouseUp;
+
+        // Reset to standard arrow when mouse leaves the canvas area (toolbar, buttons, etc.
+        // should always show the normal cursor), and restore tool cursor on re-entry.
+        _canvas.MouseLeave += (_, _) => Cursor = Cursors.Arrow;
+        _canvas.MouseEnter += (_, _) => Cursor = ActiveToolCursor();
         KeyDown += Window_KeyDown;
 
         PreviewKeyDown += (_, e) =>
@@ -1281,6 +1286,18 @@ internal sealed class ClipboardImageEditorWindow : Window
         HitZone.Move => Cursors.SizeAll,
         _ => Cursors.Arrow
     };
+
+    /// <summary>Returns the cursor that should be shown while the mouse is over the canvas.</summary>
+    private Cursor ActiveToolCursor()
+    {
+        if (_isPanMode)         return AnnotationCursors.OpenHand;
+        if (_inEyedropperMode)  return AnnotationCursors.EyedropperTool;
+        if (_inArrowMode)       return AnnotationCursors.ArrowTool;
+        if (_inRectMode)        return AnnotationCursors.RectTool;
+        if (_inTextMode)        return AnnotationCursors.TextTool;
+        if (_inCursorPlacementMode) return AnnotationCursors.DropCursorTool;
+        return _canvas.Cursor ?? Cursors.Arrow;
+    }
 
     // ── Resize math ───────────────────────────────────────────────────────────
 
