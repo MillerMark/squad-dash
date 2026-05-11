@@ -4867,7 +4867,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             ToolTip   = opt.Hint,
             Margin    = new Thickness(0, 0, 0, 4),
         };
-        cb.SetResourceReference(Control.StyleProperty, "ThemedCheckBoxStyle");
+        cb.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         var capturedPath = _selectedLoopMdPath;
         var capturedKey  = opt.Key;
