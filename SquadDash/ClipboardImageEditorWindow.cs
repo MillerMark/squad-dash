@@ -1799,6 +1799,25 @@ internal sealed class ClipboardImageEditorWindow : Window
     {
         if (e.Key == Key.Escape)
         {
+            // Priority 1 — cancel an active crop rectangle (drawing in progress or live selection).
+            if (_creatingNewSel)
+            {
+                _creatingNewSel = false;
+                _canvas.ReleaseMouseCapture();
+                // Restore the pre-drag snapshot so any previously-existing crop region is preserved.
+                if (_preDragSnapshot != null) { RestoreSnapshot(_preDragSnapshot); _preDragSnapshot = null; }
+                else { _sel = Rect.Empty; RefreshLayout(); }
+                e.Handled = true;
+                return;
+            }
+            if (!_sel.IsEmpty)
+            {
+                _sel = Rect.Empty;
+                RefreshLayout();
+                e.Handled = true;
+                return;
+            }
+
             if (_inArrowMode)
             {
                 if (_creatingArrowByDrag)
@@ -1830,7 +1849,12 @@ internal sealed class ClipboardImageEditorWindow : Window
                 e.Handled = true;
                 return;
             }
-            // No active tool mode — prompt the user before discarding unsaved work.
+            // Priority 2 — deselect a selected annotation (arrow, rect, or text label).
+            if (_selectedArrow != null) { SelectArrow(null); e.Handled = true; return; }
+            if (_selectedAnnotRect != null) { SelectAnnotationRect(null); e.Handled = true; return; }
+            if (_selectedText != null) { SelectText(null); e.Handled = true; return; }
+
+            // Priority 3 — no active selection: behave exactly as the X/Cancel button.
             if (HasChanges())
             {
                 var answer = MessageBox.Show(
