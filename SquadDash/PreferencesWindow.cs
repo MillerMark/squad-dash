@@ -851,7 +851,7 @@ internal sealed class PreferencesWindow : Window {
         AddSectionHeader(form, "Notification Sounds");
 
         var headerHint = new TextBlock {
-            Text = "Play a sound when events occur. Check the box to enable; enter a path to a .mp3 or .wav file for a custom sound, or leave blank to use the default Windows alert sound.",
+            Text = "Play a sound when events occur. Check the box to enable; enter a path to a .mp3 or .wav file for a custom sound, leave blank to use the default Windows alert sound, or enter a quoted phrase like \"Prompt complete\" to have text-to-speech speak it. Right-click a path box to test.",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 11,
             Margin = new Thickness(0, 0, 0, 16)
