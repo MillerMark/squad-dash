@@ -2321,7 +2321,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         else
         {
             _queuePausePending = false;
-            QueueStatusLabel.Text = paused ? "Queue is paused" : "Queue is running";
+            QueueStatusLabel.Text = paused ? "Queue is paused"
+                : IsRightmostQueueTabActive() ? "Queue is running (but paused due to active prompt tab)"
+                : "Queue is running";
             QueuePlayPauseButton.ToolTip = paused ? "Click to resume automatic prompt queue processing." : "Click to pause automatic prompt queue processing.";
             // Icon shows what clicking will DO (inverted from current state):
             //   Running → pause icon ⏸ (click will pause)
