@@ -789,6 +789,21 @@ internal sealed record WorkspaceDocsPanelState
     public bool? QueuePaused { get; init; }
 
     /// <summary>
+    /// Last filter text entered in the Approvals panel filter box. Null = no filter.
+    /// </summary>
+    public string? ApprovalsPanelFilter { get; init; }
+
+    /// <summary>
+    /// Last filter text entered in the Tasks panel filter box. Null = no filter.
+    /// </summary>
+    public string? TasksPanelFilter { get; init; }
+
+    /// <summary>
+    /// Last filter text entered in the Notes panel filter box. Null = no filter.
+    /// </summary>
+    public string? NotesPanelFilter { get; init; }
+
+    /// <summary>
     /// Legacy single-item follow-up fields — kept for reading old settings files.
     /// New writes use <see cref="DraftFollowUpsJson"/> instead.
     /// </summary>

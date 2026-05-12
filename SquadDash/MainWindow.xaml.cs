@@ -21859,6 +21859,22 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             ApplyDocsPanelProportionalWidths();
         });
+
+        // Restore panel filter text boxes.
+        if (_docsPanelState.ApprovalsPanelFilter is { Length: > 0 } approvalsFilter)
+            Dispatcher.BeginInvoke(() => {
+                if (ApprovalFilterBox is not null) ApprovalFilterBox.Text = approvalsFilter;
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+
+        if (_docsPanelState.TasksPanelFilter is { Length: > 0 } tasksFilter)
+            Dispatcher.BeginInvoke(() => {
+                if (TasksFilterBox is not null) TasksFilterBox.Text = tasksFilter;
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+
+        if (_docsPanelState.NotesPanelFilter is { Length: > 0 } notesFilter)
+            Dispatcher.BeginInvoke(() => {
+                if (NotesFilterBox is not null) NotesFilterBox.Text = notesFilter;
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void ApplyDocsPanelProportionalWidths()
@@ -23415,6 +23431,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (ApprovalFilterClearButton is not null)
                 ApprovalFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _approvalPanel?.SetFilter(text);
+            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { ApprovalsPanelFilter = text.Length > 0 ? text : null };
+            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalFilterBox_TextChanged), ex); }
     }
@@ -23451,6 +23469,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             string filterText = text;
             _tasksPanelController?.SetFilter(filterText);
             ScheduleLoopPreviewRefreshFromFilter();
+            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { TasksPanelFilter = text.Length > 0 ? text : null };
+            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
     }
@@ -23542,6 +23562,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (NotesFilterClearButton is not null)
                 NotesFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _notesPanel?.SetFilter(text);
+            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { NotesPanelFilter = text.Length > 0 ? text : null };
+            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(NotesFilterBox_TextChanged), ex); }
     }
