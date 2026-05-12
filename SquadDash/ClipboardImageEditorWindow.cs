@@ -1736,13 +1736,11 @@ internal sealed class ClipboardImageEditorWindow : Window
             }
         }
 
-        SelectArrow(null);
-        SelectAnnotationRect(null);
-
-        var pt = e.GetPosition(_canvas);
-
         // Clicking canvas background deselects any selected text annotation.
-        // Skip if a text annotation was just committed by this same click (LostFocus → commit → select).
+        // MUST run BEFORE SelectArrow/SelectAnnotationRect: both call HideColorPicker() which
+        // clears _selectedText without removing resize handles, causing the check below to be
+        // skipped and leaving the handles orphaned on the canvas.
+        // Skip deselect if a text annotation was just committed by this same click (LostFocus → commit → select).
         if (_selectedText != null)
         {
             if (_suppressNextTextDeselect)
@@ -1750,6 +1748,11 @@ internal sealed class ClipboardImageEditorWindow : Window
             else
                 SelectText(null);
         }
+
+        SelectArrow(null);
+        SelectAnnotationRect(null);
+
+        var pt = e.GetPosition(_canvas);
 
         var zone = HitTest(pt);
 
@@ -2501,6 +2504,7 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private void EnterMoveMode()
     {
+        if (_selectedText != null) SelectText(null);
         _inMoveMode = true;
         _inCropMode = false;
         _canvas.Cursor = Cursors.Arrow;
@@ -3200,6 +3204,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         _colorPickerRect  = null;
         _colorPickerText  = null;
         _selectedText     = null;
+        RemoveTextResizeHandles();
         if (_textSelectionRect != null)
         {
             _canvas.Children.Remove(_textSelectionRect);
@@ -4057,6 +4062,7 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     private void EnterTextMode()
     {
+        if (_selectedText != null) SelectText(null);
         _inMoveMode = false;
         _inCropMode = false;
         _inTextMode = true;
