@@ -20446,6 +20446,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                 {
                     try
                     {
+                        // Snapshot the live expansion state before rebuilding the tree so
+                        // PopulateDocumentationTopics restores exactly what the user sees now
+                        // rather than whatever was persisted at the end of the last session.
+                        if (DocTopicsTreeView is not null && _docsPanelState is not null)
+                        {
+                            var liveNodes = CollectExpandedDocNodes(DocTopicsTreeView.Items);
+                            _docsPanelState = _docsPanelState with { ExpandedNodes = liveNodes };
+                        }
                         PopulateDocumentationTopics();
                     }
                     catch (Exception ex)
