@@ -16148,6 +16148,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             .Select(option => option.Label)
             .ToArray();
         _lastQuickReplyEntry = entry;
+        SoundNotifications.Play(SoundEvent.QuickRepliesShown);
         var routeDecisions = options
             .Select(option => (Option: option, Decision: BuildQuickReplyRouting(entry, option)))
             .ToArray();

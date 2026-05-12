@@ -572,6 +572,7 @@ internal sealed class ApplicationSettingsStore {
             SoundEvent.LoopIterationComplete => current with { Sound_LoopIterationComplete_Enabled = enabled, Sound_LoopIterationComplete_CustomPath = path },
             SoundEvent.LoopStopped           => current with { Sound_LoopStopped_Enabled           = enabled, Sound_LoopStopped_CustomPath           = path },
             SoundEvent.CommitMade            => current with { Sound_CommitMade_Enabled            = enabled, Sound_CommitMade_CustomPath            = path },
+            SoundEvent.QuickRepliesShown     => current with { Sound_QuickRepliesShown_Enabled     = enabled, Sound_QuickRepliesShown_CustomPath     = path },
             _                               => current
         };
         SaveCore(updated);
@@ -1010,6 +1011,11 @@ internal sealed record ApplicationSettingsSnapshot(
     /// <summary>Custom audio file for CommitMade. Empty = use system sound.</summary>
     public string Sound_CommitMade_CustomPath { get; init; } = "";
 
+    /// <summary>Whether a sound plays when quick reply buttons are shown. Default: false.</summary>
+    public bool Sound_QuickRepliesShown_Enabled { get; init; } = false;
+    /// <summary>Custom audio file for QuickRepliesShown. Empty = use system sound.</summary>
+    public string Sound_QuickRepliesShown_CustomPath { get; init; } = "";
+
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
             null,
@@ -1203,6 +1209,8 @@ internal sealed record ApplicationSettingsSnapshot(
             Sound_LoopStopped_CustomPath            = Sound_LoopStopped_CustomPath ?? "",
             Sound_CommitMade_Enabled                = Sound_CommitMade_Enabled,
             Sound_CommitMade_CustomPath             = Sound_CommitMade_CustomPath ?? "",
+            Sound_QuickRepliesShown_Enabled         = Sound_QuickRepliesShown_Enabled,
+            Sound_QuickRepliesShown_CustomPath      = Sound_QuickRepliesShown_CustomPath ?? "",
         };
     }
 

@@ -18,7 +18,8 @@ internal enum SoundEvent
     QueueEmpty,
     LoopIterationComplete,
     LoopStopped,
-    CommitMade
+    CommitMade,
+    QuickRepliesShown
 }
 
 /// <summary>
@@ -97,6 +98,7 @@ internal sealed class SoundNotificationService
             SoundEvent.LoopIterationComplete => (s.Sound_LoopIterationComplete_Enabled, s.Sound_LoopIterationComplete_CustomPath),
             SoundEvent.LoopStopped           => (s.Sound_LoopStopped_Enabled,           s.Sound_LoopStopped_CustomPath),
             SoundEvent.CommitMade            => (s.Sound_CommitMade_Enabled,            s.Sound_CommitMade_CustomPath),
+            SoundEvent.QuickRepliesShown     => (s.Sound_QuickRepliesShown_Enabled,     s.Sound_QuickRepliesShown_CustomPath),
             _                                => (false, "")
         };
 }
