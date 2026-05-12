@@ -31,17 +31,17 @@ internal enum SoundEvent
 internal sealed class SoundNotificationService
 {
     private readonly ApplicationSettingsStore _settingsStore;
-    private readonly ITtsProvider?            _ttsProvider;
+    private readonly Func<ITtsProvider?>      _ttsProviderFactory;
 
     // 0 = idle, 1 = speaking; updated via Interlocked for overlap guard.
     private int _ttsSpeaking;
 
     public SoundNotificationService(
         ApplicationSettingsStore settingsStore,
-        ITtsProvider?            ttsProvider = null)
+        Func<ITtsProvider?>      ttsProviderFactory)
     {
-        _settingsStore = settingsStore;
-        _ttsProvider   = ttsProvider;
+        _settingsStore      = settingsStore;
+        _ttsProviderFactory = ttsProviderFactory;
     }
 
     /// <summary>
@@ -70,7 +70,8 @@ internal sealed class SoundNotificationService
             // --- TTS path ---
             if (!string.IsNullOrEmpty(customPath) && IsPhrase(customPath))
             {
-                if (_ttsProvider == null)
+                var ttsProvider = _ttsProviderFactory();
+                if (ttsProvider == null)
                 {
                     SquadDashTrace.Write("Sound", $"Play skipped: {evt} TTS phrase configured but no TTS provider");
                     return;
@@ -87,7 +88,7 @@ internal sealed class SoundNotificationService
                 SquadDashTrace.Write("Sound", $"Playing {evt} via TTS: \"{phrase}\"");
                 _ = Task.Run(async () =>
                 {
-                    try   { await _ttsProvider.SpeakAsync(phrase).ConfigureAwait(false); }
+                    try   { await ttsProvider.SpeakAsync(phrase).ConfigureAwait(false); }
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"TTS error: {ex.Message}");

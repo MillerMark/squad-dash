@@ -487,7 +487,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _squadCliAdapter = new SquadCliAdapter(_workspacePaths, (op, ex) => HandleUiCallbackException(op, ex));
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
-        SoundNotifications = new SoundNotificationService(_settingsStore, BuildTtsProvider(_settingsSnapshot));
+        SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         OutputTextBox.CacheMode = CreateTranscriptBitmapCache();
@@ -9650,7 +9650,6 @@ public partial class MainWindow : Window, ILiveElementLocator
                 {
                     _settingsSnapshot = snapshot;
                     _pushNotificationService.ReloadProvider();
-                    SoundNotifications = new SoundNotificationService(_settingsStore, BuildTtsProvider(snapshot));
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
