@@ -1047,6 +1047,28 @@ internal sealed class PreferencesWindow : Window {
         };
         testButton.SetResourceReference(Button.StyleProperty, "ThemedButton");
 
+        var ttsErrorText = new TextBlock {
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+            FontSize = 12
+        };
+        ttsErrorText.SetResourceReference(TextBlock.ForegroundProperty, "ErrorText");
+
+        var copyErrorButton = new Button {
+            Content = "📋 Copy error",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        copyErrorButton.SetResourceReference(Button.StyleProperty, "ThemedButton");
+        copyErrorButton.Click += (_, _) => Clipboard.SetText(ttsErrorText.Text);
+
+        var ttsErrorPanel = new StackPanel {
+            Orientation = Orientation.Vertical,
+            Visibility = Visibility.Collapsed
+        };
+        ttsErrorPanel.Children.Add(ttsErrorText);
+        ttsErrorPanel.Children.Add(copyErrorButton);
+
         testButton.Click += (_, _) => {
             testButton.IsEnabled = false;
             _ = Task.Run(async () => {
@@ -1055,7 +1077,7 @@ internal sealed class PreferencesWindow : Window {
                     var azureVoice  = await Dispatcher.InvokeAsync(() => azureVoiceCombo.Text.Trim());
                     var openAiVoice = await Dispatcher.InvokeAsync(() => openAiVoiceCombo.SelectedItem?.ToString() ?? "alloy");
                     var modelIndex  = await Dispatcher.InvokeAsync(() => openAiModelCombo.SelectedIndex);
-                    var region      = currentSettings.SpeechRegion;
+                    var region      = await Dispatcher.InvokeAsync(() => _speechRegionBox.Text.Trim());
                     var openAiKey   = currentSettings.OpenAiSpeechApiKey;
                     var azureKey    = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
                     var oaiModel    = modelIndex == 1 ? "tts-1-hd" : "tts-1";
@@ -1081,11 +1103,14 @@ internal sealed class PreferencesWindow : Window {
                     }
                     else {
                         await tts.SpeakAsync(phrase);
+                        await Dispatcher.InvokeAsync(() => ttsErrorPanel.Visibility = Visibility.Collapsed);
                     }
                 }
-                catch {
+                catch (Exception ex) {
                     await Dispatcher.InvokeAsync(() => {
-                        testButton.Content = "Error — check keys";
+                        testButton.Content = "⚠ Error (see below)";
+                        ttsErrorText.Text = ex.Message;
+                        ttsErrorPanel.Visibility = Visibility.Visible;
                     });
                     await Task.Delay(2000);
                 }
@@ -1100,6 +1125,10 @@ internal sealed class PreferencesWindow : Window {
 
         testButtonPanel.Children.Add(testButton);
         form.Children.Add(testButtonPanel);
+        form.Children.Add(ttsErrorPanel);
+
+        // Hide error panel when a new test starts
+        testButton.Click += (_, _) => ttsErrorPanel.Visibility = Visibility.Collapsed;
 
         return WrapInScrollViewer(form);
     }
