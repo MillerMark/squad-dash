@@ -707,6 +707,9 @@ internal sealed class ApplicationSettingsStore {
                 NotesSortOrder = state.NotesSortOrder ?? existing.NotesSortOrder,
                 PromptPanelOnTop = state.PromptPanelOnTop ?? existing.PromptPanelOnTop,
                 QueuePaused = state.QueuePaused ?? existing.QueuePaused,
+                ApprovalsPanelFilter = state.ApprovalsPanelFilter ?? existing.ApprovalsPanelFilter,
+                TasksPanelFilter = state.TasksPanelFilter ?? existing.TasksPanelFilter,
+                NotesPanelFilter = state.NotesPanelFilter ?? existing.NotesPanelFilter,
             };
         }
         dict[key] = state;
