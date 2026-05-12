@@ -348,14 +348,19 @@ internal sealed class ClipboardImageEditorWindow : Window
         double maxWinW = monitorArea.Width  * 0.95;
         double maxWinH = monitorArea.Height * 0.95;
 
-        double imageDpiX = clipboardImage.DpiX > 0 ? clipboardImage.DpiX : 96.0;
-        double imageDpiY = clipboardImage.DpiY > 0 ? clipboardImage.DpiY : 96.0;
-        // Logical (WPF) canvas size normalised to 96 dpi.
-        double dispW = imgW * 96.0 / imageDpiX;
-        double dispH = imgH * 96.0 / imageDpiY;
-        // Pixels per canvas logical unit — used for pixel sampling and export crop.
-        _canvasScaleX = imgW / dispW;  // = imageDpiX / 96
-        _canvasScaleY = imgH / dispH;
+        // Use the current monitor's DPI scale to recover the intended logical display size.
+        // Windows clipboard DIBs always store physical pixel counts with DpiX=96 metadata
+        // regardless of the source monitor's scaling. Dividing by the monitor scale factor
+        // gives the logical size that matches what the user saw on screen when they took
+        // the screenshot (e.g. a 1500-pixel-wide window on a 150%-scaled monitor shows
+        // as 1000 logical units — exactly matching the original window's apparent size).
+        double monitorScaleX = pSrc?.CompositionTarget.TransformToDevice.M11 ?? 1.0;
+        double monitorScaleY = pSrc?.CompositionTarget.TransformToDevice.M22 ?? 1.0;
+        double dispW = imgW / monitorScaleX;
+        double dispH = imgH / monitorScaleY;
+        // Pixels per canvas logical unit — used for pixel sampling, cropping, and export.
+        _canvasScaleX = monitorScaleX;
+        _canvasScaleY = monitorScaleY;
 
         const double MinWindowWidth = 580;
         const double toolbarH = 110.0;
