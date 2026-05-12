@@ -5040,17 +5040,26 @@ internal sealed class ClipboardImageEditorWindow : Window
 
             // When undo/redo changes the canvas size (crop or uncrop), resize the window
             // to fit the new image — mirrors the resize that DoCropInPlace performs.
-            if (Math.Abs(_canvas.Width - preRestoreW) > 0.5 || Math.Abs(_canvas.Height - preRestoreH) > 0.5)
+            // Use snap.CanvasW/H directly (not _canvas.Width which was just set from snap)
+            // to make the comparison explicit and unambiguous.
+            SquadDashTrace.Write("UI",
+                $"[ClipboardImageEditor] RestoreSnapshot: preW={preRestoreW:F1} preH={preRestoreH:F1} " +
+                $"snapW={snap.CanvasW:F1} snapH={snap.CanvasH:F1} " +
+                $"canvasW={_canvas.Width:F1} canvasH={_canvas.Height:F1}");
+            if (Math.Abs(snap.CanvasW - preRestoreW) > 0.5 || Math.Abs(snap.CanvasH - preRestoreH) > 0.5)
             {
                 var undoWork = GetMonitorWorkAreaRect(this);
                 const double UndoCropToolbarH = 110.0;
-                double undoFitW = (undoWork.Width  * 0.95 - 24)           / _canvas.Width;
-                double undoFitH = (undoWork.Height * 0.95 - UndoCropToolbarH) / _canvas.Height;
+                double undoFitW = (undoWork.Width  * 0.95 - 24)           / snap.CanvasW;
+                double undoFitH = (undoWork.Height * 0.95 - UndoCropToolbarH) / snap.CanvasH;
                 _zoom = Math.Min(1.0, Math.Min(undoFitW, undoFitH));
                 _scaleTransform.ScaleX = _zoom;
                 _scaleTransform.ScaleY = _zoom;
                 if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
                 UpdateWindowSizeForZoom();
+                SquadDashTrace.Write("UI",
+                    $"[ClipboardImageEditor] RestoreSnapshot resize: zoom={_zoom:F3} " +
+                    $"winW={Width:F1} winH={Height:F1}");
                 Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
                 {
                     _scrollViewer.ScrollToHorizontalOffset(_scrollViewer.ScrollableWidth  / 2);
