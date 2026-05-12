@@ -9650,6 +9650,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 {
                     _settingsSnapshot = snapshot;
                     _pushNotificationService.ReloadProvider();
+                    SoundNotifications = new SoundNotificationService(_settingsStore, BuildTtsProvider(snapshot));
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
