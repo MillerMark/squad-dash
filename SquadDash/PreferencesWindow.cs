@@ -60,6 +60,8 @@ internal sealed class PreferencesWindow : Window {
     private readonly TextBox  _soundLoopStoppedPathBox;
     private readonly CheckBox _soundCommitMadeCheckBox;
     private readonly TextBox  _soundCommitMadePathBox;
+    private readonly CheckBox _soundQuickRepliesShownCheckBox;
+    private readonly TextBox  _soundQuickRepliesShownPathBox;
     private readonly ObservableCollection<VoiceReplacementRuleViewModel> _voiceReplacementRules;
 
     private readonly UIElement[] _pages;
@@ -189,6 +191,17 @@ internal sealed class PreferencesWindow : Window {
         (_soundLoopIterationCompleteCheckBox, _soundLoopIterationCompletePathBox) = MakeSoundRow(currentSettings.Sound_LoopIterationComplete_Enabled, currentSettings.Sound_LoopIterationComplete_CustomPath);
         (_soundLoopStoppedCheckBox,           _soundLoopStoppedPathBox)           = MakeSoundRow(currentSettings.Sound_LoopStopped_Enabled,           currentSettings.Sound_LoopStopped_CustomPath);
         (_soundCommitMadeCheckBox,            _soundCommitMadePathBox)            = MakeSoundRow(currentSettings.Sound_CommitMade_Enabled,            currentSettings.Sound_CommitMade_CustomPath);
+        (_soundQuickRepliesShownCheckBox,     _soundQuickRepliesShownPathBox)     = MakeSoundRow(currentSettings.Sound_QuickRepliesShown_Enabled,     currentSettings.Sound_QuickRepliesShown_CustomPath);
+
+        // CheckBox tooltips — explain when each sound event fires
+        _soundPromptCompleteCheckBox.ToolTip        = "Plays when a prompt finishes successfully.";
+        _soundPromptErrorCheckBox.ToolTip           = "Plays when a prompt fails with an error.";
+        _soundApprovalNeededCheckBox.ToolTip        = "Plays when an item is added to the Approvals panel.";
+        _soundQueueEmptyCheckBox.ToolTip            = "Plays when the prompt queue drains to empty.";
+        _soundLoopIterationCompleteCheckBox.ToolTip = "Plays at the end of each loop iteration.";
+        _soundLoopStoppedCheckBox.ToolTip           = "Plays when the loop stops entirely.";
+        _soundCommitMadeCheckBox.ToolTip            = "Plays when a git commit is made by an agent.";
+        _soundQuickRepliesShownCheckBox.ToolTip     = "Plays when quick reply buttons appear in the transcript.";
 
         _voiceReplacementRules = new ObservableCollection<VoiceReplacementRuleViewModel>(
             currentSettings.VoiceReplacementRules.Select(r =>
@@ -850,6 +863,7 @@ internal sealed class PreferencesWindow : Window {
         AddSoundEventRow(evtGrid, 4, SoundEvent.LoopIterationComplete, "Loop iteration complete", _soundLoopIterationCompleteCheckBox, _soundLoopIterationCompletePathBox);
         AddSoundEventRow(evtGrid, 5, SoundEvent.LoopStopped,           "Loop stopped",            _soundLoopStoppedCheckBox,           _soundLoopStoppedPathBox);
         AddSoundEventRow(evtGrid, 6, SoundEvent.CommitMade,            "Commit made",             _soundCommitMadeCheckBox,            _soundCommitMadePathBox);
+        AddSoundEventRow(evtGrid, 7, SoundEvent.QuickRepliesShown,     "Quick replies shown",     _soundQuickRepliesShownCheckBox,     _soundQuickRepliesShownPathBox);
 
         form.Children.Add(evtGrid);
         return WrapInScrollViewer(form);
