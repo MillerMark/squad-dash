@@ -257,6 +257,11 @@ internal sealed class ClipboardImageEditorWindow : Window
     // Canvas_MouseDown reads and clears this flag to prevent immediately deselecting the annotation
     // that was just committed by the same click.
     private bool _suppressNextTextDeselect;
+    // Set by Canvas_PreviewMLBD when a click lands on empty canvas while a text annotation is being
+    // edited (no annotation hit in the Preview hit-test).  CommitActiveTextBox reads this flag to
+    // decide whether to deselect the annotation after committing (empty-canvas click → deselect,
+    // so handles disappear) versus keep it selected (Enter / explicit exit → handles stay).
+    private bool _pendingTextCommitDeselect;
     // Canvas-level text annotation drag — handles clicks in the selection-rect border zone
     // (the 4–8 px margin around the TextBlock that display.MouseLeftButtonDown misses).
     private bool           _canvasTextDragActive;
@@ -1484,6 +1489,12 @@ internal sealed class ClipboardImageEditorWindow : Window
             e.Handled = true;
             return;
         }
+
+        // The click landed on empty canvas (no annotation hit).  If a text annotation is currently
+        // being edited, tell CommitActiveTextBox (which fires via LostFocus moments later) to
+        // deselect after committing so the resize handles disappear as the user expects.
+        if (_activeTextBox != null || _editingText != null)
+            _pendingTextCommitDeselect = true;
     }
 
     private void Canvas_MouseDown(object sender, MouseButtonEventArgs e)
@@ -4253,14 +4264,24 @@ internal sealed class ClipboardImageEditorWindow : Window
             editCopy.Bounds   = new Rect(Canvas.GetLeft(tbRef), Canvas.GetTop(tbRef), double.IsNaN(tbRef.Width) ? 0 : tbRef.Width, 0);
             UpdateTextDisplay(editCopy);
             if (autoExit) ExitTextMode(returnToMove: true);
-            // Always select the committed annotation (unless in multi-drop mode) so resize
-            // handles appear regardless of whether text mode was still active at commit time.
-            // Set the suppress flag so the canvas MouseDown that triggered this LostFocus-commit
-            // doesn't immediately deselect the annotation we just selected.
+            // Select the committed annotation (unless in multi-drop mode) so resize handles appear.
+            // But if the commit was triggered by a click on empty canvas (_pendingTextCommitDeselect),
+            // deselect instead so the handles disappear — that is the user's intent when clicking away.
             if (!inMultiDrop)
             {
-                _suppressNextTextDeselect = true;
-                SelectText(editCopy);
+                if (_pendingTextCommitDeselect)
+                {
+                    // Click-away on empty canvas: commit the text but clear selection so handles go away.
+                    _pendingTextCommitDeselect = false;
+                    SelectText(null);
+                }
+                else
+                {
+                    // Enter key / explicit exit: keep annotation selected so resize handles stay visible
+                    // and the user can immediately reposition or resize without a second click.
+                    _suppressNextTextDeselect = true;
+                    SelectText(editCopy);
+                }
             }
         }
     }
