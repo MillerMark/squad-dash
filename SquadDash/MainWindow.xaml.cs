@@ -7347,6 +7347,22 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }
             }
 
+            // ── Ctrl+Shift+V: append clipboard text to the prompt input box ─────────
+            if (e.Key == Key.V
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0)
+            {
+                var clipText = Clipboard.GetText();
+                if (!string.IsNullOrEmpty(clipText) && PromptTextBox is { } promptBox)
+                {
+                    promptBox.AppendText(clipText);
+                    promptBox.CaretIndex = promptBox.Text.Length;
+                    promptBox.Focus();
+                }
+                e.Handled = true;
+                return;
+            }
+
             // ── Ctrl+Alt+Shift+PageUp: move prompt panel above the transcript ─────────
             if (e.Key == Key.PageUp
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
