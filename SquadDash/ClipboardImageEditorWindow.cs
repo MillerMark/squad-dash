@@ -2815,6 +2815,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         _selectedArrow = arrow;
         if (arrow != null)
         {
+            if (_selectedText != null) SelectText(null);
             arrow.TipHandle.Visibility = Visibility.Visible;
             arrow.TailHandle.Visibility = Visibility.Visible;
             ShowColorPicker(arrow);
@@ -3454,6 +3455,7 @@ internal sealed class ClipboardImageEditorWindow : Window
         _selectedAnnotRect = rect;
         if (rect != null)
         {
+            if (_selectedText != null) SelectText(null);
             SelectArrow(null);
             foreach (var h in rect.Handles) h.Visibility = Visibility.Visible;
             ShowColorPickerForRect(rect);
