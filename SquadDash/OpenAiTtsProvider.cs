@@ -48,7 +48,7 @@ internal sealed class OpenAiTtsProvider : ITtsProvider
             var tempPath = Path.ChangeExtension(Path.GetTempFileName(), ".mp3");
             await File.WriteAllBytesAsync(tempPath, mp3Bytes, ct).ConfigureAwait(false);
 
-            Application.Current.Dispatcher.BeginInvoke(() =>
+            _ = Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 try
                 {
