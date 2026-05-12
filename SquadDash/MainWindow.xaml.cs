@@ -187,6 +187,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _isInstallingSquad;
     private bool _isClosing;
     private bool _isPromptRunning;
+    private bool _bridgeRestartForSettingsPending;
     private readonly PromptQueue _promptQueue = new();
     private bool _queueManuallyPaused;
     private bool _queuePausePending;
@@ -938,6 +939,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     UpdateCompletedTimeFooters();
                     _backgroundTaskPresenter.PromoteDeferredBackgroundAgentReports("coordinator_idle");
                     SquadDashTrace.Write("Queue", $"setIsPromptRunning(false): queueCount={_promptQueue.Count} deferred={_deferredShutdown} restartPending={_restartPending} isClosing={_isClosing}");
+                    ApplyPendingBridgeSettingsRestartIfIdle("prompt-finished");
                     if (_deferredShutdown == DeferredShutdownMode.AfterCurrentTurn)
                     {
                         // User chose "close after this turn" — don't drain, just close.
@@ -3993,6 +3995,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void HandleLoopStopped(SquadSdkEvent evt)
     {
         _pec.SetIsLoopRunning(false);
+        ApplyPendingBridgeSettingsRestartIfIdle("loop-stopped");
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         _loopCurrentIteration = 0;
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
@@ -4005,6 +4008,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void HandleLoopError(SquadSdkEvent evt)
     {
         _pec.SetIsLoopRunning(false);
+        ApplyPendingBridgeSettingsRestartIfIdle("loop-error");
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         _loopCurrentIteration = 0;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
@@ -4033,6 +4037,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void OnNativeLoopStopped()
     {
         _pec.SetIsLoopRunning(false);
+        ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
@@ -4060,6 +4065,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void OnNativeLoopError(string msg)
     {
         _pec.SetIsLoopRunning(false);
+        ApplyPendingBridgeSettingsRestartIfIdle("native-loop-error");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
@@ -7347,18 +7353,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }
             }
 
-            // ── Ctrl+Shift+V: append clipboard text to the prompt input box ─────────
+            // ── Ctrl+Shift+V: attach clipboard text as a follow-up to the active prompt/tab ──
             if (e.Key == Key.V
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
                 && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0)
             {
                 var clipText = Clipboard.GetText();
-                if (!string.IsNullOrEmpty(clipText) && PromptTextBox is { } promptBox)
-                {
-                    promptBox.AppendText(clipText);
-                    promptBox.CaretIndex = promptBox.Text.Length;
-                    promptBox.Focus();
-                }
+                if (!string.IsNullOrEmpty(clipText))
+                    AttachContextFollowUp("Clipboard text", clipText);
                 e.Handled = true;
                 return;
             }
@@ -9601,8 +9603,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
-                    _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
-                    _bridge.RestartBridgeForNewSettings();
+                    var previousByokSettings = _bridge.ByokProviderSettings;
+                    var currentByokSettings = BuildByokSettings(snapshot);
+                    _bridge.ByokProviderSettings = currentByokSettings;
+                    if (!Equals(previousByokSettings, currentByokSettings))
+                        RestartBridgeForSettingsWhenIdle("preferences-byok-changed");
+                    else
+                        SquadDashTrace.Write("Bridge", "Preferences saved; BYOK bridge settings unchanged, no bridge restart needed.");
                 });
         }
         catch (Exception ex)
@@ -20297,14 +20304,52 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private ByokProviderSettings? BuildByokSettingsFromStore()
     {
-        var snapshot = _settingsStore.Load();
+        return BuildByokSettings(_settingsStore.Load());
+    }
+
+    private static ByokProviderSettings? BuildByokSettings(ApplicationSettingsSnapshot snapshot)
+    {
         if (string.IsNullOrEmpty(snapshot.ByokProviderUrl))
             return null;
+
         return new ByokProviderSettings(
             snapshot.ByokProviderUrl,
             snapshot.ByokModel,
             snapshot.ByokProviderType,
             snapshot.ByokApiKey);
+    }
+
+    private void RestartBridgeForSettingsWhenIdle(string reason)
+    {
+        if (_isPromptRunning || IsLoopRunning)
+        {
+            _bridgeRestartForSettingsPending = true;
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Deferring bridge restart for settings reason={reason} promptRunning={_isPromptRunning} loopRunning={IsLoopRunning}");
+            return;
+        }
+
+        SquadDashTrace.Write("Bridge", $"Restarting bridge for settings reason={reason}");
+        _bridge.RestartBridgeForNewSettings();
+    }
+
+    private void ApplyPendingBridgeSettingsRestartIfIdle(string reason)
+    {
+        if (!_bridgeRestartForSettingsPending)
+            return;
+
+        if (_isPromptRunning || IsLoopRunning)
+        {
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Bridge settings restart remains pending reason={reason} promptRunning={_isPromptRunning} loopRunning={IsLoopRunning}");
+            return;
+        }
+
+        _bridgeRestartForSettingsPending = false;
+        SquadDashTrace.Write("Bridge", $"Applying deferred bridge restart for settings reason={reason}");
+        _bridge.RestartBridgeForNewSettings();
     }
 
     private ITtsProvider? BuildTtsProvider(ApplicationSettingsSnapshot s)
