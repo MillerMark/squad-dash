@@ -45,6 +45,21 @@ internal sealed class PreferencesWindow : Window {
     private readonly TextBox _byokApiKeyRevealBox;
     private readonly TextBlock _byokTestStatusText;
     private readonly TextBox _cleanupPromptBox;
+    // ── Sound notification controls ──────────────────────────────────────
+    private readonly CheckBox _soundPromptCompleteCheckBox;
+    private readonly TextBox  _soundPromptCompletePathBox;
+    private readonly CheckBox _soundPromptErrorCheckBox;
+    private readonly TextBox  _soundPromptErrorPathBox;
+    private readonly CheckBox _soundApprovalNeededCheckBox;
+    private readonly TextBox  _soundApprovalNeededPathBox;
+    private readonly CheckBox _soundQueueEmptyCheckBox;
+    private readonly TextBox  _soundQueueEmptyPathBox;
+    private readonly CheckBox _soundLoopIterationCompleteCheckBox;
+    private readonly TextBox  _soundLoopIterationCompletePathBox;
+    private readonly CheckBox _soundLoopStoppedCheckBox;
+    private readonly TextBox  _soundLoopStoppedPathBox;
+    private readonly CheckBox _soundCommitMadeCheckBox;
+    private readonly TextBox  _soundCommitMadePathBox;
     private readonly ObservableCollection<VoiceReplacementRuleViewModel> _voiceReplacementRules;
 
     private readonly UIElement[] _pages;
@@ -165,6 +180,15 @@ internal sealed class PreferencesWindow : Window {
         _cleanupPromptBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _cleanupPromptBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _cleanupPromptBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+
+        // ── Sound notification controls ───────────────────────────────────
+        (_soundPromptCompleteCheckBox,        _soundPromptCompletePathBox)        = MakeSoundRow(currentSettings.Sound_PromptComplete_Enabled,        currentSettings.Sound_PromptComplete_CustomPath);
+        (_soundPromptErrorCheckBox,           _soundPromptErrorPathBox)           = MakeSoundRow(currentSettings.Sound_PromptError_Enabled,           currentSettings.Sound_PromptError_CustomPath);
+        (_soundApprovalNeededCheckBox,        _soundApprovalNeededPathBox)        = MakeSoundRow(currentSettings.Sound_ApprovalNeeded_Enabled,        currentSettings.Sound_ApprovalNeeded_CustomPath);
+        (_soundQueueEmptyCheckBox,            _soundQueueEmptyPathBox)            = MakeSoundRow(currentSettings.Sound_QueueEmpty_Enabled,            currentSettings.Sound_QueueEmpty_CustomPath);
+        (_soundLoopIterationCompleteCheckBox, _soundLoopIterationCompletePathBox) = MakeSoundRow(currentSettings.Sound_LoopIterationComplete_Enabled, currentSettings.Sound_LoopIterationComplete_CustomPath);
+        (_soundLoopStoppedCheckBox,           _soundLoopStoppedPathBox)           = MakeSoundRow(currentSettings.Sound_LoopStopped_Enabled,           currentSettings.Sound_LoopStopped_CustomPath);
+        (_soundCommitMadeCheckBox,            _soundCommitMadePathBox)            = MakeSoundRow(currentSettings.Sound_CommitMade_Enabled,            currentSettings.Sound_CommitMade_CustomPath);
 
         _voiceReplacementRules = new ObservableCollection<VoiceReplacementRuleViewModel>(
             currentSettings.VoiceReplacementRules.Select(r =>
@@ -372,6 +396,7 @@ internal sealed class PreferencesWindow : Window {
             ("Remote Access", BuildRemoteAccessPage()),
             ("Custom Model",  BuildByokPage()),
             ("Notifications", BuildNotificationsPage(currentSettings)),
+            ("Sounds",        BuildSoundsPage(currentSettings)),
             ("AI",            BuildAiPage()),
         };
         if (showDevOptions)
@@ -797,6 +822,113 @@ internal sealed class PreferencesWindow : Window {
         form.Children.Add(testButton);
 
         return WrapInScrollViewer(form);
+    }
+
+    private UIElement BuildSoundsPage(ApplicationSettingsSnapshot currentSettings) {
+        var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
+
+        AddSectionHeader(form, "Notification Sounds");
+
+        var headerHint = new TextBlock {
+            Text = "Play a sound when events occur. Check the box to enable; enter a path to a .mp3 or .wav file for a custom sound, or leave blank to use the default Windows alert sound.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+        headerHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        form.Children.Add(headerHint);
+
+        AddSoundEventRow(form, SoundEvent.PromptComplete,        "Prompt complete",         _soundPromptCompleteCheckBox,        _soundPromptCompletePathBox);
+        AddSoundEventRow(form, SoundEvent.PromptError,           "Prompt error / failed",   _soundPromptErrorCheckBox,           _soundPromptErrorPathBox);
+        AddSoundEventRow(form, SoundEvent.ApprovalNeeded,        "Approval needed",         _soundApprovalNeededCheckBox,        _soundApprovalNeededPathBox);
+        AddSoundEventRow(form, SoundEvent.QueueEmpty,            "Queue empty",             _soundQueueEmptyCheckBox,            _soundQueueEmptyPathBox);
+        AddSoundEventRow(form, SoundEvent.LoopIterationComplete, "Loop iteration complete", _soundLoopIterationCompleteCheckBox, _soundLoopIterationCompletePathBox);
+        AddSoundEventRow(form, SoundEvent.LoopStopped,           "Loop stopped",            _soundLoopStoppedCheckBox,           _soundLoopStoppedPathBox);
+        AddSoundEventRow(form, SoundEvent.CommitMade,            "Commit made",             _soundCommitMadeCheckBox,            _soundCommitMadePathBox);
+
+        return WrapInScrollViewer(form);
+    }
+
+    private void AddSoundEventRow(StackPanel parent, SoundEvent evt, string label, CheckBox checkBox, TextBox pathBox) {
+        var border = new Border {
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        border.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+
+        var stack = new StackPanel();
+        border.Child = stack;
+
+        checkBox.Content = label;
+        stack.Children.Add(checkBox);
+
+        // Path row: textbox + Browse button
+        var pathRow = new Grid { Margin = new Thickness(0, 6, 0, 0), IsEnabled = checkBox.IsChecked == true };
+        pathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        pathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        pathBox.Margin = new Thickness(0, 0, 6, 0);
+        Grid.SetColumn(pathBox, 0);
+        pathRow.Children.Add(pathBox);
+
+        var browseBtn = new Button {
+            Content = "Browse…",
+            Padding = new Thickness(10, 4, 10, 4),
+            Height = 28
+        };
+        browseBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        Grid.SetColumn(browseBtn, 1);
+        pathRow.Children.Add(browseBtn);
+        stack.Children.Add(pathRow);
+
+        var hint = new TextBlock {
+            Text = "Leave blank for default Windows sound",
+            FontSize = 11,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        stack.Children.Add(hint);
+
+        parent.Children.Add(border);
+
+        // Wire events — save immediately on every change
+        checkBox.Checked   += (_, _) => { pathRow.IsEnabled = true;  SaveSoundSettingNow(evt, checkBox, pathBox); };
+        checkBox.Unchecked += (_, _) => { pathRow.IsEnabled = false; SaveSoundSettingNow(evt, checkBox, pathBox); };
+        pathBox.LostFocus  += (_, _) => SaveSoundSettingNow(evt, checkBox, pathBox);
+        browseBtn.Click    += (_, _) => {
+            var dlg = new Microsoft.Win32.OpenFileDialog {
+                Title = $"Select sound file for \"{label}\"",
+                Filter = "Audio files (*.mp3;*.wav)|*.mp3;*.wav|All files (*.*)|*.*",
+                FilterIndex = 1
+            };
+            if (!string.IsNullOrWhiteSpace(pathBox.Text) && System.IO.File.Exists(pathBox.Text))
+                dlg.InitialDirectory = System.IO.Path.GetDirectoryName(pathBox.Text);
+            if (dlg.ShowDialog(this) == true) {
+                pathBox.Text = dlg.FileName;
+                SaveSoundSettingNow(evt, checkBox, pathBox);
+            }
+        };
+    }
+
+    private void SaveSoundSettingNow(SoundEvent evt, CheckBox checkBox, TextBox pathBox) {
+        _settingsStore.SaveSoundNotificationSettings(evt, checkBox.IsChecked == true, pathBox.Text.Trim());
+    }
+
+    private static (CheckBox cb, TextBox tb) MakeSoundRow(bool enabled, string customPath) {
+        var cb = new CheckBox { IsChecked = enabled, Margin = new Thickness(0, 0, 0, 4) };
+        cb.SetResourceReference(ForegroundProperty, "BodyText");
+        var tb = new TextBox {
+            Text = customPath ?? string.Empty,
+            IsEnabled = enabled,
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 28
+        };
+        tb.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
+        tb.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        tb.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        return (cb, tb);
     }
 
     private UIElement BuildDevPage() {

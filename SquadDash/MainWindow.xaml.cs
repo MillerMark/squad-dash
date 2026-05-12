@@ -947,6 +947,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                             else
                                 _ = DrainQueueAsync();
                         }
+                        else
+                        {
+                            SoundNotifications.Play(SoundEvent.QueueEmpty);
+                        }
                     }
                 }
                 SyncQueuePanel();
@@ -3471,10 +3475,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                             _approvalItems.Add(item);
                             _approvalStore?.Save(_approvalItems);
                             _approvalPanel?.AddItem(item);
+                            SoundNotifications.Play(SoundEvent.CommitMade);
+                            SoundNotifications.Play(SoundEvent.ApprovalNeeded);
                         }
                         // ─────────────────────────────────────────────────────────────────
                     }
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
+                    SoundNotifications.Play(SoundEvent.PromptComplete);
 
                     // Handle SquadDash loop commands embedded in the AI response.
                     if (squadashPayload?.Command is string cmd)
@@ -3518,6 +3525,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 UpdateLeadAgent("Error", string.Empty, evt.Message ?? "Unknown error");
                 UpdateSessionState("Error");
                 FlushDeferredSystemLines();
+                SoundNotifications.Play(SoundEvent.PromptError);
                 break;
         }
     }
@@ -3952,6 +3960,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var iterLabel = evt.LoopIteration is int m ? $"↩ Iteration {m}" : "↩ Iteration";
         AppendLine(iterLabel);
         SquadDashTrace.Write("UI", $"Loop iteration={evt.LoopIteration?.ToString() ?? "(unknown)"}");
+        SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
     }
 
@@ -3963,6 +3972,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
         SquadDashTrace.Write("UI", $"Loop stopped mdPath={evt.LoopMdPath ?? "(none)"}");
+        SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
     }
 
@@ -4017,6 +4027,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
         }
 
+        SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
     }
 
@@ -4035,6 +4046,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         AppendLoopOutputLine($"✓ Round {iteration} completed — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"  ✓ Round {iteration} complete");
+        SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
     }
 
