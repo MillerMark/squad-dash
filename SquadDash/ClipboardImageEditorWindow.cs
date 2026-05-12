@@ -1146,6 +1146,11 @@ internal sealed class ClipboardImageEditorWindow : Window
     [System.Runtime.InteropServices.DllImport("shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr hmonitor, uint dpiType, out uint dpiX, out uint dpiY);
     private const uint MDT_EFFECTIVE_DPI = 0;
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+    // Per-Monitor DPI Aware V2 — required so GetDpiForMonitor returns the true per-monitor
+    // DPI rather than the system DPI (which it returns for System-DPI-aware threads).
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Rect32 { public int Left, Top, Right, Bottom; }
@@ -1259,13 +1264,17 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     /// <summary>
     /// Returns the raw effective scale factor for the monitor identified by <paramref name="hMon"/>
-    /// using <c>GetDpiForMonitor(MDT_EFFECTIVE_DPI)</c>, which bypasses WPF DPI virtualization
-    /// and works correctly regardless of whether the process is System or Per-Monitor DPI aware.
+    /// using <c>GetDpiForMonitor(MDT_EFFECTIVE_DPI)</c> called from a Per-Monitor DPI Aware V2
+    /// thread context. This is required because calling GetDpiForMonitor from a System-DPI-aware
+    /// thread returns the system DPI (96) for all monitors, not the true per-monitor DPI.
     /// Returns 1.0 on failure.
     /// </summary>
     private static double GetRawMonitorScale(IntPtr hMon)
     {
         if (hMon == IntPtr.Zero) return 1.0;
+        // Temporarily switch thread DPI awareness to Per-Monitor V2 so GetDpiForMonitor
+        // returns the real per-monitor DPI instead of the system DPI.
+        var prevCtx = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         try
         {
             int hr = GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, out uint dpiX, out _);
@@ -1276,6 +1285,11 @@ internal sealed class ClipboardImageEditorWindow : Window
         catch (Exception ex)
         {
             SquadDashTrace.Write("UI", $"[GetRawMonitorScale] exception: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (prevCtx != IntPtr.Zero)
+                SetThreadDpiAwarenessContext(prevCtx);
         }
         return 1.0;
     }
