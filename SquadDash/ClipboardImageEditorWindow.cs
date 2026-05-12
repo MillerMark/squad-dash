@@ -502,6 +502,7 @@ internal sealed class ClipboardImageEditorWindow : Window
 
         // ── Canvas events ────────────────────────────────────────────────────
 
+        _canvas.PreviewMouseLeftButtonDown += Canvas_PreviewMouseLeftButtonDown;
         _canvas.MouseDown += Canvas_MouseDown;
         _canvas.MouseMove += Canvas_MouseMove;
         _canvas.MouseUp += Canvas_MouseUp;
@@ -1383,6 +1384,40 @@ internal sealed class ClipboardImageEditorWindow : Window
 
     // ── Mouse ─────────────────────────────────────────────────────────────────
 
+    // Tunneling PreviewMouseLeftButtonDown fires BEFORE any child element's MouseLeftButtonDown,
+    // even if those children set e.Handled = true.  We use this to intercept text annotation
+    // body drags from the border-zone margin (4px/2px outside the TextBlock bounds) — the same
+    // pattern the resize handles themselves use.
+    private void Canvas_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var pt = e.GetPosition(_canvas);
+        SquadDashTrace.Write("AnnotatorDrag", $"Canvas_PreviewMLBD: pt=({pt.X:F0},{pt.Y:F0}) selectedText={_selectedText != null} toolMode={_inTextMode||_inArrowMode||_inRectMode||_inCursorPlacementMode||_inEyedropperMode}");
+
+        if (_selectedText == null || _suppressNextTextDeselect || e.ClickCount != 1
+            || _inTextMode || _inArrowMode || _inRectMode || _inCursorPlacementMode || _inEyedropperMode)
+            return;
+
+        var ann       = _selectedText;
+        var dispW     = ann.Bounds.Width  > 0 ? ann.Bounds.Width  : ann.Display?.ActualWidth  > 0 ? ann.Display.ActualWidth  : ann.Display?.DesiredSize.Width  ?? 30;
+        var dispH     = ann.Bounds.Height > 0 ? ann.Bounds.Height : ann.Display?.ActualHeight > 0 ? ann.Display.ActualHeight : ann.Display?.DesiredSize.Height ?? 20;
+        var hitBounds = new Rect(ann.Bounds.Left - 4, ann.Bounds.Top - 2, dispW + 8, dispH + 4);
+        SquadDashTrace.Write("AnnotatorDrag", $"Canvas_PreviewMLBD: hitBounds=({hitBounds.Left:F0},{hitBounds.Top:F0} {hitBounds.Width:F0}×{hitBounds.Height:F0}) inBounds={hitBounds.Contains(pt)}");
+
+        if (!hitBounds.Contains(pt)) return;
+
+        // Click is within the selection-rect hit zone — start canvas-level drag.
+        // Marking handled here suppresses display.MouseLeftButtonDown so the display
+        // element does not also start its own drag.
+        _preDragSnapshot          = CaptureSnapshot();
+        _canvasTextDragActive     = true;
+        _canvasTextDragAnnotation = ann;
+        _canvasTextDragStart      = pt;
+        _canvasTextDragOrigBounds = ann.Bounds;
+        _canvas.CaptureMouse();
+        SquadDashTrace.Write("AnnotatorDrag", $"Canvas text-body drag start at ({pt.X:F0},{pt.Y:F0}) via Preview intercept");
+        e.Handled = true;
+    }
+
     private void Canvas_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed) return;
@@ -1397,9 +1432,9 @@ internal sealed class ClipboardImageEditorWindow : Window
             return;
         }
 
-        // Note: text resize handle hits are handled via PreviewMouseLeftButtonDown
-        // wired directly on each handle Rectangle in AddTextResizeHandles — that
-        // fires in the tunnel phase before LostFocus can recreate/reposition handles.
+        // Note: text resize handle hits and text annotation body drags are handled via
+        // PreviewMouseLeftButtonDown (tunnel phase) so they fire before LostFocus or child
+        // MouseLeftButtonDown handlers can interfere.
 
         // Eyedropper mode: sample pixel on click.
         if (_inEyedropperMode)
@@ -1427,33 +1462,6 @@ internal sealed class ClipboardImageEditorWindow : Window
         SelectAnnotationRect(null);
 
         var pt = e.GetPosition(_canvas);
-
-        // If a selected text annotation exists, check whether this click lands within its
-        // hit-test bounds (= selection-rect area, which is 4px/2px larger than the TextBlock).
-        // If it does, start a canvas-level body drag instead of deselecting.
-        // This handles the common case where display.MouseLeftButtonDown was NOT reached because
-        // the click landed in the border margin outside the TextBlock's actual bounding box.
-        if (_selectedText != null && !_suppressNextTextDeselect && e.ClickCount == 1
-            && !_inTextMode && !_inArrowMode && !_inRectMode && !_inCursorPlacementMode && !_inEyedropperMode)
-        {
-            var ann        = _selectedText;
-            var dispW      = ann.Bounds.Width  > 0 ? ann.Bounds.Width  : ann.Display?.DesiredSize.Width  ?? 30;
-            var dispH      = ann.Bounds.Height > 0 ? ann.Bounds.Height : ann.Display?.DesiredSize.Height ?? 20;
-            var hitBounds  = new Rect(ann.Bounds.Left - 4, ann.Bounds.Top - 2, dispW + 8, dispH + 4);
-            SquadDashTrace.Write("AnnotatorDrag", $"Canvas_MouseDown: pt=({pt.X:F0},{pt.Y:F0}) textHitBounds=({hitBounds.Left:F0},{hitBounds.Top:F0} {hitBounds.Width:F0}×{hitBounds.Height:F0}) inBounds={hitBounds.Contains(pt)}");
-            if (hitBounds.Contains(pt))
-            {
-                _preDragSnapshot          = CaptureSnapshot();
-                _canvasTextDragActive     = true;
-                _canvasTextDragAnnotation = ann;
-                _canvasTextDragStart      = pt;
-                _canvasTextDragOrigBounds = ann.Bounds;
-                _canvas.CaptureMouse();
-                SquadDashTrace.Write("AnnotatorDrag", $"Canvas text-body drag start at ({pt.X:F0},{pt.Y:F0}) via border-zone intercept");
-                e.Handled = true;
-                return;
-            }
-        }
 
         // Clicking canvas background deselects any selected text annotation.
         // Skip if a text annotation was just committed by this same click (LostFocus → commit → select).
