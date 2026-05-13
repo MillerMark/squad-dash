@@ -621,3 +621,67 @@ internal sealed class MarkdownEditorCommandsTests {
         tb.SelectionLength = length;
     }
 }
+
+// ── DuplicateLineTests ───────────────────────────────────────────────────────
+
+[TestFixture]
+[Apartment(ApartmentState.STA)]
+internal sealed class DuplicateLineTests {
+
+    [Test]
+    public void DuplicateLine_CaretInMiddleOfLine_DuplicatesLine_CaretAtStartOfNewLine() {
+        var tb = MakeBox("hello world\nsecond line");
+        tb.CaretIndex = 5; // middle of "hello world"
+        MarkdownEditorCommands.DuplicateLine(tb);
+        Assert.Multiple(() => {
+            Assert.That(tb.Text,       Is.EqualTo("hello world\nhello world\nsecond line"));
+            Assert.That(tb.CaretIndex, Is.EqualTo(12)); // start of new duplicate line
+        });
+    }
+
+    [Test]
+    public void DuplicateLine_CaretAtStartOfLine_DuplicatesLine_CaretAtStartOfNewLine() {
+        var tb = MakeBox("hello world\nsecond line");
+        tb.CaretIndex = 0; // start of "hello world"
+        MarkdownEditorCommands.DuplicateLine(tb);
+        Assert.Multiple(() => {
+            Assert.That(tb.Text,       Is.EqualTo("hello world\nhello world\nsecond line"));
+            Assert.That(tb.CaretIndex, Is.EqualTo(12));
+        });
+    }
+
+    [Test]
+    public void DuplicateLine_CaretAtEndOfLine_DuplicatesLine_CaretAtStartOfNewLine() {
+        var tb = MakeBox("hello world\nsecond line");
+        tb.CaretIndex = 11; // end of "hello world"
+        MarkdownEditorCommands.DuplicateLine(tb);
+        Assert.Multiple(() => {
+            Assert.That(tb.Text,       Is.EqualTo("hello world\nhello world\nsecond line"));
+            Assert.That(tb.CaretIndex, Is.EqualTo(12));
+        });
+    }
+
+    [Test]
+    public void DuplicateLine_SingleLineNoTrailingNewline_DuplicatesCorrectly() {
+        var tb = MakeBox("only line");
+        tb.CaretIndex = 4;
+        MarkdownEditorCommands.DuplicateLine(tb);
+        Assert.Multiple(() => {
+            Assert.That(tb.Text,       Is.EqualTo("only line\nonly line"));
+            Assert.That(tb.CaretIndex, Is.EqualTo(10)); // start of duplicate
+        });
+    }
+
+    [Test]
+    public void DuplicateLine_CaretOnLastLineOfMultiLine_DuplicatesLastLine() {
+        var tb = MakeBox("first line\nlast line");
+        tb.CaretIndex = 15; // somewhere in "last line"
+        MarkdownEditorCommands.DuplicateLine(tb);
+        Assert.Multiple(() => {
+            Assert.That(tb.Text,       Is.EqualTo("first line\nlast line\nlast line"));
+            Assert.That(tb.CaretIndex, Is.EqualTo(21)); // start of new duplicate
+        });
+    }
+
+    private static TextBox MakeBox(string text) => new() { Text = text };
+}

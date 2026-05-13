@@ -897,6 +897,14 @@ internal sealed class MarkdownDocumentWindow : Window {
             return;
         }
 
+        // ── Shift+Enter: duplicate current line ───────────────────────────────────
+        if (e.Key == System.Windows.Input.Key.Return
+            && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift) {
+            MarkdownEditorCommands.DuplicateLine(tb);
+            e.Handled = true;
+            return;
+        }
+
         if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0) return;
         if (e.Key == System.Windows.Input.Key.Z
             && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0) {

@@ -104,6 +104,42 @@ internal static class MarkdownEditorCommands
         return true;
     }
 
+    /// <summary>
+    /// Duplicates the current line and moves the caret to the start of the new copy.
+    /// </summary>
+    internal static void DuplicateLine(TextBox box)
+    {
+        var text  = box.Text.Replace("\r\n", "\n").Replace("\r", "\n");
+        var caret = box.CaretIndex;
+
+        var lineStart = caret == 0 ? 0 : (text.LastIndexOf('\n', caret - 1) + 1);
+        var lineEnd   = text.IndexOf('\n', caret);
+        if (lineEnd < 0) lineEnd = text.Length;
+
+        var line      = text[lineStart..lineEnd];
+        var insertion = "\n" + line;
+        box.Text       = text[..lineEnd] + insertion + text[lineEnd..];
+        box.CaretIndex = lineEnd + 1; // start of the new duplicate line
+    }
+
+    /// <summary>
+    /// RichTextBox overload of <see cref="DuplicateLine(TextBox)"/>.
+    /// </summary>
+    internal static void DuplicateLine(RichTextBox box)
+    {
+        var text  = box.GetPlainText().Replace("\r\n", "\n").Replace("\r", "\n");
+        var caret = box.GetCaretOffset();
+
+        var lineStart = caret == 0 ? 0 : (text.LastIndexOf('\n', caret - 1) + 1);
+        var lineEnd   = text.IndexOf('\n', caret);
+        if (lineEnd < 0) lineEnd = text.Length;
+
+        var line      = text[lineStart..lineEnd];
+        var insertion = "\n" + line;
+        box.SetPlainText(text[..lineEnd] + insertion + text[lineEnd..]);
+        box.SetCaretOffset(lineEnd + 1); // start of the new duplicate line
+    }
+
     // ── Shared helpers ────────────────────────────────────────────────────────
 
     private static (string[] lines, int rangeStart, int rangeEnd) GetSelectedLines(
