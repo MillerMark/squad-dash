@@ -1047,6 +1047,11 @@ internal sealed class BackgroundTaskPresenter {
             : label + " failed: " + message.Trim();
     }
 
+    internal static string BuildThreadCancellationSummary(TranscriptThreadState thread) {
+        var label = BuildBackgroundAgentLabel(thread);
+        return label + " aborted.";
+    }
+
     internal static string BuildThreadAnnouncementKey(TranscriptThreadState thread) =>
         !string.IsNullOrWhiteSpace(thread.ToolCallId)
             ? "tool-call:" + thread.ToolCallId.Trim()

@@ -3251,6 +3251,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             SquadDashTrace.Write("UI", "AbortButton confirmed — aborting active coordinator prompt.");
             _bridge.AbortPrompt();
+            // Gap 3: if the bridge task never throws/returns, the prompt-running state
+            // would stay stale forever.  The watchdog forces cleanup after a short grace period.
+            StartCoordinatorAbortWatchdog();
         }
 
         var backgroundCancelTasks = targets
@@ -3264,10 +3267,82 @@ public partial class MainWindow : Window, ILiveElementLocator
                 SquadDashTrace.Write(
                     "UI",
                     $"AbortButton background cancel result taskKind={target.TaskKind} task={target.TaskId} cancelled={cancelled}");
+                // Gap 2: don't wait for the SDK event — force-finalize the thread now so
+                // tool spinners stop and the transcript gets an "Aborted" terminal marker.
+                ForceFinalizeCancelledBackgroundThread(target.TaskId);
             })
             .ToArray();
 
         await Task.WhenAll(backgroundCancelTasks).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Gap 2 fix: immediately marks a background thread as Cancelled and finalizes it
+    /// rather than waiting for the SDK to deliver a subagent_cancelled event (which may
+    /// never arrive cleanly after a hard abort).
+    /// </summary>
+    private void ForceFinalizeCancelledBackgroundThread(string taskId)
+    {
+        var normalized = taskId.Trim();
+        var thread = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+            !AgentThreadRegistry.IsTerminalBackgroundStatus(t.StatusText) &&
+            (string.Equals(t.AgentId, normalized, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(t.ToolCallId, normalized, StringComparison.OrdinalIgnoreCase)));
+        if (thread is null)
+            return;
+
+        SquadDashTrace.Write("UI", $"ForceFinalize cancelled thread agentId={thread.AgentId} title={thread.Title}");
+        var summary = BackgroundTaskPresenter.BuildThreadCancellationSummary(thread);
+        thread.StatusText = "Cancelled";
+        thread.DetailText = summary;
+        thread.IsCurrentBackgroundRun = false;
+        thread.CompletedAt ??= DateTimeOffset.Now;
+        _agentThreadRegistry.FinalizeAgentThread(thread);
+        UpdateCompletedTimeFooters();
+        _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
+        _backgroundTaskPresenter.AppendBackgroundNotice(
+            summary, ThemeBrush("SystemInfoText"),
+            BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":cancelled");
+        SyncAgentCardsWithThreads();
+        _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Gap 3 &amp; 4 fix: starts a short watchdog after a coordinator abort.  If
+    /// <c>_isPromptRunning</c> is still true after the grace period the bridge task
+    /// is assumed to be stuck and we force all prompt-running cleanup locally.
+    /// </summary>
+    private void StartCoordinatorAbortWatchdog()
+    {
+        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ =>
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (!_isPromptRunning)
+                    return;
+                SquadDashTrace.Write("UI", "AbortWatchdog: _isPromptRunning still true after 3 s — forcing coordinator cleanup.");
+                ForceCoordinatorAbortCleanup();
+            }));
+    }
+
+    /// <summary>
+    /// Resets all coordinator-turn UI state that would normally be cleared by the
+    /// <c>setIsPromptRunning(false)</c> path in <c>ExecutePromptAsync</c>.  Only
+    /// called from the abort watchdog when that path appears stuck.
+    /// </summary>
+    private void ForceCoordinatorAbortCleanup()
+    {
+        _isPromptRunning = false;
+        CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
+        // Close any still-spinning coordinator tool entries.
+        _agentThreadRegistry.CompleteOutstandingAgentTools(CoordinatorThread);
+        AppendLine("[aborted]", ThemeBrush("SystemInfoText"));
+        FinalizeCurrentTurnResponse();
+        SyncQueuePauseLabel();
+        UpdateCompletedTimeFooters();
+        SyncQueuePanel();
+        UpdateInteractiveControlState();
+        UpdateSessionState("Ready");
+        SquadDashTrace.Write("UI", "AbortWatchdog: forced coordinator cleanup complete.");
     }
 
     private void HandleEvent(SquadSdkEvent evt)
@@ -3382,6 +3457,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             case "subagent_failed":
                 HandleSubagentFailed(evt);
+                break;
+
+            case "subagent_cancelled":
+                HandleSubagentCancelled(evt);
                 break;
 
             case "loop_started":
@@ -4010,6 +4089,29 @@ public partial class MainWindow : Window, ILiveElementLocator
         _backgroundTaskPresenter.AppendBackgroundNotice(summary, ThemeBrush("TaskFailureText"), BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":failed");
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_failed");
+        _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
+    }
+
+    private void HandleSubagentCancelled(SquadSdkEvent evt)
+    {
+        if (ShouldSuppressSilentBackgroundAgent(evt))
+        {
+            SquadDashTrace.Write("UI", $"Silent background agent cancelled agent={evt.AgentDisplayName ?? evt.AgentName ?? evt.AgentId ?? "(unknown)"}");
+            return;
+        }
+
+        var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        var summary = BackgroundTaskPresenter.BuildThreadCancellationSummary(thread);
+        _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Cancelled", detailText: summary);
+        thread.CompletedAt ??= DateTimeOffset.Now;
+        _agentThreadRegistry.FinalizeAgentThread(thread);
+        UpdateCompletedTimeFooters();
+        SquadDashTrace.Write("UI", $"Subagent cancelled {summary}");
+
+        _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
+        _backgroundTaskPresenter.AppendBackgroundNotice(summary, ThemeBrush("SystemInfoText"), BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":cancelled");
+        SyncAgentCardsWithThreads();
+        _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_cancelled");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
     }
 
