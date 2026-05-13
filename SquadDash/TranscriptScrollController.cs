@@ -858,6 +858,14 @@ internal sealed class TranscriptScrollController
     ///         moved vertically (could be a horizontal scroll, a background
     ///         re-layout pass, or a programmatic scroll that was already at its
     ///         target). No action needed.</item>
+    ///   <item><b>WPF-clamp guard.</b>  When an extent shrink forces
+    ///         <c>VerticalOffset</c> down to the new <c>ScrollableHeight</c>, WPF
+    ///         fires a separate <c>ScrollChanged</c> with <c>ExtentHeightChange=0</c>
+    ///         and <c>VerticalChange&lt;0</c>, landing with
+    ///         <c>distanceFromBottom ≈ 0</c>.  This is NOT a user gesture; treating
+    ///         it as one would set <see cref="IsUserScrolledAway"/>=<c>true</c> and
+    ///         block subsequent EXTENT GROW re-anchors, leaving the viewport stranded
+    ///         mid-document while content streams in.</item>
     ///   <item><b>User-scroll classification.</b>  All three gates passed — this is
     ///         a genuine user drag or mousewheel event.  Update
     ///         <see cref="IsUserScrolledAway"/> from the current distance to the
@@ -946,6 +954,22 @@ internal sealed class TranscriptScrollController
                     _pendingLockedViewportReanchor = true;
                     _savedOffsetBeforeShrink = sv3.VerticalOffset;
                 }
+                else
+                {
+                    // Content shrank while the user was at the bottom (e.g., search-prepended
+                    // turns were removed after the user returned to the bottom via the scroll
+                    // button). WPF clamps VerticalOffset to the new ScrollableHeight, which may
+                    // arrive as a separate ScrollChanged event (ExtentHeightChange=0,
+                    // VerticalChange<0) that is misclassified as a user scroll upward, flipping
+                    // IsUserScrolledAway=True and blocking subsequent EXTENT GROW re-anchors.
+                    // Schedule a deferred re-anchor so the viewport returns to the bottom cleanly
+                    // once the WPF-clamp event and any remaining shrink layout settle.
+                    _ = _dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+                    {
+                        if (!IsUserScrolledAway)
+                            RequestScrollToEnd();
+                    });
+                }
                 ScrollTrace("EXTENT SHRINK", $"content shrank {e.ExtentHeightChange:0.#}px \u2014 saved offset={_savedOffsetBeforeShrink:0.#}px, will re-anchor on re-expand");
             }
             return;
@@ -964,6 +988,19 @@ internal sealed class TranscriptScrollController
         // which is the number of pixels of content below the visible viewport.
         var sv = (ScrollViewer)sender;
         double distanceFromBottom = sv.ScrollableHeight - sv.VerticalOffset;
+
+        // When an extent shrink clamps VerticalOffset to the reduced ScrollableHeight,
+        // WPF fires a separate ScrollChanged (ExtentHeightChange=0, VerticalChange<0)
+        // with the offset landing at or within 1 px of ScrollableHeight. This is NOT a
+        // user gesture. Treating it as one would set IsUserScrolledAway=True and block
+        // the next EXTENT GROW re-anchor, leaving the viewport stranded mid-document
+        // while content streams in (producing the visible thrash). Skip it entirely.
+        bool isProbablyWpfClamp = e.VerticalChange < 0 && distanceFromBottom <= 1.0;
+        if (isProbablyWpfClamp)
+        {
+            ScrollTrace("IGNORED", $"WPF offset-clamp (VerticalChange={e.VerticalChange:+0.#;-0.#}px, distFromBottom={distanceFromBottom:0.#}px \u2248 0)");
+            return;
+        }
 
         bool wasScrolledAway = IsUserScrolledAway;
         IsUserScrolledAway = distanceFromBottom > NearBottomThreshold;
