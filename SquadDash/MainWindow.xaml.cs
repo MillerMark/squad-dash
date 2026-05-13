@@ -6539,25 +6539,77 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     /// <summary>
-    /// Appends a low-contrast horizontal rule to the coordinator transcript with a tooltip
-    /// showing the shutdown time, offline duration, and startup time.  Called once on
+    /// Appends an 8px diagonal-stripe separator to the coordinator transcript with a styled
+    /// tooltip showing the shutdown time, offline duration, and startup time.  Called once on
     /// workspace load when a previous shutdown timestamp is found in settings.
     /// </summary>
     private void AppendSessionGapIndicator(DateTimeOffset shutdownTime, TimeSpan offlineDuration)
     {
-        var tooltipText =
-            $"Shutdown: {StatusTimingPresentation.FormatRelativeTimestamp(shutdownTime)}\n" +
-            $"Offline: {StatusTimingPresentation.FormatOfflineDuration(offlineDuration)}\n" +
-            $"Startup: {StatusTimingPresentation.FormatRelativeTimestamp(DateTimeOffset.Now)}";
+        var startupTime = DateTimeOffset.Now;
+
+        // Build a styled multi-line tooltip matching the approval panel style
+        var tooltipPanel = new StackPanel { Margin = new Thickness(2) };
+        foreach (var line in new[]
+        {
+            ("Shutdown: ", StatusTimingPresentation.FormatRelativeTimestamp(shutdownTime)),
+            ("Offline:  ", StatusTimingPresentation.FormatOfflineDuration(offlineDuration)),
+            ("Startup:  ", StatusTimingPresentation.FormatRelativeTimestamp(startupTime)),
+        })
+        {
+            var tb = new TextBlock { TextWrapping = TextWrapping.NoWrap };
+            tb.Inlines.Add(new System.Windows.Documents.Bold(new System.Windows.Documents.Run(line.Item1)));
+            tb.Inlines.Add(new System.Windows.Documents.Run(line.Item2));
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            tooltipPanel.Children.Add(tb);
+        }
+        var tooltip = new ToolTip { Content = tooltipPanel, Padding = new Thickness(8, 6, 8, 6) };
+        tooltip.SetResourceReference(Control.BackgroundProperty, "PopupSurface");
+        tooltip.SetResourceReference(Control.BorderBrushProperty, "ActivePanelBorder");
+        tooltip.BorderThickness = new Thickness(1);
+
+        // Build diagonal-stripe DrawingBrush: alternating semi-transparent bands
+        var lightBand = new SolidColorBrush(Color.FromArgb(55, 210, 210, 210));
+        var darkBand  = new SolidColorBrush(Color.FromArgb(35, 70, 70, 70));
+        lightBand.Freeze();
+        darkBand.Freeze();
+
+        const double tileW = 14.0, tileH = 8.0;
+        var drawingGroup = new DrawingGroup();
+        // Dark background tile
+        drawingGroup.Children.Add(new GeometryDrawing(
+            darkBand, null,
+            new RectangleGeometry(new Rect(0, 0, tileW, tileH))));
+        // Light diagonal band: parallelogram across the tile
+        var lightFigure = new PathFigure(
+            new Point(0, 0),
+            new PathSegment[]
+            {
+                new LineSegment(new Point(tileW / 2, 0), true),
+                new LineSegment(new Point(tileW,     tileH), true),
+                new LineSegment(new Point(tileW / 2, tileH), true),
+            },
+            closed: true);
+        drawingGroup.Children.Add(new GeometryDrawing(
+            lightBand, null,
+            new PathGeometry(new[] { lightFigure })));
+
+        var stripeBrush = new DrawingBrush
+        {
+            Drawing       = drawingGroup,
+            TileMode      = TileMode.Tile,
+            Viewport      = new Rect(0, 0, tileW, tileH),
+            ViewportUnits = BrushMappingMode.Absolute,
+        };
 
         var border = new Border
         {
-            Height = 1,
-            Margin = new Thickness(0, 8, 0, 8),
+            Height              = 8,
+            Margin              = new Thickness(0, 10, 0, 10),
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            ToolTip = new ToolTip { Content = tooltipText }
+            Background          = stripeBrush,
+            ToolTip             = tooltip,
+            Cursor              = Cursors.Help,
         };
-        border.SetResourceReference(Border.BackgroundProperty, "SubtleText");
 
         var container = new BlockUIContainer(border) { Margin = new Thickness(0) };
         CoordinatorThread.Document.Blocks.Add(container);
@@ -13069,7 +13121,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Show a session gap indicator if a shutdown timestamp was recorded for this workspace.
         if (_currentWorkspace is not null &&
             _settingsSnapshot.WorkspaceShutdownTimes is { } shutdownTimes &&
-            shutdownTimes.TryGetValue(_currentWorkspace.FolderPath, out var shutdownTime))
+            shutdownTimes.TryGetValue(
+                Path.GetFullPath(_currentWorkspace.FolderPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                out var shutdownTime))
         {
             var offlineDuration = DateTimeOffset.UtcNow - shutdownTime;
             if (offlineDuration.TotalSeconds > 5)
