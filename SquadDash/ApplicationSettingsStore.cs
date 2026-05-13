@@ -1268,6 +1268,7 @@ internal sealed record ApplicationSettingsSnapshot(
                 ? "Clean up and clarify this text."
                 : CleanupPrompt,
             SpeechProvider = SpeechProvider,
+            PttAutoSend = PttAutoSend,
             OpenAiSpeechApiKey = string.IsNullOrWhiteSpace(OpenAiSpeechApiKey) ? null : OpenAiSpeechApiKey.Trim(),
             VoiceReplacementRules = VoiceReplacementRules
                 .Where(r => !string.IsNullOrWhiteSpace(r?.Pattern))
