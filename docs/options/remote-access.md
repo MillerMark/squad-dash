@@ -4,7 +4,7 @@ nav_order: 3
 parent: Options
 ---
 
-# Remote Access
+# Remote Access (alpha)
 
 The Remote Access tab lets you configure an outbound tunnel so SquadDash can be reached from outside your local network — for example from your phone or a remote machine.
 

@@ -4,7 +4,7 @@ nav_order: 4
 parent: Options
 ---
 
-# Custom Model
+# Custom Model (in development - not working yet)
 
 The Custom Model tab (also called **BYOK** — Bring Your Own Key/Model) lets you replace the default GitHub Copilot backend with a custom model provider, such as a locally running [Ollama](https://ollama.com) instance or any OpenAI-compatible API endpoint.
 
