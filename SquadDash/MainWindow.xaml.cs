@@ -22092,6 +22092,38 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private void BridgeStallCopyDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        var now = DateTimeOffset.Now;
+        var idleSeconds = _pec.LastPromptActivityAt is not null
+            ? (now - _pec.LastPromptActivityAt.Value).TotalSeconds
+            : 0.0;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("=== SquadDash Bridge Stall Diagnostics ===");
+        sb.AppendLine($"Copied at:       {now:yyyy-MM-dd HH:mm:ss zzz}");
+        sb.AppendLine($"Idle duration:   {idleSeconds:0.0}s");
+        sb.AppendLine($"Last activity:   {_pec.LastPromptActivityName ?? "(unknown)"}");
+        sb.AppendLine($"Active tool:     {_pec.ActiveToolName ?? "(none)"}");
+        sb.AppendLine($"Stall warning:   {_pec.PromptStallWarningShown}");
+        sb.AppendLine($"Workspace:       {_currentWorkspace?.FolderPath ?? "(none)"}");
+        sb.AppendLine($"Model:           {_settingsSnapshot.LastUsedModel ?? "(unknown)"}");
+        sb.AppendLine($"App version:     {AppVersion.Full}");
+
+        Clipboard.SetText(sb.ToString());
+
+        var original = BridgeStallTextBlock.Text;
+        BridgeStallTextBlock.Text = original + " (copied)";
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (BridgeStallTextBlock.Text == original + " (copied)")
+                BridgeStallTextBlock.Text = original;
+        };
+        timer.Start();
+    }
+
     private void RestoreUtilityWindowVisibility()
     {
         if (_settingsSnapshot.TasksWindowOpen)

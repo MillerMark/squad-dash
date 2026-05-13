@@ -2137,6 +2137,11 @@
                             BorderThickness="1"
                             CornerRadius="10"
                             Visibility="Collapsed">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="📋 Copy diagnostic info" Click="BridgeStallCopyDiagnostics_Click" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <TextBlock x:Name="BridgeStallTextBlock"
                                    Foreground="{DynamicResource AlertBodyText}"
                                    FontWeight="SemiBold"
