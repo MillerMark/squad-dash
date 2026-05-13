@@ -6541,12 +6541,17 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// <summary>
     /// Appends an 8px diagonal-stripe separator to the coordinator transcript with a styled
     /// tooltip showing the shutdown time, offline duration, and startup time.  Called once on
-    /// workspace load when a previous shutdown timestamp is found in settings.
+    /// workspace load when a previous shutdown timestamp is found in settings, and also when
+    /// rendering a persisted <see cref="TranscriptTurnRecord"/> with
+    /// <c>IsSessionBoundary == true</c>.
     /// </summary>
-    private void AppendSessionGapIndicator(DateTimeOffset shutdownTime, TimeSpan offlineDuration)
+    private void AppendSessionGapIndicator(
+        DateTimeOffset shutdownTime,
+        TimeSpan offlineDuration,
+        DateTimeOffset? startupTime = null)
     {
         SquadDashTrace.Write(TraceCategory.UI, $"SessionGap: AppendSessionGapIndicator called shutdownTime={shutdownTime:O} offline={offlineDuration.TotalSeconds:F1}s");
-        var startupTime = DateTimeOffset.Now;
+        var resolvedStartupTime = startupTime?.ToLocalTime() ?? DateTimeOffset.Now;
 
         // Build a styled multi-line tooltip matching the approval panel style
         var tooltipPanel = new StackPanel { Margin = new Thickness(2) };
@@ -6554,7 +6559,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             ("Shutdown: ", StatusTimingPresentation.FormatRelativeTimestamp(shutdownTime)),
             ("Offline:  ", StatusTimingPresentation.FormatOfflineDuration(offlineDuration)),
-            ("Startup:  ", StatusTimingPresentation.FormatRelativeTimestamp(startupTime)),
+            ("Startup:  ", StatusTimingPresentation.FormatRelativeTimestamp(resolvedStartupTime)),
         })
         {
             var tb = new TextBlock { TextWrapping = TextWrapping.NoWrap };
@@ -13117,13 +13122,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         // exactly one scroll-to-bottom once all stored turns have been appended.
         _coordinatorScrollController.BeginLoad();
 
-        SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace.FolderPath}");
-        var loadConvSw = Stopwatch.StartNew();
-        await _conversationManager.LoadWorkspaceConversationAsync();
-        loadConvSw.Stop();
-        SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
-
-        // Show a session gap indicator if a shutdown timestamp was recorded for this workspace.
+        // If a shutdown timestamp was recorded for this workspace, register a session-gap
+        // boundary BEFORE LoadWorkspaceConversationAsync so it is injected into the turn
+        // list before rendering starts and is saved as part of the conversation history.
         var shutdownTimesCount = _settingsSnapshot.WorkspaceShutdownTimes?.Count ?? -1;
         var lookupKey = Path.GetFullPath(_currentWorkspace.FolderPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -13136,13 +13137,19 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             var offlineDuration = DateTimeOffset.UtcNow - shutdownTime;
             SquadDashTrace.Write(TraceCategory.UI, $"SessionGap: MATCH found shutdownTime={shutdownTime:O} offlineDuration={offlineDuration.TotalSeconds:F1}s");
-            AppendSessionGapIndicator(shutdownTime, offlineDuration);
+            _conversationManager.PrependSessionBoundary(shutdownTime, offlineDuration);
             _settingsSnapshot = _settingsStore.ClearWorkspaceShutdownTime(_currentWorkspace.FolderPath);
         }
         else
         {
             SquadDashTrace.Write(TraceCategory.UI, "SessionGap: no shutdown time found — stripe skipped.");
         }
+
+        SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace.FolderPath}");
+        var loadConvSw = Stopwatch.StartNew();
+        await _conversationManager.LoadWorkspaceConversationAsync();
+        loadConvSw.Stop();
+        SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
 
         // Prune agent reports older than 2 weeks on each workspace load.
         var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
@@ -16001,6 +16008,17 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void RenderPersistedTurn(TranscriptThreadState thread, TranscriptTurnRecord turn, bool isLastTurn = false)
     {
+        // Session-boundary markers are rendered as a stripe separator, not as AI content.
+        if (turn.IsSessionBoundary)
+        {
+            if (ReferenceEquals(thread, CoordinatorThread))
+                AppendSessionGapIndicator(
+                    turn.SessionBoundaryShutdownTime ?? turn.StartedAt,
+                    turn.SessionBoundaryOfflineDuration ?? TimeSpan.Zero,
+                    turn.SessionBoundaryStartupTime);
+            return;
+        }
+
         var view = CreateTranscriptTurnView(
             thread,
             turn.Prompt,

@@ -250,6 +250,10 @@ internal sealed class WorkspaceConversationStore {
         DateTimeOffset now,
         string? owningThreadStatus = null,
         DateTimeOffset? owningThreadCompletedAt = null) {
+        // Session boundary markers carry no AI content — pass through as-is (UTC-normalise StartedAt).
+        if (turn.IsSessionBoundary)
+            return turn with { StartedAt = turn.StartedAt.ToUniversalTime() };
+
         var thoughts = turn.GetThoughts()
             .Select(NormalizeThought)
             .ToArray();
@@ -636,6 +640,20 @@ internal sealed record TranscriptTurnRecord(
     public int? ToolsSuppressedCount { get; init; }
     /// <summary>Agent reports to render as buttons immediately after this turn.</summary>
     public IReadOnlyList<AgentReportInfo>? AgentReports { get; init; }
+
+    // ── Session boundary marker ────────────────────────────────────────────────
+    /// <summary>
+    /// When <c>true</c> this record is a session-gap marker, not a real AI turn.
+    /// It is rendered as a diagonal-stripe separator in the coordinator transcript.
+    /// All other turn fields are unused/empty when this is <c>true</c>.
+    /// </summary>
+    public bool IsSessionBoundary { get; init; }
+    /// <summary>UTC time of the previous session's shutdown that this boundary marks.</summary>
+    public DateTimeOffset? SessionBoundaryShutdownTime { get; init; }
+    /// <summary>How long the application was offline before this session started.</summary>
+    public TimeSpan? SessionBoundaryOfflineDuration { get; init; }
+    /// <summary>UTC time when this session started (i.e. when the boundary was created).</summary>
+    public DateTimeOffset? SessionBoundaryStartupTime { get; init; }
 
     public IReadOnlyList<TranscriptThoughtRecord> GetThoughts() {
         if (Thoughts is { Count: > 0 })

@@ -55,6 +55,10 @@ internal sealed class TranscriptConversationManager {
     private static readonly TimeSpan AgentThreadSnapshotPersistDebounce = TimeSpan.FromMilliseconds(1000);
     private bool _prependInProgress;
 
+    // Pending session-gap boundary to inject at the end of the loaded conversation turns.
+    // Set by PrependSessionBoundary() before LoadWorkspaceConversationAsync() is called.
+    private TranscriptTurnRecord? _pendingSessionBoundary;
+
     // ── Properties exposed to MainWindow ───────────────────────────────────────
     internal WorkspaceConversationState ConversationState {
         get => _conversationState;
@@ -180,6 +184,31 @@ internal sealed class TranscriptConversationManager {
 
     // ── Workspace conversation load ─────────────────────────────────────────────
 
+    /// <summary>
+    /// Registers a session-gap boundary to be injected at the end of the next
+    /// <see cref="LoadWorkspaceConversationAsync"/> call.  Must be called BEFORE
+    /// <see cref="LoadWorkspaceConversationAsync"/> so the boundary is appended to
+    /// the in-memory turn list before rendering starts, and is saved to disk as part
+    /// of the normal conversation state — surviving future restarts.
+    /// </summary>
+    internal void PrependSessionBoundary(DateTimeOffset shutdownTime, TimeSpan offlineDuration) {
+        _pendingSessionBoundary = new TranscriptTurnRecord(
+            StartedAt:          shutdownTime.ToUniversalTime(),
+            CompletedAt:        null,
+            Prompt:             string.Empty,
+            ThinkingText:       string.Empty,
+            ResponseText:       string.Empty,
+            ThinkingCollapsed:  false,
+            Tools:              Array.Empty<TranscriptToolRecord>()) {
+            IsSessionBoundary              = true,
+            SessionBoundaryShutdownTime    = shutdownTime.ToUniversalTime(),
+            SessionBoundaryOfflineDuration = offlineDuration,
+            SessionBoundaryStartupTime     = DateTimeOffset.UtcNow,
+        };
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"SessionGap: PrependSessionBoundary registered shutdownTime={shutdownTime:O} offline={offlineDuration.TotalSeconds:F1}s");
+    }
+
     internal async Task LoadWorkspaceConversationAsync() {
         CancelScheduledAgentThreadSnapshotPersist();
         // Clear any pending renders left over from a previous workspace.
@@ -202,6 +231,19 @@ internal sealed class TranscriptConversationManager {
         var dataLoadMs = dataSw.ElapsedMilliseconds;
 
         SquadDashTrace.Write(TraceCategory.Performance, $"DESER: {dataLoadMs}ms turns={_conversationState.Turns.Count}");
+
+        // If a session-gap boundary was registered before this load, append it to the
+        // turn list now — before rendering starts — so it is rendered in sequence and
+        // persisted as part of the conversation history.
+        if (_pendingSessionBoundary is { } boundary) {
+            _pendingSessionBoundary = null;
+            _conversationState = _conversationState with {
+                Turns = _conversationState.Turns.Append(boundary).ToArray()
+            };
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"SessionGap: boundary injected turns={_conversationState.Turns.Count} shutdownTime={boundary.SessionBoundaryShutdownTime:O}");
+            PersistConversationStateInBackground(_conversationState);
+        }
 
         // Reset virtual window so stale state from a previous workspace never leaks in.
         _allCoordinatorTurns        = [];
