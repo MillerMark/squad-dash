@@ -6545,6 +6545,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     private void AppendSessionGapIndicator(DateTimeOffset shutdownTime, TimeSpan offlineDuration)
     {
+        SquadDashTrace.Write(TraceCategory.UI, $"SessionGap: AppendSessionGapIndicator called shutdownTime={shutdownTime:O} offline={offlineDuration.TotalSeconds:F1}s");
         var startupTime = DateTimeOffset.Now;
 
         // Build a styled multi-line tooltip matching the approval panel style
@@ -13119,17 +13120,25 @@ public partial class MainWindow : Window, ILiveElementLocator
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
 
         // Show a session gap indicator if a shutdown timestamp was recorded for this workspace.
+        var shutdownTimesCount = _settingsSnapshot.WorkspaceShutdownTimes?.Count ?? -1;
+        var lookupKey = Path.GetFullPath(_currentWorkspace.FolderPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        SquadDashTrace.Write(TraceCategory.UI, $"SessionGap: WorkspaceShutdownTimes count={shutdownTimesCount} lookupKey={lookupKey}");
         if (_currentWorkspace is not null &&
             _settingsSnapshot.WorkspaceShutdownTimes is { } shutdownTimes &&
             shutdownTimes.TryGetValue(
-                Path.GetFullPath(_currentWorkspace.FolderPath)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                lookupKey,
                 out var shutdownTime))
         {
             var offlineDuration = DateTimeOffset.UtcNow - shutdownTime;
+            SquadDashTrace.Write(TraceCategory.UI, $"SessionGap: MATCH found shutdownTime={shutdownTime:O} offlineDuration={offlineDuration.TotalSeconds:F1}s");
             if (offlineDuration.TotalSeconds > 5)
                 AppendSessionGapIndicator(shutdownTime, offlineDuration);
             _settingsSnapshot = _settingsStore.ClearWorkspaceShutdownTime(_currentWorkspace.FolderPath);
+        }
+        else
+        {
+            SquadDashTrace.Write(TraceCategory.UI, "SessionGap: no shutdown time found — stripe skipped.");
         }
 
         // Prune agent reports older than 2 weeks on each workspace load.
@@ -19842,7 +19851,15 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
             var emergencySaveSw = Stopwatch.StartNew();
             if (_currentWorkspace is not null)
+            {
+                SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: SaveWorkspaceShutdownTime path={_currentWorkspace.FolderPath}");
                 _settingsStore.SaveWorkspaceShutdownTime(_currentWorkspace.FolderPath, DateTimeOffset.UtcNow);
+                SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: SaveWorkspaceShutdownTime done.");
+            }
+            else
+            {
+                SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: _currentWorkspace is null — skipping SaveWorkspaceShutdownTime.");
+            }
             _conversationManager.EmergencySave();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: EmergencySave {emergencySaveSw.ElapsedMilliseconds}ms elapsed={closingSw.ElapsedMilliseconds}ms.");
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: complete {closingSw.ElapsedMilliseconds}ms.");
