@@ -6576,20 +6576,19 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Low-contrast diagonal-stripe DrawingBrush: theme-aware subtle bands.
         // Dark theme: two close dark grays — barely perceptible but still readable.
         // Light theme: two close light grays — same idea on a white/light background.
-        // Dark: background band is slightly brighter than TranscriptSurface (#1E1C17), stripe
-        // bands are noticeably brighter still — creates a visible but unobtrusive shimmer.
-        // Light: TranscriptSurface is near-white (#FFFCF8), so even small alpha values are
-        // perceptible; keep both bands very low to stay whisper-quiet.
+        // Fully opaque solid colors anchored to each theme's TranscriptSurface.
+        // Dark (#1E1C17): band slightly lighter, stripe noticeably lighter — subtle but visible.
+        // Light (#FFFCF8): band barely darker, stripe a step darker still — whisper-quiet.
         SolidColorBrush lightBand, darkBand;
         if (string.Equals(_activeThemeName, "Light", StringComparison.OrdinalIgnoreCase))
         {
-            darkBand  = new SolidColorBrush(Color.FromArgb(7,  0, 0, 0));  // ~3% black — barely there background
-            lightBand = new SolidColorBrush(Color.FromArgb(16, 0, 0, 0));  // ~6% black — faint stripe
+            darkBand  = new SolidColorBrush(Color.FromRgb(0xF5, 0xF2, 0xEE)); // barely darker than #FFFCF8
+            lightBand = new SolidColorBrush(Color.FromRgb(0xE8, 0xE4, 0xDF)); // one step darker — visible stripe
         }
         else
         {
-            darkBand  = new SolidColorBrush(Color.FromArgb(50,  255, 255, 255)); // ~20% white — slightly above transcript bg
-            lightBand = new SolidColorBrush(Color.FromArgb(88,  255, 255, 255)); // ~35% white — midway between bg band and previous peak
+            darkBand  = new SolidColorBrush(Color.FromRgb(0x28, 0x25, 0x20)); // slightly lighter than #1E1C17
+            lightBand = new SolidColorBrush(Color.FromRgb(0x3C, 0x38, 0x30)); // noticeably lighter — clear stripe
         }
         lightBand.Freeze();
         darkBand.Freeze();
