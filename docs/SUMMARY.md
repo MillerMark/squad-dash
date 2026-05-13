@@ -36,6 +36,17 @@
   * [Approvals](panels/Approvals.md)
   * [Notes](panels/Notes.md)
 
+## Options
+
+* [Options](options/README.md)
+  * [General](options/general.md)
+  * [Speech](options/speech.md)
+  * [Remote Access](options/remote-access.md)
+  * [Custom Model](options/custom-model.md)
+  * [Notifications](options/notifications.md)
+  * [Sounds](options/sounds.md)
+  * [AI](options/ai.md)
+
 ## Concepts
 
 * [Concepts](concepts/README.md)
