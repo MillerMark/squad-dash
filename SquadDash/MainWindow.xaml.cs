@@ -2290,7 +2290,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             AppendLoopOutputLine($"▶ Loop starting — {LoopTimestamp()} — queue drained.", LoopLifecycleBrush);
             AppendLine("▶ Starting queued loop…", (Brush)FindResource("SubtleText"));
-            await StartLoopImmediateAsync();
+            await StartLoopImmediateAsync(resumeFromIteration: _loopCurrentIteration);
         }
         catch (Exception ex)
         {
@@ -5409,7 +5409,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private async Task StartLoopImmediateAsync()
+    private async Task StartLoopImmediateAsync(int resumeFromIteration = 0)
     {
         if (_currentWorkspace is null) return;
         BackupAndClearLoopOutput();
@@ -5423,7 +5423,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 OpenLoopConfigFlyout(loopMdPath, LoopConfigFlyoutMode.Configure, existingConfig: null);
                 return;
             }
-            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext, _currentWorkspace?.FolderPath);
+            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext, _currentWorkspace?.FolderPath, resumeFromIteration);
         }
         else
         {

@@ -71,7 +71,11 @@ internal sealed class LoopController {
     /// Starts the loop on a background Task and returns immediately.
     /// Does nothing if already running.
     /// </summary>
-    internal Task StartAsync(LoopMdConfig config, bool continuousContext, string? workspacePath = null) {
+    /// <param name="resumeFromIteration">
+    /// When resuming after an auto-pause (e.g. queue interrupt), pass the last
+    /// completed iteration number so the counter continues rather than restarting at 1.
+    /// </param>
+    internal Task StartAsync(LoopMdConfig config, bool continuousContext, string? workspacePath = null, int resumeFromIteration = 0) {
         if (IsRunning)
             return Task.CompletedTask;
 
@@ -79,7 +83,7 @@ internal sealed class LoopController {
         _workspacePath = workspacePath;
         _cts           = new CancellationTokenSource();
         // Fire-and-forget; the loop reports completion via callbacks.
-        _ = Task.Run(() => RunLoopAsync(config, continuousContext, _cts.Token));
+        _ = Task.Run(() => RunLoopAsync(config, continuousContext, _cts.Token, resumeFromIteration));
         return Task.CompletedTask;
     }
 
@@ -101,11 +105,12 @@ internal sealed class LoopController {
     private async Task RunLoopAsync(
         LoopMdConfig      config,
         bool              continuousContext,
-        CancellationToken ct) {
+        CancellationToken ct,
+        int               resumeFromIteration = 0) {
 
         IsRunning = true;
         StopState = LoopStopState.None;
-        int iteration = 0;
+        int iteration = resumeFromIteration;
 
         try {
             while (!_stopRequested && !ct.IsCancellationRequested) {
