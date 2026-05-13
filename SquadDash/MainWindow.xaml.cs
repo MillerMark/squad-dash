@@ -2016,6 +2016,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             _queuePreEditDraftSelectionLength,
             "dispatch-queued-tab-restore-draft");
         _queuePreEditDraft = null;
+        UpdateFollowUpStrip();
 
         if (_isPromptRunning || IsNativeLoopRunning)
         {
