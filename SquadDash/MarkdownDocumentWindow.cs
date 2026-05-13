@@ -1031,7 +1031,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             Dispatcher.BeginInvoke(() => AppendSpeechToEditor(text));
 
         _editorVoiceService.VolumeChanged += (_, level) =>
-            Dispatcher.BeginInvoke(() => {
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, () => {
                 if (_editorPttWindow is not null)
                     _editorPttWindow.VolumeBar.Height = Math.Max(2, level * 36);
             });

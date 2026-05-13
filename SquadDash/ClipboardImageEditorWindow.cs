@@ -4369,7 +4369,7 @@ internal sealed class ClipboardImageEditorWindow : Window
             Dispatcher.BeginInvoke(() => AppendSpeechToTextBox(text));
 
         _textBoxVoiceService.VolumeChanged += (_, level) =>
-            Dispatcher.BeginInvoke(() => {
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, () => {
                 if (_textBoxPttWindow is not null)
                     _textBoxPttWindow.VolumeBar.Height = Math.Max(2, level * 36);
             });

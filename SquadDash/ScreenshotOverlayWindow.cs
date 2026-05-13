@@ -1516,7 +1516,7 @@ internal sealed class ScreenshotOverlayWindow : Window
             });
 
         _descVoiceService.VolumeChanged += (_, level) =>
-            Dispatcher.BeginInvoke(() =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
             {
                 if (_descPttWindow is not null)
                     _descPttWindow.VolumeBar.Height = Math.Max(2, level * 36);

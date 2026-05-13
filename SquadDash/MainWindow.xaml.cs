@@ -8094,7 +8094,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             Dispatcher.BeginInvoke(DispatcherPriority.Input, () => AppendSpeechToPrompt(text));
 
         _speechService.VolumeChanged += (_, level) =>
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
             {
                 if (_pttWindow is not null)
                     _pttWindow.VolumeBar.Height = Math.Max(2, level * 36);

@@ -187,7 +187,7 @@ internal sealed class PushToTalkController : IDisposable {
             _dispatcher.BeginInvoke(() => AppendSpeechToPrompt(text));
 
         _speechService.VolumeChanged += (_, level) =>
-            _dispatcher.BeginInvoke(() => _volumeBar.Height = Math.Max(2, level * 36));
+            _dispatcher.BeginInvoke(DispatcherPriority.Render, () => _volumeBar.Height = Math.Max(2, level * 36));
 
         _speechService.RecognitionError += (_, msg) =>
             _dispatcher.BeginInvoke(() => {
