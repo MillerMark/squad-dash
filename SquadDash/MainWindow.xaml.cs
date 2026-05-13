@@ -4629,6 +4629,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // therefore bypasses MainWindow_Closing, so the normal pre-close flush never
             // runs.  Stop the debounce timer and save synchronously here instead.
             _docSourceSaveTimer?.Stop();
+            _docPreviewRefreshTimer?.Stop();
             SaveDocSourceToDisk();
 
             // Release workspace resources immediately so the elevated instance doesn't
@@ -10399,6 +10400,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (sourceVisible && !isSameTopic)
         {
             _docSourceSaveTimer?.Stop();
+            _docPreviewRefreshTimer?.Stop();
             SaveDocSourceToDisk();
         }
 
@@ -10821,6 +10823,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _suppressDocSourceTextChanged;
     private bool _suppressDocSourceNextTextInput;
     private DispatcherTimer? _docSourceSaveTimer;
+    private DispatcherTimer? _docPreviewRefreshTimer;
 
     private void ViewSourceButton_Click(object sender, RoutedEventArgs e)
     {
@@ -10884,6 +10887,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         // would silently discard content the user typed in the last 400 ms.
         SaveDocSourceToDisk();
         _docSourceSaveTimer?.Stop();
+        _docPreviewRefreshTimer?.Stop();
         DocsSourceSplitterColumn.Width = new GridLength(0);
         DocsSourceColumn.Width = new GridLength(0);
         if (DocsPreviewColumn is not null)
@@ -11029,6 +11033,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         if (DocSourceTextBox is null) return;
 
+        // Cancel any pending preview refresh so it doesn't fire with stale content
+        // after the document switch.
+        _docPreviewRefreshTimer?.Stop();
+
         _suppressDocSourceTextChanged = true;
         try
         {
@@ -11057,8 +11065,15 @@ public partial class MainWindow : Window, ILiveElementLocator
         // cause it to fire later with an empty document and wipe the file to frontmatter-only.
         if (_suppressDocSourceTextChanged || _isClosing) return;
 
-        // Live-update the markdown preview
-        RefreshDocMarkdownViewerFromSource();
+        // Debounce the markdown preview refresh — re-navigating the WebBrowser on every
+        // keystroke is expensive, especially for tables.
+        if (_docPreviewRefreshTimer is null)
+        {
+            _docPreviewRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _docPreviewRefreshTimer.Tick += DocPreviewRefreshTimer_Tick;
+        }
+        _docPreviewRefreshTimer.Stop();
+        _docPreviewRefreshTimer.Start();
 
         // Debounce save to disk
         if (_docSourceSaveTimer is null)
@@ -11077,6 +11092,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         // ignore any tick that slips through after shutdown begins.
         if (_isClosing) return;
         SaveDocSourceToDisk();
+    }
+
+    private void DocPreviewRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        _docPreviewRefreshTimer?.Stop();
+        if (_isClosing) return;
+        RefreshDocMarkdownViewerFromSource();
     }
 
     private static string HoverInjectionScript => MarkdownDocumentScripts.HoverInjectionScript;
@@ -19425,6 +19447,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             //      restart the save timer with an empty document and then write
             //      frontmatter + "" to disk — wiping the file to frontmatter-only.
             _docSourceSaveTimer?.Stop();
+            _docPreviewRefreshTimer?.Stop();
             SaveDocSourceToDisk();
 
             _deferredShutdown = DeferredShutdownMode.None;
