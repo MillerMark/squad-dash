@@ -978,7 +978,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                         }
                         else
                         {
-                            SoundNotifications.Play(SoundEvent.QueueEmpty);
+                            // Only play the "queue empty" sound when the queue genuinely drained.
+                            // GetAutoDispatchCandidate() also returns null when the queue is
+                            // manually paused (items still present), so guard on Count == 0 to
+                            // avoid firing the sound when the user clicked Pause.
+                            if (_promptQueue.Count == 0)
+                                SoundNotifications.Play(SoundEvent.QueueEmpty);
                         }
                     }
                 }
