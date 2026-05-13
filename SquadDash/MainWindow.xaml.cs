@@ -2311,23 +2311,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                     QueueTabStrip.Children.Add(CreatePriorityFeedbackLabel());
             }
 
-            // When a queued tab (not Active Draft) is selected, show a hint that the queue
-            // will pause when it reaches that tab so the user can review before sending.
-            if (activeTabLabel is not null)
-            {
-                var hint = new TextBlock
-                {
-                    Text = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")",
-                    FontSize = 11,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(10, 0, 8, 0),
-                    FontStyle = FontStyles.Italic,
-                };
-                hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                QueueTabStrip.Children.Add(hint);
-            }
         }
 
+        SyncQueueTabHint();
         _conversationManager.UpdateQueuedPromptsState(items, _followUpAttachments, queueRightmostHeld: IsRightmostQueueTabActive(), loopQueuedToDequeue: _loopQueued, activeDraftSimEntry: _pec.ActiveDraftSimEntry, activeTabIndex: GetActiveQueueTabIndex());
         SyncSendButton();
         BuildShortcutsHint();
@@ -2336,6 +2322,36 @@ public partial class MainWindow : Window, ILiveElementLocator
         SyncPromptTextBoxSimBorder();
         SquadDashTrace.Write(TraceCategory.Performance,
             $"SyncQueuePanel: full rebuild of {items.Count} queued tabs in {swFull.ElapsedMilliseconds}ms");
+    }
+
+    private void SyncQueueTabHint()
+    {
+        // Remove any existing hint block.
+        var existing = QueueTabStrip.Children.OfType<TextBlock>()
+                           .FirstOrDefault(tb => tb.Tag as string == "QueueActiveTabHint");
+        if (existing is not null)
+            QueueTabStrip.Children.Remove(existing);
+
+        if (_activeTabId is null) return;  // draft tab — no hint needed
+
+        var items = _promptQueue.Items;
+        var nextReadyId = items.FirstOrDefault(i => !i.IsEditing)?.Id;
+        var activeItem = items.FirstOrDefault(i => i.Id == _activeTabId);
+        if (activeItem is null) return;
+
+        bool isNext = activeItem.Id == nextReadyId;
+        var activeTabLabel = isNext ? $"Queue #{activeItem.SequenceNumber}" : $"#{activeItem.SequenceNumber}";
+        var hint = new TextBlock
+        {
+            Text = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")",
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 8, 0),
+            FontStyle = FontStyles.Italic,
+            Tag = "QueueActiveTabHint",
+        };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        QueueTabStrip.Children.Add(hint);
     }
 
     private void SetQueuePaused(bool paused)
@@ -2886,6 +2902,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Fast path: only update the two tabs whose visual state changed rather than
         // tearing down and rebuilding the entire tab strip on every Ctrl+Tab cycle.
         FastSyncQueueTabActiveState(previousId, id);
+        SyncQueueTabHint();
+        SetQueuePaused(_queueManuallyPaused);
         long msAfterTabSync = sw.ElapsedMilliseconds;
 
         PromptTextBox.Focus();
