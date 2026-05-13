@@ -306,10 +306,9 @@ internal static class RunButtonLabelPolicy {
         // Editing a specific queued tab.
         if (activeTabId is not null)
         {
-            if (coordinatorBusy) return LabelQueue;
-            // QRB state or manual pause: any tab shows "Send" so the item can be
-            // dispatched immediately (QRB) or the pause can be cleared (manual).
-            if (queuePausedAwaitingInput || queueManuallyPaused) return LabelSend;
+            if (coordinatorBusy || queueManuallyPaused) return LabelQueue;
+            // QRB state: any tab shows "Send" so the item can be dispatched immediately.
+            if (queuePausedAwaitingInput) return LabelSend;
             // "Send" only on the rightmost tab (the one about to be dispatched).
             // Non-rightmost tabs show "Submit" to indicate they are queued behind others.
             return isRightmostTab ? LabelSend : LabelSubmit;
@@ -320,10 +319,10 @@ internal static class RunButtonLabelPolicy {
         if (queuePausedAwaitingInput && queueCount > 0)
             return LabelSend;
 
-        // Draft tab with queue manually paused: show "Send" so the user can submit
-        // directly and clear the pause, as long as the coordinator is free.
+        // Draft tab with queue manually paused: show "Queue" — pressing the button
+        // enqueues the draft; nothing will be dispatched while paused.
         if (queueManuallyPaused && !coordinatorBusy)
-            return LabelSend;
+            return LabelQueue;
 
         bool queueMode = coordinatorBusy || queueCount > 0;
         return queueMode ? LabelQueue : LabelSend;

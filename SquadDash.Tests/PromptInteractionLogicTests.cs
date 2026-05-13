@@ -756,13 +756,12 @@ internal sealed class RunButtonLabelPolicyTests {
     // ── queueManuallyPaused: draft tab (null activeTabId) ─────────────────────
 
     [Test]
-    public void Compute_DraftTab_QueueManuallyPaused_CoordinatorIdle_ReturnsSend() {
-        // Active draft with manual pause and items queued: "Send" so the user can
-        // submit the draft directly, which will clear the pause.
+    public void Compute_DraftTab_QueueManuallyPaused_CoordinatorIdle_ReturnsQueue() {
+        // Active draft with manual pause: "Queue" because the button enqueues — nothing dispatches while paused.
         var label = RunButtonLabelPolicy.Compute(
             coordinatorBusy: false, queuePausedAwaitingInput: false,
             queueCount: 3, activeTabId: null, queueManuallyPaused: true);
-        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
     }
 
     [Test]
@@ -774,23 +773,23 @@ internal sealed class RunButtonLabelPolicyTests {
         Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
     }
 
-    // ── queueManuallyPaused overrides "Submit" for any tab ────────────────────
+    // ── queueManuallyPaused: queued tabs show "Queue" (button focuses draft, not dispatches) ──
 
     [Test]
-    public void Compute_ActiveTab_NotRightmost_QueueManuallyPaused_ReturnsSend() {
-        // While the queue is manually paused, non-rightmost tabs also show "Send".
+    public void Compute_ActiveTab_NotRightmost_QueueManuallyPaused_ReturnsQueue() {
+        // While the queue is manually paused, button focuses draft — label is "Queue".
         var label = RunButtonLabelPolicy.Compute(
             coordinatorBusy: false, queuePausedAwaitingInput: false,
             queueCount: 3, activeTabId: "tab-42", queueManuallyPaused: true, isRightmostTab: false);
-        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
     }
 
     [Test]
-    public void Compute_ActiveTab_Rightmost_QueueManuallyPaused_ReturnsSend() {
+    public void Compute_ActiveTab_Rightmost_QueueManuallyPaused_ReturnsQueue() {
         var label = RunButtonLabelPolicy.Compute(
             coordinatorBusy: false, queuePausedAwaitingInput: false,
             queueCount: 1, activeTabId: "tab-42", queueManuallyPaused: true, isRightmostTab: true);
-        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelSend));
+        Assert.That(label, Is.EqualTo(RunButtonLabelPolicy.LabelQueue));
     }
 
     [Test]
