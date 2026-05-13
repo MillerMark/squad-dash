@@ -5,6 +5,7 @@ using System.Text.Json;
 namespace SquadDash.Tests;
 
 [TestFixture]
+[NonParallelizable]
 internal sealed class SquadSdkProcessTests {
     private string _tempDir = null!;
 
