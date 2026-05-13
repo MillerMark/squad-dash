@@ -218,10 +218,8 @@
                                    Margin="0,6,0,0"
                                    Text="{Binding DetailText}"
                                    Visibility="{Binding DetailVisibility}"
-                                   TextWrapping="Wrap"
-                                   LineHeight="18"
-                                   LineStackingStrategy="BlockLineHeight"
-                                   MaxHeight="36"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis"
                                    Foreground="{DynamicResource AgentDetailText}" />
 
                         <StackPanel Grid.Row="4"
