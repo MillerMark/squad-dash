@@ -15,8 +15,7 @@ namespace SquadDash;
 /// that calls <see cref="CreateCursorFromDrawing"/>, and a private factory method
 /// that builds the <see cref="Drawing"/>.
 /// </summary>
-internal static class AnnotationCursors
-{
+internal static class AnnotationCursors {
     // ── Backing stores ────────────────────────────────────────────────────────
 
     private static Cursor? _openHand;
@@ -99,10 +98,9 @@ internal static class AnnotationCursors
     /// with an embedded PNG image — supported on Windows Vista and later.
     /// </summary>
     private static Cursor CreateCursorFromDrawing(
-        Drawing drawing, int widthPx, int heightPx, int hotX, int hotY)
-    {
+        Drawing drawing, int widthPx, int heightPx, int hotX, int hotY) {
         var rtb = new RenderTargetBitmap(widthPx, heightPx, 96, 96, PixelFormats.Pbgra32);
-        var dv  = new DrawingVisual();
+        var dv = new DrawingVisual();
         using (var dc = dv.RenderOpen())
             dc.DrawDrawing(drawing);
         rtb.Render(dv);
@@ -115,7 +113,7 @@ internal static class AnnotationCursors
 
         // Build a minimal .CUR file with one PNG-compressed entry.
         using var cur = new MemoryStream();
-        using var bw  = new BinaryWriter(cur);
+        using var bw = new BinaryWriter(cur);
         bw.Write((short)0);          // reserved
         bw.Write((short)2);          // type: cursor
         bw.Write((short)1);          // image count
@@ -125,8 +123,8 @@ internal static class AnnotationCursors
         bw.Write((byte)0);           // reserved
         bw.Write((short)hotX);
         bw.Write((short)hotY);
-        bw.Write((int)png.Length);
-        bw.Write((int)22);           // byte offset to the PNG data (= header size)
+        bw.Write(png.Length);
+        bw.Write(22);           // byte offset to the PNG data (= header size)
         bw.Write(png);
         cur.Position = 0;
         return new Cursor(cur);
@@ -134,17 +132,14 @@ internal static class AnnotationCursors
 
     // ── Hand cursor drawings ──────────────────────────────────────────────────
 
-    private static Drawing CreateOpenHandDrawing()
-    {
+    private static Drawing CreateOpenHandDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
-            var fill   = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3)
-            {
+        using (var dc = dg.Open()) {
+            var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3) {
                 LineJoin = PenLineJoin.Round,
                 StartLineCap = PenLineCap.Round,
-                EndLineCap   = PenLineCap.Round
+                EndLineCap = PenLineCap.Round
             };
 
             // Palm
@@ -154,15 +149,15 @@ internal static class AnnotationCursors
             var thumbGeo = new PathGeometry();
             var thumbFig = new PathFigure { StartPoint = new Point(5, 20), IsClosed = true };
             thumbFig.Segments.Add(new BezierSegment(new Point(2, 19), new Point(1, 15), new Point(3, 12), true));
-            thumbFig.Segments.Add(new BezierSegment(new Point(4, 9),  new Point(6, 10), new Point(6, 13), true));
+            thumbFig.Segments.Add(new BezierSegment(new Point(4, 9), new Point(6, 10), new Point(6, 13), true));
             thumbFig.Segments.Add(new LineSegment(new Point(5, 16), true));
             thumbGeo.Figures.Add(thumbFig);
             dc.DrawGeometry(fill, stroke, thumbGeo);
 
             // Four fingers: index, middle, ring, pinky
-            double[] fingerX    = { 7,   10,  13,  17   };
-            double[] fingerW    = { 3,    3,   3,   2.5  };
-            double[] fingerTopY = { 5,    3,   4,   7    };
+            double[] fingerX = { 7, 10, 13, 17 };
+            double[] fingerW = { 3, 3, 3, 2.5 };
+            double[] fingerTopY = { 5, 3, 4, 7 };
             for (int i = 0; i < 4; i++)
                 dc.DrawRoundedRectangle(fill, stroke,
                     new Rect(fingerX[i], fingerTopY[i], fingerW[i], 16 - fingerTopY[i] + 1),
@@ -171,17 +166,14 @@ internal static class AnnotationCursors
         return dg;
     }
 
-    private static Drawing CreateClosedHandDrawing()
-    {
+    private static Drawing CreateClosedHandDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
-            var fill   = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3)
-            {
+        using (var dc = dg.Open()) {
+            var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3) {
                 LineJoin = PenLineJoin.Round,
                 StartLineCap = PenLineCap.Round,
-                EndLineCap   = PenLineCap.Round
+                EndLineCap = PenLineCap.Round
             };
 
             // Knuckle row
@@ -209,35 +201,31 @@ internal static class AnnotationCursors
     /// Upper-left: a small orange annotation arrow with its tip at (3, 3).
     /// Centre: a precision crosshair with a 3 px gap.  Hotspot = (16, 16).
     /// </summary>
-    private static Drawing CreateArrowToolDrawing()
-    {
+    private static Drawing CreateArrowToolDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
+        using (var dc = dg.Open()) {
             // ── Arrow icon (upper-left quadrant) ─────────────────────────────
 
             // Colours matching the default annotation arrow
-            var orange    = Color.FromRgb(255, 120, 20);
+            var orange = Color.FromRgb(255, 120, 20);
             var shadowClr = Color.FromArgb(110, 0, 0, 0);
 
-            var arrowPen  = new Pen(new SolidColorBrush(orange),    1.5)
-                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
-            var shadowPen = new Pen(new SolidColorBrush(shadowClr), 1.5)
-                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var arrowPen = new Pen(new SolidColorBrush(orange), 1.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var shadowPen = new Pen(new SolidColorBrush(shadowClr), 1.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
 
             // Shaft: tail at (11, 11) → tip at (4, 4)
             dc.DrawLine(shadowPen, new Point(12.0, 12.0), new Point(5.0, 5.0));
-            dc.DrawLine(arrowPen,  new Point(11.0, 11.0), new Point(4.0, 4.0));
+            dc.DrawLine(arrowPen, new Point(11.0, 11.0), new Point(4.0, 4.0));
 
             // Arrowhead triangle — tip at (3, 3), pointing upper-left
             var shadowHead = new PathGeometry();
-            var shFig      = new PathFigure { StartPoint = new Point(4, 4), IsClosed = true };
+            var shFig = new PathFigure { StartPoint = new Point(4, 4), IsClosed = true };
             shFig.Segments.Add(new LineSegment(new Point(10, 5), true));
             shFig.Segments.Add(new LineSegment(new Point(5, 10), true));
             shadowHead.Figures.Add(shFig);
             dc.DrawGeometry(new SolidColorBrush(shadowClr), null, shadowHead);
 
-            var head    = new PathGeometry();
+            var head = new PathGeometry();
             var headFig = new PathFigure { StartPoint = new Point(3, 3), IsClosed = true };
             headFig.Segments.Add(new LineSegment(new Point(9, 4), true));
             headFig.Segments.Add(new LineSegment(new Point(4, 9), true));
@@ -255,23 +243,21 @@ internal static class AnnotationCursors
     /// Upper-left: a small red rectangle outline.
     /// Centre: a precision crosshair with a 3 px gap.  Hotspot = (16, 16).
     /// </summary>
-    private static Drawing CreateRectToolDrawing()
-    {
+    private static Drawing CreateRectToolDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
+        using (var dc = dg.Open()) {
             // ── Rectangle icon (upper-left quadrant) ─────────────────────────
 
-            var redClr    = Color.FromRgb(255, 80, 80);
+            var redClr = Color.FromRgb(255, 80, 80);
             var shadowClr = Color.FromArgb(110, 0, 0, 0);
 
-            var rectPen   = new Pen(new SolidColorBrush(redClr),    1.5) { LineJoin = PenLineJoin.Round };
+            var rectPen = new Pen(new SolidColorBrush(redClr), 1.5) { LineJoin = PenLineJoin.Round };
             var shadowPen = new Pen(new SolidColorBrush(shadowClr), 1.5) { LineJoin = PenLineJoin.Round };
 
             // Shadow shifted 1 px down-right
             dc.DrawRoundedRectangle(null, shadowPen, new Rect(3, 3, 12, 8), 1.5, 1.5);
             // Rectangle outline
-            dc.DrawRoundedRectangle(null, rectPen,   new Rect(2, 2, 12, 8), 1.5, 1.5);
+            dc.DrawRoundedRectangle(null, rectPen, new Rect(2, 2, 12, 8), 1.5, 1.5);
 
             // ── Crosshair at (16, 16) ─────────────────────────────────────────
             DrawCrosshair(dc, cx: 16, cy: 16);
@@ -280,31 +266,28 @@ internal static class AnnotationCursors
     }
 
     /// <summary>
-    /// Draws a four-armed precision crosshair centred at (<paramref name="cx"/>,
+    /// Draws a four-armed precision crosshair centered at (<paramref name="cx"/>,
     /// <paramref name="cy"/>).  A 3 px gap in each arm keeps the hotspot visible.
     /// Each arm is rendered first in white (2 px wide) then in dark grey (1.2 px)
     /// so it is legible on both light and dark canvas content.
     /// </summary>
-    private static Drawing CreateDropCursorToolDrawing()
-    {
+    private static Drawing CreateDropCursorToolDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
-            var fill      = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var outlinePen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2)
-            {
-                LineJoin     = PenLineJoin.Round,
+        using (var dc = dg.Open()) {
+            var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
+            var outlinePen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2) {
+                LineJoin = PenLineJoin.Round,
                 StartLineCap = PenLineCap.Round,
-                EndLineCap   = PenLineCap.Round
+                EndLineCap = PenLineCap.Round
             };
             var pointer = new PathGeometry();
             var fig = new PathFigure { StartPoint = new Point(2.5, 2), IsClosed = true };
             fig.Segments.Add(new LineSegment(new Point(2.5, 12.5), true));
-            fig.Segments.Add(new LineSegment(new Point(5.5, 9.5),  true));
+            fig.Segments.Add(new LineSegment(new Point(5.5, 9.5), true));
             fig.Segments.Add(new LineSegment(new Point(7.5, 13.5), true));
             fig.Segments.Add(new LineSegment(new Point(9.0, 12.8), true));
-            fig.Segments.Add(new LineSegment(new Point(7.0, 8.5),  true));
-            fig.Segments.Add(new LineSegment(new Point(9.5, 8.5),  true));
+            fig.Segments.Add(new LineSegment(new Point(7.0, 8.5), true));
+            fig.Segments.Add(new LineSegment(new Point(9.5, 8.5), true));
             pointer.Figures.Add(fig);
             dc.DrawGeometry(fill, outlinePen, pointer);
             DrawCrosshair(dc, cx: 16, cy: 16);
@@ -319,17 +302,14 @@ internal static class AnnotationCursors
     /// Nozzle: narrow parallelogram continuing to tip at lower-left.
     /// Tip dot: filled ellipse centred at (4, 28); hotspot aligns with its left edge (2, 28).
     /// </summary>
-    private static Drawing CreateEyedropperToolDrawing()
-    {
+    private static Drawing CreateEyedropperToolDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
+        using (var dc = dg.Open()) {
             var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var outline = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.3)
-            {
-                LineJoin     = PenLineJoin.Round,
+            var outline = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.3) {
+                LineJoin = PenLineJoin.Round,
                 StartLineCap = PenLineCap.Round,
-                EndLineCap   = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round,
             };
 
             // Body: elongated parallelogram with a bezier-rounded cap at upper-right.
@@ -360,71 +340,64 @@ internal static class AnnotationCursors
         return dg;
     }
 
-    private static Drawing CreateCropToolDrawing()    {
+    private static Drawing CreateCropToolDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
+        using (var dc = dg.Open()) {
             const double M = 2.0;
             const double E = 30.0;
             const double B = 6.0;
-            var whitePen = new Pen(Brushes.White, 2.5)
-                { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
-            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.5)
-                { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
+            var whitePen = new Pen(Brushes.White, 2.5) { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
+            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.5) { StartLineCap = PenLineCap.Square, EndLineCap = PenLineCap.Square };
             // White backing for legibility
             dc.DrawLine(whitePen, new Point(M, M + B), new Point(M, M));
-            dc.DrawLine(whitePen, new Point(M, M),     new Point(M + B, M));
+            dc.DrawLine(whitePen, new Point(M, M), new Point(M + B, M));
             dc.DrawLine(whitePen, new Point(E - B, M), new Point(E, M));
-            dc.DrawLine(whitePen, new Point(E, M),     new Point(E, M + B));
+            dc.DrawLine(whitePen, new Point(E, M), new Point(E, M + B));
             dc.DrawLine(whitePen, new Point(M, E - B), new Point(M, E));
-            dc.DrawLine(whitePen, new Point(M, E),     new Point(M + B, E));
+            dc.DrawLine(whitePen, new Point(M, E), new Point(M + B, E));
             dc.DrawLine(whitePen, new Point(E - B, E), new Point(E, E));
-            dc.DrawLine(whitePen, new Point(E, E),     new Point(E, E - B));
+            dc.DrawLine(whitePen, new Point(E, E), new Point(E, E - B));
             // Dark bracket arms
             dc.DrawLine(darkPen, new Point(M, M + B), new Point(M, M));
-            dc.DrawLine(darkPen, new Point(M, M),     new Point(M + B, M));
+            dc.DrawLine(darkPen, new Point(M, M), new Point(M + B, M));
             dc.DrawLine(darkPen, new Point(E - B, M), new Point(E, M));
-            dc.DrawLine(darkPen, new Point(E, M),     new Point(E, M + B));
+            dc.DrawLine(darkPen, new Point(E, M), new Point(E, M + B));
             dc.DrawLine(darkPen, new Point(M, E - B), new Point(M, E));
-            dc.DrawLine(darkPen, new Point(M, E),     new Point(M + B, E));
+            dc.DrawLine(darkPen, new Point(M, E), new Point(M + B, E));
             dc.DrawLine(darkPen, new Point(E - B, E), new Point(E, E));
-            dc.DrawLine(darkPen, new Point(E, E),     new Point(E, E - B));
+            dc.DrawLine(darkPen, new Point(E, E), new Point(E, E - B));
             DrawCrosshair(dc, cx: 16, cy: 16);
         }
         return dg;
     }
 
-    private static Drawing CreateTextToolDrawing()
-    {
+    private static Drawing CreateTextToolDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
-            const double cx       = 16;
-            const double cy       = 16;
-            const double serifY1  = 5;
-            const double serifY2  = 27;
-            const double serifHW  = 4;  // half-width → 8 px total serif
-            const double armGap   = 3;
-            const double armLen   = 7;
+        using (var dc = dg.Open()) {
+            const double cx = 16;
+            const double cy = 16;
+            const double serifY1 = 5;
+            const double serifY2 = 27;
+            const double serifHW = 4;  // half-width → 8 px total serif
+            const double armGap = 3;
+            const double armLen = 7;
 
-            var whitePen = new Pen(Brushes.White, 2.0)
-                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
-            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2)
-                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var whitePen = new Pen(Brushes.White, 2.0) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
 
             // White outline first for legibility
             dc.DrawLine(whitePen, new Point(cx - serifHW, serifY1), new Point(cx + serifHW, serifY1));
             dc.DrawLine(whitePen, new Point(cx - serifHW, serifY2), new Point(cx + serifHW, serifY2));
-            dc.DrawLine(whitePen, new Point(cx, serifY1),           new Point(cx, serifY2));
-            dc.DrawLine(whitePen, new Point(cx - armLen, cy),       new Point(cx - armGap, cy));
-            dc.DrawLine(whitePen, new Point(cx + armGap, cy),       new Point(cx + armLen, cy));
+            dc.DrawLine(whitePen, new Point(cx, serifY1), new Point(cx, serifY2));
+            dc.DrawLine(whitePen, new Point(cx - armLen, cy), new Point(cx - armGap, cy));
+            dc.DrawLine(whitePen, new Point(cx + armGap, cy), new Point(cx + armLen, cy));
 
             // Dark grey on top
             dc.DrawLine(darkPen, new Point(cx - serifHW, serifY1), new Point(cx + serifHW, serifY1));
             dc.DrawLine(darkPen, new Point(cx - serifHW, serifY2), new Point(cx + serifHW, serifY2));
-            dc.DrawLine(darkPen, new Point(cx, serifY1),           new Point(cx, serifY2));
-            dc.DrawLine(darkPen, new Point(cx - armLen, cy),       new Point(cx - armGap, cy));
-            dc.DrawLine(darkPen, new Point(cx + armGap, cy),       new Point(cx + armLen, cy));
+            dc.DrawLine(darkPen, new Point(cx, serifY1), new Point(cx, serifY2));
+            dc.DrawLine(darkPen, new Point(cx - armLen, cy), new Point(cx - armGap, cy));
+            dc.DrawLine(darkPen, new Point(cx + armGap, cy), new Point(cx + armLen, cy));
         }
         return dg;
     }
@@ -434,25 +407,20 @@ internal static class AnnotationCursors
     /// a radius of 11 px, rendered white-outline then dark, with a small arrowhead
     /// at each end of the arc to indicate bi-directional rotation.
     /// </summary>
-    private static Drawing CreateRotateEndpointDrawing()
-    {
+    private static Drawing CreateRotateEndpointDrawing() {
         var dg = new DrawingGroup();
-        using (var dc = dg.Open())
-        {
+        using (var dc = dg.Open()) {
             const double Cx = 16, Cy = 16, R = 11;
             // Arc spans 270° starting at 45° (gap in upper-right quadrant).
             const double StartDeg = 45;
             const double SweepDeg = 270;
 
-            var whitePen = new Pen(Brushes.White, 3.5)
-                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
-            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 2.0)
-                { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var whitePen = new Pen(Brushes.White, 3.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 2.0) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
 
             // Build an arc geometry: a PathFigure with an ArcSegment.
             // WPF ArcSegment needs a start point and end point on the circle.
-            static (double x, double y) CirclePt(double deg)
-            {
+            static (double x, double y) CirclePt(double deg) {
                 double rad = deg * Math.PI / 180.0;
                 return (Cx + R * Math.Cos(rad), Cy + R * Math.Sin(rad));
             }
@@ -460,10 +428,9 @@ internal static class AnnotationCursors
             var (sx, sy) = CirclePt(StartDeg);
             var (ex, ey) = CirclePt(StartDeg + SweepDeg);
 
-            var arcFig = new PathFigure
-            {
+            var arcFig = new PathFigure {
                 StartPoint = new Point(sx, sy),
-                IsClosed   = false
+                IsClosed = false
             };
             // isLargeArc = true because 270° > 180°; sweep direction = clockwise.
             arcFig.Segments.Add(new ArcSegment(
@@ -478,14 +445,14 @@ internal static class AnnotationCursors
             arcGeo.Figures.Add(arcFig);
 
             dc.DrawGeometry(null, whitePen, arcGeo);
-            dc.DrawGeometry(null, darkPen,  arcGeo);
+            dc.DrawGeometry(null, darkPen, arcGeo);
 
             // Arrowheads — tangent direction at each arc end.
             // At angle θ on a CW arc the tangent (CW) is perpendicular: (−sin θ, cos θ) → rotated +90°.
             // At start (45°): tangent points towards increasing angle → (−sin45, cos45) = (−√2/2, √2/2).
             // We want the arrowhead to face *backward* along that tangent (i.e. as if the arc arrives there
             // from outside), so flip the direction at the start end.
-            DrawArcArrowhead(dc, darkPen, whitePen, sx, sy,  45 + 90 + 180);   // tip end (arc "leaves" here going CW)
+            DrawArcArrowhead(dc, darkPen, whitePen, sx, sy, 45 + 90 + 180);   // tip end (arc "leaves" here going CW)
             DrawArcArrowhead(dc, darkPen, whitePen, ex, ey, (StartDeg + SweepDeg) + 90); // tail end
         }
         return dg;
@@ -497,8 +464,7 @@ internal static class AnnotationCursors
     /// </summary>
     private static void DrawArcArrowhead(
         DrawingContext dc, Pen darkPen, Pen whitePen,
-        double tipX, double tipY, double directionDeg)
-    {
+        double tipX, double tipY, double directionDeg) {
         const double Size = 5.5;
         const double HalfSpread = 0.45; // radians ≈ 26°
         double rad = directionDeg * Math.PI / 180.0;
@@ -507,21 +473,20 @@ internal static class AnnotationCursors
         double bx = tipX + Size * Math.Cos(rad - HalfSpread);
         double by = tipY + Size * Math.Sin(rad - HalfSpread);
         var tip = new Point(tipX, tipY);
-        var pa  = new Point(ax, ay);
-        var pb  = new Point(bx, by);
+        var pa = new Point(ax, ay);
+        var pb = new Point(bx, by);
         dc.DrawLine(whitePen, tip, pa);
         dc.DrawLine(whitePen, tip, pb);
-        dc.DrawLine(darkPen,  tip, pa);
-        dc.DrawLine(darkPen,  tip, pb);
+        dc.DrawLine(darkPen, tip, pa);
+        dc.DrawLine(darkPen, tip, pb);
     }
 
-    private static void DrawCrosshair(DrawingContext dc, double cx, double cy)
-    {
+    private static void DrawCrosshair(DrawingContext dc, double cx, double cy) {
         const double Arm = 7.0;   // arm length from centre tip to end
         const double Gap = 3.0;   // half-gap distance from centre
 
         var whitePen = new Pen(Brushes.White, 2.0);
-        var darkPen  = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2);
+        var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2);
 
         // White outline first (slightly thicker — creates legibility border)
         dc.DrawLine(whitePen, new Point(cx - Arm, cy), new Point(cx - Gap, cy));
