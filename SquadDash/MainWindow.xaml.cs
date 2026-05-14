@@ -19651,6 +19651,16 @@ public partial class MainWindow : Window, ILiveElementLocator
             sb.AppendLine($"Workspace folder:  {_currentWorkspace?.FolderPath ?? "(none)"}");
             if (!string.IsNullOrWhiteSpace(_currentSolutionPath))
                 sb.AppendLine($"Solution file:     {_currentSolutionPath}");
+
+            // Workspace-specific paths (only when a workspace is open).
+            if (_currentWorkspace is not null)
+            {
+                var stateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+                sb.AppendLine($"Workspace state:   {stateDir}");
+                sb.AppendLine($"Conversation file: {System.IO.Path.Combine(stateDir, "conversation.json")}");
+            }
+
+            sb.AppendLine($"Trace log:         {SquadDashTrace.CurrentLogPath}");
             sb.AppendLine($"OS:                {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
             sb.AppendLine($".NET runtime:      {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
             sb.AppendLine($"Architecture:      {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}");

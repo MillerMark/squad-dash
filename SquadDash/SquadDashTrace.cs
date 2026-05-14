@@ -7,6 +7,9 @@ namespace SquadDash;
 internal static class SquadDashTrace {
     private static readonly object Gate = new();
     private static readonly string LogPath = BuildLogPath();
+
+    /// <summary>Full path to the active trace log file.</summary>
+    internal static string CurrentLogPath => LogPath;
     private const long MaxLogBytes = 32L * 1024L * 1024L;
     private static long ApproxLogBytes = GetInitialLogLength();
 
