@@ -901,7 +901,8 @@ internal sealed class TranscriptConversationManager {
             tools,
             thoughts,
             responseSegments) {
-            AgentReports = turn.AgentReports.Count > 0 ? turn.AgentReports.ToArray() : null
+            AgentReports     = turn.AgentReports.Count > 0 ? turn.AgentReports.ToArray() : null,
+            IsSystemInjected = turn.IsSystemInjected,
         };
     }
 

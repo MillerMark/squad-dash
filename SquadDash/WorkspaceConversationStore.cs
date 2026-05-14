@@ -354,7 +354,8 @@ internal sealed class WorkspaceConversationStore {
             thoughts,
             responseSegments) {
             ToolsSuppressedCount = toolsSuppressedCount,
-            AgentReports = turn.AgentReports is { Count: > 0 } ? turn.AgentReports : null
+            AgentReports        = turn.AgentReports is { Count: > 0 } ? turn.AgentReports : null,
+            IsSystemInjected    = turn.IsSystemInjected,
         };
     }
 
@@ -656,6 +657,13 @@ internal sealed record TranscriptTurnRecord(
     public DateTimeOffset? SessionBoundaryStartupTime { get; init; }
     /// <summary>SquadDash version string (e.g. "1.0.0.1105") recorded at startup time.</summary>
     public string? SessionBoundaryAppVersion { get; init; }
+
+    /// <summary>
+    /// When <c>true</c>, this turn was auto-injected by the system (e.g. silent-completion
+    /// watchdog follow-up) and was not typed by the user.  The transcript renders a compact
+    /// "↩ Following up…" notice instead of the user name and full prompt text.
+    /// </summary>
+    public bool IsSystemInjected { get; init; }
 
     public IReadOnlyList<TranscriptThoughtRecord> GetThoughts() {
         if (Thoughts is { Count: > 0 })

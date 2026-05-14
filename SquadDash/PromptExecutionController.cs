@@ -203,7 +203,7 @@ internal sealed class PromptExecutionController {
     private readonly Action                     _showLiveTraceWindow;
     private readonly Action                     _runDoctor;
     private readonly Func<HireAgentWindow.HireAgentSubmission?> _showHireAgentWindow;
-    private readonly Action<string>             _enqueuePrompt;
+    private readonly Action<string, bool>       _enqueuePrompt;
     private readonly Action                     _showScreenshotOverlay;
 
     // ── Injected — Runtime Issue ──────────────────────────────────────────
@@ -410,7 +410,7 @@ internal sealed class PromptExecutionController {
         Action showLiveTraceWindow,
         Action runDoctor,
         Func<HireAgentWindow.HireAgentSubmission?> showHireAgentWindow,
-        Action<string> enqueuePrompt,
+        Action<string, bool> enqueuePrompt,
         Action showScreenshotOverlay,
         // Runtime Issue
         Func<string, WorkspaceIssuePresentation> showRuntimeIssue,
@@ -848,7 +848,7 @@ internal sealed class PromptExecutionController {
             "PromptHealth",
             $"SilentCompletionWatchdog: injecting follow-up for {silentAgents.Count} agent(s): {string.Join(", ", silentAgents)}");
 
-        _enqueuePrompt(injection);
+        _enqueuePrompt(injection, true /* isSystemInjected */);
     }
 
 
@@ -1053,7 +1053,7 @@ internal sealed class PromptExecutionController {
         }
 
         if (_getIsPromptRunning()) {
-            _enqueuePrompt(submission.PromptText);
+            _enqueuePrompt(submission.PromptText, false);
             return true;
         }
 

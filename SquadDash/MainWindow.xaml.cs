@@ -189,6 +189,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
+    private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private bool _bridgeRestartForSettingsPending;
     private readonly PromptQueue _promptQueue = new();
     private bool _queueManuallyPaused;
@@ -1034,9 +1035,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             showLiveTraceWindow: () => ShowTraceWindow(),
             runDoctor: () => RunDoctorButton_Click(null!, null!),
             showHireAgentWindow: () => ShowHireAgentWindow(),
-            enqueuePrompt: text =>
+            enqueuePrompt: (text, isSystemInjected) =>
             {
-                _promptQueue.Enqueue(text, ++_promptQueueSeq);
+                _promptQueue.EnqueueItem(new PromptQueueItem {
+                    Text             = text,
+                    SequenceNumber   = ++_promptQueueSeq,
+                    IsSystemInjected = isSystemInjected,
+                });
                 SyncQueuePanel();
                 _ = DrainQueueIfNeededAsync();
             },
@@ -2092,6 +2097,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             _pec.PendingQueueItemCount = _promptQueue.Count;
             _pec.CurrentDispatchedItem = item;
             _queueDrainActive = true;
+            _pendingPromptIsSystemInjected = item.IsSystemInjected;
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
@@ -2101,6 +2107,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         finally
         {
             _queueDrainActive = false;
+            _pendingPromptIsSystemInjected = false;
             _pec.PendingQueueItemCount = 0;
             _pec.CurrentDispatchedItem = null;
         }
@@ -2131,6 +2138,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _pec.PendingQueueItemCount = _promptQueue.Count;
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
+                _pendingPromptIsSystemInjected = item.IsSystemInjected;
                 await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
@@ -2141,6 +2149,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             finally
             {
                 _queueDrainActive = false;
+                _pendingPromptIsSystemInjected = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -2187,6 +2196,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _pec.PendingQueueItemCount = _promptQueue.Count;
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
+                _pendingPromptIsSystemInjected = item.IsSystemInjected;
                 await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
@@ -2197,6 +2207,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             finally
             {
                 _queueDrainActive = false;
+                _pendingPromptIsSystemInjected = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -15775,7 +15786,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         TranscriptThreadState thread,
         string prompt,
         DateTimeOffset startedAt,
-        bool thinkingExpanded)
+        bool thinkingExpanded,
+        bool isSystemInjected = false)
     {
         var topLevelBlocks = new List<Block>();
         var separatorParagraph = CreateTranscriptParagraph(bottomMargin: 2);
@@ -15858,7 +15870,19 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (!string.IsNullOrEmpty(promptBody))
         {
-            if (thread.Kind == TranscriptThreadKind.Coordinator && !string.IsNullOrWhiteSpace(_settingsSnapshot.UserName))
+            // System-injected follow-up prompts (e.g. silent-completion watchdog) are not
+            // typed by the user — display a compact system notice instead of the user name
+            // and raw prompt text.
+            bool promptIsSystemInjected = isSystemInjected || _pendingPromptIsSystemInjected;
+            _pendingPromptIsSystemInjected = false;
+
+            if (promptIsSystemInjected)
+            {
+                var systemRun = new Run("↩ Following up…");
+                systemRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                promptParagraph.Inlines.Add(systemRun);
+            }
+            else if (thread.Kind == TranscriptThreadKind.Coordinator && !string.IsNullOrWhiteSpace(_settingsSnapshot.UserName))
             {
                 var prefixRun = new Run($"{_settingsSnapshot.UserName}: ") { FontWeight = FontWeights.SemiBold };
                 prefixRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
@@ -15931,7 +15955,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             prompt,
             startedAt,
             narrativeSection,
-            topLevelBlocks);
+            topLevelBlocks) {
+            IsSystemInjected = isSystemInjected || _pendingPromptIsSystemInjected,
+        };
+        // _pendingPromptIsSystemInjected was already cleared when building the prompt paragraph above;
+        // clear again defensively in case promptBody was empty and the block was skipped.
+        _pendingPromptIsSystemInjected = false;
         return view;
     }
 
@@ -16135,7 +16164,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             thread,
             turn.Prompt,
             turn.StartedAt,
-            thinkingExpanded: !turn.ThinkingCollapsed);
+            thinkingExpanded: !turn.ThinkingCollapsed,
+            isSystemInjected: turn.IsSystemInjected);
         if (!RenderStructuredPersistedNarrative(view, turn, isLastTurn))
             RenderLegacyPersistedNarrative(view, turn, isLastTurn);
 

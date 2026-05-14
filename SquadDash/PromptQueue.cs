@@ -10,6 +10,7 @@ internal sealed class PromptQueueItem {
     public bool   IsDictated     { get; set; }
     public bool   IsFromRemote   { get; set; }
     public bool   IsEditing      { get; set; }
+    public bool   IsSystemInjected { get; set; }  // true for auto-injected follow-ups (not user-typed)
     public int    SequenceNumber { get; set; }
     public int    CaretIndex     { get; set; }
     public int    SelectionStart { get; set; }
