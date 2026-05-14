@@ -188,7 +188,8 @@ internal sealed class ClipboardImageEditorWindow : Window {
     private TextBlock? _eyedropperHexLabel;
     private Border? _eyedropperTooltipBorder;
     private Border? _eyedropperTooltipSwatch;
-    private TextBlock? _eyedropperTooltipText;
+    private TextBlock? _eyedropperTooltipRgbText;
+    private TextBlock? _eyedropperTooltipHslText;
     private byte[]? _cachedPixels;
     private int _cachedStride;
 
@@ -3655,19 +3656,32 @@ internal sealed class ClipboardImageEditorWindow : Window {
                 BorderBrush = new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF)),
                 IsHitTestVisible = false
             };
-            _eyedropperTooltipText = new TextBlock {
+            _eyedropperTooltipRgbText = new TextBlock {
+                FontSize = 13,
+                FontFamily = new FontFamily("Consolas"),
+                Foreground = Brushes.White,
+                IsHitTestVisible = false
+            };
+            _eyedropperTooltipHslText = new TextBlock {
                 FontSize = 13,
                 FontFamily = new FontFamily("Consolas"),
                 Foreground = Brushes.White,
                 IsHitTestVisible = false,
+                Margin = new Thickness(0, 5, 0, 0)
+            };
+            var textStack = new StackPanel {
+                Orientation = Orientation.Vertical,
+                IsHitTestVisible = false,
                 VerticalAlignment = VerticalAlignment.Center
             };
+            textStack.Children.Add(_eyedropperTooltipRgbText);
+            textStack.Children.Add(_eyedropperTooltipHslText);
             var row = new StackPanel {
                 Orientation = Orientation.Horizontal,
                 IsHitTestVisible = false
             };
             row.Children.Add(_eyedropperTooltipSwatch);
-            row.Children.Add(_eyedropperTooltipText);
+            row.Children.Add(textStack);
             _eyedropperTooltipBorder = new Border {
                 Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x10, 0x10, 0x10)),
                 CornerRadius = new CornerRadius(4),
@@ -3681,8 +3695,8 @@ internal sealed class ClipboardImageEditorWindow : Window {
         }
         _eyedropperTooltipSwatch!.Background = new SolidColorBrush(color);
         var (h, s, l) = RgbToHsl(color);
-        _eyedropperTooltipText!.Text =
-            $"R:{color.R}  G:{color.G}  B:{color.B}\nH:{h:F0}°  S:{s:F0}%  L:{l:F0}%";
+        _eyedropperTooltipRgbText!.Text = $"R:{color.R}  G:{color.G}  B:{color.B}";
+        _eyedropperTooltipHslText!.Text = $"H:{h:F0}°  S:{s:F0}%  L:{l:F0}%";
         _eyedropperTooltipBorder.Visibility = Visibility.Visible;
         _eyedropperTooltipBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var tw = _eyedropperTooltipBorder.DesiredSize.Width;
