@@ -7867,6 +7867,21 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+#if DEBUG
+            // ── Debug: simulate bridge interruption (Ctrl+Shift+F12) ────────────
+            if (e.Key == Key.F12 &&
+                (Keyboard.Modifiers & ModifierKeys.Control) != 0 &&
+                (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                AppendLine(
+                    $"[interrupted] The Squad bridge was disposed before the prompt completed.\n\n" +
+                    $"[{PromptExecutionController.ResendLastPromptQuickReply}] [{PromptExecutionController.CheckGitDiffQuickReply}]",
+                    ThemeBrush("SystemInfoText"));
+                e.Handled = true;
+                return;
+            }
+#endif
+
             if (e.Key == Key.Escape && _transcriptFullScreenEnabled && _pttState != PttState.Active)
             {
                 e.Handled = true;
