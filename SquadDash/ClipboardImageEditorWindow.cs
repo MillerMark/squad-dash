@@ -1959,6 +1959,7 @@ internal sealed class ClipboardImageEditorWindow : Window {
             if (isFixedWidth) {
                 double newW = Math.Max(20, origW * Math.Max(0.2, sx));
                 if (ann.Display != null) ann.Display.Width = newW;
+                if (ann.Shadow != null) ann.Shadow.Width = newW;
                 // Also resize the live TextBox if this annotation is being edited.
                 if (_activeTextBox != null && ann == _editingText) _activeTextBox.Width = newW;
 
@@ -2178,7 +2179,10 @@ internal sealed class ClipboardImageEditorWindow : Window {
             _draggingTextHandle = false;
             _canvas.ReleaseMouseCapture();
             CommitDragUndo();
+            var finishedAnn = _textHandleDragAnnotation;
             _textHandleDragAnnotation = null;
+            if (finishedAnn != null)
+                UpdateTextDisplay(finishedAnn);
         }
     }
 
@@ -4331,7 +4335,9 @@ internal sealed class ClipboardImageEditorWindow : Window {
         Canvas.SetLeft(annotation.Shadow, annotation.Bounds.Left + 1.5);
         Canvas.SetTop(annotation.Shadow, annotation.Bounds.Top + 1.5);
         annotation.Display.Visibility = Visibility.Visible;
-        annotation.Shadow.Visibility = Visibility.Visible;
+        annotation.Shadow.Visibility = annotation.BackgroundColor.A == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -4943,7 +4949,6 @@ internal sealed class ClipboardImageEditorWindow : Window {
                 Height = sh,
                 Stroke = new SolidColorBrush(Color.FromRgb(0x1E, 0x6F, 0xCC)),
                 StrokeThickness = 1.5 / _zoom,
-                StrokeDashArray = new DoubleCollection { 4.0, 3.0 },
                 Fill = Brushes.Transparent,
                 IsHitTestVisible = false,
                 Effect = new DropShadowEffect {
