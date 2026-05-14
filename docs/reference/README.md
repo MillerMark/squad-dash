@@ -17,6 +17,8 @@ This section provides technical reference material for SquadDash configuration, 
 - **[Keyboard Shortcuts](keyboard-shortcuts.md)** — Known keyboard shortcuts and hotkeys
 - **[Slash Commands](slash-commands.md)** — Complete reference for all `/` commands
 - **[Host Commands](host-commands.md)** — AI-directed commands to control SquadDash
+- **[Host Commands](host-commands.md)** — AI-directed commands to control SquadDash
+- **[Loop File Templates](loop-file-templates.md)** — Template preprocessing syntax for custom loop files
 - **[Remote Control](remote-control.md)** — Control SquadDash from your phone browser
 
 ---

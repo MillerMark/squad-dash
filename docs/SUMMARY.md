@@ -72,4 +72,5 @@
   * [Keyboard Shortcuts](reference/keyboard-shortcuts.md)
   * [Slash Commands](reference/slash-commands.md)
   * [Host Commands](reference/host-commands.md)
+  * [Loop File Templates](reference/loop-file-templates.md)
 
