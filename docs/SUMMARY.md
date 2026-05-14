@@ -4,14 +4,15 @@
 
 ## Getting Started
 
+* [Installer](getting-started/Installer.md)
 * [Getting Started](getting-started/README.md)
+  * [New Document](getting-started/new-document.md)
   * [Installation](getting-started/installation.md)
   * [First Run](getting-started/first-run.md)
   * [Squad Team](concepts/squad-team.md)
   * [Hiring Agents](features/hiring-agents.md)
   * [VS Tooling](getting-started/VS Tooling.md)
   * [Windows Taskbar](getting-started/Windows Taskbar.md)
-* [Installer](getting-started/Installer.md)
 
 ## Prompts
 
@@ -73,4 +74,5 @@
   * [Slash Commands](reference/slash-commands.md)
   * [Host Commands](reference/host-commands.md)
   * [Loop File Templates](reference/loop-file-templates.md)
+  * [Loop File - Custom UI](reference/loop-file-custom-ui.md)
 
