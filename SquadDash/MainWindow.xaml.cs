@@ -188,6 +188,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _isClosing;
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
+    private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private bool _bridgeRestartForSettingsPending;
     private readonly PromptQueue _promptQueue = new();
     private bool _queueManuallyPaused;
@@ -2090,6 +2091,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _ = _bridge.BroadcastRcPromptAsync(item.Text);
             _pec.PendingQueueItemCount = _promptQueue.Count;
             _pec.CurrentDispatchedItem = item;
+            _queueDrainActive = true;
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
         }
         catch (Exception ex)
@@ -2098,6 +2100,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         finally
         {
+            _queueDrainActive = false;
             _pec.PendingQueueItemCount = 0;
             _pec.CurrentDispatchedItem = null;
         }
@@ -2127,6 +2130,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     _ = _bridge.BroadcastRcPromptAsync(item.Text);
                 _pec.PendingQueueItemCount = _promptQueue.Count;
                 _pec.CurrentDispatchedItem = item;
+                _queueDrainActive = true;
                 await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
@@ -2136,6 +2140,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
             finally
             {
+                _queueDrainActive = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -2181,6 +2186,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     _ = _bridge.BroadcastRcPromptAsync(item.Text);
                 _pec.PendingQueueItemCount = _promptQueue.Count;
                 _pec.CurrentDispatchedItem = item;
+                _queueDrainActive = true;
                 await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
             }
             catch (Exception ex)
@@ -2190,6 +2196,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
             finally
             {
+                _queueDrainActive = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -15740,14 +15747,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         thread.CurrentTurn = CreateTranscriptTurnView(thread, prompt, DateTimeOffset.Now, thinkingExpanded: true);
         thread.ResponseStreamed = false;
 
-        // Prompt submission always forces the viewport to the bottom so the user can
-        // see what they just typed — even if they were scrolled away reading earlier
-        // content.  Only applies when there is actual prompt text and the thread is
-        // the one currently displayed; otherwise fall back to the normal gated scroll.
+        // Prompt submission scrolls the viewport so the user can see what was just submitted.
+        // For direct sends (Enter/Send/PTT) always force to bottom even if scrolled away.
+        // For queue-drain auto-dispatch, only scroll if the user is already near the bottom.
         if (!string.IsNullOrEmpty(prompt) && ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
         {
             EnsureThreadFooterAtEnd(thread);
-            ActiveScrollController.ForceScrollToBottom();
+            if (_queueDrainActive && ActiveScrollController.IsUserScrolledAway)
+                ActiveScrollController.RequestScrollToEnd();
+            else
+                ActiveScrollController.ForceScrollToBottom();
         }
         else
         {
