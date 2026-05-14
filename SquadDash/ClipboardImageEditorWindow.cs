@@ -2767,8 +2767,8 @@ internal sealed class ClipboardImageEditorWindow : Window {
         const double Thick = 1.5;
         _crosshairWhiteH = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, Opacity = 0.5, IsHitTestVisible = false };
         _crosshairWhiteV = new Line { Stroke = System.Windows.Media.Brushes.White, StrokeThickness = Thick + 1.0, Opacity = 0.5, IsHitTestVisible = false };
-        _crosshairRedH = new Line { Stroke = System.Windows.Media.Brushes.Red, StrokeThickness = Thick, IsHitTestVisible = false };
-        _crosshairRedV = new Line { Stroke = System.Windows.Media.Brushes.Red, StrokeThickness = Thick, IsHitTestVisible = false };
+        _crosshairRedH = new Line { Stroke = System.Windows.Media.Brushes.Red, StrokeThickness = Thick, Opacity = 0.5, IsHitTestVisible = false };
+        _crosshairRedV = new Line { Stroke = System.Windows.Media.Brushes.Red, StrokeThickness = Thick, Opacity = 0.5, IsHitTestVisible = false };
         foreach (var l in new[] { _crosshairWhiteH, _crosshairWhiteV, _crosshairRedH, _crosshairRedV }) {
             Panel.SetZIndex(l, 100);
             l.Visibility = Visibility.Collapsed;
