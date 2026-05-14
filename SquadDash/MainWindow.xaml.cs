@@ -959,10 +959,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                         // Rebuild-triggered restart: close immediately after the current turn so
                         // the launcher can reload the new binary. Queue items will resume in the
                         // reloaded instance (they are persisted).
-                        // Do not close if PTT is still active, draining, or an AI doc revision is
-                        // in flight — the deferral callbacks will call Close() once those complete.
+                        // Do not close if PTT is still active, draining, an AI doc revision is
+                        // in flight, or a modal image editor is open. The deferral callbacks
+                        // will call Close() once those complete.
                         if (_pttState != PttState.Active && !_pttDraining
-                            && !MarkdownDocumentWindow.AnyRevisionInFlight)
+                            && !MarkdownDocumentWindow.AnyRevisionInFlight
+                            && !_clipboardEditorOpen)
                         {
                             ShowRestartingOverlay();
                             Close();
@@ -8480,9 +8482,17 @@ public partial class MainWindow : Window, ILiveElementLocator
             _pttDraining = false;
             if (_restartPending && !_isPromptRunning && !MarkdownDocumentWindow.AnyRevisionInFlight)
             {
-                ShowRestartingOverlay();
-                _conversationManager.EmergencySave();
-                Close();
+                if (_clipboardEditorOpen)
+                {
+                    SetInstallStatus("Build finished. Restart will happen after the image editor closes.");
+                    UpdateSessionState("Restart pending");
+                }
+                else
+                {
+                    ShowRestartingOverlay();
+                    _conversationManager.EmergencySave();
+                    Close();
+                }
             }
         }, System.Windows.Threading.DispatcherPriority.Background);
 
@@ -19860,6 +19870,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 e.Cancel = true;
                 _restartPending = true;
+                _mainWindowClosingInProgress = false;
                 SquadDashTrace.Write("Shutdown", "Close requested while PTT active or draining. Deferring restart until final phrase is received.");
                 _conversationManager.EmergencySave();
                 return;
@@ -19873,6 +19884,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 e.Cancel = true;
                 _pendingShutdown = true;
+                HideRestartingOverlay();
+                if (_restartPending)
+                {
+                    SetInstallStatus("Build finished. Restart will happen after the image editor closes.");
+                    UpdateSessionState("Restart pending");
+                }
                 // Bring the editor to the foreground so the user sees why the close was blocked.
                 foreach (Window w in Application.Current.Windows)
                 {
@@ -19883,6 +19900,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                 }
                 SquadDashTrace.Write("Shutdown", "Close requested while ClipboardImageEditorWindow is open. Deferring until editor closes.");
+                _mainWindowClosingInProgress = false;
                 return;
             }
 
@@ -19903,6 +19921,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (dialog.ShowDialog() != true)
                 {
                     SquadDashTrace.Write("Shutdown", "Close cancelled by user.");
+                    _mainWindowClosingInProgress = false;
                     return;
                 }
 
@@ -19916,19 +19935,26 @@ public partial class MainWindow : Window, ILiveElementLocator
                     case ShutdownChoice.AfterCurrentTurn:
                         _deferredShutdown = DeferredShutdownMode.AfterCurrentTurn;
                         SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after current turn.");
+                        _mainWindowClosingInProgress = false;
                         return;
 
                     case ShutdownChoice.AfterAllQueued:
                         _deferredShutdown = DeferredShutdownMode.AfterAllQueued;
                         SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after all queued items.");
+                        _mainWindowClosingInProgress = false;
                         return;
 
                     default:
+                        _mainWindowClosingInProgress = false;
                         return;
                 }
             }
 
-            if (e.Cancel) return;
+            if (e.Cancel)
+            {
+                _mainWindowClosingInProgress = false;
+                return;
+            }
 
             // Flush any pending doc-source edits to disk BEFORE _isClosing is set.
             // This prevents two data-loss scenarios on build-triggered restarts:
@@ -21192,6 +21218,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
+    private void HideRestartingOverlay()
+    {
+        RestartingOverlay.BeginAnimation(OpacityProperty, null);
+        RestartingOverlay.Opacity = 0;
+        RestartingOverlay.Visibility = Visibility.Collapsed;
+    }
+
     /// <summary>
     /// Called when an AI doc-revision lock is released. If a restart was deferred waiting
     /// for all in-flight revisions to complete, and none remain, trigger the restart now.
@@ -21223,6 +21256,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_pendingShutdown)
         {
             _pendingShutdown = false;
+            if (_restartPending)
+            {
+                ShowRestartingOverlay();
+                _conversationManager.EmergencySave();
+            }
             Close();
             return;
         }
