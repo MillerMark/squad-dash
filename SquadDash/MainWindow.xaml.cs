@@ -2397,6 +2397,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (_activeTabId is null) return;  // draft tab — no hint needed
 
+        // When the active tab IS the rightmost tab and the queue is already paused
+        // waiting for it, the warning is redundant — suppress it.
+        if (IsRightmostQueueTabActive() && !_isPromptRunning) return;
+
         var items = _promptQueue.Items;
         var nextReadyId = items.FirstOrDefault(i => !i.IsEditing)?.Id;
         var activeItem = items.FirstOrDefault(i => i.Id == _activeTabId);
@@ -2437,10 +2441,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             _queuePausePending = false;
             var qrbSuffix = _queuePausedNotificationFired ? " (AI waiting for your response)" : string.Empty;
-            QueueStatusLabel.Text = paused
-                ? $"Queue is paused{qrbSuffix}"
-                : IsRightmostQueueTabActive() ? "Queue is draining (active tab pausing dispatch)"
-                : $"Queue is draining{qrbSuffix}";
+
             QueuePlayPauseButton.ToolTip = paused ? "Click to resume automatic prompt queue processing." : "Click to pause automatic prompt queue processing.";
             // Icon shows what clicking will DO (inverted from current state):
             //   Running → pause icon ⏸ (click will pause)
@@ -2451,11 +2452,28 @@ public partial class MainWindow : Window, ILiveElementLocator
             // High-contrast styling: black/yellow when paused, default when running.
             if (paused)
             {
+                QueueStatusLabel.Text = $"Queue is paused{qrbSuffix}";
                 QueueStatusLabel.Background = Brushes.Black;
                 QueueStatusLabel.Foreground = Brushes.Yellow;
             }
+            else if (IsRightmostQueueTabActive())
+            {
+                // Queue is draining but blocked by the active (rightmost) tab.
+                // Style the "(active tab pausing dispatch)" portion yellow-on-black,
+                // matching the manual-pause indicator, to signal the hold clearly.
+                QueueStatusLabel.ClearValue(TextBlock.BackgroundProperty);
+                QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                QueueStatusLabel.Inlines.Clear();
+                QueueStatusLabel.Inlines.Add(new Run("Queue is draining "));
+                QueueStatusLabel.Inlines.Add(new Run("(active tab pausing dispatch)")
+                {
+                    Foreground = Brushes.Yellow,
+                    Background = Brushes.Black,
+                });
+            }
             else
             {
+                QueueStatusLabel.Text = $"Queue is draining{qrbSuffix}";
                 QueueStatusLabel.ClearValue(TextBlock.BackgroundProperty);
                 QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             }
@@ -2655,6 +2673,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                     : $"#{item.SequenceNumber}";
             }
         }
+
+        // Suppress the hint when the queue is already paused because the active tab is
+        // the rightmost (first-to-dispatch) tab and no turn is in progress.
+        bool rightmostPaused = newActiveId is not null
+            && _promptQueue.Count > 0
+            && _promptQueue.Items[0].Id == newActiveId
+            && !_isPromptRunning;
+        if (rightmostPaused)
+            activeTabLabel = null;
 
         if (activeTabLabel is not null)
         {
