@@ -200,14 +200,7 @@ Do not commit. Describe the diff in your response instead.
 2. Delete `.squad/pending-fix.md`.
 3. Report: **"Fixed [TASK-ID]: [what was done]"**
 
-Stop the loop:
-
-```
-HOST_COMMAND_JSON:
-[
-  { "command": "stop_loop" }
-]
-```
+Emit the `stop_loop` command.
 
 **To continue to the next task:** restart the loop. With `pending-fix.md` gone, it will start a fresh Analyze Phase for the next matching task.
 
