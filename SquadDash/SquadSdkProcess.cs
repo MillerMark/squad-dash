@@ -1207,6 +1207,32 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         var process = new Process { StartInfo = psi };
         var accumulated = new StringBuilder();
+        var lastDocRevisionDeltaTraceAt = DateTimeOffset.Now;
+        var pendingDocRevisionThinkingDeltaCount = 0;
+        var pendingDocRevisionThinkingDeltaChars = 0;
+        var pendingDocRevisionResponseDeltaCount = 0;
+        var pendingDocRevisionResponseDeltaChars = 0;
+
+        void FlushDocRevisionDeltaTrace(bool force) {
+            var now = DateTimeOffset.Now;
+            if (!force && now - lastDocRevisionDeltaTraceAt < BridgeDeltaTraceInterval)
+                return;
+
+            if (pendingDocRevisionThinkingDeltaCount == 0 && pendingDocRevisionResponseDeltaCount == 0)
+                return;
+
+            SquadDashTrace.Write(
+                "DocRevision",
+                $"stream_delta summary elapsedMs={(now - lastDocRevisionDeltaTraceAt).TotalMilliseconds:0} " +
+                $"thinkingCount={pendingDocRevisionThinkingDeltaCount} thinkingChars={pendingDocRevisionThinkingDeltaChars} " +
+                $"responseCount={pendingDocRevisionResponseDeltaCount} responseChars={pendingDocRevisionResponseDeltaChars}");
+
+            pendingDocRevisionThinkingDeltaCount = 0;
+            pendingDocRevisionThinkingDeltaChars = 0;
+            pendingDocRevisionResponseDeltaCount = 0;
+            pendingDocRevisionResponseDeltaChars = 0;
+            lastDocRevisionDeltaTraceAt = now;
+        }
 
         SquadDashTrace.Write("DocRevision", $"Starting doc-revision session {sessionId}, cwd={workingDirectory}, selLen={selectedText.Length}");
 
@@ -1241,31 +1267,48 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
-                SquadDashTrace.Write("DocRevision", $"evt: {(line.Length > 200 ? line[..200] : line)}");
-
                 try {
                     var evt = JsonSerializer.Deserialize<SquadSdkEvent>(line, options);
                     if (evt is null)
                         continue;
 
-                    // runPrompt.ts emits "response_delta" { chunk } for streamed text
-                    if (string.Equals(evt.Type, "response_delta", StringComparison.Ordinal) && evt.Chunk is not null)
+                    if (string.Equals(evt.Type, "thinking_delta", StringComparison.Ordinal)) {
+                        pendingDocRevisionThinkingDeltaCount++;
+                        pendingDocRevisionThinkingDeltaChars += evt.Text?.Length ?? 0;
+                        FlushDocRevisionDeltaTrace(force: false);
+                    }
+                    else if (string.Equals(evt.Type, "response_delta", StringComparison.Ordinal)) {
+                        pendingDocRevisionResponseDeltaCount++;
+                        pendingDocRevisionResponseDeltaChars += evt.Chunk?.Length ?? 0;
+                        FlushDocRevisionDeltaTrace(force: false);
+                        // runPrompt.ts emits "response_delta" { chunk } for streamed text.
+                        if (evt.Chunk is null)
+                            continue;
                         accumulated.Append(evt.Chunk);
+                    }
                     else if (string.Equals(evt.Type, "done", StringComparison.Ordinal)) {
+                        FlushDocRevisionDeltaTrace(force: true);
                         SquadDashTrace.Write("DocRevision", $"done, accumulated {accumulated.Length} chars");
                         break;
                     }
                     else if (string.Equals(evt.Type, "error", StringComparison.Ordinal)) {
+                        FlushDocRevisionDeltaTrace(force: true);
                         SquadDashTrace.Write("DocRevision", $"error event: {evt.Message}");
                         break;
                     }
+                    else {
+                        FlushDocRevisionDeltaTrace(force: true);
+                        SquadDashTrace.Write("DocRevision", $"event type={evt.Type ?? "(null)"} requestId={evt.RequestId ?? "(none)"}");
+                    }
                 }
                 catch {
-                    // ignore non-JSON lines
+                    FlushDocRevisionDeltaTrace(force: true);
+                    SquadDashTrace.Write("DocRevision", $"non-json: {(line.Length > 200 ? line[..200] : line)}");
                 }
             }
         }
         finally {
+            FlushDocRevisionDeltaTrace(force: true);
             try { process.Kill(); } catch { }
             process.Dispose();
         }

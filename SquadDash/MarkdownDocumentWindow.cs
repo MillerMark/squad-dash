@@ -24,6 +24,9 @@ internal sealed record MarkdownDocumentSpec(string TabTitle, string FilePath);
 
 internal sealed class MarkdownDocumentWindow : Window {
     private static readonly List<MarkdownDocumentWindow> _openWindows = [];
+    private static readonly TimeSpan EditorUpdateDebounce = TimeSpan.FromMilliseconds(350);
+    private const int EditorTextChangedSlowTraceMs = 50;
+    private const int EditorFlushSlowTraceMs = 100;
 
     public static void RefreshAllOpenWindows() {
         foreach (var window in _openWindows)
@@ -76,6 +79,8 @@ internal sealed class MarkdownDocumentWindow : Window {
     private Canvas? _sourceOverlayCanvas;
     private System.Windows.Shapes.Rectangle? _sourceHoverHighlight;
     private DispatcherTimer? _sourceHoverTimer;
+    private readonly DispatcherTimer _editorUpdateTimer;
+    private readonly HashSet<MarkdownDocumentTabState> _pendingEditorUpdates = [];
 
     // ── Editor voice / PTT ─────────────────────────────────────────────────
     private AzureSpeechRecognitionService? _editorVoiceService;
@@ -97,6 +102,11 @@ internal sealed class MarkdownDocumentWindow : Window {
         _documents = documents
             .Select(spec => MarkdownDocumentTabState.Load(spec.TabTitle, spec.FilePath))
             .ToList();
+        _editorUpdateTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = EditorUpdateDebounce
+        };
+        _editorUpdateTimer.Tick += (_, _) => FlushPendingEditorUpdates();
 
         Title = title;
         Width = 1120;
@@ -511,12 +521,51 @@ internal sealed class MarkdownDocumentWindow : Window {
         if (_isSwitchingDocument || sender is not RichTextBox { Tag: MarkdownDocumentTabState document } editorTextBox)
             return;
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         document.WorkingText = editorTextBox.GetPlainText();
         document.IsDirty = !string.Equals(document.WorkingText, document.SavedText, StringComparison.Ordinal);
-        RenderPreview(document, preserveScroll: true);
-        if (_autoSave && document.IsDirty)
-            AutoSaveDocument(document);
+        QueueEditorUpdate(document);
         UpdateChrome();
+        sw.Stop();
+        if (sw.ElapsedMilliseconds >= EditorTextChangedSlowTraceMs)
+            SquadDashTrace.Write(
+                "MarkdownDocumentWindow",
+                $"EditorTextChanged elapsedMs={sw.ElapsedMilliseconds} textLen={document.WorkingText.Length} dirty={document.IsDirty} pending={_pendingEditorUpdates.Count}");
+    }
+
+    private void QueueEditorUpdate(MarkdownDocumentTabState document) {
+        _pendingEditorUpdates.Add(document);
+        _editorUpdateTimer.Stop();
+        _editorUpdateTimer.Start();
+    }
+
+    private void FlushPendingEditorUpdates() {
+        _editorUpdateTimer.Stop();
+        if (_pendingEditorUpdates.Count == 0)
+            return;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var documents = _pendingEditorUpdates.ToArray();
+        _pendingEditorUpdates.Clear();
+        foreach (var document in documents) {
+            RenderPreview(document, preserveScroll: true);
+            if (_autoSave && document.IsDirty)
+                AutoSaveDocument(document);
+        }
+
+        UpdateChrome();
+        sw.Stop();
+        if (sw.ElapsedMilliseconds >= EditorFlushSlowTraceMs)
+            SquadDashTrace.Write(
+                "MarkdownDocumentWindow",
+                $"EditorFlush elapsedMs={sw.ElapsedMilliseconds} documents={documents.Length} autoSave={_autoSave}");
+    }
+
+    private void FlushPendingEditorUpdatesNow() {
+        if (_pendingEditorUpdates.Count == 0)
+            return;
+
+        FlushPendingEditorUpdates();
     }
 
     private void EditorTextBox_SelectionChanged(object sender, System.Windows.RoutedEventArgs e) {
@@ -1265,6 +1314,7 @@ internal sealed class MarkdownDocumentWindow : Window {
         if (_isClosingAfterPrompt)
             return;
 
+        FlushPendingEditorUpdatesNow();
         var dirtyDocuments = _documents.Where(document => document.IsDirty).ToArray();
         if (dirtyDocuments.Length == 0)
             return;
