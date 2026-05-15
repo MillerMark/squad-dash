@@ -13477,7 +13477,10 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         // Prune agent reports older than 2 weeks on each workspace load.
         var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace?.FolderPath ?? string.Empty);
-        AgentReportStore.PruneOld(AgentReportStore.GetReportsDir(reportStateDir));
+        var reportsDir = AgentReportStore.GetReportsDir(reportStateDir);
+        AgentReportStore.PruneOld(reportsDir);
+        // Render buttons for any .md files not referenced by a persisted turn (e.g. app crashed mid-turn).
+        RenderOrphanedAgentReports(reportsDir);
 
         // Fire-and-forget: prune expired pasted images for this workspace.
         _ = _pastedImageStore.PruneAsync(_currentWorkspace?.FolderPath ?? string.Empty);
@@ -17147,11 +17150,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         var stateDir    = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         var reportsDir  = AgentReportStore.GetReportsDir(stateDir);
         var reportPath  = AgentReportStore.Store(reportsDir, agentLabel, header, body, DateTimeOffset.UtcNow);
-        var reportInfo = new AgentReportInfo(agentLabel, reportPath);
-        if (CoordinatorThread.CurrentTurn is { } currentTurn)
-            currentTurn.AgentReports.Add(reportInfo);
-        else
-            _conversationManager.AppendAgentReportToLastTurn(agentLabel, reportPath);
+        // Always persist immediately so the button survives a crash/shutdown before the turn completes.
+        // The UI button is appended separately below, so skipping the in-memory currentTurn add is safe.
+        _conversationManager.AppendAgentReportToLastTurn(agentLabel, reportPath);
         AppendAgentReportButton(agentLabel, reportPath);
     }
 
@@ -17193,6 +17194,45 @@ public partial class MainWindow : Window, ILiveElementLocator
             targetView.NarrativeSection.Blocks.Add(para);
         else
             CoordinatorThread.Document.Blocks.Add(para);
+    }
+
+    /// <summary>
+    /// Renders buttons for any agent-report <c>.md</c> files in <paramref name="reportsDir"/>
+    /// that are not already referenced by a persisted coordinator turn.  This recovers buttons
+    /// that were lost because the app closed before the active turn completed and was saved.
+    /// Must be called on the UI thread after the conversation transcript has been rendered.
+    /// </summary>
+    private void RenderOrphanedAgentReports(string reportsDir)
+    {
+        if (!Directory.Exists(reportsDir))
+            return;
+
+        var referencedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var turn in _conversationManager.ConversationState.Turns)
+            if (turn.AgentReports is { Count: > 0 })
+                foreach (var r in turn.AgentReports)
+                    referencedPaths.Add(r.ReportPath);
+
+        foreach (var file in Directory.EnumerateFiles(reportsDir, "*.md"))
+        {
+            if (referencedPaths.Contains(file))
+                continue;
+            var agentLabel = TryReadAgentLabelFromReport(file) ?? Path.GetFileNameWithoutExtension(file);
+            AppendAgentReportButton(agentLabel, file);
+        }
+    }
+
+    private static string? TryReadAgentLabelFromReport(string reportPath)
+    {
+        try
+        {
+            var firstLine = File.ReadLines(reportPath).FirstOrDefault();
+            const string suffix = "'s Report";
+            if (firstLine?.StartsWith("# ") == true && firstLine.EndsWith(suffix))
+                return firstLine[2..^suffix.Length];
+        }
+        catch { /* best effort */ }
+        return null;
     }
 
     // ── End agent report button ───────────────────────────────────────────────
