@@ -403,6 +403,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             document.EditorTextBox.PreviewKeyDown   += EditorTextBox_PreviewKeyDown;
             document.EditorTextBox.PreviewTextInput += EditorTextBox_PreviewTextInput;
             document.EditorTextBox.ContextMenuOpening += EditorTextBox_ContextMenuOpening;
+            DataObject.AddPastingHandler(document.EditorTextBox, EditorTextBox_Pasting);
         }
 
         var tbStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new System.Windows.Thickness(0, 0, 0, 6) };
@@ -850,12 +851,17 @@ internal sealed class MarkdownDocumentWindow : Window {
         if (sender is not RichTextBox tb) return;
 
         // Block mutating keys while the caret/selection overlaps an active AI revision range.
+        // Exception: if the caret sits exactly at a boundary, redirect it just outside the lock
+        // and let the key event proceed so text is inserted adjacent to (not inside) the lock.
         if (IsKeyMutating(e.Key)
             && tb.Tag is MarkdownDocumentTabState lockedDoc
             && lockedDoc.HasLockedRanges
             && IsCaretInLockedRange(tb, lockedDoc)) {
-            e.Handled = true;
-            return;
+            if (!TryRedirectCaretOutsideLock(tb, lockedDoc)) {
+                e.Handled = true;
+                return;
+            }
+            // Caret redirected to boundary-adjacent position; let the key event proceed normally.
         }
 
         // ── Smooth Dictation: Shift+Space on selection ────────────────────────
@@ -954,8 +960,21 @@ internal sealed class MarkdownDocumentWindow : Window {
 
         if (tb.Tag is MarkdownDocumentTabState doc
             && doc.HasLockedRanges
-            && IsCaretInLockedRange(tb, doc))
+            && IsCaretInLockedRange(tb, doc)
+            && !TryRedirectCaretOutsideLock(tb, doc))
             e.Handled = true;
+    }
+
+    /// <summary>
+    /// Blocks paste when the caret/selection overlaps a locked range. If the caret sits exactly
+    /// at a lock boundary, redirects it just outside the lock so the paste lands adjacent to it.
+    /// </summary>
+    private void EditorTextBox_Pasting(object sender, DataObjectPastingEventArgs e) {
+        if (sender is not RichTextBox tb) return;
+        if (tb.Tag is not MarkdownDocumentTabState doc || !doc.HasLockedRanges) return;
+        if (!IsCaretInLockedRange(tb, doc)) return;
+        if (!TryRedirectCaretOutsideLock(tb, doc))
+            e.CancelCommand();
     }
 
     /// <summary>Returns true for keys that directly mutate document content.</summary>
@@ -974,6 +993,34 @@ internal sealed class MarkdownDocumentWindow : Window {
             // Inclusive boundary: block if selection touches or overlaps [range.Start, range.End]
             if (selStart.CompareTo(range.End) <= 0 && selEnd.CompareTo(range.Start) >= 0)
                 return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// If the caret (collapsed selection) sits exactly at the start or end boundary of a locked
+    /// range, moves the caret to the nearest insertion position just outside that boundary and
+    /// returns <see langword="true"/> so the caller can allow the pending edit to proceed.
+    /// Returns <see langword="false"/> when no redirect is needed or possible (e.g. a non-empty
+    /// selection, or the document start prevents moving before the lock).
+    /// </summary>
+    private static bool TryRedirectCaretOutsideLock(RichTextBox tb, MarkdownDocumentTabState state) {
+        if (!tb.Selection.IsEmpty) return false;
+        var caret = tb.CaretPosition;
+        foreach (var range in state.LockedRanges) {
+            if (caret.CompareTo(range.End) == 0) {
+                // Caret is at the end boundary — step just past the lock.
+                var after = range.End.GetNextInsertionPosition(LogicalDirection.Forward);
+                tb.CaretPosition = after ?? range.End;
+                return true;
+            }
+            if (caret.CompareTo(range.Start) == 0) {
+                // Caret is at the start boundary — step just before the lock.
+                var before = range.Start.GetNextInsertionPosition(LogicalDirection.Backward);
+                if (before is null) return false; // at absolute document start; nowhere to redirect
+                tb.CaretPosition = before;
+                return true;
+            }
         }
         return false;
     }
