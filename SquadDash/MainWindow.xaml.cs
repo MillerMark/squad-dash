@@ -7502,6 +7502,20 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
+        // ── Shift+F3: cycle case of selected text ─────────────────────────────────
+        if (e.Key == System.Windows.Input.Key.F3
+            && Keyboard.Modifiers == ModifierKeys.Shift
+            && DocSourceTextBox.GetSelectionLength() > 0)
+        {
+            var selStart = DocSourceTextBox.GetSelectionStart();
+            var selLen   = DocSourceTextBox.GetSelectionLength();
+            var result   = TextCaseHelper.CycleCase(DocSourceTextBox.GetSelectedText());
+            DocSourceTextBox.ReplaceSelection(result);
+            DocSourceTextBox.SelectRange(selStart, result.Length);
+            e.Handled = true;
+            return;
+        }
+
         // ── Smooth Dictation: Shift+Space on selection ────────────────────────────
         if (e.Key == System.Windows.Input.Key.Space
             && Keyboard.Modifiers == ModifierKeys.Shift
@@ -7640,6 +7654,19 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                     return;
                 }
+            }
+
+            // ── Shift+F3: cycle case of selected text ─────────────────────────────
+            if (e.Key == Key.F3 && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
+            {
+                var selStart  = PromptTextBox.SelectionStart;
+                var selLen    = PromptTextBox.SelectionLength;
+                var result    = TextCaseHelper.CycleCase(PromptTextBox.SelectedText);
+                PromptTextBox.SelectedText    = result;
+                PromptTextBox.SelectionStart  = selStart;
+                PromptTextBox.SelectionLength = result.Length;
+                e.Handled = true;
+                return;
             }
 
             // ── Smooth Dictation: Shift+Space on selection ────────────────────────

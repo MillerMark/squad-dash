@@ -903,6 +903,18 @@ internal sealed class MarkdownDocumentWindow : Window {
             return;
         }
 
+        // ── Shift+F3: cycle case of selected text ─────────────────────────────
+        if (e.Key == System.Windows.Input.Key.F3
+            && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift
+            && tb.GetSelectionLength() > 0) {
+            var selStart = tb.GetSelectionStart();
+            var result   = TextCaseHelper.CycleCase(tb.GetSelectedText());
+            tb.ReplaceSelection(result);
+            tb.SelectRange(selStart, result.Length);
+            e.Handled = true;
+            return;
+        }
+
         // ── Selection embedding: backtick ─────────────────────────────────────────
         if (e.Key == System.Windows.Input.Key.OemTilde
             && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None
