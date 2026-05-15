@@ -1702,6 +1702,7 @@
                           Width="6"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext"
                           ShowsPreview="False"
                           Cursor="SizeWE"
                           Visibility="Collapsed"
