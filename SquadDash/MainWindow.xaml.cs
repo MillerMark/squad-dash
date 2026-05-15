@@ -1878,7 +1878,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (string.IsNullOrWhiteSpace(prompt))
                 return;
 
-            // Local-only slash commands (e.g. /trace, /hire) must execute immediately
+            SquadDashTrace.Write("UI", "Prompt sent: SendButton click");
+
+            // Local-only slash commands(e.g. /trace, /hire) must execute immediately
             // regardless of whether the coordinator is busy or items are queued.
             // PromptExecutionController.TryHandleLocalCommand never touches the AI, so
             // there is no risk of a concurrent AI call.  For /hire specifically, if the
@@ -2166,6 +2168,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             var seqNum = item.SequenceNumber;
             SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: dispatching #{seqNum} queueCount={_promptQueue.Count}");
+            SquadDashTrace.Write("UI", "Prompt sent: queue drain (item dispatched)");
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
@@ -7692,6 +7695,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
                 case PromptInputAction.SubmitPrompt:
                     RecordHintFeatureUsed(PromptHintFeature.EnterSend);
+                    SquadDashTrace.Write("UI", "Prompt sent: Enter key");
                     RunButton_Click(sender, new RoutedEventArgs());
                     e.Handled = true;
                     break;
@@ -8158,7 +8162,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                                 // so we no longer need to gate on !_isPromptRunning.
                                 _voiceStartedWithSendEnabled = _settingsSnapshot.PttAutoSend
                                                                && _pttTargetRichTextBox == null
-                                                               && _pttTargetTextBox == PromptTextBox;
+                                                               && _pttTargetTextBox == PromptTextBox
+                                                               && string.IsNullOrEmpty(PromptTextBox?.Text);
+                                SquadDashTrace.Write("UI", $"PTT started: voiceSendEnabled={_voiceStartedWithSendEnabled} targetIsPrompt={_pttTargetTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.Text)}");
                                 // Re-evaluate on each PTT activation: true only when quick reply
                                 // buttons are visible, the prompt box was empty at start time,
                                 // and buttons appeared at least 400ms ago (so user could see them).
@@ -8615,6 +8621,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (sendAsQuickReply && wasTargetingPrompt)
         {
+            SquadDashTrace.Write("UI", "Prompt sent: PTT quick-reply send");
             // Dictation started with quick replies visible and an empty prompt box.
             // Send the dictated text directly as a quick reply response (bypass the queue).
             await Task.Delay(220).ConfigureAwait(false);
@@ -8647,6 +8654,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         else if (send && wasTargetingPrompt)
         {
+            SquadDashTrace.Write("UI", "Prompt sent: PTT auto-send (voice released Ctrl)");
             await Task.Delay(220).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
             {
@@ -8658,10 +8666,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                 }
                 else if (!string.IsNullOrWhiteSpace(PromptTextBox.Text))
                 {
+                    // TODO: verify follow-up attachments are captured in PTT send path
                     EnqueueCurrentPrompt();
                     _ = DrainQueueIfNeededAsync();
                 }
             });
+        }
+        else
+        {
+            SquadDashTrace.Write("UI", "PTT stopped: no send (Escape/focus-lost/other-key)");
         }
     }
 
@@ -17673,6 +17686,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 string.IsNullOrWhiteSpace(payload.ContinuationAgentLabel)
                     ? $"Quick reply selected option='{payload.Option.Trim()}' routed=coordinator mode={payload.RouteMode ?? "(legacy)"}"
                     : $"Quick reply selected option='{payload.Option.Trim()}' routed={payload.ContinuationAgentLabel} mode={payload.RouteMode ?? "(legacy)"}");
+            SquadDashTrace.Write("UI", "Prompt sent: quick reply button");
             if (requiresNamedAgentDelegation)
             {
                 SquadDashTrace.Write(
