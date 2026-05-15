@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -89,6 +89,15 @@ internal sealed class MarkdownDocumentWindow : Window {
         new(maxTapHoldMs: 250, doubleTapGapMs: 350);
 
     private MarkdownDocumentCaptureContext? _captureContext;
+
+    // ── Editor find-in-source bar state ────────────────────────────────────────
+    private Border? _editorFindBar;
+    private TextBox? _editorFindTextBox;
+    private TextBlock? _editorFindMatchCount;
+    private Canvas? _editorFindOverlay;
+    private DispatcherTimer? _editorFindDebounceTimer;
+    private List<int> _editorFindMatches = [];
+    private int _editorFindCurrentIndex = -1;
 
     private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents,
         NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null) {
@@ -1071,6 +1080,21 @@ internal sealed class MarkdownDocumentWindow : Window {
 
     private void MarkdownDocumentWindow_PreviewKeyDown(object sender, KeyEventArgs e) {
         if (!_showSource) return;
+
+        // ── Ctrl+F: show/focus find bar ───────────────────────────────────────────
+        if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0) {
+            ShowEditorFindBar();
+            e.Handled = true;
+            return;
+        }
+
+        // ── Escape: hide find bar ─────────────────────────────────────────────────
+        if (e.Key == Key.Escape && _editorFindBar is not null) {
+            HideEditorFindBar();
+            e.Handled = true;
+            return;
+        }
+
         var editorTb = _activeDocument?.EditorTextBox;
         if (editorTb is null || !editorTb.IsKeyboardFocusWithin) return;
 
@@ -1978,6 +2002,295 @@ internal sealed class MarkdownDocumentWindow : Window {
         Title = _documents.Count == 1 && _documents[0].IsDirty
             ? _baseTitle + " *"
             : _baseTitle;
+    }
+
+    // ── Find-in-source bar ────────────────────────────────────────────────────────
+
+    private void ShowEditorFindBar() {
+        if (_activeDocument is null) return;
+
+        if (_editorFindBar is not null) {
+            _editorFindTextBox?.Focus();
+            _editorFindTextBox?.SelectAll();
+            return;
+        }
+
+        // _sourceEditorHost is already a Grid — add overlay and bar directly.
+        _editorFindOverlay = new Canvas {
+            IsHitTestVisible = false,
+            Background = Brushes.Transparent
+        };
+        _sourceEditorHost.Children.Add(_editorFindOverlay);
+
+        var sv = FindVisualChildInMdw<ScrollViewer>(_activeDocument.EditorTextBox);
+        if (sv is not null)
+            sv.ScrollChanged += EditorFind_ScrollChanged;
+
+        var findPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4) };
+
+        _editorFindTextBox = new TextBox {
+            Width = 150,
+            Padding = new Thickness(4),
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        _editorFindTextBox.TextChanged += EditorFind_TextChanged;
+        _editorFindTextBox.PreviewKeyDown += EditorFind_KeyDown;
+
+        var prevBtn = new Button {
+            Content = "▲",
+            Width = 24,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 0, 2, 0)
+        };
+        prevBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        prevBtn.Click += (s, e) => EditorFind_NavigatePrevious();
+
+        var nextBtn = new Button {
+            Content = "▼",
+            Width = 24,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        nextBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        nextBtn.Click += (s, e) => EditorFind_NavigateNext();
+
+        _editorFindMatchCount = new TextBlock {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+            FontSize = 11
+        };
+        _editorFindMatchCount.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        var closeBtn = new Button {
+            Content = "✕",
+            Width = 24,
+            Padding = new Thickness(0)
+        };
+        closeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        closeBtn.Click += (s, e) => HideEditorFindBar();
+
+        findPanel.Children.Add(_editorFindTextBox);
+        findPanel.Children.Add(prevBtn);
+        findPanel.Children.Add(nextBtn);
+        findPanel.Children.Add(_editorFindMatchCount);
+        findPanel.Children.Add(closeBtn);
+
+        _editorFindBar = new Border {
+            Child = findPanel,
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8, 6, 8, 6),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 10, 10, 0)
+        };
+        _editorFindBar.SetResourceReference(Border.BackgroundProperty, "PopupSurface");
+        _editorFindBar.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+        _editorFindBar.BorderThickness = new Thickness(1);
+
+        _sourceEditorHost.Children.Add(_editorFindBar);
+
+        _editorFindTextBox.Focus();
+    }
+
+    private void HideEditorFindBar() {
+        if (_editorFindBar is null) return;
+
+        if (_activeDocument is not null) {
+            var sv = FindVisualChildInMdw<ScrollViewer>(_activeDocument.EditorTextBox);
+            if (sv is not null)
+                sv.ScrollChanged -= EditorFind_ScrollChanged;
+        }
+
+        _sourceEditorHost.Children.Remove(_editorFindBar);
+        if (_editorFindOverlay is not null)
+            _sourceEditorHost.Children.Remove(_editorFindOverlay);
+
+        _editorFindBar = null;
+        _editorFindTextBox = null;
+        _editorFindMatchCount = null;
+        _editorFindOverlay = null;
+        _editorFindMatches.Clear();
+        _editorFindCurrentIndex = -1;
+
+        _activeDocument?.EditorTextBox.Focus();
+    }
+
+    private void EditorFind_ScrollChanged(object sender, ScrollChangedEventArgs e) {
+        EditorFind_RenderHighlights();
+    }
+
+    private void EditorFind_TextChanged(object sender, TextChangedEventArgs e) {
+        _editorFindDebounceTimer?.Stop();
+        _editorFindDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _editorFindDebounceTimer.Tick += (s, args) => {
+            _editorFindDebounceTimer.Stop();
+            EditorFind_UpdateMatches();
+        };
+        _editorFindDebounceTimer.Start();
+    }
+
+    private void EditorFind_KeyDown(object sender, KeyEventArgs e) {
+        if (e.Key == Key.Escape) {
+            HideEditorFindBar();
+            e.Handled = true;
+        } else if (e.Key == Key.Enter || e.Key == Key.F3) {
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                EditorFind_NavigatePrevious();
+            else
+                EditorFind_NavigateNext();
+            e.Handled = true;
+        }
+    }
+
+    private void EditorFind_UpdateMatches() {
+        if (_activeDocument is null || _editorFindTextBox is null || _editorFindOverlay is null) return;
+
+        _editorFindMatches.Clear();
+        _editorFindCurrentIndex = -1;
+        _editorFindOverlay.Children.Clear();
+
+        var searchText = _editorFindTextBox.Text;
+        if (string.IsNullOrEmpty(searchText)) {
+            if (_editorFindMatchCount is not null)
+                _editorFindMatchCount.Text = string.Empty;
+            return;
+        }
+
+        var text = _activeDocument.EditorTextBox.GetPlainText();
+        var index = 0;
+        while ((index = text.IndexOf(searchText, index, StringComparison.OrdinalIgnoreCase)) >= 0) {
+            _editorFindMatches.Add(index);
+            index += searchText.Length;
+        }
+
+        if (_editorFindMatches.Count > 0)
+            _editorFindCurrentIndex = 0;
+
+        EditorFind_RenderHighlights();
+        EditorFind_UpdateMatchCountDisplay();
+
+        if (_editorFindCurrentIndex >= 0)
+            EditorFind_ScrollToCurrentMatch();
+    }
+
+    private void EditorFind_RenderHighlights() {
+        if (_activeDocument is null || _editorFindOverlay is null || _editorFindTextBox is null) return;
+
+        _editorFindOverlay.Children.Clear();
+
+        var isDark = AgentStatusCard.IsDarkTheme;
+        var matchBg   = isDark ? Color.FromArgb(200, 74, 62, 16)  : Color.FromArgb(200, 200, 224, 255);
+        var currentBg = isDark ? Color.FromArgb(220, 200, 160, 0) : Color.FromArgb(220, 32, 96, 192);
+        var searchLen = _editorFindTextBox.Text.Length;
+        if (searchLen == 0) return;
+
+        var tb = _activeDocument.EditorTextBox;
+
+        for (int i = 0; i < _editorFindMatches.Count; i++) {
+            var pos = _editorFindMatches[i];
+            var startRect = tb.GetRectFromOffset(pos);
+            if (startRect == Rect.Empty) continue;
+
+            var endPos = Math.Min(pos + searchLen, tb.GetTextLength());
+            var endRect = tb.GetRectFromOffset(endPos);
+            double highlightWidth = (endRect != Rect.Empty && endRect.Left >= startRect.Left)
+                ? Math.Max(2, endRect.Left - startRect.Left)
+                : Math.Max(2, searchLen * (startRect.Width > 0 ? startRect.Width : 8));
+
+            var canvasOrigin = tb.TranslatePoint(new Point(startRect.Left, startRect.Top), _editorFindOverlay);
+
+            var highlight = new System.Windows.Shapes.Rectangle {
+                Width = highlightWidth,
+                Height = Math.Max(2, startRect.Height),
+                Fill = new SolidColorBrush(i == _editorFindCurrentIndex ? currentBg : matchBg),
+                Opacity = 0.55
+            };
+
+            Canvas.SetLeft(highlight, canvasOrigin.X);
+            Canvas.SetTop(highlight, canvasOrigin.Y);
+            _editorFindOverlay.Children.Add(highlight);
+        }
+
+        if (tb.GetTextLength() > 0 && _editorFindMatches.Count > 0) {
+            var sv = FindVisualChildInMdw<ScrollViewer>(tb);
+            var scrollBar = sv is not null
+                ? FindVisualChildInMdw<System.Windows.Controls.Primitives.ScrollBar>(sv)
+                : null;
+            double trackHeight = scrollBar?.ActualHeight ?? tb.ActualHeight;
+
+            foreach (var pos in _editorFindMatches) {
+                var fraction = (double)pos / tb.GetTextLength();
+                var tick = new System.Windows.Shapes.Rectangle {
+                    Width = 4,
+                    Height = 3,
+                    Fill = new SolidColorBrush(matchBg)
+                };
+                Canvas.SetRight(tick, 0);
+                Canvas.SetTop(tick, fraction * trackHeight);
+                _editorFindOverlay.Children.Add(tick);
+            }
+        }
+    }
+
+    private void EditorFind_UpdateMatchCountDisplay() {
+        if (_editorFindMatchCount is null) return;
+        _editorFindMatchCount.Text = _editorFindMatches.Count == 0
+            ? "No matches"
+            : $"{_editorFindCurrentIndex + 1} / {_editorFindMatches.Count}";
+    }
+
+    private void EditorFind_NavigateNext() {
+        if (_editorFindMatches.Count == 0) return;
+        _editorFindCurrentIndex = (_editorFindCurrentIndex + 1) % _editorFindMatches.Count;
+        EditorFind_RenderHighlights();
+        EditorFind_UpdateMatchCountDisplay();
+        EditorFind_ScrollToCurrentMatch();
+    }
+
+    private void EditorFind_NavigatePrevious() {
+        if (_editorFindMatches.Count == 0) return;
+        _editorFindCurrentIndex--;
+        if (_editorFindCurrentIndex < 0)
+            _editorFindCurrentIndex = _editorFindMatches.Count - 1;
+        EditorFind_RenderHighlights();
+        EditorFind_UpdateMatchCountDisplay();
+        EditorFind_ScrollToCurrentMatch();
+    }
+
+    private void EditorFind_ScrollToCurrentMatch() {
+        if (_activeDocument is null || _editorFindCurrentIndex < 0 || _editorFindCurrentIndex >= _editorFindMatches.Count) return;
+
+        var tb = _activeDocument.EditorTextBox;
+        var pos = _editorFindMatches[_editorFindCurrentIndex];
+
+        tb.ScrollToOffset(pos);
+
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => {
+            var sv = FindVisualChildInMdw<ScrollViewer>(tb);
+            if (sv is not null && _editorFindTextBox is not null) {
+                var matchRect = tb.GetRectFromOffset(pos);
+                if (matchRect != Rect.Empty) {
+                    const double margin = 24;
+                    if (matchRect.Left < 0)
+                        sv.ScrollToHorizontalOffset(Math.Max(0, sv.HorizontalOffset + matchRect.Left - margin));
+                    else if (matchRect.Right > tb.ActualWidth)
+                        sv.ScrollToHorizontalOffset(sv.HorizontalOffset + matchRect.Right - tb.ActualWidth + margin);
+                }
+            }
+
+            EditorFind_RenderHighlights();
+            _editorFindTextBox?.Focus();
+        });
+    }
+
+    private static T? FindVisualChildInMdw<T>(DependencyObject parent) where T : DependencyObject {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++) {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T t) return t;
+            var result = FindVisualChildInMdw<T>(child);
+            if (result is not null) return result;
+        }
+        return null;
     }
 }
 
