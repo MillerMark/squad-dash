@@ -139,20 +139,9 @@ QUICK_REPLIES_JSON:
 ]
 ```
 
-**To apply the fix:** restart the loop. It will detect `pending-fix.md` and go directly to the Implement Phase.
+Show a quick reply: **"Continue to next task"** so the user can confirm before the loop proceeds.
 
-**To skip:** say "Skip this task." The loop will delete `.squad/pending-fix.md`, mark the task as skipped, and the next restart will move to the next matching task.
-
-**To discuss an alternative:** reply in the conversation. Edit `.squad/pending-fix.md` manually if you want to adjust the approach before restarting.
-
-Stop the loop and wait:
-
-```
-HOST_COMMAND_JSON:
-[
-  { "command": "stop_loop" }
-]
-```
+If the user confirms, the loop will automatically continue to the next task.
 
 ---
 
@@ -200,9 +189,9 @@ Do not commit. Describe the diff in your response instead.
 2. Delete `.squad/pending-fix.md`.
 3. Report: **"Fixed [TASK-ID]: [what was done]"**
 
-Emit the `stop_loop` command.
+Show a quick reply: **"Continue to next task"** so the user can confirm before the loop proceeds.
 
-**To continue to the next task:** restart the loop. With `pending-fix.md` gone, it will start a fresh Analyze Phase for the next matching task.
+If the user confirms, the loop will automatically continue to the next task.
 
 ---
 

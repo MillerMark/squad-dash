@@ -380,6 +380,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _loopQueued;
     private LoopMode _activeLoopMode = LoopMode.NativeAgents; // set at loop start; Shift+click overrides to SquadCli
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
+    // Held while a loop iteration is waiting for user follow-up after quick replies.
+    // Completed (true) when input arrives; completed (false) on abort.
+    private TaskCompletionSource<bool>? _loopFollowUpTcs;
     private bool _startupShiftHeld;       // set in MainWindow_Loaded when Shift is down; suppresses auto-resume
     private string? _loopMdPathForConfig; // stored when loop config flyout is shown
     private LoopConfigFlyoutMode _loopConfigFlyoutMode = LoopConfigFlyoutMode.Configure;
@@ -1123,18 +1126,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeHostCommands {ctorSw.ElapsedMilliseconds}ms.");
 
         _loopController = new LoopController(
-            // ExecutePromptAsync accesses WPF components — must run on the UI thread.
+            // ExecuteLoopIterationAsync accesses WPF components — must run on the UI thread.
+            // It spans multiple AI turns when the AI responds with quick replies.
             executePromptAsync: (prompt, sessionId) =>
-                Dispatcher.InvokeAsync(() => {
-                    var loopMdPath = Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop.md");
-                    var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View loop.md](app://open-loop-md:{loopMdPath})";
-                    return _pec.ExecutePromptAsync(
-                        prompt,
-                        addToHistory: false,
-                        clearPromptBox: false,
-                        sessionIdOverride: sessionId,
-                        displayPrompt: displayPrompt);
-                }).Task.Unwrap(),
+                Dispatcher.InvokeAsync(() => ExecuteLoopIterationAsync(prompt, sessionId)).Task.Unwrap(),
             abortPrompt: () => _bridge.AbortPrompt(),
             onIterationStarted: n =>
                 Dispatcher.Invoke(() => OnNativeLoopIterationStarted(n)),
@@ -1913,7 +1908,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             if (_isPromptRunning || IsNativeLoopRunning || _queueManuallyPaused)
             {
-                if (IsNativeLoopRunning)
+                if (IsNativeLoopRunning && _loopFollowUpTcs == null)
                     _loopInterruptedByQueue = true;
                 EnqueueCurrentPrompt();
                 return;
@@ -1952,6 +1947,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _promptHasVoiceInput = false;
 
         _promptQueue.Enqueue(text, ++_promptQueueSeq, isDictated);
+        _loopFollowUpTcs?.TrySetResult(true);
 
         // Transfer any draft follow-up attachments to the new queue item.
         if (_followUpAttachments.TryGetValue("", out var draftList) && draftList.Count > 0)
@@ -2136,6 +2132,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             SquadDashTrace.Write(
                 "Queue",
                 $"Auto-dispatch blocked by active background work reason={reason} queueCount={_promptQueue.Count}");
+            return false;
+        }
+
+        if (_loopFollowUpTcs != null)
+        {
+            SquadDashTrace.Write("Queue", $"Auto-dispatch blocked — loop follow-up TCS pending (loop owns dispatch) reason={reason}");
             return false;
         }
 
@@ -4425,6 +4427,58 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     // ── Native-loop controller callbacks (LoopMode.NativeAgents) ───────────
 
+    /// <summary>
+    /// Executes one loop iteration. After the initial AI response, if quick replies are
+    /// presented the iteration stays "open": it waits for user follow-up, dispatches it,
+    /// and repeats until the AI produces a response without quick replies. Only then does
+    /// LoopController see the awaitable task complete, triggering _onIterationCompleted and
+    /// the inter-iteration timer.
+    /// </summary>
+    private async Task ExecuteLoopIterationAsync(string prompt, string? sessionId)
+    {
+        var loopMdPath = Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop.md");
+        var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View loop.md](app://open-loop-md:{loopMdPath})";
+        await _pec.ExecutePromptAsync(
+            prompt,
+            addToHistory: false,
+            clearPromptBox: false,
+            sessionIdOverride: sessionId,
+            displayPrompt: displayPrompt);
+
+        while (LastTurnNeedsInput() && _loopController.StopState == LoopStopState.None)
+        {
+            _loopFollowUpTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            AppendLoopOutputLine("⏸ Waiting for your response…", LoopLifecycleBrush);
+            bool gotInput = await _loopFollowUpTcs.Task;
+            _loopFollowUpTcs = null;
+            if (!gotInput) return; // aborted
+
+            // If a queue item arrived (typed message path), dequeue and dispatch it.
+            // For quick-reply-click path, QuickReplyButton_Click dispatched the prompt
+            // directly — item will be null, so we just re-check LastTurnNeedsInput().
+            var item = GetAutoDispatchCandidate();
+            if (item is null) continue;
+
+            _promptQueue.Remove(item.Id);
+            SyncQueuePanel();
+            _pec.PendingQueueItemCount = _promptQueue.Count;
+            _pec.CurrentDispatchedItem = item;
+            _queueDrainActive = true;
+            _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            try
+            {
+                await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: true, clearPromptBox: false);
+            }
+            finally
+            {
+                _queueDrainActive = false;
+                _pendingPromptIsSystemInjected = false;
+                _pec.PendingQueueItemCount = 0;
+                _pec.CurrentDispatchedItem = null;
+            }
+        }
+    }
+
     private void OnNativeLoopIterationStarted(int iteration)
     {
         _loopCurrentIteration = iteration;
@@ -6002,6 +6056,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _hostCommandExecutor.Register(new Commands.StopLoopCommandHandler(() =>
         {
             _loopController.RequestStop();
+            _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
         }));
         _hostCommandExecutor.Register(new Commands.GetQueueStatusCommandHandler(() => _promptQueue.Items));
         _hostCommandExecutor.Register(new Commands.OpenPanelCommandHandler(panelName =>
@@ -6044,6 +6099,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                         "🤖 AI requested loop stop — finishing current iteration then halting.",
                         LoopLifecycleBrush);
                     _loopController.RequestStop();
+                    _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
                     SyncLoopPanel();
                     _ = _pushNotificationService.NotifyEventAsync("squadash_command", "SquadDash", "AI command: stop_loop");
                 }
@@ -6081,6 +6137,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 AppendLoopOutputLine("⏹ Clean loop termination requested — current iteration will finish then stop.", LoopLifecycleBrush);
                 _loopController.RequestStop();
+                _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait so stop is honoured promptly
                 SyncLoopPanel();
             }
             else
@@ -6115,7 +6172,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 AppendLoopOutputLine("⚡ Loop abruptly terminated via Abort — current iteration may be incomplete.", new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x44)));
                 if (_activeLoopMode == LoopMode.NativeAgents)
+                {
                     _loopController.RequestAbort();
+                    _loopFollowUpTcs?.TrySetResult(false); // unblock any follow-up wait so abort takes effect
+                }
                 else
                     await _bridge.StopLoopAsync();
             }
@@ -18056,6 +18116,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             _pendingQuickReplyLaunch = null;
             _pendingQuickReplyRoutingInstruction = null;
             _pendingSupplementalPromptInstruction = null;
+            // If a loop iteration is waiting for user follow-up, signal that input was received.
+            // The loop will re-check LastTurnNeedsInput() to decide whether to wait again.
+            _loopFollowUpTcs?.TrySetResult(true);
         }
     }
 
