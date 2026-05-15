@@ -1,13 +1,6 @@
 ---
 configured: true
 options:
-  filter_header:
-    type: group
-    label: "Task Filter:"
-  task_tag:
-    value: "[BUG-*]"
-    label: "Tag filter"
-    hint: "Process tasks whose ID or text matches this tag (e.g. [BUG-*], [TF-*], [SPIKE-*]). Ignored when a filter is injected via Shift+click on 'Do these'."
   behavior_header:
     type: group
     label: "After Fix:"
@@ -22,7 +15,7 @@ options:
     choices: [always, never, ask]
     label: "Commit:"
     hint: "When to automatically commit completed work"
-description: "Interactive Fix Loop — find a tagged or filtered task, diagnose the root cause, propose a fix, implement on approval, repeat"
+description: "Interactive Repair — find the next filtered task, diagnose the root cause, propose a fix, implement on approval, repeat"
 commands: [stop_loop]
 ---
 
@@ -58,7 +51,7 @@ Read `.squad/tasks.md`. Find the **first unchecked (`- [ ]`) task** that:
 
 Work top-to-bottom; higher sections (🔴 High, 🟡 Mid) take priority over lower ones (🟢 Low).
 
-**Filter:** If a filter was injected by Shift+clicking "Do these" in the Tasks panel, that filter applies and overrides the `{{task_tag}}` setting. If no filter was injected, fall back to matching `{{task_tag}}`.
+The active filter from the Tasks panel is injected below. Match only tasks that satisfy it.
 
 [**FILTER**]
 

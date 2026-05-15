@@ -59,6 +59,7 @@
     <EmbeddedResource Include="Assets\casting-reference.md" />
     <EmbeddedResource Include="Assets\loop-filtered-tasks.md" />
     <EmbeddedResource Include="Assets\loop-fix-test-failures.md" />
+    <EmbeddedResource Include="Assets\loop-interactive-repair.md" />
   </ItemGroup>
 
   <ItemGroup>
