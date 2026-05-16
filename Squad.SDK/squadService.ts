@@ -1429,7 +1429,7 @@ export class SquadBridgeService {
                 description: overrides.description ?? effectiveContext?.description,
                 command: overrides.command ?? effectiveContext?.command,
                 path: overrides.path ?? effectiveContext?.path,
-                intent: overrides.intent ?? effectiveContext?.intent ?? knownSubagent?.agentDescription,
+                intent: overrides.intent ?? effectiveContext?.intent,
                 skill: overrides.skill ?? effectiveContext?.skill,
                 progressMessage: overrides.progressMessage,
                 partialOutput: overrides.partialOutput,
