@@ -325,9 +325,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<TranscriptThreadState, TranscriptSnapshot> _transcriptSnapshots =
         new(ReferenceEqualityComparer.Instance);
-    private readonly HashSet<TranscriptThreadState> _pendingTranscriptSnapshotCaptures =
-        new(ReferenceEqualityComparer.Instance);
     private TranscriptThreadState? _snapshotThread;
+    private long _lastTranscriptLayoutDuringInputTraceAt;
+    private long _lastTranscriptSnapshotCaptureAt;
+    private string _lastTranscriptSnapshotCaptureSummary = "none";
     private bool _primaryAgentWarmupPending;
     private long _deferredPrimaryTranscriptSelectionVersion;
     private TranscriptThreadState? _pendingPrimaryTranscriptVisualThread;
@@ -562,7 +563,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         SquadDashTrace.Write(
             TraceCategory.Startup,
             $"UI_THREAD_ID nativeThreadId={NativeMethods.GetCurrentNativeThreadId()} managedThreadId={Environment.CurrentManagedThreadId}");
-        OutputTextBox.CacheMode = CreateTranscriptBitmapCache();
+        AttachTranscriptBoxRenderDiagnostics(OutputTextBox, "coordinator");
         _coordinatorScrollController = new TranscriptScrollController(OutputTextBox, Dispatcher);
         _coordinatorScrollController.SetScrollToBottomButton(ScrollToBottomButton);
         _agentThreadRegistry = new AgentThreadRegistry(
@@ -5224,11 +5225,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         // In Queue Loop state: coordinator is busy in native mode, loop not yet running.
         if (busyCoordinator || _loopQueued)
         {
+            StartLoopButton.Visibility = Visibility.Visible;
             StartLoopButton.IsEnabled = !_loopQueued; // disable once already queued
             StartLoopButton.Content = _loopQueued ? "Loop Queued" : "Queue Loop";
         }
         else
         {
+            StartLoopButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
             StartLoopButton.IsEnabled = !running;
             StartLoopButton.Content = "Start Loop";
         }
@@ -9400,7 +9403,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 TraceCategory.Performance,
                 $"DISPATCHER_OP_LONG status={status} priority={started.Priority} elapsedMs={elapsedMs} " +
                 $"promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} textLen={PromptTextBox?.Text.Length ?? 0} " +
-                $"postedPending={_postedUiActionTracker.PendingCount} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()}");
+                $"postedPending={_postedUiActionTracker.PendingCount} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
+                BuildTranscriptRenderState());
         }
         catch
         {
@@ -9436,7 +9440,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 $"PROMPT_RENDER_LATENCY elapsedMs={elapsedMs} textLenAtInput={_promptRenderLatencyTextLen} " +
                 $"textLenNow={PromptTextBox?.Text.Length ?? 0} caret={PromptTextBox?.CaretIndex ?? 0} " +
                 $"selectionLen={PromptTextBox?.SelectionLength ?? 0} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
-                $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary}");
+                $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary} " +
+                BuildTranscriptRenderState());
         }
         catch (Exception ex)
         {
@@ -14210,13 +14215,6 @@ public partial class MainWindow : Window, ILiveElementLocator
             yield return thread;
     }
 
-    private static BitmapCache CreateTranscriptBitmapCache() =>
-        new()
-        {
-            EnableClearType = true,
-            SnapsToDevicePixels = true
-        };
-
     private static FlowDocument CreateEmptyTranscriptDocument() =>
         new()
         {
@@ -14331,9 +14329,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             IsUndoEnabled = false,
             IsInactiveSelectionHighlightEnabled = false,
             ContextMenu = null,
-            FontSize = _transcriptFontSize,
-            CacheMode = CreateTranscriptBitmapCache()
+            FontSize = _transcriptFontSize
         };
+        AttachTranscriptBoxRenderDiagnostics(rtb, "primary-agent");
         rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
         rtb.SetResourceReference(RichTextBox.SelectionBrushProperty, "DocEditorSelectionBrush");
         rtb.SetResourceReference(RichTextBox.SelectionOpacityProperty, "DocEditorSelectionOpacity");
@@ -14441,6 +14439,70 @@ public partial class MainWindow : Window, ILiveElementLocator
         var visible = _primaryAgentTranscriptHosts.Values.Count(entry => entry.TranscriptBox.Visibility == Visibility.Visible);
         var attached = _primaryAgentTranscriptHosts.Values.Count(entry => ReferenceEquals(entry.TranscriptBox.Document, entry.Thread.Document));
         return $"hosts={total} visible={visible} attached={attached} mru={_primaryAgentHostMru.Count}";
+    }
+
+    private void AttachTranscriptBoxRenderDiagnostics(RichTextBox box, string source)
+    {
+        box.LayoutUpdated += (_, _) => TraceTranscriptLayoutDuringInput(source, box, "layout");
+        box.SizeChanged += (_, e) =>
+            TraceTranscriptLayoutDuringInput(
+                source,
+                box,
+                $"size {e.PreviousSize.Width:0.#}x{e.PreviousSize.Height:0.#}->{e.NewSize.Width:0.#}x{e.NewSize.Height:0.#}");
+    }
+
+    private void TraceTranscriptLayoutDuringInput(string source, RichTextBox box, string reason)
+    {
+        try
+        {
+            var now = DateTimeOffset.Now;
+            if (now - _lastKeyboardInputAt > TimeSpan.FromSeconds(3))
+                return;
+
+            if (_lastTranscriptLayoutDuringInputTraceAt != 0
+                && ElapsedMillisecondsSince(_lastTranscriptLayoutDuringInputTraceAt) < 1000)
+                return;
+
+            _lastTranscriptLayoutDuringInputTraceAt = Stopwatch.GetTimestamp();
+            SquadDashTrace.Write(
+                TraceCategory.Performance,
+                $"TRANSCRIPT_LAYOUT_DURING_INPUT source={source} reason=\"{reason}\" {BuildTranscriptRenderState(box)}");
+        }
+        catch
+        {
+            // Diagnostics must not perturb layout or input.
+        }
+    }
+
+    private string BuildTranscriptRenderState(RichTextBox? observedBox = null)
+    {
+        try
+        {
+            var thread = _selectedTranscriptThread ?? CoordinatorThread;
+            var activeBox = observedBox ?? TryGetMainTranscriptBox(thread) ?? ActiveTranscriptBox;
+            var cacheMode = activeBox.CacheMode?.GetType().Name ?? "none";
+            var snapshotThread = _snapshotThread?.ThreadId ?? "none";
+            var inputAgeMs = _lastKeyboardInputAt == DateTimeOffset.MinValue
+                ? -1
+                : (int)Math.Max(0, (DateTimeOffset.Now - _lastKeyboardInputAt).TotalMilliseconds);
+            var snapshotAgeMs = _lastTranscriptSnapshotCaptureAt == 0
+                ? -1
+                : ElapsedMillisecondsSince(_lastTranscriptSnapshotCaptureAt);
+
+            return
+                $"selected={thread.Kind}:{thread.ThreadId} activeSize={activeBox.ActualWidth:0.#}x{activeBox.ActualHeight:0.#} " +
+                $"activeVisible={activeBox.Visibility} activeOpacity={activeBox.Opacity:0.##} cache={cacheMode} " +
+                $"docBlocks={activeBox.Document?.Blocks.Count ?? 0} outputSize={OutputTextBox.ActualWidth:0.#}x{OutputTextBox.ActualHeight:0.#} " +
+                $"agentHostSize={AgentTranscriptHost.ActualWidth:0.#}x{AgentTranscriptHost.ActualHeight:0.#} " +
+                $"snapshotCount={_transcriptSnapshots.Count} snapshotThread={snapshotThread} " +
+                $"lastSnapshotAgeMs={snapshotAgeMs} lastSnapshot=\"{_lastTranscriptSnapshotCaptureSummary}\" " +
+                $"inputAgeMs={inputAgeMs} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
+                $"docFocused={DocSourceTextBox?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.Text.Length ?? 0}";
+        }
+        catch (Exception ex)
+        {
+            return $"transcriptRenderStateError={ex.GetType().Name}";
+        }
     }
 
     private RichTextBox? TryGetMainTranscriptBox(TranscriptThreadState? thread)
@@ -14574,7 +14636,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
-    private bool TryCaptureTranscriptSnapshot(TranscriptThreadState? thread)
+    private bool TryCaptureTranscriptSnapshot(TranscriptThreadState? thread, string reason = "refresh")
     {
         if (thread is null || !_mainTranscriptVisible)
             return false;
@@ -14600,7 +14662,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             _transcriptSnapshots.Remove(thread);
             SquadDashTrace.Write(TraceCategory.Performance,
-                $"TRANSCRIPT_SNAPSHOT_SKIP thread={thread.ThreadId} reason=selection-active");
+                $"TRANSCRIPT_SNAPSHOT_SKIP thread={thread.ThreadId} reason=selection-active captureReason={reason}");
             return false;
         }
 
@@ -14626,35 +14688,20 @@ public partial class MainWindow : Window, ILiveElementLocator
                 pixelHeight,
                 _activeThemeName);
             sw.Stop();
-            if (sw.ElapsedMilliseconds >= 10)
+            _lastTranscriptSnapshotCaptureAt = Stopwatch.GetTimestamp();
+            _lastTranscriptSnapshotCaptureSummary =
+                $"{reason}:{thread.ThreadId}:{pixelWidth}x{pixelHeight}:{sw.ElapsedMilliseconds}ms";
+            if (sw.ElapsedMilliseconds >= 10 || string.Equals(reason, "leaving-thread", StringComparison.Ordinal))
                 SquadDashTrace.Write(TraceCategory.Performance,
-                    $"TRANSCRIPT_SNAPSHOT_CAPTURE thread={thread.ThreadId} {sw.ElapsedMilliseconds}ms size={pixelWidth}x{pixelHeight}");
+                    $"TRANSCRIPT_SNAPSHOT_CAPTURE thread={thread.ThreadId} reason={reason} {sw.ElapsedMilliseconds}ms size={pixelWidth}x{pixelHeight}");
             return true;
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write(TraceCategory.Performance,
-                $"TRANSCRIPT_SNAPSHOT_CAPTURE_FAILED thread={thread.ThreadId} error={ex.Message}");
+                $"TRANSCRIPT_SNAPSHOT_CAPTURE_FAILED thread={thread.ThreadId} reason={reason} error={ex.Message}");
             return false;
         }
-    }
-
-    private void ScheduleTranscriptSnapshotRefresh(TranscriptThreadState? thread)
-    {
-        if (thread is null || !_mainTranscriptVisible)
-            return;
-
-        if (!_pendingTranscriptSnapshotCaptures.Add(thread))
-            return;
-
-        _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
-        {
-            _pendingTranscriptSnapshotCaptures.Remove(thread);
-            if (!ReferenceEquals(_selectedTranscriptThread, thread) || _snapshotThread is not null)
-                return;
-
-            TryCaptureTranscriptSnapshot(thread);
-        });
     }
 
     private bool TryShowTranscriptSnapshot(TranscriptThreadState thread)
@@ -14717,7 +14764,6 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ApplyPrimaryAgentHostVisibility(thread);
             }
         }
-        ScheduleTranscriptSnapshotRefresh(thread);
         SquadDashTrace.Write(TraceCategory.Performance, $"TRANSCRIPT_SNAPSHOT_HIDE thread={thread.ThreadId}");
     }
 
@@ -14839,7 +14885,6 @@ public partial class MainWindow : Window, ILiveElementLocator
             _primaryAgentHostMru.RemoveAll(candidate => ReferenceEquals(candidate, thread));
             _bulkChangeTranscriptBoxes.Remove(thread);
             _transcriptSnapshots.Remove(thread);
-            _pendingTranscriptSnapshotCaptures.Remove(thread);
             if (ReferenceEquals(_snapshotThread, thread))
                 HideTranscriptSnapshot(thread);
             if (ReferenceEquals(entry.TranscriptBox.Document, thread.Document))
@@ -15036,7 +15081,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         if (!ReferenceEquals(previousThread, thread))
+        {
             CollapseTranscriptSelectionsForFastSwitch("select-thread");
+            TryCaptureTranscriptSnapshot(previousThread, "leaving-thread");
+        }
         var useSnapshotFastPath = allowSnapshotFastPath
             && !scrollToStart
             && !_searchNavigating
@@ -15151,7 +15199,6 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             ScrollTranscriptThread(thread, scrollToStart);
             UpdateInteractiveControlState();
-            ScheduleTranscriptSnapshotRefresh(thread);
         }
         swSelect.Stop();
 
@@ -19790,7 +19837,6 @@ public partial class MainWindow : Window, ILiveElementLocator
         CoordinatorThread.Document.Blocks.Clear();
         RemovePrimaryAgentTranscriptHosts(_primaryAgentTranscriptHosts.Keys.ToArray());
         _transcriptSnapshots.Clear();
-        _pendingTranscriptSnapshotCaptures.Clear();
         TranscriptSnapshotBackdrop.Visibility = Visibility.Collapsed;
         TranscriptSnapshotImage.Visibility = Visibility.Collapsed;
         TranscriptSnapshotImage.Source = null;
@@ -21519,7 +21565,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var loopExists = File.Exists(loopMdPath);
 
         if (StartLoopButton is not null)
-            StartLoopButton.IsEnabled = loopExists;
+            StartLoopButton.IsEnabled = loopExists && !IsLoopRunning;
     }
 
     private void ConfigureInboxWatcher(string inboxPath)
