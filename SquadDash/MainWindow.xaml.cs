@@ -6,6 +6,7 @@ using System.Windows;
 using System.Net.Http;
 using System.Text.Json;
 using System.Diagnostics;
+using System.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.ComponentModel;
@@ -60,6 +61,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private const int DispatcherLongOperationTraceMs = 500;
     private const int PromptRenderLatencyTraceMs = 250;
     private const int PromptTextChangedSevereTraceMs = 250;
+    private const int PttVolumeTraceIntervalMs = 1000;
     private static readonly TimeSpan MultiLineHintCooldown = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan AgentActiveDisplayLinger = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan DynamicAgentHistoryRetention = TimeSpan.FromDays(2);
@@ -495,7 +497,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private TranscriptViewportAnchor? _pendingGridRebuildViewportAnchor;
 
     // Push-to-talk state
-    private enum PttState { Idle, TapDown, TapReleased, Active }
+    private enum PttState { Idle, TapDown, TapReleased, SecondTapDown, Active }
     private PttState _pttState = PttState.Idle;
     private bool _pttDraining; // true while speech service is draining after PTT release
     private bool _promptHasVoiceInput;
@@ -513,12 +515,20 @@ public partial class MainWindow : Window, ILiveElementLocator
     private bool _dictationStartedForQuickReply; // set at PTT start when quick replies visible and box empty
     private bool _pttLostFocusDuringRecording;   // set when another window stole focus mid-PTT
     private DispatcherTimer? _pttCtrlPollTimer;   // polls GetAsyncKeyState while window is inactive
+    private DispatcherTimer? _pttActivationHoldTimer;
     private DateTime _ctrlFirstDownTime;
     private DateTime _ctrlFirstReleaseTime;
+    private DateTime _ctrlSecondDownTime;
     private ISpeechRecognitionService? _speechService;
     private PushToTalkWindow? _pttWindow;
     private TextBox? _pttTargetTextBox;       // resolved at activation; null = PromptTextBox
     private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. DocSourceTextBox) has focus at PTT activation
+    private readonly object _pttVolumeUpdateGate = new();
+    private bool _pttVolumeUpdateQueued;
+    private double _pendingPttVolumeHeight;
+    private int _pttVolumeEventTraceCount;
+    private int _pttVolumeUiUpdateTraceCount;
+    private readonly Stopwatch _pttVolumeTraceStopwatch = Stopwatch.StartNew();
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _promptNavHintTimer;
@@ -527,6 +537,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private string? _workspaceGitHubUrl;
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private const int PttMaxTapHoldMs = 250;
+    private const int PttSecondTapHoldMs = 150;
     const int PttDoubleClickTime = 350;
 
     private sealed record UiExceptionPanelState(
@@ -825,6 +836,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     $"UI_THREAD_LAG elapsedMs={elapsedMs:0} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
                     $"textLen={PromptTextBox?.Text.Length ?? 0} postedPending={_postedUiActionTracker.PendingCount} " +
                     $"promptRenderPendingMs={GetPromptRenderPendingMs()} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
+                    $"pttState={_pttState} pttDraining={_pttDraining} pttVolumeQueued={_pttVolumeUpdateQueued} " +
                     $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary}");
             }
         };
@@ -8376,55 +8388,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                         var gapMs = (DateTime.UtcNow - _ctrlFirstReleaseTime).TotalMilliseconds;
                         if (gapMs <= PttDoubleClickTime)
                         {
-                            // Resolve the target at activation time — prefer a focused RichTextBox
-                            // (e.g. DocSourceTextBox) over the fallback TextBox path.
-                            var focusedTextBox     = Keyboard.FocusedElement as TextBox;
-                            var focusedRichTextBox = Keyboard.FocusedElement as RichTextBox;
-
-                            _pttTargetRichTextBox = null;
-                            if (focusedRichTextBox != null)
-                            {
-                                _pttTargetRichTextBox = focusedRichTextBox;
-                                _pttTargetTextBox = null;
-                            }
-                            else
-                            {
-                                _pttTargetTextBox = focusedTextBox != null && focusedTextBox != PromptTextBox
-                                    ? focusedTextBox
-                                    : PromptTextBox;
-                            }
-
-                            var pttTargetExists = _pttTargetRichTextBox != null || _pttTargetTextBox != null;
-                            if (pttTargetExists)
-                            {
-                                // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
-                                if (_pttTargetRichTextBox != null)
-                                {
-                                    _sessionCaretIndex      = _pttTargetRichTextBox.GetSelectionStart();
-                                    _sessionSelectionLength = _pttTargetRichTextBox.GetSelectionLength();
-                                }
-                                else
-                                {
-                                    _sessionCaretIndex      = _pttTargetTextBox!.SelectionStart;
-                                    _sessionSelectionLength = _pttTargetTextBox!.SelectionLength;
-                                }
-                                // Queue whenever the target is the prompt box AND auto-send is enabled.
-                                // EnqueueCurrentPrompt works whether or not a prompt is currently running,
-                                // so we no longer need to gate on !_isPromptRunning.
-                                _voiceStartedWithSendEnabled = _settingsSnapshot.PttAutoSend
-                                                               && _pttTargetRichTextBox == null
-                                                               && _pttTargetTextBox == PromptTextBox
-                                                               && string.IsNullOrEmpty(PromptTextBox?.Text);
-                                SquadDashTrace.Write("UI", $"PTT started: voiceSendEnabled={_voiceStartedWithSendEnabled} targetIsPrompt={_pttTargetTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.Text)}");
-                                // Re-evaluate on each PTT activation: true only when quick reply
-                                // buttons are visible, the prompt box was empty at start time,
-                                // and buttons appeared at least 400ms ago (so user could see them).
-                                _dictationStartedForQuickReply = _currentQuickReplyOptions.Length > 0
-                                                                 && string.IsNullOrEmpty(PromptTextBox?.Text)
-                                                                 && (DateTime.UtcNow - _quickRepliesShownAt).TotalMilliseconds >= QuickReplyReadWindowMs;
-                                _pttState = PttState.Active;
-                                _ = StartPushToTalkAsync();
-                            }
+                            _ctrlSecondDownTime = DateTime.UtcNow;
+                            _pttState = PttState.SecondTapDown;
+                            SquadDashTrace.Write("UI", $"PTT pending: second Ctrl down gapMs={gapMs:0}");
+                            StartPttActivationHoldTimer();
                         }
                         else
                         {
@@ -8435,6 +8402,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                     else if (!IsCtrlKey(e.Key))
                     {
+                        _pttState = PttState.Idle;
+                    }
+                    break;
+
+                case PttState.SecondTapDown:
+                    if (!IsCtrlKey(e.Key))
+                    {
+                        StopPttActivationHoldTimer();
+                        SquadDashTrace.Write("UI", $"PTT pending cancelled by key={e.Key}");
                         _pttState = PttState.Idle;
                     }
                     break;
@@ -8473,9 +8449,107 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// <summary>Resets the PTT double-tap state machine to Idle (called when an owned window closes).</summary>
     internal void ResetPttState()
     {
+        StopPttActivationHoldTimer();
         _pttState = PttState.Idle;
         _ctrlFirstDownTime = default;
         _ctrlFirstReleaseTime = default;
+        _ctrlSecondDownTime = default;
+    }
+
+    private void StartPttActivationHoldTimer()
+    {
+        StopPttActivationHoldTimer();
+        _pttActivationHoldTimer = new DispatcherTimer(DispatcherPriority.Input, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(PttSecondTapHoldMs)
+        };
+        _pttActivationHoldTimer.Tick += (_, _) =>
+        {
+            StopPttActivationHoldTimer();
+            if (_pttState != PttState.SecondTapDown)
+                return;
+
+            var heldMs = (DateTime.UtcNow - _ctrlSecondDownTime).TotalMilliseconds;
+            if (!NativeMethods.IsCtrlPhysicallyDown())
+            {
+                SquadDashTrace.Write("UI", $"PTT pending cancelled: second Ctrl released heldMs={heldMs:0}");
+                _pttState = PttState.Idle;
+                return;
+            }
+
+            TryStartPushToTalkFromFocusedTarget(heldMs);
+        };
+        _pttActivationHoldTimer.Start();
+    }
+
+    private void StopPttActivationHoldTimer()
+    {
+        if (_pttActivationHoldTimer is null)
+            return;
+
+        _pttActivationHoldTimer.Stop();
+        _pttActivationHoldTimer = null;
+    }
+
+    private void TryStartPushToTalkFromFocusedTarget(double secondCtrlHeldMs)
+    {
+        // Resolve the target at activation time — prefer a focused RichTextBox
+        // (e.g. DocSourceTextBox) over the fallback TextBox path.
+        var focusedTextBox     = Keyboard.FocusedElement as TextBox;
+        var focusedRichTextBox = Keyboard.FocusedElement as RichTextBox;
+
+        _pttTargetRichTextBox = null;
+        if (focusedRichTextBox != null)
+        {
+            _pttTargetRichTextBox = focusedRichTextBox;
+            _pttTargetTextBox = null;
+        }
+        else
+        {
+            _pttTargetTextBox = focusedTextBox != null && focusedTextBox != PromptTextBox
+                ? focusedTextBox
+                : PromptTextBox;
+        }
+
+        var pttTargetExists = _pttTargetRichTextBox != null || _pttTargetTextBox != null;
+        if (!pttTargetExists)
+        {
+            SquadDashTrace.Write("UI", "PTT pending cancelled: no target textbox");
+            _pttState = PttState.Idle;
+            return;
+        }
+
+        // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
+        if (_pttTargetRichTextBox != null)
+        {
+            _sessionCaretIndex      = _pttTargetRichTextBox.GetSelectionStart();
+            _sessionSelectionLength = _pttTargetRichTextBox.GetSelectionLength();
+        }
+        else
+        {
+            _sessionCaretIndex      = _pttTargetTextBox!.SelectionStart;
+            _sessionSelectionLength = _pttTargetTextBox!.SelectionLength;
+        }
+
+        // Queue whenever the target is the prompt box AND auto-send is enabled.
+        // EnqueueCurrentPrompt works whether or not a prompt is currently running,
+        // so we no longer need to gate on !_isPromptRunning.
+        _voiceStartedWithSendEnabled = _settingsSnapshot.PttAutoSend
+                                       && _pttTargetRichTextBox == null
+                                       && _pttTargetTextBox == PromptTextBox
+                                       && string.IsNullOrEmpty(PromptTextBox?.Text);
+        SquadDashTrace.Write("UI",
+            $"PTT started: secondCtrlHeldMs={secondCtrlHeldMs:0} voiceSendEnabled={_voiceStartedWithSendEnabled} " +
+            $"targetIsPrompt={_pttTargetTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.Text)}");
+
+        // Re-evaluate on each PTT activation: true only when quick reply
+        // buttons are visible, the prompt box was empty at start time,
+        // and buttons appeared at least 400ms ago (so user could see them).
+        _dictationStartedForQuickReply = _currentQuickReplyOptions.Length > 0
+                                         && string.IsNullOrEmpty(PromptTextBox?.Text)
+                                         && (DateTime.UtcNow - _quickRepliesShownAt).TotalMilliseconds >= QuickReplyReadWindowMs;
+        _pttState = PttState.Active;
+        _ = StartPushToTalkAsync();
     }
 
     /// <summary>
@@ -8502,10 +8576,13 @@ public partial class MainWindow : Window, ILiveElementLocator
 
                 case PttState.TapDown:
                 case PttState.TapReleased:
+                case PttState.SecondTapDown:
                     // Reset stale tap sequence — cannot complete the double-tap while inactive.
+                    StopPttActivationHoldTimer();
                     _pttState = PttState.Idle;
                     _ctrlFirstDownTime = default;
                     _ctrlFirstReleaseTime = default;
+                    _ctrlSecondDownTime = default;
                     break;
             }
         }
@@ -8599,6 +8676,16 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                     break;
 
+                case PttState.SecondTapDown:
+                    if (IsCtrlKey(e.Key))
+                    {
+                        var heldMs = (DateTime.UtcNow - _ctrlSecondDownTime).TotalMilliseconds;
+                        StopPttActivationHoldTimer();
+                        SquadDashTrace.Write("UI", $"PTT pending cancelled: second Ctrl keyup heldMs={heldMs:0}");
+                        _pttState = PttState.Idle;
+                    }
+                    break;
+
                 case PttState.Active:
                     if (IsShiftKey(e.Key))
                     {
@@ -8639,6 +8726,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             ? !string.IsNullOrEmpty(_pttTargetRichTextBox.GetPlainText())
             : !string.IsNullOrEmpty((_pttTargetTextBox ?? PromptTextBox).Text);
         _pttHadPreexistingText = targetHasText;
+        _promptHasVoiceInput = false;
         RecordHintFeatureUsed(PromptHintFeature.PushToTalk);
 
         // In fullscreen transcript mode, peek the prompt so the user can see dictated text.
@@ -8685,12 +8773,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         _speechService.PhraseRecognized += (_, text) =>
             Dispatcher.BeginInvoke(DispatcherPriority.Input, () => AppendSpeechToPrompt(text));
 
-        _speechService.VolumeChanged += (_, level) =>
-            Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
-            {
-                if (_pttWindow is not null)
-                    _pttWindow.VolumeBar.Height = Math.Max(2, level * 36);
-            });
+        _speechService.VolumeChanged += (_, level) => QueuePttVolumeUpdate(level);
 
         _speechService.RecognitionError += (_, msg) =>
             Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
@@ -8807,8 +8890,69 @@ public partial class MainWindow : Window, ILiveElementLocator
         _pttWindow = null;
     }
 
+    private void QueuePttVolumeUpdate(double level)
+    {
+        Interlocked.Increment(ref _pttVolumeEventTraceCount);
+        lock (_pttVolumeUpdateGate)
+        {
+            _pendingPttVolumeHeight = Math.Max(2, level * 36);
+            if (_pttVolumeUpdateQueued)
+                return;
+
+            _pttVolumeUpdateQueued = true;
+        }
+
+        // Volume callbacks can arrive very quickly. Keep them below keyboard input
+        // priority and coalesce to one queued UI update so the meter cannot starve typing.
+        try
+        {
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(FlushPttVolumeUpdate));
+        }
+        catch (ObjectDisposedException)
+        {
+            lock (_pttVolumeUpdateGate)
+                _pttVolumeUpdateQueued = false;
+        }
+        catch (InvalidOperationException)
+        {
+            lock (_pttVolumeUpdateGate)
+                _pttVolumeUpdateQueued = false;
+        }
+    }
+
+    private void FlushPttVolumeUpdate()
+    {
+        double height;
+        lock (_pttVolumeUpdateGate)
+        {
+            height = _pendingPttVolumeHeight;
+            _pttVolumeUpdateQueued = false;
+        }
+
+        if (_pttWindow is not null)
+            _pttWindow.VolumeBar.Height = height;
+
+        Interlocked.Increment(ref _pttVolumeUiUpdateTraceCount);
+        TracePttVolumeSummaryIfNeeded();
+    }
+
+    private void TracePttVolumeSummaryIfNeeded()
+    {
+        if (_pttVolumeTraceStopwatch.ElapsedMilliseconds < PttVolumeTraceIntervalMs)
+            return;
+
+        var eventCount = Interlocked.Exchange(ref _pttVolumeEventTraceCount, 0);
+        var uiUpdateCount = Interlocked.Exchange(ref _pttVolumeUiUpdateTraceCount, 0);
+        SquadDashTrace.Write(
+            TraceCategory.UI,
+            $"PTT_VOLUME batchMs={_pttVolumeTraceStopwatch.ElapsedMilliseconds} events={eventCount} uiUpdates={uiUpdateCount} " +
+            $"state={_pttState} queued={_pttVolumeUpdateQueued}");
+        _pttVolumeTraceStopwatch.Restart();
+    }
+
     private async Task StopPushToTalkAsync(bool send, bool sendAsQuickReply = false)
     {
+        SquadDashTrace.Write("UI", $"PTT_STOP begin send={send} sendAsQuickReply={sendAsQuickReply} state={_pttState}");
         _pttState = PttState.Idle;
         StopPttCtrlPollTimer();
         _pttLostFocusDuringRecording = false;
@@ -8869,6 +9013,13 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (_restartPending && !_isPromptRunning)
             return; // Close() was initiated inside the dispatcher callback above.
+
+        if (wasTargetingPrompt && (send || sendAsQuickReply) && !_promptHasVoiceInput)
+        {
+            SquadDashTrace.Write("UI", "PTT send suppressed: no recognized voice input.");
+            send = false;
+            sendAsQuickReply = false;
+        }
 
         if (sendAsQuickReply && wasTargetingPrompt)
         {
@@ -20564,6 +20715,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             InputManager.Current.PreProcessInput -= MainWindow_PreProcessInput;
             DetachDispatcherDiagnostics();
             _isClosing = true;
+            StopPttActivationHoldTimer();
+            StopPttCtrlPollTimer();
             _promptHealthTimer.Stop();
             _statusPresentationTimer.Stop();
             _responseRenderTimer.Stop();
