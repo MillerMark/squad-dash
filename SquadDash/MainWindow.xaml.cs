@@ -14034,6 +14034,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 _ = Dispatcher.InvokeAsync(async () =>
                 {
+                    if (_lastQuickReplyEntry?.AllowQuickReplies == true)
+                    {
+                        AppendLoopOutputLine("⏸ Loop paused — pending quick replies require your input. Answer them, then press Start Loop to resume.", LoopLifecycleBrush);
+                        SyncLoopPanel();
+                        return;
+                    }
                     AppendLoopOutputLine("🔄 Resuming loop from previous session…", LoopLifecycleBrush);
                     await StartLoopImmediateAsync(resumeFromIteration: _settingsSnapshot.LoopLastIteration);
                 }, System.Windows.Threading.DispatcherPriority.Background);
