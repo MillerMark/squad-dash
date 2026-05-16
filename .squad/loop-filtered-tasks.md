@@ -61,10 +61,15 @@ No unchecked tasks remain (or all remaining tasks are Owner: User). Do the follo
 3. For **"define…" or "decide…" or "architecture" tasks**: document the decision in `.squad/decisions.md` (create if missing) and update relevant architecture docs, then consider the task done.
 4. For **implementation tasks**:
    - `build_verify` = `{{build_verify}}` — if `true` and `{{build_command}}` is non-empty, run `{{build_command}}` and verify it passes before committing.
-   - `commit_after_task` = `{{commit_after_task}}`:
-     - `always` → commit immediately and report the SHA. Include trailer: `{{copilot_trailer}}`
-     - `never` → skip commit; describe the diff instead.
-     - `ask` → emit a quick-reply "Commit changes?" and wait for confirmation before committing.
+   {{#if commit_after_task == "always"}}
+   - Commit immediately with a clear, descriptive message. Include the trailer: `{{copilot_trailer}}`
+   {{/if}}
+   {{#if commit_after_task == "ask"}}
+   - Offer a quick reply: **"Commit changes"** / **"Leave uncommitted"** and wait for confirmation before committing.
+   {{/if}}
+   {{#if commit_after_task == "never"}}
+   - Do not commit. Describe the diff in your response instead.
+   {{/if}}
 5. After work is complete, mark the task `[x]` in `.squad/tasks.md` and move it to the "Recently Completed" section at the bottom.
 6. Report a one-line summary of what was done.
 
