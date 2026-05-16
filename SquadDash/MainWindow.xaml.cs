@@ -7460,6 +7460,25 @@ public partial class MainWindow : Window, ILiveElementLocator
                 menu.Items.Add(sep);
             }
 
+            // Check if click is on a table — if so, add "Copy Table" to the menu
+            var clickSource = e.OriginalSource as DependencyObject;
+            var tablePanel = FindVisualAncestor<StackPanel>(clickSource);
+            string? tableMarkdown = tablePanel?.Tag as string;
+            if (!string.IsNullOrWhiteSpace(tableMarkdown))
+            {
+                var copyTableItem = new MenuItem { Header = "Copy Table" };
+                copyTableItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                var captured = tableMarkdown;
+                copyTableItem.Click += (_, _) => SetClipboardTextWithRetry(captured);
+                menu.Items.Insert(0, copyTableItem);
+                if (menu.Items.Count > 1)
+                {
+                    var sep = new Separator();
+                    sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                    menu.Items.Insert(1, sep);
+                }
+            }
+
             var copyItem = new MenuItem { Header = "_Copy" };
             copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             copyItem.IsEnabled = hasSelection;
