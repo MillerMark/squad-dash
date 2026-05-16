@@ -1657,7 +1657,8 @@ internal sealed class PromptExecutionController {
         _appendLine("Are you sure you want to clear this transcript?\n\n[Yes] [No]", null);
 
         _finalizeCurrentTurnResponse();
-        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
+        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "local-clear-confirmation");
+        SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=local-clear-confirmation");
         _getCoordinatorThread().CurrentTurn = null;
         _scrollToEndIfAtBottom();
         return true;
@@ -1694,7 +1695,8 @@ internal sealed class PromptExecutionController {
         _beginTranscriptTurn(prompt);
         _appendLine("Transcript clear cancelled.", null);
         _finalizeCurrentTurnResponse();
-        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
+        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "local-command-turn");
+        SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=local-clear-cancelled");
         _getCoordinatorThread().CurrentTurn = null;
         return true;
     }
@@ -1745,15 +1747,17 @@ internal sealed class PromptExecutionController {
             MaybeClearPromptAfterLocalCommand(prompt, clearPromptBox);
             renderResponse();
             _finalizeCurrentTurnResponse();
-            _conversationManager.SaveTranscriptTurnToConversation(localTurn, DateTimeOffset.Now);
+            _conversationManager.SaveTranscriptTurnToConversation(localTurn, DateTimeOffset.Now, "local-command-execute");
         }
         finally {
             if (executionPlan.ShouldRestoreSuspendedTurn &&
                 executionPlan.SuspendedTurn is { } suspendedTurn) {
+                SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn restored reason=local-command-suspended-turn");
                 _getCoordinatorThread().CurrentTurn = suspendedTurn;
                 MoveTranscriptTurnToDocumentEnd(suspendedTurn);
             }
             else {
+                SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=local-command-execute");
                 _getCoordinatorThread().CurrentTurn = null;
             }
         }
@@ -1822,7 +1826,8 @@ internal sealed class PromptExecutionController {
         _appendLine("Ready to create a team? Select a universe:\n\n" +
             string.Join(" ", MainWindow.UniverseSelectorOptions.Select(u => $"[{u}]")), null);
         _finalizeCurrentTurnResponse();
-        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
+        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "named-agent-command-turn");
+        SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=universe-selector-turn");
         _getCoordinatorThread().CurrentTurn = null;
         _scrollToEndIfAtBottom();
     }
@@ -2038,7 +2043,8 @@ internal sealed class PromptExecutionController {
             if (_currentPromptStartedAt is not null)
                 StopPromptHealthMonitoring("completed");
 
-            _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow);
+            _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow, "execute-coordinator-finally");
+            SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=execute-coordinator-finally");
             _getCoordinatorThread().CurrentTurn = null;
             _setIsPromptRunning(false);
             _updateInteractiveControlState();

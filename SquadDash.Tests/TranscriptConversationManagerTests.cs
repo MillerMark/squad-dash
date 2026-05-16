@@ -226,7 +226,37 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test]
+    public void FindLastInteractiveTurnIndex_IgnoresTrailingSessionBoundary() {
+        var first = MakeTurn("First response");
+        var second = MakeTurn("Second response");
+        var boundary = MakeTurn(string.Empty) with { IsSessionBoundary = true };
+
+        var index = TranscriptConversationManager.FindLastInteractiveTurnIndex([first, second, boundary]);
+
+        Assert.That(index, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void FindLastInteractiveTurnIndex_ReturnsMinusOne_WhenOnlySessionBoundariesExist() {
+        var boundary = MakeTurn(string.Empty) with { IsSessionBoundary = true };
+
+        var index = TranscriptConversationManager.FindLastInteractiveTurnIndex([boundary]);
+
+        Assert.That(index, Is.EqualTo(-1));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static TranscriptTurnRecord MakeTurn(string response) =>
+        new(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow,
+            "prompt",
+            string.Empty,
+            response,
+            true,
+            Array.Empty<TranscriptToolRecord>());
 
     private static AgentThreadRegistry MakeRegistry() =>
         new AgentThreadRegistry(

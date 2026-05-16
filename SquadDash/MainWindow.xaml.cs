@@ -643,7 +643,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             agentThreadRegistry: _agentThreadRegistry,
             getToolEntries: () => _agentThreadRegistry.ToolEntries,
             getCurrentTurn: () => _currentTurn,
-            setCurrentTurnNull: () => { _currentTurn = null; },
+            setCurrentTurnNull: () => {
+                SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn cleared reason=conversation-manager currentTurnWasPresent={_currentTurn is not null}");
+                _currentTurn = null;
+            },
             // Bracket bulk history-load in a RichTextBox BeginChange/EndChange pair.
             // This prevents the WPF TextEditor from issuing a layout pass after every
             // Blocks.Add call; instead exactly one layout pass fires when EndChange() is
@@ -3817,7 +3820,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 var doneCurrentTurn = CoordinatorThread.CurrentTurn;
                 FinalizeCurrentTurnResponse();
                 CollapseCurrentTurnThinking();
-                _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
+                _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "bridge-done-event");
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
                 FlushDeferredSystemLines();
                 {
@@ -3925,7 +3928,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             case "error":
                 _pec.ActiveToolName = null;
-                _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now);
+                _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "bridge-done-final-notification");
                 UpdateLeadAgent("Error", string.Empty, evt.Message ?? "Unknown error");
                 UpdateSessionState("Error");
                 FlushDeferredSystemLines();
@@ -4182,7 +4185,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         // RunPromptAsync only resolves (and the ExecuteCoordinatorTurnAsync finally-block only
         // runs) after ALL background agents finish, so the coordinator turn would otherwise
         // remain in-memory and be lost if the app restarts while the sub-agent is running.
-        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow);
+        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow, "subagent-started");
         _conversationManager.PersistAgentThreadSnapshot(thread);
     }
 
@@ -8281,6 +8284,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     $"[interrupted] The Squad bridge was disposed before the prompt completed.\n\n" +
                     $"[{PromptExecutionController.ResendLastPromptQuickReply}] [{PromptExecutionController.CheckGitDiffQuickReply}]",
                     ThemeBrush("SystemInfoText"));
+                SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=debug-interrupt");
                 CoordinatorThread.CurrentTurn = null;
                 e.Handled = true;
                 return;
@@ -8969,7 +8973,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 else
                 {
                     ShowRestartingOverlay();
-                    _conversationManager.EmergencySave();
+                    EmergencySaveAfterDrainingBridgeEvents("ptt-restart-after-drain");
                     Close();
                 }
             }
@@ -16438,6 +16442,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         prompt ??= string.Empty;
         thread.CurrentTurn = CreateTranscriptTurnView(thread, prompt, DateTimeOffset.Now, thinkingExpanded: true);
+        if (ReferenceEquals(thread, CoordinatorThread))
+            SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn created promptChars={prompt.Length} started={thread.CurrentTurn.StartedAt:O}");
         thread.ResponseStreamed = false;
 
         // Prompt submission scrolls the viewport so the user can see what was just submitted.
@@ -19825,6 +19831,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         DisposeTeamFileWatcher();
         _pec.ActiveToolName = null;
         _conversationManager.CurrentSessionId = null;
+        SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn cleared reason=ClearSessionView currentTurnWasPresent={_currentTurn is not null}");
         _currentTurn = null;
         // Clear all stored agent reports for this workspace when the conversation is cleared.
         if (_currentWorkspace is not null)
@@ -19912,6 +19919,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var turn = BeginTranscriptTurn(string.Empty);
         AppendLine(text);
         FinalizeCurrentTurnResponse();
+        SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=system-transcript-entry");
         _currentTurn = null;
         return turn.ResponseEntries.LastOrDefault();
     }
@@ -20769,7 +20777,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _restartPending = true;
                 _mainWindowClosingInProgress = false;
                 SquadDashTrace.Write("Shutdown", "Close requested while PTT active or draining. Deferring restart until final phrase is received.");
-                _conversationManager.EmergencySave();
+                EmergencySaveAfterDrainingBridgeEvents("close-while-ptt-active");
                 return;
             }
 
@@ -20805,7 +20813,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (isBusy && !isDeferredClose)
             {
                 e.Cancel = true;
-                _conversationManager.EmergencySave();
+                EmergencySaveAfterDrainingBridgeEvents("busy-close-dialog");
 
                 var dialog = new ShutdownProtectionWindow(
                     isRunning: _isPromptRunning,
@@ -20969,7 +20977,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: _currentWorkspace is null — skipping SaveWorkspaceShutdownTime.");
             }
-            _conversationManager.EmergencySave();
+            EmergencySaveAfterDrainingBridgeEvents("main-window-closing");
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: EmergencySave {emergencySaveSw.ElapsedMilliseconds}ms elapsed={closingSw.ElapsedMilliseconds}ms.");
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: complete {closingSw.ElapsedMilliseconds}ms.");
         }
@@ -22136,7 +22144,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_clipboardEditorOpen) return;
 
         ShowRestartingOverlay();
-        _conversationManager.EmergencySave();
+        EmergencySaveAfterDrainingBridgeEvents("doc-revision-completed");
         Close();
     }
 
@@ -22156,7 +22164,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (_restartPending)
             {
                 ShowRestartingOverlay();
-                _conversationManager.EmergencySave();
+                EmergencySaveAfterDrainingBridgeEvents("clipboard-editor-closed-pending-shutdown");
             }
             Close();
             return;
@@ -22168,8 +22176,75 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (MarkdownDocumentWindow.AnyRevisionInFlight) return;
 
         ShowRestartingOverlay();
-        _conversationManager.EmergencySave();
+        EmergencySaveAfterDrainingBridgeEvents("clipboard-editor-closed-restart");
         Close();
+    }
+
+    private void EmergencySaveAfterDrainingBridgeEvents(string reason)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => EmergencySaveAfterDrainingBridgeEvents(reason));
+            return;
+        }
+
+        DrainPendingBridgeEventsForShutdown(reason);
+        _conversationManager.EmergencySave(reason);
+    }
+
+    private void DrainPendingBridgeEventsForShutdown(string reason)
+    {
+        var sw = Stopwatch.StartNew();
+        var handled = 0;
+        var deltaEvents = 0;
+        var initialPending = PendingBridgeEventCount;
+
+        while (handled < 10_000)
+        {
+            SquadSdkEvent? evt;
+            lock (_bridgeEventQueueGate)
+            {
+                evt = _pendingBridgeEvents.Count > 0
+                    ? _pendingBridgeEvents.Dequeue()
+                    : null;
+                if (evt is null)
+                    _bridgeEventDispatchPending = false;
+            }
+
+            if (evt is null)
+                break;
+
+            if (IsHighFrequencyBridgeEvent(evt.Type))
+                deltaEvents++;
+
+            try
+            {
+                HandleEvent(evt);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException($"DrainPendingBridgeEventsForShutdown:{evt.Type}", ex, showDialog: false);
+            }
+
+            handled++;
+        }
+
+        var remaining = PendingBridgeEventCount;
+        if (initialPending > 0 || handled > 0 || remaining > 0)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Shutdown,
+                $"Bridge queue drained before emergency save reason={reason} initial={initialPending} handled={handled} deltaEvents={deltaEvents} remaining={remaining} elapsedMs={sw.ElapsedMilliseconds}");
+        }
+    }
+
+    private int PendingBridgeEventCount
+    {
+        get
+        {
+            lock (_bridgeEventQueueGate)
+                return _pendingBridgeEvents.Count;
+        }
     }
 
     private void MainWindow_PreProcessInput(object sender, PreProcessInputEventArgs e)
@@ -26177,7 +26252,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         return null;
     }
 
-    internal void EmergencySave() => _conversationManager.EmergencySave();
+    internal void EmergencySave() => EmergencySaveAfterDrainingBridgeEvents("external");
 
     private async Task OpenExternalLinkWithCommitCheckAsync(string url)
     {

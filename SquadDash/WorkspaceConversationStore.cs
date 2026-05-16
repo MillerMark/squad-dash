@@ -67,6 +67,19 @@ internal sealed class WorkspaceConversationStore {
 
         if (WouldOverwriteNonEmptyState(existing, normalized)) {
             CreateBackup(normalizedWorkspace, existing);
+            CreateRescueBackup(normalizedWorkspace, existing, "empty-overwrite");
+            return existing;
+        }
+
+        if (WouldDropDurableTranscriptContent(existing, normalized)) {
+            var existingDurable = CountDurableTranscriptTurns(existing);
+            var incomingDurable = CountDurableTranscriptTurns(normalized);
+            SquadDashTrace.Write(
+                "Persistence",
+                $"ConversationStore.Save: blocked destructive transcript overwrite existingDurableTurns={existingDurable} incomingDurableTurns={incomingDurable} " +
+                $"existingTurns={existing.Turns.Count} incomingTurns={normalized.Turns.Count} existingThreads={existing.GetThreads().Count} incomingThreads={normalized.GetThreads().Count}");
+            CreateBackup(normalizedWorkspace, existing);
+            CreateRescueBackup(normalizedWorkspace, existing, "durable-drop");
             return existing;
         }
 
@@ -163,6 +176,28 @@ internal sealed class WorkspaceConversationStore {
         File.WriteAllText(backupPath, json);
     }
 
+    private void CreateRescueBackup(string normalizedWorkspace, WorkspaceConversationState state, string reason) {
+        if (!HasMeaningfulContent(state))
+            return;
+
+        var conversationPath = GetConversationPath(normalizedWorkspace);
+        var directory = Path.GetDirectoryName(conversationPath)!;
+        Directory.CreateDirectory(directory);
+        var safeReason = new string(reason
+            .Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_')
+            .ToArray());
+        if (string.IsNullOrWhiteSpace(safeReason))
+            safeReason = "rescue";
+
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmssfff");
+        var rescuePath = Path.Combine(directory, $"conversation.{safeReason}.{timestamp}.json");
+        var json = JsonSerializer.Serialize(state, new JsonSerializerOptions {
+            WriteIndented = true
+        });
+        File.WriteAllText(rescuePath, json);
+        SquadDashTrace.Write("Persistence", $"ConversationStore.Save: rescue backup written path={rescuePath}");
+    }
+
     private static bool WouldOverwriteNonEmptyState(
         WorkspaceConversationState existing,
         WorkspaceConversationState incoming) {
@@ -170,6 +205,20 @@ internal sealed class WorkspaceConversationStore {
                !HasMeaningfulContent(incoming) &&
                !IsExplicitClear(incoming);
     }
+
+    private static bool WouldDropDurableTranscriptContent(
+        WorkspaceConversationState existing,
+        WorkspaceConversationState incoming) {
+        if (IsExplicitClear(incoming))
+            return false;
+
+        return CountDurableTranscriptTurns(existing) > 0 &&
+               CountDurableTranscriptTurns(incoming) == 0;
+    }
+
+    private static int CountDurableTranscriptTurns(WorkspaceConversationState state) =>
+        state.Turns.Count(turn => !turn.IsSessionBoundary) +
+        state.GetThreads().Sum(thread => thread.Turns.Count);
 
     private static bool HasMeaningfulContent(WorkspaceConversationState state) {
         return !string.IsNullOrWhiteSpace(state.SessionId) ||

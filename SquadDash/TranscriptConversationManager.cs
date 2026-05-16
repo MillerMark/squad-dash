@@ -579,10 +579,17 @@ internal sealed class TranscriptConversationManager {
             _beginBulkDocumentLoad(thread);
             beginBulkMs = phaseSw.ElapsedMilliseconds;
             phaseSw.Restart();
+            var lastInteractiveTurnIndex = FindLastInteractiveTurnIndex(turns);
+            if (lastInteractiveTurnIndex >= 0 && lastInteractiveTurnIndex != turns.Count - 1)
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    $"RenderConversationHistory: last interactive turn index={lastInteractiveTurnIndex} totalTurns={turns.Count}; tail is session boundary or non-interactive.");
+            }
             try {
                 for (var i = 0; i < turns.Count; i++) {
                     if (_isClosing()) return;
-                    _renderPersistedTurn(thread, turns[i], i == turns.Count - 1);
+                    _renderPersistedTurn(thread, turns[i], i == lastInteractiveTurnIndex);
                 }
             } finally {
                 turnLoopMs = phaseSw.ElapsedMilliseconds;
@@ -627,8 +634,9 @@ internal sealed class TranscriptConversationManager {
         var coordinatorThread = _coordinatorThread();
         _beginBulkDocumentLoad(coordinatorThread);
         try {
+            var lastInteractiveTurnIndex = FindLastInteractiveTurnIndex(turns);
             for (var i = 0; i < turns.Count; i++)
-                _renderPersistedTurn(coordinatorThread, turns[i], i == turns.Count - 1);
+                _renderPersistedTurn(coordinatorThread, turns[i], i == lastInteractiveTurnIndex);
         } finally {
             _endBulkDocumentLoad(coordinatorThread);
         }
@@ -636,16 +644,33 @@ internal sealed class TranscriptConversationManager {
         _scrollOutputToEnd(coordinatorThread);
     }
 
-    // ── Save operations ─────────────────────────────────────────────────────────
+    internal static int FindLastInteractiveTurnIndex(IReadOnlyList<TranscriptTurnRecord> turns) {
+        for (var i = turns.Count - 1; i >= 0; i--) {
+            if (!turns[i].IsSessionBoundary)
+                return i;
+        }
 
-    internal void SaveCurrentTurnToConversation(DateTimeOffset completedAt) {
-        if (_getWorkspace() is null || _getCurrentTurn() is null)
-            return;
-
-        SaveTranscriptTurnToConversation(_getCurrentTurn()!, completedAt);
+        return -1;
     }
 
-    internal void SaveTranscriptTurnToConversation(TranscriptTurnView turn, DateTimeOffset completedAt) {
+    // ── Save operations ─────────────────────────────────────────────────────────
+
+    internal void SaveCurrentTurnToConversation(DateTimeOffset completedAt, string reason = "current-turn") {
+        var currentTurn = _getCurrentTurn();
+        if (_getWorkspace() is null || currentTurn is null) {
+            SquadDashTrace.Write(
+                "Persistence",
+                $"SaveCurrentTurnToConversation: no-op reason={reason} workspace={_getWorkspace() is not null} currentTurn={BuildCurrentTurnTrace(currentTurn)}");
+            return;
+        }
+
+        SquadDashTrace.Write(
+            "Persistence",
+            $"SaveCurrentTurnToConversation: saving reason={reason} {BuildCurrentTurnTrace(currentTurn)}");
+        SaveTranscriptTurnToConversation(currentTurn, completedAt, reason);
+    }
+
+    internal void SaveTranscriptTurnToConversation(TranscriptTurnView turn, DateTimeOffset completedAt, string reason = "turn") {
         if (_getWorkspace() is null)
             return;
 
@@ -657,6 +682,10 @@ internal sealed class TranscriptConversationManager {
             .ToList();
 
         turns.Add(turnRecord);
+        SquadDashTrace.Write(
+            "Persistence",
+            $"SaveTranscriptTurnToConversation: reason={reason} beforeTurns={_conversationState.Turns.Count} afterTurns={turns.Count} " +
+            $"promptChars={CountChars(turn.Prompt)} responseChars={CountChars(turn.ResponseTextBuilder.ToString())} started={turn.StartedAt:O}");
 
         PersistConversationState(_conversationState with {
             SessionId = _currentSessionId,
@@ -667,7 +696,7 @@ internal sealed class TranscriptConversationManager {
             PromptHistory = _promptHistory.ToArray(),
             Turns = turns,
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
-        });
+        }, $"SaveTranscriptTurnToConversation:{reason}");
     }
 
     internal void SaveAgentThreadToConversation(TranscriptThreadState thread, DateTimeOffset completedAt) {
@@ -688,7 +717,7 @@ internal sealed class TranscriptConversationManager {
             PromptDraft = _getPromptText(),
             PromptHistory = _promptHistory.ToArray(),
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
-        });
+        }, $"SaveAgentThreadToConversation:{thread.ThreadId}");
     }
 
     internal void PersistAgentThreadSnapshot(TranscriptThreadState thread) {
@@ -704,7 +733,7 @@ internal sealed class TranscriptConversationManager {
             PromptDraft = _getPromptText(),
             PromptHistory = _promptHistory.ToArray(),
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: true)
-        });
+        }, $"PersistAgentThreadSnapshot:{thread.ThreadId}");
     }
 
     internal void SchedulePersistAgentThreadSnapshot(TranscriptThreadState thread) {
@@ -716,10 +745,10 @@ internal sealed class TranscriptConversationManager {
         _agentThreadSnapshotPersistTimer.Start();
     }
 
-    internal void PersistConversationState(WorkspaceConversationState state) {
+    internal void PersistConversationState(WorkspaceConversationState state, string reason = "unspecified") {
         // Always use the background queue — never block the UI thread with synchronous file I/O.
         // EmergencySave() calls SaveConversationStateSerially() directly for shutdown safety.
-        PersistConversationStateInBackground(state);
+        PersistConversationStateInBackground(state, reason);
     }
 
     /// <summary>
@@ -746,8 +775,7 @@ internal sealed class TranscriptConversationManager {
 
         PersistConversationState(_conversationState with {
             Turns = newTurns
-        });
-        _conversationState = _conversationState with { Turns = newTurns };
+        }, "AppendAgentReportToLastTurn");
     }
 
     internal void SaveWorkspaceInputState() {
@@ -759,7 +787,7 @@ internal sealed class TranscriptConversationManager {
             PromptDraft = _getPromptText(),
             PromptHistory = _promptHistory.ToArray(),
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
-        });
+        }, "SaveWorkspaceInputState");
     }
 
     internal void CaptureWorkspaceInputState() {
@@ -771,7 +799,7 @@ internal sealed class TranscriptConversationManager {
             var (caretIndex, selectionStart, selectionLength) = _getPromptCaretState();
             _pendingConversationSave = (
                 workspace.FolderPath,
-                _conversationState with {
+                IncludeCurrentCoordinatorTurnIfPresent(_conversationState with {
                     SessionId          = _currentSessionId,
                     PromptDraft        = _getPromptText(),
                     PromptDraftCaretIndex    = caretIndex,
@@ -779,13 +807,13 @@ internal sealed class TranscriptConversationManager {
                     PromptDraftSelectionLength = selectionLength,
                     PromptHistory      = _promptHistory.ToArray(),
                     Threads            = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
-                });
+                }, "CaptureWorkspaceInputState"));
         }
         catch {
         }
     }
 
-    internal void EmergencySave() {
+    internal void EmergencySave(string reason = "shutdown") {
         var workspace = _getWorkspace();
         if (workspace is null)
             return;
@@ -801,28 +829,19 @@ internal sealed class TranscriptConversationManager {
                 cts.Dispose();
             }
 
-            var turns = _conversationState.Turns.ToList();
-
-            if (_getCurrentTurn() is not null) {
-                // Snapshot the in-flight turn with the text accumulated so far.
-                var partialRecord = BuildTranscriptTurnRecord(_getCurrentTurn()!, DateTimeOffset.UtcNow);
-                turns.RemoveAll(existing =>
-                    existing.StartedAt == partialRecord.StartedAt &&
-                    string.Equals(existing.Prompt, partialRecord.Prompt, StringComparison.Ordinal));
-                turns.Add(partialRecord);
-            }
-
             var (caretIndex, selectionStart, selectionLength) = _getPromptCaretState();
-            var state = _conversationState with {
+            SquadDashTrace.Write(
+                "Shutdown",
+                $"EmergencySave: begin reason={reason} currentTurn={BuildCurrentTurnTrace(_getCurrentTurn())} stateTurns={_conversationState.Turns.Count} stateThreads={_conversationState.GetThreads().Count}");
+            var state = IncludeCurrentCoordinatorTurnIfPresent(_conversationState with {
                 SessionId          = _currentSessionId,
                 PromptDraft        = _getPromptText(),
                 PromptDraftCaretIndex    = caretIndex,
                 PromptDraftSelectionStart  = selectionStart,
                 PromptDraftSelectionLength = selectionLength,
                 PromptHistory      = _promptHistory.ToArray(),
-                Turns              = turns,
                 Threads            = BuildPersistedAgentThreadRecords(includeCurrentTurns: true)
-            };
+            }, $"EmergencySave:{reason}");
 
             var version = RegisterConversationSaveRequest();
             _conversationState = state;
@@ -830,7 +849,9 @@ internal sealed class TranscriptConversationManager {
             var savedState = SaveConversationStateSerially(workspace.FolderPath, state, version, skipIfStale: false);
             emergencySaveSw.Stop();
             ApplySavedConversationStateIfCurrent(version, savedState);
-            SquadDashTrace.Write("Shutdown", $"EmergencySave: saved {turns.Count} turns, promptDraft={state.PromptDraft?.Length ?? 0} chars, saveMs={emergencySaveSw.ElapsedMilliseconds}ms.");
+            SquadDashTrace.Write(
+                "Shutdown",
+                $"EmergencySave: saved reason={reason} turns={state.Turns.Count} threads={state.GetThreads().Count} promptDraft={state.PromptDraft?.Length ?? 0} chars saveMs={emergencySaveSw.ElapsedMilliseconds}ms.");
         }
         catch (Exception ex) {
             SquadDashTrace.Write("Shutdown", $"EmergencySave failed: {ex.Message}");
@@ -838,6 +859,35 @@ internal sealed class TranscriptConversationManager {
     }
 
     private static int CountChars(string? text) => text?.Length ?? 0;
+
+    private WorkspaceConversationState IncludeCurrentCoordinatorTurnIfPresent(WorkspaceConversationState state, string reason) {
+        var currentTurn = _getCurrentTurn();
+        if (currentTurn is null)
+            return state;
+
+        var partialRecord = BuildTranscriptTurnRecord(currentTurn, DateTimeOffset.UtcNow);
+        var turns = state.Turns
+            .Where(existing =>
+                existing.StartedAt != partialRecord.StartedAt ||
+                !string.Equals(existing.Prompt, partialRecord.Prompt, StringComparison.Ordinal))
+            .ToList();
+        var replaced = turns.Count != state.Turns.Count;
+        turns.Add(partialRecord);
+
+        SquadDashTrace.Write(
+            "Persistence",
+            $"Coordinator current turn folded into save reason={reason} replaced={replaced} beforeTurns={state.Turns.Count} afterTurns={turns.Count} {BuildCurrentTurnTrace(currentTurn)}");
+
+        return state with { Turns = turns };
+    }
+
+    private static string BuildCurrentTurnTrace(TranscriptTurnView? turn) {
+        if (turn is null)
+            return "none";
+
+        return $"started={turn.StartedAt:O} promptChars={CountChars(turn.Prompt)} responseChars={CountChars(turn.ResponseTextBuilder.ToString())} " +
+               $"thoughts={turn.ThoughtEntries.Count} responses={turn.ResponseEntries.Count} tools={turn.ToolEntries.Count}";
+    }
 
     private IReadOnlyList<QuickReplyHandoffAgentContext> BuildQuickReplyAgentContexts(DateTimeOffset windowStart) =>
         _agentThreadRegistry.ThreadOrder
@@ -1142,7 +1192,7 @@ internal sealed class TranscriptConversationManager {
             PromptDraft = _getPromptText(),
             PromptHistory = _promptHistory.ToArray(),
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
-        });
+        }, "PersistSessionPointer");
     }
 
     private void CancelScheduledAgentThreadSnapshotPersist() {
@@ -1164,11 +1214,12 @@ internal sealed class TranscriptConversationManager {
             PromptDraft = _getPromptText(),
             PromptHistory = _promptHistory.ToArray(),
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: true)
-        });
+        }, "AgentThreadSnapshotTimer");
     }
 
-    private void PersistConversationStateInBackground(WorkspaceConversationState state) {
+    private void PersistConversationStateInBackground(WorkspaceConversationState state, string reason = "unspecified") {
         var workspace = _getWorkspace();
+        state = IncludeCurrentCoordinatorTurnIfPresent(state, reason);
         if (workspace is null) {
             _conversationState = state;
             return;
