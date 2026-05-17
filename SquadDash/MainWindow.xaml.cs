@@ -19690,11 +19690,16 @@ public partial class MainWindow : Window, ILiveElementLocator
             };
 
             headerPanel.MouseLeave += (_, e) => {
-                // Don't close if the mouse is moving into the popup itself
-                if (diffPopup != null && !diffPopup.IsMouseOver) {
-                    diffPopup.IsOpen = false;
-                    diffPopup = null;
-                }
+                // Defer one Render frame so WPF has time to propagate IsMouseOver
+                // to the popup border before we decide whether to close.
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (diffPopup != null && !diffPopup.IsMouseOver && !headerPanel.IsMouseOver)
+                    {
+                        diffPopup.IsOpen = false;
+                        diffPopup = null;
+                    }
+                }, System.Windows.Threading.DispatcherPriority.Render);
             };
         }
 
