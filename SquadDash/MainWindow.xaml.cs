@@ -16630,13 +16630,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         bool hasDictation = displayPrompt.EndsWith(voiceAnnotation, StringComparison.Ordinal);
         var promptBody = hasDictation ? displayPrompt[..^voiceAnnotation.Length] : displayPrompt;
 
+        // Capture the system-injected flag now, before the promptBody guard clears the field,
+        // so it is also available for the TranscriptTurnView record (persisted → reload path).
+        bool promptIsSystemInjected = isSystemInjected || _pendingPromptIsSystemInjected;
+        _pendingPromptIsSystemInjected = false;
+
         if (!string.IsNullOrEmpty(promptBody))
         {
             // System-injected follow-up prompts (e.g. silent-completion watchdog) are not
             // typed by the user — display a compact system notice instead of the user name
             // and raw prompt text.
-            bool promptIsSystemInjected = isSystemInjected || _pendingPromptIsSystemInjected;
-            _pendingPromptIsSystemInjected = false;
 
             if (promptIsSystemInjected)
             {
@@ -16718,11 +16721,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             startedAt,
             narrativeSection,
             topLevelBlocks) {
-            IsSystemInjected = isSystemInjected || _pendingPromptIsSystemInjected,
+            IsSystemInjected = promptIsSystemInjected,
         };
-        // _pendingPromptIsSystemInjected was already cleared when building the prompt paragraph above;
-        // clear again defensively in case promptBody was empty and the block was skipped.
-        _pendingPromptIsSystemInjected = false;
         return view;
     }
 
