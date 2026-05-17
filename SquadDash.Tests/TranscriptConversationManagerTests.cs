@@ -289,6 +289,28 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test]
+    public void ApplyPendingSessionBoundary_EmptyTurnList_AppendsAsSingleBoundary() {
+        var boundary = MakeBoundary(
+            new DateTimeOffset(2026, 5, 16, 18, 5, 30, TimeSpan.Zero),
+            TimeSpan.FromSeconds(3),
+            new DateTimeOffset(2026, 5, 16, 18, 5, 33, TimeSpan.Zero));
+
+        var result = TranscriptConversationManager.ApplyPendingSessionBoundary(
+            [], boundary, out var replaced);
+
+        Assert.Multiple(() => {
+            Assert.That(replaced, Is.False,
+                "An empty list has no tail boundary to replace.");
+            Assert.That(result, Has.Count.EqualTo(1),
+                "Result should contain only the new boundary.");
+            Assert.That(result[0].IsSessionBoundary, Is.True,
+                "The single result entry should be the boundary.");
+            Assert.That(result[0].SessionBoundaryShutdownTime,
+                Is.EqualTo(boundary.SessionBoundaryShutdownTime));
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static TranscriptTurnRecord MakeTurn(string response) =>
