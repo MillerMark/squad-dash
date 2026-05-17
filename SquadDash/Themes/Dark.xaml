@@ -99,18 +99,18 @@
     <SolidColorBrush x:Key="ListMarkerText" Color="#8090A0"/>
     <SolidColorBrush x:Key="BlockquoteBodyText" Color="#8090A0"/>
     <SolidColorBrush x:Key="TableCellText" Color="#A8C0C0"/>
-    <SolidColorBrush x:Key="ThinkingText" Color="#E0A840"/>
-    <SolidColorBrush x:Key="ThinkingMetaText" Color="#E0A840" Opacity="0.55"/>
+    <SolidColorBrush x:Key="ThinkingText" Color="#B89C68"/>
+    <SolidColorBrush x:Key="ThinkingMetaText" Color="#B89C68" Opacity="0.55"/>
     <SolidColorBrush x:Key="KeyboardHintText" Color="#707070"/>
     <SolidColorBrush x:Key="AgentIconTextColor" Color="#1A1A1A"/>
     <!-- Tool Entry Tokens -->
-    <SolidColorBrush x:Key="ToolRunningIcon" Color="#6BAED6"/>
-    <SolidColorBrush x:Key="ToolSuccessIcon" Color="#4EC84E"/>
-    <SolidColorBrush x:Key="ToolFailureIcon" Color="#FF6B6B"/>
-    <SolidColorBrush x:Key="ToolBodyText" Color="#A8C0C0"/>
-    <SolidColorBrush x:Key="ToolFailureText" Color="#FF6B6B"/>
-    <SolidColorBrush x:Key="ToolActionLink" Color="#6BAED6"/>
-    <SolidColorBrush x:Key="ToolActionLinkBorder" Color="#3A5070"/>
+    <SolidColorBrush x:Key="ToolRunningIcon" Color="#86A7BB"/>
+    <SolidColorBrush x:Key="ToolSuccessIcon" Color="#6DAA6D"/>
+    <SolidColorBrush x:Key="ToolFailureIcon" Color="#DA9090"/>
+    <SolidColorBrush x:Key="ToolBodyText" Color="#AEBABA"/>
+    <SolidColorBrush x:Key="ToolFailureText" Color="#DA9090"/>
+    <SolidColorBrush x:Key="ToolActionLink" Color="#86A7BB"/>
+    <SolidColorBrush x:Key="ToolActionLinkBorder" Color="#475263"/>
     <!-- Transcript Action Button Tokens (agent launch chip / report button) -->
     <SolidColorBrush x:Key="TranscriptActionSurface"      Color="#242018"/><!-- = InputSurface dark -->
     <SolidColorBrush x:Key="TranscriptActionHoverSurface"  Color="#252220"/><!-- = HoverSurface dark -->
