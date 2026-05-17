@@ -169,4 +169,84 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
             Assert.That(rescueFiles, Has.Length.EqualTo(1));
         });
     }
+
+    // ── Corrupt-JSON fallback (TryLoadState silent catch) ─────────────────────
+
+    [Test]
+    public void Load_WhenPrimaryJsonCorrupt_FallsBackToBakFile() {
+        using var workspace = new TestWorkspace();
+        var root = workspace.GetPath("state");
+        var store = new WorkspaceConversationStore(root);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        var turn = new TranscriptTurnRecord(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow,
+            "prompt",
+            "thinking",
+            "response",
+            false,
+            Array.Empty<TranscriptToolRecord>());
+
+        var stateA = new WorkspaceConversationState(
+            "session-1",
+            DateTimeOffset.UtcNow,
+            "original draft",
+            new[] { "prompt" },
+            new[] { turn });
+
+        // First save creates conversation.json with stateA.
+        store.Save(repo, stateA);
+        // Second save promotes stateA to .bak and writes stateB to conversation.json.
+        store.Save(repo, stateA with { PromptDraft = "updated draft" });
+
+        // Corrupt the primary file.
+        var workspaceDirectory = Directory.GetDirectories(root).Single();
+        var primaryPath = Path.Combine(workspaceDirectory, "conversation.json");
+        File.WriteAllText(primaryPath, "!! not valid json !!");
+
+        var result = store.Load(repo);
+
+        Assert.Multiple(() => {
+            Assert.That(result.Turns, Has.Count.EqualTo(1));
+            Assert.That(result.PromptDraft, Is.EqualTo("original draft"));
+        });
+    }
+
+    [Test]
+    public void Load_WhenPrimaryJsonCorrupt_AndNoBak_ReturnsEmpty() {
+        using var workspace = new TestWorkspace();
+        var root = workspace.GetPath("state");
+        var store = new WorkspaceConversationStore(root);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        var stateA = new WorkspaceConversationState(
+            "session-1",
+            DateTimeOffset.UtcNow,
+            "draft",
+            new[] { "prompt" },
+            new[] {
+                new TranscriptTurnRecord(
+                    DateTimeOffset.UtcNow.AddMinutes(-1),
+                    DateTimeOffset.UtcNow,
+                    "prompt",
+                    "thinking",
+                    "response",
+                    false,
+                    Array.Empty<TranscriptToolRecord>())
+            });
+
+        // Single save: produces conversation.json but no .bak.
+        store.Save(repo, stateA);
+
+        var workspaceDirectory = Directory.GetDirectories(root).Single();
+        var primaryPath = Path.Combine(workspaceDirectory, "conversation.json");
+        File.WriteAllText(primaryPath, "!! not valid json !!");
+
+        var result = store.Load(repo);
+
+        Assert.That(result.Turns, Is.Empty);
+    }
 }
