@@ -394,6 +394,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     private LoopMode _activeLoopMode = LoopMode.NativeAgents; // set at loop start; Shift+click overrides to SquadCli
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _loopPausedForQuickReply; // set at startup when loop resume is held for pending quick replies
+    private int _activeTintStop;                       // 0 = natural; 1–7 = hue offsets at 45° steps
+    private Dictionary<string, Color>? _tintBaseline; // baseline theme colors per TintKeys.All, refreshed on theme switch
+    private MenuItem? _tintSubmenu;                    // reference to tint submenu for UpdateTintMenuState()
     // Held while a loop iteration is waiting for user follow-up after quick replies.
     // Completed (true) when input arrives; completed (false) on abort.
     private TaskCompletionSource<bool>? _loopFollowUpTcs;
@@ -13992,6 +13995,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (rememberFolder)
             RememberWorkspaceFolder(_currentWorkspace.FolderPath);
 
+        ApplyWorkspaceTint(_currentWorkspace.FolderPath);
+
         ClearSessionView();
         RefreshAgentCards();
         // Suppress per-turn scroll operations during history load; EndLoad() will issue
@@ -21676,6 +21681,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         _remoteAccessMenuItem.Click += RemoteAccessMenuItem_Click;
         RemoteMenuItem.Items.Add(_remoteAccessMenuItem);
 
+        _tintSubmenu = BuildTintSubmenu();
+        WorkspaceMenuItem.Items.Add(_tintSubmenu);
+
         AddWorkspaceMenuSeparator();
 
         var powershellMenuItem = new MenuItem
@@ -23005,6 +23013,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             mergedDicts.Remove(existing);
 
         mergedDicts.Add(new ResourceDictionary { Source = themeUri });
+        CaptureTintBaseline();
+        ApplyTintStop(_activeTintStop, notify: false);
         var previousThemeName = _activeThemeName;
         _activeThemeName = themeName;
         if (!string.Equals(previousThemeName, themeName, StringComparison.OrdinalIgnoreCase))
@@ -23039,6 +23049,111 @@ public partial class MainWindow : Window, ILiveElementLocator
         RefreshSessionGapStripes();
 
         UpdateThemeMenuState();
+    }
+
+    private void CaptureTintBaseline()
+    {
+        _tintBaseline = new Dictionary<string, Color>(StringComparer.Ordinal);
+        var themeDict = Application.Current.Resources.MergedDictionaries
+            .LastOrDefault(d => d.Source?.OriginalString?.Contains("/Themes/") == true);
+        if (themeDict is null) return;
+        foreach (var key in TintKeys.All)
+        {
+            if (themeDict[key] is SolidColorBrush brush)
+                _tintBaseline[key] = brush.Color;
+        }
+    }
+
+    private void ApplyTintStop(int stop, bool notify = true)
+    {
+        if (_tintBaseline is null) return;
+        var resources = Application.Current.Resources;
+        var hueDelta = stop * (360.0 / 8); // 45° per step: 0, 45, 90, 135, 180, 225, 270, 315
+        foreach (var (key, baseColor) in _tintBaseline)
+        {
+            var tinted = stop == 0 ? baseColor : RotateHue(baseColor, hueDelta);
+            var brush = new SolidColorBrush(tinted);
+            brush.Freeze();
+            resources[key] = brush;
+        }
+        if (notify)
+            NotifyTintChanged();
+    }
+
+    private static Color RotateHue(Color color, double hueDeltaDegrees)
+    {
+        ColorUtilities.RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
+        h = ((h + hueDeltaDegrees / 360.0) % 1.0 + 1.0) % 1.0;
+        ColorUtilities.HslToRgb(h, s, l, out byte r, out byte g, out byte b);
+        return Color.FromArgb(color.A, r, g, b);
+    }
+
+    private void NotifyTintChanged()
+    {
+        _searchAdorner?.InvalidateHighlights();
+        _scrollbarAdorner?.InvalidateVisual();
+        DocSourceFind_RenderHighlights();
+        RefreshSessionGapStripes();
+        foreach (var thread in _agentThreadRegistry.ThreadOrder)
+            SyncThreadChip(thread);
+        Dispatcher.InvokeAsync(SyncQueuePanel, DispatcherPriority.Render);
+    }
+
+    private void ApplyWorkspaceTint(string? folderPath)
+    {
+        if (string.IsNullOrEmpty(folderPath)) return;
+        var key = Path.GetFullPath(folderPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        _activeTintStop = _settingsSnapshot.TintStopByWorkspace.TryGetValue(key, out var stop) ? stop : 0;
+        ApplyTintStop(_activeTintStop);
+        UpdateTintMenuState();
+    }
+
+    private void SetWorkspaceTintStop(int stop)
+    {
+        if (_currentWorkspace is null) return;
+        _activeTintStop = stop;
+        _settingsSnapshot = _settingsStore.SaveWorkspaceTintStop(_currentWorkspace.FolderPath, stop);
+        ApplyTintStop(stop);
+        UpdateTintMenuState();
+    }
+
+    private void UpdateTintMenuState()
+    {
+        if (_tintSubmenu is null) return;
+        for (int i = 0; i < _tintSubmenu.Items.Count; i++)
+        {
+            if (_tintSubmenu.Items[i] is MenuItem item)
+                item.IsChecked = i == _activeTintStop;
+        }
+    }
+
+    private MenuItem BuildTintSubmenu()
+    {
+        string[] labels = ["Natural", "Warm+", "Yellow", "Lime", "Cool", "Blue", "Violet", "Rose"];
+        var sub = new MenuItem
+        {
+            Header = "🎨 Workspace _Tint",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        for (int i = 0; i < labels.Length; i++)
+        {
+            var stop = i;
+            var item = new MenuItem
+            {
+                Header = labels[i],
+                IsCheckable = true,
+                IsChecked = _activeTintStop == stop,
+                Style = (Style)FindResource("ThemedMenuItemStyle")
+            };
+            item.Click += (_, _) =>
+            {
+                try { SetWorkspaceTintStop(stop); }
+                catch (Exception ex) { HandleUiCallbackException("TintStop_Click", ex); }
+            };
+            sub.Items.Add(item);
+        }
+        return sub;
     }
 
     private void RefreshDocumentationViewer()

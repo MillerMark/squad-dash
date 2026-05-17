@@ -355,6 +355,18 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveWorkspaceTintStop(string workspaceFolder, int tintStop) {
+        using var mutex = AcquireMutex();
+        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var current = LoadCore();
+        var stops = current.TintStopByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        stops[normalizedWorkspace] = Math.Clamp(tintStop, 0, 7);
+        var updated = current with { TintStopByWorkspace = stops };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveLastUsedModel(string model) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1159,6 +1171,13 @@ internal sealed record ApplicationSettingsSnapshot(
     /// </summary>
     public IReadOnlyDictionary<string, DateTimeOffset>? WorkspaceShutdownTimes { get; init; }
 
+    /// <summary>
+    /// Per-workspace hue rotation stop (0 = natural; 1–7 = hue offsets at 45° increments).
+    /// Keyed by normalised workspace folder path.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> TintStopByWorkspace { get; init; } =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
             null,
@@ -1275,6 +1294,16 @@ internal sealed record ApplicationSettingsSnapshot(
             }
         }
 
+        var normalizedTintStops = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (TintStopByWorkspace is not null) {
+            foreach (var entry in TintStopByWorkspace) {
+                if (string.IsNullOrWhiteSpace(entry.Key)) continue;
+                var normalizedWorkspace = Path.GetFullPath(entry.Key)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedTintStops[normalizedWorkspace] = Math.Clamp(entry.Value, 0, 7);
+            }
+        }
+
         IReadOnlyDictionary<string, DateTimeOffset>? normalizedShutdownTimes = null;
         if (WorkspaceShutdownTimes is not null) {
             var dict = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
@@ -1375,6 +1404,7 @@ internal sealed record ApplicationSettingsSnapshot(
             Tts_OpenAi_Model = Tts_OpenAi_Model,
             Preferences_LastPage = Math.Max(0, Preferences_LastPage),
             WorkspaceShutdownTimes = normalizedShutdownTimes,
+            TintStopByWorkspace = normalizedTintStops,
         };
     }
 
