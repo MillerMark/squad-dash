@@ -74,6 +74,9 @@
         </DrawingImage.Drawing>
     </DrawingImage>
 
+    <!-- glob shares the magnifier-glass icon with grep: same "file search" semantic -->
+    <DrawingImage x:Key="ToolIcon_glob" Drawing="{Binding Source={StaticResource ToolIcon_grep}, Path=Drawing}"/>
+
     <DrawingImage x:Key="ToolIcon_view">
         <DrawingImage.Drawing>
             <DrawingGroup ClipGeometry="M0,0 H512 V512 H0 Z">

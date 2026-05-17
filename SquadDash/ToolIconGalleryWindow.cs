@@ -6,7 +6,8 @@ namespace SquadDash;
 
 internal sealed class ToolIconGalleryWindow : Window {
     private static readonly (string ToolName, string ResourceKey, string Description)[] Icons = [
-        ("grep",          "ToolIcon_grep",          "Search — grep, glob"),
+        ("grep",          "ToolIcon_grep",          "Search content — grep"),
+        ("glob",          "ToolIcon_glob",          "Search filenames — glob"),
         ("view",          "ToolIcon_view",           "Read file — view"),
         ("edit",          "ToolIcon_edit",           "Edit file — edit"),
         ("web_fetch",     "ToolIcon_web_fetch",      "HTTP — web_fetch"),
