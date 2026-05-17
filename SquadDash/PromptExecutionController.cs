@@ -1946,8 +1946,15 @@ internal sealed class PromptExecutionController {
         _conversationManager.ResetHistoryNavigation();
         _updateInteractiveControlState();
 
-        if (addToHistory)
-            _conversationManager.AddPromptToHistory(visiblePrompt, _getSubmittedAttachments());
+        if (addToHistory) {
+            // Strip attachment XML preamble before storing history: the attachments are
+            // already stored separately in PromptHistoryEntry.Attachments and re-applied
+            // on Ctrl+Up navigation, so the history text should be just the user's typed message.
+            var historyText = visiblePrompt;
+            var bodyStart = AttachmentBlockFormatter.StripTypedAttachmentHeaders(visiblePrompt);
+            if (bodyStart >= 0) historyText = visiblePrompt[bodyStart..];
+            _conversationManager.AddPromptToHistory(historyText, _getSubmittedAttachments());
+        }
 
         _selectTranscriptThread(_getCoordinatorThread());
         _beginTranscriptTurn(visiblePrompt);
