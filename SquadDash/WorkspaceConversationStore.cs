@@ -666,6 +666,7 @@ internal sealed record WorkspaceConversationState(
 internal sealed record QueuedPromptEntry(
     string Text,
     bool IsDictated,
+    bool IsSystemInjected = false,
     IReadOnlyList<FollowUpAttachmentDto>? Attachments = null,
     bool IsSimEntry = false,
     string? SimResponse = null,

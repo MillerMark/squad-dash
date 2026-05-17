@@ -362,6 +362,43 @@ internal sealed class AgentThreadRegistryTests {
         Assert.That(registry.ThreadsByToolCallId.ContainsKey("tool-99"), Is.True);
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestorePersistedAgentThreads_PreservesStartedAt_ForIncompleteThread() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 5, 15, 11, 17, 46, TimeSpan.Zero);
+
+        registry.RestorePersistedAgentThreads([
+            new TranscriptThreadRecord(
+                "thread-old",
+                "Lyra Morn",
+                "lyra-morn",
+                "tool-old",
+                null,
+                "Lyra Morn",
+                null,
+                null,
+                "lyra-morn",
+                "Implement old work",
+                "Partial report",
+                null,
+                null,
+                Array.Empty<string>(),
+                null,
+                "Running",
+                string.Empty,
+                startedAt,
+                null,
+                Array.Empty<TranscriptTurnRecord>())
+        ]);
+
+        var thread = registry.ThreadOrder.Single();
+        Assert.Multiple(() => {
+            Assert.That(thread.StartedAt, Is.EqualTo(startedAt));
+            Assert.That(thread.LastObservedActivityAt, Is.EqualTo(startedAt));
+            Assert.That(thread.StatusText, Is.EqualTo(string.Empty));
+        });
+    }
+
     // ── Static: GetThreadLastActivityAt ─────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]

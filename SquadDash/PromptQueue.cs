@@ -26,11 +26,14 @@ internal sealed class PromptQueue {
 
     public IReadOnlyList<PromptQueueItem> Items => _items;
 
-    public void Enqueue(string text, int seqNum, bool isDictated = false, bool isFromRemote = false) =>
-        _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum, IsDictated = isDictated, IsFromRemote = isFromRemote });
+    public void Enqueue(string text, int seqNum, bool isDictated = false, bool isFromRemote = false, bool isSystemInjected = false) =>
+        _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum, IsDictated = isDictated, IsFromRemote = isFromRemote, IsSystemInjected = isSystemInjected });
 
     /// <summary>Adds a fully-constructed item (e.g. a sim item) to the back of the queue.</summary>
     public void EnqueueItem(PromptQueueItem item) => _items.Add(item);
+
+    /// <summary>Adds a fully-constructed item to the front of the queue.</summary>
+    public void EnqueueItemAtFront(PromptQueueItem item) => _items.Insert(0, item);
 
     /// <summary>Removes and returns the first non-editing item, or null if none exists.</summary>
     public PromptQueueItem? DequeueFirstReady() {

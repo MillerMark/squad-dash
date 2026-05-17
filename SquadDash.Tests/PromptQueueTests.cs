@@ -159,6 +159,31 @@ internal sealed class PromptQueueTests {
     }
 
     [Test]
+    public void Enqueue_WithIsSystemInjected_True_SetsFlag() {
+        var queue = new PromptQueue();
+        queue.Enqueue("follow-up", 1, isSystemInjected: true);
+
+        Assert.That(queue.Items[0].IsSystemInjected, Is.True);
+    }
+
+    [Test]
+    public void EnqueueItemAtFront_MakesInjectedFollowUpNextToDrain() {
+        var queue = new PromptQueue();
+        queue.Enqueue("queued user work", 1);
+
+        queue.EnqueueItemAtFront(new PromptQueueItem {
+            Text             = "agent follow-up",
+            SequenceNumber   = 2,
+            IsSystemInjected = true
+        });
+
+        Assert.Multiple(() => {
+            Assert.That(queue.Items[0].Text, Is.EqualTo("agent follow-up"));
+            Assert.That(queue.DequeueFirstReady()!.Text, Is.EqualTo("agent follow-up"));
+        });
+    }
+
+    [Test]
     public void DequeueFirstReady_PreservesIsDictatedFlag() {
         var queue = new PromptQueue();
         queue.Enqueue("typed",    1, isDictated: false);

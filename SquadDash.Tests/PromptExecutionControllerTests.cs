@@ -28,6 +28,28 @@ internal sealed class PromptExecutionControllerTests {
         Assert.That(average, Is.EqualTo("8.0"));
     }
 
+    [Test]
+    public void BuildSilentCompletionFollowUpPrompt_IncludesExactThreadReportAndStaleLookupGuard() {
+        var completedAt = new DateTimeOffset(2026, 5, 17, 12, 31, 4, TimeSpan.FromHours(-4));
+
+        var prompt = SilentCompletionFollowUpPromptBuilder.Build([
+            new SilentCompletionFollowUpReport(
+                "Orion Vale",
+                "thread-123",
+                completedAt,
+                "Use explicit key list (safer hue filter)",
+                "Created TintKeys.cs with 74 explicit keys.")
+        ]);
+
+        Assert.Multiple(() => {
+            Assert.That(prompt, Does.Contain("Orion Vale"));
+            Assert.That(prompt, Does.Contain("Thread ID: thread-123"));
+            Assert.That(prompt, Does.Contain("Use explicit key list (safer hue filter)"));
+            Assert.That(prompt, Does.Contain("Created TintKeys.cs with 74 explicit keys."));
+            Assert.That(prompt, Does.Contain("do not search by agent name"));
+        });
+    }
+
     // ── InteractiveControlStateCalculator ────────────────────────────────────
     // Tests for state transitions in the prompt-execution lifecycle.
 

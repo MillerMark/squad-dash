@@ -547,7 +547,8 @@ internal sealed class WorkspaceConversationStoreTests {
                 Array.Empty<TranscriptTurnRecord>()) {
                 QueuedPromptEntries = [
                     new QueuedPromptEntry("typed prompt",    IsDictated: false),
-                    new QueuedPromptEntry("dictated prompt", IsDictated: true)
+                    new QueuedPromptEntry("dictated prompt", IsDictated: true),
+                    new QueuedPromptEntry("system follow-up", IsDictated: false, IsSystemInjected: true)
                 ]
             });
 
@@ -556,11 +557,15 @@ internal sealed class WorkspaceConversationStoreTests {
 
         Assert.Multiple(() => {
             Assert.That(entries, Is.Not.Null);
-            Assert.That(entries!, Has.Count.EqualTo(2));
+            Assert.That(entries!, Has.Count.EqualTo(3));
             Assert.That(entries![0].Text,       Is.EqualTo("typed prompt"));
             Assert.That(entries![0].IsDictated, Is.False);
+            Assert.That(entries![0].IsSystemInjected, Is.False);
             Assert.That(entries![1].Text,       Is.EqualTo("dictated prompt"));
             Assert.That(entries![1].IsDictated, Is.True);
+            Assert.That(entries![1].IsSystemInjected, Is.False);
+            Assert.That(entries![2].Text,       Is.EqualTo("system follow-up"));
+            Assert.That(entries![2].IsSystemInjected, Is.True);
         });
     }
 

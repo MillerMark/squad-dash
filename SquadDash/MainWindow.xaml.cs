@@ -1137,11 +1137,18 @@ public partial class MainWindow : Window, ILiveElementLocator
             showHireAgentWindow: () => ShowHireAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) =>
             {
-                _promptQueue.EnqueueItem(new PromptQueueItem {
+                var item = new PromptQueueItem {
                     Text             = text,
                     SequenceNumber   = ++_promptQueueSeq,
                     IsSystemInjected = isSystemInjected,
-                });
+                };
+                if (isSystemInjected && _activeTabId is null && !_queueManuallyPaused) {
+                    _promptQueue.EnqueueItemAtFront(item);
+                    _promptQueue.RenumberSequentially();
+                }
+                else {
+                    _promptQueue.EnqueueItem(item);
+                }
                 SyncQueuePanel();
                 _ = DrainQueueIfNeededAsync();
             },
@@ -4467,7 +4474,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         var promoted = _backgroundTaskPresenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
         if (promoted && _isPromptRunning)
-            _pec.NotifySubagentCompletedDuringTurn(thread.Title ?? evt.AgentDisplayName ?? evt.AgentName ?? "Unknown agent");
+            _pec.NotifySubagentCompletedDuringTurn(thread, thread.Title ?? evt.AgentDisplayName ?? evt.AgentName ?? "Unknown agent");
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
         _backgroundTaskPresenter.RecordBackgroundCompletion(summary, BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread), appendNotice: !promoted);
         SyncAgentCardsWithThreads();
@@ -14051,7 +14058,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             var savedActiveTabIndex = _conversationManager.ConversationState.QueueActiveTabIndex;
             foreach (var entry in savedEntries)
             {
-                _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated);
+                _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated, isSystemInjected: entry.IsSystemInjected);
                 var restoredItem = _promptQueue.Items[^1];
                 if (entry.IsSimEntry)
                 {

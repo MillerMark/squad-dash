@@ -1128,7 +1128,7 @@ internal sealed class TranscriptConversationManager {
                         .Select(a => new FollowUpAttachmentDto(a.CommitSha, a.Description, a.OriginalPrompt, a.TranscriptQuote, a.ContentBlock))
                         .ToList();
                 }
-                return new QueuedPromptEntry(i.Text, i.IsDictated, dtos, i.IsSimEntry, i.SimResponse, i.SimDelaySeconds);
+                return new QueuedPromptEntry(i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse, i.SimDelaySeconds);
             }).ToArray();
         }
         _conversationState = _conversationState with {

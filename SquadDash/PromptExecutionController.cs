@@ -271,7 +271,7 @@ internal sealed class PromptExecutionController {
     private bool             _promptStallWarningShown;
 
     // ── Silent-completion watchdog ────────────────────────────────────────
-    private record SilentCompletionCandidate(string AgentDisplayName, int ResponseCharsAtArrival);
+    private record SilentCompletionCandidate(SilentCompletionFollowUpReport Report, int ResponseCharsAtArrival);
     private readonly List<SilentCompletionCandidate> _silentCompletionCandidates = new();
 
     // ── Per-item sim state (set by /test-queue; consumed as items execute) ─
@@ -811,14 +811,28 @@ internal sealed class PromptExecutionController {
     /// silent-completion candidate so we can detect if the coordinator's turn ends
     /// without generating any follow-up response text.
     /// </summary>
-    internal void NotifySubagentCompletedDuringTurn(string agentDisplayName) {
+    internal void NotifySubagentCompletedDuringTurn(TranscriptThreadState thread, string fallbackAgentDisplayName) {
         if (!_getIsPromptRunning())
             return;
 
-        _silentCompletionCandidates.Add(new SilentCompletionCandidate(agentDisplayName, _responseCharacterCount));
+        var agentDisplayName = !string.IsNullOrWhiteSpace(thread.Title)
+            ? thread.Title.Trim()
+            : fallbackAgentDisplayName;
+        var reportText = !string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse)
+            ? thread.LastCoordinatorAnnouncedResponse
+            : thread.LatestResponse;
+
+        _silentCompletionCandidates.Add(new SilentCompletionCandidate(
+            new SilentCompletionFollowUpReport(
+                agentDisplayName,
+                string.IsNullOrWhiteSpace(thread.ThreadId) ? null : thread.ThreadId,
+                thread.CompletedAt,
+                thread.Prompt,
+                reportText),
+            _responseCharacterCount));
         SquadDashTrace.Write(
             "PromptHealth",
-            $"SilentCompletionWatchdog: registered candidate agent={agentDisplayName} responseCharsAtArrival={_responseCharacterCount}");
+            $"SilentCompletionWatchdog: registered candidate agent={agentDisplayName} thread={thread.ThreadId} responseCharsAtArrival={_responseCharacterCount}");
     }
 
     /// <summary>
@@ -828,26 +842,23 @@ internal sealed class PromptExecutionController {
     /// Must be called before <c>_responseCharacterCount</c> is reset.
     /// </summary>
     private void MaybeInjectSilentCompletionFollowUp() {
-        var silentAgents = _silentCompletionCandidates
+        var silentReports = _silentCompletionCandidates
             .Where(c => _responseCharacterCount == c.ResponseCharsAtArrival)
-            .Select(c => c.AgentDisplayName)
+            .Select(c => c.Report)
             .ToList();
 
-        if (silentAgents.Count == 0) {
+        if (silentReports.Count == 0) {
             SquadDashTrace.Write(
                 "PromptHealth",
                 "SilentCompletionWatchdog: all candidates produced response text — no injection needed.");
             return;
         }
 
-        var names     = string.Join(", ", silentAgents.Select(n => $"**{n}**"));
-        var injection =
-            "The following subagents completed their work while your turn was active, but no response was generated. " +
-            $"Please review their results and report back to the user: {names}.";
+        var injection = SilentCompletionFollowUpPromptBuilder.Build(silentReports);
 
         SquadDashTrace.Write(
             "PromptHealth",
-            $"SilentCompletionWatchdog: injecting follow-up for {silentAgents.Count} agent(s): {string.Join(", ", silentAgents)}");
+            $"SilentCompletionWatchdog: injecting follow-up for {silentReports.Count} agent(s): {string.Join(", ", silentReports.Select(r => r.AgentDisplayName))}");
 
         _enqueuePrompt(injection, true /* isSystemInjected */);
     }
@@ -2250,4 +2261,58 @@ internal sealed class PromptExecutionController {
 
     private static Brush ThemeBrush(string key) =>
         (Brush?)Application.Current.Resources[key] ?? Brushes.Gray;
+}
+
+internal sealed record SilentCompletionFollowUpReport(
+    string AgentDisplayName,
+    string? ThreadId,
+    DateTimeOffset? CompletedAt,
+    string? Prompt,
+    string? Report);
+
+internal static class SilentCompletionFollowUpPromptBuilder {
+    private const int MaxReportChars = 12000;
+    private const int MaxPromptChars = 3000;
+
+    internal static string Build(IReadOnlyList<SilentCompletionFollowUpReport> reports) {
+        if (reports.Count == 0)
+            return string.Empty;
+
+        var names = string.Join(", ", reports.Select(r => $"**{r.AgentDisplayName}**"));
+        var sb = new StringBuilder();
+        sb.AppendLine("The following subagents completed their work while your turn was active, but no response was generated.");
+        sb.AppendLine($"Please report back to the user using the exact completed work below: {names}.");
+        sb.AppendLine();
+        sb.AppendLine("Important: do not search by agent name or infer from older work. Use these thread IDs, prompts, and reports as the source of truth.");
+
+        for (var i = 0; i < reports.Count; i++) {
+            var report = reports[i];
+            sb.AppendLine();
+            sb.AppendLine($"## Completed subagent {i + 1}: {report.AgentDisplayName}");
+            sb.AppendLine($"Thread ID: {ValueOrMissing(report.ThreadId)}");
+            sb.AppendLine($"Completed at: {report.CompletedAt?.ToString("u") ?? "(unknown)"}");
+            sb.AppendLine();
+            sb.AppendLine("Original prompt:");
+            sb.AppendLine(TrimForPrompt(report.Prompt, MaxPromptChars, "(no original prompt was captured)", "Original prompt"));
+            sb.AppendLine();
+            sb.AppendLine("Captured report:");
+            sb.AppendLine(TrimForPrompt(report.Report, MaxReportChars, "(no report text was captured)", "Report"));
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string ValueOrMissing(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "(unknown)" : value.Trim();
+
+    private static string TrimForPrompt(string? value, int maxChars, string missingText, string label) {
+        if (string.IsNullOrWhiteSpace(value))
+            return missingText;
+
+        var trimmed = value.Trim();
+        if (trimmed.Length <= maxChars)
+            return trimmed;
+
+        return trimmed[..maxChars] + Environment.NewLine + Environment.NewLine + $"[{label} truncated for prompt size; use the thread ID above for the full report.]";
+    }
 }
