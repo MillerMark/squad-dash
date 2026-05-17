@@ -2073,8 +2073,8 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void AddEmptyQueueSlot()
     {
-        _promptQueue.Enqueue(string.Empty, ++_promptQueueSeq);
-        var newId = _promptQueue.Items[^1].Id;
+        _promptQueue.EnqueueAtFront(string.Empty, ++_promptQueueSeq);
+        var newId = _promptQueue.Items[0].Id;
         SyncQueuePanel();
         OnQueueTabClicked(newId);
         PromptTextBox.Focus();
@@ -8097,6 +8097,17 @@ public partial class MainWindow : Window, ILiveElementLocator
                 && AbortButton.IsEnabled)
             {
                 AbortButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Q: add a new queue slot — fires from anywhere in the window ────
+            if (e.Key == Key.Q
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)   == 0)
+            {
+                AddEmptyQueueSlot();
                 e.Handled = true;
                 return;
             }
