@@ -33,7 +33,7 @@ internal static class AgentReportStore
         var filePath  = Path.Combine(reportsDir, $"{sanitized}-{ts}.md");
 
         var sb = new StringBuilder();
-        sb.AppendLine($"# {agentLabel}'s Report");
+        sb.AppendLine($"# {FormatReportTitle(agentLabel)}");
         sb.AppendLine();
         if (!string.IsNullOrWhiteSpace(header))
         {
@@ -75,6 +75,35 @@ internal static class AgentReportStore
 
     internal static string GetReportsDir(string workspaceStateDir) =>
         Path.Combine(workspaceStateDir, ReportsDirName);
+
+    /// <summary>
+    /// Returns <c>"{name}'s Report"</c> for known squad members and
+    /// <c>"{name} Report"</c> for ad-hoc / purpose-named agents.
+    /// </summary>
+    internal static string FormatReportTitle(string agentLabel) =>
+        IsKnownAgent(agentLabel) ? $"{agentLabel}'s Report" : $"{agentLabel} Report";
+
+    /// <summary>
+    /// Returns <c>true</c> if <paramref name="agentLabel"/> is a known squad member name.
+    /// </summary>
+    internal static bool IsKnownAgent(string agentLabel) =>
+        KnownAgentNames.Contains(agentLabel.Trim());
+
+    private static readonly HashSet<string> KnownAgentNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Squad",
+        "Orion Vale",
+        "Lyra Morn",
+        "Arjun Sen",
+        "Talia Rune",
+        "Jae Min Kade",
+        "Vesper Knox",
+        "Mira Quill",
+        "Sorin Pyre",
+        "Atlas Wren",
+        "Scribe",
+        "Ralph",
+    };
 
     private static string SanitizeForFileName(string name)
     {

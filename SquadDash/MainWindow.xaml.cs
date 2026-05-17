@@ -17917,7 +17917,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         var button = new Button
         {
-            Content   = $"📋 {agentLabel}'s report",
+            Content   = $"📋 {(AgentReportStore.IsKnownAgent(agentLabel) ? $"{agentLabel}'s" : agentLabel)} report",
             ToolTip   = "Click to open the full agent report",
             Cursor    = Cursors.Hand,
             Margin    = new Thickness(0, 0, 0, 0),
@@ -17928,7 +17928,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (File.Exists(capturedPath))
                 MarkdownDocumentWindow.Show(
                     CanShowOwnedWindow() ? this : null,
-                    $"{capturedLabel}'s Report",
+                    AgentReportStore.FormatReportTitle(capturedLabel),
                     capturedPath);
             else
                 MessageBox.Show(
@@ -17981,9 +17981,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             var firstLine = File.ReadLines(reportPath).FirstOrDefault();
-            const string suffix = "'s Report";
-            if (firstLine?.StartsWith("# ") == true && firstLine.EndsWith(suffix))
-                return firstLine[2..^suffix.Length];
+            const string possessiveSuffix = "'s Report";
+            const string plainSuffix      = " Report";
+            if (firstLine?.StartsWith("# ") == true)
+            {
+                var title = firstLine[2..];
+                if (title.EndsWith(possessiveSuffix))
+                    return title[..^possessiveSuffix.Length];
+                if (title.EndsWith(plainSuffix))
+                    return title[..^plainSuffix.Length];
+            }
         }
         catch { /* best effort */ }
         return null;
