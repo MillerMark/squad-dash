@@ -5621,7 +5621,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             reloadPanel: () => Dispatcher.BeginInvoke(LoadTasksPanel),
             attachFollowUp: task => AttachContextFollowUp(
                 $"Task: {task.Text}",
-                BuildTaskContentBlock(task)),
+                BuildClipboardContentBlock(BuildTaskContentBlock(task))),
             addToNotes: task => AddNoteFromTextWithTitle(
                 $"Task - {task.Text}",
                 BuildTaskContentBlock(task)),
@@ -24794,7 +24794,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!string.IsNullOrWhiteSpace(content))
             block.Append(content);
 
-        AttachContextFollowUp($"Note: {note.Title}", block.ToString().TrimEnd());
+        AttachContextFollowUp($"Note: {note.Title}", BuildClipboardContentBlock(block.ToString().TrimEnd()));
     }
 
     private void AttachTopicFollowUp(TreeViewItem treeItem, string filePath)
@@ -24820,7 +24820,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!string.IsNullOrWhiteSpace(content))
             block.Append(content);
 
-        AttachContextFollowUp($"Topic: {title}", block.ToString().TrimEnd());
+        AttachContextFollowUp($"Topic: {title}", BuildClipboardContentBlock(block.ToString().TrimEnd()));
     }
 
     private static string BuildTaskContentBlock(TaskItem task)
