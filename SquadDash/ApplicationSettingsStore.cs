@@ -287,6 +287,14 @@ internal sealed class ApplicationSettingsStore {
         return updated.Normalize();
     }
 
+    public ApplicationSettingsSnapshot SaveFontSizeScaleLevel(int level) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { FontSizeScaleLevel = Math.Clamp(level, 0, 6) };
+        SaveCore(updated);
+        return updated.Normalize();
+    }
+
     public ApplicationSettingsSnapshot SaveNotificationSettings(
         string? provider,
         IReadOnlyDictionary<string, string>? endpoint,
@@ -1176,6 +1184,9 @@ internal sealed record ApplicationSettingsSnapshot(
     /// <summary>Index of the last-visited page in the Preferences dialog (0 = General).</summary>
     public int Preferences_LastPage { get; init; } = 0;
 
+    /// <summary>Index into the discrete font-size scale levels (0=XSmall … 6=Huge). Default 2 = 1× scale.</summary>
+    public int FontSizeScaleLevel { get; init; } = 2;
+
     /// <summary>
     /// Per-workspace shutdown timestamps.  Keyed by normalised workspace folder path.
     /// Saved on clean shutdown; consumed once on the next startup to display a session
@@ -1436,6 +1447,7 @@ internal sealed record ApplicationSettingsSnapshot(
             WorkspaceShutdownTimes = normalizedShutdownTimes,
             TintStopByWorkspace = normalizedTintStops,
             AccentHueOffsetByWorkspace = normalizedAccentOffsets,
+            FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),
         };
     }
 

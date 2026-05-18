@@ -54,6 +54,24 @@ public partial class MainWindow : Window, ILiveElementLocator
     private const double DocSourceFontSizeMin = 8;
     private const double DocSourceFontSizeMax = 28;
     private const double DocSourceFontSizeStep = 1;
+
+    private static readonly double[] FontScaleFactors = [0.75, 0.875, 1.0, 1.125, 1.25, 1.4, 1.6];
+    private static readonly IReadOnlyDictionary<string, double> FontSizeBaseValues =
+        new Dictionary<string, double> {
+            ["FontSizeTiny"]     = 7,
+            ["FontSizeXSmall"]   = 10,
+            ["FontSizeSmall"]    = 11,
+            ["FontSizeBody"]     = 12,
+            ["FontSizeNormal"]   = 13,
+            ["FontSizeMedium"]   = 14,
+            ["FontSizeLarge"]    = 15,
+            ["FontSizeLargePlus"]= 16,
+            ["FontSizeSubtitle"] = 18,
+            ["FontSizeTitle"]    = 20,
+            ["FontSizeHeading"]  = 22,
+            ["FontSizeHero"]     = 52,
+            ["FontSizeDisplay"]  = 180,
+        };
     private const DispatcherPriority PostVisualUpdatePriority = DispatcherPriority.Loaded;
     private const int UiDispatchQueueLagTraceMs = 250;
     private const int UiDispatchWorkTraceMs = 50;
@@ -289,6 +307,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private double _transcriptFontSize = (double)Application.Current.Resources["FontSizeMedium"];
     private double _promptFontSize = (double)Application.Current.Resources["FontSizeMedium"];
     private double _docSourceFontSize = (double)Application.Current.Resources["FontSizeBody"];
+    private int _fontScaleLevel = 2; // Normal (1.0×)
     private double _docPreviewScrollY;
     private readonly List<Image> _toolIconImages = [];
     private readonly HashSet<TranscriptResponseEntry> _pendingResponseEntryRenders = [];
@@ -1842,11 +1861,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         _promptFontSize = Math.Clamp(_settingsSnapshot.PromptFontSize, PromptFontSizeMin, PromptFontSizeMax);
         _transcriptFontSize = Math.Clamp(_settingsSnapshot.TranscriptFontSize, TranscriptFontSizeMin, TranscriptFontSizeMax);
         _docSourceFontSize = Math.Clamp(_settingsSnapshot.DocSourceFontSize, DocSourceFontSizeMin, DocSourceFontSizeMax);
+        _fontScaleLevel = Math.Clamp(_settingsSnapshot.FontSizeScaleLevel, 0, FontScaleFactors.Length - 1);
         _squadCliAdapter.LastObservedModel = _settingsSnapshot.LastUsedModel;
         ApplyViewMode();
         ApplyPromptFontSize();
         ApplyTranscriptFontSize();
         ApplyDocSourceFontSize();
+        ApplyFontSizeScale();
         _themePreference = _settingsSnapshot.Theme ?? "Auto";
         var resolvedTheme = string.Equals(_themePreference, "Auto", StringComparison.OrdinalIgnoreCase)
             ? GetWindowsTheme()
@@ -7437,6 +7458,34 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     private static double ToolIconSizeForFontSize(double fontSize) => Math.Round(fontSize * 1.1);
+
+    private void ApplyFontSizeScale()
+    {
+        var factor = FontScaleFactors[_fontScaleLevel];
+        foreach (var (key, baseSize) in FontSizeBaseValues)
+            Application.Current.Resources[key] = Math.Round(baseSize * factor, 1);
+    }
+
+    private void SetFontSizeScale(int levelIndex)
+    {
+        _fontScaleLevel = Math.Clamp(levelIndex, 0, FontScaleFactors.Length - 1);
+        ApplyFontSizeScale();
+        _settingsSnapshot = _settingsStore.SaveFontSizeScaleLevel(_fontScaleLevel);
+    }
+
+    private void TitlebarGrid_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        try
+        {
+            if (Keyboard.Modifiers != ModifierKeys.Control) return;
+            SetFontSizeScale(_fontScaleLevel + (e.Delta > 0 ? 1 : -1));
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(TitlebarGrid_MouseWheel), ex);
+        }
+    }
 
     private void ApplyTranscriptFontSize()
     {

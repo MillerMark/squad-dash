@@ -342,6 +342,7 @@
               Margin="-12,-14,-14,6"
               Background="{DynamicResource ChromeSurface}"
               MouseLeftButtonDown="TitlebarGrid_MouseLeftButtonDown"
+              MouseWheel="TitlebarGrid_MouseWheel"
               SizeChanged="TitlebarGrid_SizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
