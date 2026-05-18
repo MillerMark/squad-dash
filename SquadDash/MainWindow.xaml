@@ -1567,7 +1567,11 @@
                             Style="{StaticResource ScrollToBottomButtonStyle}"
                             Click="ScrollToBottomButton_Click">
                         <Button.ToolTip>
-                            <ToolTip x:Name="ScrollToBottomToolTip">Scroll to bottom</ToolTip>
+                            <ToolTip x:Name="ScrollToBottomToolTip">
+                                <TextBlock>
+                                    Scroll to bottom <Run FontWeight="SemiBold">(Ctrl+End)</Run>
+                                </TextBlock>
+                            </ToolTip>
                         </Button.ToolTip>
                         <Viewbox Width="16" Height="13" Stretch="Uniform">
                             <Path Data="M 1,3 L 9,11 L 17,3"

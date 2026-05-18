@@ -16440,6 +16440,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         };
         Panel.SetZIndex(scrollToBottomOverlay, 10);
         scrollToBottomOverlay.SetResourceReference(Control.StyleProperty, "ScrollToBottomButtonStyle");
+        var scrollToBottomTip = new ToolTip();
+        var scrollToBottomTipText = new TextBlock();
+        scrollToBottomTipText.Inlines.Add(new Run("Scroll to bottom "));
+        scrollToBottomTipText.Inlines.Add(new Run("(Ctrl+End)") { FontWeight = FontWeights.SemiBold });
+        scrollToBottomTip.Content = scrollToBottomTipText;
+        scrollToBottomOverlay.ToolTip = scrollToBottomTip;
 
         var scrollController = new TranscriptScrollController(rtb, Dispatcher);
         scrollController.SetScrollToBottomButton(scrollToBottomOverlay);
