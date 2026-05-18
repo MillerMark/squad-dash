@@ -293,9 +293,13 @@ internal sealed class WorkspaceConversationStore {
             PromptDraftSelectionLength = state.PromptDraftSelectionLength,
             QueuedPromptEntries      = state.QueuedPromptEntries is { Count: > 0 } qe ? qe : null,
             QueueRightmostHeld       = state.QueueRightmostHeld == true ? true : null,
+            QueueLastChangedAt       = state.QueueLastChangedAt?.ToUniversalTime(),
+            QueueActiveTabIndex      = state.QueueActiveTabIndex,
             LoopQueuedToDequeue      = state.LoopQueuedToDequeue == true ? true : null,
             LoopMode                 = state.LoopMode,
             LoopContinuousContext    = state.LoopContinuousContext,
+            ActiveDraftSimResponse   = state.ActiveDraftSimResponse,
+            ActiveDraftSimDelaySeconds = state.ActiveDraftSimDelaySeconds,
         };
     }
 
@@ -637,6 +641,8 @@ internal sealed record WorkspaceConversationState(
     public IReadOnlyList<QueuedPromptEntry>? QueuedPromptEntries { get; init; }
     /// <summary>When true, the queue was shut down with the rightmost (first-to-dispatch) tab held for editing. Restore that hold on next launch.</summary>
     public bool? QueueRightmostHeld { get; init; }
+    /// <summary>UTC timestamp for the last persisted queue-state change, including enqueue, dequeue, hold, and restored-tab state changes.</summary>
+    public DateTimeOffset? QueueLastChangedAt { get; init; }
     /// <summary>Zero-based index of the active queued-tab at last shutdown. Null when the main draft tab was active.</summary>
     public int? QueueActiveTabIndex { get; init; }
     /// <summary>When true, the loop was paused waiting to dequeue prompts at last shutdown. Auto-resumes after queue drains on next launch.</summary>

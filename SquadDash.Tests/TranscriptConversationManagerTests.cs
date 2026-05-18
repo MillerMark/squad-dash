@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -311,7 +312,48 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_PreventsOlderBackgroundSaveFromRestoringDequeuedItem() {
+        var manager = MakeManager();
+        var staleState = WorkspaceConversationState.Empty with {
+            QueuedPromptEntries = [new QueuedPromptEntry("queued prompt", IsDictated: true)]
+        };
+        manager.ConversationState = staleState;
+
+        var staleVersion = InvokePrivate<long>(manager, "RegisterConversationSaveRequest");
+
+        manager.UpdateQueuedPromptsState(Array.Empty<PromptQueueItem>());
+        var clearedAt = manager.ConversationState.QueueLastChangedAt;
+        InvokePrivate<object?>(manager, "ApplySavedConversationStateIfCurrent", staleVersion, staleState);
+
+        Assert.Multiple(() => {
+            Assert.That(manager.ConversationState.QueuedPromptEntries, Is.Null);
+            Assert.That(manager.ConversationState.QueueLastChangedAt, Is.EqualTo(clearedAt));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_RecordsQueueLastChangedAtWhenPersistenceStateChanges() {
+        var manager = MakeManager();
+        var before = DateTimeOffset.UtcNow.AddSeconds(-1);
+
+        manager.UpdateQueuedPromptsState([
+            new PromptQueueItem { Text = "queued prompt", SequenceNumber = 1 }
+        ]);
+
+        Assert.That(manager.ConversationState.QueueLastChangedAt, Is.Not.Null);
+        Assert.That(manager.ConversationState.QueueLastChangedAt!.Value, Is.GreaterThan(before));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static T InvokePrivate<T>(TranscriptConversationManager manager, string methodName, params object?[] args) {
+        var method = typeof(TranscriptConversationManager).GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(method, Is.Not.Null, $"Expected private method {methodName} to exist.");
+        return (T)method!.Invoke(manager, args)!;
+    }
 
     private static TranscriptTurnRecord MakeTurn(string response) =>
         new(

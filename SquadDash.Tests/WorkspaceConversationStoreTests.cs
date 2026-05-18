@@ -537,6 +537,7 @@ internal sealed class WorkspaceConversationStoreTests {
 
     [Test]
     public void SaveAndLoad_RoundTripsQueuedPromptEntriesWithDictationFlags() {
+        var queueLastChangedAt = new DateTimeOffset(2026, 5, 18, 18, 42, 17, TimeSpan.Zero);
         _store.Save(
             _workspacePath,
             new WorkspaceConversationState(
@@ -549,7 +550,8 @@ internal sealed class WorkspaceConversationStoreTests {
                     new QueuedPromptEntry("typed prompt",    IsDictated: false),
                     new QueuedPromptEntry("dictated prompt", IsDictated: true),
                     new QueuedPromptEntry("system follow-up", IsDictated: false, IsSystemInjected: true)
-                ]
+                ],
+                QueueLastChangedAt = queueLastChangedAt
             });
 
         var loaded = _store.Load(_workspacePath);
@@ -566,6 +568,7 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(entries![1].IsSystemInjected, Is.False);
             Assert.That(entries![2].Text,       Is.EqualTo("system follow-up"));
             Assert.That(entries![2].IsSystemInjected, Is.True);
+            Assert.That(loaded.QueueLastChangedAt, Is.EqualTo(queueLastChangedAt));
         });
     }
 

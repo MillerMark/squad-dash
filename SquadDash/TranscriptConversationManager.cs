@@ -1131,7 +1131,8 @@ internal sealed class TranscriptConversationManager {
                 return new QueuedPromptEntry(i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse, i.SimDelaySeconds);
             }).ToArray();
         }
-        _conversationState = _conversationState with {
+        var previousState = _conversationState;
+        var updatedState = _conversationState with {
             QueuedPromptEntries        = entries,
             QueueRightmostHeld         = queueRightmostHeld ? true : null,
             QueueActiveTabIndex        = activeTabIndex,
@@ -1139,6 +1140,106 @@ internal sealed class TranscriptConversationManager {
             ActiveDraftSimResponse     = activeDraftSimEntry?.SimResponse,
             ActiveDraftSimDelaySeconds = activeDraftSimEntry?.SimDelaySeconds,
         };
+
+        if (QueuePersistenceStateChanged(previousState, updatedState))
+        {
+            updatedState = updatedState with { QueueLastChangedAt = DateTimeOffset.UtcNow };
+            _conversationState = updatedState;
+            SquadDashTrace.Write(
+                "Queue",
+                $"UpdateQueuedPromptsState: count={entries?.Count ?? 0} changedAt={FormatQueueTimestamp(updatedState.QueueLastChangedAt)} held={queueRightmostHeld} activeTabIndex={activeTabIndex?.ToString() ?? "null"} loopQueued={loopQueuedToDequeue} draftSim={activeDraftSimEntry.HasValue} entries={DescribeQueuedEntriesForTrace(entries)}");
+            PersistConversationStateInBackground(_conversationState, nameof(UpdateQueuedPromptsState));
+        }
+        else
+        {
+            _conversationState = updatedState;
+        }
+    }
+
+    private static bool QueuePersistenceStateChanged(
+        WorkspaceConversationState previous,
+        WorkspaceConversationState current) =>
+        !QueuedPromptEntriesEqual(previous.QueuedPromptEntries, current.QueuedPromptEntries) ||
+        previous.QueueRightmostHeld         != current.QueueRightmostHeld ||
+        previous.QueueActiveTabIndex        != current.QueueActiveTabIndex ||
+        previous.LoopQueuedToDequeue        != current.LoopQueuedToDequeue ||
+        previous.ActiveDraftSimResponse     != current.ActiveDraftSimResponse ||
+        previous.ActiveDraftSimDelaySeconds != current.ActiveDraftSimDelaySeconds;
+
+    private static bool QueuedPromptEntriesEqual(
+        IReadOnlyList<QueuedPromptEntry>? left,
+        IReadOnlyList<QueuedPromptEntry>? right) {
+        var leftCount = left?.Count ?? 0;
+        var rightCount = right?.Count ?? 0;
+        if (leftCount != rightCount)
+            return false;
+
+        for (var i = 0; i < leftCount; i++)
+        {
+            var a = left![i];
+            var b = right![i];
+            if (a.Text             != b.Text ||
+                a.IsDictated       != b.IsDictated ||
+                a.IsSystemInjected != b.IsSystemInjected ||
+                a.IsSimEntry       != b.IsSimEntry ||
+                a.SimResponse      != b.SimResponse ||
+                a.SimDelaySeconds  != b.SimDelaySeconds ||
+                !FollowUpAttachmentDtosEqual(a.Attachments, b.Attachments))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool FollowUpAttachmentDtosEqual(
+        IReadOnlyList<FollowUpAttachmentDto>? left,
+        IReadOnlyList<FollowUpAttachmentDto>? right) {
+        var leftCount = left?.Count ?? 0;
+        var rightCount = right?.Count ?? 0;
+        if (leftCount != rightCount)
+            return false;
+
+        for (var i = 0; i < leftCount; i++)
+        {
+            var a = left![i];
+            var b = right![i];
+            if (a.CommitSha        != b.CommitSha ||
+                a.Description      != b.Description ||
+                a.OriginalPrompt   != b.OriginalPrompt ||
+                a.TranscriptQuote  != b.TranscriptQuote ||
+                a.ContentBlock     != b.ContentBlock ||
+                a.ImagePath        != b.ImagePath ||
+                a.ImageSubmittedAt != b.ImageSubmittedAt)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static string DescribeQueuedEntriesForTrace(IReadOnlyList<QueuedPromptEntry>? entries) {
+        if (entries is null || entries.Count == 0)
+            return "[]";
+
+        return "[" + string.Join(", ", entries.Select((entry, index) =>
+            $"#{index + 1}:chars={entry.Text.Length}:hash={StableTextHash(entry.Text)}:dictated={entry.IsDictated}:system={entry.IsSystemInjected}")) + "]";
+    }
+
+    private static string FormatQueueTimestamp(DateTimeOffset? timestamp) =>
+        timestamp?.ToUniversalTime().ToString("O") ?? "null";
+
+    private static string StableTextHash(string text) {
+        unchecked
+        {
+            const uint offset = 2166136261;
+            const uint prime = 16777619;
+            var hash = offset;
+            foreach (var ch in text)
+            {
+                hash ^= ch;
+                hash *= prime;
+            }
+            return hash.ToString("x8");
+        }
     }
 
     internal void UpdateLoopSettingsState(LoopMode mode, bool continuousContext) {
@@ -1241,12 +1342,12 @@ internal sealed class TranscriptConversationManager {
     private void PersistConversationStateInBackground(WorkspaceConversationState state, string reason = "unspecified") {
         var workspace = _getWorkspace();
         state = IncludeCurrentCoordinatorTurnIfPresent(state, reason);
+        var version = RegisterConversationSaveRequest();
         if (workspace is null) {
             _conversationState = state;
             return;
         }
 
-        var version = RegisterConversationSaveRequest();
         _conversationState = state;
         QueueConversationSave(workspace.FolderPath, state, version);
     }

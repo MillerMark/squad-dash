@@ -2034,7 +2034,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         SquadDashTrace.Write(
             "Queue",
-            $"Enqueued prompt #{item.SequenceNumber} systemInjected={isSystemInjected} queueCount={_promptQueue.Count} chars={text.Length}");
+            $"Enqueued prompt {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
         _ = DrainQueueIfNeededAsync();
     }
@@ -2048,13 +2048,15 @@ public partial class MainWindow : Window, ILiveElementLocator
         _promptHasVoiceInput = false;
 
         _promptQueue.Enqueue(text, ++_promptQueueSeq, isDictated);
+        var item = _promptQueue.Items[^1];
+        SquadDashTrace.Write("Queue", $"Enqueued current prompt {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         _loopFollowUpTcs?.TrySetResult(true);
 
         // Transfer any draft follow-up attachments to the new queue item.
         if (_followUpAttachments.TryGetValue("", out var draftList) && draftList.Count > 0)
         {
             _followUpAttachments.Remove("");
-            _followUpAttachments[_promptQueue.Items[^1].Id] = draftList;
+            _followUpAttachments[item.Id] = draftList;
         }
 
         ClearPromptTextBoxLogicalBuffer("enqueue-current");
@@ -2067,6 +2069,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         _promptQueue.Enqueue(text, ++_promptQueueSeq, isFromRemote: true);
+        SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(_promptQueue.Items[^1])} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
         _ = DrainQueueIfNeededAsync();
     }
@@ -2299,8 +2302,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         }
 
-        var seqNum = item.SequenceNumber;
-        SquadDashTrace.Write("Queue", $"DrainQueueAsync: dispatching #{seqNum} queueCount={_promptQueue.Count}");
+        SquadDashTrace.Write("Queue", $"DrainQueueAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         _promptQueue.Remove(item.Id);
         SyncQueuePanel();
 
@@ -2333,6 +2335,37 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static string ApplyDictationAnnotation(PromptQueueItem item) =>
         item.IsDictated ? item.Text + "\n(some or all of this prompt was dictated by voice)" : item.Text;
 
+    private static string DescribeQueueItemForTrace(PromptQueueItem item) =>
+        $"id={ShortQueueItemId(item.Id)} seq={item.SequenceNumber} chars={item.Text.Length} hash={StableQueueTextHash(item.Text)} dictated={item.IsDictated} remote={item.IsFromRemote} system={item.IsSystemInjected} sim={item.IsSimEntry}";
+
+    private static string DescribeQueueForTrace(IReadOnlyList<PromptQueueItem> items) {
+        if (items.Count == 0)
+            return "[]";
+
+        return "[" + string.Join(", ", items.Select(DescribeQueueItemForTrace)) + "]";
+    }
+
+    private string QueueLastChangedForTrace() =>
+        _conversationManager.ConversationState.QueueLastChangedAt?.ToUniversalTime().ToString("O") ?? "null";
+
+    private static string ShortQueueItemId(string id) =>
+        id.Length <= 8 ? id : id[..8];
+
+    private static string StableQueueTextHash(string text) {
+        unchecked
+        {
+            const uint offset = 2166136261;
+            const uint prime = 16777619;
+            var hash = offset;
+            foreach (var ch in text)
+            {
+                hash ^= ch;
+                hash *= prime;
+            }
+            return hash.ToString("x8");
+        }
+    }
+
     // Returns true when a queued item has no text and no attachments — it should be silently discarded.
     private bool IsEmptyQueueItem(PromptQueueItem item) =>
         string.IsNullOrWhiteSpace(item.Text) &&
@@ -2355,8 +2388,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 continue;
             }
 
-            var seqNum = item.SequenceNumber;
-            SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: dispatching #{seqNum} queueCount={_promptQueue.Count}");
+            SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
             SquadDashTrace.Write("UI", "Prompt sent: queue drain (item dispatched)");
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
@@ -2445,7 +2477,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
 
             dispatched = true;
-            var seqNum = item.SequenceNumber;
+            SquadDashTrace.Write("Queue", $"DrainQueueBeforeLoopIterationAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
@@ -14298,7 +14330,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     System.Windows.Threading.DispatcherPriority.Background);
             }
 
-            SquadDashTrace.Write("Queue", $"Restore(entries): count={_promptQueue.Count} wasHeld={wasHeld} shiftHeld={_startupShiftHeld}");
+            SquadDashTrace.Write("Queue", $"Restore(entries): count={_promptQueue.Count} changedAt={QueueLastChangedForTrace()} wasHeld={wasHeld} shiftHeld={_startupShiftHeld} items={DescribeQueueForTrace(_promptQueue.Items)}");
             if ((wasHeld || _startupShiftHeld) && _promptQueue.Count > 0)
             {
                 // Restore the rightmost-tab hold (or Shift-hold on startup): select the first
@@ -14356,7 +14388,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     System.Windows.Threading.DispatcherPriority.Background);
             }
 
-            SquadDashTrace.Write("Queue", $"Restore(legacy): count={_promptQueue.Count} wasHeld={wasHeld} shiftHeld={_startupShiftHeld}");
+            SquadDashTrace.Write("Queue", $"Restore(legacy): count={_promptQueue.Count} changedAt={QueueLastChangedForTrace()} wasHeld={wasHeld} shiftHeld={_startupShiftHeld} items={DescribeQueueForTrace(_promptQueue.Items)}");
             if ((wasHeld || _startupShiftHeld) && _promptQueue.Count > 0)
             {
                 // Restore the rightmost-tab hold (or Shift-hold on startup): select the first
@@ -21444,7 +21476,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // so we must re-persist the true value after the switch completes.
             if (queueWasRightmostHeld)
                 _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, _followUpAttachments, queueRightmostHeld: true, activeDraftSimEntry: _pec.ActiveDraftSimEntry, activeTabIndex: GetActiveQueueTabIndex());
-            SquadDashTrace.Write("Queue", $"Shutdown save: count={_promptQueue.Count} wasHeld={queueWasRightmostHeld} restartPending={_restartPending}");
+            SquadDashTrace.Write("Queue", $"Shutdown save: count={_promptQueue.Count} changedAt={QueueLastChangedForTrace()} wasHeld={queueWasRightmostHeld} restartPending={_restartPending} items={DescribeQueueForTrace(_promptQueue.Items)}");
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
             _pendingUtilityWindowState = (
