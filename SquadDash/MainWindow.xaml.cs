@@ -23166,9 +23166,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var hueDelta = stop * (360.0 / 8) - baselineHueOffset; // adjusted steps
         foreach (var (key, baseColor) in _tintBaseline)
         {
-            double delta = TintKeys.ActiveAccent.Contains(key)
-                ? hueDelta + 180.0   // complementary: offset accent 180° away from the palette hue
-                : hueDelta;
+            double delta = hueDelta; // accent keys rotate by the same delta as the rest of the palette
             var tinted = stop == 0 ? baseColor : RotateHue(baseColor, delta);
             var brush = new SolidColorBrush(tinted);
             brush.Freeze();
