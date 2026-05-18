@@ -23108,6 +23108,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (themeDict[key] is SolidColorBrush brush)
                 _tintBaseline[key] = brush.Color;
         }
+        foreach (var key in TintKeys.ActiveAccent)
+        {
+            if (themeDict[key] is SolidColorBrush brush)
+                _tintBaseline[key] = brush.Color;
+        }
     }
 
     private void ApplyTintStop(int stop, bool notify = true)
@@ -23121,7 +23126,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         var hueDelta = stop * (360.0 / 8) - baselineHueOffset; // adjusted steps
         foreach (var (key, baseColor) in _tintBaseline)
         {
-            var tinted = stop == 0 ? baseColor : RotateHue(baseColor, hueDelta);
+            double delta = TintKeys.ActiveAccent.Contains(key)
+                ? hueDelta + 150.0   // split-complement: offset accent ~150° away from the palette hue
+                : hueDelta;
+            var tinted = stop == 0 ? baseColor : RotateHue(baseColor, delta);
             var brush = new SolidColorBrush(tinted);
             brush.Freeze();
             resources[key] = brush;
