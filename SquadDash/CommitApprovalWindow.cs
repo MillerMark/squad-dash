@@ -242,6 +242,7 @@ internal sealed class CommitApprovalPanel {
             ToolTip           = BuildDescriptionTooltip(item),
         };
         ToolTipService.SetShowDuration(descBlock, 30000);
+        descBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         descBlock.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
@@ -294,6 +295,7 @@ internal sealed class CommitApprovalPanel {
             ToolTip           = BuildDescriptionTooltip(item),
         };
         ToolTipService.SetShowDuration(descBlock, 30000);
+        descBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         Grid.SetColumn(descBlock, 1);
         grid.Children.Add(descBlock);
@@ -315,6 +317,7 @@ internal sealed class CommitApprovalPanel {
             Margin            = new Thickness(4, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
+        shaBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         var shaRun = new Run(shaDisplay) { TextDecorations = TextDecorations.Underline };
         shaRun.SetResourceReference(Run.ForegroundProperty, "SubtleText");
         shaBlock.Inlines.Add(shaRun);
@@ -412,16 +415,17 @@ internal sealed class CommitApprovalPanel {
             FontWeight  = FontWeights.Bold,
             TextWrapping = TextWrapping.Wrap,
         };
+        summaryBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         container.Children.Add(summaryBlock);
 
         var relTime = StatusTimingPresentation.FormatRelativeTimestamp(item.TurnStartedAt);
         var relBlock = new TextBlock {
             Text         = relTime,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin       = new Thickness(0, 3, 0, 0),
             TextWrapping = TextWrapping.Wrap,
         };
+        relBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         relBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         container.Children.Add(relBlock);
 
@@ -440,6 +444,7 @@ internal sealed class CommitApprovalPanel {
                     TextWrapping = TextWrapping.Wrap,
                     Margin       = new Thickness(0, 6, 0, 0),
                 };
+                promptBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
                 promptBlock.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
                 container.Children.Add(promptBlock);
             }

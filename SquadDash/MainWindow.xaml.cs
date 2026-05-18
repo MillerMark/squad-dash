@@ -2646,12 +2646,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         var hint = new TextBlock
         {
             Text = $"Automatic prompting will pause when it's time to send this active tab (\"{activeTabLabel}\")",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 8, 0),
             FontStyle = FontStyles.Italic,
             Tag = "QueueActiveTabHint",
         };
+        hint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         QueueTabStrip.Children.Add(hint);
     }
@@ -2930,11 +2930,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                 var hint = new TextBlock
                 {
                     Text = text,
-                    FontSize = (double)Application.Current.Resources["FontSizeSmall"],
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(10, 0, 8, 0),
                     FontStyle = FontStyles.Italic,
                 };
+                hint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 QueueTabStrip.Children.Add(hint);
             }
@@ -2957,11 +2957,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         var tb = new TextBlock
         {
             Text              = "« Now at the front of the queue.",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             FontStyle         = FontStyles.Italic,
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(8, 0, 8, 0),
         };
+        tb.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         tb.SetResourceReference(TextBlock.ForegroundProperty, "QueueTabActiveBorder");
         return tb;
     }
@@ -3017,10 +3017,10 @@ public partial class MainWindow : Window, ILiveElementLocator
         var textBlock = new TextBlock
         {
             Text = label,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        textBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         // SetResourceReference keeps the brush live — updates automatically on theme switch.
         textBlock.SetResourceReference(
             TextBlock.ForegroundProperty,
@@ -6181,9 +6181,9 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 Text = "Prompt:",
                 Foreground = subtleBrush,
-                FontSize = (double)Application.Current.Resources["FontSizeXSmall"],
                 Margin = new Thickness(0, 6, 0, 2),
             };
+            promptLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeXSmall");
             stack.Children.Add(promptLabel);
 
             var hintBlock = new TextBlock

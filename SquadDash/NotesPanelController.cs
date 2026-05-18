@@ -82,11 +82,11 @@ internal sealed class NotesPanelController {
         if (_notes.Count == 0) {
             var empty = new TextBlock {
                 Text         = "No notes yet",
-                FontSize = (double)Application.Current.Resources["FontSizeBody"],
                 FontStyle    = FontStyles.Italic,
                 Margin       = new Thickness(4, 6, 4, 4),
                 TextWrapping = TextWrapping.Wrap,
             };
+            empty.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
             empty.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             _listPanel.Children.Add(empty);
             return;
@@ -121,12 +121,12 @@ internal sealed class NotesPanelController {
 
         var titleLabel = new TextBlock {
             Text         = note.Title,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             TextWrapping = TextWrapping.Wrap,
             MaxWidth     = 240,
             Margin       = new Thickness(4, 4, 4, 4),
             Cursor       = Cursors.Hand,
         };
+        titleLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
         row.Child = titleLabel;
@@ -170,14 +170,16 @@ internal sealed class NotesPanelController {
         {
             Text       = note.Title,
             FontWeight = FontWeights.SemiBold,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth   = 110,
         };
+        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-        var separatorBlock = new TextBlock { Text = " — ", FontSize = (double)Application.Current.Resources["FontSizeBody"] };
+        var separatorBlock = new TextBlock { Text = " — " };
+        separatorBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         separatorBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        var timeBlock = new TextBlock { Text = relTime, FontSize = (double)Application.Current.Resources["FontSizeSmall"] };
+        var timeBlock = new TextBlock { Text = relTime };
+        timeBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         timeBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         headerPanel.Children.Add(titleBlock);
         headerPanel.Children.Add(separatorBlock);
@@ -190,10 +192,10 @@ internal sealed class NotesPanelController {
         var bodyBlock = new TextBlock
         {
             Text         = preview,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             TextWrapping = TextWrapping.Wrap,
             MaxWidth     = 178,
         };
+        bodyBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         bodyBlock.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         panel.Children.Add(bodyBlock);
 
@@ -248,11 +250,11 @@ internal sealed class NotesPanelController {
     private void BeginInlineRename(NoteItem note, Border row, TextBlock titleLabel) {
         var textBox = new TextBox {
             Text        = note.Title,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             BorderThickness = new Thickness(0),
             Padding     = new Thickness(4, 3, 4, 3),
             MaxWidth    = 240,
         };
+        textBox.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
         textBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
         textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
 

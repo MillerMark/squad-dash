@@ -93,10 +93,10 @@ internal sealed class TasksPanelController {
                 };
                 var headingLabel = new TextBlock {
                     Text              = group.Label,
-                    FontSize = (double)Application.Current.Resources["FontSizeSmall"],
                     FontWeight        = FontWeights.SemiBold,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
+                headingLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 headingRow.Children.Add(dot);
                 headingRow.Children.Add(headingLabel);
@@ -253,10 +253,10 @@ internal sealed class TasksPanelController {
 
         var label = new TextBlock {
             Text         = item.Text,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             TextWrapping = TextWrapping.Wrap,
             MaxWidth     = 220,
         };
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         Grid.SetColumn(label, 1);
         grid.Children.Add(label);
@@ -269,11 +269,11 @@ internal sealed class TasksPanelController {
 
             var titleBlock = new TextBlock {
                 Text         = item.Text,
-                FontSize = (double)Application.Current.Resources["FontSizeNormal"],
                 FontWeight   = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth     = 300,
             };
+            titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
             titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             contentStack.Children.Add(titleBlock);
 
@@ -322,11 +322,11 @@ internal sealed class TasksPanelController {
                 } else {
                     var noDesc = new TextBlock {
                         Text      = "No description",
-                        FontSize = (double)Application.Current.Resources["FontSizeSmall"],
                         FontStyle = FontStyles.Italic,
                         Margin    = new Thickness(0, 4, 0, 0),
                         Opacity   = 0.6,
                     };
+                    noDesc.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                     noDesc.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
                     contentStack.Children.Add(noDesc);
                 }
@@ -488,18 +488,18 @@ internal sealed class TasksPanelController {
 
         var label = new TextBlock {
             Text              = item.Text,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             TextWrapping      = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
         var checkMark = new TextBlock {
             Text              = "✔",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             VerticalAlignment = VerticalAlignment.Top,
             Margin            = new Thickness(2, 1, 4, 0),
         };
+        checkMark.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         checkMark.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedSummary");
 
         var wrapper = new Grid { Margin = new Thickness(4, 3, 4, 3) };
@@ -576,10 +576,10 @@ internal sealed class TasksPanelController {
         _activePanel.Children.Clear();
         var empty = new TextBlock {
             Text       = message,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
             Margin     = new Thickness(0, 4, 0, 0),
             Opacity    = 0.6,
         };
+        empty.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         empty.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         _activePanel.Children.Add(empty);
     }

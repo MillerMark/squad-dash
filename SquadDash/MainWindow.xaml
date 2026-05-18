@@ -180,6 +180,7 @@
                                         HorizontalAlignment="Center">
                                 <TextBlock x:Name="AgentNameText"
                                            Text="{Binding DisplayName}"
+                                           FontSize="{DynamicResource FontSizeBody}"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource LabelText}"
                                            TextWrapping="Wrap"
@@ -199,6 +200,7 @@
                                 Visibility="{Binding RoleVisibility}">
                             <TextBlock x:Name="RoleTextBlock"
                                        Text="{Binding RoleText}"
+                                       FontSize="{DynamicResource FontSizeSmall}"
                                        Foreground="{DynamicResource AgentRoleText}"
                                        TextWrapping="Wrap" />
                         </Border>
@@ -208,6 +210,7 @@
                                    Margin="0,12,0,0"
                                    Text="{Binding StatusText}"
                                    Visibility="{Binding StatusVisibility}"
+                                   FontSize="{DynamicResource FontSizeBody}"
                                    FontWeight="SemiBold"
                                    TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis"
@@ -218,6 +221,7 @@
                                    Margin="0,6,0,0"
                                    Text="{Binding DetailText}"
                                    Visibility="{Binding DetailVisibility}"
+                                   FontSize="{DynamicResource FontSizeBody}"
                                    TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="{DynamicResource AgentDetailText}" />
@@ -305,10 +309,10 @@
                     <Setter TargetName="AgentCardBorder" Property="Padding" Value="8" />
                     <Setter TargetName="ImageBanner" Property="Height" Value="48" />
                     <Setter TargetName="HeaderStack" Property="Margin" Value="0" />
-                    <Setter TargetName="AgentNameText" Property="FontSize" Value="11" />
+                    <Setter TargetName="AgentNameText" Property="FontSize" Value="{DynamicResource FontSizeSmall}" />
                     <Setter TargetName="RoleBorder" Property="Visibility" Value="Collapsed" />
                     <Setter TargetName="StatusTextBlock" Property="Margin" Value="0,8,0,0" />
-                    <Setter TargetName="StatusTextBlock" Property="FontSize" Value="11" />
+                    <Setter TargetName="StatusTextBlock" Property="FontSize" Value="{DynamicResource FontSizeSmall}" />
                     <Setter TargetName="DetailTextBlock" Property="Visibility" Value="Collapsed" />
                     <Setter TargetName="SelectedIndicator" Property="Height" Value="4" />
                 </DataTrigger>
@@ -745,6 +749,7 @@
                                        Grid.Row="1"
                                        Text="Coordinator + any active agents."
                                        Margin="0,4,0,10"
+                                       FontSize="{DynamicResource FontSizeBody}"
                                        Foreground="{DynamicResource ActivePanelSubtitle}"
                                        TextWrapping="Wrap" />
                             <ScrollViewer x:Name="ActiveAgentsScrollViewer"
@@ -789,6 +794,7 @@
                                        Grid.Row="1"
                                        Text="Inactive teammates and completed threads"
                                        Margin="0,4,0,10"
+                                       FontSize="{DynamicResource FontSizeBody}"
                                        Foreground="{DynamicResource BodyText}"
                                        TextTrimming="CharacterEllipsis"
                                        TextWrapping="NoWrap" />
@@ -895,12 +901,14 @@
                                            Text=""
                                            Visibility="Collapsed"
                                            Margin="0,0,0,6"
+                                           FontSize="{DynamicResource FontSizeBody}"
                                            Foreground="{DynamicResource BodyText}" />
                                 <!-- Loop mode options (always visible, not inside scroll) -->
                                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                                     <CheckBox x:Name="LoopContinuousContextCheckBox"
                                               Content="Continuous context"
                                               IsChecked="True"
+                                              FontSize="{DynamicResource FontSizeBody}"
                                               Foreground="{DynamicResource LabelText}"
                                               ToolTip="When checked, each iteration continues in the same session and can see prior results. Uncheck for a fresh, lower-cost session each iteration."
                                               Click="LoopContinuousContextCheckBox_Click" />
@@ -910,6 +918,7 @@
                                         DockPanel.Dock="Top"
                                         Content="▶ Start Loop"
                                         IsEnabled="False"
+                                        FontSize="{DynamicResource FontSizeBody}"
                                         Style="{StaticResource ThemedButtonStyle}"
                                         ToolTip="Hold Shift to run with Squad CLI instead of SquadDash Agents"
                                         Click="StartLoopButton_Click" />
@@ -918,6 +927,7 @@
                                         Content="■ Stop After This"
                                         Margin="0,4,0,0"
                                         IsEnabled="False"
+                                        FontSize="{DynamicResource FontSizeBody}"
                                         Style="{StaticResource ThemedButtonStyle}"
                                         Click="StopLoopButton_Click" />
                                 <Button x:Name="AbortLoopButton"
@@ -925,6 +935,7 @@
                                         Content="⚠ Abort..."
                                         Margin="0,4,0,0"
                                         Visibility="Collapsed"
+                                        FontSize="{DynamicResource FontSizeBody}"
                                         Foreground="{DynamicResource AbortButtonText}"
                                         Style="{StaticResource ThemedButtonStyle}"
                                         ToolTip="Abort Loop (Ctrl+Shift+Break)"
@@ -1861,6 +1872,7 @@
                     <Button x:Name="RunButton"
                             Width="120"
                             Height="34"
+                            FontSize="{DynamicResource FontSizeNormal}"
                             Style="{StaticResource ThemedButtonStyle}"
                             Click="RunButton_Click">
                         Send
@@ -1871,6 +1883,7 @@
                             Height="34"
                             Margin="0,8,0,0"
                             IsEnabled="False"
+                            FontSize="{DynamicResource FontSizeNormal}"
                             Foreground="{DynamicResource AbortButtonText}"
                             Style="{StaticResource ThemedButtonStyle}"
                             ToolTip="Abort (Ctrl+Break)"
@@ -2026,10 +2039,12 @@
                 <StackPanel Grid.Row="1"
                             Margin="0,10,0,0">
                     <TextBlock x:Name="PromptShortcutsHintTextBlock"
+                               FontSize="{DynamicResource FontSizeBody}"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource SubtleText}" />
                     <TextBlock x:Name="VoiceHintText"
                                Margin="0,5,0,0"
+                               FontSize="{DynamicResource FontSizeBody}"
                                Foreground="{DynamicResource SubtleText}"
                                Visibility="Collapsed">
                         <Run Text="Configure " />
@@ -2045,6 +2060,7 @@
                             CornerRadius="10"
                             Visibility="Collapsed">
                         <TextBlock x:Name="HistoryHintTextBlock"
+                                   FontSize="{DynamicResource FontSizeBody}"
                                    Foreground="{DynamicResource ToastText}"
                                    TextWrapping="Wrap" />
                     </Border>
