@@ -72,6 +72,10 @@
   * [Cloudflare Tunnel](reference/remote-control/setup-cloudflare.md)
   * [Using Remote Control](reference/remote-control/using-remote-control.md)
 
+## Customization
+
+* [Tinting and Themes](customization/Tinting and Themes.md)
+
 ## Reference
 
 * [Reference](reference/README.md)
