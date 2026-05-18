@@ -23182,10 +23182,14 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void ApplyTintSwatchToItem(MenuItem item, int stop)
     {
         var swatch = ComputeTintSwatch(stop);
-        ColorUtilities.RgbToHsl(swatch.R, swatch.G, swatch.B, out _, out _, out double l);
-        var fg = l < 0.5 ? Colors.White : Colors.Black;
+        ColorUtilities.RgbToHsl(swatch.R, swatch.G, swatch.B, out double h, out _, out double l);
+        // PanelSurface is near-neutral (~3% saturation), so every stop lands at the same
+        // luminance and would yield identical black/white text. Instead, boost saturation
+        // and flip luminance so each stop gets richly-colored, hue-matched text.
+        var textL = l > 0.5 ? 0.25 : 0.82;
+        ColorUtilities.HslToRgb(h, 0.60, textL, out byte r, out byte g, out byte b);
         item.Background = new SolidColorBrush(swatch);
-        item.Foreground = new SolidColorBrush(fg);
+        item.Foreground = new SolidColorBrush(Color.FromRgb(r, g, b));
     }
 
     private void EnsureTintMenuItems()
