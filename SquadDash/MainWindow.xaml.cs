@@ -23046,6 +23046,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         _themeDict = mergedDicts.Last();
         CaptureTintBaseline();
         ApplyTintStop(_activeTintStop, notify: false);
+        // Refresh tint menu swatches — baseline just changed due to theme swap.
+        for (int i = 0; i < TintMenuItem.Items.Count; i++)
+        {
+            if (TintMenuItem.Items[i] is MenuItem mi)
+                ApplyTintSwatchToItem(mi, i);
+        }
         var previousThemeName = _activeThemeName;
         _activeThemeName = themeName;
         if (!string.Equals(previousThemeName, themeName, StringComparison.OrdinalIgnoreCase))
@@ -23164,7 +23170,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private Color ComputeTintSwatch(int stop)
     {
         var fallback = Color.FromRgb(128, 128, 128);
-        if (_tintBaseline is null || !_tintBaseline.TryGetValue("TranscriptSurface", out var baseColor))
+        if (_tintBaseline is null || !_tintBaseline.TryGetValue("PanelSurface", out var baseColor))
             return fallback;
         // Subtract the baseline hue (~35°) so stop 0 renders as neutral and the
         // 8 stops spread evenly around the hue wheel from a true-red anchor.
