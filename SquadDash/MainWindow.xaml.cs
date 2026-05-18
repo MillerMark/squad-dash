@@ -7480,7 +7480,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             if (current is RichTextBox) return true;
             if (current == PromptTextBox) return true;
-            current = VisualTreeHelper.GetParent(current);
+            current = current is Visual || current is System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : LogicalTreeHelper.GetParent(current);
         }
         return false;
     }
