@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Media;
 
 namespace SquadDash;
 
@@ -26,18 +28,24 @@ internal static class MarkdownHtmlBuilder {
             }
         }
 
-        var bg          = isDark ? "#1e1c17"                  : "#fffdf9";
-        var fg          = isDark ? "#d8c8b0"                  : "#31281f";
-        var line        = isDark ? "rgba(216,200,176,0.14)"   : "rgba(49,40,31,0.14)";
-        var lineStrong  = isDark ? "rgba(216,200,176,0.28)"   : "rgba(49,40,31,0.22)";
-        var quote       = isDark ? "#27221a"                  : "#f7f2e9";
-        var code        = isDark ? "#252018"                  : "#f6f1e9";
-        var link        = isDark ? "#6890c8"                  : "#2d5ea8";
-        var headingColor = isDark ? "#e5d5c0" : "#2a211a";
-        var thHeaderBg  = isDark ? "rgba(216,200,176,0.07)"   : "rgba(49,40,31,0.05)";
-        var prioHigh    = isDark ? "#FF5252"                  : "#DE3333";
-        var prioMid     = isDark ? "#FFD740"                  : "#A06800";
-        var prioLow     = isDark ? "#64B5F6"                  : "#1976D2";
+        // Read live tinted colors from the resource dictionary; fall back to
+        // baseline dark/light values when running outside a WPF application.
+        var bg           = BrushHex("TranscriptSurface")         ?? (isDark ? "#1e1c17"  : "#fffcf8");
+        var fg           = BrushHex("LabelText")                 ?? (isDark ? "#d8c8b0"  : "#3c2b1e");
+        var headingColor = BrushHex("ImportantText")             ?? (isDark ? "#e5d5c0"  : "#53371e");
+        var code         = BrushHex("CodeSurface")               ?? (isDark ? "#252018"  : "#f6f1e9");
+        var quote        = BrushHex("QuoteSurface")              ?? (isDark ? "#272218"  : "#f7f2e9");
+        var link         = BrushHex("ActionLinkText")            ?? (isDark ? "#6890c8"  : "#365c9b");
+        var line         = BrushHex("LineColor")                 ?? (isDark ? "#3e3730"  : "#e2d9ca");
+        var lineStrong   = BrushHex("QuoteBorder")               ?? (isDark ? "#6a5038"  : "#c0a070");
+        var thHeaderBg   = BrushHex("TableHeaderSurface")        ?? (isDark ? "#2a2520"  : "#ede8e0");
+        var prioHigh     = BrushHex("TaskPriorityHigh")          ?? (isDark ? "#FF5252"  : "#DE3333");
+        var prioMid      = BrushHex("TaskPriorityMid")           ?? (isDark ? "#FFD740"  : "#A06800");
+        var prioLow      = BrushHex("TaskPriorityLow")           ?? (isDark ? "#64B5F6"  : "#1976D2");
+        var sbTrack      = BrushHex("ScrollBarTrackBrush")       ?? (isDark ? "#2a2a2a"  : "#f0f0f0");
+        var sbThumb      = BrushHex("ScrollBarThumbBrush")       ?? (isDark ? "#555555"  : "#aaaaaa");
+        var sbThumbHov   = BrushHex("ScrollBarThumbHoverBrush")  ?? (isDark ? "#777777"  : "#888888");
+        var sbThumbAct   = BrushHex("ScrollBarThumbPressedBrush")?? (isDark ? "#999999"  : "#666666");
 
         return $$"""
 <!DOCTYPE html>
@@ -123,33 +131,30 @@ internal static class MarkdownHtmlBuilder {
   /* Themed scrollbar — webkit, Firefox, IE */
   html, body {
     scrollbar-width: thin;
-    scrollbar-color: {{(isDark ? "#555 #2a2a2a" : "#aaa #f0f0f0")}};
-    {{(isDark
-        ? "scrollbar-base-color:#555;scrollbar-face-color:#555;scrollbar-track-color:#2a2a2a;scrollbar-arrow-color:#777;scrollbar-highlight-color:#2a2a2a;scrollbar-shadow-color:#333;"
-        : "scrollbar-base-color:#aaa;scrollbar-face-color:#aaa;scrollbar-track-color:#f0f0f0;scrollbar-arrow-color:#888;scrollbar-highlight-color:#f0f0f0;scrollbar-shadow-color:#ccc;"
-    )}}
+    scrollbar-color: {{sbThumb}} {{sbTrack}};
+    scrollbar-base-color:{{sbThumb}};scrollbar-face-color:{{sbThumb}};scrollbar-track-color:{{sbTrack}};scrollbar-arrow-color:{{sbThumbHov}};scrollbar-highlight-color:{{sbTrack}};scrollbar-shadow-color:{{sbTrack}};
   }
   pre {
     scrollbar-width: thin;
-    scrollbar-color: {{(isDark ? "#555 #2a2a2a" : "#aaa #f0f0f0")}};
+    scrollbar-color: {{sbThumb}} {{sbTrack}};
   }
   ::-webkit-scrollbar {
     width: 11px;
     height: 11px;
   }
   ::-webkit-scrollbar-track {
-    background: {{(isDark ? "#2a2a2a" : "#f0f0f0")}};
+    background: {{sbTrack}};
     border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb {
-    background: {{(isDark ? "#555" : "#aaa")}};
+    background: {{sbThumb}};
     border-radius: 6px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: {{(isDark ? "#777" : "#888")}};
+    background: {{sbThumbHov}};
   }
   ::-webkit-scrollbar-thumb:active {
-    background: {{(isDark ? "#999" : "#666")}};
+    background: {{sbThumbAct}};
   }
   /* ── Priority circle dots (emoji replaced with <span class="pdot">) */
   .pdot {
@@ -507,5 +512,20 @@ document.addEventListener('click', function(e) {
             .Replace("&", "&amp;", StringComparison.Ordinal)
             .Replace("<", "&lt;", StringComparison.Ordinal)
             .Replace(">", "&gt;", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reads a <see cref="SolidColorBrush"/> from <see cref="Application.Current"/>'s resource
+    /// dictionary and converts it to an HTML hex color string (e.g. <c>#1E1C17</c>).
+    /// Returns <c>null</c> when the key is absent or the application is not running.
+    /// </summary>
+    private static string? BrushHex(string resourceKey) {
+        try {
+            if (Application.Current?.Resources[resourceKey] is SolidColorBrush brush) {
+                var c = brush.Color;
+                return $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+            }
+        } catch { }
+        return null;
     }
 }

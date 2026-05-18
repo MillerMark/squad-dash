@@ -23383,6 +23383,12 @@ public partial class MainWindow : Window, ILiveElementLocator
             SyncThreadChip(thread);
         Dispatcher.InvokeAsync(SyncQueuePanel, DispatcherPriority.Render);
 
+        // Regenerate HTML in all markdown preview surfaces — the CSS embeds
+        // color values read from Application.Current.Resources, so a re-render
+        // is required whenever those resources change due to tinting.
+        MarkdownDocumentWindow.RefreshAllOpenWindows();
+        RefreshDocumentationViewer();
+        RefreshDocMarkdownViewerFromSource();
     }
 
     private void ApplyWorkspaceTint(string? folderPath)
