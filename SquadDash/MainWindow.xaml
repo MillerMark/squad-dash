@@ -1577,13 +1577,7 @@
                             Panel.ZIndex="10"
                             Style="{StaticResource ScrollToBottomButtonStyle}"
                             Click="ScrollToBottomButton_Click">
-                        <Button.ToolTip>
-                            <ToolTip x:Name="ScrollToBottomToolTip">
-                                <TextBlock>
-                                    Scroll to bottom <Run FontWeight="SemiBold">(Ctrl+End)</Run>
-                                </TextBlock>
-                            </ToolTip>
-                        </Button.ToolTip>
+                        <Button.ToolTip>Scroll to bottom (Ctrl+End)</Button.ToolTip>
                         <Viewbox Width="16" Height="13" Stretch="Uniform">
                             <Path Data="M 1,3 L 9,11 L 17,3"
                                   StrokeThickness="2.5"
