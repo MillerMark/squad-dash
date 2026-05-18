@@ -746,6 +746,7 @@
             <!-- Implicit TreeViewItem style for recursive theming (all depths) -->
             <Style TargetType="TreeViewItem">
                 <Setter Property="Foreground" Value="{DynamicResource LabelText}" />
+                <Setter Property="FontSize"   Value="{DynamicResource FontSizeNormal}" />
             </Style>
 
             <!-- Implicit Hyperlink style for themed hover behavior -->

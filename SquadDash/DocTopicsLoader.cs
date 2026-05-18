@@ -205,10 +205,10 @@ internal static class DocTopicsLoader
         {
             Text = " " + text,
             VerticalAlignment = VerticalAlignment.Center,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             ToolTip = tooltip,
             Opacity = opacity,
         };
+        tb.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         if (foreground != null)
             tb.Foreground = foreground;
         return tb;
