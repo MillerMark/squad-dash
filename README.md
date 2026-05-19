@@ -12,9 +12,9 @@ A Windows WPF dashboard for managing AI coding agents powered by the [Squad CLI]
 |---|---|
 | **Windows** | WPF app — Windows only |
 | **.NET 10 SDK** | `net10.0-windows` target |
-| **Node.js LTS** | `node`, `npm`, and `npx` must be on `PATH` — required at runtime |
+| **Node.js LTS** | `node`, `npm`, and `npx` must be on `PATH` — required at runtime. Download from [nodejs.org](https://nodejs.org/). |
 
-> **Why Node.js?** SquadDash shells out to `node`/`npm`/`npx` at runtime to install and run the Squad CLI inside each workspace. The app checks for all three on startup and shows an error if any are missing.
+> **Why Node.js?** SquadDash shells out to `node`/`npm`/`npx` at runtime to install and run the Squad CLI inside each workspace. The Squad SDK bridge (`Squad.SDK/runPrompt.js`) also invokes `node` directly from `PATH` to execute prompts — so Node.js must be installed system-wide, not just bundled with a single tool. The app checks for all three on startup and shows an error if any are missing. **Node.js LTS (v20 or later) is recommended.**
 
 ---
 
