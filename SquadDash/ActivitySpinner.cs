@@ -5,7 +5,7 @@ using System.Windows.Threading;
 
 namespace SquadDash;
 
-public enum SpinnerActivityKind { Thinking, Writing }
+public enum SpinnerActivityKind { Thinking, Reading, Writing }
 
 /// <summary>
 /// Physics-based activity spinner drawn directly via OnRender.
@@ -18,18 +18,26 @@ public sealed class ActivitySpinner : FrameworkElement
     private double _angle;              // radians, current rotation
     private double _diameter;           // currently rendered diameter, interpolates 12..18
     private double _targetDiameter;
-    private double _writeColorBlend;    // 0=blue, 1=red
+    private double _readColorBlend;     // 0=yellow(thinking), 1=blue(reading)
+    private double _writeColorBlend;    // 0=blue(reading), 1=red(writing); also drives diameter
     private double _spinnerOpacity;     // 0..1
+    private double _targetOpacity;      // lerp target for opacity
     private double _satLightPhase;      // radians, for max-speed pulse oscillation
 
     // Timers
     private readonly DispatcherTimer _physicsTimer;
     private DateTime _lastTick;
+    private DateTime _lastReadEventTime  = DateTime.MinValue;
     private DateTime _lastWriteEventTime = DateTime.MinValue;
 
-    // Geometry cache
-    private StreamGeometry? _cachedGeo;
-    private double _cachedGeoDiameter = -1;
+    // Geometry cache (not diameter-dependent — scale is handled via transform)
+    private Geometry? _cachedShapeGeo;
+
+    // The cross/pinwheel path on a 1957×1957 canvas
+    private const double OriginalCanvasSize = 1957.0;
+    private const double OriginalCenter = 978.5;
+    private const string ShapeFigures =
+        "M978.5,-0.5C1113.6875,-0.5,1242.5,26.9375,1359.625,76.4375L1369.4375,81.1875 1367.9375,86.8125C1355.9375,118.875,1333.125,147,1285.6875,183C1202.1875,239.4375,1147.25,335,1147.25,443.375C1147.4375,445.5,1147.6875,447.625,1147.875,449.75L1147.1875,450.9375 1147.1875,794.5 1147.1875,794.5 1147.1875,809.875 1506.125,809.875 1507.3125,809.1875C1509.4375,809.375,1511.5625,809.625,1513.625,809.8125C1622.0625,809.8125,1717.625,754.875,1774.0625,671.375C1810.0625,623.9375,1838.1875,601.125,1870.1875,589.125L1875.875,587.625 1880.625,597.4375C1930.125,714.5625,1957.5,843.375,1957.5,978.5C1957.5,1113.6875,1930.125,1242.5,1880.625,1359.625L1875.875,1369.4375 1870.1875,1367.9375C1838.1875,1355.9375,1810.0625,1333.125,1774.0625,1285.6875C1717.625,1202.1875,1622.0625,1147.25,1513.625,1147.25C1511.5625,1147.4375,1509.4375,1147.6875,1507.3125,1147.875L1506.125,1147.1875 1162.5625,1147.1875 1162.5625,1147.1875 1147.1875,1147.1875 1147.1875,1506.125 1147.875,1507.3125C1147.6875,1509.4375,1147.4375,1511.5625,1147.25,1513.6875C1147.25,1622.0625,1202.1875,1717.625,1285.6875,1774.0625C1333.125,1810.0625,1355.9375,1838.1875,1367.9375,1870.1875L1369.4375,1875.875 1359.625,1880.625C1242.5,1930.125,1113.6875,1957.5,978.5,1957.5C843.375,1957.5,714.5625,1930.125,597.4375,1880.625L587.625,1875.875 589.125,1870.1875C601.125,1838.1875,623.9375,1810.0625,671.375,1774.0625C754.875,1717.625,809.8125,1622.0625,809.8125,1513.6875C809.625,1511.5625,809.375,1509.4375,809.1875,1507.3125L809.875,1506.125 809.875,1162.5625 809.875,1162.5625 809.875,1147.1875 450.9375,1147.1875 449.75,1147.875C447.625,1147.6875,445.5,1147.4375,443.375,1147.25C335,1147.25,239.4375,1202.1875,183,1285.6875C147,1333.125,118.875,1355.9375,86.875,1367.9375L81.1875,1369.4375 76.4375,1359.625C26.9375,1242.5,-0.5,1113.6875,-0.5,978.5C-0.5,843.375,26.9375,714.5625,76.4375,597.4375L81.1875,587.625 86.875,589.125C118.875,601.125,147,623.9375,183,671.375C239.4375,754.875,335,809.8125,443.375,809.8125C445.5,809.625,447.625,809.375,449.75,809.1875L450.9375,809.875 794.5,809.875 794.5,809.875 809.875,809.875 809.875,450.9375 809.1875,449.75C809.375,447.625,809.625,445.5,809.8125,443.375C809.8125,335,754.875,239.4375,671.375,183C623.9375,147,601.125,118.875,589.125,86.8125L587.625,81.1875 597.4375,76.4375C714.5625,26.9375,843.375,-0.5,978.5,-0.5z";
 
     // Physics constants
     private const double MaxAngularVelocity = 20.0;
@@ -40,14 +48,20 @@ public sealed class ActivitySpinner : FrameworkElement
     private const double WritingDiameter = 18.0;
     private const double WriteColorDecaySeconds = 7.5;
     private const double FadeOutThreshold = 0.18;    // rad/s — start fade below this
-    private const double FadeOutDuration = 2.0;      // seconds to fade to invisible
+    private const double OpacityLerpRate = 2.0;      // units/sec — reaches target in ~0.5s
     private const double DiameterLerpRate = 2.5;     // interpolation speed (1/s)
     private const double PulseFrequency = 3.0;       // Hz for max-speed oscillation
     private const double PulseAmplitude = 0.22;      // ±22% brightness
 
-    // Colors
-    private static readonly Color ThinkingColor = Color.FromRgb(0x22, 0x88, 0xFF);
-    private static readonly Color WritingColor = Color.FromRgb(0xFF, 0x44, 0x22);
+    // Opacity targets per state
+    private const double ThinkingTargetOpacity = 0.60;
+    private const double ReadingTargetOpacity  = 0.80;
+    private const double WritingTargetOpacity  = 1.00;
+
+    // Colors: Thinking=yellow, Reading=blue, Writing=red
+    private static readonly Color ThinkingColor = Color.FromRgb(0xFF, 0xDD, 0x00);
+    private static readonly Color ReadingColor  = Color.FromRgb(0x22, 0x88, 0xFF);
+    private static readonly Color WritingColor  = Color.FromRgb(0xFF, 0x44, 0x22);
 
     public ActivitySpinner()
     {
@@ -114,11 +128,20 @@ public sealed class ActivitySpinner : FrameworkElement
         var impulse = kind == SpinnerActivityKind.Writing ? WritingImpulse : ThinkingImpulse;
         _angularVelocity = Math.Min(_angularVelocity + impulse, MaxAngularVelocity);
 
-        if (kind == SpinnerActivityKind.Writing)
-            _lastWriteEventTime = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        if (kind == SpinnerActivityKind.Reading)
+            _lastReadEventTime = now;
+        else if (kind == SpinnerActivityKind.Writing)
+            _lastWriteEventTime = now;
 
-        // Snap back to fully visible regardless of fade state
-        _spinnerOpacity = 1.0;
+        // Snap target opacity immediately; _spinnerOpacity lerps toward it each frame
+        _targetOpacity = kind switch
+        {
+            SpinnerActivityKind.Writing  => WritingTargetOpacity,
+            SpinnerActivityKind.Reading  => ReadingTargetOpacity,
+            _                            => ThinkingTargetOpacity
+        };
+
         Visibility = Visibility.Visible;
 
         if (!_physicsTimer.IsEnabled)
@@ -144,7 +167,18 @@ public sealed class ActivitySpinner : FrameworkElement
         _angle += _angularVelocity * dt;
         if (_angle >= Math.PI * 2) _angle -= Math.PI * 2;
 
-        // Write color blend — decays from 1→0 over WriteColorDecaySeconds after last write
+        // Read color blend — decays 1→0 after last reading event
+        if (_lastReadEventTime != DateTime.MinValue)
+        {
+            var secondsSinceRead = (now - _lastReadEventTime).TotalSeconds;
+            _readColorBlend = Math.Clamp(1.0 - secondsSinceRead / WriteColorDecaySeconds, 0.0, 1.0);
+        }
+        else
+        {
+            _readColorBlend = 0;
+        }
+
+        // Write color blend — decays 1→0 after last writing event
         if (_lastWriteEventTime != DateTime.MinValue)
         {
             var secondsSinceWrite = (now - _lastWriteEventTime).TotalSeconds;
@@ -155,35 +189,33 @@ public sealed class ActivitySpinner : FrameworkElement
             _writeColorBlend = 0;
         }
 
-        // Interpolate diameter smoothly
+        // Interpolate diameter smoothly (driven by write blend for size variation)
         _targetDiameter = ThinkingDiameter + (WritingDiameter - ThinkingDiameter) * _writeColorBlend;
         var diameterDelta = (_targetDiameter - _diameter) * Math.Min(1.0, DiameterLerpRate * dt);
         _diameter += diameterDelta;
-        if (Math.Abs(_cachedGeoDiameter - _diameter) > 0.15)
-            _cachedGeo = null; // invalidate cached geometry
 
         // Max-speed saturation/lightness pulse
         var speedRatio = _angularVelocity / MaxAngularVelocity;
         if (speedRatio >= 0.85)
             _satLightPhase += 2.0 * Math.PI * PulseFrequency * dt;
         else
-            _satLightPhase = 0; // reset so it doesn't jump on re-entry
+            _satLightPhase = 0;
 
-        // Fade out only after the spinner has nearly stopped
+        // Opacity: drive target toward 0 when coasting to a stop
         if (_angularVelocity < FadeOutThreshold)
+            _targetOpacity = 0.0;
+
+        // Lerp opacity toward target at OpacityLerpRate units/sec
+        var opacityDiff = _targetOpacity - _spinnerOpacity;
+        var opacityStep = Math.Min(Math.Abs(opacityDiff), OpacityLerpRate * dt) * Math.Sign(opacityDiff);
+        _spinnerOpacity = Math.Clamp(_spinnerOpacity + opacityStep, 0.0, 1.0);
+
+        if (_spinnerOpacity <= 0.0 && _targetOpacity <= 0.0)
         {
-            _spinnerOpacity = Math.Max(0.0, _spinnerOpacity - dt / FadeOutDuration);
-            if (_spinnerOpacity <= 0.0)
-            {
-                _spinnerOpacity = 0;
-                _physicsTimer.Stop();
-                Visibility = Visibility.Collapsed;
-                return;
-            }
-        }
-        else
-        {
-            _spinnerOpacity = 1.0;
+            _spinnerOpacity = 0;
+            _physicsTimer.Stop();
+            Visibility = Visibility.Collapsed;
+            return;
         }
 
         InvalidateVisual();
@@ -199,77 +231,55 @@ public sealed class ActivitySpinner : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        if (_spinnerOpacity <= 0 || _angularVelocity <= 0)
+        if (_spinnerOpacity <= 0)
             return;
 
-        var color = LerpColor(ThinkingColor, WritingColor, _writeColorBlend);
+        // Three-way color blend: Thinking(yellow) → Reading(blue) → Writing(red)
+        var midColor = LerpColor(ThinkingColor, ReadingColor, _readColorBlend);
+        var color    = LerpColor(midColor, WritingColor, _writeColorBlend);
 
         // Apply max-speed pulse
         if (_angularVelocity / MaxAngularVelocity >= 0.85)
         {
             var isDark = AgentStatusCard.IsDarkTheme;
             var pulse = Math.Sin(_satLightPhase) * PulseAmplitude;
-            if (!isDark) pulse = -pulse; // darker in light theme
+            if (!isDark) pulse = -pulse;
             color = AdjustBrightness(color, pulse);
         }
 
         // Bake opacity into alpha channel
-        color.A = (byte)Math.Round(color.A * _spinnerOpacity);
+        color.A = (byte)Math.Round(255 * _spinnerOpacity);
 
         var brush = new SolidColorBrush(color);
         brush.Freeze();
 
-        var geo = GetArcGeometry();
+        var geo = GetShapeGeometry();
 
-        dc.PushTransform(new RotateTransform(_angle * (180.0 / Math.PI), 9.0, 9.0));
+        // Scale so the 1957-unit shape fits in _diameter × _diameter, centred in 18×18
+        var scale  = _diameter / OriginalCanvasSize;
+        var offset = (18.0 - _diameter) / 2.0; // centres smaller shape in 18×18 box
+
+        dc.PushTransform(new TranslateTransform(offset, offset));
+        dc.PushTransform(new ScaleTransform(scale, scale));
+        dc.PushTransform(new RotateTransform(_angle * (180.0 / Math.PI), OriginalCenter, OriginalCenter));
         dc.DrawGeometry(brush, null, geo);
+        dc.Pop();
+        dc.Pop();
         dc.Pop();
     }
 
     // ── Geometry ────────────────────────────────────────────────────────────
 
-    private StreamGeometry GetArcGeometry()
+    private Geometry GetShapeGeometry()
     {
-        if (_cachedGeo is not null)
-            return _cachedGeo;
+        if (_cachedShapeGeo is not null)
+            return _cachedShapeGeo;
 
-        var center = new Point(9.0, 9.0);
-        var outerR = _diameter / 2.0;
-        var thickness = Math.Max(2.0, outerR * 0.36);
-        var innerR = Math.Max(0.5, outerR - thickness);
-
-        // Arc from top (-90°) sweeping 270° clockwise to the left (180°)
-        const double startRad = -Math.PI / 2.0;
-        const double sweepRad = 3.0 * Math.PI / 2.0; // 270°
-        const double endRad = startRad + sweepRad;    // 180° = left
-
-        var outerStart = PolarToPoint(center, outerR, startRad);
-        var outerEnd = PolarToPoint(center, outerR, endRad);
-        var innerEnd = PolarToPoint(center, innerR, endRad);
-        var innerStart = PolarToPoint(center, innerR, startRad);
-
-        var geo = new StreamGeometry();
-        using (var ctx = geo.Open())
-        {
-            ctx.BeginFigure(outerStart, isFilled: true, isClosed: true);
-            // Outer arc: 270° clockwise (large arc)
-            ctx.ArcTo(outerEnd, new Size(outerR, outerR), 0, isLargeArc: true,
-                SweepDirection.Clockwise, isStroked: true, isSmoothJoin: false);
-            ctx.LineTo(innerEnd, isStroked: false, isSmoothJoin: false);
-            // Inner arc: 270° counter-clockwise (large arc) back to start
-            ctx.ArcTo(innerStart, new Size(innerR, innerR), 0, isLargeArc: true,
-                SweepDirection.Counterclockwise, isStroked: true, isSmoothJoin: false);
-        }
+        var geo = Geometry.Parse(ShapeFigures);
         geo.Freeze();
-
-        _cachedGeo = geo;
-        _cachedGeoDiameter = _diameter;
+        _cachedShapeGeo = geo;
         return geo;
     }
-
-    private static Point PolarToPoint(Point center, double radius, double angleRad) =>
-        new(center.X + radius * Math.Cos(angleRad),
-            center.Y + radius * Math.Sin(angleRad));
 
     // ── Color helpers ────────────────────────────────────────────────────────
 

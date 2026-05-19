@@ -4603,7 +4603,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         thread.IsCurrentBackgroundRun = true;
         thread.DetailText = ToolTranscriptFormatter.BuildRunningText(CreateToolDescriptor(evt), evt.ProgressMessage);
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Thinking);
+        FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
         UpdateAgentCardFromThread(thread, syncBuckets: false);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_tool_start");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -4621,7 +4621,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         thread.IsCurrentBackgroundRun = true;
         thread.DetailText = ToolTranscriptFormatter.BuildRunningText(CreateToolDescriptor(evt), evt.ProgressMessage);
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Thinking);
+        FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
         UpdateAgentCardFromThread(thread, syncBuckets: false);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_tool_progress");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -4647,7 +4647,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Thinking);
+        FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
         UpdateAgentCardFromThread(thread, syncBuckets: false);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_tool_complete");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -20454,6 +20454,24 @@ public partial class MainWindow : Window, ILiveElementLocator
             evt.Intent,
             evt.Skill,
             BuildToolDisplayText(evt));
+    }
+
+    private static SpinnerActivityKind GetToolActivityKind(string? toolName)
+    {
+        if (string.IsNullOrWhiteSpace(toolName))
+            return SpinnerActivityKind.Thinking;
+
+        var name = toolName.Trim();
+        return name.Contains("read",   StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("view",   StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("glob",   StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("grep",   StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("search", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("fetch",  StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("list",   StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("get",    StringComparison.OrdinalIgnoreCase)
+            ? SpinnerActivityKind.Reading
+            : SpinnerActivityKind.Thinking;
     }
 
     private string? BuildToolDisplayText(SquadSdkEvent evt)
