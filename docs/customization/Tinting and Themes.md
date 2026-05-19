@@ -10,7 +10,7 @@ SquadDash ships with light and dark base themes, plus an eight-stop tint system,
 
 ---
 
-## Colour Tints
+## Color Tints
 
 A **tint** rotates the hue of the entire SquadDash palette by a fixed amount, giving the UI a distinct colour feel without changing the contrast or readability of the base theme.
 
