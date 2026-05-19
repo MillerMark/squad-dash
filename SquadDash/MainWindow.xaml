@@ -1703,7 +1703,7 @@
                         </Button>
                         <CheckBox x:Name="DocPublishedToggle"
                                   DockPanel.Dock="Left"
-                                  Content="Published"
+                                  Content="Publish"
                                   Margin="10,0,0,0"
                                   Visibility="Collapsed"
                                   IsEnabled="False"
