@@ -15046,7 +15046,19 @@ public partial class MainWindow : Window, ILiveElementLocator
         capturePoint.X = Math.Clamp(capturePoint.X, 1, Math.Max(1, box.ActualWidth - 1));
         capturePoint.Y = Math.Clamp(capturePoint.Y, 1, Math.Max(1, box.ActualHeight - 1));
 
-        var pointer = box.GetPositionFromPoint(capturePoint, true);
+        if (!box.IsArrangeValid || !box.IsMeasureValid)
+            return null;
+
+        TextPointer? pointer;
+        try
+        {
+            pointer = box.GetPositionFromPoint(capturePoint, true);
+        }
+        catch (InvalidOperationException)
+        {
+            // TextView layout not yet validated — layout is still in progress; skip anchor capture.
+            return null;
+        }
         if (pointer is null)
             return null;
 
