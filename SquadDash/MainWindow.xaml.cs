@@ -6854,7 +6854,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         card.StatusText = isCurrentRunThread
             ? _backgroundTaskPresenter.IsThreadStalledForDisplay(primaryThread, now)
                 ? _backgroundTaskPresenter.BuildStalledStatusText(primaryThread, now)
-                : BuildAgentCardStatusText(primaryThread, now)
+                : AgentThreadRegistry.HumanizeThreadStatus(primaryThread.StatusText) is { Length: > 0 } s ? s : "Running"
             : ShouldDisplayTerminalAgentStatus(primaryThread, now)
                 ? BuildAgentCardStatusText(primaryThread, now)
                 : string.Empty;
