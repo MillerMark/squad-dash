@@ -212,6 +212,20 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void UpdateAgentThreadLifecycle_MarksSubagentThreadAsObservedBackgroundWork() {
+        var registry = MakeRegistry();
+        var thread = registry.GetOrCreateAgentThread("tool-live", "lyra-morn", null, null, null, null, null, null);
+
+        registry.UpdateAgentThreadLifecycle(
+            thread,
+            new SquadSdkEvent { AgentId = "lyra-morn", Status = "running" },
+            statusText: "Running",
+            detailText: "Working");
+
+        Assert.That(thread.WasObservedAsBackgroundTask, Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void UpdateAgentThreadLifecycle_ClearsCurrentBackgroundRun_ForCompletedStatus() {
         var registry = MakeRegistry();
         var thread = registry.GetOrCreateAgentThread("tool-done", "lyra-morn", null, null, null, null, null, null);

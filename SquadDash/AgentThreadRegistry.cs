@@ -488,6 +488,7 @@ internal sealed class AgentThreadRegistry {
         thread.Title = ResolveThreadDisplayName(thread.AgentDisplayName, thread.AgentName, thread.AgentId);
         thread.StatusText = statusText;
         thread.DetailText = detailText;
+        thread.WasObservedAsBackgroundTask = true;
         thread.IsCurrentBackgroundRun = !IsTerminalBackgroundStatus(statusText);
         if (DateTimeOffset.TryParse(evt.StartedAt, out var startedAt))
             thread.StartedAt = startedAt;

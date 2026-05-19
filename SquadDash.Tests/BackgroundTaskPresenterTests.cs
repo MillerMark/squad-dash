@@ -270,6 +270,34 @@ internal sealed class BackgroundTaskPresenterTests {
     }
 
     [Test]
+    public void GetAbortTargets_IncludesRecentlyActiveFallbackAgentThreads_WhenPromptIsIdle() {
+        var registry = MakeRegistry();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-lyra",
+            agentId: "lyra-live",
+            agentName: "lyra-morn",
+            agentDisplayName: "Lyra",
+            agentDescription: "Writing tests",
+            status: "running",
+            prompt: "Write tests",
+            startedAt: startedAt.ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.IsCurrentBackgroundRun = true;
+        thread.StatusText = "Running";
+        thread.LastObservedActivityAt = DateTimeOffset.Now;
+
+        var presenter = MakePresenter(registry, isPromptRunning: false);
+
+        var targets = presenter.GetAbortTargets();
+
+        Assert.Multiple(() => {
+            Assert.That(targets.Select(target => target.TaskId), Is.EqualTo(new[] { "lyra-live" }));
+            Assert.That(targets.Single().DisplayLabel, Is.EqualTo("Lyra (lyra-live)"));
+        });
+    }
+
+    [Test]
     public void IsThreadCurrentRunForDisplay_ReturnsTrue_ForCurrentNonTerminalThread() {
         var presenter = MakePresenter();
         var thread = MakeThread("lyra-live", startedAt: DateTimeOffset.UtcNow.AddMinutes(-5));
