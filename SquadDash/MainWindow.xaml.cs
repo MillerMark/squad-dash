@@ -21561,10 +21561,15 @@ public partial class MainWindow : Window, ILiveElementLocator
             // Queued items are only a blocking concern when the queue is actively running.
             // If the user manually paused the queue and no agent is in flight, the items
             // are dormant and closing immediately is safe — skip the confirmation dialog.
+            // Background work entries are treated the same way: if the queue is manually
+            // paused and no prompt is actively running, stale background entries should not
+            // block the close dialog.
             bool queueBlocking = _promptQueue.Count > 0 && !_queueManuallyPaused;
+            bool backgroundWorkBlocking = (_isPromptRunning || !_queueManuallyPaused) &&
+                                          _backgroundTaskPresenter.HasRestartBlockingBackgroundWork();
             bool isBusy = _isPromptRunning ||
                           IsNativeLoopRunning ||
-                          _backgroundTaskPresenter.HasRestartBlockingBackgroundWork() ||
+                          backgroundWorkBlocking ||
                           HasPendingDirectQuickReplyAgentFollowUp() ||
                           queueBlocking;
             if (isBusy && !isDeferredClose)
