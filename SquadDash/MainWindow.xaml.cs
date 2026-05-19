@@ -19187,6 +19187,20 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
             SyncPromptNavButtons();
 
+        // Ensure search highlights repaint on every scroll.  The SearchHighlightAdorner
+        // already subscribes to the same ScrollViewer, but that subscription can miss
+        // events when focus is on a sibling panel.  This is the authoritative path that
+        // fires for all scroll causes (keyboard, scrollbar drag, touch, programmatic).
+        if (e.VerticalChange != 0)
+            _searchAdorner?.InvalidateHighlights();
+
+        // When the document grows (content streamed in), the scrollbar marker fractions
+        // were computed with the old ExtentHeight and are now stale.  Recompute them
+        // using the cached pointers so the tick marks stay anchored to the correct
+        // document positions without requiring a full adorner rebuild.
+        if (e.ExtentHeightChange != 0)
+            RefreshScrollbarMarkerPositions();
+
         // Inactive transcript selection is rendered by TranscriptInactiveSelectionAdorner
         // so it can recompute geometry after scroll instead of using WPF's stale cache.
     }
@@ -28273,6 +28287,14 @@ public partial class MainWindow : Window, ILiveElementLocator
         _cachedMatchScrollPointer = matchScrollPointer;
         _cachedMatchBucCell = matchBucCell;
 
+        // Compute scrollbar marker positions BEFORE scrolling.  The fractions are
+        // absolute document proportions (independent of the current scroll offset),
+        // so they must be computed while the layout still reflects the pre-scroll
+        // state.  Moving this after ScrollToMatchPointerIfNeeded would mix a stale
+        // GetCharacterRect() (pre-layout-update) with a new VerticalOffset
+        // (updated synchronously by ScrollToVerticalOffset), producing wrong docY values.
+        RefreshScrollbarMarkerPositions();
+
         // Scroll to the current match.  Fall back to the first rendered match if the
         // current match is unrendered (handles auto-scroll when typing finds match 0
         // in an older, not-yet-prepended turn).
@@ -28281,32 +28303,47 @@ public partial class MainWindow : Window, ILiveElementLocator
         ScrollToMatchPointerIfNeeded(currentMatchPointer);
 
         SyncPromptNavButtons();
-
-        // Compute proportional positions for the scrollbar marker adorner.
-        if (_scrollbarAdorner is not null && _transcriptScrollViewer is not null)
-        {
-            var totalHeight = _transcriptScrollViewer.ExtentHeight;
-            if (totalHeight > 0)
-            {
-                var positions = new List<double>(pointers.Count);
-                foreach (var (s, _, _) in pointers)
-                {
-                    if (s is null) continue;
-                    var rect = s.GetCharacterRect(LogicalDirection.Forward);
-                    if (rect.IsEmpty) continue;
-                    var docY = rect.Top + _transcriptScrollViewer.VerticalOffset;
-                    positions.Add(docY / totalHeight);
-                }
-                _scrollbarAdorner.SetPositions(positions);
-            }
-            else
-            {
-                _scrollbarAdorner.Clear();
-            }
-        }
     }
 
     // ── Search helper methods ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Recomputes proportional positions for the scrollbar marker adorner using
+    /// the cached search pointer list and the current <see cref="_transcriptScrollViewer"/>
+    /// extent.  Safe to call whenever <c>ExtentHeight</c> changes (e.g. streaming
+    /// content added) so that tick marks stay anchored to the correct document
+    /// positions without a full adorner rebuild.
+    /// </summary>
+    private void RefreshScrollbarMarkerPositions()
+    {
+        if (_scrollbarAdorner is null || _transcriptScrollViewer is null)
+            return;
+
+        var pointers = _cachedSearchPointers;
+        if (pointers is null || pointers.Count == 0)
+        {
+            _scrollbarAdorner.Clear();
+            return;
+        }
+
+        var totalHeight = _transcriptScrollViewer.ExtentHeight;
+        if (totalHeight <= 0)
+        {
+            _scrollbarAdorner.Clear();
+            return;
+        }
+
+        var positions = new List<double>(pointers.Count);
+        foreach (var (s, _, _) in pointers)
+        {
+            if (s is null) continue;
+            var rect = s.GetCharacterRect(LogicalDirection.Forward);
+            if (rect.IsEmpty) continue;
+            var docY = rect.Top + _transcriptScrollViewer.VerticalOffset;
+            positions.Add(docY / totalHeight);
+        }
+        _scrollbarAdorner.SetPositions(positions);
+    }
 
     /// <summary>
     /// Scrolls the transcript so that <paramref name="pointer"/> is visible.

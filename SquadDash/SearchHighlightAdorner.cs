@@ -20,6 +20,7 @@ internal sealed class SearchHighlightAdorner : Adorner
     private List<(TextPointer Start, TextPointer End, string Text)> _matches = [];
     private int _currentIndex = -1;
     private MouseWheelEventHandler? _mouseWheelHandler;
+    private ScrollViewer? _subscribedScrollViewer;
 
     public SearchHighlightAdorner(RichTextBox richTextBox) : base(richTextBox)
     {
@@ -37,16 +38,32 @@ internal sealed class SearchHighlightAdorner : Adorner
     private void SubscribeToScrollViewer()
     {
         var sv = FindScrollViewer(_rtb);
-        if (sv is not null)
-            sv.ScrollChanged += (_, _) => InvalidateVisual();
+
+        // Guard against re-subscription if Loaded fires more than once (e.g. template re-apply).
+        if (!ReferenceEquals(sv, _subscribedScrollViewer))
+        {
+            if (_subscribedScrollViewer is not null)
+                _subscribedScrollViewer.ScrollChanged -= OnScrollChanged;
+
+            _subscribedScrollViewer = sv;
+
+            if (sv is not null)
+                sv.ScrollChanged += OnScrollChanged;
+        }
 
         // Belt-and-suspenders: subscribe to MouseWheel on the RTB itself so highlights
         // reposition on every scroll, even when PART_ContentHost.ScrollChanged doesn't
         // fire through the expected path (e.g. after focus shifts to a sibling panel).
         // handlesEventsToo: true — PART_ContentHost marks the event handled in OnMouseWheel.
+        // Remove any previously-registered handler before adding a new one to prevent
+        // double-invalidation after repeated Loaded events.
+        if (_mouseWheelHandler is not null)
+            _rtb.RemoveHandler(UIElement.MouseWheelEvent, _mouseWheelHandler);
         _mouseWheelHandler = (_, _) => InvalidateVisual();
         _rtb.AddHandler(UIElement.MouseWheelEvent, _mouseWheelHandler, true);
     }
+
+    private void OnScrollChanged(object sender, ScrollChangedEventArgs e) => InvalidateVisual();
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
     {
