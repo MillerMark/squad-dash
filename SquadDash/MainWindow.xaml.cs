@@ -23329,6 +23329,14 @@ public partial class MainWindow : Window, ILiveElementLocator
         _leadAgent.StatusText = status;
         _leadAgent.BubbleText = bubble;
         _leadAgent.DetailText = detail;
+
+        var kind = status switch
+        {
+            "Streaming" => SpinnerActivityKind.Writing,
+            "Tooling"   => SpinnerActivityKind.Reading,
+            _           => SpinnerActivityKind.Thinking,
+        };
+        _leadAgent.FireActivityPulse(kind);
     }
 
     private void UpdateAgentCardImageVisibility(double windowHeight)
