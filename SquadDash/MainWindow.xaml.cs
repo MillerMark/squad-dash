@@ -943,10 +943,23 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         };
 
-        IntelliSensePopup.PreviewMouseDown += (_, _) =>
+        IntelliSensePopup.PreviewMouseDown += (_, e) =>
         {
             try
             {
+                // Find which ListBoxItem was clicked and accept that suggestion.
+                // PreviewMouseDown fires before focus can change, ensuring the state is intact.
+                var clickedContainer = FindAncestorListBoxItem(e.OriginalSource as DependencyObject);
+                if (clickedContainer is not null && _intelliSenseState is not null)
+                {
+                    var index = IntelliSenseList.ItemContainerGenerator.IndexFromContainer(clickedContainer);
+                    if (index >= 0)
+                    {
+                        _intelliSenseState = _intelliSenseState with { SelectedIndex = index };
+                        ApplyIntelliSenseAccept(andSubmit: false);
+                        e.Handled = true;
+                    }
+                }
                 (_intelliSenseOwnerBox ?? PromptTextBox).Focus();
             }
             catch (Exception ex)
@@ -25412,6 +25425,17 @@ public partial class MainWindow : Window, ILiveElementLocator
         while (source is not null)
         {
             if (source is TreeViewItem item)
+                return item;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
+    }
+
+    private static ListBoxItem? FindAncestorListBoxItem(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is ListBoxItem item)
                 return item;
             source = VisualTreeHelper.GetParent(source);
         }
