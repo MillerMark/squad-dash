@@ -3709,7 +3709,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                 target.TaskKind,
                 target.DisplayLabel,
                 target.StartedAt,
-                IsCoordinator: false));
+                IsCoordinator: false,
+                target.AgentId,
+                target.ToolCallId,
+                target.TaskIdSource));
         }
 
         return targets;
@@ -3733,11 +3736,11 @@ public partial class MainWindow : Window, ILiveElementLocator
             {
                 SquadDashTrace.Write(
                     "UI",
-                    $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} label={target.DisplayLabel}");
+                    $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} agentId={target.AgentId ?? "(none)"} toolCallId={target.ToolCallId ?? "(none)"} label={target.DisplayLabel}");
                 var cancelled = await _bridge.CancelBackgroundTaskAsync(target.TaskId).ConfigureAwait(true);
                 SquadDashTrace.Write(
                     "UI",
-                    $"AbortButton background cancel result taskKind={target.TaskKind} task={target.TaskId} cancelled={cancelled}");
+                    $"AbortButton background cancel result taskKind={target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} cancelled={cancelled}");
                 if (BackgroundCancelCompletionPolicy.ShouldForceFinalize(cancelled)) {
                     // Gap 2: don't wait for the SDK event — force-finalize the thread now so
                     // tool spinners stop and the transcript gets an "Aborted" terminal marker.
@@ -3746,7 +3749,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 else {
                     SquadDashTrace.Write(
                         "UI",
-                        $"AbortButton left background {target.TaskKind} task={target.TaskId} live because cancel was not acknowledged.");
+                        $"AbortButton left background {target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} live because cancel was not acknowledged.");
                 }
             })
             .ToArray();
@@ -3764,7 +3767,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         var normalized = taskId.Trim();
         var thread = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
             !AgentThreadRegistry.IsTerminalBackgroundStatus(t.StatusText) &&
-            (string.Equals(t.AgentId, normalized, StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(t.BackgroundTaskId, normalized, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(t.AgentId, normalized, StringComparison.OrdinalIgnoreCase) ||
              string.Equals(t.ToolCallId, normalized, StringComparison.OrdinalIgnoreCase)));
         if (thread is null)
             return;
@@ -4265,6 +4269,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             "send_completed" => $"send completed total={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} firstSdk={FormatSdkDiagnosticMs(evt.TimeToFirstSdkEventMs)} firstThinking={FormatSdkDiagnosticMs(evt.TimeToFirstThinkingMs)} firstResponse={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)}",
             "send_failed" => $"send failed total={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} firstSdk={FormatSdkDiagnosticMs(evt.TimeToFirstSdkEventMs)} firstThinking={FormatSdkDiagnosticMs(evt.TimeToFirstThinkingMs)} firstResponse={FormatSdkDiagnosticMs(evt.TimeToFirstResponseMs)} message={evt.Message ?? "(none)"}",
             "named_agent_handoff" => $"named-agent handoff {evt.Message ?? "(none)"}",
+            "background_cancel_requested" => $"background cancel requested taskId={evt.TaskId ?? "(none)"} {evt.Message ?? "(none)"}",
+            "background_cancel_completed" => $"background cancel completed taskId={evt.TaskId ?? "(none)"} {evt.Message ?? "(none)"}",
             _ => $"phase={evt.DiagnosticPhase ?? "(unknown)"} event={evt.DiagnosticEventType ?? evt.FirstSdkEventType ?? "(none)"} after={FormatSdkDiagnosticMs(evt.MillisecondsSinceSendStart)} message={evt.Message ?? "(none)"}"
         };
 
@@ -10722,11 +10728,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             SquadDashTrace.Write(
                 "UI",
-                $"Agent context menu abort requested taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} label={abortTarget.DisplayLabel}");
+                $"Agent context menu abort requested taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} idSource={abortTarget.TaskIdSource} agentId={abortTarget.AgentId ?? "(none)"} toolCallId={abortTarget.ToolCallId ?? "(none)"} label={abortTarget.DisplayLabel}");
             var cancelled = await _bridge.CancelBackgroundTaskAsync(abortTarget.TaskId).ConfigureAwait(true);
             SquadDashTrace.Write(
                 "UI",
-                $"Agent context menu abort result taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} cancelled={cancelled}");
+                $"Agent context menu abort result taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} idSource={abortTarget.TaskIdSource} cancelled={cancelled}");
         }
         catch (Exception ex)
         {
@@ -21470,11 +21476,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+            // Queued items are only a blocking concern when the queue is actively running.
+            // If the user manually paused the queue and no agent is in flight, the items
+            // are dormant and closing immediately is safe — skip the confirmation dialog.
+            bool queueBlocking = _promptQueue.Count > 0 && !_queueManuallyPaused;
             bool isBusy = _isPromptRunning ||
                           IsNativeLoopRunning ||
                           _backgroundTaskPresenter.HasRestartBlockingBackgroundWork() ||
                           HasPendingDirectQuickReplyAgentFollowUp() ||
-                          _promptQueue.Count > 0;
+                          queueBlocking;
             if (isBusy && !isDeferredClose)
             {
                 e.Cancel = true;
