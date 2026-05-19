@@ -56,15 +56,23 @@ internal static class BackgroundTaskStateResolver {
         bool isPromptRunning,
         DateTimeOffset now,
         TimeSpan recentActivityLinger,
+        TimeSpan maxSilentFallbackDuration,
         Func<SquadBackgroundAgentInfo, string> resolveSnapshotLabel,
         Func<BackgroundTaskThreadSnapshot, string> resolveThreadLabel) {
-        if (thread.IsPlaceholderThread || !thread.WasObservedAsBackgroundTask || IsTerminalStatus(thread.StatusText))
+        if (thread.IsPlaceholderThread ||
+            !thread.WasObservedAsBackgroundTask ||
+            thread.CompletedAt is not null ||
+            IsTerminalStatus(thread.StatusText))
             return false;
 
         if (IsThreadBackedBySnapshot(thread, snapshotAgents, resolveSnapshotLabel, resolveThreadLabel))
             return false;
 
-        return isPromptRunning || now - GetLastActivityAt(thread) <= recentActivityLinger;
+        var quietFor = now - GetLastActivityAt(thread);
+        if (quietFor >= maxSilentFallbackDuration)
+            return false;
+
+        return isPromptRunning || quietFor <= recentActivityLinger;
     }
 
     public static IReadOnlyList<BackgroundTaskThreadSnapshot> GetFallbackLiveThreads(
@@ -73,6 +81,7 @@ internal static class BackgroundTaskStateResolver {
         bool isPromptRunning,
         DateTimeOffset now,
         TimeSpan recentActivityLinger,
+        TimeSpan maxSilentFallbackDuration,
         Func<SquadBackgroundAgentInfo, string> resolveSnapshotLabel,
         Func<BackgroundTaskThreadSnapshot, string> resolveThreadLabel) {
         return threads
@@ -82,6 +91,7 @@ internal static class BackgroundTaskStateResolver {
                 isPromptRunning,
                 now,
                 recentActivityLinger,
+                maxSilentFallbackDuration,
                 resolveSnapshotLabel,
                 resolveThreadLabel))
             .OrderByDescending(GetLastActivityAt)

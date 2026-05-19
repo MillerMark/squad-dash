@@ -25,6 +25,7 @@ internal sealed class BackgroundTaskStateResolverTests {
             isPromptRunning: true,
             now: new DateTimeOffset(2026, 4, 15, 20, 50, 40, TimeSpan.Zero),
             recentActivityLinger: TimeSpan.FromSeconds(20),
+            maxSilentFallbackDuration: TimeSpan.FromMinutes(10),
             resolveSnapshotLabel: agent => agent.AgentId ?? string.Empty,
             resolveThreadLabel: snapshot => snapshot.Title);
 
@@ -58,6 +59,7 @@ internal sealed class BackgroundTaskStateResolverTests {
             isPromptRunning: true,
             now: DateTimeOffset.UtcNow,
             recentActivityLinger: TimeSpan.FromSeconds(20),
+            maxSilentFallbackDuration: TimeSpan.FromMinutes(10),
             resolveSnapshotLabel: agent => agent.AgentId ?? string.Empty,
             resolveThreadLabel: snapshot => snapshot.Title);
 
@@ -85,6 +87,64 @@ internal sealed class BackgroundTaskStateResolverTests {
             isPromptRunning: false,
             now: new DateTimeOffset(2026, 4, 15, 20, 50, 40, TimeSpan.Zero),
             recentActivityLinger: TimeSpan.FromSeconds(20),
+            maxSilentFallbackDuration: TimeSpan.FromMinutes(10),
+            resolveSnapshotLabel: agent => agent.AgentId ?? string.Empty,
+            resolveThreadLabel: snapshot => snapshot.Title);
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void IsFallbackLiveThread_ReturnsFalse_WhenPromptRunning_ButSilenceExceededMaximum() {
+        var thread = new BackgroundTaskThreadSnapshot(
+            ThreadId: "thread-1",
+            Title: "Talia Rune",
+            ToolCallId: "tool-1",
+            AgentId: "talia-rune",
+            AgentCardKey: "talia-rune",
+            StatusText: "Running",
+            WasObservedAsBackgroundTask: true,
+            IsPlaceholderThread: false,
+            StartedAt: new DateTimeOffset(2026, 4, 15, 20, 0, 0, TimeSpan.Zero),
+            LastObservedActivityAt: new DateTimeOffset(2026, 4, 15, 20, 5, 0, TimeSpan.Zero),
+            CompletedAt: null);
+
+        var result = BackgroundTaskStateResolver.IsFallbackLiveThread(
+            thread,
+            [],
+            isPromptRunning: true,
+            now: new DateTimeOffset(2026, 4, 15, 20, 16, 0, TimeSpan.Zero),
+            recentActivityLinger: TimeSpan.FromSeconds(20),
+            maxSilentFallbackDuration: TimeSpan.FromMinutes(10),
+            resolveSnapshotLabel: agent => agent.AgentId ?? string.Empty,
+            resolveThreadLabel: snapshot => snapshot.Title);
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void IsFallbackLiveThread_ReturnsFalse_WhenCompletedAtIsPresent() {
+        var completedAt = new DateTimeOffset(2026, 4, 15, 20, 5, 0, TimeSpan.Zero);
+        var thread = new BackgroundTaskThreadSnapshot(
+            ThreadId: "thread-1",
+            Title: "Talia Rune",
+            ToolCallId: "tool-1",
+            AgentId: "talia-rune",
+            AgentCardKey: "talia-rune",
+            StatusText: "Running",
+            WasObservedAsBackgroundTask: true,
+            IsPlaceholderThread: false,
+            StartedAt: completedAt.AddMinutes(-10),
+            LastObservedActivityAt: completedAt,
+            CompletedAt: completedAt);
+
+        var result = BackgroundTaskStateResolver.IsFallbackLiveThread(
+            thread,
+            [],
+            isPromptRunning: true,
+            now: completedAt.AddMinutes(1),
+            recentActivityLinger: TimeSpan.FromSeconds(20),
+            maxSilentFallbackDuration: TimeSpan.FromMinutes(10),
             resolveSnapshotLabel: agent => agent.AgentId ?? string.Empty,
             resolveThreadLabel: snapshot => snapshot.Title);
 
@@ -139,6 +199,7 @@ internal sealed class BackgroundTaskStateResolverTests {
             isPromptRunning: true,
             now: now,
             recentActivityLinger: TimeSpan.FromSeconds(20),
+            maxSilentFallbackDuration: TimeSpan.FromMinutes(10),
             resolveSnapshotLabel: agent => agent.AgentId ?? string.Empty,
             resolveThreadLabel: snapshot => snapshot.Title);
 

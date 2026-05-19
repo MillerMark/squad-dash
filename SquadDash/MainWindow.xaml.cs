@@ -21556,6 +21556,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
+            _backgroundTaskPresenter.RecoverStaleBackgroundThreads(DateTimeOffset.Now, "window-closing");
+
             // Queued items are only a blocking concern when the queue is actively running.
             // If the user manually paused the queue and no agent is in flight, the items
             // are dormant and closing immediately is safe — skip the confirmation dialog.
@@ -24556,6 +24558,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void RefreshStatusPresentation()
     {
         var now = DateTimeOffset.Now;
+        _backgroundTaskPresenter.RecoverStaleBackgroundThreads(now, "status-refresh");
 
         foreach (var card in _agents.Where(candidate => !candidate.IsLeadAgent))
             SyncCardThreads(card, now);

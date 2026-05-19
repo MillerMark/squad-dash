@@ -18,6 +18,7 @@ internal sealed class BackgroundTaskPresenter {
     private static readonly TimeSpan BackgroundAnnouncementDedupWindow    = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan BackgroundReportPromotionDelay       = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan BackgroundStallThreshold             = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan BackgroundFallbackMaxSilence         = TimeSpan.FromMinutes(10);
 
     // ── Injectable state ─────────────────────────────────────────────────────
 
@@ -166,12 +167,9 @@ internal sealed class BackgroundTaskPresenter {
         _backgroundAgents.Count > 0 || _backgroundShells.Count > 0 || GetFallbackLiveBackgroundThreads().Count > 0;
 
     internal bool HasRestartBlockingBackgroundWork() =>
-        _backgroundAgents.Count > 0 ||
-        _backgroundShells.Count > 0 ||
-        _agentThreadRegistry.ThreadOrder.Any(thread =>
-            !thread.IsPlaceholderThread &&
-            !AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText) &&
-            (thread.IsCurrentBackgroundRun || thread.WasObservedAsBackgroundTask));
+        _backgroundAgents.Any(agent => !IsTerminalBackgroundStatus(agent.Status)) ||
+        _backgroundShells.Any(shell => !IsTerminalBackgroundStatus(shell.Status)) ||
+        GetFallbackLiveBackgroundThreads().Count > 0;
 
     internal BackgroundAbortTarget? TryResolveAbortTarget(TranscriptThreadState? selectedThread, bool allowSingleFallback = true) {
         if (selectedThread is { Kind: TranscriptThreadKind.Agent, IsPlaceholderThread: false }) {
@@ -199,14 +197,29 @@ internal sealed class BackgroundTaskPresenter {
         BuildAbortCandidates();
 
     internal bool IsThreadCurrentRunForDisplay(TranscriptThreadState thread) {
+        return IsThreadCurrentRunForDisplay(thread, DateTimeOffset.Now);
+    }
+
+    private bool IsThreadCurrentRunForDisplay(TranscriptThreadState thread, DateTimeOffset now) {
         if (thread.IsPlaceholderThread || AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
             return false;
 
-        return thread.IsCurrentBackgroundRun || IsThreadBackedByLiveBackgroundTask(thread);
+        if (thread.CompletedAt is not null)
+            return false;
+
+        if (IsThreadBackedBySnapshotBackgroundTask(thread))
+            return true;
+
+        if (thread.IsCurrentBackgroundRun &&
+            now - AgentThreadRegistry.GetThreadLastActivityAt(thread) < BackgroundFallbackMaxSilence) {
+            return true;
+        }
+
+        return IsFallbackLiveBackgroundThread(thread, now);
     }
 
     internal bool IsThreadStalledForDisplay(TranscriptThreadState thread, DateTimeOffset now) {
-        if (!IsThreadCurrentRunForDisplay(thread))
+        if (!IsThreadCurrentRunForDisplay(thread, now))
             return false;
 
         return now - AgentThreadRegistry.GetThreadLastActivityAt(thread) >= BackgroundStallThreshold;
@@ -646,6 +659,49 @@ internal sealed class BackgroundTaskPresenter {
         ScheduleBackgroundAgentReportPromotion(thread, reason);
     }
 
+    internal int RecoverStaleBackgroundThreads(DateTimeOffset now, string reason) {
+        var recovered = 0;
+        foreach (var thread in _agentThreadRegistry.ThreadOrder.ToArray()) {
+            if (!ShouldRecoverStaleBackgroundThread(thread, now))
+                continue;
+
+            var lastActivity = AgentThreadRegistry.GetThreadLastActivityAt(thread);
+            var label = BuildBackgroundAgentLabel(thread);
+            SquadDashTrace.Write(
+                "UI",
+                $"Recovering stale background thread={thread.ThreadId} label={label} reason={reason} lastActivity={lastActivity:O}");
+
+            thread.StatusText = "Interrupted";
+            thread.DetailText = $"{label} stopped reporting before SquadDash received a completion event.";
+            thread.IsCurrentBackgroundRun = false;
+            thread.CompletedAt ??= lastActivity;
+            _agentThreadRegistry.FinalizeAgentThread(thread);
+            ScheduleBackgroundAgentReportPromotion(thread, "stale-background-recovery:" + reason);
+            _persistAgentThreadSnapshot(thread);
+            recovered++;
+        }
+
+        if (recovered > 0)
+            _syncAgentCards();
+
+        return recovered;
+    }
+
+    private bool ShouldRecoverStaleBackgroundThread(TranscriptThreadState thread, DateTimeOffset now) {
+        if (thread.IsPlaceholderThread ||
+            AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText) ||
+            thread.CompletedAt is not null ||
+            !thread.WasObservedAsBackgroundTask ||
+            !thread.IsCurrentBackgroundRun) {
+            return false;
+        }
+
+        if (IsThreadBackedBySnapshotBackgroundTask(thread))
+            return false;
+
+        return now - AgentThreadRegistry.GetThreadLastActivityAt(thread) >= BackgroundFallbackMaxSilence;
+    }
+
     private void ScheduleAgentThreadFadeIfNeeded(TranscriptThreadState thread) {
         if (thread.IsPlaceholderThread || AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
             return;
@@ -818,14 +874,18 @@ internal sealed class BackgroundTaskPresenter {
             BuildBackgroundTaskThreadLabel);
     }
 
-    private bool IsFallbackLiveBackgroundThread(TranscriptThreadState thread) {
+    private bool IsFallbackLiveBackgroundThread(TranscriptThreadState thread) =>
+        IsFallbackLiveBackgroundThread(thread, DateTimeOffset.Now);
+
+    private bool IsFallbackLiveBackgroundThread(TranscriptThreadState thread, DateTimeOffset now) {
         var snapshot = AgentThreadRegistry.CreateBackgroundTaskThreadSnapshot(thread);
         return BackgroundTaskStateResolver.IsFallbackLiveThread(
             snapshot,
             _backgroundAgents,
             _isPromptRunning(),
-            DateTimeOffset.Now,
+            now,
             _agentActiveDisplayLinger,
+            BackgroundFallbackMaxSilence,
             ResolveBackgroundAgentDisplayLabel,
             BuildBackgroundTaskThreadLabel);
     }
@@ -840,6 +900,7 @@ internal sealed class BackgroundTaskPresenter {
                 _isPromptRunning(),
                 DateTimeOffset.Now,
                 _agentActiveDisplayLinger,
+                BackgroundFallbackMaxSilence,
                 ResolveBackgroundAgentDisplayLabel,
                 BuildBackgroundTaskThreadLabel)
             .Select(thread => thread.ThreadId)
@@ -1128,6 +1189,7 @@ internal sealed class BackgroundTaskPresenter {
             "failed" => true,
             "cancelled" => true,
             "killed" => true,
+            "interrupted" => true,
             _ => false
         };
 

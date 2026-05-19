@@ -44,7 +44,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     private bool _isTranscriptTargetSelected;
     private ImageSource? _agentImageSource;
     private double _avatarDiameter = 58;
-    private double _initialFontSize = (double)Application.Current.Resources["FontSizeTitle"];
+    private double _initialFontSize = Application.Current?.TryFindResource("FontSizeTitle") is double d ? d : 14.0;
     private bool _hideImage;
 
     public AgentStatusCard(

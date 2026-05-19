@@ -173,6 +173,62 @@ internal sealed class BackgroundTaskPresenterTests {
         Assert.That(presenter.HasRestartBlockingBackgroundWork(), Is.False);
     }
 
+    [Test]
+    public void HasRestartBlockingBackgroundWork_ReturnsFalse_ForStaleFallbackThread_WhenPromptIsRunning() {
+        var registry = MakeRegistry();
+        var now = DateTimeOffset.UtcNow;
+        var presenter = MakePresenter(registry, isPromptRunning: true);
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "tool-talia",
+            agentId: "talia-rune",
+            agentName: "talia-rune",
+            agentDisplayName: "Talia Rune",
+            agentDescription: null,
+            status: "running",
+            prompt: "Recover stale handoff",
+            startedAt: now.AddMinutes(-30).ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.IsCurrentBackgroundRun = true;
+        thread.StatusText = "Running";
+        thread.LastObservedActivityAt = now.AddMinutes(-11);
+
+        Assert.That(presenter.HasRestartBlockingBackgroundWork(), Is.False);
+    }
+
+    [Test]
+    public void RecoverStaleBackgroundThreads_MarksInterruptedAndClearsCurrentRun() {
+        var registry = MakeRegistry();
+        var now = new DateTimeOffset(2026, 5, 19, 18, 30, 0, TimeSpan.Zero);
+        var lastActivity = now.AddMinutes(-12);
+        var persistedThreads = new List<TranscriptThreadState>();
+        var presenter = MakePresenter(registry, persistedThreads: persistedThreads);
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "tool-talia",
+            agentId: "talia-rune",
+            agentName: "talia-rune",
+            agentDisplayName: "Talia Rune",
+            agentDescription: null,
+            status: "running",
+            prompt: "Recover stale handoff",
+            startedAt: now.AddMinutes(-30).ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.IsCurrentBackgroundRun = true;
+        thread.StatusText = "Running";
+        thread.LastObservedActivityAt = lastActivity;
+
+        var recovered = presenter.RecoverStaleBackgroundThreads(now, "test");
+
+        Assert.Multiple(() => {
+            Assert.That(recovered, Is.EqualTo(1));
+            Assert.That(thread.StatusText, Is.EqualTo("Interrupted"));
+            Assert.That(thread.IsCurrentBackgroundRun, Is.False);
+            Assert.That(thread.CompletedAt, Is.EqualTo(lastActivity));
+            Assert.That(thread.DetailText, Does.Contain("stopped reporting"));
+            Assert.That(persistedThreads, Is.EquivalentTo(new[] { thread }));
+            Assert.That(presenter.HasRestartBlockingBackgroundWork(), Is.False);
+        });
+    }
+
     // ── Instance: ClearState ─────────────────────────────────────────────────
 
     [Test]
