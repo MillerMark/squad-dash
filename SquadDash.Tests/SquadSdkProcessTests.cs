@@ -145,6 +145,21 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task RunPromptAsync_NonControlEvent_TagsBridgeProcessGeneration() {
+        var events = new List<SquadSdkEvent>();
+
+        await using var sut = new SquadSdkProcess(BuildStartInfo("""
+            echo {"type":"response","message":"hello back"}
+            echo {"type":"done","message":""}
+            """));
+        sut.EventReceived += (_, e) => events.Add(e);
+
+        await sut.RunPromptAsync("hello", _tempDir);
+
+        Assert.That(events.Where(e => e.Type == "response").Select(e => e.BridgeProcessGeneration), Is.All.GreaterThan(0));
+    }
+
+    [Test]
     public async Task RunPromptAsync_DoneEvent_AlsoFiresEventReceived() {
         var types = new List<string?>();
 
@@ -396,6 +411,46 @@ internal sealed class SquadSdkProcessTests {
         Assert.That(
             async () => await promptTask,
             Throws.TypeOf<OperationCanceledException>());
+    }
+
+    [Test]
+    public async Task ForceStopRunningWork_ActivePrompt_CompletesPromptImmediately() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sut = new SquadSdkProcess(
+            () => BuildPowerShellScriptStartInfo("""
+                Write-Output '{"type":"session_ready","sessionId":"session-1"}'
+                Start-Sleep -Seconds 60
+                """),
+            new SquadSdkProcessOptions {
+                PromptInactivityTimeout = TimeSpan.FromSeconds(60),
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50)
+            });
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "session_ready")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var result = sut.ForceStopRunningWork("unit-test");
+
+        Assert.Multiple(() => {
+            Assert.That(result.HadActiveProcess, Is.True);
+            Assert.That(result.ProcessGeneration, Is.GreaterThan(0));
+            Assert.That(result.PendingPromptCount, Is.EqualTo(1));
+        });
+        Assert.That(
+            await Task.WhenAny(promptTask, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptTask));
+        Assert.That(
+            async () => await promptTask,
+            Throws.TypeOf<OperationCanceledException>()
+                .With.Message.Contains("force-stopped"));
+
+        await sut.DisposeAsync();
     }
 
     // ------------------------------------------------------------------

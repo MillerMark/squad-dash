@@ -1910,9 +1910,9 @@
                             FontSize="{DynamicResource FontSizeNormal}"
                             Foreground="{DynamicResource AbortButtonText}"
                             Style="{StaticResource ThemedButtonStyle}"
-                            ToolTip="Abort (Ctrl+Break)"
+                            ToolTip="Stop all running work (Ctrl+Break)"
                             Click="AbortButton_Click">
-                        ⚠ Abort...
+                        ⚠ Stop...
                     </Button>
                 </StackPanel>
 

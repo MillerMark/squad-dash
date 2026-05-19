@@ -1105,6 +1105,11 @@ internal sealed class BackgroundTaskPresenter {
         return label + " aborted.";
     }
 
+    internal static string BuildThreadForceStopSummary(TranscriptThreadState thread) {
+        var label = BuildBackgroundAgentLabel(thread);
+        return label + " force-stopped.";
+    }
+
     internal static string BuildThreadAnnouncementKey(TranscriptThreadState thread) =>
         !string.IsNullOrWhiteSpace(thread.ToolCallId)
             ? "tool-call:" + thread.ToolCallId.Trim()

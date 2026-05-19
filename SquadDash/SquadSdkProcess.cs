@@ -37,6 +37,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private StreamWriter? _activeProcessInput;
     private Task? _outputReaderTask;
     private string? _activePromptRequestId;
+    private int _processGeneration;
+    private int _activeProcessGeneration;
     private DateTimeOffset _lastBridgeDeltaTraceAt = DateTimeOffset.Now;
     private int _pendingBridgeThinkingDeltaCount;
     private int _pendingBridgeThinkingDeltaChars;
@@ -452,17 +454,19 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         startSw.Stop();
 
         process.BeginErrorReadLine();
-        var readerTask = Task.Run(() => ReadOutputLoopAsync(process));
+        var processGeneration = Interlocked.Increment(ref _processGeneration);
+        var readerTask = Task.Run(() => ReadOutputLoopAsync(process, processGeneration));
 
         lock (_stateLock) {
             _activeProcess = process;
+            _activeProcessGeneration = processGeneration;
             _activeProcessInput = process.StandardInput;
             _outputReaderTask = readerTask;
         }
 
         SquadDashTrace.Write(
             "Bridge",
-            $"Started persistent bridge process pid={process.Id} in {startSw.ElapsedMilliseconds}ms. {SquadDashRuntimeStamp.BuildBridgeStamp()}");
+            $"Started persistent bridge process pid={process.Id} generation={processGeneration} in {startSw.ElapsedMilliseconds}ms. {SquadDashRuntimeStamp.BuildBridgeStamp()}");
     }
 
     /// <summary>
@@ -593,7 +597,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
-    private async Task ReadOutputLoopAsync(Process process) {
+    private async Task ReadOutputLoopAsync(Process process, int processGeneration) {
         try {
             while (true) {
                 string? line = await process.StandardOutput.ReadLineAsync().ConfigureAwait(false);
@@ -613,6 +617,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                     if (evt is null)
                         continue;
 
+                    evt.BridgeProcessGeneration = processGeneration;
                     TraceReceivedEvent(evt);
                     HandleBridgeEvent(evt);
                 }
@@ -731,6 +736,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             _pendingBackgroundCancels.Clear();
             outputReaderTask = _outputReaderTask;
             _activeProcess = null;
+            _activeProcessGeneration = 0;
             _activeProcessInput = null;
             _outputReaderTask = null;
             _activePromptRequestId = null;
@@ -880,15 +886,27 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// Call this after updating <see cref="ByokProviderSettings"/> to ensure the new settings take effect.
     /// </summary>
     internal void RestartBridgeForNewSettings() =>
-        ResetProcess(new OperationCanceledException("The Squad bridge was restarted before the prompt completed."));
+        _ = ResetProcess(new OperationCanceledException("The Squad bridge was restarted before the prompt completed."));
 
-    private void ResetProcess(Exception? pendingPromptException = null) {
+    internal SquadSdkForceStopResult ForceStopRunningWork(string reason) {
+        var normalizedReason = string.IsNullOrWhiteSpace(reason) ? "user-requested" : reason.Trim();
+        SquadDashTrace.Write("Bridge", $"ForceStopRunningWork requested reason={normalizedReason}");
+        var result = ResetProcess(new OperationCanceledException("Running Squad work was force-stopped by the user."));
+        SquadDashTrace.Write(
+            "Bridge",
+            $"ForceStopRunningWork completed reason={normalizedReason} generation={result.ProcessGeneration} hadProcess={result.HadActiveProcess} pendingPrompts={result.PendingPromptCount} pendingCancels={result.PendingCancelCount}");
+        return result;
+    }
+
+    private SquadSdkForceStopResult ResetProcess(Exception? pendingPromptException = null) {
         Process? processToKill;
+        int processGeneration;
         PendingBridgeRequest[] pendingRequests = [];
         PendingBackgroundCancelRequest[] pendingCancels;
 
         lock (_stateLock) {
             processToKill = _activeProcess;
+            processGeneration = _activeProcessGeneration;
             if (pendingPromptException is not null) {
                 SquadDashTrace.Write(
                     "Bridge",
@@ -899,6 +917,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             pendingCancels = _pendingBackgroundCancels.Values.ToArray();
             _pendingBackgroundCancels.Clear();
             _activeProcess = null;
+            _activeProcessGeneration = 0;
             _activeProcessInput = null;
             _outputReaderTask = null;
             _activePromptRequestId = null;
@@ -914,6 +933,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         if (processToKill is not null)
             TryKill(processToKill);
+
+        return new SquadSdkForceStopResult(
+            processGeneration,
+            processToKill is not null,
+            pendingRequests.Length,
+            pendingCancels.Length);
     }
 
     private static void TryKill(Process process) {
@@ -1422,6 +1447,12 @@ internal sealed class PendingBackgroundCancelRequest {
     public string? SessionId { get; }
     public TaskCompletionSource<bool> Completion { get; }
 }
+
+internal sealed record SquadSdkForceStopResult(
+    int ProcessGeneration,
+    bool HadActiveProcess,
+    int PendingPromptCount,
+    int PendingCancelCount);
 
 internal sealed class SquadSdkProcessOptions {
     public TimeSpan PromptInactivityTimeout { get; init; } = TimeSpan.FromMinutes(10);

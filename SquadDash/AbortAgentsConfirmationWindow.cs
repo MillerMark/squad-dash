@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -20,15 +19,17 @@ internal sealed record AbortAgentsConfirmationTarget(
     string TaskIdSource = "unknown");
 
 internal sealed class AbortAgentsConfirmationWindow : Window {
-    private readonly List<(CheckBox CheckBox, AbortAgentsConfirmationTarget Target)> _items = [];
+    private readonly List<AbortAgentsConfirmationTarget> _items = [];
     private readonly Func<IReadOnlyList<AbortAgentsConfirmationTarget>> _getTargets;
     private readonly DispatcherTimer _refreshTimer;
     private readonly StackPanel _listPanel;
     private readonly TextBlock _emptyText;
     private readonly Button _confirmButton;
 
-    public IReadOnlyList<AbortAgentsConfirmationTarget> SelectedTargets { get; private set; }
+    public IReadOnlyList<AbortAgentsConfirmationTarget> ConfirmedTargets { get; private set; }
         = Array.Empty<AbortAgentsConfirmationTarget>();
+
+    public IReadOnlyList<AbortAgentsConfirmationTarget> SelectedTargets => ConfirmedTargets;
 
     public AbortAgentsConfirmationWindow(
         IReadOnlyList<AbortAgentsConfirmationTarget> targets,
@@ -38,7 +39,7 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
 
         _getTargets = getTargets ?? (() => targets);
 
-        Title = "Confirm Abort";
+        Title = "Confirm Stop";
         Width = 460;
         SizeToContent = SizeToContent.Height;
         MinWidth = 420;
@@ -77,14 +78,26 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Content = root;
 
-        var title = new TextBlock {
-            Text = "Abort these agents?",
-            FontSize = (double)Application.Current.Resources["FontSizeTitle"],
-            FontWeight = FontWeights.SemiBold,
+        var headerPanel = new StackPanel {
             Margin = new Thickness(0, 0, 0, 14)
         };
+        root.Children.Add(headerPanel);
+
+        var title = new TextBlock {
+            Text = "Stop all running work?",
+            FontSize = (double)Application.Current.Resources["FontSizeTitle"],
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
         title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        root.Children.Add(title);
+        headerPanel.Children.Add(title);
+
+        var description = new TextBlock {
+            Text = "SquadDash will stop the coordinator and every running agent listed below by stopping the local Squad bridge.",
+            TextWrapping = TextWrapping.Wrap
+        };
+        description.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        headerPanel.Children.Add(description);
 
         var listBorder = new Border {
             Padding = new Thickness(10),
@@ -106,7 +119,7 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         scroll.Content = _listPanel;
 
         _emptyText = new TextBlock {
-            Text = "No active agents.",
+            Text = "No running work.",
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed
         };
@@ -131,7 +144,7 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         buttonRow.Children.Add(cancelButton);
 
         _confirmButton = new Button {
-            Content = "Confirm",
+            Content = "Stop All",
             Width = 96,
             Height = 32,
             IsDefault = true
@@ -143,16 +156,16 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         _refreshTimer = new DispatcherTimer {
             Interval = TimeSpan.FromSeconds(1)
         };
-        _refreshTimer.Tick += (_, _) => RefreshTargets(_getTargets(), preserveChecks: true);
+        _refreshTimer.Tick += (_, _) => RefreshTargets(_getTargets());
 
         PreviewKeyDown += AbortAgentsConfirmationWindow_PreviewKeyDown;
         Closed += (_, _) => _refreshTimer.Stop();
 
-        RefreshTargets(targets, preserveChecks: false);
+        RefreshTargets(targets);
         _refreshTimer.Start();
     }
 
-    private CheckBox BuildTargetCheckBox(AbortAgentsConfirmationTarget target) {
+    private Border BuildTargetRow(AbortAgentsConfirmationTarget target) {
         var label = string.IsNullOrWhiteSpace(target.DisplayLabel)
             ? "Agent"
             : target.DisplayLabel.Trim();
@@ -164,9 +177,7 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
                 ? "Shell task"
                 : "Agent thread";
 
-        var textPanel = new StackPanel {
-            Margin = new Thickness(8, 0, 0, 0)
-        };
+        var textPanel = new StackPanel();
 
         var primary = new TextBlock {
             Text = timedLabel,
@@ -185,39 +196,27 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         secondary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         textPanel.Children.Add(secondary);
 
-        var checkBox = new CheckBox {
-            Content = textPanel,
-            IsChecked = true,
+        var border = new Border {
+            Child = textPanel,
+            Padding = new Thickness(8),
             Margin = new Thickness(0, 0, 0, 10),
-            VerticalContentAlignment = VerticalAlignment.Top
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1)
         };
-        checkBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        border.SetResourceReference(Border.BackgroundProperty, "AppSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
-        return checkBox;
+        return border;
     }
 
-    private void RefreshTargets(
-        IReadOnlyList<AbortAgentsConfirmationTarget> targets,
-        bool preserveChecks) {
-        var previousCheckStates = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        if (preserveChecks) {
-            foreach (var item in _items)
-                previousCheckStates[BuildSelectionKey(item.Target)] = item.CheckBox.IsChecked == true;
-        }
-
+    private void RefreshTargets(IReadOnlyList<AbortAgentsConfirmationTarget> targets) {
         _items.Clear();
         _listPanel.Children.Clear();
 
         foreach (var target in targets) {
-            var checkBox = BuildTargetCheckBox(target);
-            var selectionKey = BuildSelectionKey(target);
-            if (previousCheckStates.TryGetValue(selectionKey, out var wasChecked))
-                checkBox.IsChecked = wasChecked;
-
-            checkBox.Checked += (_, _) => UpdateConfirmButtonState();
-            checkBox.Unchecked += (_, _) => UpdateConfirmButtonState();
-            _items.Add((checkBox, target));
-            _listPanel.Children.Add(checkBox);
+            var row = BuildTargetRow(target);
+            _items.Add(target);
+            _listPanel.Children.Add(row);
         }
 
         if (_items.Count == 0)
@@ -230,18 +229,8 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         UpdateConfirmButtonState();
     }
 
-    private static string BuildSelectionKey(AbortAgentsConfirmationTarget target) {
-        if (target.IsCoordinator)
-            return "coordinator";
-
-        return target.TaskKind.Trim() + "\u001f" + target.TaskId.Trim();
-    }
-
     private void ConfirmButton_Click(object sender, RoutedEventArgs e) {
-        SelectedTargets = _items
-            .Where(item => item.CheckBox.IsChecked == true)
-            .Select(item => item.Target)
-            .ToArray();
+        ConfirmedTargets = _items.ToArray();
 
         DialogResult = true;
         Close();
@@ -251,7 +240,7 @@ internal sealed class AbortAgentsConfirmationWindow : Window {
         if (_confirmButton is null)
             return;
 
-        _confirmButton.IsEnabled = _items.Any(item => item.CheckBox.IsChecked == true);
+        _confirmButton.IsEnabled = _items.Count > 0;
     }
 
     private void AbortAgentsConfirmationWindow_PreviewKeyDown(object sender, KeyEventArgs e) {

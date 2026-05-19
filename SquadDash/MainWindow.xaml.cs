@@ -129,6 +129,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         new("#FF9A9A9A")
     ];
     private readonly SquadSdkProcess _bridge;
+    private int _ignoreBridgeEventsThroughGeneration;
     private readonly ApplicationSettingsStore _settingsStore = new();
     private readonly SquadTeamRosterLoader _teamRosterLoader = new();
     private readonly SquadRoutingDocumentService _routingDocumentService = new();
@@ -3649,34 +3650,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                 Owner = this
             };
 
-            if (dialog.ShowDialog() != true || dialog.SelectedTargets.Count == 0)
+            if (dialog.ShowDialog() != true || dialog.ConfirmedTargets.Count == 0)
             {
-                SquadDashTrace.Write("UI", "AbortButton confirmation cancelled.");
+                SquadDashTrace.Write("UI", "Stop running work confirmation cancelled.");
                 return;
             }
 
-            await AbortConfirmedTargetsAsync(dialog.SelectedTargets).ConfigureAwait(true);
-
-            // If a loop is running, offer to stop it too
-            if (IsLoopRunning)
-            {
-                var loopResult = MessageBox.Show(
-                    "A loop is also running.\n\nChoose how to handle it:\n• Yes — stop gracefully after this iteration\n• No — abort the loop immediately\n• Cancel — leave the loop running",
-                    "Loop Is Running",
-                    MessageBoxButton.YesNoCancel,
-                    MessageBoxImage.Question);
-                // Yes = stop gracefully after this iteration
-                // No = abort the loop immediately
-                // Cancel = leave the loop running
-                if (loopResult == MessageBoxResult.Yes)
-                {
-                    StopLoopButton_Click(this, new RoutedEventArgs());
-                }
-                else if (loopResult == MessageBoxResult.No)
-                {
-                    AbortLoopButton_Click(this, new RoutedEventArgs());
-                }
-            }
+            await StopConfirmedRunningWorkAsync(dialog.ConfirmedTargets).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -3718,43 +3698,49 @@ public partial class MainWindow : Window, ILiveElementLocator
         return targets;
     }
 
-    private async Task AbortConfirmedTargetsAsync(IReadOnlyList<AbortAgentsConfirmationTarget> targets)
+    private Task StopConfirmedRunningWorkAsync(IReadOnlyList<AbortAgentsConfirmationTarget> targets)
     {
-        var abortCoordinator = targets.Any(target => target.IsCoordinator);
-        if (abortCoordinator)
+        SquadDashTrace.Write(
+            "UI",
+            $"Stop running work confirmed targets={targets.Count} coordinator={targets.Any(target => target.IsCoordinator)} background={targets.Count(target => !target.IsCoordinator)} loop={IsLoopRunning} queueCount={_promptQueue.Count}");
+        foreach (var target in targets)
         {
-            SquadDashTrace.Write("UI", "AbortButton confirmed — aborting active coordinator prompt.");
-            _bridge.AbortPrompt();
-            // Gap 3: if the bridge task never throws/returns, the prompt-running state
-            // would stay stale forever.  The watchdog forces cleanup after a short grace period.
-            StartCoordinatorAbortWatchdog();
+            SquadDashTrace.Write(
+                "UI",
+                $"Stop running work target kind={target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} coordinator={target.IsCoordinator} agentId={target.AgentId ?? "(none)"} toolCallId={target.ToolCallId ?? "(none)"} label={target.DisplayLabel}");
         }
 
-        var backgroundCancelTasks = targets
-            .Where(target => !target.IsCoordinator)
-            .Select(async target =>
-            {
-                SquadDashTrace.Write(
-                    "UI",
-                    $"AbortButton confirmed — cancelling background {target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} agentId={target.AgentId ?? "(none)"} toolCallId={target.ToolCallId ?? "(none)"} label={target.DisplayLabel}");
-                var cancelled = await _bridge.CancelBackgroundTaskAsync(target.TaskId).ConfigureAwait(true);
-                SquadDashTrace.Write(
-                    "UI",
-                    $"AbortButton background cancel result taskKind={target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} cancelled={cancelled}");
-                if (BackgroundCancelCompletionPolicy.ShouldForceFinalize(cancelled)) {
-                    // Gap 2: don't wait for the SDK event — force-finalize the thread now so
-                    // tool spinners stop and the transcript gets an "Aborted" terminal marker.
-                    ForceFinalizeCancelledBackgroundThread(target.TaskId);
-                }
-                else {
-                    SquadDashTrace.Write(
-                        "UI",
-                        $"AbortButton left background {target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} live because cancel was not acknowledged.");
-                }
-            })
-            .ToArray();
+        if (_promptQueue.Count > 0)
+            SetQueuePaused(true);
 
-        await Task.WhenAll(backgroundCancelTasks).ConfigureAwait(true);
+        if (IsLoopRunning)
+            ForceStopLoopForRunningWorkStop();
+
+        ForceFinalizeStoppedBackgroundThreads(targets);
+
+        var result = _bridge.ForceStopRunningWork("abort-button-stop-all");
+        _ignoreBridgeEventsThroughGeneration = Math.Max(
+            _ignoreBridgeEventsThroughGeneration,
+            result.ProcessGeneration);
+        if (targets.Any(target => target.IsCoordinator))
+            StartCoordinatorAbortWatchdog("force-stop", "[force-stopped]");
+
+        _backgroundTaskPresenter.BackgroundAgents = Array.Empty<SquadBackgroundAgentInfo>();
+        _backgroundTaskPresenter.BackgroundShells = Array.Empty<SquadBackgroundShellInfo>();
+        _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
+
+        UpdateCompletedTimeFooters();
+        SyncAgentCardsWithThreads();
+        _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
+        SyncQueuePanel();
+        SyncSendButton();
+        UpdateInteractiveControlState();
+        TryCompletePendingRestart("running-work-force-stopped", emergencySaveBeforeClose: true);
+
+        SquadDashTrace.Write(
+            "UI",
+            $"Stop running work completed bridgeGeneration={result.ProcessGeneration} hadBridgeProcess={result.HadActiveProcess} ignoredEventsThroughGeneration={_ignoreBridgeEventsThroughGeneration}");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -3789,20 +3775,91 @@ public partial class MainWindow : Window, ILiveElementLocator
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
     }
 
+    private void ForceStopLoopForRunningWorkStop()
+    {
+        AppendLoopOutputLine("⚡ Loop force-stopped with running work.", new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x44)));
+        if (_activeLoopMode == LoopMode.NativeAgents)
+        {
+            _loopController.RequestAbort();
+            _loopFollowUpTcs?.TrySetResult(false);
+        }
+        else
+        {
+            _pec.SetIsLoopRunning(false);
+        }
+
+        SyncLoopPanel();
+    }
+
+    private void ForceFinalizeStoppedBackgroundThreads(IReadOnlyList<AbortAgentsConfirmationTarget> targets)
+    {
+        var finalizedThreads = new HashSet<TranscriptThreadState>(ReferenceEqualityComparer.Instance);
+        foreach (var target in targets.Where(target => !target.IsCoordinator))
+        {
+            var thread = FindThreadForStopTarget(target);
+            if (thread is not null)
+                ForceFinalizeStoppedBackgroundThread(thread, target.TaskId, finalizedThreads);
+        }
+
+        foreach (var thread in _agentThreadRegistry.ThreadOrder.Where(_backgroundTaskPresenter.IsThreadCurrentRunForDisplay).ToArray())
+            ForceFinalizeStoppedBackgroundThread(thread, thread.BackgroundTaskId ?? thread.AgentId ?? thread.ToolCallId ?? thread.ThreadId, finalizedThreads);
+    }
+
+    private TranscriptThreadState? FindThreadForStopTarget(AbortAgentsConfirmationTarget target)
+    {
+        return _agentThreadRegistry.ThreadOrder.FirstOrDefault(thread =>
+            !AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText) &&
+            (MatchesStopTarget(thread.BackgroundTaskId, target.TaskId) ||
+             MatchesStopTarget(thread.AgentId, target.TaskId) ||
+             MatchesStopTarget(thread.ToolCallId, target.TaskId) ||
+             MatchesStopTarget(thread.AgentId, target.AgentId) ||
+             MatchesStopTarget(thread.ToolCallId, target.ToolCallId)));
+    }
+
+    private static bool MatchesStopTarget(string? left, string? right) =>
+        !string.IsNullOrWhiteSpace(left) &&
+        !string.IsNullOrWhiteSpace(right) &&
+        string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    private void ForceFinalizeStoppedBackgroundThread(
+        TranscriptThreadState thread,
+        string taskId,
+        HashSet<TranscriptThreadState> finalizedThreads)
+    {
+        if (!finalizedThreads.Add(thread))
+            return;
+
+        var summary = BackgroundTaskPresenter.BuildThreadForceStopSummary(thread);
+        SquadDashTrace.Write(
+            "UI",
+            $"Force-stopping background thread task={taskId} thread={thread.ThreadId} agentId={thread.AgentId ?? "(none)"} toolCallId={thread.ToolCallId ?? "(none)"} title={thread.Title ?? "(unknown)"}");
+        thread.StatusText = "Interrupted";
+        thread.DetailText = summary;
+        thread.IsCurrentBackgroundRun = false;
+        thread.CompletedAt ??= DateTimeOffset.Now;
+        _agentThreadRegistry.FinalizeAgentThread(thread);
+        CompleteDirectQuickReplyAgentThread(thread, "force_stop_running_work");
+        _backgroundTaskPresenter.AppendBackgroundNotice(
+            summary,
+            ThemeBrush("SystemInfoText"),
+            BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":force-stopped");
+        _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
+    }
+
     /// <summary>
     /// Gap 3 &amp; 4 fix: starts a short watchdog after a coordinator abort.  If
     /// <c>_isPromptRunning</c> is still true after the grace period the bridge task
     /// is assumed to be stuck and we force all prompt-running cleanup locally.
     /// </summary>
-    private void StartCoordinatorAbortWatchdog()
+    private void StartCoordinatorAbortWatchdog(string reason = "abort", string marker = "[aborted]")
     {
         _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ =>
             Dispatcher.InvokeAsync(() =>
             {
                 if (!_isPromptRunning)
                     return;
-                SquadDashTrace.Write("UI", "AbortWatchdog: _isPromptRunning still true after 3 s — forcing coordinator cleanup.");
-                ForceCoordinatorAbortCleanup();
+                SquadDashTrace.Write("UI", $"AbortWatchdog: _isPromptRunning still true after 3 s reason={reason} — forcing coordinator cleanup.");
+                ForceCoordinatorAbortCleanup(marker);
             }));
     }
 
@@ -3811,13 +3868,13 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// <c>setIsPromptRunning(false)</c> path in <c>ExecutePromptAsync</c>.  Only
     /// called from the abort watchdog when that path appears stuck.
     /// </summary>
-    private void ForceCoordinatorAbortCleanup()
+    private void ForceCoordinatorAbortCleanup(string marker = "[aborted]")
     {
         _isPromptRunning = false;
         CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
         // Close any still-spinning coordinator tool entries.
         _agentThreadRegistry.CompleteOutstandingAgentTools(CoordinatorThread);
-        AppendLine("[aborted]", ThemeBrush("SystemInfoText"));
+        AppendLine(marker, ThemeBrush("SystemInfoText"));
         FinalizeCurrentTurnResponse();
         SyncQueuePauseLabel();
         UpdateCompletedTimeFooters();
@@ -3830,6 +3887,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void HandleEvent(SquadSdkEvent evt)
     {
         TraceSdkEvent(evt);
+        if (ShouldIgnoreForceStoppedBridgeEvent(evt))
+            return;
+
         if (!string.Equals(evt.Type, "sdk_diagnostics", StringComparison.Ordinal))
             _pec.MarkActivity(evt);
 
@@ -4388,6 +4448,18 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!_restartPending)
             ApplyPendingBridgeSettingsRestartIfIdle("background-tasks-changed");
         TryCompletePendingRestart("background-tasks-changed");
+    }
+
+    private bool ShouldIgnoreForceStoppedBridgeEvent(SquadSdkEvent evt)
+    {
+        if (evt.BridgeProcessGeneration <= 0 ||
+            evt.BridgeProcessGeneration > _ignoreBridgeEventsThroughGeneration)
+            return false;
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"Ignored event from force-stopped bridge generation={evt.BridgeProcessGeneration} type={evt.Type ?? "(none)"} session={evt.SessionId ?? "(none)"} requestId={evt.RequestId ?? "(none)"}");
+        return true;
     }
 
     private void HandleTaskComplete(SquadSdkEvent evt)
@@ -10644,7 +10716,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             var abortTarget = _backgroundTaskPresenter.TryResolveAbortTarget(primaryThread, allowSingleFallback: false);
             if (abortTarget is not null)
             {
-                var abortItem = MakeItem("Abort Current Run");
+                var abortItem = MakeItem("Stop All Running Work...");
                 abortItem.Tag = abortTarget;
                 abortItem.Click += AgentAbortCurrentRunMenuItem_Click;
                 menu.Items.Add(abortItem);
@@ -10728,15 +10800,23 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             SquadDashTrace.Write(
                 "UI",
-                $"Agent context menu abort requested taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} idSource={abortTarget.TaskIdSource} agentId={abortTarget.AgentId ?? "(none)"} toolCallId={abortTarget.ToolCallId ?? "(none)"} label={abortTarget.DisplayLabel}");
-            var cancelled = await _bridge.CancelBackgroundTaskAsync(abortTarget.TaskId).ConfigureAwait(true);
-            SquadDashTrace.Write(
-                "UI",
-                $"Agent context menu abort result taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} idSource={abortTarget.TaskIdSource} cancelled={cancelled}");
+                $"Agent context menu stop-all requested from taskKind={abortTarget.TaskKind} taskId={abortTarget.TaskId} idSource={abortTarget.TaskIdSource} agentId={abortTarget.AgentId ?? "(none)"} toolCallId={abortTarget.ToolCallId ?? "(none)"} label={abortTarget.DisplayLabel}");
+            var targets = BuildAbortConfirmationTargets();
+            if (targets.Count == 0)
+                return;
+
+            var dialog = new AbortAgentsConfirmationWindow(targets, BuildAbortConfirmationTargets)
+            {
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            if (dialog.ShowDialog() == true && dialog.ConfirmedTargets.Count > 0)
+                await StopConfirmedRunningWorkAsync(dialog.ConfirmedTargets).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
-            HandleUiCallbackException("AgentAbortCurrentRun", ex);
+            HandleUiCallbackException("AgentStopAllRunningWork", ex);
         }
     }
 

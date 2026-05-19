@@ -1,8 +1,12 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
 public sealed class SquadSdkEvent {
+    [JsonIgnore]
+    public int BridgeProcessGeneration { get; set; }
+
     public string? Type { get; set; }
     public string? RequestId { get; set; }
     public string? SessionId { get; set; }
