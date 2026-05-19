@@ -289,6 +289,12 @@ internal static class NativeMethods {
     // Virtual-key codes for left/right Ctrl
     private const int VK_LCONTROL = 0xA2;
     private const int VK_RCONTROL = 0xA3;
+    private const int VK_LSHIFT   = 0xA0;
+    private const int VK_RSHIFT   = 0xA1;
+    private const int VK_LMENU    = 0xA4;
+    private const int VK_RMENU    = 0xA5;
+    private const int VK_LWIN     = 0x5B;
+    private const int VK_RWIN     = 0x5C;
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
@@ -299,6 +305,23 @@ internal static class NativeMethods {
     /// </summary>
     public static bool IsCtrlPhysicallyDown()
         => ((GetAsyncKeyState(VK_LCONTROL) | GetAsyncKeyState(VK_RCONTROL)) & 0x8000) != 0;
+
+    public static System.Windows.Input.ModifierKeys GetPhysicalModifierKeys()
+    {
+        var modifiers = System.Windows.Input.ModifierKeys.None;
+        if (IsVirtualKeyDown(VK_LCONTROL) || IsVirtualKeyDown(VK_RCONTROL))
+            modifiers |= System.Windows.Input.ModifierKeys.Control;
+        if (IsVirtualKeyDown(VK_LSHIFT) || IsVirtualKeyDown(VK_RSHIFT))
+            modifiers |= System.Windows.Input.ModifierKeys.Shift;
+        if (IsVirtualKeyDown(VK_LMENU) || IsVirtualKeyDown(VK_RMENU))
+            modifiers |= System.Windows.Input.ModifierKeys.Alt;
+        if (IsVirtualKeyDown(VK_LWIN) || IsVirtualKeyDown(VK_RWIN))
+            modifiers |= System.Windows.Input.ModifierKeys.Windows;
+        return modifiers;
+    }
+
+    private static bool IsVirtualKeyDown(int virtualKey)
+        => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
     // ── GDI screen-capture ────────────────────────────────────────────────────
 
