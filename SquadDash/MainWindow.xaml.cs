@@ -890,6 +890,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         ContentRendered += MainWindow_ContentRendered;
         Activated += MainWindow_Activated;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
         LocationChanged += (_, _) =>
         {
             try
@@ -8381,6 +8382,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
+            if (TryRecoverPromptInputFromStaleModifiers(e))
+                return;
+
             // ── Ctrl+Shift+Break: abort loop (more-specific, checked first) ──────────
             if (e.Key == Key.Cancel
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
@@ -9023,6 +9027,34 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
         _pttCtrlPollTimer.Stop();
         _pttCtrlPollTimer = null;
+    }
+
+    private bool TryRecoverPromptInputFromStaleModifiers(KeyEventArgs e)
+    {
+        if (PromptTextBox?.IsKeyboardFocusWithin != true || !IsPrintableKey(e.Key))
+            return false;
+
+        var logicalModifiers = Keyboard.Modifiers;
+        var physicalModifiers = NativeMethods.GetPhysicalModifierKeys();
+        const ModifierKeys shortcutModifiers = ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows;
+
+        if ((logicalModifiers & shortcutModifiers) == ModifierKeys.None ||
+            (physicalModifiers & shortcutModifiers) != ModifierKeys.None)
+            return false;
+
+        var ch = KeyToChar(e.Key, (physicalModifiers & ModifierKeys.Shift) != 0);
+        if (ch is null)
+            return false;
+
+        var insertionStart = PromptTextBox.SelectionStart;
+        PromptTextBox.SelectedText = ch.Value.ToString();
+        PromptTextBox.CaretIndex = insertionStart + 1;
+        e.Handled = true;
+        SquadDashTrace.Write(
+            TraceCategory.UI,
+            $"PROMPT_STALE_MODIFIER_RECOVERY key={e.Key} logical={logicalModifiers} physical={physicalModifiers} textLen={PromptTextBox.Text.Length}");
+        ResetPttState();
+        return true;
     }
 
     private void Window_PreviewKeyUp(object sender, KeyEventArgs e)
@@ -9911,7 +9943,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             $"textChangedCount={textChangedCount} textChangedAvgMs={FormatAverageMs(_promptTextChangedTraceElapsedMs, textChangedCount)} textChangedMaxMs={_promptTextChangedTraceMaxMs} " +
             $"textChangedPhaseAvgMs={FormatPromptTextChangedPhaseAverages(textChangedCount)} textChangedPhaseMaxMs={FormatPromptTextChangedPhaseMaxes()} " +
             $"keyDownCount={keyDownCount} keyDownAvgMs={FormatAverageMs(_promptKeyDownTraceElapsedMs, keyDownCount)} keyDownMaxMs={_promptKeyDownTraceMaxMs} " +
-            $"textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex} selectionLen={PromptTextBox.SelectionLength}");
+            $"textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex} selectionLen={PromptTextBox.SelectionLength} " +
+            $"logicalModifiers={Keyboard.Modifiers} physicalModifiers={NativeMethods.GetPhysicalModifierKeys()}");
 
         _promptInputTraceStopwatch.Restart();
         _promptTextChangedTraceCount = 0;
@@ -21255,6 +21288,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             InputManager.Current.PreProcessInput -= MainWindow_PreProcessInput;
             DetachDispatcherDiagnostics();
             _isClosing = true;
@@ -23409,12 +23443,24 @@ public partial class MainWindow : Window, ILiveElementLocator
         // so stop 1 (Amber) lands near orange rather than yellow-green.
         // Stop 0 is always unmodified (natural theme colours).
         const double baselineHueOffset = 35.0;
+        const double naturalTintShift = -15.0; // shift Natural stop slightly toward red
         var hueDelta = stop * (360.0 / 8) - baselineHueOffset; // adjusted steps
         foreach (var (key, baseColor) in _tintBaseline)
         {
             bool isAccent = TintKeys.ActiveAccent.Contains(key);
-            double delta = isAccent ? hueDelta + _activeAccentHueOffset : hueDelta;
-            bool shouldRotate = stop != 0 || (isAccent && _activeAccentHueOffset != 0);
+            double delta;
+            bool shouldRotate;
+            if (stop == 0)
+            {
+                // Natural: accent keys unchanged; non-accent keys get a small baseline shift toward red
+                delta = naturalTintShift;
+                shouldRotate = !isAccent; // only rotate non-accent keys
+            }
+            else
+            {
+                delta = isAccent ? hueDelta + _activeAccentHueOffset : hueDelta;
+                shouldRotate = true;
+            }
             var tinted = shouldRotate ? RotateHue(baseColor, delta) : baseColor;
             var brush = new SolidColorBrush(tinted);
             brush.Freeze();
@@ -24070,6 +24116,40 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (!string.Equals(_themePreference, "Auto", StringComparison.OrdinalIgnoreCase)) return;
         var resolved = GetWindowsTheme();
         Dispatcher.InvokeAsync(() => ApplyTheme(resolved));
+    }
+
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != PowerModes.Resume)
+            return;
+
+        Dispatcher.InvokeAsync(RecoverInputAfterSystemResume, DispatcherPriority.Input);
+    }
+
+    private void RecoverInputAfterSystemResume()
+    {
+        try
+        {
+            var previousPttState = _pttState;
+            StopPttCtrlPollTimer();
+
+            if (_pttState == PttState.Active || _pttDraining)
+                _ = StopPushToTalkAsync(send: false);
+            else
+                ResetPttState();
+
+            Keyboard.ClearFocus();
+            if (PromptTextBox is { IsEnabled: true, IsVisible: true })
+                PromptTextBox.Focus();
+
+            SquadDashTrace.Write(
+                TraceCategory.UI,
+                $"SYSTEM_RESUME_INPUT_RECOVERY previousPttState={previousPttState} physicalModifiers={NativeMethods.GetPhysicalModifierKeys()} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true}");
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RecoverInputAfterSystemResume), ex, showDialog: false);
+        }
     }
 
     private static string CollapseWhitespace(string? text) =>
