@@ -6061,28 +6061,35 @@ public partial class MainWindow : Window, ILiveElementLocator
                 ? LoopMode.SquadCli
                 : LoopMode.NativeAgents;
 
-            // In native-agents mode, if the coordinator is busy, queue the loop start.
-            if (effectiveLoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
-            {
-                _loopQueued = true;
-                _conversationManager.UpdateQueuedPromptsState(
-                    _promptQueue.Items, _followUpAttachments,
-                    queueRightmostHeld: IsRightmostQueueTabActive(),
-                    loopQueuedToDequeue: true,
-                    activeDraftSimEntry: _pec.ActiveDraftSimEntry,
-                    activeTabIndex: GetActiveQueueTabIndex());
-                AppendLoopOutputLine($"⏳ Loop queued — {LoopTimestamp()} — will start after queue drains.", LoopLifecycleBrush);
-                SyncLoopPanel();
-                return;
-            }
-
-            _activeLoopMode = effectiveLoopMode;
-            await StartLoopImmediateAsync();
+            await QueueOrStartLoopAsync(effectiveLoopMode);
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(StartLoopButton_Click), ex);
         }
+    }
+
+    /// <summary>
+    /// Sets the active loop mode and starts the loop immediately, or queues it to start
+    /// automatically once the currently-running prompt (and any queued prompts) finish.
+    /// </summary>
+    private async Task QueueOrStartLoopAsync(LoopMode mode)
+    {
+        _activeLoopMode = mode;
+        if (mode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
+        {
+            _loopQueued = true;
+            _conversationManager.UpdateQueuedPromptsState(
+                _promptQueue.Items, _followUpAttachments,
+                queueRightmostHeld: IsRightmostQueueTabActive(),
+                loopQueuedToDequeue: true,
+                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
+                activeTabIndex: GetActiveQueueTabIndex());
+            AppendLoopOutputLine($"⏳ Loop queued — {LoopTimestamp()} — will start after queue drains.", LoopLifecycleBrush);
+            SyncLoopPanel();
+            return;
+        }
+        await StartLoopImmediateAsync();
     }
 
     private async Task StartLoopImmediateAsync(int resumeFromIteration = 0)
@@ -6529,7 +6536,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (!_loopController.IsRunning)
                 {
                     AppendLoopOutputLine("🤖 AI requested loop start.", LoopLifecycleBrush);
-                    _ = StartLoopImmediateAsync();
+                    _ = QueueOrStartLoopAsync(LoopMode.NativeAgents);
                     _ = _pushNotificationService.NotifyEventAsync("squadash_command", "SquadDash", "AI command: start_loop");
                 }
                 break;
@@ -27278,7 +27285,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 RefreshLoopOptionsPanel();
             }
 
-            await StartLoopImmediateAsync();
+            await QueueOrStartLoopAsync(LoopMode.NativeAgents);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
     }
