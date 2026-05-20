@@ -15992,7 +15992,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void ScrollTranscriptThread(TranscriptThreadState thread, bool scrollToStart)
     {
         EnsureThreadFooterAtEnd(thread);
-        ActiveScrollController.OnThreadSelected(scrollToStart, scrollToEnd: false);
+        ActiveScrollController.OnThreadSelected(scrollToStart);
     }
 
     private void ScrollTranscriptToEndAfterRender(TranscriptThreadState thread)
