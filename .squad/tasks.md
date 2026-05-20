@@ -527,10 +527,8 @@
 
 
 
-- [ ] **[maintenance.md] S6 — Fix backtick fence in `code-smells` task** *(Owner: arjun-sen)*
-  The `code-smells` task entry has a stray backtick code fence wrapping the `enabled`/`frequency`/
-  `safety`/`title` key-value lines (lines ~196–201 in the current file). Remove the fence markers so
-  those lines are plain text matching the format of all other tasks. File-only change; no parser update.
+
+
 
 - [ ] **[maintenance.md] S7 — Shorten the 100-line header comment to a concise reference card** *(Owner: arjun-sen)*
   The HTML comment block at the top of `maintenance.md` is ~100 lines covering frontmatter keys,
@@ -587,6 +585,8 @@
 ## ✅ Recently Completed
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
+
+- [x] **[maintenance.md] S6 — Fix backtick fence in `code-smells` task** — ✅ Already resolved. S1's complete rewrite of `maintenance.md` to YAML list format naturally eliminated all stray backtick code fences. No-op; no file changes needed.
 
 - [x] **[maintenance.md] S5 — Add `tooltip:` to option group blocks** — ✅ `MaintenanceOption.Hint` → `Tooltip`; parser accepts both `tooltip:` and `hint:` (backward compat); `MaintenancePanelController` sets `labelBlock.ToolTip` from `opt.Tooltip`; `tooltip:` added to all 7 option groups in `maintenance.md`; 4 new tests; 1872 total pass. Commit `145301d`.
 
