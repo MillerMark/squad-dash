@@ -522,13 +522,7 @@
 
 
 
-- [ ] **[maintenance.md] S4 — Rename `default:` → `value:` and implement write-back** *(Owner: arjun-sen)*
-  The option blocks in `maintenance.md` currently have `default: report` which the parser ignores.
-  Rename this key to `value:` throughout the file. The `value:` key holds the currently-selected
-  radio option and must be written back to `maintenance.md` immediately when the user changes the
-  selection in the Maintenance panel — exactly like loop.md options work today.
-  Update `MaintenanceMdParser` to read `value:` and `MaintenancePanelController` to write it back.
-  Update all option blocks in the file: `default:` → `value:`.
+
 
 - [ ] **[maintenance.md] S5 — Add `tooltip:` to option group blocks** *(Owner: arjun-sen)*
   Add a `tooltip:` key to each option group block in `maintenance.md`. This tooltip appears when the
@@ -604,6 +598,8 @@
 ## ✅ Recently Completed
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
+
+- [x] **[maintenance.md] S4 — Rename `default:` → `value:` and implement write-back** — ✅ `maintenance.md`: `default:` → `value:` in all 7 option blocks; `MaintenanceMdParser.UpdateOptionValue(path, taskId, optionKey, newValue)` navigates task@2/options@4/optionKey@6/value@8 indent structure and writes back; `MaintenancePanelController`: radio pre-selection from `opt.RawValue` + `rb.Checked` write-back handler; 6 new tests; 1868 total pass. Commit `213393f`.
 
 - [x] **[maintenance.md] S3b — Extend parser to support `instructions: |` block scalars** — ✅ Already implemented. `MaintenanceMdParser` lines 64-78 & 128-135 handle YAML block scalar accumulation at indent ≥ 6; `inMultiLineInstructions` flag; finalize-at-EOF at lines 203-205. Three passing tests: `AllLinesJoined`, `FollowedByOptions`, `RunsToClosingFrontmatter`. No code changes needed.
 
