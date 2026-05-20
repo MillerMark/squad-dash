@@ -524,19 +524,8 @@
 
 
 
-- [ ] **[maintenance.md] S5 — Add `tooltip:` to option group blocks** *(Owner: arjun-sen)*
-  Add a `tooltip:` key to each option group block in `maintenance.md`. This tooltip appears when the
-  user hovers over the option group label (the radio group heading) in the Maintenance panel, explaining
-  what the option controls. The parser already supports a `hint:` key — rename/update support to use
-  `tooltip:` consistently with S2. Add meaningful tooltip text to every option group in the file.
-  Example:
-    options:
-      if_failing:
-        type: radio
-        label: If failing tests are found
-        tooltip: Controls whether the agent fixes issues or only reports them
-        value: report
-        choices: ...
+
+
 
 - [ ] **[maintenance.md] S6 — Fix backtick fence in `code-smells` task** *(Owner: arjun-sen)*
   The `code-smells` task entry has a stray backtick code fence wrapping the `enabled`/`frequency`/
@@ -598,6 +587,8 @@
 ## ✅ Recently Completed
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
+
+- [x] **[maintenance.md] S5 — Add `tooltip:` to option group blocks** — ✅ `MaintenanceOption.Hint` → `Tooltip`; parser accepts both `tooltip:` and `hint:` (backward compat); `MaintenancePanelController` sets `labelBlock.ToolTip` from `opt.Tooltip`; `tooltip:` added to all 7 option groups in `maintenance.md`; 4 new tests; 1872 total pass. Commit `145301d`.
 
 - [x] **[maintenance.md] S4 — Rename `default:` → `value:` and implement write-back** — ✅ `maintenance.md`: `default:` → `value:` in all 7 option blocks; `MaintenanceMdParser.UpdateOptionValue(path, taskId, optionKey, newValue)` navigates task@2/options@4/optionKey@6/value@8 indent structure and writes back; `MaintenancePanelController`: radio pre-selection from `opt.RawValue` + `rb.Checked` write-back handler; 6 new tests; 1868 total pass. Commit `213393f`.
 
