@@ -111,6 +111,92 @@
   SDK bridge connects, workspaces resolve correctly from `%LocalAppData%\SquadDash\app\`.
   **Blocks:** GitHub Release, WinGet submission.
 
+---
+
+## 🔴 High Priority — Maintenance Mode (Phase 1 MVP)
+
+> Feature: SquadDash enters "Maintenance Mode" after configurable idle time and executes tasks from `.squad/maintenance.md`.
+> Phase 1 delivers the full backend pipeline end-to-end. Panel UI is Phase 2.
+
+- [ ] **[Maintenance] `IdleDetectionService` — idle timer backbone** *(Owner: Arjun Sen)*
+  New service: `IdleDetectionService`. Tracks whether SquadDash is fully idle — no prompt running
+  (read from `PromptExecutionController`), no loop running (read from `LoopController.IsRunning`),
+  no recent user input. Exposes `IdleThresholdReached` event and `ActivityDetected` event. MainWindow
+  subscribes to forward key/mouse events to `RecordActivity()`. Idle timeout is configurable in
+  `MaintenanceMdConfig`; service re-reads the config when the threshold is first reached to avoid
+  a stale timer. After maintenance completes, caller resets the idle timer via `ResetIdleTimer()`.
+  Thread-safe: use `volatile bool` / `Interlocked` for all shared state. Do NOT hold a lock during
+  the `IdleThresholdReached` callback.
+
+- [ ] **[Maintenance] `MaintenanceMdConfig` + `MaintenanceMdParser` — parse maintenance.md** *(Owner: Arjun Sen)*
+  Mirror `LoopMdConfig` / `LoopMdParser`. New config type `MaintenanceMdConfig` holds:
+  `IdleTimeoutMinutes` (double, default 15), `GlobalSafety` (string: `report-only`/`branch`/`direct`,
+  default `branch`), `MaxTasksPerSession` (int, default 5), and `Tasks` (list of `MaintenanceTaskConfig`).
+  Each `MaintenanceTaskConfig` has: `Id` (slug), `Enabled` (bool, from checkbox), `Description` (string),
+  `Frequency` (`always`/`daily`/`per-commit`), `Safety` (string, per-task override), `RadioOptions`
+  (list of strings), `SelectedRadioOption` (string). Parser reads YAML frontmatter for global options;
+  body contains task blocks starting with `- [ ]` or `- [x]`. `frequency:` and `safety:` appear as
+  indented sub-lines under each checkbox item. Re-uses the CRLF-normalising approach from `LoopMdParser`.
+  Returns null if file does not exist or lacks `configured: true` in frontmatter.
+
+- [ ] **[Maintenance] `MaintenanceStateStore` — per-task frequency state** *(Owner: Arjun Sen)*
+  Reads/writes `.squad/maintenance-state.json`. Schema: dictionary keyed by task ID, each entry has
+  `last_run_date` (ISO 8601 UTC date), `last_seen_commit` (SHA string), `run_count_today` (int),
+  `last_outcome` (string: `success`/`skipped`/`error`), `last_run_timestamp` (full ISO 8601).
+  `IsEligible(task, currentCommitSha)` returns false if: `daily` task already ran today (UTC),
+  or `per-commit` task already ran on `currentCommitSha`. `RecordRun(taskId, commitSha, outcome)`
+  updates state and persists atomically (write temp file → rename). If git is unavailable,
+  `per-commit` tasks fall back to `daily` behavior. Store lives at `.squad/maintenance-state.json`
+  (not committed — add to `.gitignore` template).
+
+- [ ] **[Maintenance] `MaintenanceRunner` — orchestrates task execution** *(Owner: Arjun Sen)*
+  Mirrors `LoopController` pattern. Constructor takes `executePromptAsync`, `abortPrompt`, callbacks
+  for `onTaskStarted`, `onTaskCompleted`, `onStopped`, `onError`. Also accepts an `IdleDetectionService`
+  reference to subscribe to `ActivityDetected` for mid-run interrupt. Reads `MaintenanceMdConfig`,
+  queries `MaintenanceStateStore` for eligibility, runs tasks in order (up to `MaxTasksPerSession`).
+  Each task prompt is injected with: task description, safety level (instructs AI to use
+  `maintenance/YYYYMMDD-<slug>` branch if `branch`, generate report only if `report-only`),
+  and selected radio option. Between tasks checks `_stopRequested` flag — stops cleanly if user
+  activity arrives. Fires `onStopped` when done; caller then invokes `MaintenanceReportWriter`.
+
+- [ ] **[Maintenance] `MaintenanceReportWriter` — "While You Were Away" report** *(Owner: Arjun Sen)*
+  On maintenance session completion, writes `.squad/maintenance-reports/YYYYMMDD-HHmmss.md`.
+  Report format: header with session timestamp + duration, then one section per task: task name,
+  outcome, what was found/changed, links to branches or files modified. Accepts a list of
+  `MaintenanceTaskResult` records built by `MaintenanceRunner` during execution. Also reads
+  existing reports in the folder and auto-prunes: keep the 30 most recent, delete older ones.
+  After writing, fires event consumed by MainWindow to show the "While You Were Away" banner on
+  next user interaction. Also calls `PushNotificationService` `maintenance_completed` event
+  if ntfy is configured.
+
+- [ ] **[Maintenance] Default `maintenance.md` — content + first-run installation** *(Owner: Mira Quill)*
+  Author the default `.squad/maintenance.md` shipped with SquadDash. Frontmatter:
+  `configured: true`, `idle_timeout: 15`, `safety: branch`, `max_tasks_per_session: 5`.
+  All 8 standard tasks included as unchecked checkboxes with clear description blocks,
+  correct `frequency:` and `safety:` declarations, and radio options where applicable.
+  Tasks: (1) run & fix failing tests [daily, branch], (2) design smell scan [daily, branch,
+  radio: fix it | create branch | report only], (3) TODO/FIXME → tasks.md [per-commit, direct],
+  (4) commit quality review [per-commit, report-only], (5) README currency check [daily, report-only],
+  (6) prune stale tasks [daily, direct], (7) unused dependency scan [daily, report-only],
+  (8) XML doc coverage report [daily, report-only]. Wire into `WorkspaceOpenCoordinator`
+  first-run logic to install `maintenance.md` into `.squad/` if not present (mirrors how loop.md
+  is installed). Add `maintenance-state.json` to the `.gitignore` template block.
+
+- [ ] **[Maintenance] `BuiltInPromptInjections` — add maintenance injection** *(Owner: Arjun Sen)*
+  Add a new `TriggeredPromptInjection` entry to `BuiltInPromptInjections.cs`. Id: `builtin:maintenance-guidance`.
+  Pattern: `\b(maintenance|idle|maintenance\s+mode|maintenance\s+task|while\s+(you\s+were|i\s+was)\s+away|maintenance\.md)\b`
+  Injection text: tells the AI the maintenance config lives at `{workspaceFolder}\.squad\maintenance.md`,
+  describes the frontmatter format (configured/idle_timeout/safety/max_tasks_per_session), task
+  checkbox format, and available `frequency:` and `safety:` values. Add to `BuiltInPromptInjections.All`.
+
+- [ ] **[Maintenance] Tests — Phase 1 service layer** *(Owner: Vesper Knox)*
+  Write NUnit tests for: `MaintenanceMdParser` (valid file, missing file, no `configured: true`,
+  each frontmatter key, task checkbox parsing, frequency + safety per-task, radio options parsing).
+  `MaintenanceStateStore` (eligibility logic for all three frequency modes, atomic write, corrupt-file
+  recovery, UTC midnight rollover). `MaintenanceRunner` (task ordering, max-tasks-per-session cap,
+  mid-run stop on `ActivityDetected`, correct prompt injection per safety level). Use test fixtures
+  mirroring the `LoopMdParser` test patterns in `SquadDash.Tests/`.
+
 - [x] **[Orion audit] AgentThreadRegistry — lock down mutable backing collections** *(Owner: Arjun Sen)*
   Already implemented: all four collections (`ThreadsByKey`, `ThreadsByToolCallId`, `LaunchesByToolCallId`,
   `ThreadOrder`) expose `IReadOnlyDictionary`/`IReadOnlyList` interfaces. Backing fields are
@@ -295,6 +381,75 @@
   ~1,900 lines — layout/sizing logic for the transcript panel. Deeply entangled with
   `RichTextBox` visual tree. High risk — do last, after Phase 3 is complete and patterns
   are established. Do NOT start until Phase 3 is done.
+
+---
+
+## 🟡 Mid Priority — Maintenance Mode (Phase 2 Enrichment)
+
+- [ ] **[Maintenance] `MaintenancePanelController` — WPF panel** *(Owner: Lyra Morn)*
+  New panel controller following `TasksPanelController` pattern. Constructor receives: path getter,
+  reload action, `MaintenanceMdConfig` getter, `MaintenanceStateStore` reference. `Refresh()` renders
+  the task list as checkbox rows with owner/frequency/safety chips, last-run date + outcome per task,
+  and radio button groups for tasks that declare them. Writes checkbox toggles back to `maintenance.md`
+  via in-place YAML edit (preserve all other content). Panel header shows idle countdown
+  ("Next maintenance in: 12:34") or "Running now — [task name]…" with a pulsing dot when active.
+  Follows the same `Border` + `StackPanel` structure as Tasks and Notes panels.
+
+- [ ] **[Maintenance] Maintenance tab — wire panel into MainWindow** *(Owner: Lyra Morn)*
+  Add a "Maintenance" tab to the existing panel tab strip in MainWindow (alongside Tasks, Notes,
+  Loop, Approvals). Icon: wrench or gear-clock glyph. Tab badge shows a red dot when an unread
+  "While You Were Away" report is available. Wire `MaintenancePanelController` construction in
+  MainWindow with the workspace path getter and required callbacks. Subscribe to
+  `IdleDetectionService.IdleThresholdReached` in MainWindow to start `MaintenanceRunner` and
+  update the panel header to "Running now…". Subscribe to `MaintenanceRunner.onStopped` to
+  reset the countdown display.
+
+- [ ] **[Maintenance] "While You Were Away" banner — report surfacing UI** *(Owner: Lyra Morn)*
+  On window focus (or any user interaction) after maintenance has run: show a non-blocking
+  dismissible banner at the top of the transcript area. Banner text: "Maintenance ran while you
+  were away — [N tasks completed]  [View Report]". "View Report" opens the most recent report
+  file in the Docs panel or a lightweight read-only overlay. Banner auto-dismisses after 12 seconds
+  or on click/dismiss. Also set the Maintenance tab badge (red dot) until the user opens that tab.
+  Both signals clear on tab open or banner dismiss.
+
+- [ ] **[Maintenance] ntfy push notification — `maintenance_completed` event** *(Owner: Arjun Sen)*
+  Add `maintenance_completed` as a new event type in `PushNotificationService`. Called by
+  `MaintenanceReportWriter` after writing the report. Notification title: "SquadDash Maintenance
+  Complete". Body: "N tasks ran — [summary of outcomes]". Tags: `white_check_mark,robot`. Only
+  fires if ntfy is configured in workspace settings (mirrors existing notification guard pattern).
+  Obeys the existing rate-limiter in `PushNotificationService` (digest if too frequent).
+
+- [ ] **[Maintenance] Tests — Phase 2 panel + report integration** *(Owner: Vesper Knox)*
+  Integration tests for: `MaintenanceReportWriter` (correct file naming, auto-prune to 30 files,
+  push notification call). `MaintenancePanelController.Refresh()` (checkbox state reflects config,
+  last-run data from store, running/idle state header text). Banner show/dismiss lifecycle.
+  Cover the case where maintenance-state.json doesn't exist yet (first run).
+
+---
+
+## 🟡 Mid Priority — Maintenance Mode (Phase 3 Polish)
+
+- [ ] **[Maintenance] Safety model enforcement — `branch` and `direct` modes** *(Owner: Arjun Sen)*
+  Extend the maintenance prompt injected per task to include explicit branch-creation instructions
+  when `safety: branch`. Inject: "Create branch `maintenance/YYYYMMDD-<task-slug>` before making
+  any code changes. Commit to that branch only." When `safety: report-only`, inject: "Do not modify
+  any source files. Generate a report only." When `safety: direct`, inject: "You may commit directly
+  to the current branch." Global safety in frontmatter is the floor; per-task may be more
+  restrictive but CANNOT be more permissive than `direct` unless the frontmatter also allows it.
+  Validate: if global safety is `report-only`, treat all per-task `branch` or `direct` overrides
+  as `report-only` (safety floor, not ceiling).
+
+- [ ] **[Maintenance] Manual trigger button in Maintenance panel** *(Owner: Lyra Morn)*
+  Add a "Run Now" button to the Maintenance panel header bar. Clicking it immediately starts
+  the `MaintenanceRunner` (bypassing the idle timer). Disabled while maintenance is already running.
+  Shows a "Stop" button during a run that calls `MaintenanceRunner.RequestStop()`. This pairs with
+  the abort-mid-run capability.
+
+- [ ] **[Maintenance] Report history log in Maintenance panel** *(Owner: Lyra Morn)*
+  Below the task list, add a collapsible "Recent Reports" section in the Maintenance panel.
+  Scans `.squad/maintenance-reports/` for existing `.md` files and lists them with date/time and
+  task count. Clicking a report opens it in the Docs panel or a lightweight viewer. Shows "No
+  reports yet" placeholder on first run.
 
 ---
 
