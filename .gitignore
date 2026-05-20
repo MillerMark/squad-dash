@@ -372,3 +372,6 @@ FodyWeavers.xsd
 /Run
 /remove-squad-install.bat
 /package-lock.json
+
+# SquadDash — maintenance state (auto-managed)
+maintenance-state.json
