@@ -22376,8 +22376,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         var squadFolderExists = Directory.Exists(squadRoot);
         ConfigureTeamFileWatcher();
 
-        var loopMdPath  = Path.Combine(squadRoot, "loop.md");
-        var tasksMdPath = Path.Combine(squadRoot, "tasks.md");
+        var loopMdPath        = Path.Combine(squadRoot, "loop.md");
+        var maintenanceMdPath = Path.Combine(squadRoot, "maintenance.md");
+        var tasksMdPath       = Path.Combine(squadRoot, "tasks.md");
 
         // Regular squad files: added only when they exist.
         foreach (var relativePath in new[] {
@@ -22399,9 +22400,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
 
-        // loop.md and tasks.md always appear; clicking creates the file when missing.
-        _squadFileMenuEntries.Add(("🔁 loop.md",  "loop.md",  () => OpenOrCreateLoopMd(loopMdPath)));
-        _squadFileMenuEntries.Add(("📋 tasks.md", "tasks.md", () => OpenOrCreateTasksMd(tasksMdPath)));
+        // loop.md, maintenance.md, and tasks.md always appear; clicking creates the file when missing.
+        _squadFileMenuEntries.Add(("🔁 loop.md",        "loop.md",        () => OpenOrCreateLoopMd(loopMdPath)));
+        _squadFileMenuEntries.Add(("🔧 maintenance.md", "maintenance.md", () => OpenOrCreateMaintenanceMd(maintenanceMdPath)));
+        _squadFileMenuEntries.Add(("📋 tasks.md",       "tasks.md",       () => OpenOrCreateTasksMd(tasksMdPath)));
 
         foreach (var (header, _, clickAction) in _squadFileMenuEntries.OrderBy(x => x.SortKey, StringComparer.OrdinalIgnoreCase))
         {
@@ -22577,6 +22579,32 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(OpenOrCreateLoopMd), ex);
+        }
+    }
+
+    private void OpenOrCreateMaintenanceMd(string maintenanceMdPath)
+    {
+        try
+        {
+            if (!File.Exists(maintenanceMdPath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(maintenanceMdPath)!);
+                File.WriteAllText(maintenanceMdPath,
+                    "---\n" +
+                    "idle_threshold_minutes: 15\n" +
+                    "max_tasks_per_cycle: 5\n" +
+                    "safety: branch\n" +
+                    "---\n" +
+                    "\n" +
+                    "# Maintenance Tasks\n" +
+                    "\n" +
+                    "Add maintenance tasks below. Each task runs during idle time.\n");
+            }
+            OpenMarkdownFile(maintenanceMdPath, "Maintenance", showSource: true);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OpenOrCreateMaintenanceMd), ex);
         }
     }
 
