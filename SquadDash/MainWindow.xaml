@@ -493,7 +493,6 @@
                 <TextBox x:Name="SearchBox"
                          Grid.Column="0"
                          HorizontalAlignment="Stretch"
-                         Height="26"
                          VerticalAlignment="Center"
                          Padding="6,4,6,4"
                          FontSize="{DynamicResource FontSizeNormal}"
@@ -1114,7 +1113,6 @@
                                             Margin="8,0,0,0">
                                     <TextBox x:Name="TasksFilterBox"
                                              Width="80"
-                                             Height="17"
                                              FontSize="{DynamicResource FontSizeSmall}"
                                              VerticalContentAlignment="Center"
                                              Background="{DynamicResource InputSurface}"
@@ -1254,7 +1252,6 @@
                                             Margin="8,0,0,0">
                                     <TextBox x:Name="ApprovalFilterBox"
                                              Width="80"
-                                             Height="17"
                                              FontSize="{DynamicResource FontSizeSmall}"
                                              VerticalContentAlignment="Center"
                                              Background="{DynamicResource InputSurface}"
@@ -1392,7 +1389,6 @@
                                             Margin="8,0,0,0">
                                     <TextBox x:Name="NotesFilterBox"
                                              Width="80"
-                                             Height="17"
                                              FontSize="{DynamicResource FontSizeSmall}"
                                              VerticalContentAlignment="Center"
                                              Background="{DynamicResource InputSurface}"

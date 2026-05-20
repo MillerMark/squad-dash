@@ -115,7 +115,7 @@
                             <Border Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
-                                    Padding="4,0"
+                                    Padding="4,2"
                                     CornerRadius="3">
                                 <Grid>
                                     <TextBlock x:Name="Placeholder"
