@@ -128,6 +128,8 @@ internal sealed class PromptExecutionController {
         "Doing this myself because <reason>."
 
         Valid reasons are narrow: quick factual answer, the task is quick/trivial, user explicitly asked the Coordinator to handle it, no clear specialist exists, or launching an agent is somehow blocked. Otherwise, launch the appropriate agent instead of doing the work inline.
+
+        If a delegated-agent tool reports a durable failure such as `Agent not found`, `Maximum concurrent agent limit`, or another repeated identical failure, do not retry the same tool call with the same arguments in a loop. Change strategy: use any agent results already available in the transcript, wait for currently running agents, summarize the blocker, or ask the user how to proceed.
         """;
 
     private static readonly TimeSpan PromptNoActivityWarningThreshold = TimeSpan.FromSeconds(45);

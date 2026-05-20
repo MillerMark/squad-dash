@@ -739,6 +739,9 @@ internal sealed class BackgroundTaskPresenter {
             : 1;
         _backgroundReportPromotionGenerations[thread.ThreadId] = nextGeneration;
         var normalizedReason = NormalizePromotionReason(reason);
+        SquadDashTrace.Write(
+            "Agents",
+            $"BackgroundReport.Schedule thread={thread.ThreadId} reason={normalizedReason} generation={nextGeneration} status={thread.StatusText} responseChars={thread.LatestResponse?.Length ?? 0} observed={thread.WasObservedAsBackgroundTask}");
 
         _ = Task.Run(async () => {
             try {
@@ -760,11 +763,18 @@ internal sealed class BackgroundTaskPresenter {
         string reason) {
         if (!_backgroundReportPromotionGenerations.TryGetValue(threadId, out var currentGeneration) ||
             currentGeneration != generation) {
+            SquadDashTrace.Write(
+                "Agents",
+                $"BackgroundReport.SkipScheduled thread={threadId} reason={reason} generation={generation} currentGeneration={(currentGeneration == 0 ? "(none)" : currentGeneration.ToString())}");
             return;
         }
 
-        if (!_agentThreadRegistry.ThreadsByKey.TryGetValue(threadId, out var thread))
+        if (!_agentThreadRegistry.ThreadsByKey.TryGetValue(threadId, out var thread)) {
+            SquadDashTrace.Write(
+                "Agents",
+                $"BackgroundReport.SkipScheduled thread={threadId} reason={reason} generation={generation} cause=thread_not_found");
             return;
+        }
 
         TryPromoteBackgroundAgentReportToCoordinator(thread, reason, allowDuringCurrentTurn: false);
     }
@@ -778,6 +788,9 @@ internal sealed class BackgroundTaskPresenter {
         bool                  allowDuringCurrentTurn) {
         var isPromptRunning = _isPromptRunning();
         var hasCurrentTurn  = _currentTurn() is not null;
+        SquadDashTrace.Write(
+            "Agents",
+            $"BackgroundReport.Evaluate thread={thread.ThreadId} reason={NormalizePromotionReason(reason)} allowDuringCurrentTurn={allowDuringCurrentTurn} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} status={thread.StatusText} responseChars={thread.LatestResponse?.Length ?? 0} lastAnnouncedChars={thread.LastCoordinatorAnnouncedResponse?.Length ?? 0}");
         if ((isPromptRunning || hasCurrentTurn) && !(allowDuringCurrentTurn && hasCurrentTurn)) {
             RememberDeferredBackgroundReportPromotion(thread, reason, isPromptRunning, hasCurrentTurn);
             return false;
@@ -798,7 +811,7 @@ internal sealed class BackgroundTaskPresenter {
             isTerminal);
         if (announcement is null) {
             SquadDashTrace.Write(
-                "UI",
+                "Agents",
                 $"Skipped background report promotion thread={thread.ThreadId} reason={reason} latestResponseChars={thread.LatestResponse?.Length ?? 0} lastAnnouncedChars={thread.LastCoordinatorAnnouncedResponse?.Length ?? 0} observed={thread.WasObservedAsBackgroundTask} live={isLiveBackgroundTask} terminal={isTerminal}");
             return false;
         }
@@ -814,8 +827,8 @@ internal sealed class BackgroundTaskPresenter {
                 null);
 
         SquadDashTrace.Write(
-            "UI",
-            $"Promoted background report thread={thread.ThreadId} reason={reason} chars={announcement.Body.Length} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn}");
+            "Agents",
+            $"BackgroundReport.Promoted thread={thread.ThreadId} reason={reason} bodyChars={announcement.Body.Length} fullResponseChars={announcement.FullResponse.Length} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} appendMode={(_appendAgentReport is null ? "inline" : "report_file")}");
         _backgroundReportPromotionGenerations.Remove(thread.ThreadId);
         return true;
     }
@@ -832,9 +845,9 @@ internal sealed class BackgroundTaskPresenter {
             DateTimeOffset.Now);
 
         SquadDashTrace.Write(
-            "UI",
+            "Agents",
             (wasAlreadyPending ? "Kept" : "Deferred") +
-            $" background report promotion thread={thread.ThreadId} reason={normalizedReason} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} pending={_pendingBackgroundReportPromotions.Count}");
+            $" background report promotion thread={thread.ThreadId} reason={normalizedReason} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} pending={_pendingBackgroundReportPromotions.Count} responseChars={thread.LatestResponse?.Length ?? 0} status={thread.StatusText}");
     }
 
     private static string CombinePromotionReasons(string first, string second) {

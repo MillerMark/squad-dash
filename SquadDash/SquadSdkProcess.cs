@@ -1095,9 +1095,56 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 FlushBridgeDeltaTrace(force: true);
                 SquadDashTrace.Write(
                     "Bridge",
-                    $"Received event type={evt.Type ?? "(null)"} requestId={evt.RequestId ?? "(none)"}");
+                    BuildReceivedEventTrace(evt));
                 return;
         }
+    }
+
+    private static string BuildReceivedEventTrace(SquadSdkEvent evt) {
+        var builder = new StringBuilder()
+            .Append("Received event type=")
+            .Append(evt.Type ?? "(null)")
+            .Append(" requestId=")
+            .Append(evt.RequestId ?? "(none)");
+
+        if (!string.IsNullOrWhiteSpace(evt.ToolName)) {
+            builder
+                .Append(" tool=")
+                .Append(evt.ToolName)
+                .Append(" toolCallId=")
+                .Append(evt.ToolCallId ?? "(none)")
+                .Append(" success=")
+                .Append(evt.Success?.ToString() ?? "(unknown)")
+                .Append(" argsPresent=")
+                .Append(evt.Args.ValueKind is not JsonValueKind.Undefined and not JsonValueKind.Null)
+                .Append(" outputChars=")
+                .Append(evt.OutputText?.Length ?? 0);
+        }
+
+        if (!string.IsNullOrWhiteSpace(evt.ParentToolCallId) ||
+            !string.IsNullOrWhiteSpace(evt.AgentId) ||
+            !string.IsNullOrWhiteSpace(evt.AgentName) ||
+            !string.IsNullOrWhiteSpace(evt.AgentDisplayName)) {
+            builder
+                .Append(" parentToolCallId=")
+                .Append(evt.ParentToolCallId ?? "(none)")
+                .Append(" agentId=")
+                .Append(evt.AgentId ?? "(none)")
+                .Append(" agentName=")
+                .Append(evt.AgentName ?? "(none)")
+                .Append(" agentDisplayName=")
+                .Append(evt.AgentDisplayName ?? "(none)");
+        }
+
+        if (evt.BackgroundAgentCount is not null || evt.BackgroundShellCount is not null) {
+            builder
+                .Append(" backgroundAgents=")
+                .Append(evt.BackgroundAgentCount?.ToString() ?? "(unknown)")
+                .Append(" backgroundShells=")
+                .Append(evt.BackgroundShellCount?.ToString() ?? "(unknown)");
+        }
+
+        return builder.ToString();
     }
 
     private void FlushBridgeDeltaTrace(bool force) {

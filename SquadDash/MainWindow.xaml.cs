@@ -91,6 +91,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private const int BridgeEventUiBatchLimit = 64;
     private const int BridgeEventUiBatchMaxMs = 8;
     private const int DelegationOutcomeRollupWindow = 8;
+    private const int CoordinatorToolFailureTraceThreshold = 5;
+    private const int CoordinatorToolFailureTraceEvery = 25;
     private const int DynamicAgentHistoryCardLimit = 6;
     private static readonly string[] ToolSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     private enum PromptTextChangedPhase
@@ -323,6 +325,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private Screenshots.ScreenshotDefinitionRegistry? _cachedDefinitionRegistry;
     public  Screenshots.ScreenshotHealthChecker ScreenshotHealthChecker { get; private set; } = null!;
     private readonly Queue<DelegationOutcomeTelemetry> _recentDelegationOutcomes = new();
+    private readonly Dictionary<string, CoordinatorToolFailureTraceState> _coordinatorToolFailureTraces =
+        new(StringComparer.Ordinal);
     // _activeToolName moved to PromptExecutionController.ActiveToolName
     private AgentThreadRegistry _agentThreadRegistry = null!;
     private BackgroundTaskPresenter _backgroundTaskPresenter = null!;
@@ -18175,6 +18179,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         string SelectedOption,
         string? ExpectedAgentHandle);
 
+    private sealed class CoordinatorToolFailureTraceState
+    {
+        public int Count { get; set; }
+        public DateTimeOffset FirstSeenAt { get; set; }
+    }
+
     private Block BuildQuickReplyBlock(TranscriptResponseEntry entry, IReadOnlyList<QuickReplyOptionMetadata> options)
     {
         _currentQuickReplyOptions = options
@@ -19859,6 +19869,9 @@ public partial class MainWindow : Window, ILiveElementLocator
                 entry.Descriptor,
                 evt.OutputText);
 
+        if (thread.Kind == TranscriptThreadKind.Coordinator)
+            TraceCoordinatorToolCompletion(evt, entry);
+
         entry.DetailContent = ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
             entry.Descriptor,
             entry.ArgsJson,
@@ -19882,6 +19895,144 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         ScrollToEndIfAtBottom(thread);
     }
+
+    private void TraceCoordinatorToolCompletion(SquadSdkEvent evt, ToolTranscriptEntry entry)
+    {
+        var toolName = entry.Descriptor.ToolName;
+        if (string.Equals(toolName, "read_agent", StringComparison.OrdinalIgnoreCase))
+        {
+            TraceCoordinatorReadAgentCompletion(evt, entry);
+            return;
+        }
+
+        if (string.Equals(toolName, "task", StringComparison.OrdinalIgnoreCase) &&
+            entry.Success == false &&
+            IsMaximumConcurrentAgentLimit(entry.OutputText ?? evt.OutputText))
+        {
+            var requestedName = TryGetJsonString(evt.Args, "name") ?? "(unknown)";
+            SquadDashTrace.Write(
+                "Agents",
+                $"TaskLaunch.Blocked reason=max_concurrent requested={requestedName} toolCallId={evt.ToolCallId ?? "(none)"} active={BuildActiveBackgroundAgentTraceList()} outputChars={evt.OutputText?.Length ?? 0}");
+        }
+    }
+
+    private void TraceCoordinatorReadAgentCompletion(SquadSdkEvent evt, ToolTranscriptEntry entry)
+    {
+        var requestedAgentId = TryGetJsonString(evt.Args, "agent_id") ?? "(unknown)";
+        var wait = TryGetJsonBool(evt.Args, "wait");
+        var output = entry.OutputText ?? evt.OutputText ?? string.Empty;
+        var outcome = BuildReadAgentOutcome(entry.Success, output);
+        var local = BuildReadAgentLocalState(requestedAgentId);
+        var message =
+            $"ReadAgent.Resolve requested={requestedAgentId} wait={wait?.ToString() ?? "(unknown)"} outcome={outcome} success={entry.Success} toolCallId={evt.ToolCallId ?? "(none)"} " +
+            $"rawOutputChars={evt.OutputText?.Length ?? 0} transcriptOutputChars={entry.OutputText?.Length ?? 0} placeholder={IsReadAgentPlaceholder(output)} {local}";
+
+        if (string.Equals(outcome, "not_found", StringComparison.OrdinalIgnoreCase))
+        {
+            NoteCoordinatorToolFailure(
+                "read_agent",
+                requestedAgentId,
+                "Agent not found",
+                message);
+            return;
+        }
+
+        SquadDashTrace.Write("Agents", message);
+    }
+
+    private string BuildReadAgentLocalState(string requestedAgentId)
+    {
+        var matchingAgent = _backgroundTaskPresenter.BackgroundAgents.FirstOrDefault(agent =>
+            MatchesAgentReadId(agent, requestedAgentId));
+        var snapshotStatus = matchingAgent?.Status?.Trim();
+        var snapshotLive = matchingAgent is not null && !AgentThreadRegistry.IsTerminalBackgroundStatus(snapshotStatus);
+
+        var thread = string.Equals(requestedAgentId, "(unknown)", StringComparison.Ordinal)
+            ? null
+            : _agentThreadRegistry.FindExistingAgentThread(
+                toolCallId: null,
+                agentId: requestedAgentId,
+                agentName: null,
+                agentDisplayName: null);
+        var threadTerminal = thread is not null && AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText);
+        return
+            $"snapshotMatch={matchingAgent is not null} snapshotLive={snapshotLive} snapshotStatus={snapshotStatus ?? "(none)"} " +
+            $"threadMatch={thread is not null} threadId={thread?.ThreadId ?? "(none)"} threadStatus={thread?.StatusText ?? "(none)"} threadTerminal={threadTerminal} " +
+            $"threadResponseChars={thread?.LatestResponse?.Length ?? 0} threadLastAnnouncedChars={thread?.LastCoordinatorAnnouncedResponse?.Length ?? 0}";
+    }
+
+    private static bool MatchesAgentReadId(SquadBackgroundAgentInfo agent, string requestedAgentId)
+    {
+        if (string.IsNullOrWhiteSpace(requestedAgentId) || string.Equals(requestedAgentId, "(unknown)", StringComparison.Ordinal))
+            return false;
+
+        return string.Equals(agent.AgentId?.Trim(), requestedAgentId, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(agent.ToolCallId?.Trim(), requestedAgentId, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(agent.AgentName?.Trim(), requestedAgentId, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(agent.AgentDisplayName?.Trim(), requestedAgentId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string BuildActiveBackgroundAgentTraceList()
+    {
+        var active = _backgroundTaskPresenter.BackgroundAgents
+            .Where(agent => !AgentThreadRegistry.IsTerminalBackgroundStatus(agent.Status))
+            .Take(8)
+            .Select(agent =>
+                $"{agent.AgentId ?? "(no-id)"}/{agent.ToolCallId ?? "(no-tool)"}/{agent.Status ?? "(no-status)"}")
+            .ToArray();
+
+        return active.Length == 0 ? "[]" : "[" + string.Join(",", active) + "]";
+    }
+
+    private void NoteCoordinatorToolFailure(
+        string toolName,
+        string identity,
+        string error,
+        string traceMessage)
+    {
+        var key = toolName + "\n" + identity + "\n" + error;
+        var now = DateTimeOffset.Now;
+        if (!_coordinatorToolFailureTraces.TryGetValue(key, out var state))
+        {
+            state = new CoordinatorToolFailureTraceState {
+                Count = 0,
+                FirstSeenAt = now
+            };
+            _coordinatorToolFailureTraces[key] = state;
+        }
+
+        state.Count++;
+        var shouldTrace = state.Count == 1 ||
+                          state.Count == CoordinatorToolFailureTraceThreshold ||
+                          state.Count % CoordinatorToolFailureTraceEvery == 0;
+        if (!shouldTrace)
+            return;
+
+        var elapsedSeconds = Math.Max(0, (now - state.FirstSeenAt).TotalSeconds);
+        SquadDashTrace.Write(
+            "Agents",
+            $"{traceMessage} repeatedFailureCount={state.Count} repeatedFailureElapsedSec={elapsedSeconds:0}");
+    }
+
+    private static string BuildReadAgentOutcome(bool success, string output)
+    {
+        if (success)
+            return "success";
+
+        if (output.Contains("Agent not found", StringComparison.OrdinalIgnoreCase))
+            return "not_found";
+
+        return output.Contains("Code: failure", StringComparison.OrdinalIgnoreCase)
+            ? "failure"
+            : "unknown_failure";
+    }
+
+    private static bool IsMaximumConcurrentAgentLimit(string? output) =>
+        !string.IsNullOrWhiteSpace(output) &&
+        output.Contains("Maximum concurrent agent limit", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsReadAgentPlaceholder(string output) =>
+        output.Contains("(Full response provided to agent)", StringComparison.OrdinalIgnoreCase);
 
     private bool TryGetOrCreateToolEntry(
         TranscriptThreadState thread,
@@ -20535,6 +20686,16 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()
+            : null;
+    }
+
+    private static bool? TryGetJsonBool(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            return null;
+
+        return element.TryGetProperty(propertyName, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? property.GetBoolean()
             : null;
     }
 

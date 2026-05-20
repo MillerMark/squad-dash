@@ -238,8 +238,12 @@ internal sealed class AgentThreadRegistry {
         if (!string.IsNullOrWhiteSpace(status))
             thread.StatusText = HumanizeThreadStatus(status);
 
-        if (created)
+        if (created) {
+            SquadDashTrace.Write(
+                "Agents",
+                $"AgentThread.Created thread={thread.ThreadId} toolCallId={toolCallId ?? "(none)"} agentId={agentId ?? "(none)"} agentName={agentName ?? "(none)"} display={agentDisplayName ?? "(none)"} status={status ?? "(none)"}");
             _syncAgentCards();
+        }
 
         return thread;
     }
@@ -498,6 +502,10 @@ internal sealed class AgentThreadRegistry {
                  string.Equals(statusText, "Failed", StringComparison.OrdinalIgnoreCase)) {
             thread.CompletedAt = DateTimeOffset.Now;
         }
+
+        SquadDashTrace.Write(
+            "Agents",
+            $"AgentThread.Lifecycle status={thread.StatusText} thread={thread.ThreadId} agentId={thread.AgentId ?? "(none)"} agentName={thread.AgentName ?? "(none)"} display={thread.AgentDisplayName ?? "(none)"} toolCallId={thread.ToolCallId ?? "(none)"} completed={thread.CompletedAt is not null} responseChars={thread.LatestResponse?.Length ?? 0}");
     }
 
     internal void EnsureAgentThreadTurnStarted(TranscriptThreadState thread) {
@@ -633,6 +641,9 @@ internal sealed class AgentThreadRegistry {
             return;
 
         _agentLaunchesByToolCallId[launchInfo.ToolCallId] = launchInfo;
+        SquadDashTrace.Write(
+            "Agents",
+            $"TaskLaunch.Captured requested={launchInfo.TaskName ?? "(none)"} toolCallId={launchInfo.ToolCallId} mode={launchInfo.Mode ?? "(none)"} display={launchInfo.DisplayName ?? "(none)"} agentType={launchInfo.AgentType ?? "(none)"}");
 
         if (_agentThreadsByToolCallId.TryGetValue(launchInfo.ToolCallId, out var existingThread)) {
             ApplyBackgroundLaunchInfo(existingThread, launchInfo);
@@ -646,8 +657,8 @@ internal sealed class AgentThreadRegistry {
             thread.BackgroundTaskId = launchInfo.TaskName.Trim();
             if (!string.Equals(previousBackgroundTaskId, thread.BackgroundTaskId, StringComparison.OrdinalIgnoreCase)) {
                 SquadDashTrace.Write(
-                    "Threads",
-                    $"Mapped background task id thread={thread.ThreadId} toolCallId={launchInfo.ToolCallId} backgroundTaskId={thread.BackgroundTaskId} mode={launchInfo.Mode ?? "(none)"} previous={previousBackgroundTaskId ?? "(none)"}");
+                    "Agents",
+                    $"TaskLaunch.Mapped requested={launchInfo.TaskName ?? "(none)"} assigned={thread.AgentId ?? "(none)"} thread={thread.ThreadId} toolCallId={launchInfo.ToolCallId} backgroundTaskId={thread.BackgroundTaskId} mode={launchInfo.Mode ?? "(none)"} previous={previousBackgroundTaskId ?? "(none)"}");
             }
 
             if (string.IsNullOrWhiteSpace(thread.AgentId) ||
