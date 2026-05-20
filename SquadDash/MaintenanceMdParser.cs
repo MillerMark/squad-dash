@@ -11,8 +11,10 @@ namespace SquadDash;
 internal static class MaintenanceMdParser {
 
     /// <summary>
-    /// Returns null if the file is missing, unreadable, or the frontmatter lacks
-    /// <c>configured: true</c>.
+    /// Returns null if the file is missing or unreadable.
+    /// When the frontmatter lacks <c>configured: true</c> the config is still returned
+    /// (with <see cref="MaintenanceMdConfig.Configured"/> == false) so the panel can
+    /// show tasks for browsing.
     /// </summary>
     public static MaintenanceMdConfig? Parse(string maintenanceMdPath) {
         if (!File.Exists(maintenanceMdPath))
@@ -211,13 +213,11 @@ internal static class MaintenanceMdParser {
 
         FinalizeCurrentTask(current, optionKeys, optionBuilders, tasks);
 
-        if (!configured) return null;
-
         var builtTasks = tasks
             .Select(t => t.Build(safety))
             .ToList();
 
-        return new MaintenanceMdConfig(idleTimeout, maxTasks, safety, builtTasks);
+        return new MaintenanceMdConfig(configured, idleTimeout, maxTasks, safety, builtTasks);
     }
 
     // ── Safety floor enforcement ───────────────────────────────────────────────

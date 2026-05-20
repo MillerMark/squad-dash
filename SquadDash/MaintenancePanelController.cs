@@ -228,6 +228,17 @@ internal sealed class MaintenancePanelController {
     private void RebuildList() {
         _listPanel.Children.Clear();
 
+        if (_config?.Configured == false) {
+            var banner = new TextBlock {
+                Text         = "Maintenance is disabled. Set configured: true in maintenance.md to activate.",
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 0, 0, 8),
+            };
+            banner.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            banner.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            _listPanel.Children.Add(banner);
+        }
+
         if (_config is null || _config.Tasks is null || _config.Tasks.Count == 0) {
             var empty = new TextBlock {
                 Text         = "No maintenance tasks configured.",
@@ -410,8 +421,8 @@ internal sealed class MaintenancePanelController {
             rightPanel.Children.Add(lastRunBlock);
         }
 
-        // Radio options (if present)
-        if (task.Options is { Count: > 0 }) {
+        // Radio options (if present and task is enabled)
+        if (task.Enabled && task.Options is { Count: > 0 }) {
             var optionsPanel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             foreach (var opt in task.Options) {
                 if (opt.Label is { Length: > 0 }) {

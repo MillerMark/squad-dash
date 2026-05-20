@@ -35,10 +35,10 @@ internal sealed class MaintenanceMdParserTests {
         Assert.That(result, Is.Null);
     }
 
-    // ── Missing configured: true ──────────────────────────────────────────────
+    // ── configured: false / missing still returns config ─────────────────────
 
     [Test]
-    public void Parse_ConfiguredKeyAbsentFromFrontmatter_ReturnsNull() {
+    public void Parse_ConfiguredKeyAbsentFromFrontmatter_ReturnsConfigWithConfiguredFalse() {
         var path = WriteTempFile(
             """
             ---
@@ -47,13 +47,15 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            Assert.That(MaintenanceMdParser.Parse(path), Is.Null);
+            var config = MaintenanceMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Configured, Is.False);
         }
         finally { DeleteTempFile(path); }
     }
 
     [Test]
-    public void Parse_ConfiguredFalse_ReturnsNull() {
+    public void Parse_ConfiguredFalse_ReturnsConfigWithConfiguredFalse() {
         var path = WriteTempFile(
             """
             ---
@@ -62,7 +64,9 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            Assert.That(MaintenanceMdParser.Parse(path), Is.Null);
+            var config = MaintenanceMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Configured, Is.False);
         }
         finally { DeleteTempFile(path); }
     }
@@ -1019,6 +1023,85 @@ internal sealed class MaintenanceMdParserTests {
         try {
             Assert.DoesNotThrow(() =>
                 MaintenanceMdParser.UpdateOptionValue(path, "run-tests", "if_failing", "fix"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── Configured property (Bug 1 fix) ───────────────────────────────────────
+
+    [Test]
+    public void Parse_ConfiguredFalse_ReturnsConfigWithTasksVisible() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: false
+            tasks:
+              - id: task-one
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Task One"
+                instructions: "Do task one."
+              - id: task-two
+                enabled: false
+                frequency: weekly
+                safety: branch
+                title: "Task Two"
+                instructions: "Do task two."
+            ---
+            """);
+        try {
+            var config = MaintenanceMdParser.Parse(path);
+            Assert.That(config,            Is.Not.Null,  "config must not be null when configured: false");
+            Assert.That(config!.Configured, Is.False,    "Configured must be false");
+            Assert.That(config.Tasks,       Is.Not.Null);
+            Assert.That(config.Tasks!.Count, Is.EqualTo(2), "both tasks must be visible");
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_ConfiguredTrue_ReturnsConfiguredTrue() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            tasks:
+              - id: single-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Single Task"
+                instructions: "Run it."
+            ---
+            """);
+        try {
+            var config = MaintenanceMdParser.Parse(path);
+            Assert.That(config,             Is.Not.Null);
+            Assert.That(config!.Configured,  Is.True);
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_ConfiguredMissing_DefaultsFalse() {
+        var path = WriteTempFile(
+            """
+            ---
+            idle_timeout: 20
+            tasks:
+              - id: orphan-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Orphan Task"
+                instructions: "This task has no configured key above it."
+            ---
+            """);
+        try {
+            var config = MaintenanceMdParser.Parse(path);
+            Assert.That(config,             Is.Not.Null, "config must not be null when configured: key is absent");
+            Assert.That(config!.Configured,  Is.False,   "Configured defaults to false when key is absent");
         }
         finally { DeleteTempFile(path); }
     }

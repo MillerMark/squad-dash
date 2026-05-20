@@ -162,6 +162,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private FileSystemWatcher? _restartRequestWatcher;
     private readonly DispatcherTimer _teamRefreshDebounceTimer;
     private FileSystemWatcher? _docsWatcher;
+    private FileSystemWatcher? _maintenanceMdWatcher;
     private CancellationTokenSource? _docsRefreshCts;
     private Point _docsDragStartPoint;
     private TreeViewItem? _docsDragItem;
@@ -20845,7 +20846,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         DisposeInboxWatcher();
         DisposeTeamFileWatcher();
-        _pec.ActiveToolName = null;
+        DisposeMaintenanceMdWatcher();
         _conversationManager.CurrentSessionId = null;
         SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn cleared reason=ClearSessionView currentTurnWasPresent={_currentTurn is not null}");
         _currentTurn = null;
@@ -21766,6 +21767,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             DisposeTeamFileWatcher();
             DisposeRestartRequestWatcher();
             DisposeDocsWatcher();
+            DisposeMaintenanceMdWatcher();
             _toolSpinnerTimer.Stop();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
         }
@@ -22392,6 +22394,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         var squadRoot = _currentWorkspace.SquadFolderPath;
         var squadFolderExists = Directory.Exists(squadRoot);
         ConfigureTeamFileWatcher();
+        InitMaintenanceMdWatcher(squadRoot);
 
         var loopMdPath        = Path.Combine(squadRoot, "loop.md");
         var maintenanceMdPath = Path.Combine(squadRoot, "maintenance.md");
@@ -22953,6 +22956,36 @@ public partial class MainWindow : Window, ILiveElementLocator
         _docsRefreshCts?.Cancel();
         _docsRefreshCts?.Dispose();
         _docsRefreshCts = null;
+    }
+
+    private void InitMaintenanceMdWatcher(string squadFolder) {
+        DisposeMaintenanceMdWatcher();
+        if (!Directory.Exists(squadFolder)) return;
+        _maintenanceMdWatcher = new FileSystemWatcher(squadFolder, "maintenance.md") {
+            NotifyFilter          = NotifyFilters.LastWrite | NotifyFilters.Size,
+            EnableRaisingEvents   = true,
+            IncludeSubdirectories = false,
+        };
+        _maintenanceMdWatcher.Changed += OnMaintenanceMdChanged;
+        _maintenanceMdWatcher.Created += OnMaintenanceMdChanged;
+    }
+
+    private void OnMaintenanceMdChanged(object sender, FileSystemEventArgs e) {
+        var timer = new System.Timers.Timer(300) { AutoReset = false };
+        timer.Elapsed += (_, _) => {
+            timer.Dispose();
+            Dispatcher.InvokeAsync(SyncMaintenancePanel);
+        };
+        timer.Start();
+    }
+
+    private void DisposeMaintenanceMdWatcher() {
+        if (_maintenanceMdWatcher is null) return;
+        _maintenanceMdWatcher.EnableRaisingEvents = false;
+        _maintenanceMdWatcher.Changed -= OnMaintenanceMdChanged;
+        _maintenanceMdWatcher.Created -= OnMaintenanceMdChanged;
+        _maintenanceMdWatcher.Dispose();
+        _maintenanceMdWatcher = null;
     }
 
     private ByokProviderSettings? BuildByokSettingsFromStore()
@@ -26886,7 +26919,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             return;
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
-        if (config is null) return;
+        if (config is null || !config.Configured) return;
         if (config.Tasks is not { Count: > 0 } tasks || !tasks.Any(task => task.Enabled))
             return;
 
