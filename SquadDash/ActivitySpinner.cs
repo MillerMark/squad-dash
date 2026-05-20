@@ -36,23 +36,31 @@ public sealed class ActivitySpinner : FrameworkElement
     private double _animatedWidth = 0.0;
     private double _widthTarget = 0.0;
 
-    // Dynamic sizing
-    private double _lineHeight = 16.0;
+    // Dynamic sizing — driven by FontSize dependency property
+    public static readonly DependencyProperty FontSizeProperty =
+        DependencyProperty.Register(
+            nameof(FontSize), typeof(double), typeof(ActivitySpinner),
+            new FrameworkPropertyMetadata(
+                12.0,
+                FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender,
+                OnFontSizeChanged));
 
-    /// <summary>Line height of the adjacent status label (default 16). Diameter = LineHeight × 0.85.</summary>
-    public double LineHeight
+    /// <summary>Body font size used to size the spinner. Diameter = FontSize × 1.2 × 0.85.</summary>
+    public double FontSize
     {
-        get => _lineHeight;
-        set
-        {
-            if (_lineHeight == value) return;
-            _lineHeight = value;
-            InvalidateMeasure();
-            InvalidateVisual();
-        }
+        get => (double)GetValue(FontSizeProperty);
+        set => SetValue(FontSizeProperty, value);
     }
 
-    private double Diameter => _lineHeight * 0.85;
+    private static void OnFontSizeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var spinner = (ActivitySpinner)d;
+        // Keep layout width target in sync when spinner is active
+        if (spinner._scaleTarget > 0.0)
+            spinner._widthTarget = spinner.Diameter + 4;
+    }
+
+    private double Diameter => FontSize * 1.2 * 0.85;
 
     // Timers
     private readonly DispatcherTimer _physicsTimer;

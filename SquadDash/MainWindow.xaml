@@ -213,7 +213,7 @@
                                     Visibility="{Binding StatusVisibility}">
                             <local:ActivitySpinner Margin="0,0,4,0"
                                                    VerticalAlignment="Center"
-                                                   LineHeight="14.4" />
+                                                   FontSize="{DynamicResource FontSizeBody}" />
                             <TextBlock x:Name="StatusTextBlock"
                                        Text="{Binding StatusText}"
                                        FontSize="{DynamicResource FontSizeBody}"
