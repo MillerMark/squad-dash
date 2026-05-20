@@ -4,10 +4,10 @@
 # Set enabled: true on individual tasks to activate them.
 # Global safety floor: per-task safety cannot be less safe than this value.
 #   report-only < branch < direct
-configured: false
 idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
+configured: false  # ← change to true to activate
 tasks:
   - id: run-tests
     enabled: false

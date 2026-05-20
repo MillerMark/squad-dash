@@ -533,11 +533,7 @@
 
 
 
-- [ ] **[maintenance.md] S8 — Move `configured: false` to bottom of frontmatter with annotation** *(Owner: arjun-sen)*
-  In the global config frontmatter block, relocate `configured: false` to the very last line of the
-  block and add a trailing comment: `configured: false  # ← change to true to activate`.
-  This makes it the most prominent thing a new user encounters when they open the file to enable
-  maintenance mode. File-only change.
+
 
 ---
 
@@ -582,6 +578,8 @@
 ## ✅ Recently Completed
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
+
+- [x] **[maintenance.md] S8 — Move `configured: false` to bottom of frontmatter with annotation** — ✅ `configured: false` moved to last line of global config block (just before `tasks:`), with `# ← change to true to activate` comment. File-only change; no parser update.
 
 - [x] **[maintenance.md] S7 — Shorten the 100-line header comment to a concise reference card** — ✅ Already resolved. S1's rewrite replaced the original ~100-line HTML comment block with 5 concise `#` comment lines at the top of the frontmatter. No further changes needed.
 
