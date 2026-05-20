@@ -163,7 +163,7 @@ internal sealed class ScreenshotOverlayWindow : Window
     private FrameworkElement? _highlightedElement;
 
     // Description-box voice state
-    private AzureSpeechRecognitionService? _descVoiceService;
+    private ISpeechRecognitionService? _descVoiceService;
     private PushToTalkWindow?         _descPttWindow;
     private bool                      _descVoiceStopOnCtrlRelease;
     private int                       _descVoiceCaretIndex     = -1;
@@ -1454,17 +1454,28 @@ internal sealed class ScreenshotOverlayWindow : Window
 
     private async Task StartDescVoiceAsync()
     {
-        var key    = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY",    EnvironmentVariableTarget.User);
-        var region = string.IsNullOrWhiteSpace(_speechRegion)
-            ? (Environment.GetEnvironmentVariable("SQUAD_SPEECH_REGION", EnvironmentVariableTarget.User)
-               ?? Environment.GetEnvironmentVariable("SQUAD_SPEECH_REGION", EnvironmentVariableTarget.Machine)
-               ?? Environment.GetEnvironmentVariable("SQUAD_SPEECH_REGION"))
-            : _speechRegion;
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(region))
+        var settings = new ApplicationSettingsStore().Load();
+        string key, region;
+        if (settings.SpeechProvider == SpeechProvider.OpenAI) {
+            key    = settings.OpenAiSpeechApiKey ?? string.Empty;
+            region = string.Empty;
+        }
+        else {
+            key = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User) ?? string.Empty;
+            region = string.IsNullOrWhiteSpace(_speechRegion)
+                ? (Environment.GetEnvironmentVariable("SQUAD_SPEECH_REGION", EnvironmentVariableTarget.User)
+                   ?? Environment.GetEnvironmentVariable("SQUAD_SPEECH_REGION", EnvironmentVariableTarget.Machine)
+                   ?? Environment.GetEnvironmentVariable("SQUAD_SPEECH_REGION")
+                   ?? string.Empty)
+                : _speechRegion;
+        }
+
+        if (string.IsNullOrWhiteSpace(key) ||
+            (settings.SpeechProvider == SpeechProvider.Azure && string.IsNullOrWhiteSpace(region)))
         {
             SquadDashTrace.Write(
                 "OverlayVoice",
-                $"StartDescVoiceAsync skipped: missing speech config keyPresent={!string.IsNullOrWhiteSpace(key)} regionPresent={!string.IsNullOrWhiteSpace(region)}");
+                $"StartDescVoiceAsync skipped: missing speech config provider={settings.SpeechProvider} keyPresent={!string.IsNullOrWhiteSpace(key)} regionPresent={!string.IsNullOrWhiteSpace(region)}");
             return;
         }
 
@@ -1490,7 +1501,9 @@ internal sealed class ScreenshotOverlayWindow : Window
         }
 
         _descVoiceStopOnCtrlRelease = true;
-        _descVoiceService = new AzureSpeechRecognitionService();
+        _descVoiceService = settings.SpeechProvider == SpeechProvider.OpenAI
+            ? new WhisperSpeechRecognitionService()
+            : new AzureSpeechRecognitionService();
 
         _descVoiceService.PhraseRecognized += (_, text) =>
             Dispatcher.BeginInvoke(() =>
@@ -1542,7 +1555,7 @@ internal sealed class ScreenshotOverlayWindow : Window
 
         try
         {
-            await _descVoiceService.StartAsync(key, region).ConfigureAwait(false);
+            await _descVoiceService.StartAsync(key, region, language: settings.SpeechLanguage).ConfigureAwait(false);
             SquadDashTrace.Write("OverlayVoice", "StartDescVoiceAsync: speech recognition started");
         }
         catch (Exception ex)

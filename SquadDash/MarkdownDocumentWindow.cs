@@ -80,7 +80,7 @@ internal sealed class MarkdownDocumentWindow : Window {
     private readonly HashSet<MarkdownDocumentTabState> _pendingEditorUpdates = [];
 
     // ── Editor voice / PTT ─────────────────────────────────────────────────
-    private AzureSpeechRecognitionService? _editorVoiceService;
+    private ISpeechRecognitionService? _editorVoiceService;
     private PushToTalkWindow?         _editorPttWindow;
     private bool                      _editorVoiceStopOnCtrlRelease;
     private int                       _editorVoiceCaretIndex;
@@ -1159,10 +1159,19 @@ internal sealed class MarkdownDocumentWindow : Window {
     }
 
     private async Task StartEditorVoiceAsync() {
-        var key    = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User);
-        var region = new ApplicationSettingsStore().Load().SpeechRegion;
+        var settings = new ApplicationSettingsStore().Load();
+        string key, region;
+        if (settings.SpeechProvider == SpeechProvider.OpenAI) {
+            key    = settings.OpenAiSpeechApiKey ?? string.Empty;
+            region = string.Empty;
+        }
+        else {
+            key    = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User) ?? string.Empty;
+            region = settings.SpeechRegion ?? string.Empty;
+        }
 
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(region)) {
+        if (string.IsNullOrWhiteSpace(key) ||
+            (settings.SpeechProvider == SpeechProvider.Azure && string.IsNullOrWhiteSpace(region))) {
             _editorVoiceStopOnCtrlRelease = false;
             _editorPttGesture.Reset();
             return;
@@ -1174,7 +1183,9 @@ internal sealed class MarkdownDocumentWindow : Window {
         _editorVoiceCaretIndex    = editorTb.GetSelectionStart();
         _editorVoiceSelectionLength = editorTb.GetSelectionLength();
 
-        _editorVoiceService = new AzureSpeechRecognitionService();
+        _editorVoiceService = settings.SpeechProvider == SpeechProvider.OpenAI
+            ? new WhisperSpeechRecognitionService()
+            : new AzureSpeechRecognitionService();
 
         _editorVoiceService.PhraseRecognized += (_, text) =>
             Dispatcher.BeginInvoke(() => AppendSpeechToEditor(text));
@@ -1212,7 +1223,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             _editorPttWindow.Show();
             editorTb.Focus();
 
-            await _editorVoiceService.StartAsync(key, region).ConfigureAwait(false);
+            await _editorVoiceService.StartAsync(key, region, language: settings.SpeechLanguage).ConfigureAwait(false);
         }
         catch {
             await Dispatcher.InvokeAsync(() => {
