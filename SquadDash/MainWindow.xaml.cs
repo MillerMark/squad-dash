@@ -1067,7 +1067,15 @@ public partial class MainWindow : Window, ILiveElementLocator
             beginTranscriptTurn: prompt => BeginTranscriptTurn(prompt),
             finalizeCurrentTurnResponse: () => FinalizeCurrentTurnResponse(),
             appendLine: (text, brush) => AppendLine(text, brush),
-            selectTranscriptThread: thread => SelectTranscriptThread(thread),
+            selectTranscriptThread: thread => {
+                // When the coordinator thread is shown during prompt execution, make the
+                // main transcript visible if it was hidden (e.g. user had only agent
+                // secondary panels open). We do NOT close secondary panels — the user
+                // keeps seeing what they were looking at, and the coordinator is added.
+                if (!_mainTranscriptVisible)
+                    ShowMainTranscript();
+                SelectTranscriptThread(thread);
+            },
             getCoordinatorThread: () => CoordinatorThread,
             getAgents: () => _agents,
             getCurrentSessionState: () => _currentSessionState,
