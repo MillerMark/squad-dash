@@ -1484,6 +1484,11 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             _startupInitialized = true;
 
+            // Global shortcut: Ctrl+Alt+Shift+F12 → toggle UI Reveal on the active window.
+            // InputManager.PreProcessInput fires before WPF dispatch for every window on this
+            // thread, so the shortcut works even when a floating window has keyboard focus.
+            InputManager.Current.PreProcessInput += OnGlobalPreProcessInput;
+
             // Capture Shift state once, before any async work, while we're still on the UI thread.
             _startupShiftHeld = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
 
@@ -11202,11 +11207,53 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private UiRevealOverlay? _uiRevealOverlay;
 
-    private void UiRevealMenuItem_Click(object sender, RoutedEventArgs e)
+    private void UiRevealMenuItem_Click(object sender, RoutedEventArgs e) =>
+        ToggleUiReveal(this);
+
+    /// <summary>
+    /// Activates or deactivates UI Reveal on the given window.
+    /// Called from both the menu item and the global Ctrl+Alt+Shift+F12 shortcut.
+    /// </summary>
+    private void ToggleUiReveal(Window targetWindow)
     {
         _uiRevealOverlay ??= new UiRevealOverlay();
-        _uiRevealOverlay.Activate(this);
+        if (_uiRevealOverlay.IsActive)
+            _uiRevealOverlay.Deactivate();
+        else
+            _uiRevealOverlay.Activate(targetWindow);
     }
+
+    /// <summary>
+    /// Global input handler registered on <see cref="InputManager.PreProcessInput"/>.
+    /// Fires for every WPF window on this thread before dispatch, so Ctrl+Alt+Shift+F12
+    /// works even when a floating window (hint overlay, doc window, etc.) has keyboard focus.
+    /// </summary>
+    private void OnGlobalPreProcessInput(object sender, PreProcessInputEventArgs e)
+    {
+        try
+        {
+            if (e.StagingItem.Input is not KeyEventArgs keyArgs) return;
+            if (keyArgs.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
+            if (keyArgs.Key != Key.F12) return;
+            if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift))
+                != (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift))
+                return;
+
+            // Find the WPF window that currently has focus; fall back to MainWindow.
+            var target = Application.Current.Windows
+                             .OfType<Window>()
+                             .FirstOrDefault(w => w.IsActive)
+                         ?? this;
+
+            ToggleUiReveal(target);
+            keyArgs.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OnGlobalPreProcessInput), ex);
+        }
+    }
+
 
     private void ToolIconGalleryMenuItem_Click(object sender, RoutedEventArgs e)
     {

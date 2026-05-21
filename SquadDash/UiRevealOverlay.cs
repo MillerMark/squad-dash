@@ -45,8 +45,18 @@ internal sealed class UiRevealOverlay
     private HighlightAdorner? _activeAdorner;
     private UIElement? _activeAdornerTarget;
 
+    /// <summary>True while the overlay is active on a window.</summary>
+    public bool IsActive => _owner is not null;
+
     public void Activate(Window owner)
     {
+        // If already active on a different window, detach first.
+        if (_owner is not null && !ReferenceEquals(_owner, owner))
+            Deactivate();
+
+        if (_owner is not null)
+            return; // already active on this window
+
         _owner = owner;
         EnsurePopup();
         _lastElement = null;
@@ -55,7 +65,7 @@ internal sealed class UiRevealOverlay
         owner.PreviewMouseDown  += OnPreviewMouseDown;
     }
 
-    private void Deactivate()
+    internal void Deactivate()
     {
         if (_owner is not null)
         {
