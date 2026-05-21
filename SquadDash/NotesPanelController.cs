@@ -145,7 +145,6 @@ internal sealed class NotesPanelController {
                         Text         = note.Title,
                         FontWeight   = FontWeights.SemiBold,
                         TextTrimming = TextTrimming.CharacterEllipsis,
-                        MaxWidth     = 165,
                     };
                     titleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
                     titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
@@ -165,7 +164,7 @@ internal sealed class NotesPanelController {
                 },
                 getMarkdown: () => _loadPreview!(note),
                 placement:   System.Windows.Controls.Primitives.PlacementMode.Right,
-                maxWidth:    320,
+                maxWidth:    640,
                 maxHeight:   200);
         }
 
