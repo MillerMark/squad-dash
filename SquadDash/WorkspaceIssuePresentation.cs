@@ -476,7 +476,7 @@ internal static class WorkspaceIssueFactory {
     }
 
     private static string BuildRebuildCommand(string? applicationRoot = null) {
-        var solutionPath = Path.Combine(applicationRoot ?? string.Empty, "SquadUI.slnx");
+        var solutionPath = Path.Combine(applicationRoot ?? string.Empty, "squad-dash.slnx");
         return $"dotnet build \"{solutionPath}\" --no-restore -verbosity:quiet";
     }
 

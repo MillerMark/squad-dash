@@ -21,9 +21,10 @@ namespace SquadDash {
             var workspacePaths = string.IsNullOrWhiteSpace(startupArguments.ApplicationRoot)
                 ? WorkspacePathsProvider.Discover()
                 : new WorkspacePathsProvider(startupArguments.ApplicationRoot);
+            SquadDashEnvironment.Initialize(workspacePaths.ApplicationRoot);
             SquadDashTrace.Write(
                 "Startup",
-                $"App.OnStartup appRoot={startupArguments.ApplicationRoot ?? "(auto)"} workspace={startupArguments.StartupFolder ?? "(none)"} newWindow={startupArguments.NoWorkspaceOnStart}");
+                $"App.OnStartup appRoot={startupArguments.ApplicationRoot ?? "(auto)"} workspace={startupArguments.StartupFolder ?? "(none)"} newWindow={startupArguments.NoWorkspaceOnStart} devMode={SquadDashEnvironment.IsDeveloperMode}");
             SquadDashRuntimeStamp.WriteStartupStamp(workspacePaths);
             var startupFolder = startupArguments.StartupFolder;
 
