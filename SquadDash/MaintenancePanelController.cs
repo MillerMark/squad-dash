@@ -424,11 +424,11 @@ internal sealed class MaintenancePanelController {
 
         // Chips: frequency + safety
         var chipRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
-        chipRow.Children.Add(BuildChip(task.Frequency, null));
+        chipRow.Children.Add(BuildChip(task.Frequency, FrequencyTooltip(task.Frequency)));
         if (string.Equals(task.Safety, "direct", StringComparison.OrdinalIgnoreCase))
             chipRow.Children.Add(BuildWarningChip("⚠ direct commits"));
         else if (!string.Equals(task.Safety, "branch", StringComparison.OrdinalIgnoreCase))
-            chipRow.Children.Add(BuildChip(task.Safety, null));
+            chipRow.Children.Add(BuildChip(task.Safety, SafetyTooltip(task.Safety)));
         rightPanel.Children.Add(chipRow);
 
         // Last-run status
@@ -491,6 +491,20 @@ internal sealed class MaintenancePanelController {
 
         return row;
     }
+
+    private static string FrequencyTooltip(string frequency) => frequency.ToLowerInvariant() switch {
+        "daily"      => "Runs at most once per calendar day.",
+        "per-commit" => "Runs once per commit since the last time it ran.",
+        "always"     => "Runs every idle cycle with no cooldown.",
+        _            => $"Frequency: {frequency}",
+    };
+
+    private static string SafetyTooltip(string safety) => safety.ToLowerInvariant() switch {
+        "report-only" => "Read-only — no file changes. Produces a written analysis only.",
+        "branch"      => "Creates a new git branch and commits changes there. Never touches the current branch.",
+        "direct"      => "Edits and commits directly on the current branch.",
+        _             => $"Safety: {safety}",
+    };
 
     private static Border BuildChip(string text, string? tooltip) {
         var label = new TextBlock { Text = text };
