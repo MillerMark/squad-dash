@@ -391,7 +391,7 @@ internal sealed class MaintenancePanelController {
                 row,
                 buildHeader: null,
                 getMarkdown: () => task.Instructions,
-                maxWidth:    400,
+                maxWidth:    800,
                 maxHeight:   200);
 
         var grid = new Grid();

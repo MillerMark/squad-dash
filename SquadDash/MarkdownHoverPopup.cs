@@ -36,7 +36,7 @@ internal static class MarkdownHoverPopup {
         Func<UIElement?>? buildHeader,
         Func<string?>     getMarkdown,
         PlacementMode     placement = PlacementMode.Left,
-        double            maxWidth  = 340,
+        double            maxWidth  = 680,
         double            maxHeight = 220) {
 
         var contentStack = new StackPanel { Margin = new Thickness(10) };
@@ -45,7 +45,7 @@ internal static class MarkdownHoverPopup {
             Child           = contentStack,
             Padding         = new Thickness(0),
             BorderThickness = new Thickness(1),
-            MinWidth        = 220,
+            MinWidth        = 440,
             MaxWidth        = maxWidth,
         };
 
