@@ -225,6 +225,11 @@ internal sealed class MarkdownDocumentWindow : Window {
             noteTitleBox.KeyDown   += (_, e) => {
                 if (e.Key == Key.Enter)  { CommitNoteTitle(); e.Handled = true; }
                 if (e.Key == Key.Escape) { noteTitleBox.Text = currentNoteTitle; e.Handled = true; }
+                if (e.Key == Key.Tab && _showSource) {
+                    CommitNoteTitle();
+                    _activeDocument?.EditorTextBox.Focus();
+                    e.Handled = true;
+                }
             };
 
             _rootPanel.Children.Add(noteTitleRow);
@@ -294,6 +299,7 @@ internal sealed class MarkdownDocumentWindow : Window {
             loopDescBox.KeyDown   += (_, e) => {
                 if (e.Key == Key.Enter)  { CommitLoopDescription(); e.Handled = true; }
                 if (e.Key == Key.Escape) { loopDescBox.Text = currentLoopDescription; e.Handled = true; }
+                // Tab from description → checkbox (default), so no override needed here.
             };
 
             _rootPanel.Children.Add(loopDescRow);
@@ -333,6 +339,14 @@ internal sealed class MarkdownDocumentWindow : Window {
                 _activeDocument.EditorTextBox.SetPlainText(stripped);
                 _activeDocument.IsDirty = wasDirty;
                 UpdateChrome();
+            };
+
+            // Tab from the checkbox skips the markdown toolbar buttons and lands in the editor.
+            frontMatterCheckBox.KeyDown += (_, e) => {
+                if (e.Key == Key.Tab && _showSource) {
+                    _activeDocument?.EditorTextBox.Focus();
+                    e.Handled = true;
+                }
             };
 
             _rootPanel.Children.Add(frontMatterRow);
