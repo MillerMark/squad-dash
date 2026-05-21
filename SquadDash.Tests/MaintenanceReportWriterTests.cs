@@ -13,23 +13,17 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class MaintenanceReportWriterTests {
 
-    private string _workspaceDir = null!;
+    private TestWorkspace _workspace = null!;
     private MaintenanceReportWriter _writer = null!;
 
     [SetUp]
     public void SetUp() {
-        _workspaceDir = Path.Combine(
-            TestContext.CurrentContext.WorkDirectory,
-            $"maint_report_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_workspaceDir);
-        _writer = new MaintenanceReportWriter(_workspaceDir);
+        _workspace = new TestWorkspace();
+        _writer = new MaintenanceReportWriter(_workspace.RootPath);
     }
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_workspaceDir))
-            Directory.Delete(_workspaceDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -64,7 +58,7 @@ internal sealed class MaintenanceReportWriterTests {
         Assert.That(Regex.IsMatch(fileName, @"^\d{8}-\d{6}\.md$"), Is.True,
             $"Filename must match yyyyMMdd-HHmmss.md pattern; got: {fileName}");
 
-        var reportsDir = Path.Combine(_workspaceDir, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
         Assert.That(filePath, Does.StartWith(reportsDir),
             "Report must be written inside .squad/maintenance-reports/");
     }
@@ -123,7 +117,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void WriteReport_PrunesOldFilesWhenOver30() {
-        var reportsDir = Path.Combine(_workspaceDir, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
         Directory.CreateDirectory(reportsDir);
 
         // Pre-populate with exactly 30 files with old timestamps (all before any current-date file)
@@ -147,7 +141,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void WriteReport_DoesNotPruneWhenUnder30() {
-        var reportsDir = Path.Combine(_workspaceDir, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
         Directory.CreateDirectory(reportsDir);
 
         // Pre-populate with only 5 old files
@@ -168,7 +162,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void GetReportPaths_ReturnsNewestFirst() {
-        var reportsDir = Path.Combine(_workspaceDir, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
         Directory.CreateDirectory(reportsDir);
 
         File.WriteAllText(Path.Combine(reportsDir, "20240101-120000.md"), "oldest");

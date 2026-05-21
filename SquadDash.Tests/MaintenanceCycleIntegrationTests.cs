@@ -13,25 +13,21 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class MaintenanceCycleIntegrationTests {
 
-    private string _tempDir      = null!;
+    private TestWorkspace _workspace = null!;
     private string _workspaceDir = null!;
     private string _stateDir     = null!;
 
     [SetUp]
     public void SetUp() {
-        var root = TestContext.CurrentContext.WorkDirectory;
-        _tempDir      = Path.Combine(root, $"maint_cycle_{Guid.NewGuid():N}");
-        _workspaceDir = Path.Combine(_tempDir, "workspace");
-        _stateDir     = Path.Combine(_tempDir, "state");
+        _workspace    = new TestWorkspace();
+        _workspaceDir = _workspace.GetPath("workspace");
+        _stateDir     = _workspace.GetPath("state");
         Directory.CreateDirectory(_workspaceDir);
         Directory.CreateDirectory(_stateDir);
     }
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     [Test]
     public async Task FullMaintenanceCycle_ForceIdleThreshold_WritesReport_RaisesEvent_UpdatesStateStore() {

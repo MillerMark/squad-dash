@@ -13,7 +13,7 @@ internal sealed class NotesStore {
 
     private const string MetaFileName = "notes.json";
 
-    private static readonly JsonSerializerOptions s_options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions s_options = JsonFileStorage.PrettyPrint;
 
     private readonly string _notesDirectory;
     private readonly string _metaFilePath;
@@ -28,25 +28,12 @@ internal sealed class NotesStore {
 
     /// <summary>Loads all note metadata. Returns empty list on any error.</summary>
     public List<NoteItem> LoadAll() {
-        try {
-            if (!File.Exists(_metaFilePath)) return [];
-            var json  = File.ReadAllText(_metaFilePath);
-            var items = JsonSerializer.Deserialize<List<NoteItem>>(json, s_options);
-            return items ?? [];
-        }
-        catch {
-            return [];
-        }
+        return JsonFileStorage.ReadOrDefault<List<NoteItem>>(_metaFilePath, []);
     }
 
     /// <summary>Atomically overwrites the metadata file with the current note list.</summary>
     public void SaveAll(IReadOnlyList<NoteItem> items) {
-        try {
-            JsonFileStorage.AtomicWrite(_metaFilePath, items, s_options);
-        }
-        catch (Exception ex) {
-            SquadDashTrace.Write("NotesStore", $"SaveAll failed: {ex.Message}");
-        }
+        JsonFileStorage.SafeWrite(_metaFilePath, items, "NotesStore", "SaveAll");
     }
 
     // ── Per-note content ──────────────────────────────────────────────────────

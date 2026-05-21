@@ -143,9 +143,7 @@ internal sealed class SquadInstallerService {
                 ["version"] = "1.0.0"
             };
 
-            var json = packageJson.ToJsonString(new JsonSerializerOptions {
-                WriteIndented = true
-            });
+            var json = packageJson.ToJsonString(JsonFileStorage.PrettyPrint);
 
             File.WriteAllText(packageJsonPath, json + Environment.NewLine, Encoding.UTF8);
 
@@ -267,7 +265,7 @@ internal sealed class SquadInstallerService {
         if (capacity is not null)
             capacity[SquadDashUniverseName] = SquadDashUniverseCapacity;
 
-        File.WriteAllText(policyPath, json.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
+        File.WriteAllText(policyPath, json.ToJsonString(JsonFileStorage.PrettyPrint), Encoding.UTF8);
     }
 
     /// <summary>
@@ -355,9 +353,7 @@ internal sealed class SquadInstallerService {
             }
         };
 
-        return policy.ToJsonString(new JsonSerializerOptions {
-            WriteIndented = true
-        }) + Environment.NewLine;
+        return policy.ToJsonString(JsonFileStorage.PrettyPrint) + Environment.NewLine;
     }
 
     internal const string SquadDashUniverseName = "SquadDash Universe";

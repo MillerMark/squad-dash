@@ -394,4 +394,29 @@ internal sealed class ApplicationSettingsStoreTests {
             Assert.That(loaded.LoopContinuousContext, Is.False);
         });
     }
+
+    [Test]
+    public void Load_WhenFileDoesNotExist_ReturnsDefaultSnapshot() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        var loaded = store.Load();
+
+        Assert.That(loaded, Is.Not.Null);
+        Assert.That(loaded.RecentFolders, Is.Empty);
+    }
+
+    [Test]
+    public void Load_WhenFileContainsMalformedJson_ReturnsDefaultSnapshot() {
+        using var workspace = new TestWorkspace();
+        var settingsDir = workspace.GetPath("settings");
+        Directory.CreateDirectory(settingsDir);
+        File.WriteAllText(Path.Combine(settingsDir, "settings.json"), "not valid json {{ ]]]");
+        var store = new ApplicationSettingsStore(Path.Combine(settingsDir, "settings.json"));
+
+        var loaded = store.Load();
+
+        Assert.That(loaded, Is.Not.Null);
+        Assert.That(loaded.RecentFolders, Is.Empty);
+    }
 }

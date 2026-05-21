@@ -27,4 +27,15 @@ internal sealed class RuntimeSlotStateStoreTests {
 
         Assert.That(loaded, Is.EqualTo(RuntimeSlotState.Empty));
     }
+
+    [Test]
+    public void Load_CorruptJson_ReturnsEmpty() {
+        using var workspace = new TestWorkspace();
+        var store = new RuntimeSlotStateStore(workspace.RootPath);
+        File.WriteAllText(Path.Combine(workspace.RootPath, "active-slot.json"), "{ not valid json [[[");
+
+        var loaded = store.Load();
+
+        Assert.That(loaded, Is.EqualTo(RuntimeSlotState.Empty));
+    }
 }

@@ -33,18 +33,8 @@ internal sealed class RuntimeSlotStateStore {
     }
 
     public RuntimeSlotState Load() {
-        var statePath = GetStatePath();
-        if (!File.Exists(statePath))
-            return RuntimeSlotState.Empty;
-
-        try {
-            var json = File.ReadAllText(statePath);
-            var state = JsonSerializer.Deserialize<RuntimeSlotState>(json);
-            return Normalize(state ?? RuntimeSlotState.Empty);
-        }
-        catch {
-            return RuntimeSlotState.Empty;
-        }
+        var state = JsonFileStorage.ReadOrDefault<RuntimeSlotState>(GetStatePath(), null!);
+        return Normalize(state ?? RuntimeSlotState.Empty);
     }
 
     public RuntimeSlotState Save(RuntimeSlotState state) {

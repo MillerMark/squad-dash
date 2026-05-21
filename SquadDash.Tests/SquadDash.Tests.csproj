@@ -56,6 +56,8 @@
 
   <ItemGroup>
     <Compile Include="..\SquadDash\JsonFileStorage.cs" Link="Source\JsonFileStorage.cs" />
+    <Compile Include="..\SquadDash\JsonFileStorageSafeWrite.cs" Link="Source\JsonFileStorageSafeWrite.cs" />
+    <Compile Include="..\SquadDash\SquadDashPaths.cs" Link="Source\SquadDashPaths.cs" />
     <Compile Include="..\SquadDash\MutexLease.cs" Link="Source\MutexLease.cs" />
     <Compile Include="..\SquadDash\SquadCliCommands.cs" Link="Source\SquadCliCommands.cs" />
     <Compile Include="..\SquadDash\TraceCategory.cs" Link="Source\TraceCategory.cs" />
@@ -202,6 +204,8 @@
     <Compile Include="..\SquadDash\MaintenanceStateStore.cs"      Link="Source\MaintenanceStateStore.cs" />
     <Compile Include="..\SquadDash\MaintenanceRunner.cs"          Link="Source\MaintenanceRunner.cs" />
     <Compile Include="..\SquadDash\MaintenanceReportWriter.cs"    Link="Source\MaintenanceReportWriter.cs" />
+    <Compile Include="..\SquadDash\MarkdownHoverPopup.cs"            Link="Source\MarkdownHoverPopup.cs" />
+    <Compile Include="..\SquadDash\MarkdownFlowDocumentBuilder.cs"  Link="Source\MarkdownFlowDocumentBuilder.cs" />
     <Compile Include="..\SquadDash\MaintenancePanelController.cs" Link="Source\MaintenancePanelController.cs" />
     <Compile Include="..\SquadDash\IdleDetectionService.cs"       Link="Source\IdleDetectionService.cs" />
 

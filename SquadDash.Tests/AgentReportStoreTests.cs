@@ -2,19 +2,13 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class AgentReportStoreTests {
-    private string _reportsDir = null!;
+    private TestWorkspace _workspace = null!;
 
     [SetUp]
-    public void SetUp() {
-        _reportsDir = Path.Combine(Path.GetTempPath(), $"AgentReportStoreTests-{Guid.NewGuid()}");
-        Directory.CreateDirectory(_reportsDir);
-    }
+    public void SetUp() => _workspace = new TestWorkspace();
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_reportsDir))
-            Directory.Delete(_reportsDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     // ── FormatReportTitle ────────────────────────────────────────────────────
 
@@ -52,7 +46,7 @@ internal sealed class AgentReportStoreTests {
         var ts = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
         var path = AgentReportStore.Store(
-            reportsDir: _reportsDir,
+            reportsDir: _workspace.RootPath,
             agentLabel: "Orion Vale",
             header: "Summary line",
             body: "Body text.",
@@ -72,7 +66,7 @@ internal sealed class AgentReportStoreTests {
         var ts = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
         var path = AgentReportStore.Store(
-            reportsDir: _reportsDir,
+            reportsDir: _workspace.RootPath,
             agentLabel: "Orion Vale",
             header: "",
             body: "Body only.",
@@ -87,7 +81,7 @@ internal sealed class AgentReportStoreTests {
         var ts = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
         var path = AgentReportStore.Store(
-            reportsDir: _reportsDir,
+            reportsDir: _workspace.RootPath,
             agentLabel: "Foo / Bar",
             header: "",
             body: "x",
@@ -103,7 +97,7 @@ internal sealed class AgentReportStoreTests {
         var ts    = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var label = new string('A', 60);
 
-        var path     = AgentReportStore.Store(_reportsDir, label, "", "x", ts);
+        var path     = AgentReportStore.Store(_workspace.RootPath, label, "", "x", ts);
         var fileName = Path.GetFileNameWithoutExtension(path);
         // Format is "{sanitized}-{unixMs}". The sanitized portion must be ≤ 40 chars.
         var sanitizedPart = fileName[..fileName.LastIndexOf('-')];
@@ -114,14 +108,14 @@ internal sealed class AgentReportStoreTests {
 
     [Test]
     public void PruneOld_DeletesExpiredFiles_KeepsRecentOnes() {
-        var oldFile    = Path.Combine(_reportsDir, "old.md");
-        var recentFile = Path.Combine(_reportsDir, "recent.md");
+        var oldFile    = Path.Combine(_workspace.RootPath, "old.md");
+        var recentFile = Path.Combine(_workspace.RootPath, "recent.md");
         File.WriteAllText(oldFile,    "old");
         File.WriteAllText(recentFile, "recent");
 
         File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddDays(-30));
 
-        AgentReportStore.PruneOld(_reportsDir, maxAge: TimeSpan.FromDays(14));
+        AgentReportStore.PruneOld(_workspace.RootPath, maxAge: TimeSpan.FromDays(14));
 
         Assert.Multiple(() => {
             Assert.That(File.Exists(oldFile),    Is.False, "old file should be deleted");
@@ -131,7 +125,7 @@ internal sealed class AgentReportStoreTests {
 
     [Test]
     public void PruneOld_DirectoryMissing_DoesNotThrow() {
-        var missing = Path.Combine(_reportsDir, "nonexistent");
+        var missing = Path.Combine(_workspace.RootPath, "nonexistent");
         Assert.DoesNotThrow(() => AgentReportStore.PruneOld(missing));
     }
 
@@ -139,18 +133,18 @@ internal sealed class AgentReportStoreTests {
 
     [Test]
     public void ClearAll_RemovesAllMdFiles() {
-        File.WriteAllText(Path.Combine(_reportsDir, "a.md"), "a");
-        File.WriteAllText(Path.Combine(_reportsDir, "b.md"), "b");
-        File.WriteAllText(Path.Combine(_reportsDir, "c.md"), "c");
+        File.WriteAllText(Path.Combine(_workspace.RootPath, "a.md"), "a");
+        File.WriteAllText(Path.Combine(_workspace.RootPath, "b.md"), "b");
+        File.WriteAllText(Path.Combine(_workspace.RootPath, "c.md"), "c");
 
-        AgentReportStore.ClearAll(_reportsDir);
+        AgentReportStore.ClearAll(_workspace.RootPath);
 
-        Assert.That(Directory.EnumerateFiles(_reportsDir, "*.md"), Is.Empty);
+        Assert.That(Directory.EnumerateFiles(_workspace.RootPath, "*.md"), Is.Empty);
     }
 
     [Test]
     public void ClearAll_DirectoryMissing_DoesNotThrow() {
-        var missing = Path.Combine(_reportsDir, "nonexistent");
+        var missing = Path.Combine(_workspace.RootPath, "nonexistent");
         Assert.DoesNotThrow(() => AgentReportStore.ClearAll(missing));
     }
 }

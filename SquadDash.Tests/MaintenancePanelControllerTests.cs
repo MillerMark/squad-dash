@@ -16,21 +16,13 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class MaintenancePanelControllerTests {
 
-    private string _stateDir = null!;
+    private TestWorkspace _workspace = null!;
 
     [SetUp]
-    public void SetUp() {
-        _stateDir = Path.Combine(
-            TestContext.CurrentContext.WorkDirectory,
-            $"maint_panel_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_stateDir);
-    }
+    public void SetUp() => _workspace = new TestWorkspace();
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_stateDir))
-            Directory.Delete(_stateDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -194,7 +186,7 @@ internal sealed class MaintenancePanelControllerTests {
             var (controller, listPanel, _, _) = CreateController();
             var config = MakeConfig([MakeTask("tracked-task", "Tracked Task")]);
 
-            var store = new MaintenanceStateStore(_stateDir);
+            var store = new MaintenanceStateStore(_workspace.RootPath);
             store.RecordRun("tracked-task", commitSha: null);
 
             controller.Refresh(config, store);
@@ -232,7 +224,7 @@ internal sealed class MaintenancePanelControllerTests {
     public void Refresh_FirstRun_WhenStateFileAbsent() {
         WpfTestContext.Run(() => {
             // Point to an empty sub-directory that contains no maintenance-state.json
-            var emptyDir = Path.Combine(_stateDir, "empty");
+            var emptyDir = Path.Combine(_workspace.RootPath, "empty");
             Directory.CreateDirectory(emptyDir);
 
             var (controller, listPanel, _, _) = CreateController();
@@ -343,7 +335,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ReportsSection_ShowsNoReportsYet_WhenDirectoryEmpty() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_empty");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_empty");
             var reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
             Directory.CreateDirectory(reportsDir);
 
@@ -365,7 +357,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ReportsSection_ShowsReportItem_WhenReportExists() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_with_report");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_with_report");
             var reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
             Directory.CreateDirectory(reportsDir);
 
@@ -406,7 +398,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ReportsSection_ShowsOneTask_Singular() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_one_task");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_one_task");
             var reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
             Directory.CreateDirectory(reportsDir);
 
@@ -559,7 +551,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ToggleTaskEnabled_WhenEnabled_WritesDisabledToFile() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_toggle_e2d");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_toggle_e2d");
             var mdPath = WriteMaintFile(workspacePath,
                 "---\nconfigured: true\ntasks:\n  - id: my-task\n    enabled: true\n    frequency: daily\n    title: My Task\n    instructions: Do work.\n---\n");
 
@@ -577,7 +569,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ToggleTaskEnabled_WhenDisabled_WritesEnabledToFile() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_toggle_d2e");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_toggle_d2e");
             var mdPath = WriteMaintFile(workspacePath,
                 "---\nconfigured: true\ntasks:\n  - id: my-task\n    enabled: false\n    frequency: daily\n    title: My Task\n    instructions: Do work.\n---\n");
 
@@ -593,7 +585,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ToggleTaskEnabled_PreservesOtherFileContent() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_toggle_preserve");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_toggle_preserve");
             var mdPath = WriteMaintFile(workspacePath,
                 "---\nconfigured: true\nidle_timeout: 20\ntasks:\n  - id: task-a\n    enabled: false\n    frequency: daily\n    title: Task A\n    instructions: Do A.\n  - id: task-b\n    enabled: true\n    frequency: per-commit\n    title: Task B\n    instructions: Do B.\n---\n");
 
@@ -612,7 +604,7 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void ToggleTaskEnabled_InvokesReloadCallback() {
         WpfTestContext.Run(() => {
-            var workspacePath = Path.Combine(_stateDir, "ws_toggle_cb");
+            var workspacePath = Path.Combine(_workspace.RootPath, "ws_toggle_cb");
             WriteMaintFile(workspacePath,
                 "---\nconfigured: true\ntasks:\n  - id: my-task\n    enabled: false\n    frequency: daily\n    title: My Task\n    instructions: Do work.\n---\n");
 

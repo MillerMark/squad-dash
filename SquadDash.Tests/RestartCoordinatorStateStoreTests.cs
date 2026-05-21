@@ -7,21 +7,17 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class RestartCoordinatorStateStoreTests {
-    private string _rootPath = null!;
+    private TestWorkspace _workspace = null!;
     private RestartCoordinatorStateStore _store = null!;
 
     [SetUp]
     public void SetUp() {
-        _rootPath = Path.Combine(Path.GetTempPath(), "SquadDash.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_rootPath);
-        _store = new RestartCoordinatorStateStore(_rootPath);
+        _workspace = new TestWorkspace();
+        _store = new RestartCoordinatorStateStore(_workspace.RootPath);
     }
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_rootPath))
-            Directory.Delete(_rootPath, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     [Test]
     public void SaveAndLoad_RequestAndPlan_RoundTrip() {
@@ -156,5 +152,29 @@ internal sealed class RestartCoordinatorStateStoreTests {
             Assert.That(loadedPlan!.RequestId, Is.EqualTo(requestId));
             Assert.That(loadedRequest!.RequestId, Is.EqualTo(requestId));
         });
+    }
+
+    [Test]
+    public void LoadRequest_WhenNoFileExists_ReturnsNull() {
+        var result = _store.LoadRequest(@"D:\Drive\Source\NeverSaved");
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public void LoadRequest_CorruptJson_ReturnsNull() {
+        const string applicationRoot = @"D:\Drive\Source\CorruptApp";
+        var requestPath = _store.GetRequestPathForWatcher(applicationRoot);
+        Directory.CreateDirectory(Path.GetDirectoryName(requestPath)!);
+        File.WriteAllText(requestPath, "{ not valid json [[[");
+
+        var result = _store.LoadRequest(applicationRoot);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public void LoadPlan_WhenNoFileExists_ReturnsNull() {
+        var result = _store.LoadPlan(@"D:\Drive\Source\NeverSaved", "req-999");
+        Assert.That(result, Is.Null);
     }
 }

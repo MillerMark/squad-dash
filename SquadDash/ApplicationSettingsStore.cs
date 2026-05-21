@@ -13,8 +13,7 @@ internal sealed class ApplicationSettingsStore {
     private readonly string _settingsPath;
 
     public ApplicationSettingsStore() {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var settingsDirectory = Path.Combine(appData, "SquadDash");
+        var settingsDirectory = SquadDashPaths.AppData;
         Directory.CreateDirectory(settingsDirectory);
         _settingsPath = Path.Combine(settingsDirectory, "settings.json");
     }
@@ -31,18 +30,8 @@ internal sealed class ApplicationSettingsStore {
 
     public ApplicationSettingsSnapshot Load() {
         using var mutex = AcquireMutex();
-
-        if (!File.Exists(_settingsPath))
-            return ApplicationSettingsSnapshot.Empty.Normalize();
-
-        try {
-            var json = File.ReadAllText(_settingsPath);
-            var snapshot = JsonSerializer.Deserialize<ApplicationSettingsSnapshot>(json);
-            return snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
-        }
-        catch {
-            return ApplicationSettingsSnapshot.Empty.Normalize();
-        }
+        var snapshot = JsonFileStorage.ReadOrDefault<ApplicationSettingsSnapshot>(_settingsPath, null!);
+        return snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
     }
 
     public ApplicationSettingsSnapshot RememberFolder(string folderPath) {

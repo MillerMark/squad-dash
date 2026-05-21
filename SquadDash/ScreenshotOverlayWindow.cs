@@ -2938,7 +2938,7 @@ internal sealed class ScreenshotOverlayWindow : Window
             var sidecarPath = System.IO.Path.Combine(
                 _saveDirectory, $"_pending-{theme}.annotations.json");
             File.WriteAllText(sidecarPath,
-                JsonSerializer.Serialize(sidecar, new JsonSerializerOptions { WriteIndented = true }));
+                JsonSerializer.Serialize(sidecar, JsonFileStorage.PrettyPrint));
 
             ScreenshotSaved?.Invoke(this, new ScreenshotSavedEventArgs(
                 pngPath:       fullPath,
@@ -3148,9 +3148,7 @@ internal sealed class ScreenshotOverlayWindow : Window
     // ── Arrow defaults — persist/load ────────────────────────────────────────
 
     private static string ArrowDefaultsPath =>
-        System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash", "annotation-arrow-defaults.json");
+        System.IO.Path.Combine(SquadDashPaths.AppData, "annotation-arrow-defaults.json");
 
     private void SaveArrowDefaults()
     {

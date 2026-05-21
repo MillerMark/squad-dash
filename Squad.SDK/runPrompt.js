@@ -15,6 +15,55 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let activeRemoteBridge = null;
 let activeTunnelProc = null;
 let activeLoopProc = null;
+// DUP-008: string extraction helpers used across all tryParse* functions
+function extractOptionalString(value) {
+    return typeof value === "string" && value.trim().length > 0
+        ? value.trim()
+        : undefined;
+}
+function extractRequiredOrUUID(value) {
+    return extractOptionalString(value) ?? randomUUID();
+}
+// DUP-009: consolidates the three onSubagent{Started,Completed,Failed} event shapes
+function emitSubagentLifecycle(type, sessionId, subagent, extras) {
+    emit({
+        type,
+        sessionId,
+        toolCallId: subagent.toolCallId,
+        agentId: subagent.agentId,
+        agentName: subagent.agentName,
+        agentDisplayName: subagent.agentDisplayName,
+        agentDescription: subagent.agentDescription,
+        prompt: subagent.prompt,
+        model: subagent.model,
+        totalToolCalls: subagent.totalToolCalls,
+        totalTokens: subagent.totalTokens,
+        durationMs: subagent.durationMs,
+        ...extras
+    });
+}
+// DUP-010: consolidates the three onSubagentTool{Start,Progress,Complete} event shapes
+function emitSubagentTool(type, sessionId, subagent, tool, extras) {
+    emit({
+        type,
+        sessionId,
+        parentToolCallId: tool.parentToolCallId,
+        agentId: subagent.agentId,
+        agentName: subagent.agentName,
+        agentDisplayName: subagent.agentDisplayName,
+        agentDescription: subagent.agentDescription,
+        toolCallId: tool.toolCallId,
+        toolName: tool.toolName,
+        startedAt: tool.startedAt,
+        description: tool.description,
+        command: tool.command,
+        path: tool.path,
+        intent: tool.intent,
+        skill: tool.skill,
+        args: tool.args,
+        ...extras
+    });
+}
 const bridge = new SquadBridgeService({
     onBackgroundTasksChanged(sessionId, tasks) {
         emit({
@@ -32,53 +81,13 @@ const bridge = new SquadBridgeService({
         });
     },
     onSubagentStarted(sessionId, subagent) {
-        emit({
-            type: "subagent_started",
-            sessionId,
-            toolCallId: subagent.toolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            prompt: subagent.prompt,
-            model: subagent.model,
-            totalToolCalls: subagent.totalToolCalls,
-            totalTokens: subagent.totalTokens,
-            durationMs: subagent.durationMs
-        });
+        emitSubagentLifecycle("subagent_started", sessionId, subagent);
     },
     onSubagentCompleted(sessionId, subagent) {
-        emit({
-            type: "subagent_completed",
-            sessionId,
-            toolCallId: subagent.toolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            prompt: subagent.prompt,
-            model: subagent.model,
-            totalToolCalls: subagent.totalToolCalls,
-            totalTokens: subagent.totalTokens,
-            durationMs: subagent.durationMs
-        });
+        emitSubagentLifecycle("subagent_completed", sessionId, subagent);
     },
     onSubagentFailed(sessionId, subagent) {
-        emit({
-            type: "subagent_failed",
-            sessionId,
-            toolCallId: subagent.toolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            prompt: subagent.prompt,
-            message: subagent.error,
-            model: subagent.model,
-            totalToolCalls: subagent.totalToolCalls,
-            totalTokens: subagent.totalTokens,
-            durationMs: subagent.durationMs
-        });
+        emitSubagentLifecycle("subagent_failed", sessionId, subagent, { message: subagent.error });
     },
     onSubagentMessageDelta(sessionId, subagent) {
         emit({
@@ -106,68 +115,19 @@ const bridge = new SquadBridgeService({
         });
     },
     onSubagentToolStart(sessionId, subagent, tool) {
-        emit({
-            type: "subagent_tool_start",
-            sessionId,
-            parentToolCallId: tool.parentToolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            startedAt: tool.startedAt,
-            description: tool.description,
-            command: tool.command,
-            path: tool.path,
-            intent: tool.intent,
-            skill: tool.skill,
-            args: tool.args
-        });
+        emitSubagentTool("subagent_tool_start", sessionId, subagent, tool);
     },
     onSubagentToolProgress(sessionId, subagent, tool) {
-        emit({
-            type: "subagent_tool_progress",
-            sessionId,
-            parentToolCallId: tool.parentToolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            startedAt: tool.startedAt,
-            description: tool.description,
-            command: tool.command,
-            path: tool.path,
-            intent: tool.intent,
-            skill: tool.skill,
+        emitSubagentTool("subagent_tool_progress", sessionId, subagent, tool, {
             progressMessage: tool.progressMessage,
-            partialOutput: tool.partialOutput,
-            args: tool.args
+            partialOutput: tool.partialOutput
         });
     },
     onSubagentToolComplete(sessionId, subagent, tool) {
-        emit({
-            type: "subagent_tool_complete",
-            sessionId,
-            parentToolCallId: tool.parentToolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            startedAt: tool.startedAt,
+        emitSubagentTool("subagent_tool_complete", sessionId, subagent, tool, {
             finishedAt: tool.finishedAt,
-            description: tool.description,
-            command: tool.command,
-            path: tool.path,
-            intent: tool.intent,
-            skill: tool.skill,
             success: tool.success,
-            outputText: tool.outputText,
-            args: tool.args
+            outputText: tool.outputText
         });
     },
     onWatchFleetDispatched(sessionId, info) {
@@ -238,15 +198,9 @@ function tryParsePromptRequest(parsed) {
     const cwd = parsed.cwd.trim();
     if (!prompt || !cwd)
         return null;
-    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-        ? parsed.requestId.trim()
-        : randomUUID();
-    const sessionId = typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-        ? parsed.sessionId.trim()
-        : undefined;
-    const configDir = typeof parsed.configDir === "string" && parsed.configDir.trim().length > 0
-        ? parsed.configDir.trim()
-        : undefined;
+    const requestId = extractRequiredOrUUID(parsed.requestId);
+    const sessionId = extractOptionalString(parsed.sessionId);
+    const configDir = extractOptionalString(parsed.configDir);
     return {
         type: "prompt",
         requestId,
@@ -269,12 +223,8 @@ function tryParseDelegateRequest(parsed) {
     const sessionId = parsed.sessionId.trim();
     if (!selectedOption || !targetAgent || !cwd || !sessionId)
         return null;
-    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-        ? parsed.requestId.trim()
-        : randomUUID();
-    const configDir = typeof parsed.configDir === "string" && parsed.configDir.trim().length > 0
-        ? parsed.configDir.trim()
-        : undefined;
+    const requestId = extractRequiredOrUUID(parsed.requestId);
+    const configDir = extractOptionalString(parsed.configDir);
     return {
         type: "delegate",
         requestId,
@@ -295,13 +245,13 @@ function tryParseNamedAgentRequest(parsed) {
         return null;
     return {
         type: "named_agent",
-        requestId: typeof parsed.requestId === "string" ? parsed.requestId.trim() || undefined : undefined,
+        requestId: extractOptionalString(parsed.requestId),
         targetAgent,
         selectedOption,
-        handoffContext: typeof parsed.handoffContext === "string" ? parsed.handoffContext.trim() || undefined : undefined,
+        handoffContext: extractOptionalString(parsed.handoffContext),
         cwd,
-        sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId.trim() || undefined : undefined,
-        configDir: typeof parsed.configDir === "string" ? parsed.configDir.trim() || undefined : undefined
+        sessionId: extractOptionalString(parsed.sessionId),
+        configDir: extractOptionalString(parsed.configDir)
     };
 }
 function tryParseRunLoopRequest(parsed) {
@@ -311,12 +261,8 @@ function tryParseRunLoopRequest(parsed) {
     const cwd = parsed.cwd.trim();
     if (!loopMdPath || !cwd)
         return null;
-    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-        ? parsed.requestId.trim()
-        : randomUUID();
-    const sessionId = typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-        ? parsed.sessionId.trim()
-        : undefined;
+    const requestId = extractRequiredOrUUID(parsed.requestId);
+    const sessionId = extractOptionalString(parsed.sessionId);
     return {
         type: "run_loop",
         requestId,
@@ -339,24 +285,18 @@ function tryParseRcStartRequest(parsed) {
         return null;
     return {
         type: "rc_start",
-        requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-            ? parsed.requestId.trim()
-            : undefined,
+        requestId: extractOptionalString(parsed.requestId),
         port: typeof parsed.port === "number" ? parsed.port : 0,
         repo,
         branch,
         machine,
         squadDir,
         cwd,
-        sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-            ? parsed.sessionId.trim()
-            : undefined,
+        sessionId: extractOptionalString(parsed.sessionId),
         tunnelMode: parsed.tunnelMode === "ngrok" || parsed.tunnelMode === "cloudflare"
             ? parsed.tunnelMode
             : "none",
-        tunnelToken: typeof parsed.tunnelToken === "string" && parsed.tunnelToken.trim().length > 0
-            ? parsed.tunnelToken.trim()
-            : undefined
+        tunnelToken: extractOptionalString(parsed.tunnelToken)
     };
 }
 function tryParseRequest(line) {
@@ -367,26 +307,18 @@ function tryParseRequest(line) {
         if (parsed.type === "abort") {
             return {
                 type: "abort",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined,
-                sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-                    ? parsed.sessionId.trim()
-                    : undefined
+                requestId: extractOptionalString(parsed.requestId),
+                sessionId: extractOptionalString(parsed.sessionId)
             };
         }
         if (parsed.type === "cancel_background_task") {
             return {
                 type: "cancel_background_task",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined,
+                requestId: extractOptionalString(parsed.requestId),
                 taskId: typeof parsed.taskId === "string"
                     ? parsed.taskId.trim()
                     : "",
-                sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-                    ? parsed.sessionId.trim()
-                    : undefined
+                sessionId: extractOptionalString(parsed.sessionId)
             };
         }
         if (parsed.type === "shutdown")
@@ -400,9 +332,7 @@ function tryParseRequest(line) {
         if (parsed.type === "run_loop_stop") {
             return {
                 type: "run_loop_stop",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined
+                requestId: extractOptionalString(parsed.requestId)
             };
         }
         if (parsed.type === "rc_start")
@@ -410,9 +340,7 @@ function tryParseRequest(line) {
         if (parsed.type === "rc_stop") {
             return {
                 type: "rc_stop",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined
+                requestId: extractOptionalString(parsed.requestId)
             };
         }
         if (parsed.type === "rc_status_broadcast") {

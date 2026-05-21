@@ -105,7 +105,7 @@ internal sealed class DocStatusStore
     {
         try
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
+            var options = JsonFileStorage.PrettyPrint;
             var json = JsonSerializer.Serialize(_data, options);
             File.WriteAllText(_jsonPath, json);
         }

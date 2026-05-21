@@ -14,9 +14,7 @@ internal sealed class RunningInstanceRegistry {
     private readonly string _stateDirectory;
 
     public RunningInstanceRegistry()
-        : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash")) {
+        : this(SquadDashPaths.AppData) {
     }
 
     internal RunningInstanceRegistry(string stateDirectory) {

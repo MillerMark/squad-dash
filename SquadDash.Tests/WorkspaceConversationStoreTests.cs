@@ -6,23 +6,20 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class WorkspaceConversationStoreTests {
-    private string _rootPath = null!;
+    private TestWorkspace _workspace = null!;
     private string _workspacePath = null!;
     private WorkspaceConversationStore _store = null!;
 
     [SetUp]
     public void SetUp() {
-        _rootPath = Path.Combine(Path.GetTempPath(), "SquadDash.Tests", Guid.NewGuid().ToString("N"));
-        _workspacePath = Path.Combine(_rootPath, "WpfCalc");
+        _workspace = new TestWorkspace();
+        _workspacePath = _workspace.GetPath("WpfCalc");
         Directory.CreateDirectory(_workspacePath);
-        _store = new WorkspaceConversationStore(Path.Combine(_rootPath, "store"));
+        _store = new WorkspaceConversationStore(_workspace.GetPath("store"));
     }
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_rootPath))
-            Directory.Delete(_rootPath, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     [Test]
     public void SaveAndLoad_RoundTripsConversationStateForWorkspace() {
@@ -410,7 +407,7 @@ internal sealed class WorkspaceConversationStoreTests {
                         Array.Empty<TranscriptToolRecord>())
                 ]));
 
-        var workspaceDirectory = Directory.GetDirectories(Path.Combine(_rootPath, "store")).Single();
+        var workspaceDirectory = Directory.GetDirectories(_workspace.GetPath("store")).Single();
         var conversationPath = Path.Combine(workspaceDirectory, "conversation.json");
         var backupPath = conversationPath + ".bak";
 
@@ -447,7 +444,7 @@ internal sealed class WorkspaceConversationStoreTests {
                         Array.Empty<TranscriptToolRecord>())
                 ]));
 
-        var workspaceDirectory = Directory.GetDirectories(Path.Combine(_rootPath, "store")).Single();
+        var workspaceDirectory = Directory.GetDirectories(_workspace.GetPath("store")).Single();
         var conversationPath = Path.Combine(workspaceDirectory, "conversation.json");
 
         _store.Save(_workspacePath, meaningful with { PromptDraft = "updated" });
@@ -492,7 +489,7 @@ internal sealed class WorkspaceConversationStoreTests {
                         Array.Empty<TranscriptToolRecord>())
                 ]));
 
-        var workspaceDirectory = Directory.GetDirectories(Path.Combine(_rootPath, "store")).Single();
+        var workspaceDirectory = Directory.GetDirectories(_workspace.GetPath("store")).Single();
         var conversationPath = Path.Combine(workspaceDirectory, "conversation.json");
 
         _store.Save(_workspacePath, meaningful with { PromptDraft = "updated" });

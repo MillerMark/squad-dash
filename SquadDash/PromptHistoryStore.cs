@@ -13,27 +13,14 @@ internal sealed class PromptHistoryStore {
     private readonly string _historyPath;
 
     public PromptHistoryStore() {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var historyDirectory = Path.Combine(appData, "SquadDash");
+        var historyDirectory = SquadDashPaths.AppData;
         Directory.CreateDirectory(historyDirectory);
         _historyPath = Path.Combine(historyDirectory, "prompt-history.json");
     }
 
     public IReadOnlyList<string> Load() {
         using var mutex = AcquireMutex();
-
-        if (!File.Exists(_historyPath)) {
-            return [];
-        }
-
-        try {
-            var json = File.ReadAllText(_historyPath);
-            var entries = JsonSerializer.Deserialize<List<string>>(json);
-            return entries ?? [];
-        }
-        catch {
-            return [];
-        }
+        return JsonFileStorage.ReadOrDefault<List<string>>(_historyPath, []);
     }
 
     public void Save(IReadOnlyList<string> entries) {

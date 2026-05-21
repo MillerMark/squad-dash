@@ -100,6 +100,8 @@ Both methods are equivalent — the file is the single source of truth.
 | Value        | Behaviour                                                                                 |
 |--------------|-------------------------------------------------------------------------------------------|
 | `daily`      | Runs at most once per UTC calendar day; skipped on subsequent windows the same day        |
+| `weekly`     | Runs at most once per 7-day rolling window; skipped on subsequent windows within 7 days  |
+| `monthly`    | Runs at most once per calendar month; skipped on subsequent windows the same month       |
 | `per-commit` | Runs once per unique HEAD commit SHA; re-runs after new commits land                      |
 | `always`     | Runs every maintenance window regardless of when it last ran                              |
 

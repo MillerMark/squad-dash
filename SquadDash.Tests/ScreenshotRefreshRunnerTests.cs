@@ -9,21 +9,13 @@ namespace SquadDash.Tests;
 [TestFixture]
 public class ScreenshotRefreshRunnerTests
 {
-    private string _tempDir = null!;
+    private TestWorkspace _workspace = null!;
 
     [SetUp]
-    public void SetUp()
-    {
-        _tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        Directory.CreateDirectory(_tempDir);
-    }
+    public void SetUp() => _workspace = new TestWorkspace();
 
     [TearDown]
-    public void TearDown()
-    {
-        if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -48,8 +40,8 @@ public class ScreenshotRefreshRunnerTests
     [Test]
     public async Task RunAsync_ModeNone_CompletesWithoutRaisingCapture()
     {
-        var registry = await EmptyRegistryAsync(_tempDir);
-        var runner   = MakeRunner(registry, _tempDir);
+        var registry = await EmptyRegistryAsync(_workspace.RootPath);
+        var runner   = MakeRunner(registry, _workspace.RootPath);
         var captured = false;
         runner.CaptureRequested += (_, _) => captured = true;
 
@@ -61,8 +53,8 @@ public class ScreenshotRefreshRunnerTests
     [Test]
     public async Task RunAsync_AllMode_EmptyRegistry_CompletesWithoutRaisingCapture()
     {
-        var registry = await EmptyRegistryAsync(_tempDir);
-        var runner   = MakeRunner(registry, _tempDir);
+        var registry = await EmptyRegistryAsync(_workspace.RootPath);
+        var runner   = MakeRunner(registry, _workspace.RootPath);
         var captured = false;
         runner.CaptureRequested += (_, _) => captured = true;
 
@@ -75,8 +67,8 @@ public class ScreenshotRefreshRunnerTests
     [Test]
     public async Task RunAsync_NamedMode_UnknownDefinition_CompletesWithoutRaisingCapture()
     {
-        var registry = await EmptyRegistryAsync(_tempDir);
-        var runner   = MakeRunner(registry, _tempDir);
+        var registry = await EmptyRegistryAsync(_workspace.RootPath);
+        var runner   = MakeRunner(registry, _workspace.RootPath);
         var captured = false;
         runner.CaptureRequested += (_, _) => captured = true;
 
@@ -91,7 +83,7 @@ public class ScreenshotRefreshRunnerTests
     public async Task RunAsync_BothTheme_WithThemeSwitcher_CapturesTwiceWithCorrectPaths()
     {
         // Arrange
-        var registry = await EmptyRegistryAsync(_tempDir);
+        var registry = await EmptyRegistryAsync(_workspace.RootPath);
         registry.AddOrUpdate(MakeDef("my-widget", "Both"));
 
         var appliedThemes = new List<string>();
@@ -101,7 +93,7 @@ public class ScreenshotRefreshRunnerTests
             registry,
             new UiActionReplayRegistry(),
             new FixtureLoaderRegistry(),
-            _tempDir,
+            _workspace.RootPath,
             applyThemeAsync: theme => { appliedThemes.Add(theme); return Task.CompletedTask; },
             getActiveTheme:  () => "Dark");
 

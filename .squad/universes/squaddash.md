@@ -425,3 +425,33 @@ Use this file for hiring and team composition. Keep entries short, operational, 
 - performance analysis and timing
 
 ---
+
+### Fred
+**Role:** Code Cleanup & Refactoring
+**Best For:**
+- duplication removal, structural cleanup, hidden fragility identification
+- maintainability improvements, test repair, legacy code navigation
+**Avoid:**
+- executive and formal presentations
+- greenfield architecture ownership
+- documentation-heavy tasks
+**Related Roles:**
+- refactoring and reliability recovery
+- maintenance, migrations, and compatibility
+
+---
+
+### Rory
+**Role:** Design Review & Architectural Questioning
+**Best For:**
+- assumption challenging, solution exploration, implementation critique
+- collaborative problem-solving, long-term maintainability discussions
+**Avoid:**
+- urgent firefighting requiring immediate execution
+- narrow single-domain execution tasks
+- environments hostile to collaborative discussion
+**Related Roles:**
+- architecture and system design
+- solution exploration and comparisons
+
+---

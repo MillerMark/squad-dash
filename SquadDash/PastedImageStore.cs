@@ -19,9 +19,7 @@ internal sealed class PastedImageStore
     private readonly string _rootDirectory; // %LocalAppData%\SquadDash\workspaces\
 
     public PastedImageStore()
-        : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash", "workspaces")) { }
+        : this(Path.Combine(SquadDashPaths.AppData, "workspaces")) { }
 
     internal PastedImageStore(string rootDirectory)
     {

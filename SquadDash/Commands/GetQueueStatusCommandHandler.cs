@@ -12,7 +12,7 @@ internal sealed class GetQueueStatusCommandHandler : IHostCommandHandler {
         var items = _getQueueItems();
         var json = System.Text.Json.JsonSerializer.Serialize(
             items.Select(i => new { id = i.Id, text = i.Text, sequenceNumber = i.SequenceNumber }),
-            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            JsonFileStorage.PrettyPrint);
         return new HostCommandResult(true, Output: $"Queue status ({items.Count} items):\n{json}");
     }
 }

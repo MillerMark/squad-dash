@@ -5,22 +5,16 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class DocTopicsLoaderTests {
-    private string _workspace = null!;
+    private TestWorkspace _workspace = null!;
 
     [SetUp]
-    public void SetUp() {
-        _workspace = Path.Combine(Path.GetTempPath(), $"DocTopicsLoaderTests-{Guid.NewGuid()}");
-        Directory.CreateDirectory(_workspace);
-    }
+    public void SetUp() => _workspace = new TestWorkspace();
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_workspace))
-            Directory.Delete(_workspace, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     private string CreateDocsFolder() {
-        var docs = Path.Combine(_workspace, "docs");
+        var docs = Path.Combine(_workspace.RootPath, "docs");
         Directory.CreateDirectory(docs);
         return docs;
     }
@@ -37,14 +31,14 @@ internal sealed class DocTopicsLoaderTests {
     public void FindDocsFolderPath_WithWorkspaceFolder_DocsExists_ReturnsDocsPath() {
         var docs = CreateDocsFolder();
 
-        var result = DocTopicsLoader.FindDocsFolderPath(_workspace);
+        var result = DocTopicsLoader.FindDocsFolderPath(_workspace.RootPath);
 
         Assert.That(result, Is.EqualTo(docs));
     }
 
     [Test]
     public void FindDocsFolderPath_WithWorkspaceFolder_DocsNotExists_ReturnsNull() {
-        var result = DocTopicsLoader.FindDocsFolderPath(_workspace);
+        var result = DocTopicsLoader.FindDocsFolderPath(_workspace.RootPath);
 
         Assert.That(result, Is.Null);
     }
@@ -59,7 +53,7 @@ internal sealed class DocTopicsLoaderTests {
 
     [Test]
     public void ExtractMarkdownTitle_FileWithH1_ReturnsTitle() {
-        var path = CreateFile(Path.Combine(_workspace, "doc.md"),
+        var path = CreateFile(Path.Combine(_workspace.RootPath, "doc.md"),
             "# Getting Started\n\nSome content.\n");
 
         var result = DocTopicsLoader.ExtractMarkdownTitle(path);
@@ -69,7 +63,7 @@ internal sealed class DocTopicsLoaderTests {
 
     [Test]
     public void ExtractMarkdownTitle_FileWithNoH1_ReturnsNull() {
-        var path = CreateFile(Path.Combine(_workspace, "doc.md"),
+        var path = CreateFile(Path.Combine(_workspace.RootPath, "doc.md"),
             "## Section Two\n\nContent.\n");
 
         var result = DocTopicsLoader.ExtractMarkdownTitle(path);
@@ -79,7 +73,7 @@ internal sealed class DocTopicsLoaderTests {
 
     [Test]
     public void ExtractMarkdownTitle_EmptyFile_ReturnsNull() {
-        var path = CreateFile(Path.Combine(_workspace, "doc.md"), string.Empty);
+        var path = CreateFile(Path.Combine(_workspace.RootPath, "doc.md"), string.Empty);
 
         var result = DocTopicsLoader.ExtractMarkdownTitle(path);
 
@@ -88,7 +82,7 @@ internal sealed class DocTopicsLoaderTests {
 
     [Test]
     public void ExtractMarkdownTitle_FileNotFound_ReturnsNull() {
-        var missing = Path.Combine(_workspace, "nonexistent.md");
+        var missing = Path.Combine(_workspace.RootPath, "nonexistent.md");
 
         var result = DocTopicsLoader.ExtractMarkdownTitle(missing);
 
@@ -107,7 +101,7 @@ internal sealed class DocTopicsLoaderTests {
             "* [Introduction](intro.md)\n  * [User Guide](guide.md)\n");
 
         var treeView = new TreeView();
-        DocTopicsLoader.LoadTopics(treeView, out _, _workspace);
+        DocTopicsLoader.LoadTopics(treeView, out _, _workspace.RootPath);
 
         Assert.That(treeView.Items.Count, Is.GreaterThan(0));
         var topItem = (TreeViewItem)treeView.Items[0];
@@ -124,7 +118,7 @@ internal sealed class DocTopicsLoaderTests {
         CreateFile(Path.Combine(subDir, "setup.md"), "# Setup\n\nContent.\n");
 
         var treeView = new TreeView();
-        DocTopicsLoader.LoadTopics(treeView, out var firstItem, _workspace);
+        DocTopicsLoader.LoadTopics(treeView, out var firstItem, _workspace.RootPath);
 
         Assert.Multiple(() => {
             Assert.That(treeView.Items.Count, Is.GreaterThan(0));

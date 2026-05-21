@@ -6,7 +6,7 @@ namespace SquadDash;
 internal static class LoopOutputStore
 {
     private static string GetLogsDir() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SquadDash", "loop-logs");
+        Path.Combine(SquadDashPaths.AppData, "loop-logs");
 
     public static void SaveLog(string content)
     {

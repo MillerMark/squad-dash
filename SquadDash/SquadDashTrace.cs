@@ -101,8 +101,7 @@ internal static class SquadDashTrace {
     };
 
     private static string BuildGlobalLogPath() {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var directory = Path.Combine(appData, "SquadDash");
+        var directory = SquadDashPaths.AppData;
         Directory.CreateDirectory(directory);
         return Path.Combine(directory, "trace.log");
     }

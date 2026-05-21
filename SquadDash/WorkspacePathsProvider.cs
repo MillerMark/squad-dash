@@ -75,8 +75,7 @@ internal sealed class WorkspacePathsProvider : IWorkspacePaths {
         // Fallback: check the well-known installed location used by the WinGet/Inno Setup
         // installer. The installed layout places SquadDash.exe inside an `app\` subdirectory
         // rather than a `SquadDash\` subdirectory, so the walk-up above never matches.
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var installedRoot = Path.Combine(localAppData, "SquadDash");
+        var installedRoot = SquadDashPaths.AppData;
         if (Directory.Exists(Path.Combine(installedRoot, "app")) &&
             Directory.Exists(Path.Combine(installedRoot, "Squad.SDK"))) {
             return new WorkspacePathsProvider(installedRoot);

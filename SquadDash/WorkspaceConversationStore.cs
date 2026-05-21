@@ -24,10 +24,7 @@ internal sealed class WorkspaceConversationStore {
     private readonly string _rootDirectory;
 
     public WorkspaceConversationStore()
-        : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash",
-            "workspaces")) {
+        : this(Path.Combine(SquadDashPaths.AppData, "workspaces")) {
     }
 
     internal WorkspaceConversationStore(string rootDirectory) {

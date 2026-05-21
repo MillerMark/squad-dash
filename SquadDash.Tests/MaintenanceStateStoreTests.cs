@@ -12,23 +12,17 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class MaintenanceStateStoreTests {
 
-    private string _stateDir = null!;
+    private TestWorkspace _workspace = null!;
     private MaintenanceStateStore _store = null!;
 
     [SetUp]
     public void SetUp() {
-        _stateDir = Path.Combine(
-            TestContext.CurrentContext.WorkDirectory,
-            $"maint_state_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_stateDir);
-        _store = new MaintenanceStateStore(_stateDir);
+        _workspace = new TestWorkspace();
+        _store = new MaintenanceStateStore(_workspace.RootPath);
     }
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_stateDir))
-            Directory.Delete(_stateDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     // ── IsEligible — unknown task ─────────────────────────────────────────────
 
@@ -127,14 +121,116 @@ internal sealed class MaintenanceStateStoreTests {
         Assert.That(eligible, Is.True, "always task must be eligible regardless of prior run history");
     }
 
+    // ── IsEligible — frequency: weekly ───────────────────────────────────────
+
+    [Test]
+    public void IsEligible_Weekly_NeverRun_ReturnsTrue() {
+        var eligible = _store.IsEligible("weekly-never-run", "weekly", commitSha: "sha1");
+        Assert.That(eligible, Is.True, "A weekly task with no prior run record must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Weekly_LastRunAtNull_ReturnsTrue() {
+        WriteStateWithNullLastRunAt("weekly-task", lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        Assert.That(eligible, Is.True, "A weekly task with null LastRunAt must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Weekly_Run8DaysAgo_ReturnsTrue() {
+        WriteStateWithLastRunAt("weekly-task", lastRunAt: DateTime.UtcNow.AddDays(-8), lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        Assert.That(eligible, Is.True, "A weekly task run 8 days ago must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Weekly_RunJustOver7DaysAgo_ReturnsTrue() {
+        WriteStateWithLastRunAt("weekly-task", lastRunAt: DateTime.UtcNow.AddDays(-7).AddSeconds(-1), lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        Assert.That(eligible, Is.True, "A weekly task run just over 7 days ago must be eligible (strictly less than now minus 7 days)");
+    }
+
+    [Test]
+    public void IsEligible_Weekly_Run6DaysAgo_ReturnsFalse() {
+        WriteStateWithLastRunAt("weekly-task", lastRunAt: DateTime.UtcNow.AddDays(-6), lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        Assert.That(eligible, Is.False, "A weekly task run only 6 days ago must not be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Weekly_RunToday_ReturnsFalse() {
+        WriteStateWithLastRunAt("weekly-task", lastRunAt: DateTime.UtcNow, lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        Assert.That(eligible, Is.False, "A weekly task run today must not be eligible");
+    }
+
+    // ── IsEligible — frequency: monthly ──────────────────────────────────────
+
+    [Test]
+    public void IsEligible_Monthly_NeverRun_ReturnsTrue() {
+        var eligible = _store.IsEligible("monthly-never-run", "monthly", commitSha: "sha1");
+        Assert.That(eligible, Is.True, "A monthly task with no prior run record must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Monthly_LastRunAtNull_ReturnsTrue() {
+        WriteStateWithNullLastRunAt("monthly-task", lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        Assert.That(eligible, Is.True, "A monthly task with null LastRunAt must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Monthly_RunPriorCalendarMonth_ReturnsTrue() {
+        var now = DateTime.UtcNow;
+        var priorMonth = now.Month == 1
+            ? new DateTime(now.Year - 1, 12, 1, 0, 0, 0, DateTimeKind.Utc)
+            : new DateTime(now.Year, now.Month - 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        WriteStateWithLastRunAt("monthly-task", lastRunAt: priorMonth, lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        Assert.That(eligible, Is.True, "A monthly task run in a prior calendar month must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Monthly_RunPriorYear_ReturnsTrue() {
+        WriteStateWithLastRunAt("monthly-task", lastRunAt: DateTime.UtcNow.AddYears(-1), lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        Assert.That(eligible, Is.True, "A monthly task run in a prior year must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Monthly_RunThisCalendarMonth_ReturnsFalse() {
+        WriteStateWithLastRunAt("monthly-task", lastRunAt: DateTime.UtcNow.AddDays(-3), lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        Assert.That(eligible, Is.False, "A monthly task run 3 days ago (same month) must not be eligible");
+    }
+
+    [Test]
+    public void IsEligible_Monthly_RunFirstOfThisMonth_ReturnsFalse() {
+        var now = DateTime.UtcNow;
+        var firstOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        WriteStateWithLastRunAt("monthly-task", lastRunAt: firstOfMonth, lastSha: "sha1");
+        _store.Reload();
+        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        Assert.That(eligible, Is.False, "A monthly task run on the first of this month must not be eligible");
+    }
+
     // ── RecordRun persists to disk ────────────────────────────────────────────
 
     [Test]
     public void RecordRun_PersistsStateToDisk() {
         _store.RecordRun("persist-task", commitSha: "sha-persist");
 
-        // Verify a state file was written somewhere inside _stateDir.
-        var files = Directory.GetFiles(_stateDir, "*", SearchOption.AllDirectories);
+        // Verify a state file was written somewhere inside _workspace.RootPath.
+        var files = Directory.GetFiles(_workspace.RootPath, "*", SearchOption.AllDirectories);
         Assert.That(files, Is.Not.Empty, "RecordRun must write at least one file to the state directory");
     }
 
@@ -145,7 +241,7 @@ internal sealed class MaintenanceStateStoreTests {
         _store.RecordRun("reload-task", commitSha: "sha-reload");
 
         // Create a fresh store over the same directory and reload.
-        var freshStore = new MaintenanceStateStore(_stateDir);
+        var freshStore = new MaintenanceStateStore(_workspace.RootPath);
         freshStore.Reload();
 
         var eligible = freshStore.IsEligible("reload-task", "daily", commitSha: "sha-other");
@@ -161,7 +257,7 @@ internal sealed class MaintenanceStateStoreTests {
 
         // Ensure the final state file is valid JSON (proves the write was completed atomically
         // and did not leave a half-written or zero-byte file).
-        var files = Directory.GetFiles(_stateDir, "*.json", SearchOption.AllDirectories);
+        var files = Directory.GetFiles(_workspace.RootPath, "*.json", SearchOption.AllDirectories);
         Assert.That(files, Is.Not.Empty, "A .json state file must exist after RecordRun");
 
         foreach (var file in files) {
@@ -177,10 +273,10 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void Load_CorruptStateFile_GracefulDegradation_ReturnsEmptyState() {
         // Write garbage directly to the expected state file.
-        var stateFile = Path.Combine(_stateDir, "maintenance-state.json");
+        var stateFile = Path.Combine(_workspace.RootPath, "maintenance-state.json");
         File.WriteAllText(stateFile, "{ this is not valid json !!!");
 
-        var store = new MaintenanceStateStore(_stateDir);
+        var store = new MaintenanceStateStore(_workspace.RootPath);
         store.Reload();
 
         // All tasks should appear as never-run (no crash, empty state).
@@ -194,7 +290,7 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void Load_MissingStateFile_GracefulDegradation_ReturnsEmptyState() {
         // Point to a directory that contains no state file at all.
-        var emptyDir = Path.Combine(_stateDir, "empty");
+        var emptyDir = Path.Combine(_workspace.RootPath, "empty");
         Directory.CreateDirectory(emptyDir);
 
         var store = new MaintenanceStateStore(emptyDir);
@@ -215,11 +311,29 @@ internal sealed class MaintenanceStateStoreTests {
     }
 
     /// <summary>
-    /// Writes a minimal state JSON file into <see cref="_stateDir"/> so tests can
+    /// Writes a state JSON file where the task exists but <c>lastRunAt</c> is empty (parses as null).
+    /// </summary>
+    private void WriteStateWithNullLastRunAt(string taskId, string lastSha) {
+        var stateFile = Path.Combine(_workspace.RootPath, "maintenance-state.json");
+        var json = $$"""
+            {
+              "tasks": {
+                "{{taskId}}": {
+                  "lastRunAt": "",
+                  "lastCommitSha": "{{lastSha}}"
+                }
+              }
+            }
+            """;
+        File.WriteAllText(stateFile, json);
+    }
+
+    /// <summary>
+    /// Writes a minimal state JSON file into <see cref="_workspace.RootPath"/> so tests can
     /// exercise date-dependent eligibility without waiting a real day.
     /// </summary>
     private void WriteStateWithLastRunAt(string taskId, DateTime lastRunAt, string lastSha) {
-        var stateFile = Path.Combine(_stateDir, "maintenance-state.json");
+        var stateFile = Path.Combine(_workspace.RootPath, "maintenance-state.json");
         var json = $$"""
             {
               "tasks": {

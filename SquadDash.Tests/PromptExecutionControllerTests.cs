@@ -3,6 +3,56 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class PromptExecutionControllerTests {
     [Test]
+    public void ShouldCountPromptActivity_IgnoresDelayOnlyPowerShellReads_WhenRestartPending() {
+        var evt = new SquadSdkEvent {
+            Type = "tool_complete",
+            ToolName = "read_powershell",
+            Args = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                """{"delay":60,"shellId":"0"}""")
+        };
+
+        Assert.That(PromptExecutionController.ShouldCountPromptActivity(evt, restartPending: true), Is.False);
+    }
+
+    [Test]
+    public void ShouldCountPromptActivity_CountsDelayOnlyPowerShellReads_WhenRestartIsNotPending() {
+        var evt = new SquadSdkEvent {
+            Type = "tool_complete",
+            ToolName = "read_powershell",
+            Args = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                """{"delay":60,"shellId":"0"}""")
+        };
+
+        Assert.That(PromptExecutionController.ShouldCountPromptActivity(evt, restartPending: false), Is.True);
+    }
+
+    [Test]
+    public void ShouldCountPromptActivity_IgnoresUsageBookkeeping_WhenRestartPending() {
+        var evt = new SquadSdkEvent { Type = "usage" };
+
+        Assert.That(PromptExecutionController.ShouldCountPromptActivity(evt, restartPending: true), Is.False);
+    }
+
+    [Test]
+    public void ShouldCountPromptActivity_CountsRealToolWork_WhenRestartPending() {
+        var evt = new SquadSdkEvent {
+            Type = "tool_complete",
+            ToolName = "powershell",
+            Args = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                """{"command":"dotnet build","initial_wait":120}""")
+        };
+
+        Assert.That(PromptExecutionController.ShouldCountPromptActivity(evt, restartPending: true), Is.True);
+    }
+
+    [Test]
+    public void ShouldCountPromptActivity_CountsStreamingContent_WhenRestartPending() {
+        var evt = new SquadSdkEvent { Type = "response_delta", Chunk = "still working" };
+
+        Assert.That(PromptExecutionController.ShouldCountPromptActivity(evt, restartPending: true), Is.True);
+    }
+
+    [Test]
     public void FormatCharsPerSecond_ReturnsExpectedRate_WhenThinkingWindowIsKnown() {
         var first = new DateTimeOffset(2026, 4, 21, 12, 0, 0, TimeSpan.FromHours(-4));
         var last = first.AddSeconds(10);

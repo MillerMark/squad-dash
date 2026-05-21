@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
-import { SquadBridgeService, buildNamedAgentPrompt, type SquadRunHandlers, type SquadNamedAgentRequest } from "./squadService.js";
+import { SquadBridgeService, buildNamedAgentPrompt, type SquadRunHandlers, type SquadNamedAgentRequest, type SubagentLifecycleInfo, type ToolLifecycleEvent } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
@@ -144,6 +144,70 @@ let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
 let activeLoopProc: ReturnType<typeof spawn> | null = null;
 
+// DUP-008: string extraction helpers used across all tryParse* functions
+function extractOptionalString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim().length > 0
+        ? value.trim()
+        : undefined;
+}
+
+function extractRequiredOrUUID(value: unknown): string {
+    return extractOptionalString(value) ?? randomUUID();
+}
+
+// DUP-009: consolidates the three onSubagent{Started,Completed,Failed} event shapes
+function emitSubagentLifecycle(
+    type: string,
+    sessionId: string,
+    subagent: SubagentLifecycleInfo,
+    extras?: Record<string, unknown>
+): void {
+    emit({
+        type,
+        sessionId,
+        toolCallId: subagent.toolCallId,
+        agentId: subagent.agentId,
+        agentName: subagent.agentName,
+        agentDisplayName: subagent.agentDisplayName,
+        agentDescription: subagent.agentDescription,
+        prompt: subagent.prompt,
+        model: subagent.model,
+        totalToolCalls: subagent.totalToolCalls,
+        totalTokens: subagent.totalTokens,
+        durationMs: subagent.durationMs,
+        ...extras
+    });
+}
+
+// DUP-010: consolidates the three onSubagentTool{Start,Progress,Complete} event shapes
+function emitSubagentTool(
+    type: string,
+    sessionId: string,
+    subagent: SubagentLifecycleInfo,
+    tool: ToolLifecycleEvent,
+    extras?: Record<string, unknown>
+): void {
+    emit({
+        type,
+        sessionId,
+        parentToolCallId: tool.parentToolCallId,
+        agentId: subagent.agentId,
+        agentName: subagent.agentName,
+        agentDisplayName: subagent.agentDisplayName,
+        agentDescription: subagent.agentDescription,
+        toolCallId: tool.toolCallId,
+        toolName: tool.toolName,
+        startedAt: tool.startedAt,
+        description: tool.description,
+        command: tool.command,
+        path: tool.path,
+        intent: tool.intent,
+        skill: tool.skill,
+        args: tool.args,
+        ...extras
+    });
+}
+
 type RemoteBridgeConfigWithAudio = ConstructorParameters<typeof RemoteBridge>[0] & {
     onAudioStart?: (connectionId: string) => void;
     onAudioChunk?: (data: Buffer, connectionId: string) => void;
@@ -171,53 +235,13 @@ const bridge = new SquadBridgeService({
         });
     },
     onSubagentStarted(sessionId, subagent) {
-        emit({
-            type: "subagent_started",
-            sessionId,
-            toolCallId: subagent.toolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            prompt: subagent.prompt,
-            model: subagent.model,
-            totalToolCalls: subagent.totalToolCalls,
-            totalTokens: subagent.totalTokens,
-            durationMs: subagent.durationMs
-        });
+        emitSubagentLifecycle("subagent_started", sessionId, subagent);
     },
     onSubagentCompleted(sessionId, subagent) {
-        emit({
-            type: "subagent_completed",
-            sessionId,
-            toolCallId: subagent.toolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            prompt: subagent.prompt,
-            model: subagent.model,
-            totalToolCalls: subagent.totalToolCalls,
-            totalTokens: subagent.totalTokens,
-            durationMs: subagent.durationMs
-        });
+        emitSubagentLifecycle("subagent_completed", sessionId, subagent);
     },
     onSubagentFailed(sessionId, subagent) {
-        emit({
-            type: "subagent_failed",
-            sessionId,
-            toolCallId: subagent.toolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            prompt: subagent.prompt,
-            message: subagent.error,
-            model: subagent.model,
-            totalToolCalls: subagent.totalToolCalls,
-            totalTokens: subagent.totalTokens,
-            durationMs: subagent.durationMs
-        });
+        emitSubagentLifecycle("subagent_failed", sessionId, subagent, { message: subagent.error });
     },
     onSubagentMessageDelta(sessionId, subagent) {
         emit({
@@ -245,68 +269,19 @@ const bridge = new SquadBridgeService({
         });
     },
     onSubagentToolStart(sessionId, subagent, tool) {
-        emit({
-            type: "subagent_tool_start",
-            sessionId,
-            parentToolCallId: tool.parentToolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            startedAt: tool.startedAt,
-            description: tool.description,
-            command: tool.command,
-            path: tool.path,
-            intent: tool.intent,
-            skill: tool.skill,
-            args: tool.args
-        });
+        emitSubagentTool("subagent_tool_start", sessionId, subagent, tool);
     },
     onSubagentToolProgress(sessionId, subagent, tool) {
-        emit({
-            type: "subagent_tool_progress",
-            sessionId,
-            parentToolCallId: tool.parentToolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            startedAt: tool.startedAt,
-            description: tool.description,
-            command: tool.command,
-            path: tool.path,
-            intent: tool.intent,
-            skill: tool.skill,
+        emitSubagentTool("subagent_tool_progress", sessionId, subagent, tool, {
             progressMessage: tool.progressMessage,
-            partialOutput: tool.partialOutput,
-            args: tool.args
+            partialOutput: tool.partialOutput
         });
     },
     onSubagentToolComplete(sessionId, subagent, tool) {
-        emit({
-            type: "subagent_tool_complete",
-            sessionId,
-            parentToolCallId: tool.parentToolCallId,
-            agentId: subagent.agentId,
-            agentName: subagent.agentName,
-            agentDisplayName: subagent.agentDisplayName,
-            agentDescription: subagent.agentDescription,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            startedAt: tool.startedAt,
+        emitSubagentTool("subagent_tool_complete", sessionId, subagent, tool, {
             finishedAt: tool.finishedAt,
-            description: tool.description,
-            command: tool.command,
-            path: tool.path,
-            intent: tool.intent,
-            skill: tool.skill,
             success: tool.success,
-            outputText: tool.outputText,
-            args: tool.args
+            outputText: tool.outputText
         });
     },
     onWatchFleetDispatched(sessionId, info) {
@@ -382,15 +357,9 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
     if (!prompt || !cwd)
         return null;
 
-    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-        ? parsed.requestId.trim()
-        : randomUUID();
-    const sessionId = typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-        ? parsed.sessionId.trim()
-        : undefined;
-    const configDir = typeof parsed.configDir === "string" && parsed.configDir.trim().length > 0
-        ? parsed.configDir.trim()
-        : undefined;
+    const requestId = extractRequiredOrUUID(parsed.requestId);
+    const sessionId = extractOptionalString(parsed.sessionId);
+    const configDir = extractOptionalString(parsed.configDir);
 
     return {
         type: "prompt",
@@ -417,12 +386,8 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
     if (!selectedOption || !targetAgent || !cwd || !sessionId)
         return null;
 
-    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-        ? parsed.requestId.trim()
-        : randomUUID();
-    const configDir = typeof parsed.configDir === "string" && parsed.configDir.trim().length > 0
-        ? parsed.configDir.trim()
-        : undefined;
+    const requestId = extractRequiredOrUUID(parsed.requestId);
+    const configDir = extractOptionalString(parsed.configDir);
 
     return {
         type: "delegate",
@@ -444,13 +409,13 @@ function tryParseNamedAgentRequest(parsed: Partial<NamedAgentRequest>): NamedAge
     if (!targetAgent || !selectedOption || !cwd) return null;
     return {
         type: "named_agent",
-        requestId: typeof parsed.requestId === "string" ? parsed.requestId.trim() || undefined : undefined,
+        requestId: extractOptionalString(parsed.requestId),
         targetAgent,
         selectedOption,
-        handoffContext: typeof parsed.handoffContext === "string" ? parsed.handoffContext.trim() || undefined : undefined,
+        handoffContext: extractOptionalString(parsed.handoffContext),
         cwd,
-        sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId.trim() || undefined : undefined,
-        configDir: typeof parsed.configDir === "string" ? parsed.configDir.trim() || undefined : undefined
+        sessionId: extractOptionalString(parsed.sessionId),
+        configDir: extractOptionalString(parsed.configDir)
     };
 }
 
@@ -463,12 +428,8 @@ function tryParseRunLoopRequest(parsed: Partial<RunLoopRequest>): RunLoopRequest
     if (!loopMdPath || !cwd)
         return null;
 
-    const requestId = typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-        ? parsed.requestId.trim()
-        : randomUUID();
-    const sessionId = typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-        ? parsed.sessionId.trim()
-        : undefined;
+    const requestId = extractRequiredOrUUID(parsed.requestId);
+    const sessionId = extractOptionalString(parsed.sessionId);
 
     return {
         type: "run_loop",
@@ -495,24 +456,18 @@ function tryParseRcStartRequest(parsed: Partial<RcStartRequest>): RcStartRequest
 
     return {
         type: "rc_start",
-        requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-            ? parsed.requestId.trim()
-            : undefined,
+        requestId: extractOptionalString(parsed.requestId),
         port: typeof parsed.port === "number" ? parsed.port : 0,
         repo,
         branch,
         machine,
         squadDir,
         cwd,
-        sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-            ? parsed.sessionId.trim()
-            : undefined,
+        sessionId: extractOptionalString(parsed.sessionId),
         tunnelMode: parsed.tunnelMode === "ngrok" || parsed.tunnelMode === "cloudflare"
             ? parsed.tunnelMode
             : "none",
-        tunnelToken: typeof parsed.tunnelToken === "string" && parsed.tunnelToken.trim().length > 0
-            ? parsed.tunnelToken.trim()
-            : undefined
+        tunnelToken: extractOptionalString(parsed.tunnelToken)
     };
 }
 
@@ -525,27 +480,19 @@ function tryParseRequest(line: string): BridgeRequest | null {
         if (parsed.type === "abort") {
             return {
                 type: "abort",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined,
-                sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-                    ? parsed.sessionId.trim()
-                    : undefined
+                requestId: extractOptionalString(parsed.requestId),
+                sessionId: extractOptionalString(parsed.sessionId)
             };
         }
 
         if (parsed.type === "cancel_background_task") {
             return {
                 type: "cancel_background_task",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined,
+                requestId: extractOptionalString(parsed.requestId),
                 taskId: typeof (parsed as Partial<CancelBackgroundTaskRequest>).taskId === "string"
                     ? (parsed as Partial<CancelBackgroundTaskRequest>).taskId!.trim()
                     : "",
-                sessionId: typeof parsed.sessionId === "string" && parsed.sessionId.trim().length > 0
-                    ? parsed.sessionId.trim()
-                    : undefined
+                sessionId: extractOptionalString(parsed.sessionId)
             };
         }
 
@@ -564,9 +511,7 @@ function tryParseRequest(line: string): BridgeRequest | null {
         if (parsed.type === "run_loop_stop") {
             return {
                 type: "run_loop_stop",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined
+                requestId: extractOptionalString(parsed.requestId)
             };
         }
 
@@ -576,9 +521,7 @@ function tryParseRequest(line: string): BridgeRequest | null {
         if (parsed.type === "rc_stop") {
             return {
                 type: "rc_stop",
-                requestId: typeof parsed.requestId === "string" && parsed.requestId.trim().length > 0
-                    ? parsed.requestId.trim()
-                    : undefined
+                requestId: extractOptionalString(parsed.requestId)
             };
         }
 

@@ -5,24 +5,15 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class HostCommandRegistryTests {
 
-    private string? _tempWorkspaceDir;
+    private TestWorkspace _workspace = null!;
+
+    [SetUp]
+    public void SetUp() => _workspace = new TestWorkspace();
 
     [TearDown]
-    public void TearDown() {
-        if (_tempWorkspaceDir != null && Directory.Exists(_tempWorkspaceDir)) {
-            Directory.Delete(_tempWorkspaceDir, recursive: true);
-            _tempWorkspaceDir = null;
-        }
-    }
+    public void TearDown() => _workspace.Dispose();
 
-    private string CreateTempWorkspace() {
-        var dir = Path.Combine(
-            TestContext.CurrentContext.TestDirectory,
-            "test-workspace-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        _tempWorkspaceDir = dir;
-        return dir;
-    }
+    private string CreateTempWorkspace() => _workspace.RootPath;
 
     // ── Built-in commands ─────────────────────────────────────────────────────
 

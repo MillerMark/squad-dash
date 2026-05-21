@@ -1,5 +1,6 @@
-﻿---
+---
 # Full documentation: docs/features/maintenance-mode.md
+# Task frequency is controlled by `frequency: daily`, `frequency: weekly`, `frequency: monthly`, `frequency: per-commit`, or `frequency: always`
 # Set configured: true to enable maintenance mode.
 # Set enabled: true on individual tasks to activate them.
 # Global safety floor: per-task safety cannot be less safe than this value.
@@ -7,11 +8,11 @@
 idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
-enabled_on_idle: false
+enabled_on_idle: true
 configured: false  # ← change to true to activate
 tasks:
   - id: run-tests
-    enabled: false
+    enabled: true
     frequency: daily
     safety: branch
     title: Run Tests
@@ -29,7 +30,7 @@ tasks:
         type: radio
         label: If failing tests are found
         tooltip: "Fix failures or only report them"
-        value: report
+        value: fix
         choices:
           - value: fix
             tooltip: Fix each failing test; commit fixes to the branch
@@ -37,7 +38,7 @@ tasks:
             tooltip: Report failures only — do not change any code
 
   - id: eliminate-duplication
-    enabled: false
+    enabled: true
     frequency: daily
     safety: branch
     title: Eliminate Code Duplication

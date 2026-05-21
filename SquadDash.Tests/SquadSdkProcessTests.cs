@@ -7,19 +7,13 @@ namespace SquadDash.Tests;
 [TestFixture]
 [NonParallelizable]
 internal sealed class SquadSdkProcessTests {
-    private string _tempDir = null!;
+    private TestWorkspace _workspace = null!;
 
     [SetUp]
-    public void SetUp() {
-        _tempDir = Path.Combine(Path.GetTempPath(), "SquadSdkProcessTests", Path.GetRandomFileName());
-        Directory.CreateDirectory(_tempDir);
-    }
+    public void SetUp() => _workspace = new TestWorkspace();
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     // ------------------------------------------------------------------
     // Argument validation (no process needed)
@@ -111,7 +105,7 @@ internal sealed class SquadSdkProcessTests {
         await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
 
         Assert.That(
-            async () => await sut.RunNamedAgentDelegationAsync("Hand off to Lyra", "lyra-morn", _tempDir, "   "),
+            async () => await sut.RunNamedAgentDelegationAsync("Hand off to Lyra", "lyra-morn", _workspace.RootPath, "   "),
             Throws.TypeOf<ArgumentException>().With.Message.Contains("active Squad session"));
     }
 
@@ -125,7 +119,7 @@ internal sealed class SquadSdkProcessTests {
             """echo {"type":"done","message":""}"""));
 
         Assert.That(
-            async () => await sut.RunPromptAsync("hello", _tempDir),
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath),
             Throws.Nothing);
     }
 
@@ -139,7 +133,7 @@ internal sealed class SquadSdkProcessTests {
             """));
         sut.EventReceived += (_, e) => events.Add(e);
 
-        await sut.RunPromptAsync("hello", _tempDir);
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
 
         Assert.That(events.Select(e => e.Type), Contains.Item("response"));
     }
@@ -154,7 +148,7 @@ internal sealed class SquadSdkProcessTests {
             """));
         sut.EventReceived += (_, e) => events.Add(e);
 
-        await sut.RunPromptAsync("hello", _tempDir);
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
 
         Assert.That(events.Where(e => e.Type == "response").Select(e => e.BridgeProcessGeneration), Is.All.GreaterThan(0));
     }
@@ -169,7 +163,7 @@ internal sealed class SquadSdkProcessTests {
             """));
         sut.EventReceived += (_, e) => types.Add(e.Type);
 
-        await sut.RunPromptAsync("hello", _tempDir);
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
 
         Assert.That(types, Is.EquivalentTo(new[] { "response", "done" }));
     }
@@ -184,7 +178,7 @@ internal sealed class SquadSdkProcessTests {
             """));
         sut.EventReceived += (_, e) => events.Add(e);
 
-        await sut.RunPromptAsync("hello", _tempDir);
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
 
         var completionEvent = events.Single(e => e.Type == "subagent_completed");
         Assert.Multiple(() => {
@@ -196,7 +190,7 @@ internal sealed class SquadSdkProcessTests {
 
     [Test]
     public async Task CancelBackgroundTaskAsync_SendsRequestIdAndReturnsAcknowledgedResult() {
-        var requestLogPath = Path.Combine(_tempDir, "requests.jsonl");
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
         var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var events = new List<SquadSdkEvent>();
 
@@ -230,7 +224,7 @@ internal sealed class SquadSdkProcessTests {
                 promptStarted.TrySetResult(true);
         };
 
-        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        var promptTask = sut.RunPromptAsync("hello", _workspace.RootPath);
         Assert.That(
             await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptStarted.Task));
@@ -284,7 +278,7 @@ internal sealed class SquadSdkProcessTests {
                 promptStarted.TrySetResult(true);
         };
 
-        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        var promptTask = sut.RunPromptAsync("hello", _workspace.RootPath);
         Assert.That(
             await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptStarted.Task));
@@ -316,7 +310,7 @@ internal sealed class SquadSdkProcessTests {
             });
 
         Assert.That(
-            async () => await sut.RunPromptAsync("hello", _tempDir),
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath),
             Throws.Nothing);
     }
 
@@ -335,7 +329,7 @@ internal sealed class SquadSdkProcessTests {
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
-            async () => await sut.RunPromptAsync("hello", _tempDir));
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath));
 
         Assert.That(ex!.Message, Does.Contain("without bridge activity"));
     }
@@ -354,7 +348,7 @@ internal sealed class SquadSdkProcessTests {
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
-            async () => await sut.RunPromptAsync("hello", _tempDir));
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath));
 
         Assert.Multiple(() => {
             Assert.That(ex!.Message, Does.Contain("without bridge activity"));
@@ -376,7 +370,7 @@ internal sealed class SquadSdkProcessTests {
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
-            async () => await sut.RunPromptAsync("hello", _tempDir));
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath));
 
         Assert.That(ex!.Message, Does.Contain("real provider failure"));
     }
@@ -398,7 +392,7 @@ internal sealed class SquadSdkProcessTests {
                 promptStarted.TrySetResult(true);
         };
 
-        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        var promptTask = sut.RunPromptAsync("hello", _workspace.RootPath);
         Assert.That(
             await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptStarted.Task));
@@ -430,7 +424,7 @@ internal sealed class SquadSdkProcessTests {
                 promptStarted.TrySetResult(true);
         };
 
-        var promptTask = sut.RunPromptAsync("hello", _tempDir);
+        var promptTask = sut.RunPromptAsync("hello", _workspace.RootPath);
         Assert.That(
             await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptStarted.Task));
@@ -477,7 +471,7 @@ internal sealed class SquadSdkProcessTests {
             """echo {"type":"error","message":"something exploded"}"""));
 
         var ex = Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await sut.RunPromptAsync("hello", _tempDir));
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath));
 
         Assert.That(ex!.Message, Does.Contain("something exploded"));
     }
@@ -508,9 +502,9 @@ internal sealed class SquadSdkProcessTests {
 
         await sut.RunPromptAsync(
             "hello",
-            _tempDir,
+            _workspace.RootPath,
             sessionId: "stale-session",
-            configDirectory: Path.Combine(_tempDir, "sdk-config"));
+            configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
 
         Assert.Multiple(() => {
             Assert.That(processStarts, Is.EqualTo(2));
@@ -550,9 +544,9 @@ internal sealed class SquadSdkProcessTests {
 
         await sut.RunPromptAsync(
             "hello",
-            _tempDir,
+            _workspace.RootPath,
             sessionId: "poisoned-session",
-            configDirectory: Path.Combine(_tempDir, "sdk-config"));
+            configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
 
         Assert.Multiple(() => {
             Assert.That(processStarts, Is.EqualTo(2));
@@ -591,9 +585,9 @@ internal sealed class SquadSdkProcessTests {
             async () => await sut.RunNamedAgentDelegationAsync(
                 "Hand off to Lyra",
                 "lyra-morn",
-                _tempDir,
+                _workspace.RootPath,
                 sessionId: "poisoned-session",
-                configDirectory: Path.Combine(_tempDir, "sdk-config")));
+                configDirectory: Path.Combine(_workspace.RootPath, "sdk-config")));
 
         Assert.Multiple(() => {
             Assert.That(processStarts, Is.EqualTo(1));
@@ -611,7 +605,7 @@ internal sealed class SquadSdkProcessTests {
         await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
 
         Assert.That(
-            async () => await sut.RunPromptAsync("hello", _tempDir),
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath),
             Throws.TypeOf<InvalidOperationException>()
                   .With.Message.Contains("exited before the prompt completed"));
     }
@@ -631,7 +625,7 @@ internal sealed class SquadSdkProcessTests {
             """));
         sut.ErrorReceived += (_, msg) => errors.Add(msg);
 
-        await sut.RunPromptAsync("hello", _tempDir);
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
 
         Assert.That(errors, Has.Count.GreaterThan(0));
     }
@@ -659,7 +653,7 @@ internal sealed class SquadSdkProcessTests {
             """));
         sut.ErrorReceived += (_, msg) => errors.Add(msg);
 
-        await sut.RunPromptAsync("hello", _tempDir);
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
 
         Assert.That(errors, Is.Empty);
     }
@@ -699,8 +693,8 @@ internal sealed class SquadSdkProcessTests {
         };
 
         // Launch two concurrent prompts
-        var t1 = sut.RunPromptAsync("first", _tempDir);
-        var t2 = sut.RunPromptAsync("second", _tempDir);
+        var t1 = sut.RunPromptAsync("first", _workspace.RootPath);
+        var t2 = sut.RunPromptAsync("second", _workspace.RootPath);
 
         await Task.WhenAll(t1, t2);
 
@@ -726,7 +720,7 @@ internal sealed class SquadSdkProcessTests {
         sut.ErrorReceived += (_, msg) => errors.Add(msg);
 
         Assert.That(
-            async () => await sut.RunPromptAsync("hello", _tempDir),
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath),
             Throws.Nothing);
 
         Assert.That(errors.Any(e => e.StartsWith("[non-json]")), Is.True);
@@ -755,7 +749,7 @@ internal sealed class SquadSdkProcessTests {
     private Func<ProcessStartInfo> BuildStartInfo(string scriptLines) => () => BuildScriptStartInfo(scriptLines);
 
     private ProcessStartInfo BuildScriptStartInfo(string scriptLines) {
-        var scriptPath = Path.Combine(_tempDir, $"fake_{Path.GetRandomFileName()}.cmd");
+        var scriptPath = Path.Combine(_workspace.RootPath, $"fake_{Path.GetRandomFileName()}.cmd");
         var sb = new StringBuilder();
         sb.AppendLine("@echo off");
         foreach (var line in scriptLines.Split('\n'))
@@ -776,7 +770,7 @@ internal sealed class SquadSdkProcessTests {
     }
 
     private ProcessStartInfo BuildPowerShellScriptStartInfo(string scriptBody) {
-        var scriptPath = Path.Combine(_tempDir, $"fake_{Path.GetRandomFileName()}.ps1");
+        var scriptPath = Path.Combine(_workspace.RootPath, $"fake_{Path.GetRandomFileName()}.ps1");
         File.WriteAllText(scriptPath, scriptBody, Encoding.UTF8);
 
         return new ProcessStartInfo {

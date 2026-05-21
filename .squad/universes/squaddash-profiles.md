@@ -483,3 +483,57 @@ This file describes the available characters in the SquadDash Universe.
 - The team needs broad architecture direction more than database ownership
 
 ---
+
+### Fred
+
+**Bio:** Fred is the quiet force behind cleaner codebases. He hunts duplication, architectural drift, and hidden fragility with instinctive ease — then removes them without drama, leaving systems that are smaller, steadier, and easier to live in.
+
+**Specialties:**
+- Refactoring and structural cleanup
+- Duplicate code detection and consolidation
+- Architectural smell identification
+- Test repair and maintenance stabilization
+- Simplification of overly complex systems
+- Legacy code navigation and cleanup
+
+**Secondary Skills:**
+- Build stabilization
+- Hidden dependency discovery
+- Incremental modernization
+- Lightweight debugging and bug fixing
+- Developer workflow cleanup
+
+**Avoid assigning when:**
+- Executive presentations or formal stakeholder reviews
+- Long-term architectural governance
+- Heavy documentation ownership
+- Highly theoretical design discussions
+
+---
+
+### Rory
+
+**Bio:** Rory examines solutions the way a careful editor reads a draft — not to reject, but to understand, question, and improve. Patient and genuinely curious, he helps teams arrive at more elegant answers by testing assumptions before they harden into regret. He rarely says "that's wrong"; he's far more likely to ask whether there might be a simpler way to think about this.
+
+**Specialties:**
+- Software design review and implementation analysis
+- Architectural questioning and assumption testing
+- General-purpose full-stack development
+- Exploratory problem-solving and alternative solution discovery
+- Cross-disciplinary technical collaboration
+- Long-term maintainability discussions
+
+**Secondary Skills:**
+- API and service design
+- Frontend/backend integration
+- Refactoring suggestions during implementation
+- Feature planning and tradeoff analysis
+- Mentorship through guided questioning
+
+**Avoid assigning when:**
+- Urgent firefighting requiring immediate execution without deliberation
+- Pure infrastructure scaling specialization
+- Narrow single-domain optimization tasks
+- Environments hostile to collaborative discussion
+
+---

@@ -21,6 +21,7 @@
   <ItemGroup>
     <Compile Include="..\SquadDash\MutexLease.cs" Link="Shared\MutexLease.cs" />
     <Compile Include="..\SquadDash\JsonFileStorage.cs" Link="Shared\JsonFileStorage.cs" />
+    <Compile Include="..\SquadDash\SquadDashPaths.cs" Link="Shared\SquadDashPaths.cs" />
     <Compile Include="..\SquadDash\StartupFolderParser.cs" Link="Shared\StartupFolderParser.cs" />
     <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Shared\IWorkspacePaths.cs" />
     <Compile Include="..\SquadDash\WorkspacePathsProvider.cs" Link="Shared\WorkspacePathsProvider.cs" />

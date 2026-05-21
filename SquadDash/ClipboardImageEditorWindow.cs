@@ -4725,9 +4725,7 @@ internal sealed class ClipboardImageEditorWindow : Window {
     // ── Arrow defaults — persist / load ───────────────────────────────────────
 
     private static string TextAnnotDefaultsPath =>
-        System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash", "annotation-text-defaults.json");
+        System.IO.Path.Combine(SquadDashPaths.AppData, "annotation-text-defaults.json");
 
     private void SaveTextDefaults() {
         try {
@@ -4771,9 +4769,7 @@ internal sealed class ClipboardImageEditorWindow : Window {
     }
 
     private static string ArrowDefaultsPath =>
-        System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash", "annotation-arrow-defaults.json");
+        System.IO.Path.Combine(SquadDashPaths.AppData, "annotation-arrow-defaults.json");
 
     private void SaveArrowDefaults() {
         try {

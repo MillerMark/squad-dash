@@ -6,20 +6,17 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class CommitApprovalStoreTests {
-    private string _dir = null!;
+    private TestWorkspace _workspace = null!;
     private CommitApprovalStore _store = null!;
 
     [SetUp]
     public void SetUp() {
-        _dir = Path.Combine(Path.GetTempPath(), $"CommitApprovalStoreTests-{Guid.NewGuid()}");
-        _store = new CommitApprovalStore(_dir);
+        _workspace = new TestWorkspace();
+        _store = new CommitApprovalStore(_workspace.RootPath);
     }
 
     [TearDown]
-    public void TearDown() {
-        if (Directory.Exists(_dir))
-            Directory.Delete(_dir, recursive: true);
-    }
+    public void TearDown() => _workspace.Dispose();
 
     [Test]
     public void Load_FileNotPresent_ReturnsEmptyList() {
@@ -30,7 +27,7 @@ internal sealed class CommitApprovalStoreTests {
 
     [Test]
     public void Load_EmptyJsonArray_ReturnsEmptyList() {
-        File.WriteAllText(Path.Combine(_dir, "commit-approvals.json"), "[]");
+        File.WriteAllText(Path.Combine(_workspace.RootPath, "commit-approvals.json"), "[]");
 
         var result = _store.Load();
 
@@ -39,7 +36,7 @@ internal sealed class CommitApprovalStoreTests {
 
     [Test]
     public void Load_CorruptJson_ReturnsEmptyList() {
-        File.WriteAllText(Path.Combine(_dir, "commit-approvals.json"), "{ not valid json [[[");
+        File.WriteAllText(Path.Combine(_workspace.RootPath, "commit-approvals.json"), "{ not valid json [[[");
 
         var result = _store.Load();
 
@@ -113,6 +110,6 @@ internal sealed class CommitApprovalStoreTests {
 
         _store.Save([item]);
 
-        Assert.That(File.Exists(Path.Combine(_dir, "commit-approvals.json")), Is.True);
+        Assert.That(File.Exists(Path.Combine(_workspace.RootPath, "commit-approvals.json")), Is.True);
     }
 }

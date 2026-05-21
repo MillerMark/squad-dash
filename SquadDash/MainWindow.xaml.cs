@@ -28049,7 +28049,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             var jsonFileName = $"{acceptedName}-{theme}.json";
             var jsonPath = Path.Combine(baselineDir, jsonFileName);
 
-            var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+            var jsonOptions = JsonFileStorage.PrettyPrint;
             await using (var fs = File.Open(jsonPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 await JsonSerializer.SerializeAsync(fs, manifest, jsonOptions);
 

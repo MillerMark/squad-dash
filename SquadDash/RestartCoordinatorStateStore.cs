@@ -13,9 +13,7 @@ internal sealed class RestartCoordinatorStateStore {
     private readonly string _stateDirectory;
 
     public RestartCoordinatorStateStore()
-        : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "SquadDash")) {
+        : this(SquadDashPaths.AppData) {
     }
 
     internal RestartCoordinatorStateStore(string stateDirectory) {
@@ -29,19 +27,8 @@ internal sealed class RestartCoordinatorStateStore {
     public RestartRequestState? LoadRequest(string applicationRoot) {
         var normalizedRoot = NormalizePath(applicationRoot);
         using var mutex = AcquireMutex(normalizedRoot);
-
-        var path = GetRequestPath(normalizedRoot);
-        if (!File.Exists(path))
-            return null;
-
-        try {
-            var json = File.ReadAllText(path);
-            var state = JsonSerializer.Deserialize<RestartRequestState>(json);
-            return NormalizeRequest(state);
-        }
-        catch {
-            return null;
-        }
+        var state = JsonFileStorage.ReadOrDefault<RestartRequestState>(GetRequestPath(normalizedRoot), null!);
+        return NormalizeRequest(state);
     }
 
     public void SaveRequest(RestartRequestState state) {
@@ -71,18 +58,8 @@ internal sealed class RestartCoordinatorStateStore {
             return null;
 
         using var mutex = AcquireMutex(normalizedRoot);
-        var path = GetPlanPath(normalizedRoot, normalizedRequestId);
-        if (!File.Exists(path))
-            return null;
-
-        try {
-            var json = File.ReadAllText(path);
-            var state = JsonSerializer.Deserialize<RestartPlanState>(json);
-            return NormalizePlan(state);
-        }
-        catch {
-            return null;
-        }
+        var state = JsonFileStorage.ReadOrDefault<RestartPlanState>(GetPlanPath(normalizedRoot, normalizedRequestId), null!);
+        return NormalizePlan(state);
     }
 
     public void ClearPlan(string applicationRoot, string requestId) {
