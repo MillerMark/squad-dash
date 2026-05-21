@@ -192,8 +192,8 @@ internal sealed class MaintenanceMdParserTests {
                 Assert.That(opt.Choices, Is.Not.Null);
                 Assert.That(opt.Choices, Has.Count.EqualTo(3));
                 Assert.That(opt.Choices!.Select(c => c.Value), Does.Contain("patch"));
-                Assert.That(opt.Choices.Select(c => c.Value),  Does.Contain("minor"));
-                Assert.That(opt.Choices.Select(c => c.Value),  Does.Contain("major"));
+                Assert.That((opt.Choices ?? []).Select(c => c.Value),  Does.Contain("minor"));
+                Assert.That((opt.Choices ?? []).Select(c => c.Value),  Does.Contain("major"));
             });
         }
         finally { DeleteTempFile(path); }
@@ -276,8 +276,9 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Tasks, Is.Not.Null);
             // report-only is already more restrictive than branch; must not be upgraded.
-            Assert.That(config!.Tasks[0].Safety, Is.EqualTo("report-only"),
+            Assert.That((config.Tasks ?? [])[0].Safety, Is.EqualTo("report-only"),
                 "A per-task safety more restrictive than the global floor must not be weakened");
         }
         finally { DeleteTempFile(path); }
@@ -308,7 +309,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var task = config!.Tasks.Single(t => t.Id == "code-review");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var task = (config.Tasks ?? []).Single(t => t.Id == "code-review");
             Assert.That(task.Options, Is.Not.Null);
             var depthOpt = task.Options!.Single(o => o.Key == "depth");
             Assert.Multiple(() => {
@@ -343,7 +345,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var task = config!.Tasks.Single(t => t.Id == "multi-step");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var task = (config.Tasks ?? []).Single(t => t.Id == "multi-step");
             Assert.Multiple(() => {
                 Assert.That(task.Instructions, Does.Contain("Step one"));
                 Assert.That(task.Instructions, Does.Contain("Step two"));
@@ -380,7 +383,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var task = config!.Tasks.Single(t => t.Id == "with-options");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var task = (config.Tasks ?? []).Single(t => t.Id == "with-options");
             Assert.Multiple(() => {
                 Assert.That(task.Instructions, Does.Contain("Do the first thing"));
                 Assert.That(task.Instructions, Does.Contain("Then do the second thing"));
@@ -412,7 +416,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var task = config!.Tasks.Single(t => t.Id == "final-task");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var task = (config.Tasks ?? []).Single(t => t.Id == "final-task");
             Assert.That(task.Instructions, Does.Contain("Line A"));
             Assert.That(task.Instructions, Does.Contain("Line B"));
         }
@@ -449,7 +454,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.Choices, Is.Not.Null);
             Assert.That(opt.Choices, Has.Count.EqualTo(2));
             Assert.Multiple(() => {
@@ -492,7 +498,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_found");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_found");
             Assert.That(opt.Choices, Has.Count.EqualTo(3));
             Assert.Multiple(() => {
                 Assert.That(opt.Choices![0].Value, Is.EqualTo("fix"));
@@ -530,7 +537,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "mode");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "mode");
             Assert.That(opt.Choices, Has.Count.EqualTo(2));
             Assert.Multiple(() => {
                 Assert.That(opt.Choices![0].Value,   Is.EqualTo("fast"));
@@ -564,7 +572,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "action");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "action");
             Assert.That(opt.Choices, Has.Count.EqualTo(2));
             Assert.Multiple(() => {
                 Assert.That(opt.Choices![0].Value,   Is.EqualTo("fix"));
@@ -607,7 +616,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opts = config!.Tasks[0].Options!;
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opts = (config.Tasks ?? [])[0].Options!;
             Assert.That(opts, Has.Count.EqualTo(2));
             Assert.That(opts[0].Choices, Has.Count.EqualTo(2));
             Assert.That(opts[1].Choices, Has.Count.EqualTo(2));
@@ -647,7 +657,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_found");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_found");
             Assert.That(opt.Choices![0].Tooltip, Does.Contain("inline"));
             Assert.That(opt.Choices[1].Tooltip,  Does.Contain("maintenance branch"));
             Assert.That(opt.Choices[2].Tooltip,  Does.Contain("do not change"));
@@ -686,7 +697,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.Tooltip, Is.EqualTo("Fix failures or only report them"));
         }
         finally { DeleteTempFile(path); }
@@ -721,7 +733,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.Tooltip, Is.EqualTo("Legacy hint text"),
                 "hint: key should populate the Tooltip field for backward compatibility");
         }
@@ -756,7 +769,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(string.IsNullOrEmpty(opt.Tooltip), Is.True,
                 "Tooltip should be null or empty when neither tooltip: nor hint: is present");
         }
@@ -794,7 +808,8 @@ internal sealed class MaintenanceMdParserTests {
         try {
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.Tooltip, Is.EqualTo("New tooltip"),
                 "tooltip: key should overwrite the value set by hint:");
         }
@@ -832,7 +847,8 @@ internal sealed class MaintenanceMdParserTests {
             MaintenanceMdParser.UpdateOptionValue(path, "run-tests", "if_failing", "fix");
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.RawValue, Is.EqualTo("fix"));
         }
         finally { DeleteTempFile(path); }
@@ -870,7 +886,8 @@ internal sealed class MaintenanceMdParserTests {
             // The value: line should still be "report"
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.RawValue, Is.EqualTo("report"), "File should be unchanged when task not found");
         }
         finally { DeleteTempFile(path); }
@@ -905,7 +922,8 @@ internal sealed class MaintenanceMdParserTests {
             MaintenanceMdParser.UpdateOptionValue(path, "run-tests", "nonexistent_key", "fix");
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
-            var opt = config!.Tasks[0].Options!.Single(o => o.Key == "if_failing");
+            Assert.That(config!.Tasks, Is.Not.Null);
+            var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
             Assert.That(opt.RawValue, Is.EqualTo("report"), "File should be unchanged when option key not found");
         }
         finally { DeleteTempFile(path); }
@@ -981,9 +999,10 @@ internal sealed class MaintenanceMdParserTests {
             MaintenanceMdParser.UpdateOptionValue(path, "task-beta", "opt_two", "y");
             var config = MaintenanceMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Tasks, Is.Not.Null);
 
-            var alpha = config!.Tasks.Single(t => t.Id == "task-alpha");
-            var beta  = config.Tasks.Single(t => t.Id == "task-beta");
+            var alpha = (config.Tasks ?? []).Single(t => t.Id == "task-alpha");
+            var beta  = (config.Tasks ?? []).Single(t => t.Id == "task-beta");
 
             Assert.Multiple(() => {
                 Assert.That(alpha.Options!.Single(o => o.Key == "opt_one").RawValue, Is.EqualTo("a"), "alpha.opt_one unchanged");
