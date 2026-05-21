@@ -486,6 +486,47 @@
                           Visibility="Collapsed">
                     <MenuItem Header="_UI Reveal"
                               Click="UiRevealMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="_Simulation"
+                              ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
+                              SubmenuOpened="SimulationMenuItem_SubmenuOpened">
+                        <MenuItem Header="_Bridge Disposed"
+                                  Click="SimulateBridgeDisposed_Click" />
+                        <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                        <MenuItem Header="Startup _Issue Preview"
+                                  ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                            <MenuItem x:Name="SimStartupNone"
+                                      Header="_None" IsCheckable="True"
+                                      Tag="None" Click="SimulateStartupIssue_Click" />
+                            <MenuItem x:Name="SimStartupMissingNode"
+                                      Header="Missing _Node.js tooling" IsCheckable="True"
+                                      Tag="MissingNodeTooling" Click="SimulateStartupIssue_Click" />
+                            <MenuItem x:Name="SimStartupSquadNotInstalled"
+                                      Header="Squad not _installed" IsCheckable="True"
+                                      Tag="SquadNotInstalled" Click="SimulateStartupIssue_Click" />
+                            <MenuItem x:Name="SimStartupPartialSquadInstall"
+                                      Header="_Partial Squad install" IsCheckable="True"
+                                      Tag="PartialSquadInstall" Click="SimulateStartupIssue_Click" />
+                        </MenuItem>
+                        <MenuItem Header="_Runtime Failure"
+                                  ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                            <MenuItem x:Name="SimRuntimeNone"
+                                      Header="_None" IsCheckable="True"
+                                      Tag="None" Click="SimulateRuntimeIssue_Click" />
+                            <MenuItem x:Name="SimRuntimeCopilotAuth"
+                                      Header="_Copilot auth required" IsCheckable="True"
+                                      Tag="CopilotAuthRequired" Click="SimulateRuntimeIssue_Click" />
+                            <MenuItem x:Name="SimRuntimeBundledSdk"
+                                      Header="_Bundled SDK repair" IsCheckable="True"
+                                      Tag="BundledSdkRepair" Click="SimulateRuntimeIssue_Click" />
+                            <MenuItem x:Name="SimRuntimeBuildTempFiles"
+                                      Header="Build _temp files" IsCheckable="True"
+                                      Tag="BuildTempFiles" Click="SimulateRuntimeIssue_Click" />
+                            <MenuItem x:Name="SimRuntimeGenericFailure"
+                                      Header="_Generic runtime failure" IsCheckable="True"
+                                      Tag="GenericRuntimeFailure" Click="SimulateRuntimeIssue_Click" />
+                        </MenuItem>
+                    </MenuItem>
                 </MenuItem>
             </Menu>
 

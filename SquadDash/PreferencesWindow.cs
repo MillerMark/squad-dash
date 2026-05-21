@@ -30,8 +30,6 @@ internal sealed class PreferencesWindow : Window {
     private readonly RadioButton _pttDoNothingRadio;
     private readonly PasswordBox _openAiSpeechKeyPasswordBox;
     private readonly TextBox _openAiSpeechKeyRevealBox;
-    private readonly ComboBox? _startupIssueSimulationComboBox;
-    private readonly ComboBox? _runtimeIssueSimulationComboBox;
     private readonly TextBlock _statusText;
     private readonly PushNotificationService _pushNotificationService;
     private readonly CheckBox _notificationsEnabledCheckBox;
@@ -419,25 +417,6 @@ internal sealed class PreferencesWindow : Window {
         _notifyRcEstablishedCheckBox = MakeCheckBox("Remote connection established", GetToggle(currentSettings, "rc_connection_established", false));
         _notifyRcDroppedCheckBox = MakeCheckBox("Remote connection dropped", GetToggle(currentSettings, "rc_connection_dropped", true));
 
-        if (showDevOptions) {
-            _startupIssueSimulationComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 14) };
-            _startupIssueSimulationComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
-            AddSimulationOption(_startupIssueSimulationComboBox, "None", DeveloperStartupIssueSimulation.None);
-            AddSimulationOption(_startupIssueSimulationComboBox, "Missing Node.js tooling", DeveloperStartupIssueSimulation.MissingNodeTooling);
-            AddSimulationOption(_startupIssueSimulationComboBox, "Squad not installed", DeveloperStartupIssueSimulation.SquadNotInstalled);
-            AddSimulationOption(_startupIssueSimulationComboBox, "Partial Squad install", DeveloperStartupIssueSimulation.PartialSquadInstall);
-            SelectSimulationOption(_startupIssueSimulationComboBox, currentSettings.StartupIssueSimulation);
-
-            _runtimeIssueSimulationComboBox = new ComboBox { Height = 30 };
-            _runtimeIssueSimulationComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
-            AddSimulationOption(_runtimeIssueSimulationComboBox, "None", DeveloperRuntimeIssueSimulation.None);
-            AddSimulationOption(_runtimeIssueSimulationComboBox, "Copilot auth required", DeveloperRuntimeIssueSimulation.CopilotAuthRequired);
-            AddSimulationOption(_runtimeIssueSimulationComboBox, "Bundled SDK repair", DeveloperRuntimeIssueSimulation.BundledSdkRepair);
-            AddSimulationOption(_runtimeIssueSimulationComboBox, "Build temp files", DeveloperRuntimeIssueSimulation.BuildTempFiles);
-            AddSimulationOption(_runtimeIssueSimulationComboBox, "Generic runtime failure", DeveloperRuntimeIssueSimulation.GenericRuntimeFailure);
-            SelectSimulationOption(_runtimeIssueSimulationComboBox, currentSettings.RuntimeIssueSimulation);
-        }
-
         // ── Window skeleton ───────────────────────────────────────────────
 
         var root = new DockPanel();
@@ -522,8 +501,7 @@ internal sealed class PreferencesWindow : Window {
             ("TTS Provider",      BuildTtsProviderPage(currentSettings)),
             ("Commands",          BuildAiPage()),
         };
-        if (showDevOptions)
-            pageList.Add(("Dev / Diag.", BuildDevPage()));
+
 
         _pages = new UIElement[pageList.Count];
         for (int i = 0; i < pageList.Count; i++)
@@ -1609,29 +1587,6 @@ internal sealed class PreferencesWindow : Window {
         return (cb, tb);
     }
 
-    private UIElement BuildDevPage() {
-        var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
-
-        AddSectionHeader(form, "Developer Issue Simulation");
-
-        var devHint = new TextBlock {
-            Text = "Use this only for UI testing. Startup simulations affect the top issue panel. Runtime simulations make the next prompt fail through the friendly error path.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
-            Margin = new Thickness(0, 0, 0, 12)
-        };
-        devHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        form.Children.Add(devHint);
-
-        AddLabel(form, "Startup Issue Preview");
-        form.Children.Add(_startupIssueSimulationComboBox!);
-
-        AddLabel(form, "Runtime Failure Simulation", topMargin: 6);
-        form.Children.Add(_runtimeIssueSimulationComboBox!);
-
-        return WrapInScrollViewer(form);
-    }
-
     private UIElement BuildAiPage() {
         var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
 
@@ -1708,13 +1663,6 @@ internal sealed class PreferencesWindow : Window {
         var userName = _userNameBox.Text.Trim();
         var apiKey = _apiKeyRevealBox.IsVisible ? _apiKeyRevealBox.Text : _apiKeyPasswordBox.Password;
         var speechRegion = _speechRegionBox.Text.Trim();
-        var startupIssueSimulation = (_startupIssueSimulationComboBox?.SelectedItem as ComboBoxItem)?.Tag is DeveloperStartupIssueSimulation startupValue
-            ? startupValue
-            : DeveloperStartupIssueSimulation.None;
-        var runtimeIssueSimulation = (_runtimeIssueSimulationComboBox?.SelectedItem as ComboBoxItem)?.Tag is DeveloperRuntimeIssueSimulation runtimeValue
-            ? runtimeValue
-            : DeveloperRuntimeIssueSimulation.None;
-
         var updated = _settingsStore.SaveUserName(string.IsNullOrWhiteSpace(userName) ? null : userName);
         updated = _settingsStore.SaveSpeechRegion(string.IsNullOrWhiteSpace(speechRegion) ? null : speechRegion);
         updated = _settingsStore.SaveSpeechProvider(
@@ -1722,7 +1670,6 @@ internal sealed class PreferencesWindow : Window {
             string.IsNullOrWhiteSpace(_openAiSpeechKeyPasswordBox.Password.Trim()) ? null : _openAiSpeechKeyPasswordBox.Password.Trim());
         var speechLocale = (_speechLanguageComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
         updated = _settingsStore.SaveSpeechLanguage(speechLocale);
-        updated = _settingsStore.SaveDeveloperIssueSimulation(startupIssueSimulation, runtimeIssueSimulation);
         var notifEnabled = _notificationsEnabledCheckBox.IsChecked == true;
         var notifTopic = _notificationTopicBox.Text.Trim();
         updated = _settingsStore.SaveNotificationSettings(
@@ -1774,25 +1721,6 @@ internal sealed class PreferencesWindow : Window {
             window.Owner = owner;
         window.Show();
         return window;
-    }
-
-    private static void AddSimulationOption(ComboBox comboBox, string label, object value) {
-        comboBox.Items.Add(new ComboBoxItem {
-            Content = label,
-            Tag = value
-        });
-    }
-
-    private static void SelectSimulationOption(ComboBox comboBox, object value) {
-        foreach (var item in comboBox.Items) {
-            if (item is ComboBoxItem { Tag: not null } comboBoxItem &&
-                Equals(comboBoxItem.Tag, value)) {
-                comboBox.SelectedItem = comboBoxItem;
-                return;
-            }
-        }
-        if (comboBox.Items.Count > 0)
-            comboBox.SelectedIndex = 0;
     }
 
     private static CheckBox MakeCheckBox(string label, bool isChecked) {

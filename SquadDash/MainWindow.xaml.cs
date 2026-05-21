@@ -8815,28 +8815,6 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
-#if DEBUG
-            // ── Debug: simulate bridge interruption (Ctrl+Shift+F12, no Alt) ─────
-            if (e.Key == Key.F12 &&
-                (Keyboard.Modifiers & ModifierKeys.Control) != 0 &&
-                (Keyboard.Modifiers & ModifierKeys.Shift) != 0 &&
-                (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
-            {
-                // AppendLine only renders quick-reply buttons when there is an active
-                // CurrentTurn (it uses AppendResponseSegment → RenderResponseEntry path).
-                // Create a synthetic turn so the injected text goes through that path.
-                BeginTranscriptTurn("[debug interrupt]");
-                AppendLine(
-                    $"[interrupted] The Squad bridge was disposed before the prompt completed.\n\n" +
-                    $"[{PromptExecutionController.ResendLastPromptQuickReply}] [{PromptExecutionController.CheckGitDiffQuickReply}]",
-                    ThemeBrush("SystemInfoText"));
-                SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=debug-interrupt");
-                CoordinatorThread.CurrentTurn = null;
-                e.Handled = true;
-                return;
-            }
-#endif
-
             if (e.Key == Key.Escape && _transcriptFullScreenEnabled && _pttState != PttState.Active)
             {
                 e.Handled = true;
@@ -11253,6 +11231,84 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             HandleUiCallbackException(nameof(OnGlobalPreProcessInput), ex);
         }
+    }
+
+    // ── Developer > Simulation menu ───────────────────────────────────────────
+
+    private void SimulateBridgeDisposed_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // AppendLine only renders quick-reply buttons when there is an active
+            // CurrentTurn (it uses AppendResponseSegment → RenderResponseEntry path).
+            // Create a synthetic turn so the injected text goes through that path.
+            BeginTranscriptTurn("[debug interrupt]");
+            AppendLine(
+                $"[interrupted] The Squad bridge was disposed before the prompt completed.\n\n" +
+                $"[{PromptExecutionController.ResendLastPromptQuickReply}] [{PromptExecutionController.CheckGitDiffQuickReply}]",
+                ThemeBrush("SystemInfoText"));
+            SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=debug-interrupt");
+            CoordinatorThread.CurrentTurn = null;
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulateBridgeDisposed_Click), ex); }
+    }
+
+    private void SimulationMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        try { SyncSimulationMenuCheckmarks(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulationMenuItem_SubmenuOpened), ex); }
+    }
+
+    private void SimulateStartupIssue_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not MenuItem { Tag: string tag }) return;
+            var value = Enum.TryParse<DeveloperStartupIssueSimulation>(tag, out var parsed)
+                ? parsed : DeveloperStartupIssueSimulation.None;
+            _settingsSnapshot = _settingsStore.SaveDeveloperIssueSimulation(
+                value, _settingsSnapshot.RuntimeIssueSimulation);
+            SyncSimulationMenuCheckmarks();
+            RefreshInstallationState();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulateStartupIssue_Click), ex); }
+    }
+
+    private void SimulateRuntimeIssue_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not MenuItem { Tag: string tag }) return;
+            var value = Enum.TryParse<DeveloperRuntimeIssueSimulation>(tag, out var parsed)
+                ? parsed : DeveloperRuntimeIssueSimulation.None;
+            _settingsSnapshot = _settingsStore.SaveDeveloperIssueSimulation(
+                _settingsSnapshot.StartupIssueSimulation, value);
+            SyncSimulationMenuCheckmarks();
+            RefreshDeveloperRuntimeIssuePreview();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulateRuntimeIssue_Click), ex); }
+    }
+
+    private void SyncSimulationMenuCheckmarks()
+    {
+        var startup = _settingsSnapshot.StartupIssueSimulation;
+        var runtime = _settingsSnapshot.RuntimeIssueSimulation;
+
+        void SyncStartup(MenuItem item, DeveloperStartupIssueSimulation val) =>
+            item.IsChecked = startup == val;
+        void SyncRuntime(MenuItem item, DeveloperRuntimeIssueSimulation val) =>
+            item.IsChecked = runtime == val;
+
+        SyncStartup(SimStartupNone,               DeveloperStartupIssueSimulation.None);
+        SyncStartup(SimStartupMissingNode,         DeveloperStartupIssueSimulation.MissingNodeTooling);
+        SyncStartup(SimStartupSquadNotInstalled,   DeveloperStartupIssueSimulation.SquadNotInstalled);
+        SyncStartup(SimStartupPartialSquadInstall, DeveloperStartupIssueSimulation.PartialSquadInstall);
+
+        SyncRuntime(SimRuntimeNone,           DeveloperRuntimeIssueSimulation.None);
+        SyncRuntime(SimRuntimeCopilotAuth,    DeveloperRuntimeIssueSimulation.CopilotAuthRequired);
+        SyncRuntime(SimRuntimeBundledSdk,     DeveloperRuntimeIssueSimulation.BundledSdkRepair);
+        SyncRuntime(SimRuntimeBuildTempFiles, DeveloperRuntimeIssueSimulation.BuildTempFiles);
+        SyncRuntime(SimRuntimeGenericFailure, DeveloperRuntimeIssueSimulation.GenericRuntimeFailure);
     }
 
 
