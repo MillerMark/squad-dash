@@ -61,16 +61,17 @@ internal sealed class UiRevealOverlay
         EnsurePopup();
         _lastElement = null;
 
-        owner.PreviewMouseMove  += OnPreviewMouseMove;
-        owner.PreviewMouseDown  += OnPreviewMouseDown;
+        // PreProcessInput fires for ALL input on the UI thread, including mouse
+        // events inside floating ToolTip / Popup HWNDs that own their own window,
+        // so the overlay works even when the mouse is inside a hint popup.
+        InputManager.Current.PreProcessInput += OnGlobalInput;
     }
 
     internal void Deactivate()
     {
         if (_owner is not null)
         {
-            _owner.PreviewMouseMove -= OnPreviewMouseMove;
-            _owner.PreviewMouseDown -= OnPreviewMouseDown;
+            InputManager.Current.PreProcessInput -= OnGlobalInput;
             _owner = null;
         }
 
@@ -81,51 +82,59 @@ internal sealed class UiRevealOverlay
         _lastElement = null;
     }
 
-    private void OnPreviewMouseMove(object sender, MouseEventArgs e)
+    private void OnGlobalInput(object sender, PreProcessInputEventArgs e)
     {
         try
         {
             if (_owner is null) return;
-            var pos = e.GetPosition(_owner);
-            var hit = VisualTreeHelper.HitTest(_owner, pos)?.VisualHit;
 
+            // Left-click anywhere → eat the click and dismiss.
+            if (e.StagingItem.Input is MouseButtonEventArgs { ChangedButton: MouseButton.Left } click
+                && click.RoutedEvent != Mouse.MouseUpEvent
+                && click.RoutedEvent != Mouse.PreviewMouseUpEvent)
+            {
+                e.Cancel();
+                Deactivate();
+                return;
+            }
+
+            // Only handle plain mouse-move events (not button, not wheel).
+            if (e.StagingItem.Input is not MouseEventArgs mouse
+                || e.StagingItem.Input is MouseButtonEventArgs
+                || e.StagingItem.Input is MouseWheelEventArgs)
+                return;
+
+            // Resolve the deepest FrameworkElement under the pointer from the event source.
+            var source = (mouse.OriginalSource ?? mouse.Source) as DependencyObject;
             FrameworkElement? element = null;
-            var current = hit;
+            var current = source;
             while (current is not null)
             {
-                if (current is FrameworkElement fe)
-                {
-                    element = fe;
-                    break;
-                }
+                if (current is FrameworkElement fe) { element = fe; break; }
                 current = VisualTreeHelper.GetParent(current);
             }
 
-            if (element is null || ReferenceEquals(element, _lastElement))
-                return;
-
+            if (element is null || ReferenceEquals(element, _lastElement)) return;
             _lastElement = element;
+
             UpdatePopupContent(element);
 
-            // Convert window-relative position to screen coordinates for AbsolutePoint popup
-            var windowPos  = e.GetPosition(_owner);
-            var screenPos  = _owner.PointToScreen(windowPos);
-            PositionPopup(screenPos);
+            // Position the info-popup near the cursor using screen coordinates.
+            try
+            {
+                var pos       = mouse.GetPosition(element);
+                var screenPos = element.PointToScreen(pos);
+                PositionPopup(screenPos);
+            }
+            catch { /* element may not yet be connected to a visual root */ }
+
             _popup!.IsOpen = true;
 
+            // Highlight adorner — works for main-window elements and may work in
+            // tooltip trees that include an AdornerDecorator; safe to try either way.
             ApplyHighlight(element);
         }
         catch { /* never throw from overlay */ }
-    }
-
-    private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
-    {
-        try
-        {
-            e.Handled = true;
-            Deactivate();
-        }
-        catch { }
     }
 
     // -------------------------------------------------------------------------
