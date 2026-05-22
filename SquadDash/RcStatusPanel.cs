@@ -6,7 +6,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Controls;
 using System.Windows.Shell;
-using System.Windows.Interop;
 
 namespace SquadDash;
 
@@ -14,7 +13,7 @@ namespace SquadDash;
 /// Non-modal floating window that shows the current RC access URL(s),
 /// a reveal-on-demand QR code per URL, and a Stop Remote Access button.
 /// </summary>
-internal sealed class RcStatusPanel : Window
+internal sealed class RcStatusPanel : ChromedWindow
 {
     private readonly Action _onStopRemoteAccess;
     private readonly Action? _onRegenerateToken;
@@ -44,6 +43,7 @@ internal sealed class RcStatusPanel : Window
     // ── Construction ──────────────────────────────────────────────────────
 
     public RcStatusPanel(string primaryUrl, Action onStopRemoteAccess, Action? onRegenerateToken = null, Action? onRestartAsAdmin = null)
+        : base(resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onStopRemoteAccess = onStopRemoteAccess;
         _onRegenerateToken  = onRegenerateToken;
@@ -53,37 +53,14 @@ internal sealed class RcStatusPanel : Window
         Width               = 360;
         SizeToContent       = SizeToContent.Height;
         MinWidth            = 300;
-        WindowStyle         = WindowStyle.None;
-        AllowsTransparency  = true;
-        Background          = Brushes.Transparent;
-        ResizeMode          = ResizeMode.NoResize;
         ShowInTaskbar       = false;
         ShowActivated       = true;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(0),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
         KeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
 
         // ── Outer chrome border ──────────────────────────────────────────
-        var outerBorder = new Border
-        {
-            BorderThickness = new Thickness(1.5),
-            CornerRadius    = new CornerRadius(4),
-        };
-        outerBorder.SetResourceReference(Border.BackgroundProperty,   "PopupSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty,  "PanelBorder");
-        Content = outerBorder;
-
+        var outerBorder = ApplyOuterBorder("PopupSurface");
         _root = new StackPanel { Margin = new Thickness(16, 12, 16, 16) };
         outerBorder.Child = _root;
 

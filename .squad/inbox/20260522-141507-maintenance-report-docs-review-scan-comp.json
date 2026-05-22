@@ -1,0 +1,41 @@
+{
+  "id": "20260522-141507-maintenance-report-docs-review-scan-comp",
+  "subject": "Maintenance report: docs-review scan complete",
+  "from": "argus-weld",
+  "timestamp": "2026-05-22T14:15:07.4286441+00:00",
+  "read": true,
+  "body": "# Docs Review \u2014 2026-05-22\n\nI completed a scan of the documentation in \u0060D:\\Drive\\Source\\SquadDash-public\\docs\u0060.\n\n## Findings\n\n### \u2705 Healthy\n- All internal links in \u0060getting-started/installation.md\u0060 resolve correctly\n- No orphaned images found\n\n### \u26A0\uFE0F Needs attention\n- **\u0060docs/features/annotation-editor.md\u0060** \u2014 references a screenshot at \u0060images/measure-line-toolbar.png\u0060 that does not exist on disk yet\n- **\u0060docs/getting-started/installation.md\u0060** \u2014 external link to the WinGet manifest repo returns 404 (manifest not yet submitted)\n\n### \uD83D\uDCCB Suggestions\n- The measurement line tool added this sprint has no documentation entry yet\n- Consider adding a \u0060docs/features/inbox.md\u0060 page now that the Inbox system is live\n\n---\n*This is a simulated maintenance report to test the inbox popup window and action buttons.*",
+  "attachments": [
+    {
+      "type": "file",
+      "label": "installation.md",
+      "path": "docs/getting-started/installation.md",
+      "href": null,
+      "taskId": null,
+      "content": null
+    }
+  ],
+  "actions": [
+    {
+      "label": "Document the Inbox feature",
+      "routeMode": "start_named_agent",
+      "targetAgent": "scribe-holloway",
+      "prompt": "Please create a new documentation page at \u0060docs/features/inbox.md\u0060 covering the Inbox panel feature in SquadDash. The Inbox is an AI-to-user messaging system: agents (coordinator or argus-weld) can send messages via INBOX_MESSAGE_JSON blocks, which appear as a list in the Inbox panel. Clicking a message opens a popup window showing the subject, from/timestamp, optional attachments, optional action buttons, and a Markdown body. Action buttons are deferred quick-replies \u2014 clicking one injects a self-contained prompt into the queue. Messages are stored in \u0060.squad/inbox/\u0060 as JSON files. This was implemented in commits 9a8fc3a (storage), 6ec17f5 (panel), f93cb50 (prompt injection), 7082396 (actions model), c429407 (action buttons), 9af136b (popup window)."
+    },
+    {
+      "label": "Add screenshot placeholder task",
+      "routeMode": "start_coordinator",
+      "targetAgent": null,
+      "prompt": "Add a low-priority task to .squad/tasks.md: \u0027Add missing screenshot docs/images/measure-line-toolbar.png \u2014 referenced in annotation-editor.md but not yet captured. Use the screenshot placeholder format in the doc.\u0027"
+    },
+    {
+      "label": "Dismiss",
+      "routeMode": "done",
+      "targetAgent": null,
+      "prompt": null
+    }
+  ],
+  "usedActions": [
+    "Document the Inbox feature"
+  ]
+}

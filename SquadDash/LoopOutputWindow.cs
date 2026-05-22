@@ -1,7 +1,6 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
 
@@ -12,7 +11,7 @@ namespace SquadDash;
 /// Open via right-click "Show Loop Output" on the Loop panel, or auto-shown
 /// when loop output first arrives.  Dismiss with the × button or "Close" (hides, preserves history).
 /// </summary>
-internal sealed class LoopOutputWindow : Window
+internal sealed class LoopOutputWindow : ChromedWindow
 {
     private readonly TextBox _logTextBox = null!;
 
@@ -23,34 +22,14 @@ internal sealed class LoopOutputWindow : Window
         Height     = 480;
         MinWidth   = 320;
         MinHeight  = 200;
-        WindowStyle        = WindowStyle.None;
-        AllowsTransparency = true;
-        Background         = Brushes.Transparent;
-        ResizeMode         = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar      = false;
         ShowActivated      = false;
         Topmost            = false;
 
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(4),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
-        var outerBorder = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4) };
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-
         var root = new Grid { Margin = new Thickness(12) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        outerBorder.Child = root;
-        Content = outerBorder;
+        ApplyOuterBorder().Child = root;
 
         // ── Header ──────────────────────────────────────────────────────────────────────────
 

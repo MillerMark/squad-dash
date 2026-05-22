@@ -3,7 +3,6 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
 using SquadDash.Screenshots;
@@ -18,7 +17,7 @@ namespace SquadDash;
 /// Follows the singleton floating-window pattern used by <see cref="TasksStatusWindow"/>
 /// and <see cref="TraceWindow"/>.</para>
 /// </summary>
-internal sealed class ScreenshotHealthWindow : Window
+internal sealed class ScreenshotHealthWindow : ChromedWindow
 {
     private readonly ScreenshotHealthChecker _checker;
     private readonly Button                  _runButton;
@@ -36,38 +35,18 @@ internal sealed class ScreenshotHealthWindow : Window
         Height             = 500;
         MinWidth           = 420;
         MinHeight          = 320;
-        WindowStyle        = WindowStyle.None;
-        AllowsTransparency = true;
-        Background         = Brushes.Transparent;
-        ResizeMode         = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar      = false;
         ShowActivated      = false;
         Topmost            = false;
 
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(4),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
         // ── Outer shell ─────────────────────────────────────────────────────────
-
-        var outerBorder = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4) };
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
         var root = new Grid { Margin = new Thickness(12) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                          // header
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                          // hint
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                          // summary
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });     // results
-        outerBorder.Child = root;
-        Content           = outerBorder;
+        ApplyOuterBorder().Child = root;
 
         // ── Header ──────────────────────────────────────────────────────────────
 

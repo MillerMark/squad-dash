@@ -469,6 +469,22 @@
 
 ## 🟡 Mid Priority — Maintenance Mode (Phase 3 Polish)
 
+- [ ] **[Inbox] Inbox message save lost on shutdown — save INBOX_MESSAGE_JSON earlier** *(Owner: Lyra Morn)*
+  INBOX_MESSAGE_JSON is currently saved in the `case "done":` bridge event handler. If the app shuts
+  down while a turn is in-flight (streaming), the save never runs and the message is silently lost.
+  Fix: save the inbox message as soon as the full response text is finalized (or at streaming end),
+  not only on `bridge-done`. Consider a lightweight flush-on-close path that drains any pending
+  INBOX_MESSAGE_JSON from the current response before shutdown completes.
+
+- [ ] **[Maintenance] `branch`-safety tasks branch from current HEAD, not always from main** *(Owner: Arjun Sen)*
+  When two `safety: branch` tasks run in a session, each task receives a prompt that says "create branch
+  `maintenance/YYYYMMDD-<slug>` before making any code changes." The AI agent runs `git checkout -b`
+  from whatever branch is currently checked out. Since task 1 commits to its branch and the runner does
+  not switch back to main before task 2 starts, task 2 inherits task 1's commits on its new branch.
+  Fix: `MaintenanceRunner` should record the base branch at session start (e.g. `git rev-parse --abbrev-ref HEAD`)
+  and inject an explicit `git checkout <base-branch>` step into each `branch`-safety task's preamble
+  before the `git checkout -b` instruction, so every task always branches from the same known base.
+
 
 
 - [x] **[Maintenance] Manual trigger button in Maintenance panel** *(Owner: Lyra Morn)*

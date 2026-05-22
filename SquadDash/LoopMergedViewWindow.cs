@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
 
@@ -11,7 +10,7 @@ namespace SquadDash;
 /// Open/close is toggled via the loop panel context menu; content is refreshed whenever a loop
 /// option changes via <see cref="MainWindow.RefreshLoopMergedView"/>.
 /// </summary>
-internal sealed class LoopMergedViewWindow : Window
+internal sealed class LoopMergedViewWindow : ChromedWindow
 {
     private readonly TextBox _bodyTextBox;
 
@@ -22,33 +21,13 @@ internal sealed class LoopMergedViewWindow : Window
         Height         = 450;
         MinWidth       = 300;
         MinHeight      = 200;
-        WindowStyle    = WindowStyle.None;
-        AllowsTransparency = true;
-        Background     = Brushes.Transparent;
-        ResizeMode     = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar  = false;
         ShowActivated  = false;
-
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(4),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
-        var outerBorder = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4) };
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
         var root = new Grid { Margin = new Thickness(12) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        outerBorder.Child = root;
-        Content = outerBorder;
+        ApplyOuterBorder().Child = root;
 
         // ── Header ──────────────────────────────────────────────────────────────────────────
 

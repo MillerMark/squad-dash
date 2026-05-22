@@ -1,0 +1,44 @@
+{
+  "id": "20260522-145628-attachment-test-all-four-types-resend",
+  "subject": "Attachment Test \u2014 All Four Types (resend)",
+  "from": "coordinator",
+  "timestamp": "2026-05-22T14:56:28.0446142+00:00",
+  "read": true,
+  "body": "This is a resend of the attachment test message that was lost on shutdown.\n\nTry clicking each chip:\n\n- **URL** \u2192 opens the SquadDash repo in your browser\n- **File** \u2192 opens \u0060maintenance.md\u0060 on disk\n- **Task-ref** \u2192 shows a tooltip with the task ID (no click action)\n- **Text** \u2192 pops up the release notes preview in a dialog\n\n*(The original was lost because the app shut down before the bridge \u0060done\u0060 event could write it to disk. A backlog task has been filed for Lyra to fix this.)*",
+  "attachments": [
+    {
+      "type": "url",
+      "label": "SquadDash Repo",
+      "path": null,
+      "href": "https://github.com/MillerMark/squad-dash",
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "file",
+      "label": "maintenance.md",
+      "path": ".squad/maintenance.md",
+      "href": null,
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "task-ref",
+      "label": "DUP-007 Follow-up",
+      "path": null,
+      "href": null,
+      "taskId": "dup-007-rescan",
+      "content": null
+    },
+    {
+      "type": "text",
+      "label": "Release Notes Preview",
+      "path": null,
+      "href": null,
+      "taskId": null,
+      "content": "## What\u0027s New\n\n- Run Frequency picker now shows Weekly, Monthly, and After Commits options\n- Inbox attachment chips fixed: correct icons and click handlers for all types\n- Inbox and Maintenance panels now have inline filter boxes in the header\n- Maintenance task row spacing tightened\n- Inbox message save-on-shutdown bug filed for investigation"
+    }
+  ],
+  "actions": [],
+  "usedActions": []
+}

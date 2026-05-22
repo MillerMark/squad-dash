@@ -22,9 +22,14 @@ internal class ChromedWindow : Window {
     /// ToolWindow-style popups.
     /// </param>
     /// <param name="resizeMode">Defaults to CanResizeWithGrip.</param>
+    /// <param name="resizeBorderThickness">
+    /// Width of the invisible resize hit-test border. Default 4. Pass 0 for
+    /// non-resizable windows (ResizeMode.NoResize) to suppress the hit-test region.
+    /// </param>
     protected ChromedWindow(
-        double     captionHeight = 36,
-        ResizeMode resizeMode    = ResizeMode.CanResizeWithGrip) {
+        double     captionHeight          = 36,
+        ResizeMode resizeMode             = ResizeMode.CanResizeWithGrip,
+        double     resizeBorderThickness  = 4) {
 
         WindowStyle        = WindowStyle.None;
         AllowsTransparency = true;
@@ -33,7 +38,7 @@ internal class ChromedWindow : Window {
 
         WindowChrome.SetWindowChrome(this, new WindowChrome {
             CaptionHeight         = captionHeight,
-            ResizeBorderThickness = new Thickness(4),
+            ResizeBorderThickness = new Thickness(resizeBorderThickness),
             GlassFrameThickness   = new Thickness(0),
             UseAeroCaptionButtons = false,
         });
@@ -47,12 +52,17 @@ internal class ChromedWindow : Window {
     /// and returns it so the subclass can set its Child.
     /// Call this once in the subclass constructor after setting window dimensions.
     /// </summary>
-    protected Border ApplyOuterBorder() {
+    /// <param name="backgroundResource">
+    /// Resource key for the border background. Defaults to <c>"AppSurface"</c>.
+    /// Pass a different key (e.g. <c>"PopupSurface"</c>) for windows that use
+    /// an alternative surface colour.
+    /// </param>
+    protected Border ApplyOuterBorder(string backgroundResource = "AppSurface") {
         var border = new Border {
             BorderThickness = new Thickness(1.5),
             CornerRadius    = new CornerRadius(4),
         };
-        border.SetResourceReference(Border.BackgroundProperty,    "AppSurface");
+        border.SetResourceReference(Border.BackgroundProperty,    backgroundResource);
         border.SetResourceReference(Border.BorderBrushProperty,   "PanelBorder");
         Content = border;
         return border;

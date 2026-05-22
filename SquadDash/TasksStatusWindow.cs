@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -8,7 +7,7 @@ using System.Windows.Shell;
 
 namespace SquadDash;
 
-internal sealed class TasksStatusWindow : Window {
+internal sealed class TasksStatusWindow : ChromedWindow {
     private readonly RichTextBox _contentRichBox;
     private string _rawContent = string.Empty;
 
@@ -21,28 +20,9 @@ internal sealed class TasksStatusWindow : Window {
         Height = 420;
         MinWidth = 420;
         MinHeight = 260;
-        WindowStyle = WindowStyle.None;
-        AllowsTransparency = true;
-        Background = Brushes.Transparent;
-        ResizeMode = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar = false;
         ShowActivated = false;
         Topmost = false;
-
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight         = 36,
-            ResizeBorderThickness = new Thickness(4),
-            GlassFrameThickness   = new Thickness(0),
-            UseAeroCaptionButtons = false,
-        });
-
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
-        var outerBorder = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4) };
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
         var root = new Grid {
             Margin = new Thickness(12)
@@ -50,8 +30,7 @@ internal sealed class TasksStatusWindow : Window {
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        outerBorder.Child = root;
-        Content = outerBorder;
+        ApplyOuterBorder().Child = root;
 
         var header = new DockPanel {
             LastChildFill = false,

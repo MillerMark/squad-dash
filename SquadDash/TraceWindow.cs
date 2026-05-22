@@ -5,7 +5,6 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
@@ -23,7 +22,7 @@ namespace SquadDash;
 /// <see cref="SquadDashTrace.TraceTarget"/> are automatically cleared so tracing has zero
 /// overhead while the window is not visible.</para>
 /// </summary>
-internal sealed class TraceWindow : Window, ILiveTraceTarget
+internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
 {
     private const int MaxFlushEntries = 200;
     private const int MaxLogTextChars = 250_000;
@@ -45,45 +44,16 @@ internal sealed class TraceWindow : Window, ILiveTraceTarget
         Height = 440;
         MinWidth = 380;
         MinHeight = 280;
-        WindowStyle = WindowStyle.None;
-        AllowsTransparency = true;
-        Background = Brushes.Transparent;
-        ResizeMode = ResizeMode.CanResizeWithGrip;
         ShowInTaskbar = false;
         ShowActivated = false;
         Topmost = false;
-
-        // WindowChrome removes the bright non-client WPF border that appears with
-        // WindowStyle.None. CaptionHeight covers the header row so the entire top
-        // strip is a drag zone — no MouseLeftButtonDown handler needed. Buttons are
-        // marked IsHitTestVisibleInChrome=true so they still receive clicks.
-        // ResizeBorderThickness keeps a thin resize hit-area at every edge.
-        WindowChrome.SetWindowChrome(this, new WindowChrome
-        {
-            CaptionHeight          = 36,
-            ResizeBorderThickness  = new Thickness(4),
-            GlassFrameThickness    = new Thickness(0),
-            UseAeroCaptionButtons  = false,
-        });
-
-        // Disable Windows 11 DWM rounded corners — they expose the desktop
-        // behind the window corners when using WindowStyle.None.
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
-
-        // Outer border gives the window its background color and a 1.5px themed edge with
-        // a slight corner radius so the corners render visibly at all DPI scales.
-        var outerBorder = new Border { BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4) };
-        outerBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
         var root = new Grid { Margin = new Thickness(12) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // header
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // hint
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // checkboxes
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // log
-        outerBorder.Child = root;
-        Content = outerBorder;
+        ApplyOuterBorder().Child = root;
 
         // ── Header ──────────────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,52 @@
+{
+  "id": "20260522-150157-attachment-types-test-all-5-types",
+  "subject": "Attachment types test \u2014 all 5 types",
+  "from": "coordinator",
+  "timestamp": "2026-05-22T15:01:57.889957+00:00",
+  "read": true,
+  "body": "This message tests all five attachment types. Click each chip:\n\n- \uD83D\uDD17 **url** \u2192 opens in browser\n- \uD83D\uDCC4 **file (.md)** \u2192 opens in the built-in markdown viewer\n- \uD83D\uDDBC **image** \u2192 opens lightweight image viewer window\n- \u2705 **task-ref** \u2192 shows tooltip with task ID\n- \uD83D\uDCDD **text** \u2192 pops up inline content\n\nLet me know if any chip behaves unexpectedly.",
+  "attachments": [
+    {
+      "type": "url",
+      "label": "SquadDash repo",
+      "path": null,
+      "href": "https://github.com/MillerMark/squad-dash",
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "file",
+      "label": "README.md",
+      "path": "README.md",
+      "href": null,
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "image",
+      "label": "Coordinator avatar",
+      "path": "artifacts/publish/app/Assets/agents/coordinator.png",
+      "href": null,
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "task-ref",
+      "label": "DUP-007 task",
+      "path": null,
+      "href": null,
+      "taskId": "DUP-007",
+      "content": null
+    },
+    {
+      "type": "text",
+      "label": "Sample note",
+      "path": null,
+      "href": null,
+      "taskId": null,
+      "content": "# Hello from the inbox\n\nThis is a **text** attachment rendered in a dialog."
+    }
+  ],
+  "actions": [],
+  "usedActions": []
+}
