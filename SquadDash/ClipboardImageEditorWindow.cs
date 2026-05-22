@@ -202,6 +202,8 @@ internal sealed class ClipboardImageEditorWindow : Window {
     private Polygon? _mlPreviewHead2;
     private Line? _mlPreviewCap1;
     private Line? _mlPreviewCap2;
+    private Border? _mlPreviewBadge;
+    private TextBlock? _mlPreviewBadgeText;
     private bool _mlPreviewIsHorizontal;
 
     // Last-used arrow angle/tail and rect size — used for click-without-drag placement.
@@ -2587,11 +2589,10 @@ internal sealed class ClipboardImageEditorWindow : Window {
         _mlPreviewIsHorizontal = isHorizontal;
 
         var stroke = new SolidColorBrush(_defaultMeasureLineColor);
-        var dash = new DoubleCollection { 4, 3 };
 
         _mlPreviewLine = new Line {
             Stroke = stroke, StrokeThickness = 2, Opacity = 0.7,
-            StrokeDashArray = dash, IsHitTestVisible = false
+            IsHitTestVisible = false
         };
         Panel.SetZIndex(_mlPreviewLine, 99);
         _canvas.Children.Add(_mlPreviewLine);
@@ -2615,6 +2616,21 @@ internal sealed class ClipboardImageEditorWindow : Window {
             if (i == 0) _mlPreviewCap1 = cap;
             else _mlPreviewCap2 = cap;
         }
+
+        _mlPreviewBadgeText = new TextBlock {
+            Foreground = Brushes.White, FontSize = 12, FontWeight = FontWeights.SemiBold,
+            IsHitTestVisible = false
+        };
+        _mlPreviewBadge = new Border {
+            Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(4, 2, 4, 2),
+            Child = _mlPreviewBadgeText,
+            Opacity = 0.7,
+            IsHitTestVisible = false
+        };
+        Panel.SetZIndex(_mlPreviewBadge, 99);
+        _canvas.Children.Add(_mlPreviewBadge);
     }
 
     private void RemoveMlPreview() {
@@ -2623,37 +2639,82 @@ internal sealed class ClipboardImageEditorWindow : Window {
         if (_mlPreviewHead2 != null) { _canvas.Children.Remove(_mlPreviewHead2); _mlPreviewHead2 = null; }
         if (_mlPreviewCap1 != null) { _canvas.Children.Remove(_mlPreviewCap1); _mlPreviewCap1 = null; }
         if (_mlPreviewCap2 != null) { _canvas.Children.Remove(_mlPreviewCap2); _mlPreviewCap2 = null; }
+        if (_mlPreviewBadge != null) { _canvas.Children.Remove(_mlPreviewBadge); _mlPreviewBadge = null; _mlPreviewBadgeText = null; }
     }
 
     private void UpdateMlPreview(Point p1, Point p2, bool isH) {
-        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0;
-        if (_mlPreviewLine != null) {
-            _mlPreviewLine.X1 = p1.X; _mlPreviewLine.Y1 = p1.Y;
-            _mlPreviewLine.X2 = p2.X; _mlPreviewLine.Y2 = p2.Y;
-        }
+        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, arrowGap = 1.0;
+
+        double span = isH ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
+        double innerSpan = Math.Max(0, span - 2 * arrowGap);
+        double arrowScale = (innerSpan < 2 * aLen) ? innerSpan / (2 * aLen) : 1.0;
+        double scaledLen = aLen * arrowScale;
+        double scaledHalf = aHalf * arrowScale;
+
         if (isH) {
+            double tip1X = p1.X + arrowGap;
+            double tip2X = p2.X - arrowGap;
+            if (_mlPreviewLine != null) {
+                _mlPreviewLine.X1 = tip1X; _mlPreviewLine.Y1 = p1.Y;
+                _mlPreviewLine.X2 = tip2X; _mlPreviewLine.Y2 = p2.Y;
+            }
             _mlPreviewHead1?.Points.Clear();
-            _mlPreviewHead1?.Points.Add(new Point(p1.X, p1.Y));
-            _mlPreviewHead1?.Points.Add(new Point(p1.X + aLen, p1.Y - aHalf));
-            _mlPreviewHead1?.Points.Add(new Point(p1.X + aLen, p1.Y + aHalf));
+            _mlPreviewHead1?.Points.Add(new Point(tip1X, p1.Y));
+            _mlPreviewHead1?.Points.Add(new Point(tip1X + scaledLen, p1.Y - scaledHalf));
+            _mlPreviewHead1?.Points.Add(new Point(tip1X + scaledLen, p1.Y + scaledHalf));
             _mlPreviewHead2?.Points.Clear();
-            _mlPreviewHead2?.Points.Add(new Point(p2.X, p2.Y));
-            _mlPreviewHead2?.Points.Add(new Point(p2.X - aLen, p2.Y - aHalf));
-            _mlPreviewHead2?.Points.Add(new Point(p2.X - aLen, p2.Y + aHalf));
+            _mlPreviewHead2?.Points.Add(new Point(tip2X, p2.Y));
+            _mlPreviewHead2?.Points.Add(new Point(tip2X - scaledLen, p2.Y - scaledHalf));
+            _mlPreviewHead2?.Points.Add(new Point(tip2X - scaledLen, p2.Y + scaledHalf));
             if (_mlPreviewCap1 != null) { _mlPreviewCap1.X1 = p1.X; _mlPreviewCap1.Y1 = p1.Y - capHalf; _mlPreviewCap1.X2 = p1.X; _mlPreviewCap1.Y2 = p1.Y + capHalf; }
             if (_mlPreviewCap2 != null) { _mlPreviewCap2.X1 = p2.X; _mlPreviewCap2.Y1 = p2.Y - capHalf; _mlPreviewCap2.X2 = p2.X; _mlPreviewCap2.Y2 = p2.Y + capHalf; }
         }
         else {
+            double tip1Y = p1.Y + arrowGap;
+            double tip2Y = p2.Y - arrowGap;
+            if (_mlPreviewLine != null) {
+                _mlPreviewLine.X1 = p1.X; _mlPreviewLine.Y1 = tip1Y;
+                _mlPreviewLine.X2 = p2.X; _mlPreviewLine.Y2 = tip2Y;
+            }
             _mlPreviewHead1?.Points.Clear();
-            _mlPreviewHead1?.Points.Add(new Point(p1.X, p1.Y));
-            _mlPreviewHead1?.Points.Add(new Point(p1.X - aHalf, p1.Y + aLen));
-            _mlPreviewHead1?.Points.Add(new Point(p1.X + aHalf, p1.Y + aLen));
+            _mlPreviewHead1?.Points.Add(new Point(p1.X, tip1Y));
+            _mlPreviewHead1?.Points.Add(new Point(p1.X - scaledHalf, tip1Y + scaledLen));
+            _mlPreviewHead1?.Points.Add(new Point(p1.X + scaledHalf, tip1Y + scaledLen));
             _mlPreviewHead2?.Points.Clear();
-            _mlPreviewHead2?.Points.Add(new Point(p2.X, p2.Y));
-            _mlPreviewHead2?.Points.Add(new Point(p2.X - aHalf, p2.Y - aLen));
-            _mlPreviewHead2?.Points.Add(new Point(p2.X + aHalf, p2.Y - aLen));
+            _mlPreviewHead2?.Points.Add(new Point(p2.X, tip2Y));
+            _mlPreviewHead2?.Points.Add(new Point(p2.X - scaledHalf, tip2Y - scaledLen));
+            _mlPreviewHead2?.Points.Add(new Point(p2.X + scaledHalf, tip2Y - scaledLen));
             if (_mlPreviewCap1 != null) { _mlPreviewCap1.X1 = p1.X - capHalf; _mlPreviewCap1.Y1 = p1.Y; _mlPreviewCap1.X2 = p1.X + capHalf; _mlPreviewCap1.Y2 = p1.Y; }
             if (_mlPreviewCap2 != null) { _mlPreviewCap2.X1 = p2.X - capHalf; _mlPreviewCap2.Y1 = p2.Y; _mlPreviewCap2.X2 = p2.X + capHalf; _mlPreviewCap2.Y2 = p2.Y; }
+        }
+
+        if (_mlPreviewBadge != null && _mlPreviewBadgeText != null) {
+            double canvasDist = isH ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
+            double scaleX = _canvasScaleX > 0 ? _canvasScaleX : 1.0;
+            double scaleY = _canvasScaleY > 0 ? _canvasScaleY : 1.0;
+            int px = (int)Math.Round(canvasDist / (isH ? scaleX : scaleY));
+            _mlPreviewBadgeText.Text = $"{px} px";
+            _mlPreviewBadge.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double bw = _mlPreviewBadge.DesiredSize.Width;
+            double bh = _mlPreviewBadge.DesiredSize.Height;
+            double midX = (p1.X + p2.X) / 2;
+            double midY = (p1.Y + p2.Y) / 2;
+            const double labelPerpOutside = 8.0;
+            double bx, by;
+            if (isH) {
+                bool inside = span >= bw + 50.0;
+                bx = midX - bw / 2;
+                by = inside ? midY - bh / 2 : midY - labelPerpOutside - bh;
+            }
+            else {
+                bool inside = span >= bh + 50.0;
+                by = midY - bh / 2;
+                bx = inside ? midX - bw / 2 : midX - labelPerpOutside - bw;
+            }
+            bx = Math.Max(0, Math.Min(_canvas.Width - bw, bx));
+            by = Math.Max(0, Math.Min(_canvas.Height - bh, by));
+            Canvas.SetLeft(_mlPreviewBadge, bx);
+            Canvas.SetTop(_mlPreviewBadge, by);
         }
     }
 
@@ -2844,7 +2905,7 @@ internal sealed class ClipboardImageEditorWindow : Window {
     }
 
     private void UpdateMeasureLineGeometry(AnnotationMeasureLine ml) {
-        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, shadowOff = 1.5;
+        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, shadowOff = 1.5, arrowGap = 1.0;
 
         var p1 = ml.StartPt;
         var p2 = ml.EndPt;
@@ -2855,28 +2916,43 @@ internal sealed class ClipboardImageEditorWindow : Window {
         ml.Cap1.Stroke = stroke;
         ml.Cap2.Stroke = stroke;
 
-        ml.MainLine.X1 = p1.X; ml.MainLine.Y1 = p1.Y;
-        ml.MainLine.X2 = p2.X; ml.MainLine.Y2 = p2.Y;
-        ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
-        ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
-        ml.ShadowLine.X1 = p1.X + shadowOff; ml.ShadowLine.Y1 = p1.Y + shadowOff;
-        ml.ShadowLine.X2 = p2.X + shadowOff; ml.ShadowLine.Y2 = p2.Y + shadowOff;
+        double span = ml.IsHorizontal ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
+        double innerSpan = Math.Max(0, span - 2 * arrowGap);
+        double arrowScale = (innerSpan < 2 * aLen) ? innerSpan / (2 * aLen) : 1.0;
+        double scaledLen = aLen * arrowScale;
+        double scaledHalf = aHalf * arrowScale;
 
         if (ml.IsHorizontal) {
-            SetArrowHeadPoints(ml.Head1, p1.X, p1.Y, aLen, aHalf, goingLeft: true);
-            SetArrowHeadPoints(ml.Head2, p2.X, p2.Y, aLen, aHalf, goingLeft: false);
-            SetArrowHeadPoints(ml.ShadowHead1, p1.X + shadowOff, p1.Y + shadowOff, aLen, aHalf, goingLeft: true);
-            SetArrowHeadPoints(ml.ShadowHead2, p2.X + shadowOff, p2.Y + shadowOff, aLen, aHalf, goingLeft: false);
+            double tip1X = p1.X + arrowGap;
+            double tip2X = p2.X - arrowGap;
+            ml.MainLine.X1 = tip1X; ml.MainLine.Y1 = p1.Y;
+            ml.MainLine.X2 = tip2X; ml.MainLine.Y2 = p2.Y;
+            ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
+            ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
+            ml.ShadowLine.X1 = tip1X + shadowOff; ml.ShadowLine.Y1 = p1.Y + shadowOff;
+            ml.ShadowLine.X2 = tip2X + shadowOff; ml.ShadowLine.Y2 = p2.Y + shadowOff;
+            SetArrowHeadPoints(ml.Head1,        tip1X,             p1.Y,             scaledLen, scaledHalf, goingLeft: true);
+            SetArrowHeadPoints(ml.Head2,        tip2X,             p2.Y,             scaledLen, scaledHalf, goingLeft: false);
+            SetArrowHeadPoints(ml.ShadowHead1,  tip1X + shadowOff, p1.Y + shadowOff, scaledLen, scaledHalf, goingLeft: true);
+            SetArrowHeadPoints(ml.ShadowHead2,  tip2X + shadowOff, p2.Y + shadowOff, scaledLen, scaledHalf, goingLeft: false);
             ml.Cap1.X1 = p1.X; ml.Cap1.Y1 = p1.Y - capHalf; ml.Cap1.X2 = p1.X; ml.Cap1.Y2 = p1.Y + capHalf;
             ml.Cap2.X1 = p2.X; ml.Cap2.Y1 = p2.Y - capHalf; ml.Cap2.X2 = p2.X; ml.Cap2.Y2 = p2.Y + capHalf;
             ml.ShadowCap1.X1 = p1.X + shadowOff; ml.ShadowCap1.Y1 = p1.Y - capHalf + shadowOff; ml.ShadowCap1.X2 = p1.X + shadowOff; ml.ShadowCap1.Y2 = p1.Y + capHalf + shadowOff;
             ml.ShadowCap2.X1 = p2.X + shadowOff; ml.ShadowCap2.Y1 = p2.Y - capHalf + shadowOff; ml.ShadowCap2.X2 = p2.X + shadowOff; ml.ShadowCap2.Y2 = p2.Y + capHalf + shadowOff;
         }
         else {
-            SetArrowHeadPoints(ml.Head1, p1.X, p1.Y, aLen, aHalf, goingLeft: true, vertical: true);
-            SetArrowHeadPoints(ml.Head2, p2.X, p2.Y, aLen, aHalf, goingLeft: false, vertical: true);
-            SetArrowHeadPoints(ml.ShadowHead1, p1.X + shadowOff, p1.Y + shadowOff, aLen, aHalf, goingLeft: true, vertical: true);
-            SetArrowHeadPoints(ml.ShadowHead2, p2.X + shadowOff, p2.Y + shadowOff, aLen, aHalf, goingLeft: false, vertical: true);
+            double tip1Y = p1.Y + arrowGap;
+            double tip2Y = p2.Y - arrowGap;
+            ml.MainLine.X1 = p1.X; ml.MainLine.Y1 = tip1Y;
+            ml.MainLine.X2 = p2.X; ml.MainLine.Y2 = tip2Y;
+            ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
+            ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
+            ml.ShadowLine.X1 = p1.X + shadowOff; ml.ShadowLine.Y1 = tip1Y + shadowOff;
+            ml.ShadowLine.X2 = p2.X + shadowOff; ml.ShadowLine.Y2 = tip2Y + shadowOff;
+            SetArrowHeadPoints(ml.Head1,        p1.X,             tip1Y,             scaledLen, scaledHalf, goingLeft: true,  vertical: true);
+            SetArrowHeadPoints(ml.Head2,        p2.X,             tip2Y,             scaledLen, scaledHalf, goingLeft: false, vertical: true);
+            SetArrowHeadPoints(ml.ShadowHead1,  p1.X + shadowOff, tip1Y + shadowOff, scaledLen, scaledHalf, goingLeft: true,  vertical: true);
+            SetArrowHeadPoints(ml.ShadowHead2,  p2.X + shadowOff, tip2Y + shadowOff, scaledLen, scaledHalf, goingLeft: false, vertical: true);
             ml.Cap1.X1 = p1.X - capHalf; ml.Cap1.Y1 = p1.Y; ml.Cap1.X2 = p1.X + capHalf; ml.Cap1.Y2 = p1.Y;
             ml.Cap2.X1 = p2.X - capHalf; ml.Cap2.Y1 = p2.Y; ml.Cap2.X2 = p2.X + capHalf; ml.Cap2.Y2 = p2.Y;
             ml.ShadowCap1.X1 = p1.X - capHalf + shadowOff; ml.ShadowCap1.Y1 = p1.Y + shadowOff; ml.ShadowCap1.X2 = p1.X + capHalf + shadowOff; ml.ShadowCap1.Y2 = p1.Y + shadowOff;
@@ -2896,16 +2972,18 @@ internal sealed class ClipboardImageEditorWindow : Window {
         double bh = ml.LabelBadge.DesiredSize.Height;
         double midX = (p1.X + p2.X) / 2;
         double midY = (p1.Y + p2.Y) / 2;
-        const double labelPerp = 16.0;
+        const double labelPerpOutside = 8.0;
 
         double bx, by;
         if (ml.IsHorizontal) {
+            bool inside = span >= bw + 50.0;
             bx = midX - bw / 2;
-            by = midY - labelPerp - bh;
+            by = inside ? midY - bh / 2 : midY - labelPerpOutside - bh;
         }
         else {
-            bx = midX - labelPerp - bw;
+            bool inside = span >= bh + 50.0;
             by = midY - bh / 2;
+            bx = inside ? midX - bw / 2 : midX - labelPerpOutside - bw;
         }
         bx = Math.Max(0, Math.Min(_canvas.Width - bw, bx));
         by = Math.Max(0, Math.Min(_canvas.Height - bh, by));
