@@ -3,6 +3,7 @@
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
     <!-- Surface Tokens -->
     <SolidColorBrush x:Key="AppSurface" Color="#F4EFE7"/>
+    <SolidColorBrush x:Key="ImageEditorSurround" Color="#FAF8F3"/>
     <SolidColorBrush x:Key="ChromeSurface" Color="#F4EAD8"/>
     <SolidColorBrush x:Key="PanelSurface" Color="#F8F2E7"/>
     <SolidColorBrush x:Key="ActivePanelSurface" Color="#EAF4FF"/>

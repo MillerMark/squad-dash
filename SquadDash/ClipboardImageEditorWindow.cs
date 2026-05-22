@@ -720,7 +720,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = canvasGrid
         };
-        _scrollViewer.SetResourceReference(BackgroundProperty, "AppSurface");
+        _scrollViewer.SetResourceReference(BackgroundProperty, "ImageEditorSurround");
 
         _scrollViewer.PreviewMouseLeftButtonDown += (_, e) => {
             if (!_isPanMode) return;
