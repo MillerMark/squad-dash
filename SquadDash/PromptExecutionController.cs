@@ -739,7 +739,8 @@ internal sealed class PromptExecutionController {
         if (string.Equals(evt.Type, "usage", StringComparison.Ordinal))
             return false;
 
-        if (evt.Type is "tool_start" or "tool_progress" or "tool_complete" &&
+        if (evt.Type is "tool_start" or "tool_progress" or "tool_complete"
+            or "subagent_tool_start" or "subagent_tool_progress" or "subagent_tool_complete" &&
             string.Equals(evt.ToolName, "read_powershell", StringComparison.OrdinalIgnoreCase) &&
             IsDelayOnlyPowerShellRead(evt.Args))
             return false;

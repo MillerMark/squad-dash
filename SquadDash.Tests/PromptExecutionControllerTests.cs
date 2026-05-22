@@ -15,6 +15,18 @@ internal sealed class PromptExecutionControllerTests {
     }
 
     [Test]
+    public void ShouldCountPromptActivity_IgnoresSubagentDelayOnlyPowerShellReads_WhenRestartPending() {
+        var evt = new SquadSdkEvent {
+            Type = "subagent_tool_complete",
+            ToolName = "read_powershell",
+            Args = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                """{"delay":120,"shellId":"0"}""")
+        };
+
+        Assert.That(PromptExecutionController.ShouldCountPromptActivity(evt, restartPending: true), Is.False);
+    }
+
+    [Test]
     public void ShouldCountPromptActivity_CountsDelayOnlyPowerShellReads_WhenRestartIsNotPending() {
         var evt = new SquadSdkEvent {
             Type = "tool_complete",

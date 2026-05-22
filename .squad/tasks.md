@@ -222,6 +222,49 @@
 
 ## 🟡 Mid Priority
 
+- [x] **[Inbox] "Add to chat" context menu item on inbox messages** *(Owner: Lyra Morn)*
+  Right-clicking an inbox message row should have **"Add to chat"** as the topmost item.
+  ✅ Fixed — commit 69fff1f. Added `InboxMessageId` to `FollowUpAttachment`; 📧 chip in composer/transcript opens `InboxMessageWindow`.
+
+- [x] **[Inbox] Context menu "Mark as read/unread" should toggle correctly** *(Owner: Lyra Morn)*
+  If a message has already been read, the right-click context menu should show **"Mark as unread"**
+  (not "Mark as read"). Currently shows "Mark as read" regardless of current read state.
+  The menu item label must reflect the *opposite* of the current state.
+  ✅ Fixed — commit 66cd53e. Added `MarkUnread` to `InboxStore`, `MarkRowUnread` to controller; menu item now conditional on `msg.IsRead`.
+
+- [x] **[Inbox] Prevent duplicate InboxMessageWindow for the same message** *(Owner: Lyra Morn)*
+  ✅ Fixed — commit 5173585. `openMessageWindow` lambda now routes through `OpenOrFocusInboxMessage`; existing window is focused/unminimised instead of spawning a new one.
+
+- [ ] **[Inbox] Parse INBOX_MESSAGE_JSON from sub-agent outputs** *(Owner: Arjun Sen)*
+  Currently only `INBOX_MESSAGE_JSON` blocks in the Coordinator's direct response are processed.
+  When the Coordinator reads a sub-agent result via `read_agent`, any `INBOX_MESSAGE_JSON` block
+  in that output should also be parsed and delivered to the Inbox. The `from` field must accept
+  any agent handle (not just `"coordinator"` and `"argus-weld"`). This lets specialist agents
+  (Orion, Lyra, etc.) send inbox messages directly without the Coordinator having to relay them.
+
+- [ ] **[Inbox] Replace raw INBOX_MESSAGE_JSON in Trace panel with ✉ icon + message link** *(Owner: Lyra Morn)*
+  When a sub-agent's transcript (displayed in the Trace panel) contains an `INBOX_MESSAGE_JSON`
+  block, replace that raw block with a compact inline indicator: a mail/envelope icon (✉) followed
+  by a clickable link that opens the delivered inbox message. The raw JSON should not be visible.
+  Depends on the above parse task so there is a message ID to link to.
+
+- [ ] **[Inbox] Update InboxMessageInstruction — agents can send messages; actions need full context** *(Owner: Arjun Sen)*
+  Update the `InboxMessageInstruction` constant in `PromptExecutionController.cs` to tell agents:
+  (1) They may include an `INBOX_MESSAGE_JSON` block in their own output and it will be delivered.
+  (2) The `from` field should be their agent handle (e.g. `"orion-vale"`, `"lyra-ashford"`).
+  (3) If the message contains action items, include an `actions` array. Each action's `prompt`
+  must be **fully self-contained** — include all file paths, findings, symptoms, and context
+  needed to execute the action days later with no conversation history available.
+  Also add `"image"` to the listed attachment types (currently missing).
+
+- [ ] **Maintenance — multi-file support** *(Owner: Arjun Sen + Lyra Morn)*
+  Load all `maintenance*.md` files from the `.squad/` folder (e.g. `maintenance.md`,
+  `maintenance-docs.md`, `maintenance-screenshots.md`). The base `maintenance.md` tasks are
+  treated as "system" tasks. Additional files contribute supplemental tasks.
+  Each task row in the panel must store its source file path so that toggle/frequency changes
+  are written back to the correct file. Panel UI groups or labels tasks by source file.
+  **Prerequisite for:** Inbox integration, per-repo custom maintenance tasks.
+
 - [x] Screenshots health panel — XAML + bindings + status UX *(Owner: lyra-morn)*
 
 - [ ] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
@@ -460,6 +503,18 @@
 ---
 
 ## 🟡 Mid Priority — Maintenance Mode (Phase 3 Polish)
+
+- [x] **[Inbox] Inbox message save lost on shutdown — save INBOX_MESSAGE_JSON earlier** *(Owner: Lyra Morn)*
+  ✅ Fixed — commit efb5c84. `TrySaveInboxMessageFromResponse` implemented; called at response finalization and as emergency flush on close via `EmergencySaveAfterDrainingBridgeEvents`.
+
+- [ ] **[Maintenance] `branch`-safety tasks branch from current HEAD, not always from main** *(Owner: Arjun Sen)*
+  When two `safety: branch` tasks run in a session, each task receives a prompt that says "create branch
+  `maintenance/YYYYMMDD-<slug>` before making any code changes." The AI agent runs `git checkout -b`
+  from whatever branch is currently checked out. Since task 1 commits to its branch and the runner does
+  not switch back to main before task 2 starts, task 2 inherits task 1's commits on its new branch.
+  Fix: `MaintenanceRunner` should record the base branch at session start (e.g. `git rev-parse --abbrev-ref HEAD`)
+  and inject an explicit `git checkout <base-branch>` step into each `branch`-safety task's preamble
+  before the `git checkout -b` instruction, so every task always branches from the same known base.
 
 
 

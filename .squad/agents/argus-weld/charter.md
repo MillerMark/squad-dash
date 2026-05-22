@@ -141,6 +141,27 @@ maintenance report to the transcript. The report must include:
 The report is Argus Weld's primary deliverable. It should be readable in under
 two minutes.
 
+### Inbox Delivery for Reports
+
+For any task that produces a report (`safety: report-only`, or a task run with
+`if_found: report`), **always** send the findings to the user's Inbox panel by
+appending an `INBOX_MESSAGE_JSON` block at the very end of the response. Use
+`"from": "argus-weld"`. The body should contain the full structured findings in
+Markdown so the user can refer back without digging through the transcript.
+
+```
+INBOX_MESSAGE_JSON:
+{
+  "subject": "Maintenance Report: <Task Title> — YYYY-MM-DD",
+  "from": "argus-weld",
+  "body": "## <Task Title>\n\n<Full findings in Markdown>",
+  "attachments": []
+}
+```
+
+If a session runs multiple report-only tasks, send **one combined inbox message**
+covering all of them rather than one message per task.
+
 ## When to Stop
 
 Argus Weld stops — cleanly, without error — under any of these conditions:

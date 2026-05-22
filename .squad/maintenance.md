@@ -1,10 +1,33 @@
 ---
 # Full documentation: docs/features/maintenance-mode.md
-# Task frequency is controlled by `frequency: daily`, `frequency: weekly`, `frequency: monthly`, `frequency: per-commit`, or `frequency: always`
+# Task frequency options:
+#   always        — run every maintenance session
+#   daily         — run at most once per calendar day (UTC)
+#   weekly        — run at most once per Monday–Sunday calendar week (UTC)
+#   monthly       — run at most once per calendar month (UTC year+month)
+#   after-commits — run once per new HEAD commit SHA
+#   per-commit    — backward-compat alias for after-commits
 # Set configured: true to enable maintenance mode.
 # Set enabled: true on individual tasks to activate them.
 # Global safety floor: per-task safety cannot be less safe than this value.
 #   report-only < branch < direct
+#
+# INBOX REPORTING
+# When a task produces a report (safety: report-only, or if_found: report),
+# always deliver the findings to the user's Inbox panel by appending an
+# INBOX_MESSAGE_JSON block at the very end of the response. Use from: "argus-weld".
+# Example:
+#
+# INBOX_MESSAGE_JSON:
+# {
+#   "subject": "Maintenance Report: <Task Title>",
+#   "from": "argus-weld",
+#   "body": "## <Task Title>\n\n<Full findings in Markdown>",
+#   "attachments": []
+# }
+#
+# The body should contain the full structured report so the user can refer back
+# to it without digging through the transcript. Keep the subject concise.
 idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
@@ -24,7 +47,8 @@ tasks:
       - If "fix": Diagnose each failing test. Fix the root cause in source (not by
         deleting tests or weakening assertions). Commit all fixes to the branch.
       - If "report": Do not change any code. Write a summary of every failing test,
-        the error message, and your diagnosis of the likely cause.
+        the error message, and your diagnosis of the likely cause. Send the report
+        to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
     options:
       if_failing:
         type: radio
@@ -52,7 +76,8 @@ tasks:
         update all call sites, ensure tests still pass.
       - If "branch": Create a maintenance branch and refactor there.
       - If "report": Do not change any code. List each duplication instance with
-        file paths, line ranges, and a brief description of the shared logic.
+        file paths, line ranges, and a brief description of the shared logic. Send
+        the report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
     options:
       if_found:
         type: radio
@@ -82,6 +107,7 @@ tasks:
         identify. Document your reasoning in commit messages.
       - If "report": Do not change any code. Write a structured report of each
         finding: problem description, affected files/layers, and a recommended fix.
+        Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
     options:
       if_found:
         type: radio
@@ -109,6 +135,7 @@ tasks:
       - If "branch": Create a maintenance branch and address smells there.
       - If "report": Do not change any code. List each smell with file path, line
         number, category, and a brief description of the issue and suggested fix.
+        Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
     options:
       if_found:
         type: radio
@@ -124,7 +151,7 @@ tasks:
             tooltip: List each smell — do not change any code
 
   - id: speed-improvements
-    enabled: false
+    enabled: true
     frequency: daily
     safety: branch
     title: Performance Improvements
@@ -139,7 +166,8 @@ tasks:
         comment explaining the change where the improvement is non-obvious.
       - If "branch": Create a maintenance branch and implement improvements there.
       - If "report": Do not change any code. Describe each opportunity, its likely
-        impact, and the recommended approach.
+        impact, and the recommended approach. Send the report to the user's Inbox
+        using an INBOX_MESSAGE_JSON block (from: "argus-weld").
     options:
       if_found:
         type: radio
@@ -193,7 +221,8 @@ tasks:
       - Potential bugs or regressions
       - Positive patterns worth reinforcing
 
-      Write a structured review report. Do not change any code.
+      Write a structured review report. Do not change any code. Send the report
+      to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
 
   - id: xml-doc-coverage
     enabled: false
@@ -204,7 +233,8 @@ tasks:
       Scan all public types, methods, properties, and interfaces in the C# source
       for missing XML doc comments (`<summary>`, `<param>`, `<returns>`).
       Produce a coverage report grouped by file, listing each undocumented member.
-      Do not change any code.
+      Do not change any code. Send the report to the user's Inbox using an
+      INBOX_MESSAGE_JSON block (from: "argus-weld").
 
       If this is not a C# project, adapt to the equivalent docstring convention
       (JSDoc for TypeScript/JavaScript, docstrings for Python, godoc for Go).
@@ -249,7 +279,8 @@ tasks:
       - References to files, directories, or features that no longer exist
       - Missing documentation for significant new features or changed APIs
 
-      Write a gap report. Do not change any files.
+      Write a gap report. Do not change any files. Send the report to the user's
+      Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
 
   - id: unused-dependencies
     enabled: false
@@ -263,7 +294,59 @@ tasks:
 
       Write a report listing each potentially unused dependency, the manifest file
       it appears in, and a note on how to verify and remove it. Do not change any
-      files.
+      files. Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
+      (from: "argus-weld").
+
+  - id: docs-review
+    enabled: false
+    frequency: daily
+    safety: report-only
+    title: Documentation Review
+    instructions: |
+      Review the documentation in the `docs/` folder (or the repo's primary docs
+      location) for the following issues:
+
+      1. **Accuracy** — Are instructions, command examples, configuration values,
+         and feature descriptions still accurate relative to the current codebase?
+         Flag anything that appears outdated or incorrect.
+
+      2. **Broken internal links** — Scan all Markdown files for links to other
+         pages within the docs. Check whether each target file exists. If a page
+         exists but has `published: false` (or equivalent front-matter), flag any
+         other page that links to it as a warning — the reader will hit an
+         unpublished page.
+
+      3. **Broken external links** — Optionally check HTTP/HTTPS links to see if
+         they return a non-200 status. Flag dead external links.
+
+      4. **Missing images** — Find image references (`![...](...)`). Check whether
+         the referenced file exists on disk. Flag missing image files.
+
+      5. **Orphaned pages** — Identify docs pages that are not reachable from any
+         other page (no inbound links from within the docs tree). These may be
+         forgotten or accidentally unpublished pages.
+
+      Take action according to {{if_found}}:
+      - If "report": Do not change any files. Produce a structured report grouped
+        by issue type, listing file path, line number, and a description of each
+        problem found. Include a severity: Warning for unpublished-page links and
+        dead links, Info for orphaned pages and accuracy concerns. Send the report
+        to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+      - If "fix": Correct accuracy issues and fix broken links where possible
+        (e.g. update a link target, remove a dead link). Commit changes to a
+        maintenance branch. Items that require human judgment (accuracy rewrites,
+        missing images) should still be reported.
+    options:
+      if_found:
+        type: radio
+        label: If documentation issues are found
+        tooltip: "Produce a report or fix what can be fixed automatically"
+        value: report
+        choices:
+          - value: report
+            tooltip: Write a report — do not change any files
+          - value: fix
+            tooltip: Fix auto-correctable issues on a maintenance branch; report the rest
 
   - id: naming-conventions
     enabled: false
@@ -282,7 +365,8 @@ tasks:
       - If "fix": Rename inconsistencies directly on the current branch. Update all
         references. Ensure the project still builds.
       - If "report": Do not change any code. List each inconsistency with file
-        path, line number, current name, and suggested name.
+        path, line number, current name, and suggested name. Send the report to
+        the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
     options:
       if_found:
         type: radio
