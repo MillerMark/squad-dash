@@ -30,7 +30,7 @@
 
 
     <!-- Rectangle annotation tool icon -->
-    
+
     <Viewbox x:Key="ImageEditorRectIcon" Width="18" Height="18" Stretch="Uniform">
         <Canvas Width="362" Height="214">
             <Path Fill="#4B000000">
@@ -135,7 +135,7 @@
             </Path>
         </Canvas>
     </Viewbox>
-        
+
 
     <!-- Crop tool icon — overlapping L-shaped corner brackets -->
     <Viewbox x:Key="ImageEditorCropIcon" Width="18" Height="18" Stretch="Uniform">
@@ -153,23 +153,17 @@
 
     <!-- Measurement / dimension-line tool icon — horizontal shaft with outward arrowheads and cap ticks -->
     <Viewbox x:Key="ImageEditorMeasureLineIcon" Width="18" Height="18" Stretch="Uniform">
-        <Canvas Width="100" Height="52">
-            <!-- Shadow layer (offset 2 px down-right) -->
-            <Line X1="16" Y1="28" X2="84" Y2="28" Stroke="#66000000" StrokeThickness="4"/>
-            <Polygon Points="16,28 28,22 28,34" Fill="#66000000"/>
-            <Polygon Points="84,28 72,22 72,34" Fill="#66000000"/>
-            <Line X1="16" Y1="18" X2="16" Y2="38" Stroke="#66000000" StrokeThickness="3.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-            <Line X1="84" Y1="18" X2="84" Y2="38" Stroke="#66000000" StrokeThickness="3.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-            <!-- Main shaft -->
-            <Line X1="14" Y1="26" X2="86" Y2="26" Stroke="{DynamicResource LabelText}" StrokeThickness="4"/>
-            <!-- Left arrowhead (tip at x=14, pointing outward/left) -->
-            <Polygon Points="14,26 26,20 26,32" Fill="{DynamicResource LabelText}"/>
-            <!-- Right arrowhead (tip at x=86, pointing outward/right) -->
-            <Polygon Points="86,26 74,20 74,32" Fill="{DynamicResource LabelText}"/>
-            <!-- Left cap tick -->
-            <Line X1="14" Y1="16" X2="14" Y2="36" Stroke="{DynamicResource LabelText}" StrokeThickness="3.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-            <!-- Right cap tick -->
-            <Line X1="86" Y1="16" X2="86" Y2="36" Stroke="{DynamicResource LabelText}" StrokeThickness="3.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+        <Canvas Width="3162" Height="782">
+            <Canvas>
+                <Canvas.Clip>
+                    <RectangleGeometry Rect="0,1,3163,779" />
+                </Canvas.Clip>
+                <Path Fill="{DynamicResource LabelText}">
+                    <Path.Data>
+                        <PathGeometry Figures="M682.875,0.75C689.75,0.125,696.25,1.5,702.75,5.375C715.875,13.125,721,27.875,721,45.25L721.125,46.75 721.625,277.625 1338.375,277.625 1338.375,483.875 722,483.875 722.5,742.5 722.5,743.875C721.125,758.75,716,768.75,704.5,775.25C694.625,780.875,683.5,780.625,672.125,776.5L667.625,774.625 -0.5,388.625 653.25,12.75 660.75,8.5C668.875,4,676,1.375,682.875,0.75z M2473.25,0.625C2478.75,0.5,2484.375,1.5,2490,3.625L2494.375,5.5 3162.5,391.5 2508.875,767.375 2501.375,771.625C2485.25,780.625,2472.375,782.375,2459.375,774.75C2446.25,767,2441.125,752.25,2441.125,734.875L2441,733.25 2440.5,483.875 1823.75,483.875 1823.75,277.625 2440.125,277.625 2439.625,37.625 2439.625,36.125C2441,21.375,2446.125,11.375,2457.625,4.875C2462.625,2,2467.875,0.75,2473.25,0.625z" />
+                    </Path.Data>
+                </Path>
+            </Canvas>
         </Canvas>
     </Viewbox>
 
