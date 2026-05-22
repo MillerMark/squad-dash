@@ -25,7 +25,7 @@ internal sealed class TasksStatusWindow : ChromedWindow {
         Topmost = false;
 
         var root = new Grid {
-            Margin = new Thickness(12, CloseButtonHeight, 12, 12)
+            Margin = new Thickness(12, 8, 12, 12)
         };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -39,6 +39,23 @@ internal sealed class TasksStatusWindow : ChromedWindow {
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
+        // Copy button docked right, with margin to align its right edge with the close button's left edge.
+        // Close button = 38px wide; root right margin = 12px → offset = 38 - 12 = 26px.
+        var copyButton = new Button {
+            Content  = "Copy",
+            MinWidth = 76,
+            Height   = 30,
+            Margin   = new Thickness(0, 0, 26, 0),
+        };
+        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
+        copyButton.Click += (_, _) => {
+            if (!string.IsNullOrEmpty(_rawContent))
+                Clipboard.SetText(_rawContent);
+        };
+        DockPanel.SetDock(copyButton, Dock.Right);
+        header.Children.Add(copyButton);
+
         var titleBlock = new TextBlock {
             Text              = "Live Tasks",
             FontSize          = (double)Application.Current.Resources["FontSizeSubtitle"],
@@ -49,21 +66,6 @@ internal sealed class TasksStatusWindow : ChromedWindow {
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         DockPanel.SetDock(titleBlock, Dock.Left);
         header.Children.Add(titleBlock);
-
-        var copyButton = new Button {
-            Content  = "Copy",
-            MinWidth = 76,
-            Height   = 30,
-            Margin   = new Thickness(0, 0, 8, 0),
-        };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
-        copyButton.Click += (_, _) => {
-            if (!string.IsNullOrEmpty(_rawContent))
-                Clipboard.SetText(_rawContent);
-        };
-        DockPanel.SetDock(copyButton, Dock.Left);
-        header.Children.Add(copyButton);
 
         var hintBlock = new TextBlock {
             Text = "Use /dropTasks to hide this window.",

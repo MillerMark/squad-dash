@@ -48,7 +48,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         ShowActivated = false;
         Topmost = false;
 
-        var root = new Grid { Margin = new Thickness(12, CloseButtonHeight, 12, 12) };
+        var root = new Grid { Margin = new Thickness(12, 8, 12, 12) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // header
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // hint
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // checkboxes
@@ -62,17 +62,21 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
-        var titleBlock = new TextBlock
+        // Buttons docked right; added before the title so DockPanel stacks them from the right.
+        // Clear is rightmost — margin aligns its right edge with close button's left edge
+        // (close = 38px wide, root right margin = 12px → offset = 26px).
+        var clearButton = new Button
         {
-            Text              = "Trace",
-            FontSize          = (double)Application.Current.Resources["FontSizeSubtitle"],
-            FontWeight        = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin            = new Thickness(0, 0, 8, 0),
+            Content  = "Clear",
+            MinWidth = 76,
+            Height   = 30,
+            Margin   = new Thickness(0, 0, 26, 0),
         };
-        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        DockPanel.SetDock(titleBlock, Dock.Left);
-        header.Children.Add(titleBlock);
+        clearButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        WindowChrome.SetIsHitTestVisibleInChrome(clearButton, true);
+        clearButton.Click += (_, _) => _logTextBox.Clear();
+        DockPanel.SetDock(clearButton, Dock.Right);
+        header.Children.Add(clearButton);
 
         var copyButton = new Button
         {
@@ -89,21 +93,20 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
             if (!string.IsNullOrEmpty(text))
                 Clipboard.SetText(text);
         };
-        DockPanel.SetDock(copyButton, Dock.Left);
+        DockPanel.SetDock(copyButton, Dock.Right);
         header.Children.Add(copyButton);
 
-        var clearButton = new Button
+        var titleBlock = new TextBlock
         {
-            Content  = "Clear",
-            MinWidth = 76,
-            Height   = 30,
-            Margin   = new Thickness(0, 0, 8, 0),
+            Text              = "Trace",
+            FontSize          = (double)Application.Current.Resources["FontSizeSubtitle"],
+            FontWeight        = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 0, 8, 0),
         };
-        clearButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        WindowChrome.SetIsHitTestVisibleInChrome(clearButton, true);
-        clearButton.Click += (_, _) => _logTextBox.Clear();
-        DockPanel.SetDock(clearButton, Dock.Left);
-        header.Children.Add(clearButton);
+        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        DockPanel.SetDock(titleBlock, Dock.Left);
+        header.Children.Add(titleBlock);
 
         // ── Hint ────────────────────────────────────────────────────────────────────────────
 
