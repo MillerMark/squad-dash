@@ -22338,7 +22338,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _docsPanelState = inboxState with
                 {
                     InboxPanelVisible = _inboxPanelVisible,
-                    OpenInboxMessageIds = openIds.Count > 0 ? openIds : null,
+                    OpenInboxMessageIds = openIds.Count > 0 ? openIds : [],
                 };
                 _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
             }
