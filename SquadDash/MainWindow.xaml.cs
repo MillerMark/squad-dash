@@ -11538,12 +11538,20 @@ public partial class MainWindow : Window, ILiveElementLocator
             ToolIconGalleryMenuItem.Visibility = shiftDown ? Visibility.Visible : Visibility.Collapsed;
         if (ToolIconGallerySeparator is not null)
             ToolIconGallerySeparator.Visibility = shiftDown ? Visibility.Visible : Visibility.Collapsed;
-        if (ViewLoopPanelMenuItem is not null)
-            ViewLoopPanelMenuItem.IsChecked = _loopPanelVisible;
-        if (ViewTasksMenuItem is not null)
-            ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
-        if (ViewCommitApprovalsMenuItem is not null)
-            ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
+    }
+
+    private void PanelsMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (ViewLoopPanelMenuItem       is not null) ViewLoopPanelMenuItem.IsChecked       = _loopPanelVisible;
+            if (ViewTasksMenuItem           is not null) ViewTasksMenuItem.IsChecked           = _tasksPanelVisible;
+            if (ViewCommitApprovalsMenuItem is not null) ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
+            if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanelVisible;
+            if (ViewNotesMenuItem           is not null) ViewNotesMenuItem.IsChecked           = _notesPanelVisible;
+            if (ViewMaintenanceMenuItem     is not null) ViewMaintenanceMenuItem.IsChecked     = _maintenancePanelVisible;
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PanelsMenuItem_SubmenuOpened), ex); }
     }
 
     private async void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)

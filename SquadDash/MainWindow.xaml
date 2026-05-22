@@ -435,7 +435,8 @@
                 </MenuItem>
                 <MenuItem Header="_Panels"
                           Style="{StaticResource TopLevelMenuItemStyle}"
-                          ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                          ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
+                          SubmenuOpened="PanelsMenuItem_SubmenuOpened">
                     <MenuItem x:Name="ViewCommitApprovalsMenuItem"
                               Header="Approvals"
                               IsCheckable="True"
