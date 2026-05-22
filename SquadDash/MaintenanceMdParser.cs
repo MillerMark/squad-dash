@@ -480,6 +480,54 @@ internal static class MaintenanceMdParser {
         File.WriteAllText(mdPath, string.Join(le, lines));
     }
 
+    /// <summary>
+    /// Finds the task with <paramref name="taskId"/> in the maintenance.md frontmatter and
+    /// updates its <c>frequency:</c> value, then writes the file back. Does nothing if the
+    /// file or task is not found.
+    /// </summary>
+    public static void UpdateFrequency(string maintenanceMdPath, string taskId, string newFrequency) {
+        if (!File.Exists(maintenanceMdPath)) return;
+        var raw   = File.ReadAllText(maintenanceMdPath);
+        var le    = raw.Contains("\r\n") ? "\r\n" : "\n";
+        var lines = raw.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+        bool inFrontmatter = false, pastFirst = false;
+        bool inTasksList   = false, inTargetTask = false;
+
+        for (int i = 0; i < lines.Length; i++) {
+            var line    = lines[i];
+            var trimmed = line.TrimStart();
+            int indent  = line.Length - trimmed.Length;
+
+            if (trimmed == "---") {
+                if (!pastFirst) { pastFirst = true; inFrontmatter = true; }
+                else            { inFrontmatter = false; }
+                continue;
+            }
+
+            if (!inFrontmatter) continue;
+            if (indent == 0 && trimmed == "tasks:") { inTasksList = true; continue; }
+            if (!inTasksList) continue;
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+            if (indent == 0) { inTargetTask = false; inTasksList = false; continue; }
+
+            if (indent == 2 && trimmed.StartsWith("- ")) {
+                var rest = trimmed[2..];
+                inTargetTask = rest.StartsWith("id:") &&
+                    string.Equals(rest["id:".Length..].Trim().Trim('"', '\''), taskId, StringComparison.Ordinal);
+                continue;
+            }
+
+            if (!inTargetTask) continue;
+
+            if (indent == 4 && trimmed.StartsWith("frequency:")) {
+                lines[i] = "    frequency: " + newFrequency;
+                File.WriteAllText(maintenanceMdPath, string.Join(le, lines));
+                return;
+            }
+        }
+    }
+
     private static int CountLeadingSpaces(string line) {
         int n = 0;
         while (n < line.Length && line[n] == ' ') n++;

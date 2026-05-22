@@ -1605,16 +1605,20 @@ internal sealed class MarkdownDocumentWindow : Window {
 
         var clipImg = Clipboard.GetImage()!;
         var editor  = new ClipboardImageEditorWindow(this, clipImg);
-        editor.ShowDialog();
-        if (editor.Result is not { } image) return;
+        var capturedDoc           = doc;
+        var capturedFullImagePath = fullImagePath;
+        var capturedImagePath     = imagePath;
+        editor.ImageAccepted += image =>
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using var stream = File.OpenWrite(capturedFullImagePath);
+            encoder.Save(stream);
 
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(image));
-        using var stream = File.OpenWrite(fullImagePath);
-        encoder.Save(stream);
-
-        RemoveScreenshotPlaceholder(doc, imagePath);
-        SaveDocument(doc);
+            RemoveScreenshotPlaceholder(capturedDoc, capturedImagePath);
+            SaveDocument(capturedDoc);
+        };
+        editor.Show();
     }
 
     private void ReplaceImageFromClipboard(string imagePath) {
@@ -1639,19 +1643,23 @@ internal sealed class MarkdownDocumentWindow : Window {
 
         var clipImg = Clipboard.GetImage()!;
         var editor  = new ClipboardImageEditorWindow(this, clipImg);
-        editor.ShowDialog();
-        if (editor.Result is not { } image) return;
+        var capturedDoc           = doc;
+        var capturedFullImagePath = fullImagePath;
+        var capturedImagePath     = imagePath;
+        editor.ImageAccepted += image =>
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using (var stream = File.OpenWrite(capturedFullImagePath)) {
+                stream.SetLength(0);
+                encoder.Save(stream);
+            }
 
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(image));
-        using (var stream = File.OpenWrite(fullImagePath)) {
-            stream.SetLength(0);
-            encoder.Save(stream);
-        }
-
-        // Remove the 📸 placeholder if present immediately after the image line.
-        RemoveScreenshotPlaceholderAfterImage(doc, imagePath);
-        SaveDocument(doc);
+            // Remove the 📸 placeholder if present immediately after the image line.
+            RemoveScreenshotPlaceholderAfterImage(capturedDoc, capturedImagePath);
+            SaveDocument(capturedDoc);
+        };
+        editor.Show();
     }
 
     /// <summary>

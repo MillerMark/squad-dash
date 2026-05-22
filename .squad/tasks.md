@@ -68,6 +68,16 @@
 
 - [x] **Transcript — ghost selection highlight when content streams in** *(Owner: Arjun Sen)*
 
+- [x] **Merge `maintenance/20260521-eliminate-duplication` → main**
+  Branch is clean and ready: DUP-001–006, DUP-008–010 fixed; Fred & Rory agents added;
+  weekly/monthly maintenance frequency implemented; 1918 tests passing. Merged as d608dae.
+
+- [ ] **[Duplication] Investigate DUP-007 — re-scan or re-examine original findings** *(Owner: Fred)*
+  The original duplication scan (2026-05-21) identified DUP-001–010. Fixes were committed for
+  DUP-001–006 and DUP-008–010. DUP-007 has no recorded fix and no description was persisted.
+  Re-run the duplication scan (or examine git history from that session) to identify what DUP-007
+  was and whether it still needs addressing.
+
 - [ ] **[Orion audit] `_isPromptRunning` — move ownership to PromptExecutionController** *(Owner: Arjun Sen)*
   `_isPromptRunning` is declared in MainWindow, mutated by PEC via setter delegate, read by
   `BackgroundTaskPresenter` via getter delegate, and read directly by MainWindow at 8 call sites.

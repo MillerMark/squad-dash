@@ -22,6 +22,7 @@ internal sealed class MaintenancePanelController {
     private readonly Func<string?>        _getWorkspacePath;
     private readonly Action               _runNow;
     private readonly Action<string, bool> _toggleTaskEnabled;
+    private readonly Action               _reloadPanel;
 
     private MaintenanceMdConfig?   _config;
     private MaintenanceStateStore? _stateStore;
@@ -40,7 +41,8 @@ internal sealed class MaintenancePanelController {
         CheckBox             enabledOnIdleCheckBox,
         Func<string?>        getWorkspacePath,
         Action               runNow,
-        Action<string, bool> toggleTaskEnabled) {
+        Action<string, bool> toggleTaskEnabled,
+        Action               reloadPanel) {
 
         _listPanel              = listPanel;
         _statusLabel            = statusLabel;
@@ -49,6 +51,7 @@ internal sealed class MaintenancePanelController {
         _getWorkspacePath       = getWorkspacePath;
         _runNow                 = runNow;
         _toggleTaskEnabled      = toggleTaskEnabled;
+        _reloadPanel            = reloadPanel;
 
         _runNowButton.Click += (_, _) => _runNow();
         _enabledOnIdleCheckBox.Checked   += (_, _) => SetEnabledOnIdle(true);
@@ -244,6 +247,17 @@ internal sealed class MaintenancePanelController {
         }
     }
 
+    /// <summary>
+    /// Updates the <c>frequency:</c> field for <paramref name="taskId"/> in maintenance.md
+    /// and reloads the panel so the change is reflected immediately.
+    /// </summary>
+    private void ChangeTaskFrequency(string taskId, string newFrequency) {
+        var mdPath = GetMaintenanceMdPath();
+        if (mdPath is null) return;
+        MaintenanceMdParser.UpdateFrequency(mdPath, taskId, newFrequency);
+        _reloadPanel();
+    }
+
     // ── List construction ─────────────────────────────────────────────────────
 
     private void RebuildList() {
@@ -402,7 +416,7 @@ internal sealed class MaintenancePanelController {
         var check = new CheckBox {
             IsChecked         = task.Enabled,
             VerticalAlignment = VerticalAlignment.Top,
-            Margin            = new Thickness(0, 1, 8, 0),
+            Margin            = new Thickness(0, 1, 0, 0),
         };
         check.SetResourceReference(CheckBox.FontSizeProperty, "FontSizeBody");
         check.SetResourceReference(CheckBox.ForegroundProperty, "LabelText");
@@ -426,10 +440,20 @@ internal sealed class MaintenancePanelController {
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         rightPanel.Children.Add(titleBlock);
 
-        // Chips: frequency + safety — only visible when task is enabled
+        // Chips: frequency picker + safety — only visible when task is enabled
         var chipRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0),
             Visibility = task.Enabled ? Visibility.Visible : Visibility.Collapsed };
-        chipRow.Children.Add(BuildChip(task.Frequency, FrequencyTooltip(task.Frequency)));
+        var taskIdForFreq   = task.Id;
+        var frequencyPicker = new CompactPickerButton(
+            headerText:     "Run Frequency",
+            options: [
+                ("Always",     "always"),
+                ("Daily",      "daily"),
+                ("Per Commit", "per-commit"),
+            ],
+            selectedValue:  task.Frequency,
+            onValueChanged: newFreq => ChangeTaskFrequency(taskIdForFreq, newFreq));
+        chipRow.Children.Add(frequencyPicker.Control);
         if (string.Equals(task.Safety, "direct", StringComparison.OrdinalIgnoreCase))
             chipRow.Children.Add(BuildWarningChip("⚠ direct commits"));
         else if (!string.Equals(task.Safety, "branch", StringComparison.OrdinalIgnoreCase))

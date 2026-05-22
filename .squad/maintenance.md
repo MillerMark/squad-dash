@@ -8,11 +8,11 @@
 idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
-enabled_on_idle: true
+enabled_on_idle: false
 configured: false  # ← change to true to activate
 tasks:
   - id: run-tests
-    enabled: true
+    enabled: false
     frequency: daily
     safety: branch
     title: Run Tests
@@ -38,7 +38,7 @@ tasks:
             tooltip: Report failures only — do not change any code
 
   - id: eliminate-duplication
-    enabled: true
+    enabled: false
     frequency: daily
     safety: branch
     title: Eliminate Code Duplication
@@ -68,7 +68,7 @@ tasks:
             tooltip: List each instance — do not change any code
 
   - id: architectural-practices
-    enabled: false
+    enabled: true
     frequency: daily
     safety: report-only
     title: Architectural Practice Review
@@ -95,7 +95,7 @@ tasks:
             tooltip: Write a report — do not change any code
 
   - id: code-smells
-    enabled: false
+    enabled: true
     frequency: daily
     safety: branch
     title: Code Smell Cleanup

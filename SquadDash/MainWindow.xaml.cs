@@ -293,7 +293,8 @@ public partial class MainWindow : Window, ILiveElementLocator
     private Border? _dropIndicator;           // Narrow vertical bar shown between tabs during drag
     private const double DragThreshold = 4.0; // px of movement before drag mode activates
     private bool _restartPending;
-    private bool _clipboardEditorOpen; // true while ClipboardImageEditorWindow is open; defers restart
+    private bool _clipboardEditorOpen; // true while any ClipboardImageEditorWindow is open; defers restart
+    private int  _clipboardEditorCount; // number of ClipboardImageEditorWindows currently open
     private bool _pendingShutdown;     // true when a close was requested while ClipboardImageEditorWindow was open
     private bool _programmaticExpanderChange;
     private DeferredShutdownMode _deferredShutdown;
@@ -8385,21 +8386,18 @@ public partial class MainWindow : Window, ILiveElementLocator
                             $"format={bitmap.Format}");
                     if (bitmap is not null && _currentWorkspace is not null)
                     {
-                        _clipboardEditorOpen = true;
+                        var workspace = _currentWorkspace;
                         var editor = new ClipboardImageEditorWindow(this, bitmap, isPromptMode: true);
-                        editor.ShowDialog();
-                        _clipboardEditorOpen = false;
-                        OnClipboardEditorClosed();
-                        var edited = editor.Result;
-                        if (edited is not null)
+                        editor.ImageAccepted += edited =>
                         {
-                            var path = _pastedImageStore.SaveImage(edited, _currentWorkspace.FolderPath);
+                            var path = _pastedImageStore.SaveImage(edited, workspace.FolderPath);
                             var att  = new FollowUpAttachment("", "Image", null, null, null, ImagePath: path);
                             var list = GetOrCreateFollowUpList(_activeTabId ?? "");
                             list.Add(att);
                             UpdateFollowUpStrip();
                             PersistDraftFollowUp();
-                        }
+                        };
+                        OpenEditorModeless(editor);
                     }
                     return;
                 }
@@ -13955,30 +13953,29 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (string.IsNullOrEmpty(_currentDocPath)) return;
 
         var clipImg = Clipboard.GetImage()!;
-        _clipboardEditorOpen = true;
+        var currentDocPath = _currentDocPath;
         var editor = new ClipboardImageEditorWindow(this, clipImg);
-        editor.ShowDialog();
-        _clipboardEditorOpen = false;
-        OnClipboardEditorClosed();
-        if (editor.Result is not { } image) return;
+        editor.ImageAccepted += image =>
+        {
+            var docName = Path.GetFileNameWithoutExtension(currentDocPath);
+            var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+            var fileName = $"{docName}-{timestamp}.png";
+            var docDir = Path.GetDirectoryName(currentDocPath)!;
+            var imagesDir = Path.Combine(docDir, "images");
+            Directory.CreateDirectory(imagesDir);
+            var fullImagePath = Path.Combine(imagesDir, fileName);
 
-        var docName = Path.GetFileNameWithoutExtension(_currentDocPath);
-        var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-        var fileName = $"{docName}-{timestamp}.png";
-        var docDir = Path.GetDirectoryName(_currentDocPath)!;
-        var imagesDir = Path.Combine(docDir, "images");
-        Directory.CreateDirectory(imagesDir);
-        var fullImagePath = Path.Combine(imagesDir, fileName);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using (var stream = File.OpenWrite(fullImagePath))
+                encoder.Save(stream);
 
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(image));
-        using (var stream = File.OpenWrite(fullImagePath))
-            encoder.Save(stream);
-
-        var caretIndex = DocSourceTextBox.GetCaretOffset();
-        var markdown = $"![{docName} screenshot](images/{fileName})";
-        DocSourceTextBox.SetPlainText(DocSourceTextBox.GetPlainText().Insert(caretIndex, markdown));
-        DocSourceTextBox.SetCaretOffset(caretIndex + markdown.Length);
+            var caretIndex = DocSourceTextBox?.GetCaretOffset() ?? 0;
+            var markdown = $"![{docName} screenshot](images/{fileName})";
+            DocSourceTextBox?.SetPlainText(DocSourceTextBox.GetPlainText().Insert(caretIndex, markdown));
+            DocSourceTextBox?.SetCaretOffset(caretIndex + markdown.Length);
+        };
+        OpenEditorModeless(editor);
     }
 
     // ── Feature 2: Find-in-source bar ───────────────────────────────────────────
@@ -22004,9 +22001,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
 
             // If the clipboard image editor is open, block the close and let the user finish
-            // (or dismiss) the editor first.  Once it closes, OnClipboardEditorClosed will
-            // call Close() again.  This is a ShowDialog() scenario so it can only happen via
-            // the taskbar button or an external close signal while the nested message pump runs.
+            // (or dismiss) all editors first.  Once the last one closes, OnClipboardEditorClosed
+            // will call Close() again.
             if (_clipboardEditorOpen)
             {
                 e.Cancel = true;
@@ -23475,6 +23471,26 @@ public partial class MainWindow : Window, ILiveElementLocator
     }
 
     /// <summary>
+    /// Shows a <see cref="ClipboardImageEditorWindow"/> as a modeless window and tracks it
+    /// so that <see cref="OnClipboardEditorClosed"/> is invoked once the last instance closes.
+    /// </summary>
+    private void OpenEditorModeless(ClipboardImageEditorWindow editor)
+    {
+        _clipboardEditorCount++;
+        _clipboardEditorOpen = true;
+        editor.Closed += (_, _) =>
+        {
+            _clipboardEditorCount--;
+            if (_clipboardEditorCount == 0)
+            {
+                _clipboardEditorOpen = false;
+                OnClipboardEditorClosed();
+            }
+        };
+        editor.Show();
+    }
+
+    /// <summary>
     /// Called after a ClipboardImageEditorWindow closes. If a restart was deferred
     /// waiting for the editor to finish, trigger it now.
     /// </summary>
@@ -24521,41 +24537,42 @@ public partial class MainWindow : Window, ILiveElementLocator
         Directory.CreateDirectory(Path.GetDirectoryName(fullImagePath)!);
 
         var clipImg = Clipboard.GetImage()!;
-        _clipboardEditorOpen = true;
+        var capturedDocPath = _currentDocPath;
+        var capturedFullImagePath = fullImagePath;
+        var capturedImagePath = imagePath;
         var editor = new ClipboardImageEditorWindow(this, clipImg);
-        editor.ShowDialog();
-        _clipboardEditorOpen = false;
-        OnClipboardEditorClosed();
-        if (editor.Result is not { } image) return;
-
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(image));
-        using (var stream = File.OpenWrite(fullImagePath))
-            encoder.Save(stream);
-
-        // Remove the 📸 placeholder line that corresponds to this image.
-        // Match using forward-slash paths (as written in markdown).
-        var lines = File.ReadAllLines(_currentDocPath).ToList();
-        var fwdSlashPath = imagePath.Replace('\\', '/');
-        for (int i = lines.Count - 1; i >= 0; i--)
+        editor.ImageAccepted += image =>
         {
-            if ((lines[i].Contains("📸") || lines[i].Contains("Screenshot needed")) &&
-                i > 0 && lines[i - 1].Replace('\\', '/').Contains(fwdSlashPath))
-            {
-                lines.RemoveAt(i);
-                // Remove the blank line immediately after the placeholder, if any
-                if (i < lines.Count && string.IsNullOrWhiteSpace(lines[i]))
-                    lines.RemoveAt(i);
-                break;
-            }
-        }
-        File.WriteAllLines(_currentDocPath, lines);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using (var stream = File.OpenWrite(capturedFullImagePath))
+                encoder.Save(stream);
 
-        // Reload the current doc in the viewer
-        var markdown = File.ReadAllText(_currentDocPath);
-        var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
-        var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
-        DocMarkdownViewer.NavigateToString(html);
+            // Remove the 📸 placeholder line that corresponds to this image.
+            // Match using forward-slash paths (as written in markdown).
+            var lines = File.ReadAllLines(capturedDocPath).ToList();
+            var fwdSlashPath = capturedImagePath.Replace('\\', '/');
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                if ((lines[i].Contains("📸") || lines[i].Contains("Screenshot needed")) &&
+                    i > 0 && lines[i - 1].Replace('\\', '/').Contains(fwdSlashPath))
+                {
+                    lines.RemoveAt(i);
+                    // Remove the blank line immediately after the placeholder, if any
+                    if (i < lines.Count && string.IsNullOrWhiteSpace(lines[i]))
+                        lines.RemoveAt(i);
+                    break;
+                }
+            }
+            File.WriteAllLines(capturedDocPath, lines);
+
+            // Reload the current doc in the viewer
+            var markdown = File.ReadAllText(capturedDocPath);
+            var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
+            var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: capturedDocPath, isDark: AgentStatusCard.IsDarkTheme);
+            DocMarkdownViewer.NavigateToString(html);
+        };
+        OpenEditorModeless(editor);
     }
 
     /// <summary>
@@ -24654,51 +24671,53 @@ public partial class MainWindow : Window, ILiveElementLocator
         Directory.CreateDirectory(Path.GetDirectoryName(fullImagePath)!);
 
         var clipImg = Clipboard.GetImage()!;
-        _clipboardEditorOpen = true;
+        var capturedDocPath = _currentDocPath;
+        var capturedFullImagePath = fullImagePath;
+        var capturedImagePath = imagePath;
+        var capturedThemeName = _activeThemeName;
         var editor = new ClipboardImageEditorWindow(this, clipImg);
-        editor.ShowDialog();
-        _clipboardEditorOpen = false;
-        OnClipboardEditorClosed();
-        if (editor.Result is not { } image) return;
-
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(image));
-        // Overwrite existing file (OpenWrite truncates)
-        using (var stream = File.OpenWrite(fullImagePath))
+        editor.ImageAccepted += image =>
         {
-            stream.SetLength(0);
-            encoder.Save(stream);
-        }
-
-        // Remove the 📸 placeholder line that immediately follows the image line.
-        var lines = File.ReadAllLines(_currentDocPath).ToList();
-        var fwdSlashPath = imagePath.Replace('\\', '/');
-        for (int i = 0; i < lines.Count - 1; i++)
-        {
-            if (lines[i].Replace('\\', '/').Contains(fwdSlashPath))
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            // Overwrite existing file (OpenWrite truncates)
+            using (var stream = File.OpenWrite(capturedFullImagePath))
             {
-                int nextI = i + 1;
-                if (nextI < lines.Count &&
-                    (lines[nextI].Contains("📸") || lines[nextI].Contains("Screenshot needed")))
+                stream.SetLength(0);
+                encoder.Save(stream);
+            }
+
+            // Remove the 📸 placeholder line that immediately follows the image line.
+            var lines = File.ReadAllLines(capturedDocPath).ToList();
+            var fwdSlashPath = capturedImagePath.Replace('\\', '/');
+            for (int i = 0; i < lines.Count - 1; i++)
+            {
+                if (lines[i].Replace('\\', '/').Contains(fwdSlashPath))
                 {
-                    lines.RemoveAt(nextI);
-                    if (nextI < lines.Count && string.IsNullOrWhiteSpace(lines[nextI]))
+                    int nextI = i + 1;
+                    if (nextI < lines.Count &&
+                        (lines[nextI].Contains("📸") || lines[nextI].Contains("Screenshot needed")))
+                    {
                         lines.RemoveAt(nextI);
-                    break;
+                        if (nextI < lines.Count && string.IsNullOrWhiteSpace(lines[nextI]))
+                            lines.RemoveAt(nextI);
+                        break;
+                    }
                 }
             }
-        }
-        File.WriteAllLines(_currentDocPath, lines);
+            File.WriteAllLines(capturedDocPath, lines);
 
-        // Reload the doc so the viewer shows the updated image
-        var markdown = File.ReadAllText(_currentDocPath);
-        var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
-        var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
-        DocMarkdownViewer.NavigateToString(html);
+            // Reload the doc so the viewer shows the updated image
+            var markdown = File.ReadAllText(capturedDocPath);
+            var title = (DocTopicsTreeView?.SelectedItem as TreeViewItem)?.Header?.ToString() ?? "Documentation";
+            var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: capturedDocPath, isDark: AgentStatusCard.IsDarkTheme);
+            DocMarkdownViewer.NavigateToString(html);
 
-        // Sync the definition's Theme to the current active theme so "Refresh screenshot"
-        // will recapture in the same theme as the image the user just pasted in.
-        _ = SyncDefinitionThemeForDocImageAsync(fullImagePath, _activeThemeName);
+            // Sync the definition's Theme to the current active theme so "Refresh screenshot"
+            // will recapture in the same theme as the image the user just pasted in.
+            _ = SyncDefinitionThemeForDocImageAsync(capturedFullImagePath, capturedThemeName);
+        };
+        OpenEditorModeless(editor);
     }
 
     /// <summary>
@@ -27067,7 +27086,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 enabledOnIdleCheckBox:  MaintenanceEnabledOnIdleCheckBox,
                 getWorkspacePath:       () => _currentWorkspace?.FolderPath,
                 runNow:                 () => _ = StartMaintenanceCycleAsync(),
-                toggleTaskEnabled:      (taskId, enabled) => OnMaintenanceTaskToggled(taskId, enabled));
+                toggleTaskEnabled:      (taskId, enabled) => OnMaintenanceTaskToggled(taskId, enabled),
+                reloadPanel:            () => OnMaintenanceTaskToggled(string.Empty, false));
         }
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
