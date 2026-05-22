@@ -26,7 +26,7 @@ internal sealed class LoopOutputWindow : ChromedWindow
         ShowActivated      = false;
         Topmost            = false;
 
-        var root = new Grid { Margin = new Thickness(12, CloseButtonHeight, 12, 12) };
+        var root = new Grid { Margin = new Thickness(12) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         ApplyOuterBorder().Child = root;
@@ -45,14 +45,14 @@ internal sealed class LoopOutputWindow : ChromedWindow
             if (!string.IsNullOrEmpty(_logTextBox.Text))
                 Clipboard.SetText(_logTextBox.Text);
         };
-        DockPanel.SetDock(copyButton, Dock.Right);
+        DockPanel.SetDock(copyButton, Dock.Left);
         header.Children.Add(copyButton);
 
         var clearButton = new Button { Content = "Clear", MinWidth = 76, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
         clearButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(clearButton, true);
         clearButton.Click += (_, _) => SaveAndClear();
-        DockPanel.SetDock(clearButton, Dock.Right);
+        DockPanel.SetDock(clearButton, Dock.Left);
         header.Children.Add(clearButton);
 
         var titleBlock = new TextBlock
