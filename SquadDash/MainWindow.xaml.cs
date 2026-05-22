@@ -20622,7 +20622,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         block.Turn.ToolEntries.Add(entry);
         block.ToolEntries.Add(entry);
 
-        expander.ContextMenu = CreateThinkingContextMenu(block.Turn);
+        expander.ContextMenu = CreateToolBlockContextMenu(entry);
         headerPanel.ContextMenu = CreateThinkingContextMenu(block.Turn);
         iconTextBlock.ContextMenu = CreateThinkingContextMenu(block.Turn);
         emojiImage.ContextMenu = CreateThinkingContextMenu(block.Turn);
@@ -20632,18 +20632,6 @@ public partial class MainWindow : Window, ILiveElementLocator
         transcriptButton.Click += OpenToolTranscriptButton_Click;
         SyncTaskToolTranscriptLink(entry);
 
-        var openButton = new Button
-        {
-            Content = "Open Details Window",
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(0, 0, 0, 8),
-            Padding = new Thickness(8, 2, 8, 2),
-            Tag = entry
-        };
-        openButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        openButton.Click += OpenToolDetailsButton_Click;
-
-        detailPanel.Children.Add(openButton);
         detailPanel.Children.Add(detailTextBox);
         expander.Content = detailPanel;
 
@@ -20988,6 +20976,64 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             HandleUiCallbackException(nameof(OpenToolDetailsButton_Click), ex);
         }
+    }
+
+    private ContextMenu CreateToolBlockContextMenu(ToolTranscriptEntry entry)
+    {
+        string GetDetailText() =>
+            entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
+                entry.Descriptor,
+                entry.ArgsJson,
+                entry.OutputText,
+                entry.StartedAt,
+                entry.FinishedAt,
+                entry.ProgressText,
+                entry.IsCompleted,
+                entry.Success));
+
+        var openDetailsItem = new MenuItem
+        {
+            Header = "Open Details Window",
+            Style  = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        openDetailsItem.Click += (_, _) =>
+        {
+            try
+            {
+                ShowTextWindow(
+                    $"{ToolTranscriptFormatter.HumanizeToolName(entry.Descriptor.ToolName)} Tool Details",
+                    GetDetailText());
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(CreateToolBlockContextMenu), ex);
+            }
+        };
+
+        var copyItem = new MenuItem
+        {
+            Header = "Copy",
+            Style  = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        copyItem.Click += (_, _) =>
+        {
+            try
+            {
+                var text = GetDetailText();
+                if (!string.IsNullOrEmpty(text))
+                    Clipboard.SetText(text);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(CreateToolBlockContextMenu), ex);
+            }
+        };
+
+        var menu = new ContextMenu();
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        menu.Items.Add(openDetailsItem);
+        menu.Items.Add(copyItem);
+        return menu;
     }
 
     private ToolTranscriptDescriptor CreateToolDescriptor(SquadSdkEvent evt)
