@@ -149,6 +149,12 @@ internal sealed class MaintenanceRunner {
             _             => string.Empty,
         };
 
+        // TODO(Arjun – Phase 3 inbox): for report-only tasks, append MaintenanceInboxReminder
+        // from Squad.SDK/inboxPromptInjection.ts so Argus Weld delivers findings via the Inbox panel:
+        //   var inboxReminder = effectiveSafety == "report-only"
+        //       ? "\n\n" + MaintenanceInboxReminder
+        //       : string.Empty;
+        //   return safetyPrefix + task.Instructions + inboxReminder;
         return safetyPrefix + task.Instructions;
     }
 

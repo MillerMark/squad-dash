@@ -2187,6 +2187,10 @@ internal sealed class PromptExecutionController {
         // TurnSummaryInstruction must come BEFORE hostCmdCtx so the AI emits <system_notification>
         // first and HOST_COMMAND_JSON last. The parser regex requires HOST_COMMAND_JSON at the
         // very end of the response; placing it after TurnSummaryInstruction would break the match.
+        // TODO(Arjun – Phase 3 inbox): add inboxCtx here using the text from
+        // Squad.SDK/inboxPromptInjection.ts (InboxMessageInstruction constant).
+        // Place it before TurnSummaryInstruction so the ordering is:
+        //   … triggeredCtx, inboxCtx, TurnSummaryInstruction, hostCmdCtx
         var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, triggeredCtx, TurnSummaryInstruction, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = SquadBridgePromptBuilder.Build(
