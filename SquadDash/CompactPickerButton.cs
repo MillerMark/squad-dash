@@ -29,29 +29,37 @@ internal sealed class CompactPickerButton {
         get => _selectedValue;
         set {
             _selectedValue  = value;
-            Control.Content = GetDisplayName(value);
+            Control.Content = GetButtonLabel(value);
         }
     }
 
     // ── Construction ─────────────────────────────────────────────────────────
 
+    private readonly Func<string, string>? _getButtonLabel;
+
     /// <param name="headerText">Text for the disabled menu header item (e.g. "Run Frequency").</param>
     /// <param name="options">Selectable options as (DisplayName, Value) pairs.</param>
     /// <param name="selectedValue">Initially selected raw value.</param>
     /// <param name="onValueChanged">Invoked with the new raw value when the user picks an option.</param>
+    /// <param name="getButtonLabel">
+    ///   Optional override for the button's displayed text. Receives the selected raw value and returns
+    ///   the string to show on the button face. When <c>null</c> the option's DisplayName is used.
+    /// </param>
     public CompactPickerButton(
         string                                            headerText,
         IReadOnlyList<(string DisplayName, string Value)> options,
         string                                            selectedValue,
-        Action<string>?                                   onValueChanged = null) {
+        Action<string>?                                   onValueChanged = null,
+        Func<string, string>?                             getButtonLabel = null) {
 
         _headerText     = headerText;
         _options        = options;
         _selectedValue  = selectedValue;
         _onValueChanged = onValueChanged;
+        _getButtonLabel = getButtonLabel;
 
         Control = new Button {
-            Content         = GetDisplayName(selectedValue),
+            Content         = GetButtonLabel(selectedValue),
             Padding         = new Thickness(5, 1, 5, 1),
             Margin          = new Thickness(0, 0, 4, 2),
             BorderThickness = new Thickness(1),
@@ -66,12 +74,16 @@ internal sealed class CompactPickerButton {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private string GetDisplayName(string value) {
+    private string GetMenuDisplayName(string value) {
         foreach (var (displayName, v) in _options)
             if (string.Equals(v, value, StringComparison.OrdinalIgnoreCase))
                 return displayName;
         return value;
     }
+
+    // Returns the label shown on the button face; uses _getButtonLabel override when supplied.
+    private string GetButtonLabel(string value) =>
+        _getButtonLabel?.Invoke(value) ?? GetMenuDisplayName(value);
 
     private void OnButtonClick(object sender, RoutedEventArgs e) {
         var menu = new ContextMenu();
@@ -104,7 +116,7 @@ internal sealed class CompactPickerButton {
     private void SelectValue(string value) {
         if (string.Equals(value, _selectedValue, StringComparison.OrdinalIgnoreCase)) return;
         _selectedValue  = value;
-        Control.Content = GetDisplayName(value);
+        Control.Content = GetButtonLabel(value);
         _onValueChanged?.Invoke(value);
     }
 }

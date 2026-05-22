@@ -18,7 +18,7 @@ internal sealed class MaintenancePanelController {
     private readonly StackPanel           _listPanel;
     private readonly TextBlock            _statusLabel;
     private readonly Button               _runNowButton;
-    private readonly CheckBox             _enabledOnIdleCheckBox;
+    private readonly CompactPickerButton  _enabledOnIdlePicker;
     private readonly Func<string?>        _getWorkspacePath;
     private readonly Action               _runNow;
     private readonly Action<string, bool> _toggleTaskEnabled;
@@ -32,7 +32,6 @@ internal sealed class MaintenancePanelController {
     private DispatcherTimer?       _countdownTimer;
     private DispatcherTimer?       _transientStatusTimer;
     private DateTimeOffset         _nextMaintenanceAt = DateTimeOffset.MaxValue;
-    private bool                   _suppressEnabledOnIdleEvent;
     private string                 _filterText = string.Empty;
 
     // ── Construction ─────────────────────────────────────────────────────────
@@ -41,7 +40,7 @@ internal sealed class MaintenancePanelController {
         StackPanel           listPanel,
         TextBlock            statusLabel,
         Button               runNowButton,
-        CheckBox             enabledOnIdleCheckBox,
+        ContentControl       enabledOnIdleHost,
         Func<string?>        getWorkspacePath,
         Action               runNow,
         Action<string, bool> toggleTaskEnabled,
@@ -51,16 +50,23 @@ internal sealed class MaintenancePanelController {
         _listPanel              = listPanel;
         _statusLabel            = statusLabel;
         _runNowButton           = runNowButton;
-        _enabledOnIdleCheckBox  = enabledOnIdleCheckBox;
         _getWorkspacePath       = getWorkspacePath;
         _runNow                 = runNow;
         _toggleTaskEnabled      = toggleTaskEnabled;
         _reloadPanel            = reloadPanel;
         _openInMarkdownEditor   = openInMarkdownEditor;
 
+        _enabledOnIdlePicker = new CompactPickerButton(
+            headerText:     "Maintenance Tasks:",
+            options:        [("Run on idle", "on-idle"), ("Manual runs only", "manual")],
+            selectedValue:  "manual",
+            onValueChanged: v => SetEnabledOnIdle(v == "on-idle"),
+            getButtonLabel: v => v == "on-idle" ? "✔ Run on idle" : "(run manually)");
+        _enabledOnIdlePicker.Control.SetResourceReference(Button.FontSizeProperty, "FontSizeSmall");
+        _enabledOnIdlePicker.Control.Margin = new Thickness(0);
+        enabledOnIdleHost.Content = _enabledOnIdlePicker.Control;
+
         _runNowButton.Click += (_, _) => _runNow();
-        _enabledOnIdleCheckBox.Checked   += (_, _) => SetEnabledOnIdle(true);
-        _enabledOnIdleCheckBox.Unchecked += (_, _) => SetEnabledOnIdle(false);
         WireListPanelContextMenu();
     }
 
@@ -102,9 +108,7 @@ internal sealed class MaintenancePanelController {
         _config     = config;
         _stateStore = stateStore;
 
-        _suppressEnabledOnIdleEvent = true;
-        _enabledOnIdleCheckBox.IsChecked = config?.EnabledOnIdle ?? false;
-        _suppressEnabledOnIdleEvent = false;
+        _enabledOnIdlePicker.SelectedValue = (config?.EnabledOnIdle ?? false) ? "on-idle" : "manual";
 
         RebuildList();
     }
@@ -168,7 +172,6 @@ internal sealed class MaintenancePanelController {
     }
 
     private void SetEnabledOnIdle(bool value) {
-        if (_suppressEnabledOnIdleEvent) return;
         var mdPath = GetMaintenanceMdPath();
         if (mdPath is null) return;
         MaintenanceMdParser.UpdateEnabledOnIdle(mdPath, value);
@@ -286,7 +289,7 @@ internal sealed class MaintenancePanelController {
 
         if (_config?.EnabledOnIdle == false) {
             var banner = new TextBlock {
-                Text         = "Maintenance will not run on idle. Check \"Enable (on idle)\" to activate.",
+                Text         = "Maintenance will not run on idle. Select \"Run on idle\" to activate.",
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(0, 0, 0, 8),
             };

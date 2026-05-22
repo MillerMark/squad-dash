@@ -27516,7 +27516,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 listPanel:              MaintenanceTaskListPanel,
                 statusLabel:            MaintenanceStatusLabel,
                 runNowButton:           MaintenanceRunNowButton,
-                enabledOnIdleCheckBox:  MaintenanceEnabledOnIdleCheckBox,
+                enabledOnIdleHost:      MaintenanceEnabledOnIdleHost,
                 getWorkspacePath:       () => _currentWorkspace?.FolderPath,
                 runNow:                 () => _ = StartMaintenanceCycleAsync(isManual: true),
                 toggleTaskEnabled:      (taskId, enabled) => OnMaintenanceTaskToggled(taskId, enabled),
