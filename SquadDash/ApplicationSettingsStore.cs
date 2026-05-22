@@ -872,6 +872,12 @@ internal sealed record WorkspaceDocsPanelState
     public bool? MaintenancePanelVisible { get; init; }
 
     /// <summary>
+    /// Whether the Inbox inline panel was visible.
+    /// <c>null</c> or <c>false</c> = hidden (default). <c>true</c> = user had the panel open.
+    /// </summary>
+    public bool? InboxPanelVisible { get; init; }
+
+    /// <summary>
     /// Follow-up attachments on the active draft tab. Persisted so they survive restart.
     /// JSON-serialized list of <see cref="FollowUpAttachmentDto"/>. Null when no attachments are present.
     /// </summary>

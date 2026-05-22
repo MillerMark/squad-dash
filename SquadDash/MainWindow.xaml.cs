@@ -251,6 +251,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private MaintenanceReportWriter?    _maintenanceReportWriter;
     private MaintenanceReport?          _pendingMaintenanceBannerReport;
     private DispatcherTimer?            _maintenanceBannerTimer;
+    private InboxStore?                 _inboxStore;
     private InboxPanelController?       _inboxPanel;
     private bool                        _inboxPanelVisible = false;
     // Set true while we are programmatically moving a floating window so its

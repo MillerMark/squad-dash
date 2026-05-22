@@ -448,6 +448,10 @@
                               Header="Maintenance"
                               IsCheckable="True"
                               Click="ViewMaintenanceMenuItem_Click" />
+                    <MenuItem x:Name="ViewInboxMenuItem"
+                              Header="Inbox"
+                              IsCheckable="True"
+                              Click="ViewInboxMenuItem_Click" />
                     <MenuItem x:Name="ViewNotesMenuItem"
                               Header="Notes"
                               IsCheckable="True"
@@ -783,6 +787,7 @@
                                           Width="Auto" />
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -1573,6 +1578,144 @@
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="MaintenanceTaskListPanel" />
                             </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- Inbox panel (Column 9) -->
+                    <Border x:Name="InboxPanelBorder"
+                            Grid.Column="9"
+                            MinWidth="220"
+                            MaxWidth="320"
+                            VerticalAlignment="Top"
+                            Margin="14,0,0,0"
+                            Padding="12"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Border.Height>
+                            <MultiBinding Converter="{StaticResource MaxValueConverter}">
+                                <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
+                                <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
+                            </MultiBinding>
+                        </Border.Height>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Row 0: Title + close button -->
+                            <DockPanel Grid.Row="0" LastChildFill="False">
+                                <Button x:Name="InboxPanelCloseButton"
+                                        DockPanel.Dock="Right"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeNormal}"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Inbox panel"
+                                        Click="InboxPanelCloseButton_Click" />
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="Inbox"
+                                           FontSize="{DynamicResource FontSizeLarge}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+
+                            <!-- Row 1: Filter bar -->
+                            <StackPanel Grid.Row="1"
+                                        Orientation="Horizontal"
+                                        Margin="0,8,0,0">
+                                <TextBox x:Name="InboxFilterBox"
+                                         Width="80"
+                                         FontSize="{DynamicResource FontSizeSmall}"
+                                         VerticalContentAlignment="Center"
+                                         Background="{DynamicResource InputSurface}"
+                                         Foreground="{DynamicResource LabelText}"
+                                         CaretBrush="{DynamicResource LabelText}"
+                                         BorderBrush="{DynamicResource InputBorder}"
+                                         BorderThickness="1"
+                                         Style="{StaticResource PanelFilterBoxStyle}"
+                                         TextChanged="InboxFilterBox_TextChanged" />
+                                <Button x:Name="InboxFilterClearButton"
+                                        Content="×"
+                                        Width="14"
+                                        Height="14"
+                                        FontSize="{DynamicResource FontSizeXSmall}"
+                                        Margin="2,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Visibility="Collapsed"
+                                        ToolTip="Clear filter"
+                                        Style="{StaticResource PanelFilterClearButtonStyle}"
+                                        Click="InboxFilterClearButton_Click" />
+                                <CheckBox x:Name="InboxUnreadOnlyCheckBox"
+                                          Content="Unread only"
+                                          Margin="6,0,0,0"
+                                          VerticalAlignment="Center"
+                                          FontSize="{DynamicResource FontSizeSmall}"
+                                          Style="{StaticResource ThemedCheckBoxStyle}"
+                                          Checked="InboxUnreadOnlyCheckBox_Checked"
+                                          Unchecked="InboxUnreadOnlyCheckBox_Unchecked" />
+                            </StackPanel>
+
+                            <!-- Row 2: Message list -->
+                            <ScrollViewer x:Name="InboxListScrollViewer"
+                                          Grid.Row="2"
+                                          Margin="0,8,0,0"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="InboxListPanel" />
+                            </ScrollViewer>
+
+                            <!-- Row 3: Message viewer (collapsed until message selected) -->
+                            <Border x:Name="InboxViewerBorder"
+                                    Grid.Row="3"
+                                    Margin="0,8,0,0"
+                                    Padding="8"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    BorderBrush="{DynamicResource SubtleBorder}"
+                                    Background="{DynamicResource TranscriptSurface}"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock x:Name="InboxViewerSubjectLabel"
+                                               Grid.Row="0"
+                                               FontWeight="SemiBold"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,2"
+                                               FontSize="{DynamicResource FontSizeBody}"
+                                               Foreground="{DynamicResource LabelText}" />
+                                    <TextBlock x:Name="InboxViewerMetaLabel"
+                                               Grid.Row="1"
+                                               TextWrapping="NoWrap"
+                                               TextTrimming="CharacterEllipsis"
+                                               Margin="0,0,0,6"
+                                               FontSize="{DynamicResource FontSizeSmall}"
+                                               Foreground="{DynamicResource SubtleText}" />
+                                    <WrapPanel x:Name="InboxViewerAttachmentsPanel"
+                                               Grid.Row="2"
+                                               Orientation="Horizontal"
+                                               Margin="0,0,0,6"
+                                               Visibility="Collapsed" />
+                                    <FlowDocumentScrollViewer x:Name="InboxViewerBody"
+                                                              Grid.Row="3"
+                                                              MaxHeight="200"
+                                                              VerticalScrollBarVisibility="Auto"
+                                                              Background="{DynamicResource TranscriptSurface}" />
+                                </Grid>
+                            </Border>
                         </Grid>
                     </Border>
                 </Grid>
