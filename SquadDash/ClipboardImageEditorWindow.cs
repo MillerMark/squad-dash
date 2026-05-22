@@ -380,9 +380,6 @@ internal sealed class ClipboardImageEditorWindow : Window {
                 $"[ClipboardImageEditor] GetWindowRect failed hwnd={ownerHwnd:X}, using PointToScreen coords");
         }
 
-        var pSrc = PresentationSource.FromVisual(owner);
-        var toLogical = pSrc?.CompositionTarget.TransformFromDevice ?? Matrix.Identity;
-
         // ── Compute display size ─────────────────────────────────────────────
         // We need to convert physical pixel counts to logical (WPF) display units.
         // Two complementary sources of information:
@@ -392,9 +389,17 @@ internal sealed class ClipboardImageEditorWindow : Window {
         //      DPI metadata and store 96 regardless. Fall back to the monitor the
         //      owner window is on, which gives the correct result when pasting on
         //      the same monitor as the screenshot was taken.
-        var monitorArea = pSrc != null
-            ? GetMonitorWorkAreaRect(ownerTopLeft, toLogical)
-            : GetMonitorWorkAreaRect(owner);
+        //
+        // Use GetWindowRect-based physical lookup (GetMonitorWorkAreaRect(Window))
+        // rather than PointToScreen + TransformFromDevice.  PointToScreen returns
+        // DPI-virtualised coordinates for System-DPI-aware processes, and
+        // TransformFromDevice reflects the *system* DPI — not the per-monitor DPI —
+        // so converting physical rcWork values through it gives physical-pixel units
+        // instead of WPF DIPs on monitors whose per-monitor DPI differs from the
+        // system DPI.  GetWindowRect always returns physical pixels; dividing by the
+        // raw monitor scale (GetRawMonitorScale) yields the correct WPF DIP bounds
+        // that match Window.Left / Window.Top.
+        var monitorArea = GetMonitorWorkAreaRect(owner);
         double imgW = clipboardImage.PixelWidth;
         double imgH = clipboardImage.PixelHeight;
         double maxWinW = monitorArea.Width * 0.95;
@@ -457,40 +462,21 @@ internal sealed class ClipboardImageEditorWindow : Window {
         Height = Math.Min(maxWinH, dispH * _zoom + toolbarH);
         MinWidth = MinWindowWidth;
 
-        // Center dialog on owner's actual screen position.
-        // ownerTopLeft (physical pixels from PointToScreen) and toLogical are resolved above.
-        Point waTopLeft = default, waBottomRight = default;
-        if (pSrc != null) {
-            var logicalOrigin = toLogical.Transform(ownerTopLeft);
-            double ownerLogicalW = owner.ActualWidth;
-            double ownerLogicalH = owner.ActualHeight;
-            Left = logicalOrigin.X + (ownerLogicalW - Width) / 2.0;
-            Top = logicalOrigin.Y + (ownerLogicalH - Height) / 2.0;
-
-            // Clamp to monitor work area identified via the physical owner top-left.
-            // Using ownerTopLeft (physical pixels from PointToScreen) for MonitorFromPoint
-            // ensures we pick the correct monitor even when the owner is maximized, because
-            // GetWindowRect on a maximized window returns an inflated rect that can straddle
-            // the boundary between adjacent monitors (e.g. secondary above primary at Y<0).
-            var work = GetMonitorWorkAreaRect(ownerTopLeft, toLogical);
-            waTopLeft = new Point(work.Left, work.Top);
-            waBottomRight = new Point(work.Right, work.Bottom);
-            Left = Math.Max(waTopLeft.X, Math.Min(Left, waBottomRight.X - Width));
-            Top = Math.Max(waTopLeft.Y, Math.Min(Top, waBottomRight.Y - Height));
-        }
-        else {
-            // Fallback: use monitor work area center (pSrc null means window not yet rendered)
-            var work = GetMonitorWorkAreaRect(owner);
-            Left = work.Left + (work.Width - Width) / 2.0;
-            Top = work.Top + (work.Height - Height) / 2.0;
-        }
+        // Center the editor on the owner window's monitor work area.
+        // monitorArea is already in WPF DIP units (GetWindowRect + raw-scale division),
+        // matching Window.Left / Window.Top regardless of per-monitor DPI differences.
+        Left = monitorArea.Left + (monitorArea.Width  - Width)  / 2.0;
+        Top  = monitorArea.Top  + (monitorArea.Height - Height) / 2.0;
+        // Clamp so the window stays fully within the work area.
+        Left = Math.Max(monitorArea.Left, Math.Min(Left, monitorArea.Right  - Width));
+        Top  = Math.Max(monitorArea.Top,  Math.Min(Top,  monitorArea.Bottom - Height));
 
         // Write to SquadDash trace log (visible in the Trace panel) for diagnostics
         SquadDashTrace.Write("UI",
             $"[ClipboardImageEditor] owner.WindowState={owner.WindowState} " +
             $"owner.ActualWidth={owner.ActualWidth:F0} owner.ActualHeight={owner.ActualHeight:F0} " +
             $"ownerTopLeft={ownerTopLeft.X:F0},{ownerTopLeft.Y:F0} " +
-            $"workArea=({waTopLeft.X:F0},{waTopLeft.Y:F0},{waBottomRight.X:F0},{waBottomRight.Y:F0}) " +
+            $"workArea=({monitorArea.Left:F0},{monitorArea.Top:F0},{monitorArea.Right:F0},{monitorArea.Bottom:F0}) " +
             $"dialog Left={Left:F0} Top={Top:F0} Width={Width:F0} Height={Height:F0}");
 
         // ── Canvas ───────────────────────────────────────────────────────────
