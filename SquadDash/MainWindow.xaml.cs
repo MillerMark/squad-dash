@@ -4708,6 +4708,13 @@ public partial class MainWindow : Window, ILiveElementLocator
             : thread.DetailText;
         FinalizeCurrentTurnResponse(thread);
         thread.ResponseStreamed = false;
+
+        // Save any INBOX_MESSAGE_JSON block from this sub-agent turn.
+        var rawResponse = thread.CurrentTurn?.ResponseTextBuilder.ToString();
+        var messageId = TrySaveInboxMessage(rawResponse);
+        if (messageId is not null && thread.CurrentTurn?.ResponseEntries.Count > 0)
+            thread.CurrentTurn.ResponseEntries[^1].InboxMessageId = messageId;
+
         SyncThreadChip(thread);
         UpdateAgentCardFromThread(thread);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_message");
@@ -18277,10 +18284,16 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void RenderResponseEntry(TranscriptResponseEntry entry)
     {
-        var sanitizedText = SanitizeResponseText(entry.RawTextBuilder.ToString());
+        var rawText = entry.RawTextBuilder.ToString();
+        var sanitizedText = SanitizeResponseText(rawText);
+        bool hadInboxBlock = rawText.Contains("INBOX_MESSAGE_JSON:", StringComparison.Ordinal);
+
         var newBlocks = BuildResponseBlocks(entry, sanitizedText, entry.AllowQuickReplies).ToList();
         if (newBlocks.Count == 0)
             newBlocks.Add(CreateTranscriptParagraph(bottomMargin: 18));
+
+        if (hadInboxBlock)
+            newBlocks.Add(BuildInboxIndicatorParagraph(entry.InboxMessageId));
 
         // If the user has a selection inside this specific section, clear it before swapping
         // blocks. When a block is removed, its TextPointers become stale and WPF renders the
@@ -18323,6 +18336,33 @@ public partial class MainWindow : Window, ILiveElementLocator
             entry.Section.Blocks.Add(newBlocks[i]);
         for (int i = shared; i < oldBlocks.Count; i++)
             entry.Section.Blocks.Remove(oldBlocks[i]);
+    }
+
+    private Paragraph BuildInboxIndicatorParagraph(string? messageId)
+    {
+        var para = CreateTranscriptParagraph(bottomMargin: 6);
+        para.Margin = new Thickness(0, 4, 0, 6);
+        para.FontSize = (double)Application.Current.Resources["FontSizeSmall"];
+
+        var icon = new Run("\u2709 ");
+        icon.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        para.Inlines.Add(icon);
+
+        if (!string.IsNullOrEmpty(messageId))
+        {
+            var link = new Hyperlink(new Run("Sent to Inbox"));
+            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            link.Click += (_, _) => OpenOrFocusInboxMessage(messageId);
+            para.Inlines.Add(link);
+        }
+        else
+        {
+            var label = new Run("Sent to Inbox");
+            label.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            para.Inlines.Add(label);
+        }
+
+        return para;
     }
 
     private IEnumerable<Block> BuildResponseBlocks(
@@ -27576,14 +27616,25 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     private void TrySaveInboxMessageFromResponse(string? rawResponse)
     {
-        if (_inboxSavedForCurrentTurn || string.IsNullOrWhiteSpace(rawResponse))
+        if (_inboxSavedForCurrentTurn)
             return;
+        var messageId = TrySaveInboxMessage(rawResponse);
+        if (messageId is not null)
+            _inboxSavedForCurrentTurn = true;
+    }
 
-        if (_inboxStore is null)
-            return;
+    /// <summary>
+    /// Parses and saves any INBOX_MESSAGE_JSON block found in <paramref name="rawResponse"/> to the
+    /// inbox store, then refreshes the panel.
+    /// </summary>
+    /// <returns>The saved message ID, or null if no INBOX_MESSAGE_JSON was found/saved.</returns>
+    private string? TrySaveInboxMessage(string? rawResponse)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse) || _inboxStore is null)
+            return null;
 
         if (!InboxMessageParser.TryExtract(rawResponse, out _, out var dto) || dto is null)
-            return;
+            return null;
 
         var message = new InboxMessage
         {
@@ -27597,10 +27648,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         };
 
         _inboxStore.Save(message);
-        _inboxSavedForCurrentTurn = true;
 
         if (_inboxPanel is not null)
             _inboxPanel.Refresh(_inboxStore.LoadAll());
+
+        return message.Id;
     }
 
     private void DismissMaintenanceBadge()

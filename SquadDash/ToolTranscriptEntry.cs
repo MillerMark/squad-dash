@@ -167,6 +167,7 @@ internal sealed class TranscriptResponseEntry {
     public StringBuilder RawTextBuilder { get; }
     public bool HasPendingRender { get; set; }
     public DateTimeOffset? LastRenderedAt { get; set; }
+    public string? InboxMessageId { get; set; }
 }
 
 internal sealed class ToolTranscriptEntry : ICopyable {
