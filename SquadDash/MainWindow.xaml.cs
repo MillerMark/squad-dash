@@ -27758,13 +27758,16 @@ public partial class MainWindow : Window, ILiveElementLocator
         _maintenanceRunner = new MaintenanceRunner(
             executePromptAsync: (prompt, ct) =>
             {
-                var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
                 Dispatcher.InvokeAsync(async () =>
                 {
                     try
                     {
+                        var anchorIndex = -1;
+                        if (_agentThreadRegistry.ThreadsByKey.TryGetValue("agent:argus-weld", out var argusThread))
+                            anchorIndex = argusThread.PromptParagraphs.Count;
                         await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: false, sessionIdOverride: "argus-weld");
-                        tcs.TrySetResult();
+                        tcs.TrySetResult(anchorIndex);
                     }
                     catch (OperationCanceledException) { tcs.TrySetCanceled(ct); }
                     catch (Exception ex) { tcs.TrySetException(ex); }
@@ -27776,7 +27779,10 @@ public partial class MainWindow : Window, ILiveElementLocator
                 EnsureArgusWeldRegistered(workspacePath);
                 _maintenancePanel?.OnRunnerStarted(title);
             }),
-            onTaskCompleted: id    => Dispatcher.InvokeAsync(() => _maintenancePanel?.OnRunnerCompleted()),
+            onTaskCompleted: (id, title, anchorIndex) => Dispatcher.InvokeAsync(() => {
+                _maintenancePanel?.OnRunnerCompleted();
+                AppendMaintenanceStub(title, anchorIndex);
+            }),
             onCompleted:     report =>
             {
                 Dispatcher.InvokeAsync(async () =>
@@ -27849,7 +27855,86 @@ public partial class MainWindow : Window, ILiveElementLocator
             startedAt:        DateTimeOffset.UtcNow.ToString("O"));
     }
 
-    private void InitIdleDetection(string workspacePath) {
+    /// <summary>
+    /// Appends a lightweight stub paragraph to the Coordinator transcript for a completed
+    /// maintenance task. The stub shows a wrench emoji and a clickable link that navigates
+    /// to the corresponding turn in Argus Weld's thread.
+    /// </summary>
+    private void AppendMaintenanceStub(string taskTitle, int anchorIndex)
+    {
+        var paragraph = CreateTranscriptParagraph();
+
+        var prefix = new Run("🔧 ");
+        prefix.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        paragraph.Inlines.Add(prefix);
+
+        var link = new Hyperlink(new Run(taskTitle))
+        {
+            FontWeight      = FontWeights.Normal,
+            TextDecorations = null,
+            Cursor          = Cursors.Hand,
+        };
+        link.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
+        link.Click += (_, _) => NavigateToArgusWeldTask(anchorIndex);
+        paragraph.Inlines.Add(link);
+
+        CoordinatorThread.Document.Blocks.Add(paragraph);
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    /// <summary>
+    /// Opens Argus Weld's transcript panel (secondary or primary) and scrolls it to the
+    /// prompt paragraph at <paramref name="anchorIndex"/>.
+    /// </summary>
+    private void NavigateToArgusWeldTask(int anchorIndex)
+    {
+        const string argusWeldThreadId = "agent:argus-weld";
+        var thread = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+            string.Equals(t.ThreadId, argusWeldThreadId, StringComparison.OrdinalIgnoreCase));
+        if (thread is null) return;
+
+        var card = FindAgentCardForThread(thread);
+        if (card is null) return;
+
+        OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
+
+        if (anchorIndex >= 0)
+        {
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                () => ScrollThreadToPromptParagraph(thread, anchorIndex));
+        }
+    }
+
+    /// <summary>
+    /// Scrolls <paramref name="thread"/>'s visible transcript to the prompt paragraph at
+    /// <paramref name="promptParagraphIndex"/>, whether the thread is shown in a secondary
+    /// panel or in the main transcript area.
+    /// </summary>
+    private void ScrollThreadToPromptParagraph(TranscriptThreadState thread, int promptParagraphIndex)
+    {
+        if (promptParagraphIndex < 0 || promptParagraphIndex >= thread.PromptParagraphs.Count)
+            return;
+
+        var promptEntry   = thread.PromptParagraphs[promptParagraphIndex];
+        var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => ReferenceEquals(e.Thread, thread));
+        if (secondaryEntry is not null)
+        {
+            var sv = secondaryEntry.TranscriptBox.Template?.FindName("PART_ContentHost", secondaryEntry.TranscriptBox) as ScrollViewer;
+            if (sv is not null)
+            {
+                var tp          = promptEntry.Paragraph.ContentStart;
+                var rect        = tp.GetCharacterRect(LogicalDirection.Forward);
+                double offset   = sv.VerticalOffset + rect.Top;
+                secondaryEntry.ScrollController.ScrollToOffset(offset);
+                return;
+            }
+        }
+
+        if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
+            ScrollToPromptParagraph(promptEntry.Paragraph);
+    }
+
+
         _maintenanceStateStore ??= new MaintenanceStateStore(Path.Combine(workspacePath, ".squad"));
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));

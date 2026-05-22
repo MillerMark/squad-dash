@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -59,17 +59,17 @@ internal sealed class MaintenanceRunnerTests {
         new(id, enabled, frequency, safety, title.Length > 0 ? title : id, instructions);
 
     private MaintenanceRunner MakeRunner(
-        Func<string, CancellationToken, Task>? executePromptAsync = null,
+        Func<string, CancellationToken, Task<int>>? executePromptAsync = null,
         MaintenanceStateStore? stateStore = null,
         Action<string>? onTaskStarted = null,
-        Action<string>? onTaskCompleted = null,
+        Action<string, string, int>? onTaskCompleted = null,
         Action<MaintenanceReport>? onCompleted = null,
         Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null) {
         return new MaintenanceRunner(
-            executePromptAsync: executePromptAsync ?? ((_, _) => Task.CompletedTask),
+            executePromptAsync: executePromptAsync ?? ((_, _) => Task.FromResult(-1)),
             stateStore:         stateStore ?? new MaintenanceStateStore(_stateDir),
             onTaskStarted:      onTaskStarted  ?? (_ => { }),
-            onTaskCompleted:    onTaskCompleted ?? (_ => { }),
+            onTaskCompleted:    onTaskCompleted ?? ((_, _, _) => { }),
             onCompleted:        onCompleted    ?? (_ => { }),
             getCommitShaAsync:  getCommitShaAsync);
     }
@@ -85,7 +85,7 @@ internal sealed class MaintenanceRunnerTests {
         ]);
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { executed.Add(prompt); return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { executed.Add(prompt); return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -165,7 +165,7 @@ internal sealed class MaintenanceRunnerTests {
         ]);
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { executed.Add(prompt); return Task.CompletedTask; },
+            executePromptAsync: (prompt, _) => { executed.Add(prompt); return Task.FromResult(-1); },
             stateStore: stateStore);
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
@@ -253,6 +253,7 @@ internal sealed class MaintenanceRunnerTests {
             executePromptAsync: async (_, ct) => {
                 firstTaskTcs.TrySetResult();
                 await Task.Delay(50, ct);
+                return -1;
             },
             onTaskStarted: id => {
                 startedIds.Add(id);
@@ -293,7 +294,7 @@ internal sealed class MaintenanceRunnerTests {
             MakeTask("complete-me"),
         ]);
 
-        var runner = MakeRunner(onTaskCompleted: id => completedIds.Add(id));
+        var runner = MakeRunner(onTaskCompleted: (id, _, _) => completedIds.Add(id));
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -339,7 +340,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "report-only");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -359,7 +360,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "branch");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -377,7 +378,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "direct");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -395,7 +396,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "report-only");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -415,7 +416,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "report-only");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -433,7 +434,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "branch");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -451,7 +452,7 @@ internal sealed class MaintenanceRunnerTests {
             safety: "branch");
 
         var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.CompletedTask; });
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
@@ -527,7 +528,7 @@ internal sealed class MaintenanceRunnerTests {
         runner = MakeRunner(
             executePromptAsync: (_, _) => {
                 isRunningDuringTask = runner!.IsRunning;
-                return Task.CompletedTask;
+                return Task.FromResult(-1);
             });
 
         Assert.That(runner.IsRunning, Is.False, "IsRunning must be false before StartAsync");

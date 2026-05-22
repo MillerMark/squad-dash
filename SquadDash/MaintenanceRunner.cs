@@ -9,11 +9,11 @@ namespace SquadDash;
 /// <summary>Orchestrates maintenance task execution against the configured task list.</summary>
 internal sealed class MaintenanceRunner {
 
-    private readonly Func<string, CancellationToken, Task> _executePromptAsync;
-    private readonly MaintenanceStateStore                  _stateStore;
-    private readonly Action<string>                         _onTaskStarted;
-    private readonly Action<string>                         _onTaskCompleted;
-    private readonly Action<MaintenanceReport>              _onCompleted;
+    private readonly Func<string, CancellationToken, Task<int>> _executePromptAsync;
+    private readonly MaintenanceStateStore                       _stateStore;
+    private readonly Action<string>                              _onTaskStarted;
+    private readonly Action<string, string, int>                 _onTaskCompleted;
+    private readonly Action<MaintenanceReport>                   _onCompleted;
     private readonly Func<string, CancellationToken, Task<string?>> _getCommitShaAsync;
 
     private volatile bool _isRunning;
@@ -21,11 +21,11 @@ internal sealed class MaintenanceRunner {
     public bool IsRunning => _isRunning;
 
     public MaintenanceRunner(
-        Func<string, CancellationToken, Task> executePromptAsync,
-        MaintenanceStateStore                  stateStore,
-        Action<string>                         onTaskStarted,
-        Action<string>                         onTaskCompleted,
-        Action<MaintenanceReport>              onCompleted,
+        Func<string, CancellationToken, Task<int>> executePromptAsync,
+        MaintenanceStateStore                       stateStore,
+        Action<string>                              onTaskStarted,
+        Action<string, string, int>                 onTaskCompleted,
+        Action<MaintenanceReport>                   onCompleted,
         Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null) {
 
         _executePromptAsync = executePromptAsync;
@@ -91,7 +91,7 @@ internal sealed class MaintenanceRunner {
                 var taskStart = Stopwatch.GetTimestamp();
                 try {
                     var prompt = BuildPrompt(task, config.Safety, startedAt);
-                    await _executePromptAsync(prompt, ct).ConfigureAwait(false);
+                    var anchorIndex = await _executePromptAsync(prompt, ct).ConfigureAwait(false);
 
                     var elapsed = Stopwatch.GetElapsedTime(taskStart);
                     _stateStore.RecordRun(task.Id, commitSha);
@@ -102,7 +102,7 @@ internal sealed class MaintenanceRunner {
                         Outcome:            MaintenanceTaskOutcome.Completed,
                         Duration:           elapsed,
                         SafetyOverrideNote: safetyOverrideNote));
-                    _onTaskCompleted(task.Id);
+                    _onTaskCompleted(task.Id, task.Title, anchorIndex);
                 }
                 catch (OperationCanceledException) {
                     break;
@@ -117,7 +117,7 @@ internal sealed class MaintenanceRunner {
                         Duration:           elapsed,
                         ErrorMessage:       ex.Message,
                         SafetyOverrideNote: safetyOverrideNote));
-                    _onTaskCompleted(task.Id);
+                    _onTaskCompleted(task.Id, task.Title, -1);
                 }
             }
 
@@ -148,8 +148,9 @@ internal sealed class MaintenanceRunner {
         "   Use the `actions` array so the user can make choices later when they review the message.\n" +
         "\n" +
         "3. Each action MUST have a self-contained `prompt` (except routeMode `\"done\"` which is a dismiss).\n" +
-        "   Write the prompt as a complete briefing — include file paths, line numbers, symptoms, and all\n" +
-        "   context you discovered. Assume the reader has NO memory of this session.\n" +
+        "   Write the prompt as a complete briefing — include file paths, class names, method names, symptoms, and all\n" +
+        "   context you discovered. Prefer stable identifiers (class/method names) over line numbers, which go stale.\n" +
+        "   Assume the reader has NO memory of this session.\n" +
         "\n" +
         "4. For report-only tasks: send findings as an inbox message with `\"from\": \"argus-weld\"`.\n" +
         "   Subject = task title. Body = full Markdown report. Actions = any follow-up choices.\n" +

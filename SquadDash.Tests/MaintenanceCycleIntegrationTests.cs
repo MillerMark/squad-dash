@@ -55,9 +55,9 @@ internal sealed class MaintenanceCycleIntegrationTests {
 
         // Stub: captures the prompt text passed to executePromptAsync
         string? capturedPrompt = null;
-        Task ExecutePromptStub(string prompt, CancellationToken ct) {
+        Task<int> ExecutePromptStub(string prompt, CancellationToken ct) {
             capturedPrompt = prompt;
-            return Task.CompletedTask;
+            return Task.FromResult(-1);
         }
 
         // onCompleted mirrors what MainWindow does: write report then surface the banner event
@@ -71,7 +71,7 @@ internal sealed class MaintenanceCycleIntegrationTests {
             executePromptAsync: ExecutePromptStub,
             stateStore:         stateStore,
             onTaskStarted:      _ => { },
-            onTaskCompleted:    _ => { },
+            onTaskCompleted:    (_, _, _) => { },
             onCompleted:        OnCompleted);
 
         // Fake IdleDetectionService: ForceIdle() fires IdleThresholdReached synchronously
