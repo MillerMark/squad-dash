@@ -287,17 +287,6 @@ internal sealed class MaintenancePanelController {
     private void RebuildList() {
         _listPanel.Children.Clear();
 
-        if (_config?.EnabledOnIdle == false) {
-            var banner = new TextBlock {
-                Text         = "Maintenance will not run on idle. Select \"Run on idle\" to activate.",
-                TextWrapping = TextWrapping.Wrap,
-                Margin       = new Thickness(0, 0, 0, 8),
-            };
-            banner.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-            banner.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            _listPanel.Children.Add(banner);
-        }
-
         if (_config is null || _config.Tasks is null || _config.Tasks.Count == 0) {
             var empty = new TextBlock {
                 Text         = "No maintenance tasks configured.",
