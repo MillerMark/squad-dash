@@ -89,6 +89,10 @@ internal sealed class MarkdownDocumentTabState {
         return new MarkdownDocumentTabState(tabTitle, filePath, text);
     }
 
+    /// <summary>Creates a read-only tab state from an in-memory Markdown string (no backing file).</summary>
+    public static MarkdownDocumentTabState FromContent(string tabTitle, string content) =>
+        new MarkdownDocumentTabState(tabTitle, filePath: string.Empty, text: content);
+
     // Detects and strips a Jekyll/just-the-docs YAML frontmatter block (--- ... ---) from
     // the start of the text. The stripped block is returned via frontMatter; the remainder
     // is the return value. If no frontmatter is found, frontMatter is empty and the original

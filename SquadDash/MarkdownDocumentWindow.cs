@@ -525,6 +525,25 @@ internal sealed class MarkdownDocumentWindow : Window {
         window.Show();
     }
 
+    /// <summary>Opens the viewer for an in-memory Markdown string (no backing file).</summary>
+    public static void ShowContent(Window? owner, string title, string content) {
+        var tmp = Path.ChangeExtension(Path.GetTempFileName(), ".md");
+        try { File.WriteAllText(tmp, content, System.Text.Encoding.UTF8); }
+        catch { MessageBox.Show(content, title); return; }
+
+        var window = new MarkdownDocumentWindow(title, [new MarkdownDocumentSpec(title, tmp)]);
+        window._autoSave = false;
+        window._backButton!.Visibility = Visibility.Collapsed;
+        window._saveButton.Visibility  = Visibility.Collapsed;
+        if (owner is not null) window.Owner = owner;
+        _openWindows.Add(window);
+        window.Closed += (_, _) => {
+            _openWindows.Remove(window);
+            try { File.Delete(tmp); } catch { }
+        };
+        window.Show();
+    }
+
     private void TabControl_SelectionChanged(object sender, SelectionChangedEventArgs e) {
         if (_isSwitchingDocument || _tabControl.SelectedItem is not TabItem { Tag: MarkdownDocumentTabState document })
             return;

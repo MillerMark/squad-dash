@@ -478,7 +478,7 @@ internal sealed class InboxPanelController
             case "text":
                 chip.MouseLeftButtonUp += (_, _) =>
                 {
-                    try { MessageBox.Show(att.Content ?? "", att.Label); }
+                    try { MarkdownDocumentWindow.ShowContent(owner, att.Label, att.Content ?? ""); }
                     catch { }
                 };
                 break;
