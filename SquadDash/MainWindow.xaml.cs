@@ -12154,13 +12154,19 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void InboxUnreadOnlyCheckBox_Checked(object sender, RoutedEventArgs e)
     {
-        try { _inboxPanel?.SetUnreadOnly(true); }
+        try {
+            _inboxPanel?.SetUnreadOnly(true);
+            _settingsStore.SaveInboxShowUnreadOnly(true);
+        }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Checked), ex); }
     }
 
     private void InboxUnreadOnlyCheckBox_Unchecked(object sender, RoutedEventArgs e)
     {
-        try { _inboxPanel?.SetUnreadOnly(false); }
+        try {
+            _inboxPanel?.SetUnreadOnly(false);
+            _settingsStore.SaveInboxShowUnreadOnly(false);
+        }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Unchecked), ex); }
     }
 
@@ -27464,6 +27470,12 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             var messages = _inboxStore?.LoadAll() ?? [];
             _inboxPanel.Refresh(messages);
+
+            var savedUnreadOnly = _settingsStore.Load().InboxShowUnreadOnly;
+            if (savedUnreadOnly) {
+                InboxUnreadOnlyCheckBox.IsChecked = true;
+                _inboxPanel.SetUnreadOnly(true);
+            }
         }
     }
 

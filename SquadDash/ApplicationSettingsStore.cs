@@ -530,6 +530,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveInboxShowUnreadOnly(bool value) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { InboxShowUnreadOnly = value };
+        SaveCore(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Persists the RC session token so the same QR code URL stays valid across restarts.
     /// </summary>
@@ -1155,6 +1163,11 @@ internal sealed record ApplicationSettingsSnapshot(
     public bool ApprovalShowRejected { get; init; } = true;
 
     /// <summary>
+    /// Whether the Inbox "Unread Only" filter is active. Machine-wide setting.
+    /// </summary>
+    public bool InboxShowUnreadOnly { get; init; }
+
+    /// <summary>
     /// The RC session token from the last successful RC start.
     /// Passed back on the next <c>rc_start</c> so the phone's saved QR link keeps working.
     /// </summary>
@@ -1483,6 +1496,7 @@ internal sealed record ApplicationSettingsSnapshot(
             RcPersistentPort = RcPersistentPort,
             ApprovalShowApproved = ApprovalShowApproved,
             ApprovalShowRejected = ApprovalShowRejected,
+            InboxShowUnreadOnly = InboxShowUnreadOnly,
             CleanupPrompt = string.IsNullOrWhiteSpace(CleanupPrompt)
                 ? "Clean up and clarify this text."
                 : CleanupPrompt,
