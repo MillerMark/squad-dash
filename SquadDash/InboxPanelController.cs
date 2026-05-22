@@ -118,6 +118,30 @@ internal sealed class InboxPanelController
         ApplyFilter();
     }
 
+    private bool MatchesFilter(InboxMessage msg)
+    {
+        if (string.IsNullOrEmpty(_filterText))
+            return true;
+
+        // Parse a leading @handle token from the filter text.
+        if (_filterText.StartsWith('@'))
+        {
+            var spaceIdx = _filterText.IndexOf(' ', 1);
+            string handle  = spaceIdx > 0 ? _filterText[1..spaceIdx] : _filterText[1..];
+            string remaining = spaceIdx > 0 ? _filterText[(spaceIdx + 1)..].Trim() : string.Empty;
+
+            if (string.IsNullOrEmpty(handle))
+                return PanelFilterHelper.Matches(msg.Subject, remaining);
+
+            bool agentMatch = msg.From.Contains(handle, StringComparison.OrdinalIgnoreCase)
+                           || (msg.Body ?? string.Empty).Contains("@" + handle, StringComparison.OrdinalIgnoreCase);
+
+            return agentMatch && (string.IsNullOrEmpty(remaining) || PanelFilterHelper.Matches(msg.Subject, remaining));
+        }
+
+        return PanelFilterHelper.Matches(msg.Subject, _filterText);
+    }
+
     private void ApplyFilter()
     {
         bool anyVisible = false;
@@ -127,8 +151,7 @@ internal sealed class InboxPanelController
         {
             if (child is Border { Tag: InboxMessage msg })
             {
-                bool visible = PanelFilterHelper.Matches(msg.Subject, _filterText)
-                            && (!_unreadOnly || !msg.Read);
+                bool visible = MatchesFilter(msg) && (!_unreadOnly || !msg.Read);
                 child.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
                 if (visible) anyVisible = true;
             }

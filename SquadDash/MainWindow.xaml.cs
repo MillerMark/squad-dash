@@ -212,6 +212,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private Dictionary<string, string> _agentHandleByDisplayName = new(StringComparer.OrdinalIgnoreCase);
     private string[] _agentDisplayNames = [];
     private string[] _tasksAgentSuggestions = [];
+    private string[] _inboxAgentSuggestions = [];
     private string[] _currentQuickReplyOptions = [];
     private DateTime _quickRepliesShownAt = DateTime.MinValue;
     private const int QuickReplyReadWindowMs = 400;
@@ -298,6 +299,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private Border? _dropIndicator;           // Narrow vertical bar shown between tabs during drag
     private const double DragThreshold = 4.0; // px of movement before drag mode activates
     private bool _restartPending;
+    private bool _userCloseRequested;
     private bool _clipboardEditorOpen; // true while any ClipboardImageEditorWindow is open; defers restart
     private int  _clipboardEditorCount; // number of ClipboardImageEditorWindows currently open
     private bool _pendingShutdown;     // true when a close was requested while ClipboardImageEditorWindow was open
@@ -10235,6 +10237,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         _agentHandleByDisplayName = dict;
         _agentDisplayNames = [.. dict.Keys.OrderBy(k => k)];
+        _inboxAgentSuggestions = _agentDisplayNames;
     }
 
     /// <summary>
@@ -10315,6 +10318,35 @@ public partial class MainWindow : Window, ILiveElementLocator
             if (activated is not null)
             {
                 _intelliSenseOwnerBox = TasksFilterBox;
+                _intelliSenseState = IntelliSenseController.UpdateFromText(activated, text, caret);
+                UpdateIntelliSensePopup();
+            }
+        }
+    }
+
+    private void TryUpdateInboxIntelliSense()
+    {
+        if (_isApplyingIntelliSenseAccept) return;
+
+        var text  = InboxFilterBox.Text;
+        var caret = InboxFilterBox.CaretIndex;
+
+        if (_intelliSenseState is not null && _intelliSenseOwnerBox == InboxFilterBox)
+        {
+            _intelliSenseState = IntelliSenseController.UpdateFromText(_intelliSenseState, text, caret);
+            UpdateIntelliSensePopup();
+            return;
+        }
+
+        if (_intelliSenseState is not null) return;
+
+        var atPos = FindAtTriggerPosition(text, caret);
+        if (atPos >= 0 && _inboxAgentSuggestions.Length > 0)
+        {
+            var activated = IntelliSenseController.TryActivate('@', atPos, _inboxAgentSuggestions);
+            if (activated is not null)
+            {
+                _intelliSenseOwnerBox = InboxFilterBox;
                 _intelliSenseState = IntelliSenseController.UpdateFromText(activated, text, caret);
                 UpdateIntelliSensePopup();
             }
@@ -12136,6 +12168,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             var text = InboxFilterBox?.Text ?? string.Empty;
             _inboxPanel?.SetFilter(text);
+            TryUpdateInboxIntelliSense();
             if (InboxFilterClearButton is not null)
                 InboxFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxFilterText = text.Length > 0 ? text : string.Empty };
@@ -22014,10 +22047,13 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         try
         {
+            _userCloseRequested = true;
+            SquadDashTrace.Write("Shutdown", "Caption close button clicked.");
             SystemCommands.CloseWindow(this);
         }
         catch (Exception ex)
         {
+            _userCloseRequested = false;
             HandleUiCallbackException(nameof(CloseButton_Click), ex);
         }
     }
@@ -22194,6 +22230,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             _mainWindowClosingInProgress = true;
+            var userCloseRequested = _userCloseRequested;
+            _userCloseRequested = false;
 
             // If the restart-request watcher has not fired yet, adopt the persisted request
             // here so an automated launcher close cannot fall through to the manual-close dialog.
@@ -22202,7 +22240,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             // If a deferred shutdown was already scheduled and has now fired, honour it — skip dialog.
             // Also skip dialog for rebuild-triggered restarts: the launcher wants to reload the new
             // binary immediately; queue items will resume in the reloaded instance.
-            bool isDeferredClose = _deferredShutdown != DeferredShutdownMode.None || _restartPending;
+            bool isDeferredClose = _deferredShutdown != DeferredShutdownMode.None ||
+                                   (_restartPending && !userCloseRequested);
 
             if (_pttState == PttState.Active || _pttDraining)
             {
@@ -22241,7 +22280,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 return;
             }
 
-            if (_restartPending && DeferPendingRestartIfBlocked("window-closing"))
+            if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
                 e.Cancel = true;
                 EmergencySaveAfterDrainingBridgeEvents("restart-close-deferred");
@@ -27906,6 +27945,40 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalFilterClearButton_Click), ex); }
+    }
+
+    private void InboxFilterBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        try
+        {
+            if (_intelliSenseState is null || _intelliSenseOwnerBox != InboxFilterBox) return;
+            switch (e.Key)
+            {
+                case Key.Up:
+                    _intelliSenseState = IntelliSenseController.MoveSelection(_intelliSenseState, -1);
+                    UpdateIntelliSensePopup();
+                    e.Handled = true;
+                    break;
+                case Key.Down:
+                    _intelliSenseState = IntelliSenseController.MoveSelection(_intelliSenseState, +1);
+                    UpdateIntelliSensePopup();
+                    e.Handled = true;
+                    break;
+                case Key.Return:
+                case Key.Tab:
+                    ApplyIntelliSenseAccept(andSubmit: false);
+                    e.Handled = true;
+                    break;
+                case Key.Escape:
+                    _intelliSenseState = null;
+                    _intelliSenseOwnerBox = null;
+                    UpdateIntelliSensePopup();
+                    _inboxPanel?.SetFilter(InboxFilterBox.Text.Trim());
+                    e.Handled = true;
+                    break;
+            }
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(InboxFilterBox_PreviewKeyDown), ex); }
     }
 
     private void TasksFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)

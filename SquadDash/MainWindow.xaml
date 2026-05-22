@@ -1667,6 +1667,7 @@
                                              BorderBrush="{DynamicResource InputBorder}"
                                              BorderThickness="1"
                                              Style="{StaticResource PanelFilterBoxStyle}"
+                                             PreviewKeyDown="InboxFilterBox_PreviewKeyDown"
                                              TextChanged="InboxFilterBox_TextChanged" />
                                     <Button x:Name="InboxFilterClearButton"
                                             Content="×"
