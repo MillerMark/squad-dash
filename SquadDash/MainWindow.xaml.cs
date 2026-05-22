@@ -254,6 +254,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private InboxStore?                 _inboxStore;
     private InboxPanelController?       _inboxPanel;
     private bool                        _inboxPanelVisible = false;
+    private bool                        _inboxSavedForCurrentTurn;
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
     private bool _movingFloatingWindow;
@@ -1100,6 +1101,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     // Clear stale completion timestamp AND remove the "Completed N ago" footer
                     // paragraph so it doesn't linger while the new turn is streaming.
                     MaybeReactivateThread(CoordinatorThread);
+                    _inboxSavedForCurrentTurn = false;
                 }
                 else
                 {
@@ -4307,28 +4309,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
 
                     // Process INBOX_MESSAGE_JSON blocks from this turn's response.
-                    if (_inboxStore is not null && rawResponse is not null)
-                    {
-                        var rawForInbox = ToolTranscriptFormatter.StripSystemNotifications(rawResponse);
-                        if (InboxMessageParser.TryExtract(rawForInbox, out _, out var inboxDto) && inboxDto is not null)
-                        {
-                            var inboxTimestamp = DateTimeOffset.UtcNow;
-                            var inboxId        = BuildInboxMessageId(inboxTimestamp, inboxDto.Subject);
-                            var inboxMessage   = new InboxMessage
-                            {
-                                Id          = inboxId,
-                                Subject     = inboxDto.Subject,
-                                From        = inboxDto.From,
-                                Timestamp   = inboxTimestamp,
-                                Read        = false,
-                                Body        = inboxDto.Body,
-                                Attachments = inboxDto.Attachments,
-                                Actions     = inboxDto.Actions,
-                            };
-                            _inboxStore.Save(inboxMessage);
-                            _inboxPanel?.Refresh(_inboxStore.LoadAll());
-                        }
-                    }
+                    TrySaveInboxMessageFromResponse(rawResponse);
                 }
                 if (_pendingRcRestartAfterReset)
                 {
@@ -23741,6 +23722,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         DrainPendingBridgeEventsForShutdown(reason);
+
+        // Safety net: if the turn ended without a "done" bridge event (e.g. the app is closing
+        // while a response is still streaming), attempt to flush any complete INBOX_MESSAGE_JSON
+        // block that has accumulated in the current turn's response text.
+        if (!_inboxSavedForCurrentTurn)
+            TrySaveInboxMessageFromResponse(CoordinatorThread.CurrentTurn?.ResponseTextBuilder.ToString());
+
         _conversationManager.EmergencySave(reason);
     }
 
@@ -27488,6 +27476,40 @@ public partial class MainWindow : Window, ILiveElementLocator
             prompt = $"[Deferred inbox action — route to @{action.TargetAgent}]\n\n{prompt}";
 
         EnqueuePrompt(prompt, isSystemInjected: true);
+    }
+
+    /// <summary>
+    /// Saves any INBOX_MESSAGE_JSON block found in <paramref name="rawResponse"/> to the inbox store
+    /// and refreshes the panel. No-ops if already saved for this turn, if no block is found, or if
+    /// the inbox store is unavailable.
+    /// </summary>
+    private void TrySaveInboxMessageFromResponse(string? rawResponse)
+    {
+        if (_inboxSavedForCurrentTurn || string.IsNullOrWhiteSpace(rawResponse))
+            return;
+
+        if (_inboxStore is null)
+            return;
+
+        if (!InboxMessageParser.TryExtract(rawResponse, out _, out var dto) || dto is null)
+            return;
+
+        var message = new InboxMessage
+        {
+            Id          = Guid.NewGuid().ToString("N"),
+            Subject     = dto.Subject,
+            From        = dto.From,
+            Body        = dto.Body,
+            Timestamp   = DateTimeOffset.Now,
+            Attachments = dto.Attachments,
+            Actions     = dto.Actions,
+        };
+
+        _inboxStore.Save(message);
+        _inboxSavedForCurrentTurn = true;
+
+        if (_inboxPanel is not null)
+            _inboxPanel.Refresh(_inboxStore.LoadAll());
     }
 
     private void DismissMaintenanceBadge()
