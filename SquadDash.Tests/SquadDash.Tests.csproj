@@ -190,7 +190,8 @@
     <Compile Include="..\SquadDash\AgentReportStore.cs" Link="Source\AgentReportStore.cs" />
     <Compile Include="..\SquadDash\TintKeys.cs" Link="Source\TintKeys.cs" />
     <Compile Include="..\SquadDash\AttachmentBlockFormatter.cs" Link="Source\AttachmentBlockFormatter.cs" />
-    <Compile Include="..\SquadDash\TranscriptTextUtilities.cs" Link="Source\TranscriptTextUtilities.cs" />
+    <Compile Include="..\SquadDash\InboxMessageWindow.cs" Link="Source\InboxMessageWindow.cs" />
+    <Compile Include="..\SquadDash\InboxMessage.cs" Link="Source\InboxMessage.cs" />
     <Compile Include="..\SquadDash\DocumentUtilities.cs" Link="Source\DocumentUtilities.cs" />
     <Compile Include="..\SquadDash\SmoothDictationHelper.cs" Link="Source\SmoothDictationHelper.cs" />
     <Compile Include="..\SquadDash\NotesSortOrder.cs" Link="Source\NotesSortOrder.cs" />

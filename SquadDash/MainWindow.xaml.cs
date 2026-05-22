@@ -4325,7 +4325,6 @@ public partial class MainWindow : Window, ILiveElementLocator
                                 Actions     = inboxDto.Actions,
                             };
                             _inboxStore.Save(inboxMessage);
-                            AppendLine($"📬 **Inbox:** {inboxDto.Subject}");
                         }
                     }
                 }
@@ -27265,7 +27264,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                 archive:                id => _inboxStore?.Archive(id),
                 delete:                 id => _inboxStore?.Delete(id),
                 viewerActionsPanel:     InboxViewerActionsPanel!,
-                onActionClicked:        DispatchInboxAction);
+                onActionClicked:        DispatchInboxAction,
+                openMessageWindow:      msg =>
+                {
+                    var win = new InboxMessageWindow(msg, DispatchInboxAction);
+                    win.Show();
+                });
 
             var messages = _inboxStore?.LoadAll() ?? [];
             _inboxPanel.Refresh(messages);

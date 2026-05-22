@@ -26,6 +26,7 @@ internal sealed class InboxPanelController
     private readonly Action<string>            _archive;
     private readonly Action<string>            _delete;
     private readonly Action<InboxAction, InboxMessage> _onActionClicked;
+    private readonly Action<InboxMessage>      _openMessageWindow;
 
     private List<InboxMessage> _messages      = [];
     private string             _filterText    = string.Empty;
@@ -46,7 +47,8 @@ internal sealed class InboxPanelController
         Action<string>           archive,
         Action<string>           delete,
         WrapPanel                viewerActionsPanel,
-        Action<InboxAction, InboxMessage> onActionClicked)
+        Action<InboxAction, InboxMessage> onActionClicked,
+        Action<InboxMessage>     openMessageWindow)
     {
         _listPanel              = listPanel;
         _listScrollContainer    = listScrollContainer;
@@ -60,6 +62,7 @@ internal sealed class InboxPanelController
         _delete                 = delete;
         _viewerActionsPanel     = viewerActionsPanel;
         _onActionClicked        = onActionClicked;
+        _openMessageWindow      = openMessageWindow;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -246,7 +249,7 @@ internal sealed class InboxPanelController
         if (!msg.Read)
             MarkRowRead(msg, row, dot, subjectLabel);
 
-        ShowViewer(msg);
+        _openMessageWindow(msg);
     }
 
     private void MarkRowRead(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
