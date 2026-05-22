@@ -106,8 +106,12 @@ internal sealed class MarkdownDocumentTabState {
         if (string.IsNullOrEmpty(rawText)) return rawText;
         var m = s_frontMatterRegex.Match(rawText);
         if (!m.Success) return rawText;
+        var remainder = rawText[m.Length..];
+        // If the entire file is within the front-matter delimiters (e.g. a pure YAML config
+        // file like maintenance.md), treat it as plain text rather than stripping everything.
+        if (string.IsNullOrWhiteSpace(remainder)) return rawText;
         frontMatter = m.Value;
-        return rawText[m.Length..];
+        return remainder;
     }
 }
 
