@@ -753,9 +753,23 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             e.Handled = true;
         };
 
+        var titleText = new TextBlock {
+            Text = "Edit Image",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        titleText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+
+        var titleStrip = new Border {
+            Height = 36,
+            Child = titleText
+        };
+
         var toolbar = BuildToolbar();
         var root = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(titleStrip, Dock.Top);
         DockPanel.SetDock(toolbar, Dock.Bottom);
+        root.Children.Add(titleStrip);
         root.Children.Add(toolbar);
         root.Children.Add(_scrollViewer);
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_scrollViewer, true);
