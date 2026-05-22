@@ -445,11 +445,13 @@ internal sealed class MaintenancePanelController {
             Visibility = task.Enabled ? Visibility.Visible : Visibility.Collapsed };
         var taskIdForFreq   = task.Id;
         var frequencyPicker = new CompactPickerButton(
-            headerText:     "Run Frequency",
+            headerText:     "Run Frequency:",
             options: [
-                ("Always",     "always"),
-                ("Daily",      "daily"),
-                ("Per Commit", "per-commit"),
+                ("Always",         "always"),
+                ("Daily",          "daily"),
+                ("Weekly",         "weekly"),
+                ("Monthly",        "monthly"),
+                ("After Commits",  "after-commits"),
             ],
             selectedValue:  task.Frequency,
             onValueChanged: newFreq => ChangeTaskFrequency(taskIdForFreq, newFreq));
@@ -522,10 +524,13 @@ internal sealed class MaintenancePanelController {
     }
 
     private static string FrequencyTooltip(string frequency) => frequency.ToLowerInvariant() switch {
-        "daily"      => "Runs at most once per calendar day.",
-        "per-commit" => "Runs once per commit since the last time it ran.",
-        "always"     => "Runs every idle cycle with no cooldown.",
-        _            => $"Frequency: {frequency}",
+        "daily"          => "Runs at most once per calendar day.",
+        "weekly"         => "Runs at most once per calendar week (Monday–Sunday UTC).",
+        "monthly"        => "Runs at most once per calendar month.",
+        "after-commits"  => "Runs once per new commit since the last run.",
+        "per-commit"     => "Runs once per new commit since the last run.",
+        "always"         => "Runs every idle cycle with no cooldown.",
+        _                => $"Frequency: {frequency}",
     };
 
     private static string SafetyTooltip(string safety) => safety.ToLowerInvariant() switch {
