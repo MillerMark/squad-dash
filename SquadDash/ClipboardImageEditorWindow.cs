@@ -1844,8 +1844,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             var dist2 = Math.Sqrt(dx * dx + dy * dy);
             if (dist2 > 4) {
                 var ux2 = dx / dist2; var uy2 = dy / dist2;
-                const double HeadLen = 16.0;
-                const double HeadHalf = 6.0;
+                // Cap arrowhead to half the drag distance so it never swallows the shaft.
+                double HeadLen = Math.Min(16.0, dist2 * 0.5);
+                double HeadHalf = 6.0 * HeadLen / 16.0;
                 var baseX = headPt.X - ux2 * HeadLen;
                 var baseY = headPt.Y - uy2 * HeadLen;
                 var px = -uy2; var py = ux2;
@@ -3403,8 +3404,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var tailX = center.X + ux * (arrow.ArrowLength + arrow.TailLength);
         var tailY = center.Y + uy * (arrow.ArrowLength + arrow.TailLength);
 
-        const double HeadLen = 16.0;
-        const double HeadHalf = 6.0;
+        // Cap arrowhead to half the distance between the two control-point handles so it
+        // never swallows the shaft when the arrow is dragged very small.
+        double HeadLen = Math.Min(16.0, arrow.TailLength * 0.5);
+        double HeadHalf = 6.0 * HeadLen / 16.0;
         var baseX = ahX + ux * HeadLen;
         var baseY = ahY + uy * HeadLen;
 
