@@ -27710,9 +27710,14 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (string.IsNullOrWhiteSpace(rawResponse) || _inboxStore is null)
             return null;
 
-        // Strip <system_notification> tags first — the parser regex requires the JSON block at the
-        // very end (\s*$), so trailing system_notification tags (appended by sub-agents) break it.
+        // The inbox parser regex requires the INBOX_MESSAGE_JSON block to be at the very end of the
+        // text (\s*$). Strip all known structured tail blocks that the model may append after it:
+        // <system_notification> tags, QUICK_REPLIES_JSON, and HOST_COMMAND_JSON.
         var responseForParsing = ToolTranscriptFormatter.StripSystemNotifications(rawResponse);
+        if (QuickReplyOptionParser.TryExtract(responseForParsing, out var withoutQuickReplies, out _))
+            responseForParsing = withoutQuickReplies;
+        if (HostCommandParser.TryExtract(responseForParsing, out var withoutHostCommands, out _))
+            responseForParsing = withoutHostCommands;
 
         if (!InboxMessageParser.TryExtract(responseForParsing, out _, out var dto) || dto is null)
             return null;
