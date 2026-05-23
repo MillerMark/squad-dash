@@ -14,3 +14,5 @@ SquadDash includes several inline panels that surface agent activity alongside t
 | [Tasks Panel](Tasks.md) | Track open tasks surfaced by agents |
 | [Approvals Panel](Approvals.md) | Review and approve pending agent commits |
 | [Notes Panel](Notes.md) | Capture and browse lightweight scratchpad notes |
+| [Maintenance Panel](Maintenance.md) | View and run autonomous housekeeping tasks |
+| [Inbox Panel](Inbox.md) | Read messages sent by agents during maintenance and automated runs |

@@ -40,6 +40,8 @@
   * [Loop](panels/Loop.md)
   * [Approvals](panels/Approvals.md)
   * [Notes](panels/Notes.md)
+  * [Maintenance](panels/Maintenance.md)
+  * [Inbox](panels/Inbox.md)
 
 ## Options
 
