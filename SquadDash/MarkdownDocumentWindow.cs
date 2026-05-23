@@ -1889,9 +1889,14 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     }
 
     private void WebBrowser_Navigating(object sender, System.Windows.Navigation.NavigatingCancelEventArgs e) {
-        if (e.Uri == null || e.Uri.Scheme is "about" or "res")
+        if (e.Uri == null || e.Uri.Scheme is "about" or "res") {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[Navigating] allowed — Uri={(e.Uri?.ToString() ?? "null")} scheme={e.Uri?.Scheme ?? "null"}");
             return;
+        }
 
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[Navigating] CANCELLED — Uri={e.Uri} scheme={e.Uri.Scheme}");
         e.Cancel = true;
     }
 
@@ -1953,8 +1958,19 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     }
 
     private void WebBrowser_LoadCompleted(object sender, System.Windows.Navigation.NavigationEventArgs e) {
-        if (sender is not WebBrowser browser || browser.Tag is not MarkdownDocumentTabState doc)
+        if (sender is not WebBrowser browser || browser.Tag is not MarkdownDocumentTabState doc) {
+            SquadDashTrace.Write(TraceCategory.UI, "[LoadCompleted] fired but Tag mismatch — ignored");
             return;
+        }
+        try {
+            var bodyLen = browser.InvokeScript("eval", new object[] { "document.body ? document.body.innerHTML.length : -1" });
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[LoadCompleted] file='{doc.FileName}' Uri={e.Uri} body.innerHTML.length={bodyLen}");
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[LoadCompleted] file='{doc.FileName}' Uri={e.Uri} — InvokeScript failed: {ex.Message}");
+        }
         if (doc.PendingScrollFraction is double fraction && fraction >= 0.001) {
             doc.PendingScrollFraction = null;
             RestoreWebBrowserScroll(browser, fraction);
