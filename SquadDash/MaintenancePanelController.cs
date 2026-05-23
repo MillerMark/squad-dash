@@ -467,7 +467,8 @@ internal sealed class MaintenancePanelController {
 
         // Double-click the row to expand or collapse the options panel.
         if (optionsPanel is not null) {
-            row.MouseLeftButtonDown += (_, e) => {
+            // Use Preview (tunnel) event so child controls (CheckBox, RadioButton) don't swallow it first.
+            row.PreviewMouseLeftButtonDown += (_, e) => {
                 if (e.ClickCount != 2) return;
                 optionsPanel.Visibility = optionsPanel.Visibility == Visibility.Visible
                     ? Visibility.Collapsed
