@@ -262,8 +262,10 @@ internal sealed class InboxPanelController
                 placement:   System.Windows.Controls.Primitives.PlacementMode.Left,
                 maxWidth:    560);
 
-        row.MouseLeftButtonUp += (_, _) => SelectMessage(msg, row, dot, subjectLabel);
-        row.ContextMenu        = BuildRowContextMenu(msg, row, dot, subjectLabel);
+        row.MouseLeftButtonUp  += (_, _) => SelectMessage(msg, row, dot, subjectLabel);
+        row.ContextMenu         = BuildRowContextMenu(msg, row, dot, subjectLabel);
+        // Rebuild the context menu each time it opens so the read/unread item reflects current state.
+        row.ContextMenuOpening += (_, _) => row.ContextMenu = BuildRowContextMenu(msg, row, dot, subjectLabel);
 
         return row;
     }
