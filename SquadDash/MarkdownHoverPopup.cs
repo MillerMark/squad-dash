@@ -88,15 +88,22 @@ internal static class MarkdownHoverPopup {
             if (!string.IsNullOrWhiteSpace(markdown)) {
                 var doc = MarkdownFlowDocumentBuilder.Build(markdown);
                 doc.TextAlignment = TextAlignment.Left;
-                var viewer = new FlowDocumentScrollViewer {
-                    Document                    = doc,
-                    MaxWidth                    = maxWidth - 20,
-                    MaxHeight                   = EffectiveMaxHeight(),
-                    Margin                      = header is null ? new Thickness(0) : new Thickness(0, 6, 0, 0),
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                // Use RichTextBox instead of FlowDocumentScrollViewer: simpler template,
+                // no built-in toolbar overlay, and Background works reliably inside a Popup
+                // (SetResourceReference can fail to resolve in a Popup's disconnected visual tree).
+                var bg = Application.Current.Resources["PopupSurface"] as Brush
+                      ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
+                var viewer = new RichTextBox(doc) {
+                    IsReadOnly                    = true,
+                    IsDocumentEnabled             = true,
+                    Background                    = bg,
+                    BorderThickness               = new Thickness(0),
+                    MaxWidth                      = maxWidth - 20,
+                    MaxHeight                     = EffectiveMaxHeight(),
+                    Margin                        = header is null ? new Thickness(0) : new Thickness(0, 6, 0, 0),
+                    VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 };
-                // Use the popup's own surface color so text in LabelText is always readable.
-                viewer.SetResourceReference(Control.BackgroundProperty, "PopupSurface");
                 contentStack.Children.Add(viewer);
             } else if (header is null) {
                 var noContent = new TextBlock { Text = "No content", FontStyle = FontStyles.Italic, Opacity = 0.6 };
