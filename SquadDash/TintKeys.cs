@@ -47,6 +47,7 @@ internal static class TintKeys
         "SidebarPanelBorder",
         "WorkspaceSurface",
         "CardSurface",               // dark only
+        "InboxBodySurface",
         "HoverSurface",              // light only
         "TranscriptLinkHoverSurface", // light only
         "ApprovalSelectedSurface",   // light only — has alpha channel; engine must preserve alpha byte
