@@ -64,14 +64,16 @@ internal sealed class MaintenanceRunnerTests {
         Action<string>? onTaskStarted = null,
         Action<string, string, int, DateTimeOffset, TimeSpan>? onTaskCompleted = null,
         Action<MaintenanceReport>? onCompleted = null,
-        Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null) {
+        Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null,
+        Func<DateTimeOffset, bool>? wasInboxSavedSince = null) {
         return new MaintenanceRunner(
             executePromptAsync: executePromptAsync ?? ((_, _) => Task.FromResult(-1)),
             stateStore:         stateStore ?? new MaintenanceStateStore(_stateDir),
             onTaskStarted:      onTaskStarted  ?? (_ => { }),
             onTaskCompleted:    onTaskCompleted ?? ((_, _, _, _, _) => { }),
             onCompleted:        onCompleted    ?? (_ => { }),
-            getCommitShaAsync:  getCommitShaAsync);
+            getCommitShaAsync:  getCommitShaAsync,
+            wasInboxSavedSince: wasInboxSavedSince);
     }
 
     // ── Skips disabled tasks ──────────────────────────────────────────────────
@@ -651,5 +653,172 @@ internal sealed class MaintenanceRunnerTests {
         Assert.That(result, Does.Not.Contain("Fix inline."));
         Assert.That(result, Does.Contain("Create a maintenance branch."));
         Assert.That(result, Does.Not.Contain("Send report to Inbox."));
+    }
+
+    // ── Fix 1: stronger report-only prompt ───────────────────────────────────
+
+    [Test]
+    public async Task StartAsync_ReportOnlyTask_PromptStartsWithInboxPreamble() {
+        var capturedPrompt = string.Empty;
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(capturedPrompt, Does.StartWith("⚠️ INBOX REQUIREMENT"),
+            "The INBOX requirement block must appear at the very top of the prompt");
+    }
+
+    [Test]
+    public async Task StartAsync_ReportOnlyTask_PromptEndsWithMandatoryChecklist() {
+        var capturedPrompt = string.Empty;
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(capturedPrompt, Does.Contain("FINAL CHECKLIST").IgnoreCase,
+            "A mandatory checklist must be appended at the end of report-only prompts");
+        Assert.That(capturedPrompt, Does.EndWith("DO NOT END WITH ANYTHING ELSE."),
+            "The very last text must be the mandatory closing reminder");
+    }
+
+    [Test]
+    public async Task StartAsync_ReportOnlyTask_PromptContainsInboxTemplateExample() {
+        var capturedPrompt = string.Empty;
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(capturedPrompt, Does.Contain("\"from\": \"argus-weld\""),
+            "The prompt must include a filled-in template skeleton so the model sees the expected shape");
+        Assert.That(capturedPrompt, Does.Contain("INBOX_MESSAGE_JSON:"),
+            "The prompt must show the exact INBOX_MESSAGE_JSON keyword in the template");
+    }
+
+    [Test]
+    public async Task StartAsync_BranchTask_PromptDoesNotContainInboxPreambleOrChecklist() {
+        var capturedPrompt = string.Empty;
+        var config = MakeConfig(
+            tasks: [MakeTask("refactor", safety: "branch", instructions: "Refactor module.")],
+            safety: "branch");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(capturedPrompt, Does.Not.Contain("INBOX REQUIREMENT"),
+            "Non-report-only tasks must not include the INBOX preamble");
+        Assert.That(capturedPrompt, Does.Not.Contain("FINAL CHECKLIST").IgnoreCase,
+            "Non-report-only tasks must not include the mandatory checklist");
+    }
+
+    // ── Fix 2: post-completion inbox fallback ─────────────────────────────────
+
+    [Test]
+    public async Task StartAsync_ReportOnlyTask_SendsRecoveryPrompt_WhenInboxNotSaved() {
+        var prompts = new List<string>();
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { prompts.Add(prompt); return Task.FromResult(-1); },
+            wasInboxSavedSince: _ => false);   // simulate: no inbox message was saved
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(prompts, Has.Count.EqualTo(2),
+            "Runner must send a recovery prompt when no inbox message was saved after a report-only task");
+        Assert.That(prompts[1], Does.Contain("INBOX_MESSAGE_JSON").IgnoreCase,
+            "The recovery prompt must ask the model to emit an INBOX_MESSAGE_JSON block");
+        Assert.That(prompts[1], Does.Contain("no").IgnoreCase.Or.Contain("not").IgnoreCase,
+            "The recovery prompt must explain why recovery is needed");
+    }
+
+    [Test]
+    public async Task StartAsync_ReportOnlyTask_NoRecoveryPrompt_WhenInboxWasSaved() {
+        var prompts = new List<string>();
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { prompts.Add(prompt); return Task.FromResult(-1); },
+            wasInboxSavedSince: _ => true);    // simulate: inbox message was saved successfully
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(prompts, Has.Count.EqualTo(1),
+            "Runner must NOT send a recovery prompt when the inbox message was already saved");
+    }
+
+    [Test]
+    public async Task StartAsync_ReportOnlyTask_NoRecoveryPrompt_WhenCallbackNotProvided() {
+        var prompts = new List<string>();
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { prompts.Add(prompt); return Task.FromResult(-1); },
+            wasInboxSavedSince: null);
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(prompts, Has.Count.EqualTo(1),
+            "Runner must not attempt recovery when wasInboxSavedSince was not provided");
+    }
+
+    [Test]
+    public async Task StartAsync_BranchTask_NoRecoveryPrompt_EvenWhenCallbackReturnsFalse() {
+        var prompts = new List<string>();
+        var config = MakeConfig(
+            tasks: [MakeTask("refactor", safety: "branch", instructions: "Refactor module.")],
+            safety: "branch");
+
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { prompts.Add(prompt); return Task.FromResult(-1); },
+            wasInboxSavedSince: _ => false);   // callback returns false but task is not report-only
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(prompts, Has.Count.EqualTo(1),
+            "Recovery prompt must only fire for report-only tasks");
+    }
+
+    [Test]
+    public async Task StartAsync_RecoveryPrompt_PassesCorrectTaskStartTimestampToCallback() {
+        DateTimeOffset? callbackTimestamp = null;
+        var beforeStart = DateTimeOffset.UtcNow;
+
+        var config = MakeConfig(
+            tasks: [MakeTask("scan", safety: "report-only", instructions: "Scan for issues.")],
+            safety: "report-only");
+
+        var runner = MakeRunner(
+            executePromptAsync: (_, _) => Task.FromResult(-1),
+            wasInboxSavedSince: ts => { callbackTimestamp = ts; return true; });
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        Assert.That(callbackTimestamp, Is.Not.Null,
+            "wasInboxSavedSince must be called with the task start timestamp");
+        Assert.That(callbackTimestamp!.Value, Is.GreaterThanOrEqualTo(beforeStart),
+            "Timestamp passed to wasInboxSavedSince must be at or after the task started");
     }
 }

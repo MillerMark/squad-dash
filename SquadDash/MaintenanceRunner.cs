@@ -15,6 +15,7 @@ internal sealed class MaintenanceRunner {
     private readonly Action<string, string, int, DateTimeOffset, TimeSpan> _onTaskCompleted;
     private readonly Action<MaintenanceReport>                   _onCompleted;
     private readonly Func<string, CancellationToken, Task<string?>> _getCommitShaAsync;
+    private readonly Func<DateTimeOffset, bool>?                 _wasInboxSavedSince;
 
     private volatile bool _isRunning;
 
@@ -26,7 +27,8 @@ internal sealed class MaintenanceRunner {
         Action<string>                              onTaskStarted,
         Action<string, string, int, DateTimeOffset, TimeSpan> onTaskCompleted,
         Action<MaintenanceReport>                   onCompleted,
-        Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null) {
+        Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null,
+        Func<DateTimeOffset, bool>?                     wasInboxSavedSince = null) {
 
         _executePromptAsync = executePromptAsync;
         _stateStore         = stateStore;
@@ -34,6 +36,7 @@ internal sealed class MaintenanceRunner {
         _onTaskCompleted    = onTaskCompleted;
         _onCompleted        = onCompleted;
         _getCommitShaAsync  = getCommitShaAsync ?? TryGetCommitShaAsync;
+        _wasInboxSavedSince = wasInboxSavedSince;
     }
 
     /// <summary>
@@ -94,6 +97,17 @@ internal sealed class MaintenanceRunner {
                     var prompt = BuildPrompt(task, config.Safety, startedAt);
                     var anchorIndex = await _executePromptAsync(prompt, ct).ConfigureAwait(false);
 
+                    // Fix 2: post-completion fallback — if this was a report-only task and no inbox
+                    // message was saved during the turn, send a short recovery prompt to recover it.
+                    if (string.Equals(effectiveSafety, "report-only", StringComparison.OrdinalIgnoreCase)
+                        && _wasInboxSavedSince is not null
+                        && !_wasInboxSavedSince(taskStartedAt)) {
+
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"MaintenanceRunner: report-only task '{task.Id}' produced no inbox message — sending recovery prompt.");
+                        await _executePromptAsync(BuildInboxRecoveryPrompt(task.Title), ct).ConfigureAwait(false);
+                    }
+
                     var elapsed = Stopwatch.GetElapsedTime(taskStart);
                     _stateStore.RecordRun(task.Id, commitSha);
                     ranIds.Add(task.Id);
@@ -139,6 +153,39 @@ internal sealed class MaintenanceRunner {
 
     // ── Constants ──────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Prepended to report-only prompts so the INBOX_MESSAGE_JSON requirement is the first thing
+    /// the model reads, before any task instructions that might bury it.
+    /// </summary>
+    private const string ReportOnlyInboxPreamble =
+        "⚠️ INBOX REQUIREMENT — READ THIS FIRST ⚠️\n" +
+        "Your response MUST end with an INBOX_MESSAGE_JSON block. This is mandatory.\n" +
+        "Rules:\n" +
+        "- The block must be the LAST thing in your response — nothing after it.\n" +
+        "- Place INBOX_MESSAGE_JSON on a bare top-level line (do NOT wrap it in a code fence).\n" +
+        "- Set \"from\" to \"argus-weld\".\n\n" +
+        "Required format (fill in the fields):\n" +
+        "INBOX_MESSAGE_JSON:\n" +
+        "{\n" +
+        "  \"subject\": \"Maintenance Report: <Task Title> — YYYY-MM-DD\",\n" +
+        "  \"from\": \"argus-weld\",\n" +
+        "  \"body\": \"## <Task Title>\\n\\n<Your full findings in Markdown>\",\n" +
+        "  \"attachments\": []\n" +
+        "}\n\n";
+
+    /// <summary>
+    /// Appended to report-only prompts as a final reminder checklist so the model cannot
+    /// miss the INBOX_MESSAGE_JSON requirement even after reading long task instructions.
+    /// </summary>
+    private const string ReportOnlyMandatoryChecklist =
+        "\n\n" +
+        "⚠️ FINAL CHECKLIST — verify before sending:\n" +
+        "[ ] My response ends with an INBOX_MESSAGE_JSON block.\n" +
+        "[ ] The block is on a bare top-level line (NOT inside a code fence).\n" +
+        "[ ] \"from\" is set to \"argus-weld\".\n" +
+        "[ ] INBOX_MESSAGE_JSON is the LAST thing in my response — no text after it.\n" +
+        "YOUR FINAL MESSAGE MUST END WITH INBOX_MESSAGE_JSON. DO NOT END WITH ANYTHING ELSE.";
+
     private const string MaintenanceInboxReminder =
         "<maintenance_inbox_reminder>\n" +
         "You are running in maintenance mode — the user is not present. Follow these rules:\n" +
@@ -173,17 +220,41 @@ internal sealed class MaintenanceRunner {
         var effectiveSafety = ApplySafetyFloor(globalSafety, task.Safety);
         var branchName      = $"maintenance/{runDate:yyyyMMdd}-{task.Id}";
 
-        var safetyPrefix = effectiveSafety switch {
-            "report-only" => "Do not modify any source files. Generate a report only.\n\n",
-            "branch"      => $"Create branch `{branchName}` before making any code changes. Commit to that branch only.\n\n",
-            "direct"      => "You may commit directly to the current branch.\n\n",
-            _             => string.Empty,
-        };
+        string safetyPrefix;
+        string suffix;
+
+        if (string.Equals(effectiveSafety, "report-only", StringComparison.OrdinalIgnoreCase)) {
+            // Fix 1: for report-only tasks the INBOX requirement goes at the very top and
+            // a mandatory checklist is appended at the end so it cannot be lost in the middle.
+            safetyPrefix = ReportOnlyInboxPreamble + "Do not modify any source files. Generate a report only.\n\n";
+            suffix       = ReportOnlyMandatoryChecklist;
+        }
+        else {
+            safetyPrefix = effectiveSafety switch {
+                "branch" => $"Create branch `{branchName}` before making any code changes. Commit to that branch only.\n\n",
+                "direct" => "You may commit directly to the current branch.\n\n",
+                _        => string.Empty,
+            };
+            suffix = string.Empty;
+        }
 
         var inboxReminder = "\n\n" + MaintenanceInboxReminder;
         var instructions  = SubstituteOptions(task.Instructions, task.Options);
-        return safetyPrefix + instructions + inboxReminder;
+        return safetyPrefix + instructions + inboxReminder + suffix;
     }
+
+    private static string BuildInboxRecoveryPrompt(string taskTitle) =>
+        $"Your previous response contained a maintenance report for \"{taskTitle}\" but no " +
+        "INBOX_MESSAGE_JSON block was detected. Please resend your findings now using ONLY an " +
+        "INBOX_MESSAGE_JSON block — no other text before or after it. " +
+        "The block must appear on a bare top-level line, not inside a code fence.\n\n" +
+        "INBOX_MESSAGE_JSON:\n" +
+        "{\n" +
+        "  \"subject\": \"Maintenance Report: <task title> — <YYYY-MM-DD>\",\n" +
+        "  \"from\": \"argus-weld\",\n" +
+        "  \"body\": \"<your full findings in Markdown>\",\n" +
+        "  \"attachments\": []\n" +
+        "}";
 
     /// <summary>
     /// Evaluates <c>{{#if}}</c>/<c>{{#unless}}</c> conditional blocks and replaces
