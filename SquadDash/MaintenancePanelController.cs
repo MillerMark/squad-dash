@@ -299,7 +299,7 @@ internal sealed class MaintenancePanelController {
             empty.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             _listPanel.Children.Add(empty);
         } else {
-            foreach (var task in _config.Tasks.OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase))
+            foreach (var task in _config.Tasks)
                 _listPanel.Children.Add(BuildTaskRow(task));
         }
 
@@ -326,6 +326,86 @@ internal sealed class MaintenancePanelController {
         inboxBtn.SetResourceReference(Button.ForegroundProperty, "SubtleText");
         inboxBtn.Click += (_, _) => _showInboxPanel();
         _listPanel.Children.Add(inboxBtn);
+
+        var reportsExpander = new Expander {
+            Header     = "Recent Reports",
+            IsExpanded = false,
+            Margin     = new Thickness(0, 4, 0, 0),
+            Content    = BuildReportsContent(),
+        };
+        _listPanel.Children.Add(reportsExpander);
+    }
+
+    private StackPanel BuildReportsContent() {
+        var content = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+
+        var workspacePath = _getWorkspacePath();
+        var reportsDir = workspacePath is null
+            ? null
+            : Path.Combine(workspacePath, ".squad", "maintenance-reports");
+
+        List<string> reportFiles = [];
+        if (reportsDir is not null && Directory.Exists(reportsDir)) {
+            reportFiles = Directory.GetFiles(reportsDir, "*.md")
+                .OrderByDescending(p => p, StringComparer.OrdinalIgnoreCase)
+                .Take(10)
+                .ToList();
+        }
+
+        if (reportFiles.Count == 0) {
+            var noReports = new TextBlock {
+                Text   = "No reports yet.",
+                Margin = new Thickness(4, 2, 4, 2),
+            };
+            noReports.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            noReports.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            content.Children.Add(noReports);
+            return content;
+        }
+
+        foreach (var filePath in reportFiles) {
+            var (date, taskCount) = ParseReportSummary(filePath);
+            var taskWord = taskCount == 1 ? "task" : "tasks";
+            var label    = $"{date} — {taskCount} {taskWord}";
+            var btn = new Button {
+                Content                    = label,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                BorderThickness            = new Thickness(0),
+                Padding                    = new Thickness(4, 2, 4, 2),
+                Cursor                     = Cursors.Hand,
+            };
+            btn.SetResourceReference(Button.StyleProperty,    "FlatButtonStyle");
+            btn.SetResourceReference(Button.FontSizeProperty, "FontSizeSmall");
+            content.Children.Add(btn);
+        }
+
+        return content;
+    }
+
+    private static (string date, int taskCount) ParseReportSummary(string filePath) {
+        var name     = Path.GetFileNameWithoutExtension(filePath);
+        var dashIdx  = name.IndexOf('-');
+        var datePart = dashIdx > 0 ? name[..dashIdx] : name;
+        var date     = datePart.Length == 8
+            ? $"{datePart[..4]}-{datePart[4..6]}-{datePart[6..8]}"
+            : datePart;
+
+        int taskCount = 0;
+        try {
+            bool inTasksSection = false;
+            foreach (var line in File.ReadLines(filePath)) {
+                var trimmed = line.TrimStart();
+                if (trimmed.StartsWith("## ")) {
+                    inTasksSection = string.Equals(trimmed, "## Tasks Run", StringComparison.Ordinal);
+                    continue;
+                }
+                if (inTasksSection && trimmed.StartsWith("- "))
+                    taskCount++;
+            }
+        }
+        catch { /* ignore read errors */ }
+
+        return (date, taskCount);
     }
 
     private Border BuildTaskRow(MaintenanceTask task) {
