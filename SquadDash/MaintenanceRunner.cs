@@ -167,7 +167,7 @@ internal sealed class MaintenanceRunner {
         "Required format (fill in the fields):\n" +
         "INBOX_MESSAGE_JSON:\n" +
         "{\n" +
-        "  \"subject\": \"Maintenance Report: <Task Title> — YYYY-MM-DD\",\n" +
+        "  \"subject\": \"<Short descriptive title — no 'Maintenance Report:' prefix, no date>\",\n" +
         "  \"from\": \"argus-weld\",\n" +
         "  \"body\": \"## <Task Title>\\n\\n<Your full findings in Markdown>\",\n" +
         "  \"attachments\": []\n" +
@@ -201,7 +201,7 @@ internal sealed class MaintenanceRunner {
         "   Assume the reader has NO memory of this session.\n" +
         "\n" +
         "4. For report-only tasks: send findings as an inbox message with `\"from\": \"argus-weld\"`.\n" +
-        "   Subject = task title. Body = full Markdown report. Actions = any follow-up choices.\n" +
+        "   Subject = short descriptive title (no 'Maintenance Report:' prefix, no date). Body = full Markdown report. Actions = any follow-up choices.\n" +
         "   Put INBOX_MESSAGE_JSON on a bare top-level line; do not wrap it in markdown code fences.\n" +
         "\n" +
         "Example actions array:\n" +
@@ -250,7 +250,7 @@ internal sealed class MaintenanceRunner {
         "The block must appear on a bare top-level line, not inside a code fence.\n\n" +
         "INBOX_MESSAGE_JSON:\n" +
         "{\n" +
-        "  \"subject\": \"Maintenance Report: <task title> — <YYYY-MM-DD>\",\n" +
+        "  \"subject\": \"<Short descriptive title — no 'Maintenance Report:' prefix, no date>\",\n" +
         "  \"from\": \"argus-weld\",\n" +
         "  \"body\": \"<your full findings in Markdown>\",\n" +
         "  \"attachments\": []\n" +

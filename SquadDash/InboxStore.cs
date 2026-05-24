@@ -53,12 +53,41 @@ public class InboxStore
     /// <summary>Writes or overwrites the message file for <paramref name="message"/>.</summary>
     public void Save(InboxMessage message)
     {
+        if (!string.IsNullOrWhiteSpace(message.Subject))
+        {
+            var normalized = NormalizeSubject(message.Subject);
+            if (normalized != message.Subject)
+                message = message with { Subject = normalized };
+        }
         lock (_sync)
         {
             EnsureInboxDirectory();
             var json = JsonSerializer.Serialize(message, JsonOptions);
             JsonFileStorage.AtomicWrite(GetFilePath(message.Id), json);
         }
+    }
+
+    /// <summary>
+    /// Strips common "Maintenance Report:" prefixes and trailing date suffixes that
+    /// AI agents may include in subject lines despite prompt instructions.
+    /// </summary>
+    internal static string NormalizeSubject(string subject)
+    {
+        if (string.IsNullOrWhiteSpace(subject)) return subject;
+
+        // Strip leading "Maintenance Report" prefix (case-insensitive)
+        var stripped = System.Text.RegularExpressions.Regex.Replace(
+            subject.Trim(),
+            @"(?i)^maintenance\s+report\s*[:\-\u2013\u2014]?\s*",
+            string.Empty).Trim();
+
+        // Strip trailing date (e.g. " — 2026-05-24", " -- 2026-05-24", " - 2026/05/24")
+        stripped = System.Text.RegularExpressions.Regex.Replace(
+            stripped,
+            @"[\s\-\u2013\u2014]+\d{4}[-/]\d{2}[-/]\d{2}\s*$",
+            string.Empty).Trim();
+
+        return string.IsNullOrWhiteSpace(stripped) ? subject : stripped;
     }
 
     /// <summary>Loads the message, sets <see cref="InboxMessage.Read"/> = true, and saves.</summary>
