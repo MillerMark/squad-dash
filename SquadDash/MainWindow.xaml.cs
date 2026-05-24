@@ -4337,6 +4337,23 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
 
                     // Process INBOX_MESSAGE_JSON blocks from this turn's response.
+                    SquadDashTrace.Write(TraceCategory.Inbox,
+                        $"INBOX_SAVE: done-event doneCurrentTurnNull={doneCurrentTurn is null} rawLen={rawResponse?.Length ?? -1}");
+
+                    // For maintenance named-agent-direct runs, CoordinatorThread.CurrentTurn is null
+                    // (BeginTranscriptTurn is never called), so rawResponse is null. Fall back to the
+                    // latest Argus Weld sub-agent thread response which holds the INBOX_MESSAGE_JSON block.
+                    if (rawResponse is null && FindLatestArgusWeldRunThread() is { } argusThread)
+                    {
+                        var argusResponse = argusThread.CurrentTurn?.ResponseTextBuilder.ToString();
+                        if (!string.IsNullOrWhiteSpace(argusResponse))
+                        {
+                            SquadDashTrace.Write(TraceCategory.Inbox,
+                                "INBOX_SAVE: done-event rawResponse was null — falling back to argus-weld thread response");
+                            TrySaveInboxMessageFromResponse(argusResponse);
+                        }
+                    }
+
                     TrySaveInboxMessageFromResponse(rawResponse);
                 }
                 if (_pendingRcRestartAfterReset)
@@ -4710,8 +4727,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         // Save inbox message BEFORE finalizing/rendering so the indicator paragraph is rendered
         // with a valid messageId (clickable link) rather than null (grey plain text).
         var rawResponse = thread.CurrentTurn?.ResponseTextBuilder.ToString();
-        SquadDashTrace.Write(TraceCategory.General,
+        SquadDashTrace.Write(TraceCategory.Inbox,
             $"INBOX_SAVE: HandleSubagentMessage agent={thread.AgentId ?? thread.Title} currentTurnNull={thread.CurrentTurn is null} rawLen={rawResponse?.Length ?? -1}");
+        if (string.IsNullOrWhiteSpace(rawResponse) && thread.ResponseStreamed)
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"INBOX_SAVE: HandleSubagentMessage — ResponseTextBuilder empty despite streaming for agent={thread.AgentId ?? thread.Title}");
         var messageId = TrySaveInboxMessage(rawResponse);
         if (messageId is not null && thread.CurrentTurn?.ResponseEntries.Count > 0)
             thread.CurrentTurn.ResponseEntries[^1].InboxMessageId = messageId;
