@@ -211,6 +211,8 @@
     <Compile Include="..\SquadDash\MaintenanceStateStore.cs"      Link="Source\MaintenanceStateStore.cs" />
     <Compile Include="..\SquadDash\MaintenanceRunner.cs"          Link="Source\MaintenanceRunner.cs" />
     <Compile Include="..\SquadDash\MaintenanceReportWriter.cs"    Link="Source\MaintenanceReportWriter.cs" />
+    <Compile Include="..\SquadDash\MaintenanceStubStateStore.cs"  Link="Source\MaintenanceStubStateStore.cs" />
+    <Compile Include="..\SquadDash\InboxStore.cs"                 Link="Source\InboxStore.cs" />
     <Compile Include="..\SquadDash\MarkdownHoverPopup.cs"            Link="Source\MarkdownHoverPopup.cs" />
     <Compile Include="..\SquadDash\MarkdownFlowDocumentBuilder.cs"  Link="Source\MarkdownFlowDocumentBuilder.cs" />
     <Compile Include="..\SquadDash\MaintenancePanelController.cs" Link="Source\MaintenancePanelController.cs" />

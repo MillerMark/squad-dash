@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 
 namespace SquadDash;
 
@@ -32,6 +33,47 @@ internal sealed class MaintenanceReportWriter {
 
         Prune();
         return filePath;
+    }
+
+    /// <summary>
+    /// Writes a stub sidecar JSON file alongside the report at
+    /// <paramref name="reportFilePath"/> (same path with <c>.json</c> extension).
+    /// </summary>
+    public void WriteStubSidecar(string reportFilePath, IReadOnlyList<MaintenanceStubRecord> stubs) {
+        var sidecarPath = Path.ChangeExtension(reportFilePath, ".json");
+        try {
+            var json = JsonSerializer.Serialize(stubs, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(sidecarPath, json, Encoding.UTF8);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"MaintenanceReportWriter: failed to write stub sidecar: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reads the stub sidecar at <paramref name="reportFilePath"/> (same path with
+    /// <c>.json</c> extension). Returns null if the file does not exist or cannot be parsed.
+    /// </summary>
+    public IReadOnlyList<MaintenanceStubRecord>? TryReadStubSidecar(string reportFilePath) {
+        var sidecarPath = Path.ChangeExtension(reportFilePath, ".json");
+        if (!File.Exists(sidecarPath)) return null;
+        try {
+            var json = File.ReadAllText(sidecarPath);
+            return JsonSerializer.Deserialize<List<MaintenanceStubRecord>>(json) ?? [];
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Returns the path of the most recently written stub sidecar (<c>.json</c>), or null
+    /// if none exists in the reports directory.
+    /// </summary>
+    public string? GetMostRecentSidecarPath() {
+        if (!Directory.Exists(_reportsDir)) return null;
+        return Directory.GetFiles(_reportsDir, "*.json")
+            .OrderByDescending(p => p, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
     }
 
     /// <summary>Returns report file paths sorted newest-first.</summary>

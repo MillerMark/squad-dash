@@ -15182,6 +15182,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         UpdateSessionState("Ready");
         RefreshSidebar();
         UpdateInteractiveControlState();
+        RestoreMaintenanceStubs(folderPath);
         ScrollToEndIfAtBottom();
         MaybePromptForUniverseSelection();
         MaybePublishMissingUtilityAgentNotice();
@@ -27855,6 +27856,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         string? latestMaintenanceThreadId = null;
+        var stubRecords = new System.Collections.Generic.List<MaintenanceStubRecord>();
 
         _maintenanceRunner = new MaintenanceRunner(
             executePromptAsync: (prompt, ct) =>
@@ -27887,12 +27889,27 @@ public partial class MainWindow : Window, ILiveElementLocator
             onTaskCompleted: (id, title, anchorIndex, startedAt, duration) => Dispatcher.InvokeAsync(() => {
                 _maintenancePanel?.OnRunnerCompleted();
                 AppendMaintenanceStub(title, latestMaintenanceThreadId, anchorIndex, startedAt, duration);
+                stubRecords.Add(new MaintenanceStubRecord {
+                    TaskTitle       = title,
+                    ThreadId        = latestMaintenanceThreadId,
+                    AnchorIndex     = anchorIndex,
+                    StartedAt       = startedAt,
+                    DurationSeconds = duration.TotalSeconds,
+                });
             }),
             onCompleted:     report =>
             {
                 Dispatcher.InvokeAsync(async () =>
                 {
                     var reportPath = _maintenanceReportWriter?.WriteReport(report) ?? "";
+                    if (!string.IsNullOrEmpty(reportPath) && stubRecords.Count > 0)
+                    {
+                        _maintenanceReportWriter?.WriteStubSidecar(reportPath, stubRecords);
+                        var sidecarPath = System.IO.Path.ChangeExtension(reportPath, ".json");
+                        var stubState = new MaintenanceStubStateStore(System.IO.Path.Combine(workspacePath, ".squad"));
+                        stubState.LastRenderedSidecarPath = sidecarPath;
+                        stubState.Save();
+                    }
                     _pendingMaintenanceBannerReport = report;
                     if (MaintenancePanelBadge is not null)
                         MaintenancePanelBadge.Visibility = Visibility.Visible;
@@ -27909,7 +27926,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                         "Argus Weld — Maintenance Complete",
                         notifBody);
                 });
-            });
+            },
+            wasInboxSavedSince: t => _inboxStore?.HasMessageSavedSince(t) ?? false);
 
         _idleDetectionService?.SetRunnerActive(true);
         _maintenancePanel?.OnRunnerStarted("starting…");
@@ -28024,6 +28042,41 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         CoordinatorThread.Document.Blocks.Add(paragraph);
         ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    /// <summary>
+    /// On workspace load, re-renders maintenance stubs from the most recent sidecar file
+    /// if it has not been rendered yet (i.e. the app was restarted since the last maintenance run).
+    /// </summary>
+    private void RestoreMaintenanceStubs(string workspacePath)
+    {
+        try
+        {
+            var writer    = new MaintenanceReportWriter(workspacePath);
+            var stubState = new MaintenanceStubStateStore(System.IO.Path.Combine(workspacePath, ".squad"));
+            stubState.Load();
+
+            var sidecarPath = writer.GetMostRecentSidecarPath();
+            if (sidecarPath is null) return;
+
+            if (string.Equals(stubState.LastRenderedSidecarPath, sidecarPath, StringComparison.OrdinalIgnoreCase))
+                return; // already rendered this session
+
+            var stubs = writer.TryReadStubSidecar(System.IO.Path.ChangeExtension(sidecarPath, ".md"));
+            if (stubs is null || stubs.Count == 0) return;
+
+            foreach (var stub in stubs)
+                AppendMaintenanceStub(stub.TaskTitle, stub.ThreadId, stub.AnchorIndex, stub.StartedAt,
+                    TimeSpan.FromSeconds(stub.DurationSeconds));
+
+            stubState.LastRenderedSidecarPath = sidecarPath;
+            stubState.Save();
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"RestoreMaintenanceStubs: error — {ex.Message}");
+        }
     }
 
     /// <summary>

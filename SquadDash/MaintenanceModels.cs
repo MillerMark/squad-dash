@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
@@ -24,4 +25,26 @@ internal sealed class MaintenanceReport {
     public          string?                              Summary        { get; init; }
 
     public TimeSpan Duration => CompletedAt - StartedAt;
+}
+
+/// <summary>
+/// A single maintenance task stub entry serialised to the JSON sidecar file
+/// (<c>.squad/maintenance-reports/YYYYMMDD-HHmmss.json</c>) so stubs can be
+/// re-rendered in the coordinator thread after an app restart.
+/// </summary>
+internal sealed class MaintenanceStubRecord {
+    [JsonPropertyName("taskTitle")]
+    public string TaskTitle { get; init; } = "";
+
+    [JsonPropertyName("threadId")]
+    public string? ThreadId { get; init; }
+
+    [JsonPropertyName("anchorIndex")]
+    public int AnchorIndex { get; init; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset StartedAt { get; init; }
+
+    [JsonPropertyName("durationSeconds")]
+    public double DurationSeconds { get; init; }
 }

@@ -187,6 +187,32 @@ public class InboxStore
         catch { return false; }
     }
 
+    /// <summary>
+    /// Returns true if any saved inbox message has a file write time strictly greater than
+    /// <paramref name="since"/>. File write time is set when <see cref="Save"/> writes the
+    /// message, making it a reliable and fast proxy for <see cref="InboxMessage.Timestamp"/>.
+    /// </summary>
+    public bool HasMessageSavedSince(DateTimeOffset since)
+    {
+        lock (_sync)
+        {
+            if (!Directory.Exists(_inboxFolder))
+                return false;
+
+            foreach (var file in Directory.EnumerateFiles(_inboxFolder, "*.json", SearchOption.TopDirectoryOnly))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) > since.UtcDateTime)
+                        return true;
+                }
+                catch { /* skip inaccessible files */ }
+            }
+
+            return false;
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private string GetFilePath(string id) =>

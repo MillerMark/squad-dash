@@ -186,6 +186,85 @@ internal sealed class MaintenanceReportWriterTests {
             "GetReportPaths must return an empty list when the reports directory does not exist");
     }
 
+    // ── Stub sidecar ──────────────────────────────────────────────────────────
+
+    [Test]
+    public void WriteStubSidecar_CreatesJsonSidecarNextToReport() {
+        var report = MakeReport(startedAt: DateTimeOffset.UtcNow);
+        var reportPath = _writer.WriteReport(report);
+
+        var stubs = new List<MaintenanceStubRecord> {
+            new() { TaskTitle = "Lint", ThreadId = "t1", AnchorIndex = 2,
+                    StartedAt = report.StartedAt, DurationSeconds = 12.5 },
+        };
+        _writer.WriteStubSidecar(reportPath, stubs);
+
+        var sidecarPath = Path.ChangeExtension(reportPath, ".json");
+        Assert.That(File.Exists(sidecarPath), Is.True,
+            "WriteStubSidecar must create a .json file alongside the .md report");
+    }
+
+    [Test]
+    public void WriteStubSidecar_ThenTryReadStubSidecar_RoundTrips() {
+        var report     = MakeReport(startedAt: DateTimeOffset.UtcNow);
+        var reportPath = _writer.WriteReport(report);
+
+        var original = new List<MaintenanceStubRecord> {
+            new() { TaskTitle = "Scan Deps", ThreadId = "abc", AnchorIndex = 3,
+                    StartedAt = report.StartedAt, DurationSeconds = 90.0 },
+            new() { TaskTitle = "Format",    ThreadId = null,  AnchorIndex = 1,
+                    StartedAt = report.StartedAt, DurationSeconds = 5.2 },
+        };
+        _writer.WriteStubSidecar(reportPath, original);
+
+        var restored = _writer.TryReadStubSidecar(reportPath);
+
+        Assert.That(restored, Is.Not.Null);
+        Assert.That(restored!, Has.Count.EqualTo(2));
+        Assert.Multiple(() => {
+            Assert.That(restored![0].TaskTitle,       Is.EqualTo("Scan Deps"));
+            Assert.That(restored![0].ThreadId,        Is.EqualTo("abc"));
+            Assert.That(restored![0].AnchorIndex,     Is.EqualTo(3));
+            Assert.That(restored![0].DurationSeconds, Is.EqualTo(90.0));
+            Assert.That(restored![1].TaskTitle,       Is.EqualTo("Format"));
+            Assert.That(restored![1].ThreadId,        Is.Null);
+        });
+    }
+
+    [Test]
+    public void TryReadStubSidecar_WhenSidecarAbsent_ReturnsNull() {
+        var report     = MakeReport();
+        var reportPath = _writer.WriteReport(report);
+        // Do NOT write a sidecar
+
+        var result = _writer.TryReadStubSidecar(reportPath);
+        Assert.That(result, Is.Null,
+            "TryReadStubSidecar must return null when no sidecar file exists");
+    }
+
+    [Test]
+    public void GetMostRecentSidecarPath_WhenNoSidecars_ReturnsNull() {
+        var result = _writer.GetMostRecentSidecarPath();
+        Assert.That(result, Is.Null,
+            "GetMostRecentSidecarPath must return null when the reports directory is absent");
+    }
+
+    [Test]
+    public void GetMostRecentSidecarPath_ReturnsNewestSidecar() {
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
+        Directory.CreateDirectory(reportsDir);
+
+        File.WriteAllText(Path.Combine(reportsDir, "20240101-120000.json"), "[]");
+        File.WriteAllText(Path.Combine(reportsDir, "20240601-080000.json"), "[]");
+        File.WriteAllText(Path.Combine(reportsDir, "20240901-093000.json"), "[]");
+
+        var path = _writer.GetMostRecentSidecarPath();
+
+        Assert.That(path, Is.Not.Null);
+        Assert.That(Path.GetFileName(path!), Is.EqualTo("20240901-093000.json"),
+            "GetMostRecentSidecarPath must return the lexicographically newest .json file");
+    }
+
     // TODO: WriteReport_CallsPushNotification — MaintenanceReportWriter does not currently
     // accept or invoke a push notification service. Sending "maintenance_completed" push
     // notifications is the responsibility of the caller (e.g. MaintenanceRunner wired to
