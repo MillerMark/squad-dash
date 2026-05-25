@@ -10,12 +10,14 @@ namespace SquadDash;
 internal sealed class MaintenanceRunner {
 
     private readonly Func<string, CancellationToken, Task<int>> _executePromptAsync;
+    private readonly Func<string, CancellationToken, Task<(int anchorIndex, string responseText)>>? _executePromptAndCaptureAsync;
     private readonly MaintenanceStateStore                       _stateStore;
     private readonly Action<string>                              _onTaskStarted;
     private readonly Action<string, string, int, DateTimeOffset, TimeSpan> _onTaskCompleted;
     private readonly Action<MaintenanceReport>                   _onCompleted;
     private readonly Func<string, CancellationToken, Task<string?>> _getCommitShaAsync;
     private readonly Func<DateTimeOffset, bool>?                 _wasInboxSavedSince;
+    private readonly Action<string>?                             _onDecomposeGroupReady;
 
     private volatile bool _isRunning;
 
@@ -28,15 +30,19 @@ internal sealed class MaintenanceRunner {
         Action<string, string, int, DateTimeOffset, TimeSpan> onTaskCompleted,
         Action<MaintenanceReport>                   onCompleted,
         Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null,
-        Func<DateTimeOffset, bool>?                     wasInboxSavedSince = null) {
+        Func<DateTimeOffset, bool>?                     wasInboxSavedSince = null,
+        Func<string, CancellationToken, Task<(int, string)>>? executePromptAndCaptureAsync = null,
+        Action<string>?                                       onDecomposeGroupReady = null) {
 
-        _executePromptAsync = executePromptAsync;
-        _stateStore         = stateStore;
-        _onTaskStarted      = onTaskStarted;
-        _onTaskCompleted    = onTaskCompleted;
-        _onCompleted        = onCompleted;
-        _getCommitShaAsync  = getCommitShaAsync ?? TryGetCommitShaAsync;
-        _wasInboxSavedSince = wasInboxSavedSince;
+        _executePromptAsync            = executePromptAsync;
+        _executePromptAndCaptureAsync  = executePromptAndCaptureAsync;
+        _stateStore                    = stateStore;
+        _onTaskStarted                 = onTaskStarted;
+        _onTaskCompleted               = onTaskCompleted;
+        _onCompleted                   = onCompleted;
+        _getCommitShaAsync             = getCommitShaAsync ?? TryGetCommitShaAsync;
+        _wasInboxSavedSince            = wasInboxSavedSince;
+        _onDecomposeGroupReady         = onDecomposeGroupReady;
     }
 
     /// <summary>
@@ -95,7 +101,17 @@ internal sealed class MaintenanceRunner {
                 var taskStart = Stopwatch.GetTimestamp();
                 try {
                     var prompt = BuildPrompt(task, config.Safety, startedAt);
-                    var anchorIndex = await _executePromptAsync(prompt, ct).ConfigureAwait(false);
+                    int anchorIndex;
+                    string? responseText = null;
+
+                    // When a capture delegate is available, use it to also collect the response
+                    // text so we can scan for a TASKS_JSON decompose block.
+                    if (_executePromptAndCaptureAsync is not null) {
+                        (anchorIndex, responseText) =
+                            await _executePromptAndCaptureAsync(prompt, ct).ConfigureAwait(false);
+                    } else {
+                        anchorIndex = await _executePromptAsync(prompt, ct).ConfigureAwait(false);
+                    }
 
                     // Fix 2: post-completion fallback — if this was a report-only task and no inbox
                     // message was saved during the turn, send a short recovery prompt to recover it.
@@ -106,6 +122,18 @@ internal sealed class MaintenanceRunner {
                         SquadDashTrace.Write(TraceCategory.General,
                             $"MaintenanceRunner: report-only task '{task.Id}' produced no inbox message — sending recovery prompt.");
                         await _executePromptAsync(BuildInboxRecoveryPrompt(task.Title), ct).ConfigureAwait(false);
+                    }
+
+                    // Check response for a TASKS_JSON decompose block.
+                    if (responseText is not null
+                        && responseText.Contains("TASKS_JSON:", StringComparison.Ordinal)
+                        && TasksJsonParser.TryParse(responseText, out var decomposeGroup)
+                        && decomposeGroup is not null
+                        && _onDecomposeGroupReady is not null) {
+
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"MaintenanceRunner: TASKS_JSON found for group '{decomposeGroup.GroupId}' — notifying caller.");
+                        _onDecomposeGroupReady(decomposeGroup.GroupId);
                     }
 
                     var elapsed = Stopwatch.GetElapsedTime(taskStart);
@@ -248,6 +276,10 @@ internal sealed class MaintenanceRunner {
 
         var inboxReminder = "\n\n" + MaintenanceInboxReminder;
         var instructions  = SubstituteOptions(task.Instructions, task.Options);
+
+        // Apply {{branch}} substitution so task instructions can reference the computed branch name.
+        instructions = instructions.Replace("{{branch}}", branchName, StringComparison.OrdinalIgnoreCase);
+
         return safetyPrefix + instructions + inboxReminder + suffix;
     }
 

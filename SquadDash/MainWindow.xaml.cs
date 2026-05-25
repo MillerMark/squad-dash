@@ -258,6 +258,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private InboxStore?                 _inboxStore;
     private InboxPanelController?       _inboxPanel;
     private bool                        _inboxPanelVisible = false;
+
+    // ── Decompose mode ─────────────────────────────────────────────────────────
+    private string?                  _activeDecomposeGroupId;
+    private MaintenanceGroupRunner?  _maintenanceGroupRunner;
     private bool                        _inboxSavedForCurrentTurn;
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
@@ -2501,6 +2505,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private async Task DrainQueueIfNeededAsync()
     {
+        // During a decompose loop the queue must not auto-drain — the loop orchestrates iterations.
+        if (_activeDecomposeGroupId is not null) return;
+
         while (CanAutoDispatchPromptQueue(nameof(DrainQueueIfNeededAsync)) && !LastTurnNeedsInput())
         {
             var item = GetAutoDispatchCandidate();
@@ -2588,6 +2595,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// </summary>
     private async Task DrainQueueBeforeLoopIterationAsync()
     {
+        // Decompose loops manage their own iteration sequencing — do not drain queue between steps.
+        if (_activeDecomposeGroupId is not null) return;
+
         bool dispatched = false;
         while (!_isPromptRunning && !_isClosing && !_restartPending && !HasPendingDirectQuickReplyAgentFollowUp() && !LastTurnNeedsInput())
         {
@@ -5074,6 +5084,11 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void OnNativeLoopStopped()
     {
+        // Clear decompose state before resuming normal queue logic.
+        _maintenanceGroupRunner?.ClearCurrentStep();
+        _activeDecomposeGroupId = null;
+        _maintenanceGroupRunner = null;
+
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
@@ -6307,6 +6322,40 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
     }
 
+    private async Task StartDecomposeLoopAsync(string groupId)
+    {
+        if (_currentWorkspace is null) return;
+
+        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("loop-decompose.md", StringComparison.OrdinalIgnoreCase));
+        if (resourceName is null)
+        {
+            SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: loop-decompose.md embedded resource not found.");
+            return;
+        }
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null) return;
+        using var reader = new System.IO.StreamReader(stream);
+        var content = await reader.ReadToEndAsync();
+        var config = LoopMdParser.ParseFromContent(content);
+        if (config is null)
+        {
+            SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: failed to parse loop-decompose.md config.");
+            return;
+        }
+
+        _activeDecomposeGroupId = groupId;
+        _maintenanceGroupRunner = new MaintenanceGroupRunner(
+            new DecomposedTasksWriter(),
+            System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"));
+
+        BackupAndClearLoopOutput();
+        await _loopController.StartAsync(config, continuousContext: true,
+            _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId);
+    }
+
     // ── Loop config flyout helpers ───────────────────────────────────────────
 
     private void _LoopConfigFlyout_Opened(object sender, EventArgs e)
@@ -6662,13 +6711,21 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void InitializeHostCommands()
     {
         _hostCommandExecutor = new HostCommandExecutor();
-        _hostCommandExecutor.Register(new Commands.StartLoopCommandHandler(() =>
+        var startLoopHandler = new Commands.StartLoopCommandHandler(() =>
         {
             if (!_loopController.IsRunning)
                 _ = StartLoopImmediateAsync();
-        }));
+        });
+        startLoopHandler.OnGroupIdExtracted = groupId =>
+        {
+            if (!_loopController.IsRunning)
+                _ = StartDecomposeLoopAsync(groupId);
+        };
+        _hostCommandExecutor.Register(startLoopHandler);
         _hostCommandExecutor.Register(new Commands.StopLoopCommandHandler(() =>
         {
+            if (_activeDecomposeGroupId is not null)
+                _maintenanceGroupRunner?.OnStopRequested();
             _loopController.RequestStop();
             _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
         }));
@@ -6717,6 +6774,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     AppendLoopOutputLine(
                         "🤖 AI requested loop stop — finishing current iteration then halting.",
                         LoopLifecycleBrush);
+                    if (_activeDecomposeGroupId is not null)
+                        _maintenanceGroupRunner?.OnStopRequested();
                     _loopController.RequestStop();
                     _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
                     SyncLoopPanel();
@@ -28019,7 +28078,40 @@ public partial class MainWindow : Window, ILiveElementLocator
                         notifBody);
                 });
             },
-            wasInboxSavedSince: t => _inboxStore?.HasMessageSavedSince(t) ?? false);
+            wasInboxSavedSince: t => _inboxStore?.HasMessageSavedSince(t) ?? false,
+            executePromptAndCaptureAsync: (prompt, ct) =>
+            {
+                var tcs = new TaskCompletionSource<(int, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
+                Dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        var anchorIndex = -1;
+                        var responseText = string.Empty;
+                        latestMaintenanceThreadId = null;
+                        await _pec.ExecuteMaintenanceTurnAsync("argus-weld", prompt);
+                        if (FindLatestArgusWeldRunThread() is { } argusThread)
+                        {
+                            latestMaintenanceThreadId = argusThread.ThreadId;
+                            anchorIndex = argusThread.PromptParagraphs.Count - 1;
+                            responseText =
+                                argusThread.CurrentTurn?.ResponseTextBuilder.ToString()
+                                ?? argusThread.LatestResponse
+                                ?? string.Empty;
+                            TrySaveInboxMessageFromResponse(responseText);
+                        }
+                        tcs.TrySetResult((anchorIndex, responseText));
+                    }
+                    catch (OperationCanceledException) { tcs.TrySetCanceled(ct); }
+                    catch (Exception ex) { tcs.TrySetException(ex); }
+                });
+                return tcs.Task;
+            },
+            onDecomposeGroupReady: groupId => Dispatcher.InvokeAsync(() =>
+            {
+                if (!_loopController.IsRunning)
+                    _ = StartDecomposeLoopAsync(groupId);
+            }));
 
         _idleDetectionService?.SetRunnerActive(true);
         _maintenancePanel?.OnRunnerStarted("starting…");

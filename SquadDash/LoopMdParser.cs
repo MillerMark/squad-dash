@@ -28,6 +28,14 @@ internal static class LoopMdParser {
             return null;
         }
 
+        return ParseFromContent(content);
+    }
+
+    /// <summary>
+    /// Parses loop.md content supplied as a string (e.g. from an embedded resource).
+    /// Returns null when the frontmatter does not contain <c>configured: true</c>.
+    /// </summary>
+    public static LoopMdConfig? ParseFromContent(string content) {
         // Normalise line endings so CRLF and LF both work.
         var lines = content.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 
@@ -440,14 +448,21 @@ internal static class LoopMdParser {
         return body;
     }
 
+    private static readonly Regex _decomposeGroupIdPattern =
+        new(@"^[A-Z]+-\d{8}$", RegexOptions.Compiled);
+
     /// <summary>
-    /// Converts a raw filter string (as typed in the Tasks panel filter box) into a
-    /// human-readable instruction suitable for substituting the <c>[**FILTER**]</c>
-    /// placeholder in loop templates.
+    /// Converts a raw filter string (as typed in the Tasks panel filter box, or a decompose
+    /// group ID) into a human-readable instruction suitable for substituting the
+    /// <c>[**FILTER**]</c> placeholder in loop templates.
+    /// <para>
+    /// When <paramref name="filterText"/> matches <c>^[A-Z]+-\d{8}$</c> (a decompose group ID),
+    /// returns a structured group-scoped execution instruction instead of the standard filter text.
+    /// </para>
     /// </summary>
     /// <param name="filterText">
-    /// The raw filter value. May contain <c>@agent-handle</c> mentions, keywords,
-    /// or both. Pass an empty string (or null) to produce the "no filter" instruction.
+    /// The raw filter value. May contain <c>@agent-handle</c> mentions, keywords, a decompose
+    /// group ID, or both. Pass an empty string (or null) to produce the "no filter" instruction.
     /// </param>
     public static string BuildFilterInstruction(string? filterText)
     {
@@ -456,7 +471,16 @@ internal static class LoopMdParser {
         if (string.IsNullOrWhiteSpace(filterText))
             return "No filter — process any unchecked task not owned by User.";
 
-        var mentionMatches = Regex.Matches(filterText, @"@(\w[\w\-\.]*)", RegexOptions.IgnoreCase);
+        // Decompose group ID — emit a structured eligibility-scoped instruction.
+        if (_decomposeGroupIdPattern.IsMatch(filterText))
+        {
+            return $"Active decompose group: {filterText}\n\n" +
+                   "Read `.squad/tasks.md`. Execute the first subtask where:\n" +
+                   "- Status marker is `[ ]` (pending)\n" +
+                   "- All IDs in `dependsOn` are `[x]` (complete)";
+        }
+
+        var mentionMatches= Regex.Matches(filterText, @"@(\w[\w\-\.]*)", RegexOptions.IgnoreCase);
         var agentNames     = new List<string>();
         var seen           = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (Match m in mentionMatches)

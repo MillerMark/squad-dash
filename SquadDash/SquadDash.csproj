@@ -60,6 +60,7 @@
     <EmbeddedResource Include="Assets\loop-filtered-tasks.md" />
     <EmbeddedResource Include="Assets\loop-fix-test-failures.md" />
     <EmbeddedResource Include="Assets\loop-interactive-repair.md" />
+    <EmbeddedResource Include="Assets\loop-decompose.md" />
   </ItemGroup>
 
   <ItemGroup>
