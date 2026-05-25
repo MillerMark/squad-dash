@@ -31,14 +31,6 @@
       "charter": "agents/malik-graves/charter.md",
       "status": "active",
       "hired_at": "2026-05-20"
-    },
-    "kare-brightweave": {
-      "display_name": "Kare Brightweave",
-      "universe": "SquadDash Universe",
-      "role": "Creative Systems Architect",
-      "charter": "agents/kare-brightweave/charter.md",
-      "status": "active",
-      "hired_at": "2026-05-22"
     }
   }
 }

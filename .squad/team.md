@@ -21,7 +21,6 @@
 | Mira Quill | Documentation & Memory Specialist | agents/mira-quill/charter.md | active |
 | Sorin Pyre | Performance Engineer | agents/sorin-pyre/charter.md | active |
 | Atlas Wren | Mac & Cross-Platform Specialist | agents/atlas-wren/charter.md | active |
-| Kare Brightweave | Creative Systems Architect | agents/kare-brightweave/charter.md | active |
 | Scribe | Session Logger | agents/scribe/charter.md | 📋 Silent |
 | Ralph | Work Monitor | — | 🔄 Monitor |
 | Argus Weld | Maintenance Coordinator | agents/argus-weld/charter.md | 🌙 Background |

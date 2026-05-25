@@ -27,13 +27,6 @@
       "role": "Markdown Specialist",
       "project": "SquadUI",
       "hired_at": "2026-05-20"
-    },
-    {
-      "universe": "SquadDash Universe",
-      "character": "Kare Brightweave",
-      "role": "Creative Systems Architect",
-      "project": "SquadUI",
-      "hired_at": "2026-05-22"
     }
   ],
   "assignment_cast_snapshots": {
@@ -51,9 +44,6 @@
     },
     "2026-05-20": {
       "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill", "Sorin Pyre", "Atlas Wren", "Malik Graves"]
-    },
-    "2026-05-22": {
-      "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill", "Sorin Pyre", "Atlas Wren", "Malik Graves", "Kare Brightweave"]
     }
   }
 }
