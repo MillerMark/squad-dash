@@ -245,7 +245,7 @@ internal static class MarkdownFlowDocumentBuilder {
         };
 
         for (var c = 0; c < columnCount; c++)
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MaxWidth = 300 });
 
         for (var r = 0; r < rows.Count; r++)
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
