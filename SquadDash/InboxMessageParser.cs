@@ -99,7 +99,8 @@ internal static class InboxMessageParser
 
         try
         {
-            dto = JsonSerializer.Deserialize<InboxMessageDto>(jsonText, ParseOptions);
+            var sanitized = SanitizeLiteralWhitespaceInStrings(jsonText);
+            dto = JsonSerializer.Deserialize<InboxMessageDto>(sanitized, ParseOptions);
             if (dto is null)
                 return false;
 
@@ -110,6 +111,44 @@ internal static class InboxMessageParser
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Replaces literal newline and tab characters that appear inside JSON string values
+    /// with their JSON escape sequences. The AI sometimes emits multi-line prompt text
+    /// with real newlines rather than \n, which makes the JSON invalid.
+    /// </summary>
+    private static string SanitizeLiteralWhitespaceInStrings(string json)
+    {
+        var sb = new System.Text.StringBuilder(json.Length + 64);
+        bool inString = false;
+        bool escaped  = false;
+        for (int i = 0; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (escaped)
+            {
+                sb.Append(c);
+                escaped = false;
+                continue;
+            }
+            if (c == '\\' && inString) { sb.Append(c); escaped = true; continue; }
+            if (c == '"') { inString = !inString; sb.Append(c); continue; }
+            if (inString)
+            {
+                if (c == '\r')
+                {
+                    // Collapse \r\n → \\n, bare \r → \\n
+                    if (i + 1 < json.Length && json[i + 1] == '\n') i++;
+                    sb.Append("\\n");
+                    continue;
+                }
+                if (c == '\n') { sb.Append("\\n"); continue; }
+                if (c == '\t') { sb.Append("\\t"); continue; }
+            }
+            sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     /// <summary>

@@ -27891,12 +27891,19 @@ public partial class MainWindow : Window, ILiveElementLocator
                 responseForParsing.IndexOf('{', sentinelIdx + sentinel.Length) >= 0;
             if (hasActualBlock)
             {
+                // Extract a short snippet of the JSON text following the marker for diagnostics.
+                int jsonSnippetStart = responseForParsing.IndexOf('{', sentinelIdx + sentinel.Length);
+                var jsonSnippet = jsonSnippetStart >= 0 && responseForParsing.Length - jsonSnippetStart > 0
+                    ? responseForParsing.Substring(jsonSnippetStart, Math.Min(200, responseForParsing.Length - jsonSnippetStart))
+                    : "(no opening brace found)";
+
                 var rawSample = responseForParsing.Length > 3000
                     ? "...(truncated)...\n" + responseForParsing[^3000..]
                     : responseForParsing;
                 var parseEx = new InvalidOperationException(
                     $"INBOX_MESSAGE_JSON was present in the response but could not be parsed as valid JSON.\n\n" +
                     $"Response length: {responseForParsing.Length} chars\n\n" +
+                    $"--- JSON head (first 200 chars after marker) ---\n{jsonSnippet}\n\n" +
                     $"--- Raw response (tail) ---\n{rawSample}");
                 ReportUnhandledUiException("Inbox parse", parseEx);
             }

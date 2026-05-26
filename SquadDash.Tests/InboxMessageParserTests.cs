@@ -394,6 +394,64 @@ internal sealed class InboxMessageParserTests {
         Assert.That(body, Does.Not.Contain("Second"), "Last block content must not appear in body");
     }
 
+    // ── literal whitespace sanitization ─────────────────────────────────────
+
+    [Test]
+    public void TryExtract_LiteralNewlinesInBodyAndPrompt_ParsesSuccessfully()
+    {
+        // Simulate the AI emitting real newlines inside JSON string values
+        var json = "{\n  \"subject\": \"Code Review\",\n  \"from\": \"argus-weld\",\n  \"body\": \"Here is the review:\nLine one\nLine two\",\n  \"attachments\": [],\n  \"actions\": [{ \"label\": \"Apply\", \"routeMode\": \"start_coordinator\", \"prompt\": \"Apply the patch:\nstep 1\nstep 2\" }]\n}";
+        var text = $"INBOX_MESSAGE_JSON:\n{json}";
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Body, Does.Contain("Line one"));
+        Assert.That(dto.Actions, Has.Count.EqualTo(1));
+        Assert.That(dto.Actions[0].Prompt, Does.Contain("step 1"));
+    }
+
+    [Test]
+    public void TryExtract_NoLiteralNewlines_StillParses()
+    {
+        // Regression: valid JSON with proper escape sequences must still work
+        const string text = """
+            INBOX_MESSAGE_JSON:
+            {
+              "subject": "Normal",
+              "from": "argus-weld",
+              "body": "Line one\nLine two",
+              "attachments": [],
+              "actions": [{ "label": "Go", "routeMode": "start_coordinator", "prompt": "Do step 1\nDo step 2" }]
+            }
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Body, Is.EqualTo("Line one\nLine two"));
+        Assert.That(dto.Actions[0].Prompt, Is.EqualTo("Do step 1\nDo step 2"));
+    }
+
+    [Test]
+    public void TryExtract_EscapedNewlinesInBodyAndLiteralNewlinesInPrompt_ParsesSuccessfully()
+    {
+        // body uses proper \n escapes (already valid); prompt has literal newlines (needs sanitization)
+        var promptWithLiteralNewlines = "Step 1: run tests\nStep 2: commit";
+        var json = $"{{\"subject\":\"Mixed\",\"from\":\"agent\",\"body\":\"Line1\\nLine2\",\"attachments\":[],\"actions\":[{{\"label\":\"Run\",\"routeMode\":\"start_coordinator\",\"prompt\":\"{promptWithLiteralNewlines}\"}}]}}";
+        var text = $"INBOX_MESSAGE_JSON:\n{json}";
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Body, Is.EqualTo("Line1\nLine2"));
+        Assert.That(dto.Actions[0].Prompt, Does.Contain("Step 1"));
+        Assert.That(dto.Actions[0].Prompt, Does.Contain("Step 2"));
+    }
+
     // ── CRLF normalisation ───────────────────────────────────────────────────
 
     [Test]
