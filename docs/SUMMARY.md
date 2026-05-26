@@ -10,12 +10,12 @@
   * [First Run](getting-started/first-run.md)
   * [Squad Team](concepts/squad-team.md)
   * [Hiring Agents](features/hiring-agents.md)
-  * \[VS Tooling](getting-started/VS Tooling.md)
-  * \[Windows Taskbar](getting-started/Windows Taskbar.md)
+  * [VS Tooling](getting-started/VS Tooling.md)
+  * [Windows Taskbar](getting-started/Windows Taskbar.md)
+  * [Stand-alone Installer](getting-started/Stand-alone Installer.md)
 
 ## Prompts
 
-  * [Stand-alone Installer](getting-started/Stand-alone Installer.md)
 * [Prompts](features/prompts.md)
 
   * [Entering Prompts](features/entering-prompts.md)
