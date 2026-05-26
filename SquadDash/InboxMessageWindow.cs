@@ -406,13 +406,40 @@ internal sealed class InboxMessageWindow : ChromedWindow
     /// </summary>
     public void SelectAndScrollToText(string excerptText)
     {
+        var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "squaddash-excerpt-debug.log");
+        void Log(string msg)
+        {
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            var logMsg = $"{timestamp} {msg}\n";
+            System.IO.File.AppendAllText(logPath, logMsg);
+            System.Diagnostics.Trace.WriteLine(msg);
+        }
+        
+        Log($"[SelectAndScroll] Called with text: '{excerptText}'");
+        
         if (string.IsNullOrWhiteSpace(excerptText))
+        {
+            Log($"[SelectAndScroll] Excerpt text is null or whitespace, exiting");
             return;
+        }
 
         var doc = _bodyViewer.Document;
         if (doc is null)
+        {
+            Log($"[SelectAndScroll] Document is null, exiting");
             return;
+        }
 
+        Log($"[SelectAndScroll] Document found, searching for text");
+        
+        // DEBUG: Dump the first 500 chars of the document text
+        var debugRange = new TextRange(doc.ContentStart, doc.ContentEnd);
+        var debugText = debugRange.Text;
+        Log($"[SelectAndScroll] Document text length: {debugText.Length}");
+        Log($"[SelectAndScroll] First 500 chars: '{debugText[..Math.Min(500, debugText.Length)]}'");
+        Log($"[SelectAndScroll] Looking for excerpt: '{excerptText}'");
+        Log($"[SelectAndScroll] Excerpt exists in doc: {debugText.Contains(excerptText)}");
+        
         // Search the document for the excerpt text
         var docStart = doc.ContentStart;
         var docEnd = doc.ContentEnd;
@@ -421,11 +448,35 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var foundRange = FindTextInRange(docStart, docEnd, excerptText);
         if (foundRange is not null)
         {
+            Log($"[SelectAndScroll] Text found! Setting selection and scrolling");
+            
             // Select the found text
             _bodyViewer.Selection.Select(foundRange.Start, foundRange.End);
+            
+            Log($"[SelectAndScroll] Selection set, checking if selection is visible");
+            Log($"[SelectAndScroll] Selection.IsEmpty: {_bodyViewer.Selection.IsEmpty}");
+            Log($"[SelectAndScroll] Selection text: '{_bodyViewer.Selection.Text}'");
 
-            // Scroll the selection into view using BringIntoView
+            // Force focus to the viewer to ensure selection is visible
+            _bodyViewer.Focus();
+            
+            // Try multiple scrolling approaches to ensure visibility
+            // Approach 1: BringIntoView on the paragraph
             foundRange.Start.Paragraph?.BringIntoView();
+            
+            // Approach 2: Also call BringIntoView on the actual TextPointer's rect
+            var rect = foundRange.Start.GetCharacterRect(LogicalDirection.Forward);
+            if (!rect.IsEmpty)
+            {
+                Log($"[SelectAndScroll] Character rect found, calling BringIntoView on rect");
+                _bodyViewer.BringIntoView(rect);
+            }
+            
+            Log($"[SelectAndScroll] Scrolling complete");
+        }
+        else
+        {
+            Log($"[SelectAndScroll] Text NOT found in document");
         }
     }
 
