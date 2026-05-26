@@ -257,7 +257,8 @@ internal static class MarkdownFlowDocumentBuilder {
                 var tb = new TextBlock {
                     Text              = text,
                     TextWrapping      = TextWrapping.Wrap,
-                    MaxWidth          = 300,
+                    MaxWidth          = 500,
+                    TextAlignment     = TextAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Center,
                     Foreground        = foreground,
                     FontSize          = fontSize,
