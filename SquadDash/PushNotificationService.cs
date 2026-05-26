@@ -36,7 +36,7 @@ internal sealed class NtfyNotificationProvider : IPushNotificationProvider {
             response.EnsureSuccessStatusCode();
             return true;
         }
-        catch (Exception ex) {
+        catch (Exception ex) when (ex is not UnauthorizedAccessException and not System.Security.SecurityException) {
             SquadDashTrace.Write("Notifications", $"Failed to send ntfy notification: {ex.Message}");
             return false;
         }
@@ -208,7 +208,7 @@ internal sealed class PushNotificationService {
                 SquadDashTrace.Write("Notifications", $"Unknown notification provider: {settings.NotificationProvider}");
             }
         }
-        catch (Exception ex) {
+        catch (Exception ex) when (ex is not UnauthorizedAccessException and not System.Security.SecurityException) {
             SquadDashTrace.Write("Notifications", $"Failed to reload provider: {ex.Message}");
             _provider = null;
         }
@@ -243,7 +243,7 @@ internal sealed class PushNotificationService {
 
             await _provider.SendAsync(title, finalMessage).ConfigureAwait(false);
         }
-        catch (Exception ex) {
+        catch (Exception ex) when (ex is not UnauthorizedAccessException and not System.Security.SecurityException) {
             SquadDashTrace.Write("Notifications", $"NotifyEventAsync failed for {eventName}: {ex.Message}");
         }
     }

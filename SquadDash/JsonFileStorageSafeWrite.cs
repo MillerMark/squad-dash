@@ -17,7 +17,7 @@ internal static partial class JsonFileStorage
         try {
             AtomicWrite(path, payload, options);
         }
-        catch (Exception ex) {
+        catch (Exception ex) when (ex is not UnauthorizedAccessException and not System.Security.SecurityException) {
             SquadDashTrace.Write(traceCategory, $"{operationName} failed: {ex.Message}");
         }
     }

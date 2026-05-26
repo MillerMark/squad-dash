@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -78,7 +79,7 @@ internal sealed class SquadCliAdapter {
                 UseShellExecute = true
             });
         }
-        catch (Exception ex) {
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException) {
             MessageBox.Show(
                 $"Unable to open the folder.\n\n{ex.Message}",
                 dialogTitle,
@@ -97,7 +98,7 @@ internal sealed class SquadCliAdapter {
             }
             Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
         }
-        catch (Exception ex) {
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException) {
             _onError("Open Link", ex);
         }
     }
@@ -134,7 +135,8 @@ internal sealed class SquadCliAdapter {
             if (match.Success)
                 return match.Groups[1].Value;
         }
-        catch {
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
+            SquadDashTrace.Write("SquadCli", $"Version check failed: {ex.Message}");
         }
         return null;
     }
@@ -159,7 +161,8 @@ internal sealed class SquadCliAdapter {
             if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(standardOutput))
                 return standardOutput;
         }
-        catch {
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException) {
+            SquadDashTrace.Write("SquadCli", $"Version resolve failed: {ex.Message}");
         }
 
         return null;

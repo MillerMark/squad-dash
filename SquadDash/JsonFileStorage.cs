@@ -29,7 +29,7 @@ internal static partial class JsonFileStorage {
             try {
                 File.Replace(tempPath, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
             }
-            catch {
+            catch (IOException) {
                 File.Copy(tempPath, path, overwrite: true);
                 File.Delete(tempPath);
             }
@@ -51,7 +51,7 @@ internal static partial class JsonFileStorage {
             try {
                 File.Replace(tempPath, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
             }
-            catch {
+            catch (IOException) {
                 File.Copy(tempPath, path, overwrite: true);
                 File.Delete(tempPath);
             }
