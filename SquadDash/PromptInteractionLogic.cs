@@ -38,7 +38,8 @@ internal enum PromptInputAction {
 
 internal sealed record PromptHistoryEntry(
     string Text,
-    IReadOnlyList<FollowUpAttachment> Attachments);
+    IReadOnlyList<FollowUpAttachment> Attachments,
+    bool IsDictated = false);
 
 internal sealed record PromptHistoryNavigationResult(
     bool Changed,
@@ -46,7 +47,8 @@ internal sealed record PromptHistoryNavigationResult(
     IReadOnlyList<FollowUpAttachment>? Attachments,
     int? HistoryIndex,
     string? HistoryDraft,
-    IReadOnlyList<FollowUpAttachment>? HistoryDraftAttachments);
+    IReadOnlyList<FollowUpAttachment>? HistoryDraftAttachments,
+    bool IsDictated = false);
 
 internal sealed record InteractiveControlState(
     bool AgentItemsEnabled,
@@ -162,7 +164,8 @@ internal static class PromptHistoryNavigator {
             history[nextIndex].Attachments,
             nextIndex,
             effectiveDraft,
-            effectiveDraftAttachments);
+            effectiveDraftAttachments,
+            IsDictated: history[nextIndex].IsDictated);
     }
 }
 

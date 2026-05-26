@@ -730,7 +730,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                 else
                     _followUpAttachments[""] = new List<FollowUpAttachment>(attachments);
                 UpdateFollowUpStrip();
-            });
+            },
+            setPromptIsDictated: isDictated => _promptHasVoiceInput = isDictated);
         // Wire the near-top prepend trigger: when the user scrolls within 400 px of the
         // top of the coordinator transcript, TranscriptScrollController calls this to
         // load the next batch of older turns from the virtual window.

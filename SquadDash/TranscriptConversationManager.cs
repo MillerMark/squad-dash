@@ -131,6 +131,7 @@ internal sealed class TranscriptConversationManager {
     // _applyDraftAttachments writes attachments back to the live-draft slot and refreshes the UI.
     private readonly Func<IReadOnlyList<FollowUpAttachment>>                          _getDraftAttachments;
     private readonly Action<IReadOnlyList<FollowUpAttachment>>                        _applyDraftAttachments;
+    private readonly Action<bool>?                                                     _setPromptIsDictated;
 
     internal TranscriptConversationManager(
         Func<SessionWorkspace?> getWorkspace,
@@ -157,7 +158,8 @@ internal sealed class TranscriptConversationManager {
         Action<double> scrollToAbsoluteOffset,
         Action updateScrollLayout,
         Func<IReadOnlyList<FollowUpAttachment>>? getDraftAttachments = null,
-        Action<IReadOnlyList<FollowUpAttachment>>? applyDraftAttachments = null) {
+        Action<IReadOnlyList<FollowUpAttachment>>? applyDraftAttachments = null,
+        Action<bool>? setPromptIsDictated = null) {
         _getWorkspace              = getWorkspace;
         _getPromptText             = getPromptText;
         _setPromptText             = setPromptText;
@@ -183,6 +185,7 @@ internal sealed class TranscriptConversationManager {
         _updateScrollLayout        = updateScrollLayout;
         _getDraftAttachments       = getDraftAttachments ?? (() => Array.Empty<FollowUpAttachment>());
         _applyDraftAttachments     = applyDraftAttachments ?? (_ => { });
+        _setPromptIsDictated       = setPromptIsDictated;
         _agentThreadSnapshotPersistTimer = new DispatcherTimer(
             AgentThreadSnapshotPersistDebounce,
             DispatcherPriority.Background,
@@ -276,10 +279,15 @@ internal sealed class TranscriptConversationManager {
 
         _currentSessionId = _conversationState.SessionId;
         _promptHistory.Clear();
+        const string voiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
         _promptHistory.AddRange(
             _conversationState.PromptHistory
                 .Where(text => !string.IsNullOrWhiteSpace(text))
-                .Select(text => new PromptHistoryEntry(text, Array.Empty<FollowUpAttachment>())));
+                .Select(text => {
+                    bool isDictated = text.EndsWith(voiceAnnotation, StringComparison.Ordinal);
+                    string clean    = isDictated ? text[..^voiceAnnotation.Length] : text;
+                    return new PromptHistoryEntry(clean, Array.Empty<FollowUpAttachment>(), isDictated);
+                }));
         ApplyPromptText(
             _conversationState.PromptDraft ?? string.Empty,
             _conversationState.PromptDraftCaretIndex,
@@ -1096,8 +1104,12 @@ internal sealed class TranscriptConversationManager {
     // ── Prompt history ──────────────────────────────────────────────────────────
 
     internal void AddPromptToHistory(string prompt, IReadOnlyList<FollowUpAttachment>? attachments = null) {
-        var entry = new PromptHistoryEntry(prompt, attachments ?? Array.Empty<FollowUpAttachment>());
-        if (_promptHistory.Count == 0 || _promptHistory[^1].Text != prompt)
+        const string voiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
+        bool isDictated = prompt.EndsWith(voiceAnnotation, StringComparison.Ordinal);
+        string cleanText = isDictated ? prompt[..^voiceAnnotation.Length] : prompt;
+
+        var entry = new PromptHistoryEntry(cleanText, attachments ?? Array.Empty<FollowUpAttachment>(), isDictated);
+        if (_promptHistory.Count == 0 || _promptHistory[^1].Text != cleanText)
             _promptHistory.Add(entry);
         _conversationState = _conversationState with {
             PromptHistory = _promptHistory.Select(e => e.Text).ToArray()
@@ -1278,6 +1290,7 @@ internal sealed class TranscriptConversationManager {
         _historyIndex = result.HistoryIndex;
         ApplyPromptText(result.Text);
         _applyDraftAttachments(result.Attachments ?? Array.Empty<FollowUpAttachment>());
+        _setPromptIsDictated?.Invoke(result.IsDictated);
     }
 
     internal void ResetHistoryNavigation() {
