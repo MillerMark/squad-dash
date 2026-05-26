@@ -799,6 +799,62 @@ internal sealed class BackgroundTaskPresenterTests {
         });
     }
 
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void PromoteRestoredBackgroundAgentReports_FiltersOutArgusWeldReports() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 5, 20, 12, 56, 54, TimeSpan.FromHours(-4));
+        
+        // Create an Argus Weld thread that would otherwise be promoted
+        var argusThread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-argus",
+            agentId: "argus-weld",
+            agentName: "argus-weld",
+            agentDisplayName: "Argus Weld",
+            agentDescription: "Maintenance agent",
+            status: "completed",
+            prompt: "Run maintenance check",
+            startedAt: startedAt.ToString("O"));
+        argusThread.WasObservedAsBackgroundTask = true;
+        argusThread.StatusText = "Completed";
+        argusThread.CompletedAt = startedAt.AddMinutes(5);
+        argusThread.LatestResponse = "I'm going to start the maintenance task now.";
+        
+        // Create a normal agent thread that should be promoted
+        var normalThread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-arjun",
+            agentId: "arjun-sen",
+            agentName: "arjun-sen",
+            agentDisplayName: "Arjun Sen",
+            agentDescription: "Backend specialist",
+            status: "completed",
+            prompt: "Build the backend",
+            startedAt: startedAt.ToString("O"));
+        normalThread.WasObservedAsBackgroundTask = true;
+        normalThread.StatusText = "Completed";
+        normalThread.CompletedAt = startedAt.AddMinutes(10);
+        normalThread.LatestResponse = "Backend implementation complete.";
+
+        var appendedLines = new List<string>();
+        var presenter = MakePresenter(registry, appendedLines: appendedLines);
+
+        var promoted = presenter.PromoteRestoredBackgroundAgentReports("workspace-load");
+
+        Assert.Multiple(() => {
+            // Only 1 report promoted (the normal agent, not Argus Weld)
+            Assert.That(promoted, Is.EqualTo(1));
+            Assert.That(appendedLines, Has.Count.EqualTo(1));
+            
+            // Verify it was the normal agent, not Argus Weld
+            Assert.That(appendedLines[0], Does.StartWith("Arjun Sen (arjun-sen) reported back:"));
+            Assert.That(appendedLines[0], Does.Contain("Backend implementation complete."));
+            
+            // Verify Argus Weld report was NOT promoted
+            Assert.That(appendedLines[0], Does.Not.Contain("Argus Weld"));
+            Assert.That(appendedLines[0], Does.Not.Contain("maintenance task"));
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static AgentThreadRegistry MakeRegistry() =>

@@ -189,7 +189,18 @@ internal sealed class BackgroundTaskPresenter {
         thread.WasObservedAsBackgroundTask &&
         AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText) &&
         !string.IsNullOrWhiteSpace(thread.LatestResponse) &&
-        string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse);
+        string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse) &&
+        !IsArgusWeldThread(thread);
+
+    /// <summary>
+    /// Returns true when the thread belongs to the Argus Weld maintenance agent.
+    /// Argus Weld reports should go to the Inbox only, not the Coordinator transcript.
+    /// </summary>
+    private static bool IsArgusWeldThread(TranscriptThreadState thread) =>
+        string.Equals(thread.AgentId, "argus-weld", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(thread.AgentName, "argus-weld", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(thread.AgentDisplayName, "Argus Weld", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(thread.Title, "Argus Weld", StringComparison.OrdinalIgnoreCase);
 
     // ── Public-facing query ──────────────────────────────────────────────────
 
