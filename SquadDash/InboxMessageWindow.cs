@@ -18,14 +18,19 @@ internal sealed class InboxMessageWindow : ChromedWindow
     public string MessageId { get; }
 
     private readonly Func<string, TaskItem?>? _lookupTask;
+    private readonly Action<string, InboxMessage>? _attachSelectedTextToChat;
+    private readonly InboxMessage _message;
 
     public InboxMessageWindow(
         InboxMessage message,
         Action<InboxAction, InboxMessage> onActionClicked,
-        Func<string, TaskItem?>? lookupTask = null)
+        Func<string, TaskItem?>? lookupTask = null,
+        Action<string, InboxMessage>? attachSelectedTextToChat = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
+        _attachSelectedTextToChat = attachSelectedTextToChat;
+        _message                = message;
         MessageId               = message.Id;
         Title                   = message.Subject;
         SizeToContent           = SizeToContent.Manual;
@@ -124,6 +129,35 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // Paragraph elements with backgrounds (code blocks). Intercept the copy event
         // to extract plain text from the selection, preserving all content.
         DataObject.AddCopyingHandler(bodyViewer, OnFlowDocumentCopying);
+
+        // Add context menu for "Add to Chat" on text selection
+        if (_attachSelectedTextToChat is not null)
+        {
+            var contextMenu = new ContextMenu();
+            var attachMenuItem = new MenuItem { Header = "Add to Chat" };
+            attachMenuItem.Click += (_, _) =>
+            {
+                var selection = bodyViewer.Selection;
+                if (!selection.IsEmpty)
+                {
+                    var selectedText = selection.Text;
+                    _attachSelectedTextToChat(selectedText, _message);
+                }
+            };
+            contextMenu.Items.Add(attachMenuItem);
+
+            // Explicitly set the custom context menu and suppress default behavior
+            bodyViewer.ContextMenu = contextMenu;
+            bodyViewer.ContextMenuOpening += (_, e) =>
+            {
+                // If no text is selected, cancel the context menu entirely
+                if (bodyViewer.Selection.IsEmpty)
+                {
+                    e.Handled = true;
+                }
+                // Otherwise, ensure our custom menu is shown
+            };
+        }
 
         var bodyBorder = new Border
         {
