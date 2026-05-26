@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -13,13 +14,14 @@ internal sealed class OpenAiTtsProvider : ITtsProvider
 {
     private static readonly HttpClient s_http = new();
 
-    private readonly string _apiKey;
+    private readonly byte[] _encryptedApiKey;
     private readonly string _voice;
     private readonly string _model;
 
     public OpenAiTtsProvider(string apiKey, string voice, string model)
     {
-        _apiKey = apiKey;
+        _encryptedApiKey = ProtectedData.Protect(
+            Encoding.UTF8.GetBytes(apiKey), null, DataProtectionScope.CurrentUser);
         _voice  = voice;
         _model  = model;
     }
@@ -36,7 +38,9 @@ internal sealed class OpenAiTtsProvider : ITtsProvider
             });
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/speech");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            string apiKey = Encoding.UTF8.GetString(
+                ProtectedData.Unprotect(_encryptedApiKey, null, DataProtectionScope.CurrentUser));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             request.Content = new StringContent(body, Encoding.UTF8, "application/json");
 
             using var response = await s_http.SendAsync(request, ct).ConfigureAwait(false);

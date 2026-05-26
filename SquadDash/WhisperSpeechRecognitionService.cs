@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,7 +25,7 @@ internal sealed class WhisperSpeechRecognitionService : ISpeechRecognitionServic
     private WaveInEvent? _waveIn;
     private MemoryStream? _buffer;
     private WaveFileWriter? _writer;
-    private string _apiKey = "";
+    private byte[]? _encryptedApiKey;
     private string? _language;
     private CancellationTokenSource? _cts;
     private volatile bool _stopping;
@@ -40,7 +42,8 @@ internal sealed class WhisperSpeechRecognitionService : ISpeechRecognitionServic
     public Task StartAsync(string apiKey, string regionOrEndpoint, IEnumerable<string>? phraseHints = null, string? language = null)
     {
         _stopping = false;
-        _apiKey = apiKey;
+        _encryptedApiKey = ProtectedData.Protect(
+            Encoding.UTF8.GetBytes(apiKey), null, DataProtectionScope.CurrentUser);
         _language = string.IsNullOrWhiteSpace(language) ? null : language.Trim();
         _cts = new CancellationTokenSource();
 
@@ -148,7 +151,9 @@ internal sealed class WhisperSpeechRecognitionService : ISpeechRecognitionServic
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            string apiKey = Encoding.UTF8.GetString(
+                ProtectedData.Unprotect(_encryptedApiKey!, null, DataProtectionScope.CurrentUser));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             request.Content = content;
 
             using var response = await _http.SendAsync(request).ConfigureAwait(false);
