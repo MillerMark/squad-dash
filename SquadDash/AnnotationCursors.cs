@@ -27,6 +27,7 @@ internal static class AnnotationCursors {
     private static Cursor? _eyedropperTool;
     private static Cursor? _textTool;
     private static Cursor? _rotateEndpoint;
+    private static Cursor? _measureLineTool;
 
     // ── Public properties ─────────────────────────────────────────────────────
 
@@ -89,6 +90,14 @@ internal static class AnnotationCursors {
     /// </summary>
     public static Cursor RotateEndpoint
         => _rotateEndpoint ??= CreateCursorFromDrawing(CreateRotateEndpointDrawing(), 32, 32, hotX: 16, hotY: 16);
+
+    /// <summary>
+    /// Measure-line-tool cursor: precision crosshair with a horizontal double-headed arrow
+    /// at centre, indicating that you are about to drag a dimension line.
+    /// Hotspot = (16, 16).
+    /// </summary>
+    public static Cursor MeasureLineTool
+        => _measureLineTool ??= CreateCursorFromDrawing(CreateMeasureLineToolDrawing(), 32, 32, hotX: 16, hotY: 16);
 
     // ── Cursor factory ────────────────────────────────────────────────────────
 
@@ -479,6 +488,50 @@ internal static class AnnotationCursors {
         dc.DrawLine(whitePen, tip, pb);
         dc.DrawLine(darkPen, tip, pa);
         dc.DrawLine(darkPen, tip, pb);
+    }
+
+    /// <summary>Measure-line-tool cursor (32×32): crosshair + horizontal double-headed arrow.</summary>
+    private static Drawing CreateMeasureLineToolDrawing() {
+        var dg = new DrawingGroup();
+        using (var dc = dg.Open()) {
+            // Precision crosshair (fine, light grey lines with gap around centre)
+            var crossPen = new Pen(new SolidColorBrush(Color.FromArgb(180, 80, 80, 80)), 1.0);
+            const double gap = 4.0;
+            dc.DrawLine(crossPen, new Point(0, 16), new Point(16 - gap, 16));   // left arm
+            dc.DrawLine(crossPen, new Point(16 + gap, 16), new Point(32, 16));  // right arm
+            dc.DrawLine(crossPen, new Point(16, 0), new Point(16, 16 - gap));   // top arm
+            dc.DrawLine(crossPen, new Point(16, 16 + gap), new Point(16, 32));  // bottom arm
+
+            // Horizontal double-headed arrow (←→) centred at (16, 16)
+            var arrowPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.5) {
+                StartLineCap = PenLineCap.Round,
+                EndLineCap   = PenLineCap.Round,
+            };
+            const double ax1 = 8.0, ax2 = 24.0, ay = 16.0;
+            const double headLen = 4.0, headH = 3.0;
+
+            // Shaft
+            dc.DrawLine(arrowPen, new Point(ax1, ay), new Point(ax2, ay));
+
+            // Left arrowhead
+            var leftHead = new StreamGeometry();
+            using (var sgc = leftHead.Open()) {
+                sgc.BeginFigure(new Point(ax1, ay), true, true);
+                sgc.LineTo(new Point(ax1 + headLen, ay - headH), true, false);
+                sgc.LineTo(new Point(ax1 + headLen, ay + headH), true, false);
+            }
+            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(30, 30, 30)), null, leftHead);
+
+            // Right arrowhead
+            var rightHead = new StreamGeometry();
+            using (var sgc = rightHead.Open()) {
+                sgc.BeginFigure(new Point(ax2, ay), true, true);
+                sgc.LineTo(new Point(ax2 - headLen, ay - headH), true, false);
+                sgc.LineTo(new Point(ax2 - headLen, ay + headH), true, false);
+            }
+            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(30, 30, 30)), null, rightHead);
+        }
+        return dg;
     }
 
     private static void DrawCrosshair(DrawingContext dc, double cx, double cy) {

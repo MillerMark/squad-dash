@@ -277,6 +277,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// </summary>
     private bool _inArrowMultiDropMode;
     private bool _inRectMultiDropMode;
+    private bool _inMeasureLineMultiDropMode;
     private bool _inMoveMode;
     private bool _inCropMode;
 
@@ -969,9 +970,17 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         _addMeasureLineBtn!.Click += (_, _) => {
             if (_inMeasureLineMode) { ExitMeasureLineMode(returnToMove: true); return; }
+            bool isShift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
             ExitAllToolModes();
             EnterMeasureLineMode();
-            _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true);
+            if (isShift) {
+                _inMeasureLineMultiDropMode = true;
+                ShowModeHint("Multi-drop: drag to place dimension lines · ESC to exit");
+                _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true, multiDrop: true);
+            }
+            else {
+                _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true);
+            }
         };
 
         cursorBtn.Click += (_, _) => {
@@ -1545,6 +1554,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (_inTextMode) return AnnotationCursors.TextTool;
         if (_inCursorPlacementMode) return AnnotationCursors.DropCursorTool;
         if (_inCropMode) return AnnotationCursors.CropTool;
+        if (_inMeasureLineMode) return AnnotationCursors.MeasureLineTool;
         if (_inMoveMode) return Cursors.Arrow;
         return _canvas.Cursor ?? Cursors.Arrow;
     }
@@ -2280,7 +2290,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _preDragSnapshot = null;
             }
             CommitDragUndo();
-            ExitMeasureLineMode(returnToMove: true);
+            if (_inMeasureLineMultiDropMode) {
+                // Multi-drop: stay in measure-line mode; reset canvas cursor for next drag
+                _canvas.Cursor = AnnotationCursors.MeasureLineTool;
+                ShowModeHint("Multi-drop: drag to place dimension lines · ESC to exit");
+            }
+            else {
+                ExitMeasureLineMode(returnToMove: true);
+            }
             e.Handled = true;
             return;
         }
@@ -2490,10 +2507,18 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 if (_addTextBtn != null) _addTextBtn.Content = MakeToolIcon("ImageEditorTextIcon", active: true);
                 e.Handled = true;
             }
-            else if (e.Key == Key.D) {
+            else if (e.Key == Key.D && !shift) {
                 ExitAllToolModes();
                 EnterMeasureLineMode();
                 if (_addMeasureLineBtn != null) _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.D && shift) {
+                ExitAllToolModes();
+                EnterMeasureLineMode();
+                _inMeasureLineMultiDropMode = true;
+                ShowModeHint("Multi-drop: drag to place dimension lines · ESC to exit");
+                if (_addMeasureLineBtn != null) _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true, multiDrop: true);
                 e.Handled = true;
             }
         }
@@ -2572,14 +2597,15 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _inMoveMode = false;
         _inCropMode = false;
         _inMeasureLineMode = true;
-        _canvas.Cursor = AnnotationCursors.ArrowTool;
-        Cursor = AnnotationCursors.ArrowTool;
+        _canvas.Cursor = AnnotationCursors.MeasureLineTool;
+        Cursor = AnnotationCursors.MeasureLineTool;
         ShowModeHint("Drag to draw a dimension line · ESC to exit");
         if (_addMeasureLineBtn != null) _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true);
     }
 
     private void ExitMeasureLineMode(bool returnToMove = false) {
         _inMeasureLineMode = false;
+        _inMeasureLineMultiDropMode = false;
         _canvas.Cursor = Cursors.Arrow;
         Cursor = Cursors.Arrow;
         HideModeHint();
