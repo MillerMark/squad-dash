@@ -2246,9 +2246,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void AddEmptyQueueSlot()
     {
         _promptQueue.EnqueueAtFront(string.Empty, ++_promptQueueSeq);
-        var newId = _promptQueue.Items[0].Id;
+        var item = _promptQueue.Items[0];
+        item.QueueNumber = NextQueueNumber();
         SyncQueuePanel();
-        OnQueueTabClicked(newId);
+        OnQueueTabClicked(item.Id);
         PromptTextBox.Focus();
     }
 
@@ -2256,9 +2257,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void AddEmptyQueueSlotAtEnd()
     {
         _promptQueue.Enqueue(string.Empty, ++_promptQueueSeq);
-        var newId = _promptQueue.Items[^1].Id;
+        var item = _promptQueue.Items[^1];
+        item.QueueNumber = NextQueueNumber();
         SyncQueuePanel();
-        OnQueueTabClicked(newId);
+        OnQueueTabClicked(item.Id);
         PromptTextBox.Focus();
     }
 
@@ -27378,6 +27380,38 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
+    private void AttachInboxMessageSelectedTextFollowUp(string selectedText, InboxMessage msg)
+    {
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        if (list.Count >= 15) return;
+
+        // Build attachment content with message context
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"From: {msg.From}");
+        sb.AppendLine($"Subject: {msg.Subject}");
+        sb.AppendLine($"Date: {msg.Timestamp:g}");
+        sb.AppendLine();
+        sb.AppendLine("Selected excerpt:");
+        sb.AppendLine("---");
+        sb.Append(selectedText.Trim());
+
+        var contentBlock = BuildTypedAttachmentBlock(
+            "inbox-excerpt", 
+            $"Excerpt from: {msg.Subject}", 
+            sb.ToString().TrimEnd());
+
+        list.Add(new FollowUpAttachment(
+            CommitSha:      string.Empty,
+            Description:    $"Excerpt: {msg.Subject}",
+            OriginalPrompt: null,
+            ContentBlock:   contentBlock,
+            InboxMessageId: msg.Id));
+
+        UpdateFollowUpStrip();
+        SyncQueuePanel();
+        if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
     private void OpenOrFocusInboxMessage(string messageId)
     {
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
@@ -27390,7 +27424,11 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
         var msg = _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
         if (msg is null) return;
-        var win = new InboxMessageWindow(msg, DispatchInboxAction, LookupTaskById);
+        var win = new InboxMessageWindow(
+            msg, 
+            DispatchInboxAction, 
+            LookupTaskById,
+            attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
