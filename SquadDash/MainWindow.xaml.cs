@@ -28271,6 +28271,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         _maintenanceStateStore ??= new MaintenanceStateStore(Path.Combine(workspacePath, ".squad"));
+        _maintenanceStateStore.Reload();
         _maintenanceReportWriter = new MaintenanceReportWriter(workspacePath);
 
         if (_maintenanceRunner?.IsRunning == true)
@@ -28620,6 +28621,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private void InitIdleDetection(string workspacePath)
     {
         _maintenanceStateStore ??= new MaintenanceStateStore(Path.Combine(workspacePath, ".squad"));
+        _maintenanceStateStore.Reload();
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
         double thresholdMinutes = config?.IdleTimeout ?? 15.0;
