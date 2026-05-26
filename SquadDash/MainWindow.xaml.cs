@@ -17870,11 +17870,14 @@ public partial class MainWindow : Window, ILiveElementLocator
                 // Count attachment blocks in the header before stripping so we can show the
                 // correct "📎 N attachments" count even though content isn't reconstructed.
                 var headerPart = bodyStart >= 0 ? displayPrompt[..bodyStart] : displayPrompt;
-                var blockCount = AttachmentBlockFormatter.CountAttachmentBlocks(headerPart);
+                var typedBlocks = AttachmentBlockFormatter.ExtractAttachmentBlocks(headerPart);
+                var blockCount = typedBlocks.Count;
                 historicalAttachmentCount = blockCount > 0 ? blockCount : 1;
+                attachmentsForViewer = typedBlocks.Count > 0
+                    ? typedBlocks.Select(BuildHistoricalTypedAttachment).ToList()
+                    : null;
                 if (bodyStart >= 0)
                     displayPrompt = displayPrompt[bodyStart..];
-                attachmentsForViewer = null;
             }
             else
             {
@@ -27358,6 +27361,30 @@ public partial class MainWindow : Window, ILiveElementLocator
     private static int StripTypedAttachmentHeaders(string prompt) =>
         AttachmentBlockFormatter.StripTypedAttachmentHeaders(prompt);
 
+    private static FollowUpAttachment BuildHistoricalTypedAttachment(string block)
+    {
+        var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
+        var description = !string.IsNullOrWhiteSpace(title)
+            ? title!
+            : type switch
+            {
+                "clipboard"      => "Clipboard",
+                "doc"            => "Documentation",
+                "inbox-excerpt"  => "Inbox excerpt",
+                "inbox-message"  => "Inbox message",
+                "note"           => "Note",
+                "task"           => "Task",
+                "transcript"     => "Transcript",
+                _                => "Attachment",
+            };
+
+        return new FollowUpAttachment(
+            CommitSha: string.Empty,
+            Description: description,
+            OriginalPrompt: null,
+            ContentBlock: block);
+    }
+
     private void AttachContextFollowUp(string description, string contentBlock)    {
         var list = GetOrCreateFollowUpList(_activeTabId ?? "");
         // Deduplicate by description.
@@ -28116,7 +28143,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             // A plain prose mention of "INBOX_MESSAGE_JSON" (e.g. in backtick code spans or
             // AI narration) lacks the colon+brace sequence and must NOT trigger the error panel.
             const string sentinel = "INBOX_MESSAGE_JSON:";
-            int sentinelIdx = responseForParsing.IndexOf(sentinel, StringComparison.Ordinal);
+            int sentinelIdx = responseForParsing.LastIndexOf(sentinel, StringComparison.Ordinal);
             bool hasActualBlock = sentinelIdx >= 0 &&
                 responseForParsing.IndexOf('{', sentinelIdx + sentinel.Length) >= 0;
             if (hasActualBlock)

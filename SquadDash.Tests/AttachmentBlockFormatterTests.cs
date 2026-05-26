@@ -116,4 +116,28 @@ internal sealed class AttachmentBlockFormatterTests {
 
         Assert.That(result, Is.EqualTo(plain));
     }
+
+    [Test]
+    public void ExtractAttachmentBlocks_ReturnsTypedBlocksFromHeader() {
+        var first = AttachmentBlockFormatter.BuildTypedAttachmentBlock("clipboard", "Error details", "stack trace");
+        var second = AttachmentBlockFormatter.BuildTypedAttachmentBlock("note", "Daily note", "note body");
+        var prompt = "The user has attached the following context items. Please refer to them as needed.\n" +
+                     first + "\n" + second + "\n\nPlease inspect these.";
+
+        var blocks = AttachmentBlockFormatter.ExtractAttachmentBlocks(prompt);
+
+        Assert.That(blocks, Has.Count.EqualTo(2));
+        Assert.That(AttachmentBlockFormatter.ExtractAttachmentContent(blocks[0]), Is.EqualTo("stack trace"));
+        Assert.That(AttachmentBlockFormatter.ExtractAttachmentContent(blocks[1]), Is.EqualTo("note body"));
+    }
+
+    [Test]
+    public void ExtractAttachmentMetadata_ReturnsTypeAndDecodedTitle() {
+        var block = AttachmentBlockFormatter.BuildTypedAttachmentBlock("inbox-message", "Quoted \"Title\"", "body");
+
+        var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
+
+        Assert.That(type, Is.EqualTo("inbox-message"));
+        Assert.That(title, Is.EqualTo("Quoted \"Title\""));
+    }
 }

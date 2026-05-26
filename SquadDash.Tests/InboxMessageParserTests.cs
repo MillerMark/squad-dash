@@ -413,6 +413,56 @@ internal sealed class InboxMessageParserTests {
     }
 
     [Test]
+    public void TryExtract_UnescapedQuotesInBody_ParsesSuccessfully()
+    {
+        const string text = """
+            INBOX_MESSAGE_JSON:
+            {
+              "subject": "Docs Audit",
+              "from": "argus-weld",
+              "body": "## Accuracy\n\n> § *Sending a Prompt*: "Press **Shift+Enter** or **Ctrl+Enter** to insert a line break without sending."\n\nKeep `from` as free-form text.",
+              "attachments": []
+            }
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Body, Does.Contain("\"Press **Shift+Enter**"));
+        Assert.That(dto.Body, Does.Contain("free-form text"));
+    }
+
+    [Test]
+    public void TryExtract_UnescapedQuotesInActionPrompt_ParsesSuccessfully()
+    {
+        const string text = """
+            INBOX_MESSAGE_JSON:
+            {
+              "subject": "Docs Audit",
+              "from": "argus-weld",
+              "body": "Ready",
+              "attachments": [],
+              "actions": [
+                {
+                  "label": "Fix docs",
+                  "routeMode": "start_named_agent",
+                  "targetAgent": "mira-quill",
+                  "prompt": "Mira: fix the sentence "Press Shift+Enter or Ctrl+Enter" in entering-prompts.md."
+                }
+              ]
+            }
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Actions, Has.Count.EqualTo(1));
+        Assert.That(dto.Actions[0].Prompt, Does.Contain("\"Press Shift+Enter or Ctrl+Enter\""));
+    }
+
+    [Test]
     public void TryExtract_NoLiteralNewlines_StillParses()
     {
         // Regression: valid JSON with proper escape sequences must still work

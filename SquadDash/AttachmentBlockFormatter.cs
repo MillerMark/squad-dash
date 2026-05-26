@@ -171,6 +171,38 @@ internal static class AttachmentBlockFormatter
         return count;
     }
 
+    internal static IReadOnlyList<string> ExtractAttachmentBlocks(string text)
+    {
+        const string AttachOpenTag = "<attachment ";
+        var blocks = new List<string>();
+        int pos = 0;
+        while ((pos = text.IndexOf(AttachOpenTag, pos, StringComparison.Ordinal)) >= 0)
+        {
+            var closeIdx = text.IndexOf(LiteralCloseTag, pos, StringComparison.Ordinal);
+            if (closeIdx < 0)
+                break;
+
+            var end = closeIdx + LiteralCloseTag.Length;
+            blocks.Add(text[pos..end]);
+            pos = end;
+        }
+
+        return blocks;
+    }
+
+    internal static (string? Type, string? Title) ExtractAttachmentMetadata(string block)
+    {
+        if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
+            return (null, null);
+
+        var closeAngle = block.IndexOf('>', StringComparison.Ordinal);
+        if (closeAngle < 0)
+            return (null, null);
+
+        var openTag = block[..closeAngle];
+        return (ExtractAttribute(openTag, "type"), ExtractAttribute(openTag, "title"));
+    }
+
     /// <summary>
     /// Strips the outer <c>&lt;attachment …&gt;…&lt;/attachment&gt;</c> wrapper from a typed
     /// attachment block and returns the inner content with any escaped close tags restored.
@@ -190,5 +222,20 @@ internal static class AttachmentBlockFormatter
         if (start < block.Length && block[start] == '\n') start++; // skip leading newline
         var content = block[start..closeIdx].TrimEnd();
         return content.Replace(EscapedCloseTag, LiteralCloseTag, StringComparison.Ordinal);
+    }
+
+    private static string? ExtractAttribute(string openTag, string name)
+    {
+        var marker = name + "=\"";
+        var start = openTag.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+            return null;
+
+        start += marker.Length;
+        var end = openTag.IndexOf('"', start);
+        if (end < 0)
+            return null;
+
+        return openTag[start..end].Replace("&quot;", "\"", StringComparison.Ordinal);
     }
 }

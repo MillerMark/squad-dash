@@ -67,7 +67,9 @@ internal static class InboxMessageParser
             return false;
 
         // Walk the JSON using brace depth so we stop at the true closing brace,
-        // regardless of whatever prose or markdown follows it.
+        // regardless of whatever prose or markdown follows it. The model
+        // sometimes leaves prose quotes unescaped inside string values; treat
+        // those as content rather than letting them corrupt string state.
         int depth    = 0;
         int braceEnd = -1;
         bool inString = false;
@@ -81,7 +83,12 @@ internal static class InboxMessageParser
                 continue;
             }
             if (c == '\\' && inString) { escaped = true; continue; }
-            if (c == '"') { inString = !inString; continue; }
+            if (c == '"')
+            {
+                if (!inString || IsLikelyJsonStringTerminator(normalized, i))
+                    inString = !inString;
+                continue;
+            }
             if (inString) continue;
 
             if      (c == '{') depth++;
@@ -99,7 +106,7 @@ internal static class InboxMessageParser
 
         try
         {
-            var sanitized = SanitizeLiteralWhitespaceInStrings(jsonText);
+            var sanitized = SanitizeMalformedStringContent(jsonText);
             dto = JsonSerializer.Deserialize<InboxMessageDto>(sanitized, ParseOptions);
             if (dto is null)
                 return false;
@@ -114,11 +121,11 @@ internal static class InboxMessageParser
     }
 
     /// <summary>
-    /// Replaces literal newline and tab characters that appear inside JSON string values
-    /// with their JSON escape sequences. The AI sometimes emits multi-line prompt text
-    /// with real newlines rather than \n, which makes the JSON invalid.
+    /// Replaces common malformed content inside JSON string values with valid escape
+    /// sequences. The AI sometimes emits multi-line prompt text with real newlines
+    /// rather than \n, or prose quotes rather than \", which makes the JSON invalid.
     /// </summary>
-    private static string SanitizeLiteralWhitespaceInStrings(string json)
+    private static string SanitizeMalformedStringContent(string json)
     {
         var sb = new System.Text.StringBuilder(json.Length + 64);
         bool inString = false;
@@ -133,7 +140,19 @@ internal static class InboxMessageParser
                 continue;
             }
             if (c == '\\' && inString) { sb.Append(c); escaped = true; continue; }
-            if (c == '"') { inString = !inString; sb.Append(c); continue; }
+            if (c == '"')
+            {
+                if (!inString || IsLikelyJsonStringTerminator(json, i))
+                {
+                    inString = !inString;
+                    sb.Append(c);
+                }
+                else
+                {
+                    sb.Append("\\\"");
+                }
+                continue;
+            }
             if (inString)
             {
                 if (c == '\r')
@@ -149,6 +168,20 @@ internal static class InboxMessageParser
             sb.Append(c);
         }
         return sb.ToString();
+    }
+
+    private static bool IsLikelyJsonStringTerminator(string json, int quoteIndex)
+    {
+        for (int i = quoteIndex + 1; i < json.Length; i++)
+        {
+            var c = json[i];
+            if (char.IsWhiteSpace(c))
+                continue;
+
+            return c is ':' or ',' or '}' or ']';
+        }
+
+        return true;
     }
 
     /// <summary>
