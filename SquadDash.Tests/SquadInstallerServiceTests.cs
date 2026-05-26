@@ -232,7 +232,7 @@ internal sealed class GitIgnoreMaintenanceStateTests {
     [Test]
     public void EnsureMaintenanceStateInGitIgnore_NoChange_WhenEntryAlreadyPresent() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
-        File.WriteAllText(gitIgnorePath, "node_modules\nmaintenance-state.json\n");
+        File.WriteAllText(gitIgnorePath, "node_modules\nmaintenance-state.json\n.squad/maintenance-reports/\n");
         var originalLineCount = File.ReadAllLines(gitIgnorePath).Length;
 
         var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
@@ -256,7 +256,7 @@ internal sealed class GitIgnoreMaintenanceStateTests {
     [Test]
     public void EnsureMaintenanceStateInGitIgnore_CaseInsensitive_ExistingEntry() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
-        File.WriteAllText(gitIgnorePath, "MAINTENANCE-STATE.JSON\n");
+        File.WriteAllText(gitIgnorePath, "MAINTENANCE-STATE.JSON\n.SQUAD/MAINTENANCE-REPORTS/\n");
 
         var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
 

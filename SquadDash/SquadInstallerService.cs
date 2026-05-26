@@ -283,11 +283,16 @@ internal sealed class SquadInstallerService {
         var gitIgnorePath = Path.Combine(workspaceFolder, ".gitignore");
 
         try {
-            var existing = File.Exists(gitIgnorePath)
-                ? new HashSet<string>(
-                    File.ReadAllLines(gitIgnorePath).Select(l => l.Trim()),
-                    StringComparer.OrdinalIgnoreCase)
-                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> existing;
+            if (File.Exists(gitIgnorePath)) {
+                var lines = File.ReadAllLines(gitIgnorePath)
+                    .Select(l => l.Trim())
+                    .ToArray();
+                existing = new HashSet<string>(lines, StringComparer.OrdinalIgnoreCase);
+            }
+            else {
+                existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
 
             var missing = required.Where(r => !existing.Contains(r.Entry)).ToList();
             if (missing.Count == 0)
