@@ -95,6 +95,5 @@ Other workspaces are unaffected — each folder tracks its own view mode indepen
 
 ## Related
 
-- **[View Modes](view-modes.md)** — Overview of Normal, Fullscreen, and Documentation modes
 - **[Keyboard Shortcuts](../reference/keyboard-shortcuts.md)** — All global and context-specific shortcuts
 - **[Push-to-Talk](../reference/keyboard-shortcuts.md#push-to-talk-ptt)** — Voice input details

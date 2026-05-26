@@ -57,8 +57,8 @@ If `docs/SUMMARY.md` exists, SquadDash uses it to build the tree view:
 
 ## Getting Started
 
-* [Installation](getting-started/installation.md)
-* [First Run](getting-started/first-run.md)
+* [Installation](../getting-started/installation.md)
+* [First Run](../getting-started/first-run.md)
 ```
 
 This creates a structured navigation tree.

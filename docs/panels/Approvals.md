@@ -115,6 +115,6 @@ If a follow-up is attached to the **Active Draft** and you queue that prompt whi
 
 ## Related
 
-- **[Loop Panel](loop-panel.md)** — Commit entries accumulate quickly during loop runs; the approvals panel is the review checkpoint
+- **[Loop Panel](Loop.md)** — Commit entries accumulate quickly during loop runs; the approvals panel is the review checkpoint
 - **[Transcripts](../concepts/transcripts.md)** — Jump-to-turn lands in the coordinator transcript
 - **[Configuration](../reference/configuration.md)** — Setting the workspace GitHub URL
