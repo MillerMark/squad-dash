@@ -27140,14 +27140,30 @@ public partial class MainWindow : Window, ILiveElementLocator
         // FindThreadForDocument falls back to CoordinatorThread when the RTB's document
         // isn't registered yet; in that case the PromptParagraphs belong to a different
         // TextTree and CompareTo would throw ArgumentException.
+        // Secondary guard: when the selection spans a BlockUIContainer (e.g. quick-reply
+        // buttons), WPF can return a Selection.Start TextPointer anchored inside the hosted
+        // UIElement's internal layout tree rather than the FlowDocument TextTree.  The outer
+        // ReferenceEquals check passes (rtb.Document still matches), but CompareTo throws.
+        // A null Parent on an entry means the Paragraph was detached; skip those too.
         if (ReferenceEquals(thread.Document, rtb.Document))
         {
-            foreach (var entry in thread.PromptParagraphs)
+            try
             {
-                if (entry.Paragraph.ContentStart.CompareTo(selectionStart) < 0)
-                    precedingEntry = entry;
-                else
-                    break;
+                foreach (var entry in thread.PromptParagraphs)
+                {
+                    if (entry.Paragraph.Parent is null) continue;
+                    if (entry.Paragraph.ContentStart.CompareTo(selectionStart) < 0)
+                        precedingEntry = entry;
+                    else
+                        break;
+                }
+            }
+            catch (ArgumentException)
+            {
+                // selectionStart was from a different TextTree (selection spanned a
+                // BlockUIContainer hosting interactive controls).  Skip preceding-context
+                // lookup; the attachment still works, just without the prior-prompt hint.
+                precedingEntry = null;
             }
         }
         string? originalPrompt = precedingEntry is not null
