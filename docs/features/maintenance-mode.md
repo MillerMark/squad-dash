@@ -141,6 +141,31 @@ Both methods are equivalent — the file is the single source of truth.
 
 ---
 
+## Running tasks manually
+
+The **Run now** button in the Maintenance panel starts a maintenance cycle immediately without waiting for the idle timeout.
+
+**Frequency rules still apply** — the button only runs tasks that are:
+1. ✅ **Enabled** (checkbox checked)
+2. ✅ **Eligible** based on their frequency setting and last run time
+
+For example, if a `weekly` task ran yesterday, clicking "Run now" will skip it because it's not eligible yet. This is the same eligibility check used during automatic idle windows.
+
+### Use cases for "Run now"
+
+- Testing a newly-enabled task without waiting for the idle timeout
+- Re-running `always` frequency tasks on demand
+- Triggering `after-commits` tasks immediately after a commit
+- Running eligible tasks right now instead of waiting for idle
+
+### Testing without frequency limits
+
+To force a task to run regardless of when it last ran:
+1. Delete or edit `maintenance-state.json` to remove that task's `lastRunAt` entry, OR
+2. Temporarily change the task's frequency to `always`
+
+---
+
 ## Frequency values
 
 | Value           | Behaviour                                                                                          |
