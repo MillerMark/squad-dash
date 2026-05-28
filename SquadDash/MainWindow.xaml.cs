@@ -24543,9 +24543,20 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void UpdateRosterHeightCap()
     {
-        StatusAgentPanelsGrid.MaxHeight = ActualHeight < 900
+        // border padding (24) + title text (~22) + subtitle text + its margin (~34)
+        const double inactiveRosterPanelChrome = 80;
+
+        var gridMaxHeight = ActualHeight < 900
             ? Math.Floor(ActualHeight / 3)
             : double.PositiveInfinity;
+
+        StatusAgentPanelsGrid.MaxHeight = gridMaxHeight;
+
+        // Propagate the cap into the scroll viewer so it scrolls rather than letting
+        // the grid clip agent cards whose role text has wrapped to a second line.
+        InactiveAgentsScrollViewer.MaxHeight = double.IsPositiveInfinity(gridMaxHeight)
+            ? double.PositiveInfinity
+            : Math.Max(60, gridMaxHeight - inactiveRosterPanelChrome);
     }
 
     private void ScheduleAgentPanelLayoutRefresh()
