@@ -60,8 +60,13 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         else
         {
             var tabs = new TabControl { Margin = new Thickness(4) };
+            tabs.SetResourceReference(Control.StyleProperty, "ThemedTabControlStyle");
             foreach (var att in attachments)
-                tabs.Items.Add(BuildTab(att));
+            {
+                var tab = BuildTab(att);
+                tab.SetResourceReference(Control.StyleProperty, "ThemedTabItemStyle");
+                tabs.Items.Add(tab);
+            }
             content = tabs;
         }
 
@@ -156,7 +161,6 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         return new TabItem
         {
             Header  = label,
-            Padding = new Thickness(6, 3, 6, 3),
             Content = WrapInMargin(BuildAttachmentContent(att, out _))
         };
     }
