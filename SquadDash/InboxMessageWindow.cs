@@ -43,9 +43,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         WindowStartupLocation   = WindowStartupLocation.CenterOwner;
         ShowInTaskbar           = true;
 
-        // Debug logging for window size
-        var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "squaddash-window-debug.log");
-        System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Constructor: Width={Width}, Height={Height}\n");
+        SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.ctor: msgId={message.Id} subject='{message.Subject}' attachments={message.Attachments.Count} actions={message.Actions.Count}");
 
         // Root grid: header / attachments / actions / body
         var root = new Grid();
@@ -177,12 +175,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Grid.SetRow(bodyBorder, 3);
         root.Children.Add(bodyBorder);
 
-        // Debug logging in Loaded event
         Loaded += (_, _) =>
-        {
-            var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "squaddash-window-debug.log");
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Loaded: ActualWidth={ActualWidth}, ActualHeight={ActualHeight}\n");
-        };
+            SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.Loaded: msgId={MessageId} ActualWidth={ActualWidth} ActualHeight={ActualHeight} bodyDocBlocks={_bodyViewer.Document?.Blocks.Count ?? -1}");
     }
 
     private static void OnFlowDocumentCopying(object sender, DataObjectCopyingEventArgs e)
@@ -402,6 +396,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             case "text":
                 chip.MouseLeftButtonUp += (_, _) =>
                 {
+                    SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.AttachmentChip.Click: type=text label='{att.Label}' contentLen={att.Content?.Length ?? 0} — opening MarkdownDocumentWindow, NOT calling SelectAndScrollToText");
                     try { MarkdownDocumentWindow.ShowContent(owner, att.Label, att.Content ?? ""); }
                     catch { }
                 };
@@ -417,77 +412,53 @@ internal sealed class InboxMessageWindow : ChromedWindow
     /// </summary>
     public void SelectAndScrollToText(string excerptText)
     {
-        var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "squaddash-excerpt-debug.log");
-        void Log(string msg)
-        {
-            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-            var logMsg = $"{timestamp} {msg}\n";
-            System.IO.File.AppendAllText(logPath, logMsg);
-            System.Diagnostics.Trace.WriteLine(msg);
-        }
-        
-        Log($"[SelectAndScroll] Called with text: '{excerptText}'");
-        
+        SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: called for msgId={MessageId} excerptLen={excerptText.Length} excerpt='{excerptText[..Math.Min(80, excerptText.Length)]}'");
+
         if (string.IsNullOrWhiteSpace(excerptText))
         {
-            Log($"[SelectAndScroll] Excerpt text is null or whitespace, exiting");
+            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: EARLY EXIT — excerpt text is null or whitespace");
             return;
         }
 
         var doc = _bodyViewer.Document;
         if (doc is null)
         {
-            Log($"[SelectAndScroll] Document is null, exiting");
+            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: EARLY EXIT — _bodyViewer.Document is null");
             return;
         }
 
-        Log($"[SelectAndScroll] Document found, searching for text");
-        
-        // DEBUG: Dump the first 500 chars of the document text
         var debugRange = new TextRange(doc.ContentStart, doc.ContentEnd);
-        var debugText = debugRange.Text;
-        Log($"[SelectAndScroll] Document text length: {debugText.Length}");
-        Log($"[SelectAndScroll] First 500 chars: '{debugText[..Math.Min(500, debugText.Length)]}'");
-        Log($"[SelectAndScroll] Looking for excerpt: '{excerptText}'");
-        Log($"[SelectAndScroll] Excerpt exists in doc: {debugText.Contains(excerptText)}");
-        
-        // Search the document for the excerpt text
-        var docStart = doc.ContentStart;
-        var docEnd = doc.ContentEnd;
+        var debugText  = debugRange.Text;
+        var excerptFound = debugText.Contains(excerptText, StringComparison.Ordinal);
+        SquadDashTrace.Write(TraceCategory.Inbox,
+            $"InboxMessageWindow.SelectAndScrollToText: docTextLen={debugText.Length} excerptFoundInDoc={excerptFound} — first 200 chars of doc: '{debugText[..Math.Min(200, debugText.Length)]}'");
 
-        // Find the text in the document
-        var foundRange = FindTextInRange(docStart, docEnd, excerptText);
+        var foundRange = FindTextInRange(doc.ContentStart, doc.ContentEnd, excerptText);
         if (foundRange is not null)
         {
-            Log($"[SelectAndScroll] Text found! Setting selection and scrolling");
-            
-            // Select the found text
+            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: text found in document — setting selection");
             _bodyViewer.Selection.Select(foundRange.Start, foundRange.End);
-            
-            Log($"[SelectAndScroll] Selection set, checking if selection is visible");
-            Log($"[SelectAndScroll] Selection.IsEmpty: {_bodyViewer.Selection.IsEmpty}");
-            Log($"[SelectAndScroll] Selection text: '{_bodyViewer.Selection.Text}'");
+            SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: selection applied — IsEmpty={_bodyViewer.Selection.IsEmpty} selText='{_bodyViewer.Selection.Text[..Math.Min(80, _bodyViewer.Selection.Text.Length)]}'");
 
-            // Force focus to the viewer to ensure selection is visible
             _bodyViewer.Focus();
-            
-            // Try multiple scrolling approaches to ensure visibility
-            // Approach 1: BringIntoView on the paragraph
+            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: focus set on _bodyViewer — calling BringIntoView on paragraph");
             foundRange.Start.Paragraph?.BringIntoView();
-            
-            // Approach 2: Also call BringIntoView on the actual TextPointer's rect
+
             var rect = foundRange.Start.GetCharacterRect(LogicalDirection.Forward);
             if (!rect.IsEmpty)
             {
-                Log($"[SelectAndScroll] Character rect found, calling BringIntoView on rect");
+                SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: character rect found ({rect.X:F0},{rect.Y:F0}) — calling _bodyViewer.BringIntoView(rect)");
                 _bodyViewer.BringIntoView(rect);
             }
-            
-            Log($"[SelectAndScroll] Scrolling complete");
+            else
+            {
+                SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: character rect is Empty — BringIntoView(rect) skipped");
+            }
+            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: scroll+select complete");
         }
         else
         {
-            Log($"[SelectAndScroll] Text NOT found in document");
+            SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: text NOT found in document via FindTextInRange — excerptText='{excerptText}'");
         }
     }
 

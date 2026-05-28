@@ -27483,16 +27483,23 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void OpenOrFocusInboxMessage(string messageId)
     {
+        SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: messageId={messageId} openWindowCount={_openInboxWindows.Count}");
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
         if (existing is not null)
         {
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: found existing window — activating (minimized={existing.WindowState == WindowState.Minimized})");
             if (existing.WindowState == WindowState.Minimized)
                 existing.WindowState = WindowState.Normal;
             existing.Activate();
             return;
         }
         var msg = _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
-        if (msg is null) return;
+        if (msg is null)
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: EARLY EXIT — message not found in store (storeIsNull={_inboxStore is null}) for msgId={messageId}");
+            return;
+        }
+        SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: creating new InboxMessageWindow for msgId={messageId}");
         var win = new InboxMessageWindow(
             msg, 
             DispatchInboxAction, 
@@ -27506,9 +27513,11 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private void OpenOrFocusInboxMessageAndSelectText(string messageId, string excerptText)
     {
+        SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: messageId={messageId} excerptLen={excerptText.Length} excerpt='{excerptText[..Math.Min(80, excerptText.Length)]}'");
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
         if (existing is not null)
         {
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: found existing window — activating + calling SelectAndScrollToText immediately");
             if (existing.WindowState == WindowState.Minimized)
                 existing.WindowState = WindowState.Normal;
             existing.Activate();
@@ -27517,7 +27526,12 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         var msg = _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
-        if (msg is null) return;
+        if (msg is null)
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: EARLY EXIT — message not found in store (storeIsNull={_inboxStore is null}) for msgId={messageId}");
+            return;
+        }
+        SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: creating new InboxMessageWindow for msgId={messageId}");
         var win = new InboxMessageWindow(
             msg, 
             DispatchInboxAction, 
@@ -27527,17 +27541,13 @@ public partial class MainWindow : Window, ILiveElementLocator
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
         
-        Trace.WriteLine($"[Excerpt] Opening inbox message, will select: '{excerptText}'");
-        
-        // Defer text selection until window is fully loaded and rendered
+        SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: hooking win.Loaded to defer SelectAndScrollToText via Dispatcher.BeginInvoke(Loaded priority) — excerptLen={excerptText.Length}");
         win.Loaded += (_, _) =>
         {
-            Trace.WriteLine($"[Excerpt] Window Loaded event fired, scheduling selection with Dispatcher.BeginInvoke (Loaded priority)");
-            
-            // Use Loaded priority (higher than ApplicationIdle) and dispatch to ensure UI is ready
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: win.Loaded fired for msgId={messageId} — queuing Dispatcher.BeginInvoke at DispatcherPriority.Loaded");
             Dispatcher.BeginInvoke(() =>
             {
-                Trace.WriteLine($"[Excerpt] Dispatcher callback executing, calling SelectAndScrollToText");
+                SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: Dispatcher.BeginInvoke executing — calling SelectAndScrollToText for msgId={messageId}");
                 win.SelectAndScrollToText(excerptText);
             }, System.Windows.Threading.DispatcherPriority.Loaded);
         };
@@ -27660,20 +27670,11 @@ public partial class MainWindow : Window, ILiveElementLocator
                     var isInboxExcerpt = att.ContentBlock.Contains("type=\"inbox-excerpt\"", StringComparison.Ordinal)
                         && att.InboxMessageId != null;
 
-                    // Diagnostic logging
-                    var logPath = Path.Combine(Path.GetTempPath(), "squaddash-excerpt-debug.log");
-                    File.AppendAllText(logPath,
-                        $"[{DateTime.Now:HH:mm:ss.fff}] [EXCERPT ATTACH] " +
-                        $"isInboxExcerpt={isInboxExcerpt}, " +
-                        $"InboxMessageId={(att.InboxMessageId?.ToString() ?? "NULL")}, " +
-                        $"hasContentBlock={att.ContentBlock != null}\n");
-                    
+                    SquadDashTrace.Write(TraceCategory.Inbox,
+                        $"FollowUpStrip.BuildItem: contentBlock att — isInboxExcerpt={isInboxExcerpt} inboxMessageId={att.InboxMessageId ?? "NULL"} contentBlockLen={att.ContentBlock.Length}");
                     if (isInboxExcerpt)
-                    {
-                        var preview = att.ContentBlock!.Substring(0, Math.Min(200, att.ContentBlock.Length));
-                        File.AppendAllText(logPath,
-                            $"[{DateTime.Now:HH:mm:ss.fff}] [EXCERPT ATTACH] ContentBlock preview: {preview}\n");
-                    }
+                        SquadDashTrace.Write(TraceCategory.Inbox,
+                            $"FollowUpStrip.BuildItem: inbox-excerpt block preview='{att.ContentBlock[..Math.Min(200, att.ContentBlock.Length)]}'");
 
                     if (att.Description.StartsWith("Note: ", StringComparison.Ordinal))
                     {
@@ -27702,19 +27703,15 @@ public partial class MainWindow : Window, ILiveElementLocator
                     if (isInboxExcerpt)
                     {
                         // For inbox-excerpt: open the message window and select the excerpt
-                        File.AppendAllText(logPath,
-                            $"[{DateTime.Now:HH:mm:ss.fff}] [EXCERPT ATTACH] ✅ Registering click handler for inbox-excerpt\n");
-                        
+                        SquadDashTrace.Write(TraceCategory.Inbox,
+                            $"FollowUpStrip.BuildItem: registering inbox-excerpt click handler for msgId={att.InboxMessageId}");
                         label.MouseLeftButtonUp += (_, _) =>
                         {
-                            var clickLogPath = Path.Combine(Path.GetTempPath(), "squaddash-excerpt-debug.log");
-                            File.AppendAllText(clickLogPath,
-                                $"[{DateTime.Now:HH:mm:ss.fff}] [EXCERPT CLICK] 🖱️ Attachment clicked! InboxMessageId={capturedContent.InboxMessageId}\n");
-                            
+                            SquadDashTrace.Write(TraceCategory.Inbox,
+                                $"FollowUpStrip.ExcerptChip.Click: clicked — inboxMessageId={capturedContent.InboxMessageId}");
                             var excerptText = ExtractExcerptTextFromAttachment(capturedContent.ContentBlock!);
-                            File.AppendAllText(clickLogPath,
-                                $"[{DateTime.Now:HH:mm:ss.fff}] [EXCERPT CLICK] Extracted text: '{excerptText}'\n");
-                            
+                            SquadDashTrace.Write(TraceCategory.Inbox,
+                                $"FollowUpStrip.ExcerptChip.Click: extracted excerptText len={excerptText.Length} text='{excerptText[..Math.Min(80, excerptText.Length)]}'");
                             OpenOrFocusInboxMessageAndSelectText(capturedContent.InboxMessageId!, excerptText);
                         };
                     }

@@ -284,11 +284,13 @@ internal sealed class InboxPanelController
 
     private void SelectMessage(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
     {
+        SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: msgId={msg.Id} subject='{msg.Subject}' read={msg.Read}");
         _selectedMessage = msg;
 
         if (!msg.Read)
             MarkRowRead(msg, row, dot, subjectLabel);
 
+        SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: calling _openMessageWindow (wired to OpenOrFocusInboxMessage) for msgId={msg.Id}");
         _openMessageWindow(msg);
     }
 
@@ -316,6 +318,10 @@ internal sealed class InboxPanelController
 
     private void ShowViewer(InboxMessage msg)
     {
+        // NOTE: This method is currently DEAD CODE — it is never called.
+        // SelectMessage calls _openMessageWindow (pop-out InboxMessageWindow) instead.
+        // If the inline viewer path is ever wired up, traces here will fire.
+        SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.ShowViewer: [DEAD CODE PATH] msgId={msg.Id} subject='{msg.Subject}'");
         _viewerSubjectLabel.Text = msg.Subject;
 
         var ts = StatusTimingPresentation.FormatRelativeTimestamp(msg.Timestamp);
@@ -523,6 +529,7 @@ internal sealed class InboxPanelController
             case "text":
                 chip.MouseLeftButtonUp += (_, _) =>
                 {
+                    SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.AttachmentChip.Click: type=text label='{att.Label}' contentLen={att.Content?.Length ?? 0} — opening MarkdownDocumentWindow, NOT calling SelectAndScrollToText");
                     try { MarkdownDocumentWindow.ShowContent(owner, att.Label, att.Content ?? ""); }
                     catch { }
                 };
