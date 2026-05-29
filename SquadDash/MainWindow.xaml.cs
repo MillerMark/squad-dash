@@ -423,6 +423,7 @@ public partial class MainWindow : Window, ILiveElementLocator
     private ScrollBar? _transcriptScrollBar;
     private string? _lastAgentImageFolder;
     private ScrollViewer? _transcriptScrollViewer;
+    private DispatcherTimer? _coordinatorIntentDebounceTimer;
 
     // ── Doc source find-in-source bar state ────────────────────────────────────
     private Border? _docSourceFindBar;
@@ -520,6 +521,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         public Border PanelBorder { get; init; } = null!;
         public Grid ContentGrid { get; init; } = null!;
         public TranscriptScrollController ScrollController { get; init; } = null!;
+        public DockPanel HeaderDock { get; init; } = null!;
+        public StackPanel RightStack { get; init; } = null!;
         public DispatcherTimer? CountdownTimer { get; set; }
         public int CountdownSecondsRemaining { get; set; }
         public TextBlock? CountdownOverlay { get; set; }
@@ -16552,28 +16555,106 @@ public partial class MainWindow : Window, ILiveElementLocator
         var thread = threadOverride ?? _selectedTranscriptThread ?? CoordinatorThread;
         if (thread.Kind == TranscriptThreadKind.Coordinator)
         {
-            TranscriptTitleTextBlock.Text = "Coordinator";
-            TranscriptTitleTextBlock.ToolTip = null;
+            ScanAndUpdateCoordinatorIntent();
             return;
         }
 
         var title = thread.DisplayTitle?.Trim();
         var displayTitle = string.IsNullOrWhiteSpace(title) ? "Agent" : AbbreviateAgentName(title);
         var possessive = $"{displayTitle}'s transcript";
-        TranscriptTitleTextBlock.ToolTip = BuildGpaTooltip(displayTitle);
 
         var intent = thread.LatestIntent?.Trim();
-        if (!string.IsNullOrWhiteSpace(intent))
+        var baseText = !string.IsNullOrWhiteSpace(intent)
+            ? $"{possessive} — {intent}"
+            : possessive;
+        var relativeTime = thread.PromptParagraphs.Count > 0
+            ? FormatRelativeTime(thread.PromptParagraphs[0].Timestamp)
+            : string.Empty;
+        var fullText = !string.IsNullOrWhiteSpace(relativeTime)
+            ? $"{baseText}  ·  {relativeTime}"
+            : baseText;
+
+        var availableWidth = TranscriptTitleDockPanel.ActualWidth
+            - PromptNavButtonsPanel.ActualWidth
+            - TranscriptTitleTextBlock.Margin.Left
+            - TranscriptTitleTextBlock.Margin.Right;
+
+        if (availableWidth <= 0)
         {
-            const int MaxIntentLength = 60;
-            var truncated = intent.Length > MaxIntentLength
-                ? intent[..MaxIntentLength].TrimEnd() + "…"
-                : intent;
-            TranscriptTitleTextBlock.Text = $"{possessive} — {truncated}";
+            TranscriptTitleTextBlock.Text = baseText;
+            var gpa0 = BuildGpaTooltip(displayTitle);
+            TranscriptTitleTextBlock.ToolTip = gpa0 is not null ? (object)gpa0
+                : (!string.IsNullOrWhiteSpace(intent) ? MakeThemedToolTip($"{baseText}\n{relativeTime}".TrimEnd()) : null);
+            return;
+        }
+
+        var nominalSize = TranscriptTitleTextBlock.TryFindResource("FontSizeSubtitle") is double d ? d : 13.0;
+
+        double Measure(string text, double fontSize)
+        {
+            try
+            {
+                var ft = new FormattedText(text,
+                    System.Globalization.CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(TranscriptTitleTextBlock.FontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                    fontSize,
+                    Brushes.Black,
+                    VisualTreeHelper.GetDpi(TranscriptTitleTextBlock).PixelsPerDip);
+                return ft.Width;
+            }
+            catch { return double.MaxValue; }
+        }
+
+        TranscriptTitleTextBlock.TextTrimming = TextTrimming.None;
+
+        if (Measure(fullText, nominalSize) <= availableWidth)
+        {
+            TranscriptTitleTextBlock.Text = fullText;
+            TranscriptTitleTextBlock.FontSize = nominalSize;
+        }
+        else if (Measure(fullText, nominalSize * 0.85) <= availableWidth)
+        {
+            TranscriptTitleTextBlock.Text = fullText;
+            TranscriptTitleTextBlock.FontSize = nominalSize * 0.85;
+        }
+        else if (Measure(fullText, nominalSize * 0.70) <= availableWidth)
+        {
+            TranscriptTitleTextBlock.Text = fullText;
+            TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
+        }
+        else if (Measure(baseText, nominalSize) <= availableWidth)
+        {
+            TranscriptTitleTextBlock.Text = baseText;
+            TranscriptTitleTextBlock.FontSize = nominalSize;
+        }
+        else if (Measure(baseText, nominalSize * 0.70) <= availableWidth)
+        {
+            TranscriptTitleTextBlock.Text = baseText;
+            TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
         }
         else
         {
-            TranscriptTitleTextBlock.Text = possessive;
+            TranscriptTitleTextBlock.Text = baseText;
+            TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
+            TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
+        }
+
+        var gpaTooltip = BuildGpaTooltip(displayTitle);
+        if (gpaTooltip is not null)
+        {
+            TranscriptTitleTextBlock.ToolTip = gpaTooltip;
+        }
+        else if (!string.IsNullOrWhiteSpace(intent) || !string.IsNullOrWhiteSpace(relativeTime))
+        {
+            var tooltipText = !string.IsNullOrWhiteSpace(relativeTime)
+                ? $"{baseText}\n{relativeTime}"
+                : baseText;
+            TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(tooltipText);
+        }
+        else
+        {
+            TranscriptTitleTextBlock.ToolTip = null;
         }
     }
 
@@ -17103,12 +17184,12 @@ public partial class MainWindow : Window, ILiveElementLocator
                 entry.Agent = currentCard;
             }
 
-            var newTitle = BuildSecondaryTranscriptTitle(currentCard, entry.Thread);
-            if (!string.Equals(entry.TitleBlock.Text, newTitle, StringComparison.Ordinal))
+            var (newBaseText, _) = BuildSecondaryTranscriptTitleParts(currentCard, entry.Thread);
+            if (!string.Equals(entry.TitleBlock.Text, newBaseText, StringComparison.Ordinal))
             {
                 SquadDashTrace.Write(TraceCategory.TranscriptPanels,
-                    $"RefreshSecondaryTranscriptEntries retitled thread={entry.Thread.ThreadId} old=\"{entry.TitleBlock.Text}\" new=\"{newTitle}\"");
-                entry.TitleBlock.Text = newTitle;
+                    $"RefreshSecondaryTranscriptEntries retitled thread={entry.Thread.ThreadId} old=\"{entry.TitleBlock.Text}\" new=\"{newBaseText}\"");
+                ApplySecondaryTranscriptTitleFit(entry);
             }
 
             entry.Thread.IsSecondaryPanelOpen = true;
@@ -17146,15 +17227,16 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     private SecondaryTranscriptEntry CreateSecondaryTranscriptPanel(AgentStatusCard agent, TranscriptThreadState thread)
     {
-        var titleText = BuildSecondaryTranscriptTitle(agent, thread);
+        var (initialBaseText, _) = BuildSecondaryTranscriptTitleParts(agent, thread);
         var baseDisplayName = AbbreviateAgentName(
             AgentThreadRegistry.ResolveSecondaryTranscriptDisplayName(thread, agent.Name));
         var titleBlock = new TextBlock
         {
-            Text = titleText,
+            Text = initialBaseText,
             ToolTip = BuildGpaTooltip(baseDisplayName),
             FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.None
         };
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
@@ -17345,13 +17427,21 @@ public partial class MainWindow : Window, ILiveElementLocator
             CloseButton = closeBtn,
             PanelBorder = outerBorder,
             ContentGrid = contentGrid,
-            ScrollController = scrollController
+            ScrollController = scrollController,
+            HeaderDock = headerDock,
+            RightStack = rightStack
         };
 
         // Postpone auto-close on mouse move/scroll; permanently cancel on click
         outerBorder.MouseMove += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };
         outerBorder.PreviewMouseDown += (_, _) => { try { CancelAutoCloseCountdown(entry); } catch { } };
         outerBorder.PreviewMouseWheel += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };
+
+        headerDock.SizeChanged += (_, _) =>
+        {
+            try { ApplySecondaryTranscriptTitleFit(entry); }
+            catch (Exception ex) { HandleUiCallbackException("SecondaryPanel.HeaderDock.SizeChanged", ex); }
+        };
 
         closeBtn.Click += (_, _) => { try { CloseSecondaryPanel(entry); } catch (Exception ex) { HandleUiCallbackException("SecondaryPanel.Close", ex); } };
 
@@ -17455,29 +17545,236 @@ public partial class MainWindow : Window, ILiveElementLocator
             ? displayName.Replace("GPA", "General Purpose Agent", StringComparison.Ordinal)
             : null;
 
-    private string BuildSecondaryTranscriptTitle(AgentStatusCard agent, TranscriptThreadState thread)
+    private (string BaseText, string RelativeTime) BuildSecondaryTranscriptTitleParts(AgentStatusCard agent, TranscriptThreadState thread)
     {
         var displayName = AbbreviateAgentName(
             AgentThreadRegistry.ResolveSecondaryTranscriptDisplayName(thread, agent.Name));
-        return thread.PromptParagraphs.Count > 0
-            ? $"{displayName} - {FormatRelativeTime(thread.PromptParagraphs[0].Timestamp)}"
+        var intent = thread.LatestIntent?.Trim();
+        var baseText = !string.IsNullOrWhiteSpace(intent)
+            ? $"{displayName} — {intent}"
             : displayName;
+        var relativeTime = thread.PromptParagraphs.Count > 0
+            ? FormatRelativeTime(thread.PromptParagraphs[0].Timestamp)
+            : string.Empty;
+        return (baseText, relativeTime);
     }
 
     private void RefreshSecondaryTranscriptTitle(TranscriptThreadState thread)
     {
         foreach (var entry in _secondaryTranscripts.Where(entry => ReferenceEquals(entry.Thread, thread)))
+            ApplySecondaryTranscriptTitleFit(entry);
+    }
+
+    private void ApplySecondaryTranscriptTitleFit(SecondaryTranscriptEntry entry)
+    {
+        var (baseText, relativeTime) = BuildSecondaryTranscriptTitleParts(entry.Agent, entry.Thread);
+        var fullText = !string.IsNullOrWhiteSpace(relativeTime)
+            ? $"{baseText}  ·  {relativeTime}"
+            : baseText;
+
+        var tooltipText = !string.IsNullOrWhiteSpace(relativeTime)
+            ? $"{baseText}\n{relativeTime}"
+            : baseText;
+
+        var availableWidth = entry.HeaderDock.ActualWidth
+            - entry.RightStack.ActualWidth
+            - entry.TitleBlock.Margin.Left
+            - entry.TitleBlock.Margin.Right;
+
+        if (availableWidth <= 0)
         {
-            var title = BuildSecondaryTranscriptTitle(entry.Agent, thread);
-            if (!string.Equals(entry.TitleBlock.Text, title, StringComparison.Ordinal))
+            entry.TitleBlock.Text = baseText;
+            entry.TitleBlock.ToolTip = MakeThemedToolTip(tooltipText);
+            return;
+        }
+
+        var nominalSize = entry.TitleBlock.TryFindResource("FontSizeSubtitle") is double d ? d : 13.0;
+
+        double Measure(string text, double fontSize)
+        {
+            try
             {
-                SquadDashTrace.Write(TraceCategory.TranscriptPanels,
-                    $"RefreshSecondaryTranscriptTitle thread={thread.ThreadId} old=\"{entry.TitleBlock.Text}\" new=\"{title}\"");
-                entry.TitleBlock.Text = title;
-                var baseDisplayName = AbbreviateAgentName(
-                    AgentThreadRegistry.ResolveSecondaryTranscriptDisplayName(thread, entry.Agent.Name));
-                entry.TitleBlock.ToolTip = BuildGpaTooltip(baseDisplayName);
+                var ft = new FormattedText(text,
+                    System.Globalization.CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(entry.TitleBlock.FontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
+                    fontSize,
+                    Brushes.Black,
+                    VisualTreeHelper.GetDpi(entry.TitleBlock).PixelsPerDip);
+                return ft.Width;
             }
+            catch { return double.MaxValue; }
+        }
+
+        entry.TitleBlock.TextTrimming = TextTrimming.None;
+
+        if (Measure(fullText, nominalSize) <= availableWidth)
+        {
+            entry.TitleBlock.Text = fullText;
+            entry.TitleBlock.FontSize = nominalSize;
+        }
+        else if (Measure(fullText, nominalSize * 0.85) <= availableWidth)
+        {
+            entry.TitleBlock.Text = fullText;
+            entry.TitleBlock.FontSize = nominalSize * 0.85;
+        }
+        else if (Measure(fullText, nominalSize * 0.70) <= availableWidth)
+        {
+            entry.TitleBlock.Text = fullText;
+            entry.TitleBlock.FontSize = nominalSize * 0.70;
+        }
+        else if (Measure(baseText, nominalSize) <= availableWidth)
+        {
+            entry.TitleBlock.Text = baseText;
+            entry.TitleBlock.FontSize = nominalSize;
+        }
+        else if (Measure(baseText, nominalSize * 0.70) <= availableWidth)
+        {
+            entry.TitleBlock.Text = baseText;
+            entry.TitleBlock.FontSize = nominalSize * 0.70;
+        }
+        else
+        {
+            entry.TitleBlock.Text = baseText;
+            entry.TitleBlock.FontSize = nominalSize * 0.70;
+            entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
+        }
+
+        entry.TitleBlock.ToolTip = MakeThemedToolTip(tooltipText);
+
+        SquadDashTrace.Write(TraceCategory.TranscriptPanels,
+            $"ApplySecondaryTranscriptTitleFit thread={entry.Thread.ThreadId} text=\"{entry.TitleBlock.Text}\" fontSize={entry.TitleBlock.FontSize:F1}");
+    }
+
+    private ToolTip MakeThemedToolTip(string text)
+    {
+        var tb = new TextBlock { Text = text };
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        var tip = new ToolTip
+        {
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 4, 6, 4),
+            Content = tb,
+        };
+        tip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        tip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        return tip;
+    }
+
+    private void ScanAndUpdateCoordinatorIntent()
+    {
+        if (_transcriptScrollViewer is null)
+        {
+            TranscriptTitleTextBlock.Text = "Coordinator";
+            TranscriptTitleTextBlock.ToolTip = null;
+            return;
+        }
+
+        try
+        {
+            var scrollViewer = _transcriptScrollViewer;
+            var viewportBottom = scrollViewer.VerticalOffset + scrollViewer.ViewportHeight;
+
+            // Find the last user prompt whose top edge is at or above the viewport bottom.
+            var lastVisiblePromptTime = DateTimeOffset.MinValue;
+            var largestAbsoluteY = double.MinValue;
+            foreach (var pe in CoordinatorThread.PromptParagraphs)
+            {
+                try
+                {
+                    var rect = pe.Paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                    if (rect.IsEmpty) continue;
+                    var absoluteY = scrollViewer.VerticalOffset + rect.Top;
+                    if (absoluteY <= viewportBottom && absoluteY > largestAbsoluteY)
+                    {
+                        largestAbsoluteY = absoluteY;
+                        lastVisiblePromptTime = pe.Timestamp;
+                    }
+                }
+                catch { }
+            }
+
+            // Walk tool entries from most-recent to oldest.
+            var entries = _agentThreadRegistry.ToolEntries.Values
+                .Where(e => e.Turn.OwnerThread == CoordinatorThread)
+                .OrderByDescending(e => e.StartedAt)
+                .ToList();
+
+            string? foundIntent = null;
+            foreach (var toolEntry in entries)
+            {
+                // Stop: this entry predates the last visible prompt — it belongs to an older context.
+                if (toolEntry.StartedAt < lastVisiblePromptTime)
+                    break;
+
+                // Skip: the expander is below the viewport bottom (not yet scrolled into view).
+                try
+                {
+                    var pt = toolEntry.Expander.TransformToAncestor(scrollViewer).Transform(new Point(0, 0));
+                    if (pt.Y > scrollViewer.ViewportHeight) continue;
+                }
+                catch { continue; }
+
+                if (toolEntry.Descriptor.ToolName == "report_intent")
+                {
+                    foundIntent = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(foundIntent))
+            {
+                TranscriptTitleTextBlock.Text = $"Coordinator — {foundIntent}";
+                TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(foundIntent);
+            }
+            else
+            {
+                TranscriptTitleTextBlock.Text = "Coordinator";
+                TranscriptTitleTextBlock.ToolTip = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException("ScanAndUpdateCoordinatorIntent", ex, showDialog: false);
+        }
+    }
+
+    private void RestartCoordinatorIntentDebounce()
+    {
+        if (_coordinatorIntentDebounceTimer is null)
+        {
+            _coordinatorIntentDebounceTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(250)
+            };
+            _coordinatorIntentDebounceTimer.Tick += (_, _) =>
+            {
+                try
+                {
+                    _coordinatorIntentDebounceTimer.Stop();
+                    ScanAndUpdateCoordinatorIntent();
+                }
+                catch (Exception ex)
+                {
+                    HandleUiCallbackException("CoordinatorIntentDebounce.Tick", ex);
+                }
+            };
+        }
+        _coordinatorIntentDebounceTimer.Stop();
+        _coordinatorIntentDebounceTimer.Start();
+    }
+
+    private void TranscriptTitleDockPanel_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        try
+        {
+            var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
+            if (activeThread.Kind != TranscriptThreadKind.Coordinator)
+                UpdateTranscriptThreadBadge();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException("TranscriptTitleDockPanel.SizeChanged", ex);
         }
     }
 
@@ -19983,6 +20280,15 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         // Inactive transcript selection is rendered by TranscriptInactiveSelectionAdorner
         // so it can recompute geometry after scroll instead of using WPF's stale cache.
+
+        // Debounce-refresh the coordinator intent label when the user scrolls the
+        // coordinator transcript so the title reflects the last visible intent.
+        if (e.VerticalChange != 0)
+        {
+            var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
+            if (activeThread.Kind == TranscriptThreadKind.Coordinator)
+                RestartCoordinatorIntentDebounce();
+        }
     }
 
     /// <summary>
@@ -21005,6 +21311,10 @@ public partial class MainWindow : Window, ILiveElementLocator
             transcriptButton);
         block.Turn.ToolEntries.Add(entry);
         block.ToolEntries.Add(entry);
+
+        // Refresh the coordinator intent label when a new tool entry arrives for it.
+        if (entry.Turn.OwnerThread.Kind == TranscriptThreadKind.Coordinator)
+            RestartCoordinatorIntentDebounce();
 
         expander.ContextMenu = CreateToolBlockContextMenu(entry);
         headerPanel.ContextMenu = CreateThinkingContextMenu(block.Turn);

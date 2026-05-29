@@ -1811,7 +1811,9 @@
             <DockPanel LastChildFill="True">
                 <StackPanel DockPanel.Dock="Top"
                             Margin="0,0,0,12">
-                <DockPanel LastChildFill="False">
+                <DockPanel x:Name="TranscriptTitleDockPanel"
+                           LastChildFill="False"
+                           SizeChanged="TranscriptTitleDockPanel_SizeChanged">
                     <!-- Right-docked nav buttons must appear first in child order -->
                     <StackPanel x:Name="PromptNavButtonsPanel"
                                 DockPanel.Dock="Right"
@@ -1861,6 +1863,7 @@
                                Text="Transcript"
                                FontSize="{DynamicResource FontSizeSubtitle}"
                                FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource LabelText}" />
                     <TextBlock x:Name="SessionStateTextBlock"
                                Margin="12,0,0,0"
