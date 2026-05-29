@@ -21824,7 +21824,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             "report_intent" => TryGetJsonString(evt.Args, "intent") ?? evt.Intent,
             "sql" => TryGetJsonString(evt.Args, "description"),
             "powershell" => TryGetJsonString(evt.Args, "description") ?? TryGetJsonString(evt.Args, "command") ?? evt.Command,
-            "read_powershell"  => LookupShellLabel(TryGetJsonString(evt.Args, "shellId")),
+            "read_powershell"  => AppendDelaySuffix(LookupShellLabel(TryGetJsonString(evt.Args, "shellId")), TryGetJsonInt(evt.Args, "delay")),
             "write_powershell" => LookupShellLabel(TryGetJsonString(evt.Args, "shellId")),
             "stop_powershell"  => LookupShellLabel(TryGetJsonString(evt.Args, "shellId")),
             "list_powershell"  => null,
@@ -21906,6 +21906,21 @@ public partial class MainWindow : Window, ILiveElementLocator
         return element.TryGetProperty(propertyName, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? property.GetBoolean()
             : null;
+    }
+
+    private static int? TryGetJsonInt(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            return null;
+        return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Number
+            ? property.GetInt32()
+            : null;
+    }
+
+    private static string? AppendDelaySuffix(string? label, int? delay)
+    {
+        if (label is null) return null;
+        return delay is > 0 ? $"{label} ({delay}s)" : label;
     }
 
     private static DateTimeOffset ParseTimestamp(string? value)
