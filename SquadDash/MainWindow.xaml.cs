@@ -17699,9 +17699,18 @@ public partial class MainWindow : Window, ILiveElementLocator
         try
         {
             var scrollViewer = _transcriptScrollViewer;
-            var viewportBottom = scrollViewer.VerticalOffset + scrollViewer.ViewportHeight;
+            // Use the viewport TOP as the reference, not the bottom.
+            // When Ctrl+PgUp jumps to an older turn, the target prompt lands at
+            // rect.Top ≈ 0 (viewport top).  Using viewportBottom as the cutoff would
+            // capture every prompt visible below the jump target and surface a later
+            // turn's intent as the title — the wrong one.  By anchoring to the top we
+            // always show the intent for the turn that is at (or just above) the current
+            // scroll position.
+            // A small tolerance (20 px) covers paragraph leading / border offsets that
+            // can place ContentStart a few pixels below the exact scroll origin.
+            var viewportTopRef = scrollViewer.VerticalOffset + 20;
 
-            // Find the last user prompt at or above viewport bottom, and the first one below it.
+            // Find the last user prompt at or above the viewport top, and the first one below it.
             // Using timestamps avoids fragile visual-tree checks on collapsed Expanders.
             var lastVisiblePromptTime = DateTimeOffset.MinValue;
             var nextPromptTime = DateTimeOffset.MaxValue;
@@ -17713,7 +17722,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     var rect = pe.Paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
                     if (rect.IsEmpty) continue;
                     var absoluteY = scrollViewer.VerticalOffset + rect.Top;
-                    if (absoluteY <= viewportBottom)
+                    if (absoluteY <= viewportTopRef)
                     {
                         if (absoluteY > largestAbsoluteY)
                         {
@@ -17723,7 +17732,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                     }
                     else
                     {
-                        // First prompt below viewport — entries at or after this belong to unseen context.
+                        // First prompt below viewport top — entries at or after this belong to a turn not yet at the top.
                         if (pe.Timestamp < nextPromptTime)
                             nextPromptTime = pe.Timestamp;
                     }
@@ -17744,7 +17753,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 if (toolEntry.StartedAt < lastVisiblePromptTime)
                     break;
 
-                // Skip: this entry was emitted after the first prompt below the viewport (not yet seen).
+                // Skip: this entry was emitted after the first prompt below the viewport top (not the active context).
                 if (toolEntry.StartedAt >= nextPromptTime)
                     continue;
 
