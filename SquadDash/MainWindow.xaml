@@ -2514,6 +2514,14 @@
                                    LastChildFill="False">
                             <StackPanel DockPanel.Dock="Right"
                                         Orientation="Horizontal">
+                                <Button x:Name="AddExceptionToChatButton"
+                                        Margin="0,0,8,0"
+                                        Padding="10,4"
+                                        Visibility="Collapsed"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        Click="AddExceptionToChatButton_Click">
+                                    Add to Chat
+                                </Button>
                                 <Button x:Name="CopyExceptionDetailsButton"
                                         Margin="0,0,8,0"
                                         Padding="10,4"

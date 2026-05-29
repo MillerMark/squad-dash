@@ -23410,6 +23410,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         ExceptionPanelSummaryTextBlock.Text = summary;
         ExceptionPanelTextBox.Text = details;
         ExceptionPanelTextBox.ScrollToHome();
+        AddExceptionToChatButton.Visibility = SquadDashEnvironment.IsDeveloperMode ? Visibility.Visible : Visibility.Collapsed;
         ExceptionPanelBorder.Visibility = Visibility.Visible;
         UpdateLeadAgent("Error", string.Empty, summary);
         UpdateSessionState("Error");
@@ -23438,6 +23439,24 @@ public partial class MainWindow : Window, ILiveElementLocator
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(CopyExceptionDetailsButton_Click), ex);
+        }
+    }
+
+    private void AddExceptionToChatButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_activeUiException is null || string.IsNullOrWhiteSpace(_activeUiException.Details))
+                return;
+
+            AttachContextFollowUp(
+                BuildClipboardAttachDescription(_activeUiException.Details),
+                BuildTypedAttachmentBlock("clipboard", _activeUiException.Title, _activeUiException.Details));
+            SquadDashTrace.Write("UI", "Added exception details to chat.");
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(AddExceptionToChatButton_Click), ex);
         }
     }
 
