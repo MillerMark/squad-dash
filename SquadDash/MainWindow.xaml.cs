@@ -16565,7 +16565,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         var intent = thread.LatestIntent?.Trim();
         var baseText = !string.IsNullOrWhiteSpace(intent)
-            ? $"{possessive} — {intent}"
+            ? $"{possessive} - {intent}"
             : possessive;
         var relativeTime = thread.PromptParagraphs.Count > 0
             ? FormatRelativeTime(thread.PromptParagraphs[0].Timestamp)
@@ -17731,7 +17731,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             if (!string.IsNullOrWhiteSpace(foundIntent))
             {
-                TranscriptTitleTextBlock.Text = $"Coordinator — {foundIntent}";
+                TranscriptTitleTextBlock.Text = $"Coordinator - {foundIntent}";
                 TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(foundIntent);
             }
             else
