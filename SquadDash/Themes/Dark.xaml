@@ -130,7 +130,7 @@
     <SolidColorBrush x:Key="ChipCompletedSurface" Color="#1A3020"/>
     <SolidColorBrush x:Key="ChipCompletedBorder" Color="#3A7848"/>
     <SolidColorBrush x:Key="ChipCompletedText" Color="#5AC87A"/>
-    <SolidColorBrush x:Key="ChipFailedSurface" Color="#7A0A0A"/>
+    <SolidColorBrush x:Key="ChipFailedSurface" Color="#450606"/>
     <SolidColorBrush x:Key="ChipFailedBorder" Color="#C05050"/>
     <SolidColorBrush x:Key="ChipFailedText" Color="#FFD0D0"/>
     <!-- Quick Reply Tokens -->
