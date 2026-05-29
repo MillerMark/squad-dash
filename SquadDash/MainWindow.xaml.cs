@@ -7270,7 +7270,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         thread.ChipToolTip  = BuildThreadChipToolTip(thread);
         thread.ChipFontWeight = FontWeights.Normal;
 
-        thread.ChipBackground = (Brush)Application.Current.Resources["ChipSurface"];
+        thread.ChipBackground = (Brush)Application.Current.Resources[isFailed ? "ChipFailedSurface" : "ChipSurface"];
         if (isFailed)
         {
             thread.ChipBorderBrush = (Brush)Application.Current.Resources["ChipFailedBorder"];
