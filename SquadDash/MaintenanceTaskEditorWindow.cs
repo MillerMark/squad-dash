@@ -529,8 +529,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     }
 
     private bool IsDark() {
-        if (Resources.Contains("PanelBackground") &&
-            Resources["PanelBackground"] is SolidColorBrush b)
+        if (TryFindResource("PanelBackground") is SolidColorBrush b)
             return b.Color.R < 128;
         return false;
     }
