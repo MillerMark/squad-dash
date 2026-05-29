@@ -130,9 +130,9 @@
     <SolidColorBrush x:Key="ChipCompletedSurface" Color="#1A3020"/>
     <SolidColorBrush x:Key="ChipCompletedBorder" Color="#3A7848"/>
     <SolidColorBrush x:Key="ChipCompletedText" Color="#5AC87A"/>
-    <SolidColorBrush x:Key="ChipFailedSurface" Color="#3A1A1A"/>
+    <SolidColorBrush x:Key="ChipFailedSurface" Color="#5C1010"/>
     <SolidColorBrush x:Key="ChipFailedBorder" Color="#C05050"/>
-    <SolidColorBrush x:Key="ChipFailedText" Color="#FF8080"/>
+    <SolidColorBrush x:Key="ChipFailedText" Color="#FFB0B0"/>
     <!-- Quick Reply Tokens -->
     <SolidColorBrush x:Key="QuickReplySurface" Color="#1A2535"/>
     <SolidColorBrush x:Key="QuickReplyBorder" Color="#3A6090"/>
