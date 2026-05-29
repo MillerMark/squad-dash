@@ -69,14 +69,14 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         Window owner,
         MaintenanceTask task,
         Func<ApplicationSettingsSnapshot> settingsProvider,
-        Action onSaved) {
+        Action onSaved) : base(captionHeight: 56) {
 
         _task             = task;
         _settingsProvider = settingsProvider;
         _onSaved          = onSaved;
 
         Owner                 = owner;
-        Title                 = "Edit Task";
+        Title                 = "Edit Maintenance Task";
         Width                 = 800;
         Height                = 700;
         MinWidth              = 500;
@@ -150,8 +150,20 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private UIElement BuildLayout() {
         var root = new DockPanel { LastChildFill = true };
 
+        // ── Window caption ────────────────────────────────────────────────────
+        var captionLabel = new TextBlock {
+            Text              = "Edit Maintenance Task",
+            VerticalAlignment = VerticalAlignment.Center,
+            FontWeight        = FontWeights.SemiBold,
+            Margin            = new Thickness(12, 8, 50, 4),
+        };
+        captionLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        captionLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
+        DockPanel.SetDock(captionLabel, Dock.Top);
+        root.Children.Add(captionLabel);
+
         // ── Title bar row ─────────────────────────────────────────────────────
-        var titleRow = new DockPanel { Margin = new Thickness(8, 8, 50, 4), LastChildFill = true };
+        var titleRow = new DockPanel { Margin = new Thickness(8, 2, 50, 4), LastChildFill = true };
         var titleLabel = new TextBlock { Text = "Title:", VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0) };
         titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
@@ -165,7 +177,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         // ── Properties row ────────────────────────────────────────────────────
         var propsRow = new StackPanel {
             Orientation = Orientation.Horizontal,
-            Margin      = new Thickness(8, 2, 8, 4),
+            Margin      = new Thickness(8, 5, 8, 4),
         };
         propsRow.Children.Add(_enabledCheck);
         propsRow.Children.Add(BuildLabel("Frequency:"));
@@ -677,6 +689,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                             StringComparison.OrdinalIgnoreCase),
                         Margin    = new Thickness(8, 1, 0, 1),
                     };
+                    rb.SetResourceReference(RadioButton.StyleProperty,    "ThemedRadioButtonStyle");
                     rb.SetResourceReference(RadioButton.ForegroundProperty, "BodyText");
                     rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeSmall");
                     rb.Checked += (_, _) => {
@@ -887,10 +900,11 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         if (Application.Current?.Resources["LabelText"] is SolidColorBrush lb)
             baseColor = lb.Color;
         var target = IsDark() ? Color.FromRgb(255, 255, 255) : Color.FromRgb(0, 0, 0);
+        // 75% toward maximum contrast so conditional text stands out clearly
         return new SolidColorBrush(Color.FromRgb(
-            (byte)((baseColor.R + target.R) / 2),
-            (byte)((baseColor.G + target.G) / 2),
-            (byte)((baseColor.B + target.B) / 2)));
+            (byte)((baseColor.R * 1 + target.R * 3) / 4),
+            (byte)((baseColor.G * 1 + target.G * 3) / 4),
+            (byte)((baseColor.B * 1 + target.B * 3) / 4)));
     }
 
     private static void ApplyForeground(Block block, Brush brush) {
