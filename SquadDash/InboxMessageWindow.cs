@@ -133,50 +133,6 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // to extract plain text from the selection, preserving all content.
         DataObject.AddCopyingHandler(_bodyViewer, OnFlowDocumentCopying);
 
-        // Add context menu for "Add to Chat" on text selection
-        if (_attachSelectedTextToChat is not null)
-        {
-            var contextMenu = new ContextMenu();
-            
-            // Apply themed context menu style
-            contextMenu.Style = (Style)Application.Current.Resources["ThemedContextMenuStyle"];
-            
-            var attachMenuItem = new MenuItem { Header = "Add to Chat" };
-            attachMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            attachMenuItem.Click += (_, _) =>
-            {
-                var selection = _bodyViewer.Selection;
-                if (!selection.IsEmpty)
-                {
-                    var selectedText = selection.Text;
-                    _attachSelectedTextToChat(selectedText, _message);
-                }
-            };
-            contextMenu.Items.Add(attachMenuItem);
-
-            var copyMenuItem = new MenuItem { Header = "Copy" };
-            copyMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            copyMenuItem.Click += (_, _) =>
-            {
-                var selection = _bodyViewer.Selection;
-                if (!selection.IsEmpty)
-                    Clipboard.SetText(selection.Text);
-            };
-            contextMenu.Items.Add(copyMenuItem);
-
-            // Explicitly set the custom context menu and suppress default behavior
-            _bodyViewer.ContextMenu = contextMenu;
-            _bodyViewer.ContextMenuOpening += (_, e) =>
-            {
-                // If no text is selected, cancel the context menu entirely
-                if (_bodyViewer.Selection.IsEmpty)
-                {
-                    e.Handled = true;
-                }
-                // Otherwise, ensure our custom menu is shown
-            };
-        }
-
         var bodyBorder = new Border
         {
             Margin = new Thickness(8, 6, 8, 8),
@@ -187,7 +143,44 @@ internal sealed class InboxMessageWindow : ChromedWindow
         root.Children.Add(bodyBorder);
 
         Loaded += (_, _) =>
+        {
             SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.Loaded: msgId={MessageId} ActualWidth={ActualWidth} ActualHeight={ActualHeight} bodyDocBlocks={_bodyViewer.Document?.Blocks.Count ?? -1}");
+
+            // Set up the context menu after OnApplyTemplate so our assignment wins
+            // over any default ContextMenu the FlowDocumentScrollViewer installs.
+            if (_attachSelectedTextToChat is not null)
+            {
+                var contextMenu = new ContextMenu();
+                contextMenu.Style = (Style)Application.Current.Resources["ThemedContextMenuStyle"];
+
+                var attachMenuItem = new MenuItem { Header = "Add to Chat" };
+                attachMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                attachMenuItem.Click += (_, _) =>
+                {
+                    var sel = _bodyViewer.Selection;
+                    if (!sel.IsEmpty)
+                        _attachSelectedTextToChat(sel.Text, _message);
+                };
+                contextMenu.Items.Add(attachMenuItem);
+
+                var copyMenuItem = new MenuItem { Header = "Copy" };
+                copyMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                copyMenuItem.Click += (_, _) =>
+                {
+                    var sel = _bodyViewer.Selection;
+                    if (!sel.IsEmpty)
+                        Clipboard.SetText(sel.Text);
+                };
+                contextMenu.Items.Add(copyMenuItem);
+
+                _bodyViewer.ContextMenu = contextMenu;
+                _bodyViewer.ContextMenuOpening += (_, e) =>
+                {
+                    if (_bodyViewer.Selection.IsEmpty)
+                        e.Handled = true;
+                };
+            }
+        };
     }
 
     private static void OnFlowDocumentCopying(object sender, DataObjectCopyingEventArgs e)
