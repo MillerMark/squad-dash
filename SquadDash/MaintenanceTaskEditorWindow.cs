@@ -54,6 +54,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private System.Windows.Shapes.Rectangle?              _instructionsHighlight;
     private DispatcherTimer?                              _instructionsHoverTimer;
     private readonly List<(int CharStart, int CharLength)> _previewBlockSrcRanges  = new();
+    private readonly List<Block>                           _previewBlocks          = new();
+    private int                                            _lastHoveredBlockIdx    = -1;
 
     // ── Re-entrance guard ─────────────────────────────────────────────────────
 
@@ -124,6 +126,14 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp   += OnPreviewKeyUp;
         Closed         += OnClosed;
+
+        // Use PreviewMouseMove on the viewer instead of Block.MouseEnter — FlowDocumentScrollViewer
+        // does not route ContentElement mouse events to individual Block instances.
+        _markdownPreview.PreviewMouseMove += OnMarkdownPreviewMouseMove;
+        _markdownPreview.MouseLeave       += (_, _) => {
+            _lastHoveredBlockIdx = -1;
+            ClearInstructionsHoverHighlight();
+        };
 
         // Initial renders
         Loaded += (_, _) => {
@@ -617,6 +627,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         combined.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
 
         _previewBlockSrcRanges.Clear();
+        _previewBlocks.Clear();
         int searchFrom = 0;
 
         foreach (var (segText, isConditional) in segments) {
@@ -642,8 +653,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                     if (isConditional) ApplyForeground(block, conditionalBrush);
 
                     _previewBlockSrcRanges.Add(srcRange);
-                    var capturedIdx = _previewBlockSrcRanges.Count - 1;
-                    block.MouseEnter += (_, _) => OnPreviewBlockMouseEnter(capturedIdx);
+                    _previewBlocks.Add(block);
 
                     combined.Blocks.Add(block);
                 }
@@ -652,13 +662,13 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                 var para = new Paragraph(new Run(resolved));
                 if (isConditional) para.Foreground = conditionalBrush;
                 _previewBlockSrcRanges.Add((segStart, segText.Length));
-                var capturedIdx = _previewBlockSrcRanges.Count - 1;
-                para.MouseEnter += (_, _) => OnPreviewBlockMouseEnter(capturedIdx);
+                _previewBlocks.Add(para);
                 combined.Blocks.Add(para);
             }
         }
 
         _markdownPreview.Document = combined;
+        _lastHoveredBlockIdx = -1;
     }
 
     private void OnPreviewBlockMouseEnter(int blockIdx) {
@@ -666,6 +676,42 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var (charStart, charLength) = _previewBlockSrcRanges[blockIdx];
         if (charLength <= 0) return;
         HighlightInstructionsRange(charStart, charLength);
+    }
+
+    private void OnMarkdownPreviewMouseMove(object sender, MouseEventArgs e) {
+        var mouseY = e.GetPosition(_markdownPreview).Y;
+        var idx = FindBlockIndexAtY(mouseY);
+        if (idx == _lastHoveredBlockIdx) return;
+        _lastHoveredBlockIdx = idx;
+        if (idx >= 0)
+            OnPreviewBlockMouseEnter(idx);
+        else
+            ClearInstructionsHoverHighlight();
+    }
+
+    /// <summary>
+    /// Finds the index of the block whose rendered top edge is the highest position
+    /// still at or above <paramref name="mouseY"/> (in <see cref="_markdownPreview"/> coords).
+    /// Returns -1 if no suitable block is found.
+    /// </summary>
+    private int FindBlockIndexAtY(double mouseY) {
+        var doc = _markdownPreview.Document;
+        if (doc == null || _previewBlocks.Count == 0) return -1;
+
+        int best = -1;
+        double bestTop = double.NegativeInfinity;
+
+        for (int i = 0; i < _previewBlocks.Count; i++) {
+            var block = _previewBlocks[i];
+            if (block.Parent != doc) continue;
+            var rect = block.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+            if (rect == Rect.Empty) continue;
+            if (rect.Top <= mouseY && rect.Top > bestTop) {
+                bestTop = rect.Top;
+                best = i;
+            }
+        }
+        return best;
     }
 
     /// <summary>
