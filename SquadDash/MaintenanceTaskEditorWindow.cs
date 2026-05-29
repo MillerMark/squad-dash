@@ -89,7 +89,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _markdownPreview     = BuildMarkdownPreview();
         _instructionsBox     = BuildInstructionsBox();
 
-        Content = BuildLayout();
+        ApplyOuterBorder().Child = BuildLayout();
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp   += OnPreviewKeyUp;
