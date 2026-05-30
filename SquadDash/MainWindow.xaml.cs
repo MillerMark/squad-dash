@@ -13105,9 +13105,9 @@ public partial class MainWindow : Window, ILiveElementLocator
     /// docs root cannot be resolved.
     /// </summary>
     /// <remarks>
-    /// Jekyll (and just-the-docs) typically converts <c>docs/panels/Tasks.md</c> to
-    /// the path <c>panels/Tasks/</c> relative to the Pages root.  The <c>.md</c>
-    /// extension is stripped and a trailing slash is added.
+    /// Respects any <c>permalink:</c> declared in the file's Jekyll front matter.
+    /// For files without an explicit permalink, just-the-docs generates pretty URLs:
+    /// <c>docs/panels/Tasks.md</c> → <c>panels/Tasks/</c> (trailing slash, no extension).
     /// </remarks>
     private string? TryGetCurrentDocPagesPath()
     {
@@ -13123,20 +13123,59 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             if (!absDocPath.StartsWith(absDocsRoot, StringComparison.OrdinalIgnoreCase)) return null;
 
+            // Check for an explicit Jekyll permalink in the file's front matter.
+            // e.g.  permalink: /   →  serve at the Pages root (empty relative path)
+            //        permalink: /panels/tasks/  →  relative path "panels/tasks/"
+            var explicitPermalink = TryReadFrontMatterPermalink(absDocPath);
+            if (explicitPermalink is not null)
+            {
+                // Strip leading slash — the caller appends to pagesBase which already has a trailing slash.
+                return explicitPermalink.TrimStart('/');
+            }
+
             // e.g.  absDocPath  = …/docs/panels/Tasks.md
             //        absDocsRoot = …/docs
             // →  rel = "panels/Tasks.md"  →  "panels/Tasks/"
             var relativePath = absDocPath[absDocsRoot.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var noExtension  = Path.ChangeExtension(relativePath, null).TrimEnd('.');
-            // Convert Windows backslashes to forward slashes for URLs.
-            // Jekyll on GitHub Pages uses .html permalinks by default (no trailing slash).
-            var urlPath = noExtension.Replace(Path.DirectorySeparatorChar, '/') + ".html";
+            // just-the-docs uses pretty URLs: strip extension and add trailing slash.
+            var urlPath = noExtension.Replace(Path.DirectorySeparatorChar, '/') + "/";
             return urlPath;
         }
         catch { return null; }
     }
 
-    // ── Source editor (View Source panel) ────────────────────────────────────
+    /// <summary>
+    /// Reads the first front-matter block (between the opening and closing <c>---</c> lines)
+    /// of a Markdown file and returns the value of the <c>permalink:</c> key, or <c>null</c>
+    /// if no permalink is declared or the file has no front matter.
+    /// </summary>
+    private static string? TryReadFrontMatterPermalink(string filePath)
+    {
+        try
+        {
+            using var reader = new StreamReader(filePath);
+            var firstLine = reader.ReadLine();
+            if (firstLine?.Trim() != "---") return null;
+
+            string? line;
+            while ((line = reader.ReadLine()) is not null)
+            {
+                if (line.Trim() == "---") break;
+                // Match:  permalink: /some/path/
+                var colon = line.IndexOf(':');
+                if (colon < 0) continue;
+                var key   = line[..colon].Trim();
+                var value = line[(colon + 1)..].Trim();
+                if (string.Equals(key, "permalink", StringComparison.OrdinalIgnoreCase) && value.Length > 0)
+                    return value;
+            }
+            return null;
+        }
+        catch { return null; }
+    }
+
+
 
     private static readonly System.Text.RegularExpressions.Regex FrontMatterRegex =
         new(@"^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?",
