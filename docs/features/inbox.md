@@ -137,9 +137,9 @@ Each action has:
 | Field | Required | Description |
 |---|---|---|
 | `label` | yes | Button text |
-| `routeMode` | yes | `"start_named_agent"`, `"start_coordinator"`, or `"done"` |
+| `routeMode` | yes | `"start_named_agent"`, `"start_coordinator"`, `"draft"`, or `"done"` |
 | `targetAgent` | for `start_named_agent` | Handle of the agent to route the prompt to |
-| `prompt` | for `start_*` modes | Fully self-contained prompt injected when clicked |
+| `prompt` | for `start_*` and `draft` modes | Fully self-contained prompt injected when clicked; for `draft`, pre-fills the input box without sending |
 
 ### Route modes
 
@@ -147,6 +147,7 @@ Each action has:
 |---|---|
 | `start_named_agent` | Sends `prompt` to the agent specified by `targetAgent` |
 | `start_coordinator` | Sends `prompt` to the coordinator |
+| `draft` | Pre-fills the user's input box with `prompt` without sending; the user can edit before sending |
 | `done` | Dismisses the message popup; no prompt is sent |
 
 > **Self-contained prompts:** Each `prompt` must include all the context needed to act — file paths, symptoms, and any relevant background. There is no conversation history available when the button is clicked; the prompt is the entire briefing.

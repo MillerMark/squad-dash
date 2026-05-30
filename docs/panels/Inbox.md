@@ -94,6 +94,7 @@ Action buttons are deferred prompts baked into the message at composition time. 
 |------------|--------------------------|
 | `start_named_agent` | Routes the prompt directly to the named specialist agent. |
 | `start_coordinator` | Routes the prompt to the coordinator. |
+| `draft` | Pre-fills the user's input box with the prompt text without sending; the user can edit before sending. |
 | `done` | Dismisses the action with no prompt injection. |
 
 A button is permanently disabled once clicked — the used state is persisted to the message file so it survives a panel reload.

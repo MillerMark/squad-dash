@@ -78,4 +78,31 @@ internal sealed class QuickReplyRoutePresentationTests {
 
         Assert.That(toolTip, Is.EqualTo("Start with Orion Vale"));
     }
+
+    [Test]
+    public void BuildButtonToolTip_ReturnsDraftToolTip_WhenRouteModeIsDraft() {
+        var toolTip = QuickReplyRoutePresentation.BuildButtonToolTip(
+            new QuickReplyRoutePresentation.RouteInfo("draft", null, null));
+
+        Assert.That(toolTip, Is.EqualTo("Pre-fill draft (won't send)"));
+    }
+
+    [Test]
+    public void BuildCaption_ReturnsNull_WhenAnyRouteIsDraft() {
+        var caption = QuickReplyRoutePresentation.BuildCaption([
+            new QuickReplyRoutePresentation.RouteInfo("draft", null, null),
+            new QuickReplyRoutePresentation.RouteInfo("continue_current_agent", "Lyra Morn", null)
+        ]);
+
+        Assert.That(caption, Is.Null);
+    }
+
+    [Test]
+    public void BuildCaption_ReturnsNull_WhenAllRoutesAreDraft() {
+        var caption = QuickReplyRoutePresentation.BuildCaption([
+            new QuickReplyRoutePresentation.RouteInfo("draft", null, null)
+        ]);
+
+        Assert.That(caption, Is.Null);
+    }
 }

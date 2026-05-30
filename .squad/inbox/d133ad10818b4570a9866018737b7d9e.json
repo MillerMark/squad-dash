@@ -1,0 +1,37 @@
+{
+  "id": "d133ad10818b4570a9866018737b7d9e",
+  "subject": "Panel Docking \u2014 Orion\u0027s Open Questions",
+  "from": "coordinator",
+  "timestamp": "2026-05-29T22:36:19.9236515-04:00",
+  "read": true,
+  "body": "## Panel Docking System \u2014 Open Questions\n\nFrom Orion Vale\u0027s ADR (\u0060.squad/decisions/panel-docking-system.md\u0060, commit \u00602a8f5ca\u0060).\n\n---\n\n### Q1 \u2014 Storage format\nIntegrate \u0060DockLayout\u0060 into the existing \u0060WorkspaceDocsPanelState\u0060 record, or keep a separate \u0060panel-layouts.json\u0060 file per workspace?\n\n\u003E Orion\u0027s note: A separate file avoids growing the already large state record.\n\n---\n\n### Q2 \u2014 DocsPanel special-casing\n\u0060DocsPanel\u0060 has its own column \u002B splitter in \u0060MainGrid\u0060 (unlike the other panels which are all children of \u0060StatusAgentPanelsGrid\u0060). Should it be treated as a first-class dockable panel or kept separate with just a zone hint?\n\n---\n\n### Q3 \u2014 Left zone width\nFixed (e.g. 260 px), auto-sized to content, or user-resizable via a \u0060GridSplitter\u0060?\n\n---\n\n### Q4 \u2014 Panel header affordance\nShould panels in the Left/Right zones display a small zone-indicator icon so users know they can Ctrl\u002Bclick to move them? *(UI spec question \u2014 Mira Quill has a task for the popup spec.)*\n\n---\n\n*Full ADR at \u0060.squad/decisions/panel-docking-system.md\u0060*",
+  "attachments": [
+    {
+      "type": "file",
+      "label": "panel-docking-system.md",
+      "path": ".squad/decisions/panel-docking-system.md",
+      "href": null,
+      "taskId": null,
+      "content": null
+    }
+  ],
+  "actions": [
+    {
+      "label": "Answer all 4 questions",
+      "routeMode": "start_coordinator",
+      "targetAgent": null,
+      "prompt": "I\u0027ve read Orion\u0027s open questions on the panel docking system ADR at .squad/decisions/panel-docking-system.md. Here are my answers:\n\nQ1 (Storage): \nQ2 (DocsPanel): \nQ3 (Left zone width): \nQ4 (Panel header affordance): \n\nPlease update the ADR with these decisions and unblock the wiring task for Orion.",
+      "hint": null
+    },
+    {
+      "label": "Dismiss",
+      "routeMode": "done",
+      "targetAgent": null,
+      "prompt": null,
+      "hint": "Acknowledge \u2014 answer these later when implementation starts"
+    }
+  ],
+  "usedActions": [
+    "Answer all 4 questions"
+  ]
+}

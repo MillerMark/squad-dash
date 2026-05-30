@@ -78,4 +78,49 @@ public sealed class QuickReplyOptionParserTests {
         Assert.That(body, Is.EqualTo("Which would you like to tackle?"));
         Assert.That(options, Is.EqualTo(new[] { "Tiered pricing", "Unit tests" }));
     }
+
+    [Test]
+    public void TryExtract_ParsesDraftRouteMode_WithPromptField() {
+        const string text = """
+            Click the button below to pre-fill your answers.
+            QUICK_REPLIES_JSON:
+            [
+              {
+                "label": "Answer these questions",
+                "routeMode": "draft",
+                "prompt": "1. My answer to Q1\n2. My answer to Q2\n3. My answer to Q3",
+                "reason": "Pre-fill the answer template."
+              }
+            ]
+            """;
+
+        var parsed = QuickReplyOptionParser.TryExtractWithMetadata(text, out var body, out QuickReplyOptionMetadata[] options);
+
+        Assert.That(parsed, Is.True);
+        Assert.That(body, Is.EqualTo("Click the button below to pre-fill your answers."));
+        Assert.That(options, Has.Length.EqualTo(1));
+        Assert.That(options[0].Label, Is.EqualTo("Answer these questions"));
+        Assert.That(options[0].RouteMode, Is.EqualTo("draft"));
+        Assert.That(options[0].Prompt, Is.EqualTo("1. My answer to Q1\n2. My answer to Q2\n3. My answer to Q3"));
+    }
+
+    [Test]
+    public void TryExtract_PromptField_IsNullWhenAbsent() {
+        const string text = """
+            Choose an option.
+            QUICK_REPLIES_JSON:
+            [
+              {
+                "label": "Continue",
+                "routeMode": "continue_current_agent",
+                "reason": "Keep going."
+              }
+            ]
+            """;
+
+        var parsed = QuickReplyOptionParser.TryExtractWithMetadata(text, out _, out QuickReplyOptionMetadata[] options);
+
+        Assert.That(parsed, Is.True);
+        Assert.That(options[0].Prompt, Is.Null);
+    }
 }

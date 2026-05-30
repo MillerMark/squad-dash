@@ -73,8 +73,9 @@ public sealed record InboxAction
     public string Label { get; init; } = string.Empty;
 
     /// <summary>
-    /// Routing mode. Valid values: "start_named_agent", "start_coordinator", "done".
+    /// Routing mode. Valid values: "start_named_agent", "start_coordinator", "draft", "done".
     /// Use "done" for dismiss/no-op actions that require no prompt injection.
+    /// Use "draft" to pre-fill the user's input box with the prompt text without sending it.
     /// </summary>
     [JsonPropertyName("routeMode")]
     public string RouteMode { get; init; } = string.Empty;

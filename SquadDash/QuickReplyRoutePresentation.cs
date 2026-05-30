@@ -18,6 +18,10 @@ internal static class QuickReplyRoutePresentation {
                 Normalize(route.Reason)))
             .ToArray();
 
+        // Draft-mode buttons pre-fill the input without sending — no routing caption applies.
+        if (normalized.Any(route => string.Equals(route.RouteMode, "draft", StringComparison.OrdinalIgnoreCase)))
+            return null;
+
         var nonCoordinatorRoutes = normalized
             .Where(route => !string.IsNullOrWhiteSpace(route.AgentLabel))
             .ToArray();
@@ -50,6 +54,9 @@ internal static class QuickReplyRoutePresentation {
     public static string BuildButtonToolTip(RouteInfo route) {
         var normalizedLabel = Normalize(route.AgentLabel);
         var normalizedMode = Normalize(route.RouteMode);
+
+        if (string.Equals(normalizedMode, "draft", StringComparison.OrdinalIgnoreCase))
+            return "Pre-fill draft (won't send)";
 
         return string.IsNullOrWhiteSpace(normalizedLabel)
             ? "Handled by Coordinator"

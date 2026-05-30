@@ -19326,7 +19326,8 @@ public partial class MainWindow : Window, ILiveElementLocator
         string? RoutingInstruction,
         string? ContinuationAgentLabel,
         string? RouteMode,
-        string? TargetAgentHandle);
+        string? TargetAgentHandle,
+        string? DraftPrompt = null);
 
     private sealed class PendingQuickReplyLaunchState
     {
@@ -19425,7 +19426,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     routedQuickReply.RoutingInstruction,
                     routedQuickReply.ContinuationAgentLabel,
                     routedQuickReply.RouteMode,
-                    routedQuickReply.TargetAgentHandle),
+                    routedQuickReply.TargetAgentHandle,
+                    routeDecision.Option.Prompt),
                 Margin = new Thickness(0, 0, 8, 8),
                 Padding = new Thickness(10, 4, 10, 4),
                 BorderThickness = new Thickness(1),
@@ -19669,6 +19671,9 @@ public partial class MainWindow : Window, ILiveElementLocator
         }
 
         if (string.Equals(routeMode, "done", StringComparison.OrdinalIgnoreCase))
+            return new QuickReplyRoutingDecision(null, null, routeMode, null, reason);
+
+        if (string.Equals(routeMode, "draft", StringComparison.OrdinalIgnoreCase))
             return new QuickReplyRoutingDecision(null, null, routeMode, null, reason);
 
         var targetThread = TryResolveQuickReplyContinuationThread(entry);
@@ -20116,6 +20121,42 @@ public partial class MainWindow : Window, ILiveElementLocator
         await _pec.ExecutePromptAsync(prompt, addToHistory: false, clearPromptBox: false);
     }
 
+    private void HandleDraftQuickReply(string? draftText, TranscriptResponseEntry? entry)
+    {
+        if (string.IsNullOrWhiteSpace(draftText))
+            return;
+
+        var text = draftText.Trim();
+
+        if (entry is not null)
+        {
+            _pec.DisableQuickReplies(entry);
+            ClearActiveQuickReplyState(entry);
+        }
+
+        // If the active draft box is empty, fill it directly.
+        if (_activeTabId is null && string.IsNullOrWhiteSpace(PromptTextBox.Text))
+        {
+            SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "draft-quick-reply");
+            PromptTextBox.Focus();
+            return;
+        }
+
+        // Active draft has content or we're on a queue tab — add a new queued item with
+        // IsEditing=true so it won't auto-dispatch until the user reviews and sends it.
+        var item = new PromptQueueItem
+        {
+            Text = text,
+            SequenceNumber = ++_promptQueueSeq,
+            CaretIndex = text.Length,
+            IsEditing = true
+        };
+        item.QueueNumber = NextQueueNumber();
+        _promptQueue.EnqueueItem(item);
+        SyncQueuePanel();
+        OnQueueTabClicked(item.Id);
+    }
+
     private void ClearActiveQuickReplyState(TranscriptResponseEntry? entry = null)
     {
         if (entry is not null && !ReferenceEquals(entry, _lastQuickReplyEntry))
@@ -20134,6 +20175,15 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (_isPromptRunning || _currentWorkspace is null)
             return;
+
+        // Draft quick replies pre-fill the input without dispatching. Handle before the try/finally
+        // block so the loop's _loopFollowUpTcs is NOT signaled — the loop stays paused until the
+        // user reviews the draft and actually sends it.
+        if (string.Equals(payload.RouteMode, "draft", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleDraftQuickReply(payload.DraftPrompt, payload.Entry);
+            return;
+        }
 
         try
         {
@@ -28528,6 +28578,13 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         if (action.RouteMode == "done" || string.IsNullOrWhiteSpace(action.Prompt))
             return;
+
+        if (action.RouteMode == "draft")
+        {
+            HandleDraftQuickReply(action.Prompt, entry: null);
+            this.Activate();
+            return;
+        }
 
         string prompt = action.Prompt;
 

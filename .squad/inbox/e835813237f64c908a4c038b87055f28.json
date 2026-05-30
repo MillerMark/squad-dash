@@ -1,0 +1,28 @@
+{
+  "id": "e835813237f64c908a4c038b87055f28",
+  "subject": "Security Audit \u2014 Addendum: Path Traversal in Image Write",
+  "from": "argus-weld",
+  "timestamp": "2026-05-26T16:41:28.9661941-04:00",
+  "read": true,
+  "body": "## Addendum to Security Audit \u2014 Path Traversal in Image Write Operations\n\nThis is a follow-up to the main security audit report. A secondary analysis pass confirmed an additional **Medium/High** finding not covered in the first report.\n\n---\n\n## \uD83D\uDFE0MEDIUM/HIGH \u2014 Path Traversal in Screenshot Save Operations\n\n**Files:** \u0060SquadDash/MarkdownDocumentWindow.cs\u0060 \u2014 three callsites:\n- Line 1630 (\u0060PasteScreenshotFromClipboard\u0060-equivalent path)\n- Line 1668 (\u0060ReplaceImageFromClipboard\u0060-equivalent path)\n- Line 1774 (screenshot capture path)\n\n**Description:**\nThe \u0060imagePath\u0060 value is extracted directly from the currently-open Markdown document\u0027s \u0060![alt](imagePath)\u0060 syntax and then used to construct a file write path:\n\n\u0060\u0060\u0060csharp\nvar fullImagePath = Path.Combine(docDir, imagePath.Replace(\u0027/\u0027, \u0027\\\\\u0027));\nDirectory.CreateDirectory(Path.GetDirectoryName(fullImagePath)!);\n// ... image is written to fullImagePath\n\u0060\u0060\u0060\n\nNo check is performed to ensure \u0060fullImagePath\u0060 remains within \u0060docDir\u0060. An \u0060imagePath\u0060 value like \u0060../../../AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/evil.exe\u0060 would pass through \u0060Path.Combine\u0060, resolve outside the document directory, create the directory, and write the clipboard image to that location. SinceSquadDash accepts and opens files that AI agents write, a compromised or adversarially-prompted AI could produce a Markdown document with a crafted image path.\n\n**Remediation:**\n\u0060\u0060\u0060csharp\nvar fullImagePath = Path.GetFullPath(Path.Combine(docDir, imagePath.Replace(\u0027/\u0027, \u0027\\\\\u0027)));\nvar safeDocDir    = Path.GetFullPath(docDir) \u002B Path.DirectorySeparatorChar;\nif (!fullImagePath.StartsWith(safeDocDir, StringComparison.OrdinalIgnoreCase))\n    throw new InvalidOperationException(\u0022Image path escapes document directory.\u0022);\n\u0060\u0060\u0060\nApply this guard at all three callsites before the \u0060Directory.CreateDirectory\u0060 call.\n\n---\n\n## \u2705 Confirmed Clean by Secondary Pass\n\n- No SQL injection (no raw SQL anywhere)\n- No unsafe deserialization (\u0060BinaryFormatter\u0060, \u0060TypeNameHandling\u0060)\n- All cryptographic hashing uses SHA-256\n- \u0060QuoteArgument()\u0060 used correctly for all \u0060Process.Start\u0060 argument construction\n- BYOK API key is intentionally **not** logged (traces emit \u0060\u0022set\u0022\u0060/\u0060\u0022not set\u0022\u0060 only)\n- NuGet packages: no vulnerabilities found via \u0060dotnet list package --vulnerable\u0060",
+  "attachments": [],
+  "actions": [
+    {
+      "label": "Fix Path Traversal",
+      "routeMode": "start_named_agent",
+      "targetAgent": "arjun-sen",
+      "prompt": "Security audit found a path traversal vulnerability in SquadDash/MarkdownDocumentWindow.cs.\n\nThere are three callsites where an \u0060imagePath\u0060 value extracted from a Markdown \u0060![alt](imagePath)\u0060 tag is passed unsanitized to \u0060Path.Combine(docDir, imagePath.Replace(\u0027/\u0027, \u0027\\\\\u0027))\u0060 before writing the clipboard image to disk:\n- Line ~1630 (paste screenshot path)\n- Line ~1668 (replace image path)\n- Line ~1774 (capture screenshot path)\n\nAll three follow this pattern:\n\u0060\u0060\u0060csharp\nvar fullImagePath = Path.Combine(docDir, imagePath.Replace(\u0027/\u0027, \u0027\\\\\u0027));\nDirectory.CreateDirectory(Path.GetDirectoryName(fullImagePath)!);\n// image written to fullImagePath\n\u0060\u0060\u0060\n\nA crafted \u0060imagePath\u0060 like \u0060../../AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/evil.png\u0060 would resolve outside the document directory and write the clipboard image there.\n\n**Fix:** After computing \u0060fullImagePath\u0060, add a containment check:\n\u0060\u0060\u0060csharp\nvar normalizedImagePath = Path.GetFullPath(Path.Combine(docDir, imagePath.Replace(\u0027/\u0027, \u0027\\\\\u0027)));\nvar safeDocDir = Path.GetFullPath(docDir).TrimEnd(Path.DirectorySeparatorChar) \u002B Path.DirectorySeparatorChar;\nif (!normalizedImagePath.StartsWith(safeDocDir, StringComparison.OrdinalIgnoreCase)) {\n    MessageBox.Show($\u0022The image path \\\u0022{imagePath}\\\u0022 points outside the document folder.\u0022,\n        \u0022Security\u0022, MessageBoxButton.OK, MessageBoxImage.Warning);\n    return;\n}\nvar fullImagePath = normalizedImagePath;\n\u0060\u0060\u0060\n\nApply this at all three callsites before the \u0060Directory.CreateDirectory\u0060 line. Do not break any existing tests.",
+      "hint": "Fix path traversal in MarkdownDocumentWindow image write operations (3 callsites)"
+    },
+    {
+      "label": "Dismiss",
+      "routeMode": "done",
+      "targetAgent": null,
+      "prompt": null,
+      "hint": "Acknowledge \u2014 no action will be taken"
+    }
+  ],
+  "usedActions": [
+    "Fix Path Traversal"
+  ]
+}

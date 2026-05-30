@@ -7,7 +7,8 @@ internal sealed record QuickReplyOptionMetadata(
     string Label,
     string? RouteMode = null,
     string? TargetAgent = null,
-    string? Reason = null);
+    string? Reason = null,
+    string? Prompt = null);
 
 internal static partial class QuickReplyOptionParser {
     [GeneratedRegex(
@@ -127,7 +128,8 @@ internal static partial class QuickReplyOptionParser {
             label.Trim(),
             TryGetString(element, "routeMode"),
             TryGetString(element, "targetAgent"),
-            TryGetString(element, "reason"));
+            TryGetString(element, "reason"),
+            TryGetString(element, "prompt"));
     }
 
     private static string? TryGetString(JsonElement element, string propertyName) {
