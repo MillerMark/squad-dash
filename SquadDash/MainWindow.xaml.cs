@@ -12352,8 +12352,24 @@ public partial class MainWindow : Window, ILiveElementLocator
         foreach (var (border, panelId) in dockable)
         {
             var id = panelId;
-            border.GripStripClicked += (sender, _) =>
-                ShowDockContextMenu((System.Windows.Controls.Border)sender!, id);
+            border.GripStripClicked += (sender, e) =>
+            {
+                if (_dockingService is null) return;
+                try
+                {
+                    var mousePos    = System.Windows.Input.Mouse.GetPosition(this);
+                    var screenPoint = PointToScreen(mousePos);
+                    var viewModel   = SquadDash.PanelDocking.DockingMapBuilder.BuildDockingMap(
+                        id, _dockingService.CurrentLayout);
+                    var mapWindow = new SquadDash.PanelDocking.DockingMapWindow(
+                        viewModel,
+                        _dockingService,
+                        _currentWorkspace?.FolderPath ?? string.Empty,
+                        Application.Current.Resources);
+                    mapWindow.ShowAtScreenPoint(screenPoint);
+                }
+                catch (Exception ex) { HandleUiCallbackException("GripStrip.OpenDockingMap", ex); }
+            };
         }
     }
 
