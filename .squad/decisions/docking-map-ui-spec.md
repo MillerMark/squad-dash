@@ -1,6 +1,6 @@
 # Docking Map UI Specification
 
-**Version:** 1.0 — draft  
+**Version:** 1.1 — draft  
 **Author:** Mira Quill (Documentation & Specification Specialist)  
 **Date:** 2026-06-02  
 **Relates to:** [panel-docking-system.md](panel-docking-system.md), [panel-docking-ui-spec.md](panel-docking-ui-spec.md)
@@ -51,7 +51,9 @@ The strip is drawn as a series of **horizontal 1-px lines** following the rules 
 
 The hit area for the grip strip is the full **width × corner-radius-height** rectangle at the top of the panel, regardless of where the visible lines are drawn (including the transparent rows between lines). This rectangle is the **clickable affordance** that replaces the hamburger button.
 
-Cursor over the hit area: `SizeAll` (four-directional move cursor), communicating that the strip is a drag-or-click move target.
+Cursor over the hit area: `Hand` (`Cursors.Hand`), communicating the grip strip is a clickable control.
+
+A **tooltip** appears on hover over the grip strip with the text **"Docking map…"** (using the Unicode ellipsis character U+2026, not three separate dots). The tooltip uses theme colors: background `ChromeSurface`, foreground `LabelText`, matching the active light or dark theme.
 
 ### 1.4 Removal of Hamburger Button
 
@@ -67,11 +69,11 @@ Clicking anywhere in the grip strip opens the **Docking Map** — a floating, bo
 
 ### 2.1 Positioning
 
-**v1 behavior:** The popup is initially centered on the mouse click point. That is, the center of the popup rectangle is placed at the screen coordinates of the click.
+The popup is positioned so that the **source panel's slot button is centered over the mouse cursor** at the moment the grip strip is clicked. This provides a spatial anchor: the user sees "I clicked my panel, and my panel is here under my cursor — now I see the whole layout around me."
 
-Screen-edge clamping: if centering would push any edge of the popup off-screen, the popup is shifted (not scaled) so it remains fully within the working area of the monitor containing the click point.
+`BuildDockingMap` must return the offset from the popup's top-left corner to the center of the source panel's slot button. The popup's `Left`/`Top` are then set so that `slot_center_screen = click_screen_position`.
 
-**v2 planned enhancement (not in scope for v1):** The popup will be positioned so that the mouse cursor falls exactly over the slot button representing the source panel's current position within the map. This gives the interaction a spatial anchor — "you clicked here, and this is where you are in the layout." See Section 8 (Open Questions) for the full description.
+Screen-edge clamping: if this positioning would push any edge of the popup off-screen, the popup is shifted (not scaled) so it remains **fully visible within the working area of the active monitor**. When clamped, the spatial anchor is no longer exact — this is acceptable degradation.
 
 ### 2.2 Zone Regions
 
@@ -149,7 +151,7 @@ The current layout is read from `PanelDockingService.CurrentLayout` at the momen
 
 Wherever P currently lives (its column and position within that column), that slot is drawn in the disabled / near-background style. It is not clickable. All other rules are applied relative to P's current location.
 
-The popup is positioned so this slot is approximately under the mouse (v1 approximation; v2 exact — see Section 8).
+The popup is positioned so the center of this slot is under the mouse cursor when the map opens (see Section 2.1).
 
 ### Rule B — Within the same group as P (reorder)
 
@@ -204,20 +206,24 @@ Expansion buttons use the dashed-border active style described in Section 2.4.
 - No expansion button is ever offered that would result in a 3rd column on either side.
 - These limits are evaluated against the current layout at popup-open time.
 
+### Sizing Note — Width Preservation on Move
+
+When a panel is moved from one location to another, its **width is preserved** at the destination. Exception: when panels are stacked vertically within the same column, the width of all panels in that column is governed by the column splitter and may be adjusted freely by the user.
+
 ---
 
 ## Section 4 — Interaction Flow
 
 1. **Discovery:** The user notices horizontal grip lines at the very top of a dockable panel — a subtle but consistent affordance that the panel can be moved.
-2. **Open:** The user clicks anywhere within the grip strip. The cursor is `SizeAll` over this area.
-3. **Popup appears:** The Docking Map popup appears centered on the click point (v1), or centered so the source panel's slot is under the mouse (v2).
+2. **Open:** The user clicks anywhere within the grip strip. The cursor is `Hand` over this area.
+3. **Popup appears:** The Docking Map popup appears with the source panel's slot centered on the mouse cursor.
 4. **Orientation:** The source panel's slot is rendered in the disabled / near-background style. The user sees "this is where I am" spatially anchored within the miniature layout.
 5. **Select destination:** The user moves the mouse to the desired target slot. Active slots show a hover highlight on pointer entry.
 6. **Confirm move:** The user clicks the target slot. `PanelDockingService.MovePanel(panelId, targetZone)` is called with the appropriate zone and position information. The panel moves instantly.
 7. **Popup closes:** The popup closes immediately after the move is confirmed.
 8. **Cancel:** At any time before step 6, the user can press **Escape** or click anywhere outside the popup to close it with no action taken.
 
-No animation is used in v1. Panel moves are instantaneous. Animation is a planned future enhancement (see Section 8).
+No animation is used in v1. Panel moves are instantaneous. Animation is a planned future enhancement (see Section 7).
 
 ---
 
@@ -446,27 +452,27 @@ After the grip strip is wired:
 
 ---
 
-## Section 7 — Open Questions and Future Enhancements
+## Section 7 — Deferred Enhancements and Future Work
 
-### v2 — Spatial Anchor Positioning
+### Deferred — v2
 
-In v2, when the Docking Map opens, the popup will be positioned so the **mouse cursor falls exactly over the source panel's disabled slot button** within the map. This provides a precise spatial anchor: the user experiences "I clicked my panel, and my panel is here under my cursor — now I see the whole layout around me."
+#### Animation of Panel Moves
 
-Implementation requires `BuildDockingMap` to return the offset from the popup's top-left corner to the center of the source panel's slot button, which is then used to calculate the popup's `Left`/`Top` so that `slot_center_screen = click_screen_position`.
+**Not in scope for v1.** Panel moves are instantaneous (see Section 4, step 6).
 
-Screen-edge clamping still applies; if the exact-center positioning would push the popup off-screen, the popup shifts and the spatial anchor is no longer exact (acceptable degradation for v2).
+Two options are documented here for future consideration:
 
-### Animation of Panel Moves
+**Option A — "Lightsaber trail" effect:** When the panel moves from position A to B, a brief blur/trail sweeps along the movement path. In dark theme: theme-colored, very bright. In light theme: very dark, approximately 25 % opaque. Communicates movement from source to destination.
 
-A future option: when `PanelDockingService.MovePanel()` is called, animate the panel sliding from its current position to the new zone (e.g., 200 ms ease-out). This is out of scope until the core layout restructuring is stable. No API changes are required — animation would be a purely visual layer on top of the existing `MovePanel` call.
+**Option B — Arrival flash (simpler, preferred starting point):** Animate the panel's background from medium brightness to its normal brightness when it arrives at the new location — a brief flash indicating "this just moved here." Easier to implement than Option A and still clearly conveys the move.
 
-### Touch and Stylus
+No API changes are required for either option; animation would be a purely visual layer on top of the existing `MovePanel` call.
 
-The grip strip's 8 px hit area is suitable for mouse interaction but is too narrow for reliable touch targeting. On touch/stylus input, the hit area should expand to at least 24 px (the minimum comfortable touch target). Detect input device type via `StylusDevice` / `TouchDevice` in the `PreviewMouseLeftButtonDown` override (or use `TouchDown` event separately) and expand the hit-test area accordingly.
+#### Keyboard Navigation
 
-### Keyboard Navigation
+**Not in scope for v1.**
 
-When the Docking Map is open:
+Candidate interactions when implemented:
 
 - **Tab / Shift+Tab:** Move focus between enabled slot buttons in reading order (left-to-right, top-to-bottom).
 - **Arrow keys:** Move focus spatially to the nearest slot button in the arrow direction.
@@ -475,10 +481,16 @@ When the Docking Map is open:
 
 The popup window must set `Focusable=True` and call `Focus()` on the first enabled slot button after `Show()`. WPF `Button` keyboard behavior handles Enter/Space by default.
 
-### Named Layouts
+### Future
+
+#### Named Layouts
 
 The interaction model documented here operates on a single current layout. The named-layout recall feature (from [panel-docking-system.md](panel-docking-system.md)) could be integrated by adding a layout-name dropdown or toolbar within the Docking Map popup — deferred to a future spec.
 
 ---
 
-*End of Docking Map UI Specification v1.0 — draft*
+**Note — Touch and Stylus:** SquadDash is a desktop Windows application. Touch/stylus hit-area expansion is not applicable and is not planned.
+
+---
+
+*End of Docking Map UI Specification v1.1 — draft*
