@@ -798,14 +798,16 @@ internal sealed class PanelDockingService
             Rect neighborRect = GetInnerNeighborRect(zone);
             if (!neighborRect.IsEmpty)
             {
-                // For inner zones (Left, Right) the neighbor is the center grid — place the strip
-                // just outside it (toward the window edge).
-                // For outer zones (Left2, Right2) the neighbor is the Left/Right scroll-viewer,
-                // whose outer edge is already at the window boundary.  Overlap its outer 64px so
-                // the strip is always on-screen.
+                // For Left/Right: when the column is collapsed (empty), the center grid extends
+                // to the window edge, so neighborRect.Left ≈ 0 and Left - 64 is off-screen.
+                // Overlap the center grid's near edge by 64px so the strip is always visible.
+                // For Left2/Right2: neighbor is the Left/Right scroll-viewer whose far edge is
+                // already at the window boundary — same overlap treatment.
                 double x = zone switch
                 {
+                    DockZone.Left   => neighborRect.Left,
                     DockZone.Left2  => neighborRect.Left,
+                    DockZone.Right  => neighborRect.Right - StripWidth,
                     DockZone.Right2 => neighborRect.Right - StripWidth,
                     _               => isRightSide ? neighborRect.Right : neighborRect.Left - StripWidth,
                 };

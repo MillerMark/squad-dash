@@ -5,23 +5,8 @@
       "name": "Default",
       "slots": [
         {
-          "panelId": "approvals",
-          "zone": "Left",
-          "order": 1
-        },
-        {
           "panelId": "tasks",
           "zone": "Left2",
-          "order": 1
-        },
-        {
-          "panelId": "loop",
-          "zone": "Top",
-          "order": 0
-        },
-        {
-          "panelId": "inbox",
-          "zone": "Top",
           "order": 1
         },
         {
@@ -43,11 +28,26 @@
           "panelId": "trace",
           "zone": "Top",
           "order": 5
+        },
+        {
+          "panelId": "loop",
+          "zone": "Left",
+          "order": 0
+        },
+        {
+          "panelId": "approvals",
+          "zone": "Left",
+          "order": 1
+        },
+        {
+          "panelId": "inbox",
+          "zone": "Right",
+          "order": 0
         }
       ],
-      "leftZoneWidth": 263.08000000000004,
-      "rightZoneWidth": null,
-      "left2ZoneWidth": 280,
+      "leftZoneWidth": null,
+      "rightZoneWidth": 273.94000000000005,
+      "left2ZoneWidth": null,
       "right2ZoneWidth": null
     }
   ]
