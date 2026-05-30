@@ -342,9 +342,10 @@
             <ColumnDefinition x:Name="RightSplitterColumn" Width="0" MinWidth="0" />
             <ColumnDefinition x:Name="RightZoneColumn" Width="0" MinWidth="0" />
         </Grid.ColumnDefinitions>
-        <!-- Left zone -->
+        <!-- Left zone — top margin = MainGrid.Margin.Top(14) + TitleBar row height(38) = 52px -->
         <ScrollViewer x:Name="LeftZoneScrollViewer"
                       Grid.Column="0"
+                      Margin="0,52,0,0"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="Collapsed">
@@ -352,6 +353,7 @@
         </ScrollViewer>
         <GridSplitter x:Name="LeftZoneSplitter"
                       Grid.Column="1"
+                      Margin="0,52,0,0"
                       Width="5"
                       HorizontalAlignment="Stretch"
                       VerticalAlignment="Stretch"
@@ -2593,9 +2595,10 @@
             </Grid>
         </Border>
     </Grid>  <!-- end MainGrid -->
-        <!-- Right zone -->
+        <!-- Right zone — top margin = MainGrid.Margin.Top(14) + TitleBar row height(38) = 52px -->
         <GridSplitter x:Name="RightZoneSplitter"
                       Grid.Column="3"
+                      Margin="0,52,0,0"
                       Width="5"
                       HorizontalAlignment="Stretch"
                       VerticalAlignment="Stretch"
@@ -2603,6 +2606,7 @@
                       Visibility="Collapsed" />
         <ScrollViewer x:Name="RightZoneScrollViewer"
                       Grid.Column="4"
+                      Margin="0,52,0,0"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="Collapsed">
