@@ -47,6 +47,7 @@
     <SolidColorBrush x:Key="DangerButtonHover"   Color="#E53935"/>
     <SolidColorBrush x:Key="DangerButtonPressed" Color="#EF5350"/>
     <SolidColorBrush x:Key="DangerButtonFg"      Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="GripStripLine" Color="#72604C"/>  <!-- midpoint of RosterPanelTitle + RosterPanelSurface -->
     <!-- Border / Line Tokens -->
     <SolidColorBrush x:Key="PanelBorder" Color="#3A342C"/>
     <SolidColorBrush x:Key="ActivePanelBorder" Color="#2B4065"/>
