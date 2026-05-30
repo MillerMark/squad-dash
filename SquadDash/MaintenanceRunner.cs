@@ -203,11 +203,11 @@ internal sealed class MaintenanceRunner {
         "  \"attachments\": [],\n" +
         "  \"actions\": [\n" +
         "    { \"label\": \"Fix this\", \"routeMode\": \"start_named_agent\", \"targetAgent\": \"...\", \"prompt\": \"...\" },\n" +
-        "    { \"label\": \"Dismiss\", \"routeMode\": \"done\", \"hint\": \"Acknowledge — no action will be taken\" }\n" +
+        "    { \"label\": \"Add to backlog\", \"routeMode\": \"start_coordinator\", \"prompt\": \"...\" }\n" +
         "  ]\n" +
         "}\n" +
         "Each action may include an optional \"hint\" field — a short tooltip string shown when the user hovers over the button.\n" +
-        "For routeMode \"done\" actions, including a hint is encouraged (e.g. \"hint\": \"Acknowledge — no action will be taken\").\n\n";
+        "Do NOT include a bare 'Dismiss' button — it performs no action and adds no value to the user.\n\n";
 
     /// <summary>
     /// Appended to report-only prompts as a final reminder checklist so the model cannot
@@ -231,12 +231,16 @@ internal sealed class MaintenanceRunner {
         "2. Instead, embed any decision points as deferred actions in your INBOX_MESSAGE_JSON block.\n" +
         "   Use the `actions` array so the user can make choices later when they review the message.\n" +
         "\n" +
-        "3. Each action MUST have a self-contained `prompt` (except routeMode `\"done\"` which is a dismiss).\n" +
-        "   Write the prompt as a complete briefing — include file paths, class names, method names, symptoms, and all\n" +
-        "   context you discovered. Prefer stable identifiers (class/method names) over line numbers, which go stale.\n" +
-        "   Assume the reader has NO memory of this session.\n" +
+        "3. Each action MUST have a self-contained `prompt`. Action buttons are strongly encouraged — they are excellent\n" +
+        "   for usability and let the user act on your findings without typing. Use them whenever a natural follow-up\n" +
+        "   choice exists. Consider `\"draft\"` actions when you need the user to answer questions: pre-fill the prompt\n" +
+        "   with labeled placeholders so the user just fills in the blanks and sends.\n" +
         "   Each action may also include an optional `\"hint\"` field — a short tooltip string shown when the user hovers\n" +
-        "   over the button. For routeMode `\"done\"` actions, including a hint is encouraged.\n" +
+        "   over the button.\n" +
+        "\n" +
+        "   Do NOT include a bare 'Dismiss' button with routeMode `\"done\"` — it performs no action and adds no value.\n" +
+        "   Only include a `\"done\"` action if the label is meaningful (e.g. 'Mark resolved', 'Already fixed') and the\n" +
+        "   user genuinely needs to record a decision without launching an agent. In most cases, omit it entirely.\n"+
         "\n" +
         "4. For report-only tasks: send findings as an inbox message with `\"from\": \"argus-weld\"`.\n" +
         "   Subject = short descriptive title (no 'Maintenance Report:' prefix, no date). Body = full Markdown report. Actions = any follow-up choices.\n" +
@@ -247,9 +251,8 @@ internal sealed class MaintenanceRunner {
         "    { \"label\": \"Fix this\", \"routeMode\": \"start_named_agent\", \"targetAgent\": \"arjun-sen\",\n" +
         "      \"prompt\": \"Arjun: during maintenance on [date] I found X in [file:line]. Please fix it. [full context]\" },\n" +
         "    { \"label\": \"Add to backlog\", \"routeMode\": \"start_coordinator\",\n" +
-        "      \"prompt\": \"Add a task: [description discovered during maintenance on [date]]\" },\n" +
-        "    { \"label\": \"Dismiss\", \"routeMode\": \"done\", \"hint\": \"Acknowledge — no action will be taken\" }\n" +
-        "  ]\n" +
+        "      \"prompt\": \"Add a task: [description discovered during maintenance on [date]]\" }\n" +
+        "  ]\n"+
         "</maintenance_inbox_reminder>";
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -316,11 +319,11 @@ internal sealed class MaintenanceRunner {
         "  \"attachments\": [],\n" +
         "  \"actions\": [\n" +
         "    { \"label\": \"Fix this\", \"routeMode\": \"start_named_agent\", \"targetAgent\": \"...\", \"prompt\": \"...\" },\n" +
-        "    { \"label\": \"Dismiss\", \"routeMode\": \"done\", \"hint\": \"Acknowledge — no action will be taken\" }\n" +
+        "    { \"label\": \"Add to backlog\", \"routeMode\": \"start_coordinator\", \"prompt\": \"...\" }\n" +
         "  ]\n" +
         "}\n" +
         "Each action may include an optional \"hint\" field — a short tooltip shown when the user hovers over the button.\n" +
-        "For routeMode \"done\" actions, including a hint is encouraged (e.g. \"hint\": \"Acknowledge — no action will be taken\").";
+        "Do NOT include a bare 'Dismiss' button — it performs no action and adds no value to the user.";
 
     /// <summary>
     /// Evaluates <c>{{#if}}</c>/<c>{{#unless}}</c> conditional blocks and replaces

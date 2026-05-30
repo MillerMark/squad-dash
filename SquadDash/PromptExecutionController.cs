@@ -141,16 +141,23 @@ internal sealed class PromptExecutionController {
         "- `\"file\"` — `{ \"type\": \"file\", \"label\": \"...\", \"path\": \"relative/path/to/file\" }`\n" +
         "- `\"text\"` — `{ \"type\": \"text\", \"label\": \"...\", \"content\": \"Markdown text content\" }`\n" +
         "\n" +
-        "An optional `actions` array adds deferred quick-reply buttons to the message. Use this when you want " +
-        "to offer the user choices but cannot wait for a response (e.g. during maintenance mode).\n" +
+        "An optional `actions` array adds deferred quick-reply buttons to the message. **Strongly encouraged** — " +
+        "action buttons are excellent for usability because the user can act on findings without typing. " +
+        "Use them whenever there is a natural follow-up choice, especially during maintenance when the user is away.\n" +
         "Each action:\n" +
         "- `\"label\"` — button text shown to the user\n" +
-        "- `\"routeMode\"` — `\"start_named_agent\"`, `\"start_coordinator\"`, `\"draft\"`, or `\"done\"` (dismiss, no prompt)\n" +
+        "- `\"routeMode\"` — `\"start_named_agent\"`, `\"start_coordinator\"`, `\"draft\"`, or `\"done\"`\n" +
         "- `\"targetAgent\"` — agent handle (required when routeMode is `\"start_named_agent\"`)\n" +
         "- `\"prompt\"` — **fully self-contained** prompt injected when the user clicks the button. " +
         "Must include all context (file paths, symptoms, findings) — no conversation history will be available. " +
         "For `\"draft\"` actions, `\"prompt\"` is the pre-fill text placed into the user's input box without sending. " +
-        "Best use: list questions as labeled placeholders so the user fills them in before sending — e.g. `\"Here are my answers:\\n\\n1. (Q: Priority?) \\n2. (Q: Target branch?) \"`.\n" +
+        "Best use: list questions as labeled placeholders so the user fills them in before sending — " +
+        "e.g. `\"Here are my answers:\\n\\n1. (Q: Priority?) \\n2. (Q: Target branch?) \"`. " +
+        "This is ideal when you need the user to answer questions — they fill in the blanks and send.\n" +
+        "\n" +
+        "Do NOT include a bare 'Dismiss' button with routeMode `\"done\"` — it performs no action and adds no value. " +
+        "Only include a `\"done\"` action if the label is meaningful (e.g. 'Mark resolved', 'Already fixed') and the user " +
+        "genuinely needs a way to record a decision without launching an agent. In most cases, omit it entirely.\n"+
         "\n" +
         "The `from` field must be `\"coordinator\"` for Coordinator responses or `\"argus-weld\"` for maintenance agent responses.\n" +
         "\n" +

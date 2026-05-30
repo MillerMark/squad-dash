@@ -130,8 +130,6 @@ internal sealed class MaintenanceGroupRunner
         "  \"from\": \"argus-weld\",\n" +
         $"  \"body\": \"## Dependency Cycle Detected\\n\\nThe decompose group `{groupId}` contains a dependency cycle involving task IDs: {cycleIds}.\\n\\nAll tasks have been marked as failed in `.squad/tasks.md`. Please correct the `dependsOn` references and retry.\",\n" +
         "  \"attachments\": [],\n" +
-        "  \"actions\": [\n" +
-        "    { \"label\": \"Dismiss\", \"routeMode\": \"done\", \"hint\": \"Acknowledge — no action will be taken\" }\n" +
-        "  ]\n" +
+        "  \"actions\": []\n" +
         "}\n";
 }
