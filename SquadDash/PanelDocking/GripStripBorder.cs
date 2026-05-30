@@ -31,16 +31,19 @@ public sealed class GripStripBorder : Border
         double r = CornerRadius.TopLeft;
         if (r <= 0 || ActualWidth <= 0) return;
 
-        // Get pen color from border brush, at 40% opacity
-        var baseBrush = BorderBrush ?? Brushes.Gray;
-        var color = baseBrush is SolidColorBrush scb ? scb.Color : Colors.Gray;
-        color.A = (byte)(255 * 0.4);
+        // Use the panel-title color (warm gold / dark brown) for visible contrast.
+        // Fall back to BorderBrush then Gray if the resource is not found.
+        var baseBrush = (TryFindResource("RosterPanelTitle") as SolidColorBrush)
+                        ?? (BorderBrush as SolidColorBrush)
+                        ?? new SolidColorBrush(Colors.Gray);
+        var color = baseBrush.Color;
+        color.A = (byte)(255 * 0.50);
         var pen = new Pen(new SolidColorBrush(color), 1.0);
         pen.Freeze();
 
-        // Draw a horizontal line at every other row within the strip height
-        // Lines are shortened near edges to follow the corner radius arc
-        for (double y = 1; y < r; y += 2)
+        // Draw a horizontal line every 4 pixels within the strip height.
+        // Stride 4 gives ~4 clearly separated lines in a 16px strip.
+        for (double y = 2; y < r; y += 4)
         {
             // Compute x_offset from corner arc: how far inward the arc extends at this Y
             double xOffset = r - Math.Sqrt(r * r - (r - y) * (r - y));
