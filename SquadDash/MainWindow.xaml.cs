@@ -12378,6 +12378,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                         _dockingService,
                         _currentWorkspace?.FolderPath ?? string.Empty,
                         Application.Current.Resources);
+                    mapWindow.Owner = this;
                     mapWindow.ShowAtScreenPoint(screenPoint);
                 }
                 catch (Exception ex) { HandleUiCallbackException("GripStrip.OpenDockingMap", ex); }
