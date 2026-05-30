@@ -51,6 +51,11 @@ internal sealed class DockingMapWindow : Window
         Closed += (_, _) => { _previewOverlay?.Close(); _previewOverlay = null; };
 
         BuildUI(appResources);
+
+        // Log a layout snapshot so the full panel state is visible in the Docking trace
+        // before any slot-hover events fire.
+        var sourcePanelId = viewModel.Slots.FirstOrDefault()?.SourcePanelId ?? "(unknown)";
+        _dockingService.LogLayoutSnapshot(sourcePanelId);
     }
 
     private void BuildUI(ResourceDictionary appResources)

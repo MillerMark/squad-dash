@@ -10,21 +10,6 @@
           "order": 1
         },
         {
-          "panelId": "health",
-          "zone": "Top",
-          "order": 4
-        },
-        {
-          "panelId": "trace",
-          "zone": "Top",
-          "order": 5
-        },
-        {
-          "panelId": "inbox",
-          "zone": "Left",
-          "order": 0
-        },
-        {
           "panelId": "loop",
           "zone": "Left",
           "order": 1
@@ -35,14 +20,29 @@
           "order": 2
         },
         {
-          "panelId": "maintenance",
-          "zone": "Right",
-          "order": 0
-        },
-        {
           "panelId": "notes",
           "zone": "Right",
           "order": 1
+        },
+        {
+          "panelId": "inbox",
+          "zone": "Top",
+          "order": 0
+        },
+        {
+          "panelId": "maintenance",
+          "zone": "Top",
+          "order": 1
+        },
+        {
+          "panelId": "health",
+          "zone": "Top",
+          "order": 2
+        },
+        {
+          "panelId": "trace",
+          "zone": "Top",
+          "order": 3
         }
       ],
       "leftZoneWidth": 273.94000000000005,

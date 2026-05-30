@@ -958,6 +958,50 @@ internal sealed class PanelDockingService
            ?? DockZone.Top;
 
     /// <summary>
+    /// Writes a one-shot Docking trace snapshot of every panel's zone, order, and
+    /// visibility.  Called when the docking map window opens so the full layout state
+    /// is in the trace before any hover events fire.
+    /// </summary>
+    public void LogLayoutSnapshot(string sourcePanelId)
+    {
+        if (_panelRegistry is null) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"=== DockingMap opened  src={sourcePanelId}  layout={CurrentLayout.Name} ===");
+        sb.AppendLine($"  {"PanelId",-14} {"Zone",-8} {"Order",-6} {"Registered",-12} {"Visible",-9} ScreenRect");
+
+        var zones = Enum.GetValues<DockZone>();
+        foreach (var zone in zones)
+        {
+            var slotsInZone = CurrentLayout.Slots
+                .Where(s => s.Zone == zone)
+                .OrderBy(s => s.Order);
+            foreach (var slot in slotsInZone)
+            {
+                bool registered = _panelRegistry.TryGetValue(slot.PanelId, out var el);
+                bool visible    = registered && el!.IsVisible;
+                string rectStr  = registered && el!.IsVisible
+                    ? GetScreenRect(el) is { IsEmpty: false } r
+                        ? $"{r.Left:F0},{r.Top:F0} {r.Width:F0}×{r.Height:F0}"
+                        : "empty/zero"
+                    : "—";
+                sb.AppendLine(
+                    $"  {slot.PanelId,-14} {zone,-8} {slot.Order,-6} {registered,-12} {visible,-9} {rectStr}");
+            }
+        }
+
+        // Also list any registered panels NOT in the layout at all.
+        var inLayout = CurrentLayout.Slots.Select(s => s.PanelId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in _panelRegistry)
+        {
+            if (!inLayout.Contains(kvp.Key))
+                sb.AppendLine($"  {kvp.Key,-14} {"(none)",-8} {"—",-6} {"true",-12} {kvp.Value.IsVisible,-9} (not in layout)");
+        }
+
+        SquadDashTrace.Write(TraceCategory.Docking, sb.ToString().TrimEnd());
+    }
+
+    /// <summary>
     /// Registers a panel element at runtime so it can be moved by <see cref="MovePanel"/>.
     /// Adds a <see cref="PanelSlot"/> in <see cref="DockZone.Top"/> if the panel is not
     /// already tracked.
