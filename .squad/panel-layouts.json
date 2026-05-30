@@ -10,11 +10,6 @@
           "order": 1
         },
         {
-          "panelId": "maintenance",
-          "zone": "Top",
-          "order": 2
-        },
-        {
           "panelId": "health",
           "zone": "Top",
           "order": 4
@@ -25,27 +20,32 @@
           "order": 5
         },
         {
-          "panelId": "loop",
+          "panelId": "inbox",
           "zone": "Left",
           "order": 0
+        },
+        {
+          "panelId": "loop",
+          "zone": "Left",
+          "order": 1
         },
         {
           "panelId": "approvals",
           "zone": "Left",
-          "order": 1
+          "order": 2
         },
         {
-          "panelId": "notes",
+          "panelId": "maintenance",
           "zone": "Right",
           "order": 0
         },
         {
-          "panelId": "inbox",
+          "panelId": "notes",
           "zone": "Right",
           "order": 1
         }
       ],
-      "leftZoneWidth": null,
+      "leftZoneWidth": 273.94000000000005,
       "rightZoneWidth": 273.94000000000005,
       "left2ZoneWidth": null,
       "right2ZoneWidth": null

@@ -727,16 +727,32 @@ internal sealed class PanelDockingService
             .Where(s => s.Zone == slot.TargetZone)
             .OrderBy(s => s.Order)
             .Select(s => s.PanelId)
-            // Filter to only registered (visible) panels — matches the filtered view that
-            // DockingMapBuilder used when producing slot TargetOrder values.  Unregistered
-            // panels (e.g. "health", "trace") in the layout would inflate the count and push
-            // the append slot into the wrong branch.
+            // Filter to only registered AND currently visible panels.
+            // Panels whose border is Collapsed are in the layout but not rendered — treat
+            // them as absent so the zone is correctly seen as empty for preview purposes.
+            // Always include the source panel (it may be mid-drag and invisible itself).
+            .Where(id =>
+            {
+                if (string.Equals(id, slot.SourcePanelId, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                return _panelRegistry!.TryGetValue(id, out var el) && el.IsVisible;
+            })
+            .ToList();
+
+        var allInZone = CurrentLayout.Slots
+            .Where(s => s.Zone == slot.TargetZone)
+            .OrderBy(s => s.Order)
+            .Select(s => s.PanelId)
             .Where(id => _panelRegistry!.ContainsKey(id) ||
                          string.Equals(id, slot.SourcePanelId, StringComparison.OrdinalIgnoreCase))
             .ToList();
-
         SquadDashTrace.Write(TraceCategory.Docking,
-            $"GetSlotScreenRect: zone={slot.TargetZone} order={slot.TargetOrder} src={slot.SourcePanelId} panelsInZone=[{string.Join(",", panelsInZone)}]");
+            $"GetSlotScreenRect: zone={slot.TargetZone} order={slot.TargetOrder} src={slot.SourcePanelId} " +
+            $"inZone=[{string.Join(",", allInZone.Select(id => {
+                if (!_panelRegistry!.TryGetValue(id, out var el)) return id + "(unregistered)";
+                return id + (el.IsVisible ? "" : "(hidden)");
+            }))}] " +
+            $"visible=[{string.Join(",", panelsInZone)}]");
 
         if (slot.TargetZone == DockZone.Top)
         {
