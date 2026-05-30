@@ -220,4 +220,32 @@ internal sealed class PanelDockingService
     /// <summary>Returns the names of all layouts saved in this session.</summary>
     public IReadOnlyList<string> SavedLayoutNames =>
         _savedLayouts.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>Returns the zone that <paramref name="panelId"/> currently occupies.</summary>
+    public DockZone GetCurrentZone(string panelId)
+        => CurrentLayout.Slots.FirstOrDefault(s =>
+               string.Equals(s.PanelId, panelId, StringComparison.OrdinalIgnoreCase))?.Zone
+           ?? DockZone.Top;
+
+    /// <summary>
+    /// Registers a panel element at runtime so it can be moved by <see cref="MovePanel"/>.
+    /// Adds a <see cref="PanelSlot"/> in <see cref="DockZone.Top"/> if the panel is not
+    /// already tracked.
+    /// </summary>
+    public void RegisterPanel(string panelId, FrameworkElement panel)
+    {
+        _panelRegistry?.TryAdd(panelId, panel);
+
+        if (!CurrentLayout.Slots.Any(s =>
+                string.Equals(s.PanelId, panelId, StringComparison.OrdinalIgnoreCase)))
+        {
+            int nextOrder = CurrentLayout.Slots
+                .Where(s => s.Zone == DockZone.Top)
+                .Select(s => s.Order)
+                .DefaultIfEmpty(-1)
+                .Max() + 1;
+
+            CurrentLayout.Slots = [.. CurrentLayout.Slots, new PanelSlot(panelId, DockZone.Top, nextOrder)];
+        }
+    }
 }

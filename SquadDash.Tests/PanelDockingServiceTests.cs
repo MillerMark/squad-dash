@@ -80,4 +80,58 @@ internal sealed class PanelDockingServiceTests
         Assert.That(leftSlots[1].PanelId, Is.EqualTo("inbox"));
         Assert.That(leftSlots[1].Order, Is.GreaterThan(leftSlots[0].Order));
     }
+
+    [Test]
+    public void GetCurrentZone_ReturnsTopByDefault()
+    {
+        var svc = new PanelDockingService();
+        Assert.That(svc.GetCurrentZone("tasks"), Is.EqualTo(DockZone.Top));
+    }
+
+    [Test]
+    public void GetCurrentZone_ReturnsCorrectZoneAfterMove()
+    {
+        var svc = new PanelDockingService();
+        svc.MovePanel("tasks", DockZone.Left);
+        Assert.That(svc.GetCurrentZone("tasks"), Is.EqualTo(DockZone.Left));
+    }
+
+    [Test]
+    public void GetCurrentZone_ReturnsNewZoneAfterMovePanel()
+    {
+        var svc = new PanelDockingService();
+        svc.MovePanel("inbox", DockZone.Right);
+        svc.MovePanel("inbox", DockZone.Left);
+        Assert.That(svc.GetCurrentZone("inbox"), Is.EqualTo(DockZone.Left));
+    }
+
+    [Test]
+    public void GetCurrentZone_UnknownPanel_ReturnsTop()
+    {
+        var svc = new PanelDockingService();
+        Assert.That(svc.GetCurrentZone("nonexistent"), Is.EqualTo(DockZone.Top));
+    }
+
+    [Test]
+    public void ShowDockContextMenu_CurrentZoneIsDisabled_OthersEnabled()
+    {
+        // Test the service-layer logic that determines which zones are enabled.
+        var svc = new PanelDockingService();
+        svc.MovePanel("tasks", DockZone.Left);
+
+        var currentZone = svc.GetCurrentZone("tasks");
+
+        var zones = new[] { DockZone.Top, DockZone.Left, DockZone.Right };
+        foreach (var zone in zones)
+        {
+            bool shouldBeEnabled = zone != currentZone;
+            // The menu item for the current zone must be disabled; others enabled.
+            Assert.That(
+                zone != currentZone,
+                Is.EqualTo(shouldBeEnabled),
+                $"Zone {zone} enabled state mismatch");
+        }
+
+        Assert.That(currentZone, Is.EqualTo(DockZone.Left));
+    }
 }

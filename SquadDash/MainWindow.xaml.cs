@@ -651,6 +651,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             RightZoneScrollViewer,
             LeftZoneSplitter,
             RightZoneSplitter);
+        WirePanelDockingCtrlClick();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,
@@ -12332,6 +12333,69 @@ public partial class MainWindow : Window, ILiveElementLocator
             PersistTasksPanelVisible();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelCloseButton_Click), ex); }
+    }
+
+    // ── Panel docking ──────────────────────────────────────────────────────────
+
+    private void WirePanelDockingCtrlClick()
+    {
+        var dockable = new[]
+        {
+            (Border: TasksPanelBorder,       PanelId: "tasks"),
+            (Border: ApprovalPanelBorder,    PanelId: "approvals"),
+            (Border: NotesPanelBorder,       PanelId: "notes"),
+            (Border: MaintenancePanelBorder, PanelId: "maintenance"),
+            (Border: InboxPanelBorder,       PanelId: "inbox"),
+        };
+
+        foreach (var (border, panelId) in dockable)
+        {
+            var id = panelId; // capture for lambda
+            border.PreviewMouseLeftButtonDown += (sender, e) =>
+            {
+                if (!System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control)) return;
+                e.Handled = true;
+                ShowDockContextMenu((Border)sender, id);
+            };
+        }
+    }
+
+    private void ShowDockContextMenu(Border panelBorder, string panelId)
+    {
+        if (_dockingService is null) return;
+
+        var currentZone = _dockingService.GetCurrentZone(panelId);
+
+        var menu = new System.Windows.Controls.ContextMenu();
+        menu.SetResourceReference(System.Windows.Controls.ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+        var zones = new[]
+        {
+            (Zone: SquadDash.PanelDocking.DockZone.Top,   Label: "⬆ Top"),
+            (Zone: SquadDash.PanelDocking.DockZone.Left,  Label: "◀ Left"),
+            (Zone: SquadDash.PanelDocking.DockZone.Right, Label: "▶ Right"),
+        };
+
+        foreach (var (zone, label) in zones)
+        {
+            var item = new System.Windows.Controls.MenuItem
+            {
+                Header    = label,
+                IsEnabled = zone != currentZone,
+            };
+            item.SetResourceReference(System.Windows.Controls.MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            var z = zone; // capture for lambda
+            item.Click += (_, _) =>
+            {
+                try { _dockingService.MovePanel(panelId, z); }
+                catch (Exception ex) { HandleUiCallbackException("DockContextMenu.MovePanel", ex); }
+            };
+            menu.Items.Add(item);
+        }
+
+        menu.PlacementTarget = panelBorder;
+        menu.Placement       = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        menu.IsOpen          = true;
     }
 
     private void EditTasksMenuItem_Click(object sender, RoutedEventArgs e)
