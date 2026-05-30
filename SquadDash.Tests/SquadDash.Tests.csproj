@@ -227,6 +227,12 @@
     <Compile Include="..\SquadDash\MaintenanceGroupRunner.cs" Link="Source\MaintenanceGroupRunner.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
+
+    <!-- Panel Docking -->
+    <Compile Include="..\SquadDash\PanelDocking\DockZone.cs"            Link="Source\PanelDocking\DockZone.cs" />
+    <Compile Include="..\SquadDash\PanelDocking\PanelSlot.cs"           Link="Source\PanelDocking\PanelSlot.cs" />
+    <Compile Include="..\SquadDash\PanelDocking\DockLayout.cs"          Link="Source\PanelDocking\DockLayout.cs" />
+    <Compile Include="..\SquadDash\PanelDocking\PanelDockingService.cs" Link="Source\PanelDocking\PanelDockingService.cs" />
   </ItemGroup>
 
 </Project>

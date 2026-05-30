@@ -25,6 +25,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls.Primitives;
 using Microsoft.Win32;
+using SquadDash.PanelDocking;
 using SquadDash.Screenshots;
 using SquadDash.Screenshots.Fixtures;
 using Shapes = System.Windows.Shapes;
@@ -263,6 +264,10 @@ public partial class MainWindow : Window, ILiveElementLocator
     private string?                  _activeDecomposeGroupId;
     private MaintenanceGroupRunner?  _maintenanceGroupRunner;
     private bool                        _inboxSavedForCurrentTurn;
+
+    // ── Panel docking ────────────────────────────────────────────────────────
+    private PanelDockingService? _dockingService;
+    internal PanelDockingService? DockingService => _dockingService;
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
     private bool _movingFloatingWindow;
@@ -626,6 +631,26 @@ public partial class MainWindow : Window, ILiveElementLocator
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
+        _dockingService = new PanelDockingService(
+            new Dictionary<string, FrameworkElement>
+            {
+                ["tasks"]       = TasksPanelBorder,
+                ["approvals"]   = ApprovalPanelBorder,
+                ["notes"]       = NotesPanelBorder,
+                ["maintenance"] = MaintenancePanelBorder,
+                ["inbox"]       = InboxPanelBorder,
+            },
+            LeftZonePanel,
+            RightZonePanel,
+            TopZonePanelsGrid,
+            LeftZoneColumn,
+            RightZoneColumn,
+            LeftSplitterColumn,
+            RightSplitterColumn,
+            LeftZoneScrollViewer,
+            RightZoneScrollViewer,
+            LeftZoneSplitter,
+            RightZoneSplitter);
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,

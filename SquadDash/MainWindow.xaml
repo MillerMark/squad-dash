@@ -333,7 +333,30 @@
     <Grid x:Name="RootPanel">
     <Border BorderBrush="{DynamicResource WindowBorder}"
             BorderThickness="1">
-    <Grid x:Name="MainGrid" Margin="12,14,14,14">
+    <Grid x:Name="ContentZoneGrid">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="LeftZoneColumn" Width="0" MinWidth="0" />
+            <ColumnDefinition x:Name="LeftSplitterColumn" Width="0" MinWidth="0" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="RightSplitterColumn" Width="0" MinWidth="0" />
+            <ColumnDefinition x:Name="RightZoneColumn" Width="0" MinWidth="0" />
+        </Grid.ColumnDefinitions>
+        <!-- Left zone -->
+        <ScrollViewer x:Name="LeftZoneScrollViewer"
+                      Grid.Column="0"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel x:Name="LeftZonePanel" Orientation="Vertical" />
+        </ScrollViewer>
+        <GridSplitter x:Name="LeftZoneSplitter"
+                      Grid.Column="1"
+                      Width="5"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      Background="{DynamicResource AppSurface}"
+                      Visibility="Collapsed" />
+        <Grid x:Name="MainGrid" Grid.Column="2" Margin="12,14,14,14">
         <Grid.RowDefinitions>
             <RowDefinition Height="38" />
             <RowDefinition Height="Auto" />
@@ -782,7 +805,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid Grid.Row="0">
+                <Grid x:Name="TopZonePanelsGrid" Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition x:Name="ActiveAgentsColumnDefinition"
                                           Width="Auto" />
@@ -2568,7 +2591,23 @@
                 </Border>
             </Grid>
         </Border>
-    </Grid>
+    </Grid>  <!-- end MainGrid -->
+        <!-- Right zone -->
+        <GridSplitter x:Name="RightZoneSplitter"
+                      Grid.Column="3"
+                      Width="5"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      Background="{DynamicResource AppSurface}"
+                      Visibility="Collapsed" />
+        <ScrollViewer x:Name="RightZoneScrollViewer"
+                      Grid.Column="4"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel x:Name="RightZonePanel" Orientation="Vertical" />
+        </ScrollViewer>
+    </Grid>  <!-- end ContentZoneGrid -->
     </Border>
 
     <!-- Title-bar info overlay: version + workspace title anchored to window right,
