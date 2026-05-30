@@ -104,6 +104,40 @@
                 </Setter>
             </Style>
 
+            <!-- Docking map slot button — removes Windows chrome, themed hover, active-panel overlay -->
+            <Style x:Key="DockSlotButtonStyle" TargetType="Button">
+                <Setter Property="Background"   Value="{DynamicResource ChromeSurface}"/>
+                <Setter Property="Foreground"   Value="{DynamicResource LabelText}"/>
+                <Setter Property="BorderBrush"  Value="{DynamicResource RosterPanelBorder}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                <Setter Property="VerticalContentAlignment"   Value="Center"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="2">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Background" Value="{DynamicResource DockSlotHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="border" Property="Background"  Value="{DynamicResource DockSlotActiveBg}"/>
+                                    <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource DockSlotActiveBorder}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Panel close button (×) — transparent base, clearly-visible CaptionButtonHover
                  background on hover so users can see the button is clickable. -->
             <Style x:Key="PanelCloseButtonStyle" TargetType="Button">

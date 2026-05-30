@@ -174,6 +174,10 @@
     <SolidColorBrush x:Key="ScreenshotAnchorNamed"       Color="#388E3C"/>
     <SolidColorBrush x:Key="ScreenshotAnchorUnnamed"     Color="#F57F17"/>
     <SolidColorBrush x:Key="ScreenshotAnchorMissing"     Color="#C62828"/>
+    <!-- Dock Map Slot Tokens -->
+    <SolidColorBrush x:Key="DockSlotHover"       Color="#22A08060"/>
+    <SolidColorBrush x:Key="DockSlotActiveBg"    Color="#80FFFFFF"/>
+    <SolidColorBrush x:Key="DockSlotActiveBorder" Color="#808080"/>
     <!-- TreeView unfocused-selection override (keeps selection visible in light theme) -->
     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#DDE9F5"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#1E3A5F"/>

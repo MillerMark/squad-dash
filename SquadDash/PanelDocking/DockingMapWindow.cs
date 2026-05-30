@@ -95,19 +95,21 @@ internal sealed class DockingMapWindow : Window
             FontSize  = 11,
         };
 
+        if (appResources.Contains("DockSlotButtonStyle"))
+            btn.Style = (Style)appResources["DockSlotButtonStyle"];
+
         Brush chromeSurface = GetRes(appResources, "ChromeSurface", Brushes.DimGray);
         Brush labelText     = GetRes(appResources, "LabelText",     Brushes.White);
         Brush subtleText    = GetRes(appResources, "SubtleText",    Brushes.DarkGray);
         Brush panelBorder   = GetRes(appResources, "RosterPanelBorder", Brushes.SlateGray);
 
-        btn.Background   = chromeSurface;
-        btn.BorderBrush  = panelBorder;
+        btn.Background      = chromeSurface;
+        btn.BorderBrush     = panelBorder;
         btn.BorderThickness = new Thickness(1);
 
         if (slot.IsSourcePanel)
         {
             btn.Foreground = subtleText;
-            btn.Opacity    = 0.6;
         }
         else
         {
