@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:SquadDash"
+        xmlns:panelDocking="clr-namespace:SquadDash.PanelDocking"
         Title="Squad Dash"
         Icon="Assets/SquadDash.ico"
         Height="820"
@@ -1148,7 +1149,7 @@
                         </Border>
                     </Popup>
 
-                    <Border x:Name="TasksPanelBorder"
+                    <panelDocking:GripStripBorder x:Name="TasksPanelBorder"
                             Grid.Column="4"
                             MinWidth="200"
                             MaxWidth="280"
@@ -1185,15 +1186,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Tasks panel"
                                         Click="TasksPanelCloseButton_Click" />
-                                <TextBlock x:Name="TasksPanelHamburger"
-                                           DockPanel.Dock="Right"
-                                           Text="≡"
-                                           FontSize="14"
-                                           Cursor="Hand"
-                                           Margin="0,0,4,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           ToolTip="Ctrl+click anywhere on this panel to move it to another zone." />
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Tasks"
                                            FontSize="{DynamicResource FontSizeLarge}"
@@ -1262,7 +1254,7 @@
                                 </ScrollViewer>
                             </StackPanel>
                         </Grid>
-                    </Border>
+                    </panelDocking:GripStripBorder>
 
                     <Border x:Name="WatchPanelBorder"
                             Grid.Column="5"
@@ -1290,7 +1282,7 @@
                         </Grid>
                     </Border>
 
-                    <Border x:Name="ApprovalPanelBorder"
+                    <panelDocking:GripStripBorder x:Name="ApprovalPanelBorder"
                             Grid.Column="6"
                             MinWidth="220"
                             VerticalAlignment="Top"
@@ -1330,16 +1322,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Approvals panel"
                                         Click="ApprovalPanelCloseButton_Click" />
-
-                                <TextBlock x:Name="ApprovalPanelHamburger"
-                                           DockPanel.Dock="Right"
-                                           Text="≡"
-                                           FontSize="14"
-                                           Cursor="Hand"
-                                           Margin="0,0,4,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           ToolTip="Ctrl+click anywhere on this panel to move it to another zone." />
 
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Approvals"
@@ -1441,10 +1423,10 @@
                                 </ScrollViewer>
                             </StackPanel>
                         </Grid>
-                    </Border>
+                    </panelDocking:GripStripBorder>
 
                     <!-- Notes panel (Column 7) -->
-                    <Border x:Name="NotesPanelBorder"
+                    <panelDocking:GripStripBorder x:Name="NotesPanelBorder"
                             Grid.Column="7"
                             MinWidth="200"
                             MaxWidth="280"
@@ -1480,15 +1462,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Notes panel"
                                         Click="NotesPanelCloseButton_Click" />
-                                <TextBlock x:Name="NotesPanelHamburger"
-                                           DockPanel.Dock="Right"
-                                           Text="≡"
-                                           FontSize="14"
-                                           Cursor="Hand"
-                                           Margin="0,0,4,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           ToolTip="Ctrl+click anywhere on this panel to move it to another zone." />
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Notes"
                                            FontSize="{DynamicResource FontSizeLarge}"
@@ -1532,10 +1505,10 @@
                                 <StackPanel x:Name="NotesListPanel" />
                             </ScrollViewer>
                         </Grid>
-                    </Border>
+                    </panelDocking:GripStripBorder>
 
                     <!-- Maintenance panel (Column 8) -->
-                    <Border x:Name="MaintenancePanelBorder"
+                    <panelDocking:GripStripBorder x:Name="MaintenancePanelBorder"
                             Grid.Column="8"
                             MinWidth="200"
                             MaxWidth="280"
@@ -1572,15 +1545,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Maintenance panel"
                                         Click="MaintenancePanelCloseButton_Click" />
-                                <TextBlock x:Name="MaintenancePanelHamburger"
-                                           DockPanel.Dock="Right"
-                                           Text="≡"
-                                           FontSize="14"
-                                           Cursor="Hand"
-                                           Margin="0,0,4,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           ToolTip="Ctrl+click anywhere on this panel to move it to another zone." />
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Maintenance"
                                            FontSize="{DynamicResource FontSizeLarge}"
@@ -1663,10 +1627,10 @@
                                 <StackPanel x:Name="MaintenanceTaskListPanel" />
                             </ScrollViewer>
                         </Grid>
-                    </Border>
+                    </panelDocking:GripStripBorder>
 
                     <!-- Inbox panel (Column 9) -->
-                    <Border x:Name="InboxPanelBorder"
+                    <panelDocking:GripStripBorder x:Name="InboxPanelBorder"
                             Grid.Column="9"
                             MinWidth="220"
                             MaxWidth="320"
@@ -1704,15 +1668,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Inbox panel"
                                         Click="InboxPanelCloseButton_Click" />
-                                <TextBlock x:Name="InboxPanelHamburger"
-                                           DockPanel.Dock="Right"
-                                           Text="≡"
-                                           FontSize="14"
-                                           Cursor="Hand"
-                                           Margin="0,0,4,0"
-                                           VerticalAlignment="Center"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
-                                           ToolTip="Ctrl+click anywhere on this panel to move it to another zone." />
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Inbox"
                                            FontSize="{DynamicResource FontSizeLarge}"
@@ -1819,7 +1774,7 @@
                                 </Grid>
                             </Border>
                         </Grid>
-                    </Border>
+                    </panelDocking:GripStripBorder>
                 </Grid>
             </Grid>
         </Border>

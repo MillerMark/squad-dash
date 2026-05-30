@@ -652,7 +652,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             RightZoneScrollViewer,
             LeftZoneSplitter,
             RightZoneSplitter);
-        WirePanelDockingCtrlClick();
+        WireGripStripHandlers();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,
@@ -12338,7 +12338,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     // ── Panel docking ──────────────────────────────────────────────────────────
 
-    private void WirePanelDockingCtrlClick()
+    private void WireGripStripHandlers()
     {
         var dockable = new[]
         {
@@ -12351,13 +12351,9 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         foreach (var (border, panelId) in dockable)
         {
-            var id = panelId; // capture for lambda
-            border.PreviewMouseLeftButtonDown += (sender, e) =>
-            {
-                if (!System.Windows.Input.Keyboard.Modifiers.HasFlag(System.Windows.Input.ModifierKeys.Control)) return;
-                e.Handled = true;
-                ShowDockContextMenu((Border)sender, id);
-            };
+            var id = panelId;
+            border.GripStripClicked += (sender, _) =>
+                ShowDockContextMenu((System.Windows.Controls.Border)sender!, id);
         }
     }
 
