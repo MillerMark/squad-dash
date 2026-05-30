@@ -209,6 +209,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         TraceCategory.Startup      => "App initialization — window creation, workspace detection, and first-load sequencing.",
         TraceCategory.Threads           => "Agent thread lifecycle — thread creation, selection changes, and lazy on-demand render.",
         TraceCategory.TranscriptPanels  => "Secondary transcript panel operations — open, close, reconcile, title refresh, and grid rebuild events.",
+        TraceCategory.Docking          => "Panel docking preview — slot hover geometry, zone rect calculations, empty-zone strip placement.",
         TraceCategory.UI                => "General UI events — layout updates, theme changes, and visual state transitions.",
         TraceCategory.Unhandled    => "Unhandled exceptions and unexpected error paths caught by the global exception handler.",
         TraceCategory.Workspace    => "Workspace management — open/close, conversation save/load, session ID tracking.",

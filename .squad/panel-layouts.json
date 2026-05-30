@@ -15,11 +15,6 @@
           "order": 2
         },
         {
-          "panelId": "notes",
-          "zone": "Top",
-          "order": 3
-        },
-        {
           "panelId": "health",
           "zone": "Top",
           "order": 4
@@ -40,9 +35,14 @@
           "order": 1
         },
         {
-          "panelId": "inbox",
+          "panelId": "notes",
           "zone": "Right",
           "order": 0
+        },
+        {
+          "panelId": "inbox",
+          "zone": "Right",
+          "order": 1
         }
       ],
       "leftZoneWidth": null,

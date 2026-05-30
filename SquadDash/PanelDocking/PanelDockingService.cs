@@ -717,7 +717,11 @@ internal sealed class PanelDockingService
     /// </summary>
     public Rect GetSlotScreenRect(SlotButtonViewModel slot)
     {
-        if (_panelRegistry is null) return Rect.Empty;
+        if (_panelRegistry is null)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking, $"GetSlotScreenRect: _panelRegistry is null — returning Empty. slot={slot.TargetZone}[{slot.TargetOrder}] src={slot.SourcePanelId}");
+            return Rect.Empty;
+        }
 
         var panelsInZone = CurrentLayout.Slots
             .Where(s => s.Zone == slot.TargetZone)
@@ -730,6 +734,9 @@ internal sealed class PanelDockingService
             .Where(id => _panelRegistry!.ContainsKey(id) ||
                          string.Equals(id, slot.SourcePanelId, StringComparison.OrdinalIgnoreCase))
             .ToList();
+
+        SquadDashTrace.Write(TraceCategory.Docking,
+            $"GetSlotScreenRect: zone={slot.TargetZone} order={slot.TargetOrder} src={slot.SourcePanelId} panelsInZone=[{string.Join(",", panelsInZone)}]");
 
         if (slot.TargetZone == DockZone.Top)
         {
@@ -796,6 +803,12 @@ internal sealed class PanelDockingService
             const double StripWidth = 64;
 
             Rect neighborRect = GetInnerNeighborRect(zone);
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"GetColumnSlotRect(empty): zone={zone} neighborRect={neighborRect} " +
+                $"topZoneGrid={(_topZoneGrid is FrameworkElement tg ? $"vis={tg.IsVisible} w={tg.ActualWidth:F0}" : "null")} " +
+                $"leftSV={(_leftZoneScrollViewer is FrameworkElement lsv ? $"vis={lsv.IsVisible} w={lsv.ActualWidth:F0}" : "null")} " +
+                $"rightSV={(_rightZoneScrollViewer is FrameworkElement rsv ? $"vis={rsv.IsVisible} w={rsv.ActualWidth:F0}" : "null")}");
+
             if (!neighborRect.IsEmpty)
             {
                 // For Left/Right: when the column is collapsed (empty), the center grid extends
@@ -811,8 +824,13 @@ internal sealed class PanelDockingService
                     DockZone.Right2 => neighborRect.Right - StripWidth,
                     _               => isRightSide ? neighborRect.Right : neighborRect.Left - StripWidth,
                 };
-                return new Rect(x, neighborRect.Top, StripWidth, neighborRect.Height);
+                var result = new Rect(x, neighborRect.Top, StripWidth, neighborRect.Height);
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"GetColumnSlotRect(empty): zone={zone} x={x:F0} neighborRect={neighborRect} → strip={result}");
+                return result;
             }
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"GetColumnSlotRect(empty): zone={zone} neighborRect is Empty — returning Rect.Empty");
             return Rect.Empty;
         }
 
@@ -853,11 +871,16 @@ internal sealed class PanelDockingService
         if (adjacent is FrameworkElement adjFe && adjFe.IsVisible && adjFe.ActualWidth > 0)
         {
             var r = GetScreenRect(adjFe);
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"GetInnerNeighborRect: zone={zone} using adjacent SV IsVisible={adjFe.IsVisible} w={adjFe.ActualWidth:F0} → {r}");
             if (!r.IsEmpty) return r;
         }
 
         // Fall back to the always-visible center top-zone grid.
-        return _topZoneGrid is not null ? GetScreenRect(_topZoneGrid) : Rect.Empty;
+        var topRect = _topZoneGrid is not null ? GetScreenRect(_topZoneGrid) : Rect.Empty;
+        SquadDashTrace.Write(TraceCategory.Docking,
+            $"GetInnerNeighborRect: zone={zone} using topZoneGrid={(_topZoneGrid is FrameworkElement tg2 ? $"IsVisible={tg2.IsVisible} w={tg2.ActualWidth:F0}" : "null")} → {topRect}");
+        return topRect;
     }
 
     private Rect GetTopInsertionRect(int targetOrder, List<string> panelsInZone)

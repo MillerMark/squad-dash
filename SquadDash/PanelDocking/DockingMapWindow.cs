@@ -145,7 +145,14 @@ internal sealed class DockingMapWindow : Window
     private void OnSlotHover(SlotButtonViewModel slot)
     {
         var rect = _dockingService.GetSlotScreenRect(slot);
-        if (rect.IsEmpty) { HidePreview(); return; }
+        if (rect.IsEmpty)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"OnSlotHover: rect is Empty — hiding preview. zone={slot.TargetZone} order={slot.TargetOrder} src={slot.SourcePanelId}");
+            HidePreview(); return;
+        }
+        SquadDashTrace.Write(TraceCategory.Docking,
+            $"OnSlotHover: showing preview rect={rect} zone={slot.TargetZone} order={slot.TargetOrder}");
         ShowPreview(rect);
     }
 

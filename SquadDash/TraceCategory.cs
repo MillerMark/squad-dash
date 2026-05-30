@@ -18,5 +18,6 @@ internal enum TraceCategory
     Workspace,
     Sound,
     Inbox,
+    Docking,      // panel docking — slot hover preview geometry, zone rect calculations
     General,      // catch-all for unknown sources
 }

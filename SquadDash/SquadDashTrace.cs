@@ -97,6 +97,7 @@ internal static class SquadDashTrace {
         "TranscriptPanels"  => TraceCategory.TranscriptPanels,
         "Unhandled"         => TraceCategory.Unhandled,
         "Sound"             => TraceCategory.Sound,
+        "Docking"           => TraceCategory.Docking,
         _              => TraceCategory.General,
     };
 
