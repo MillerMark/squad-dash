@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace SquadDash.PanelDocking;
 
@@ -39,6 +40,11 @@ internal sealed class PanelDockingService
         ["maintenance"] = 8,
         ["inbox"]       = 9,
     };
+
+    // Saves each panel's original XAML Height binding so it can be restored when the
+    // panel moves back to the Top zone after having been in a Left/Right zone.
+    private readonly Dictionary<string, MultiBinding?> _savedHeightBindings =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Data-model-only constructor for unit tests.</summary>
     public PanelDockingService() { }
@@ -112,12 +118,12 @@ internal sealed class PanelDockingService
         switch (targetZone)
         {
             case DockZone.Left:
-                AddToZone(_leftZonePanel!, element);
+                AddToZone(_leftZonePanel!, element, panelId, _leftZoneScrollViewer as FrameworkElement);
                 ExpandZone(_leftZoneColumn!, _leftSplitterColumn!, _leftZoneScrollViewer!, _leftZoneSplitter!, element);
                 break;
 
             case DockZone.Right:
-                AddToZone(_rightZonePanel!, element);
+                AddToZone(_rightZonePanel!, element, panelId, _rightZoneScrollViewer as FrameworkElement);
                 ExpandZone(_rightZoneColumn!, _rightSplitterColumn!, _rightZoneScrollViewer!, _rightZoneSplitter!, element);
                 break;
 
@@ -142,11 +148,25 @@ internal sealed class PanelDockingService
             parent.Children.Remove(element);
     }
 
-    private static void AddToZone(StackPanel zone, FrameworkElement element)
+    private void AddToZone(StackPanel zone, FrameworkElement element, string panelId, FrameworkElement? scrollViewer)
     {
+        // Save the original height binding before we replace it (only once per panel).
+        if (!_savedHeightBindings.ContainsKey(panelId))
+            _savedHeightBindings[panelId] = BindingOperations.GetMultiBinding(element, FrameworkElement.HeightProperty);
+
         element.ClearValue(Grid.ColumnProperty);
         element.ClearValue(FrameworkElement.MarginProperty);
         element.ClearValue(FrameworkElement.MaxWidthProperty);
+        element.ClearValue(FrameworkElement.VerticalAlignmentProperty);
+
+        // Bind height to the zone scroll viewer so the panel fills the full column height.
+        // If no scroll viewer ref is available, just free the height constraint.
+        if (scrollViewer is not null)
+            element.SetBinding(FrameworkElement.HeightProperty,
+                new Binding(nameof(FrameworkElement.ActualHeight)) { Source = scrollViewer });
+        else
+            element.ClearValue(FrameworkElement.HeightProperty);
+
         zone.Children.Add(element);
     }
 
@@ -155,6 +175,12 @@ internal sealed class PanelDockingService
         if (_topZoneGrid is null) return;
         if (!TopZoneColumnMap.TryGetValue(panelId, out int col)) return;
 
+        // Remove any zone-height binding and restore the original Top-zone height constraint.
+        element.ClearValue(FrameworkElement.HeightProperty);
+        if (_savedHeightBindings.TryGetValue(panelId, out var saved) && saved is not null)
+            BindingOperations.SetBinding(element, FrameworkElement.HeightProperty, saved);
+
+        element.VerticalAlignment = VerticalAlignment.Top;
         element.Margin = new Thickness(14, 0, 0, 0);
         Grid.SetColumn(element, col);
         _topZoneGrid.Children.Add(element);
