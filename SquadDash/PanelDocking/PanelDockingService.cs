@@ -6,6 +6,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Media;
 
 namespace SquadDash.PanelDocking;
 
@@ -170,6 +171,8 @@ internal sealed class PanelDockingService
         if (!_savedHeightBindings.ContainsKey(panelId))
             _savedHeightBindings[panelId] = BindingOperations.GetMultiBinding(element, FrameworkElement.HeightProperty);
 
+        DetachFromCurrentPanelParent(element);
+
         element.ClearValue(Grid.ColumnProperty);
         element.ClearValue(FrameworkElement.MarginProperty);
         element.ClearValue(FrameworkElement.MaxWidthProperty);
@@ -205,6 +208,7 @@ internal sealed class PanelDockingService
                     ResizeBehavior      = GridResizeBehavior.PreviousAndNext,
                 };
                 splitter.SetResourceReference(Control.BackgroundProperty, "AppSurface");
+                splitter.Opacity = 0.25;
                 Grid.SetRow(splitter, zone.RowDefinitions.Count - 1);
                 zone.Children.Add(splitter);
             }
@@ -238,7 +242,20 @@ internal sealed class PanelDockingService
         element.VerticalAlignment = VerticalAlignment.Top;
         element.Margin = new Thickness(14, 0, 0, 0);
         Grid.SetColumn(element, col);
+        DetachFromCurrentPanelParent(element);
         _topZoneGrid.Children.Add(element);
+    }
+
+    private static void DetachFromCurrentPanelParent(FrameworkElement element)
+    {
+        if (LogicalTreeHelper.GetParent(element) is Panel logicalParent)
+        {
+            logicalParent.Children.Remove(element);
+            return;
+        }
+
+        if (VisualTreeHelper.GetParent(element) is Panel visualParent)
+            visualParent.Children.Remove(element);
     }
 
     private static void ExpandZone(
@@ -324,22 +341,59 @@ internal sealed class PanelDockingService
     public DockLayout LoadLayout(string workspacePath)
     {
         _workspacePath = workspacePath;
+        CurrentLayout = ReadActiveLayout(workspacePath);
+        return CurrentLayout;
+    }
+
+    /// <summary>
+    /// Reads and applies the active workspace layout, moving the live WPF panels from
+    /// their current layout before replacing <see cref="CurrentLayout"/>.
+    /// </summary>
+    public DockLayout LoadAndApplyLayout(string workspacePath)
+    {
+        _workspacePath = workspacePath;
+        var targetLayout = ReadActiveLayout(workspacePath);
+        ApplyLayout(targetLayout);
+        return CurrentLayout;
+    }
+
+    private void ApplyLayout(DockLayout targetLayout)
+    {
+        var targetSnapshot = CloneLayout(targetLayout);
+        var currentSlots = CurrentLayout.Slots.ToList();
+
+        foreach (var slot in currentSlots.Where(s => s.Zone != DockZone.Top))
+            MovePanel(slot.PanelId, DockZone.Top);
+
+        foreach (var slot in targetSnapshot.Slots.Where(s => s.Zone != DockZone.Top).OrderBy(s => s.Order))
+            MovePanel(slot.PanelId, slot.Zone);
+
+        CurrentLayout = targetSnapshot;
+    }
+
+    private static DockLayout CloneLayout(DockLayout layout) => new()
+    {
+        Name = layout.Name,
+        Slots = layout.Slots.ToList(),
+        LeftZoneWidth = layout.LeftZoneWidth,
+        RightZoneWidth = layout.RightZoneWidth,
+    };
+
+    private static DockLayout ReadActiveLayout(string workspacePath)
+    {
         var filePath = LayoutFilePath(workspacePath);
         if (!File.Exists(filePath))
         {
-            CurrentLayout = DockLayout.CreateDefault();
-            return CurrentLayout;
+            return DockLayout.CreateDefault();
         }
 
         var file = ReadLayoutsFile(filePath);
         var layout = file.Layouts.FirstOrDefault(l =>
             string.Equals(l.Name, file.ActiveLayout, StringComparison.OrdinalIgnoreCase));
 
-        CurrentLayout = layout is not null
-            ? new DockLayout { Name = layout.Name, Slots = layout.Slots.ToList(), LeftZoneWidth = layout.LeftZoneWidth, RightZoneWidth = layout.RightZoneWidth }
+        return layout is not null
+            ? CloneLayout(layout)
             : DockLayout.CreateDefault();
-
-        return CurrentLayout;
     }
 
     /// <summary>
