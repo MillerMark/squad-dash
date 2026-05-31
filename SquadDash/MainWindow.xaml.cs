@@ -17819,7 +17819,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             AgentThreadRegistry.ResolveSecondaryTranscriptDisplayName(thread, agent.Name));
         var intent = thread.LatestIntent?.Trim();
         var baseText = !string.IsNullOrWhiteSpace(intent)
-            ? $"{displayName} — {intent}"
+            ? $"{displayName} - {intent}"
             : displayName;
         var relativeTime = thread.PromptParagraphs.Count > 0
             ? FormatRelativeTime(thread.PromptParagraphs[0].Timestamp)
@@ -17845,7 +17845,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         string relativeTime;
         if (!string.IsNullOrWhiteSpace(scannedIntent) && intentTimestamp.HasValue)
         {
-            baseText = $"{displayName} — {scannedIntent}";
+            baseText = $"{displayName} - {scannedIntent}";
             relativeTime = FormatRelativeTime(intentTimestamp.Value);
         }
         else
