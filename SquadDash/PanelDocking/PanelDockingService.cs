@@ -1024,13 +1024,25 @@ internal sealed class PanelDockingService
         var gridRect = GetScreenRect(_topZoneGrid);
         if (gridRect.IsEmpty) return Rect.Empty;
 
+        const double StripW = 8;
+
         if (panelsInZone.Count == 0)
         {
-            // Rule D: empty top zone — thin horizontal strip across the grid.
-            return new Rect(gridRect.Left, gridRect.Top, gridRect.Width, 8);
+            // Empty top zone — vertical insertion strip at the left edge of the grid
+            // (to the right of the inactive-agents panel), spanning roughly the panel height cap.
+            double stripHeight = 320;
+            if (_topZoneGrid is DependencyObject tgd2)
+            {
+                var win2 = System.Windows.Window.GetWindow(tgd2);
+                if (win2 is FrameworkElement winFe2)
+                {
+                    var winRect2 = GetScreenRect(winFe2);
+                    if (!winRect2.IsEmpty)
+                        stripHeight = Math.Max(240, winRect2.Height / 3);
+                }
+            }
+            return new Rect(gridRect.Left, gridRect.Top, StripW, stripHeight);
         }
-
-        const double StripW = 8;
 
         if (targetOrder < panelsInZone.Count)
         {
