@@ -1041,7 +1041,7 @@ internal sealed class PanelDockingService
                         stripHeight = Math.Max(240, winRect2.Height / 3);
                 }
             }
-            return new Rect(gridRect.Left, gridRect.Top, StripW, stripHeight);
+            return new Rect(gridRect.Right, gridRect.Top, StripW, stripHeight);
         }
 
         if (targetOrder < panelsInZone.Count)
