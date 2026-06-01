@@ -447,7 +447,6 @@
                                   IsCheckable="True"
                                   Click="ThemeDarkMenuItem_Click" />
                     </MenuItem>
-                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem x:Name="TintMenuItem"
                               Header="_Tint"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}" />
