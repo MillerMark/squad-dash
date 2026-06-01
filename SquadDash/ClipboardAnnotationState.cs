@@ -54,6 +54,33 @@ internal sealed class ClipboardAnnotationState
     [JsonPropertyName("cropH")]
     public double CropH { get; set; }
 
+    // ── Applied (destructive) crop within the original image ──────────────────
+    //
+    // When the user crops in-place, _workingImage is replaced with the cropped bitmap.
+    // HasAppliedCrop=true means the sidecar .source.png is the *full* original image and
+    // annotation coordinates are in cropped-image space (i.e. relative to AppliedCropX/Y).
+    // On re-open, the editor shifts all annotation coordinates by +AppliedCropX/Y so they
+    // land in the correct position on the full original image.
+
+    [JsonPropertyName("hasAppliedCrop")]
+    public bool HasAppliedCrop { get; set; }
+
+    /// <summary>Canvas X of the top-left of the previously applied crop within the original image.</summary>
+    [JsonPropertyName("appliedCropX")]
+    public double AppliedCropX { get; set; }
+
+    /// <summary>Canvas Y of the top-left of the previously applied crop within the original image.</summary>
+    [JsonPropertyName("appliedCropY")]
+    public double AppliedCropY { get; set; }
+
+    /// <summary>Canvas width of the previously applied crop region.</summary>
+    [JsonPropertyName("appliedCropW")]
+    public double AppliedCropW { get; set; }
+
+    /// <summary>Canvas height of the previously applied crop region.</summary>
+    [JsonPropertyName("appliedCropH")]
+    public double AppliedCropH { get; set; }
+
     // ── Cursor overlay ────────────────────────────────────────────────────────
 
     [JsonPropertyName("cursorEnabled")]

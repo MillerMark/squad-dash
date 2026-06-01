@@ -69,6 +69,17 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     // Mutable working image — starts as _clipboardImage, replaced after each Enter-crop.
     private BitmapSource _workingImage = null!;
 
+    // The original image as passed to the constructor (after DPI normalisation),
+    // never mutated by crop operations. Saved as the .source.png sidecar so that
+    // re-opening the editor always has access to the full original.
+    private BitmapSource _originalImage = null!;
+
+    // Accumulated canvas-space crop offset from the original image origin.
+    // Updated by DoCropInPlace; used in CaptureAnnotationState so that on
+    // re-open the editor can show the original image with the prior crop pre-selected.
+    private double _appliedCropOffsetX;
+    private double _appliedCropOffsetY;
+
     // Image control on the canvas whose Source we update after Enter-crop.
     private Image _imageCtrl = null!;
 
@@ -449,6 +460,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         // The canvas operates in physical-pixel units and _zoom compensates so the
         // window appears at the correct logical size on the screen.
         _workingImage = DpiHelper.NormalizeTo96Dpi(clipboardImage);
+        _originalImage = _workingImage;
 
         double dispW = imgW;
         double dispH = imgH;
@@ -5077,6 +5089,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             $"[ClipboardImageEditor] CropInPlace: before={pxW}x{pxH}px sel={sel.Left:F1},{sel.Top:F1},{sel.Width:F1}x{sel.Height:F1} " +
             $"cropPx={cropX},{cropY},{cropW}x{cropH} canvasScale={_canvasScaleX:F3}x{_canvasScaleY:F3}");
         _workingImage = cropped;
+        _appliedCropOffsetX += sel.Left;
+        _appliedCropOffsetY += sel.Top;
         _cachedPixels = null;
 
         // Resize the image control and canvas to the selection's logical dimensions.
@@ -5212,7 +5226,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             foreach (var h in ar.Handles) h.Visibility = Visibility.Collapsed;
 
         try {
-            SourceImage = _workingImage;
+            SourceImage = _originalImage;
             AnnotationState = CaptureAnnotationState();
             Result = RenderFinalBitmap();
             if (Result is not null)
@@ -5365,17 +5379,25 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// Called in <see cref="DoInsertImage"/> so the caller can persist it.
     /// </summary>
     private ClipboardAnnotationState CaptureAnnotationState() {
+        bool hasCrop = _appliedCropOffsetX != 0 || _appliedCropOffsetY != 0
+                       || _workingImage.PixelWidth  != _originalImage.PixelWidth
+                       || _workingImage.PixelHeight != _originalImage.PixelHeight;
         var state = new ClipboardAnnotationState {
-            CanvasScaleX  = _canvasScaleX,
-            CanvasScaleY  = _canvasScaleY,
-            HasCrop       = !_sel.IsEmpty,
-            CropX         = _sel.X,
-            CropY         = _sel.Y,
-            CropW         = _sel.Width,
-            CropH         = _sel.Height,
-            CursorEnabled = _cursorEnabled,
-            CursorX       = _cursorImage != null ? Canvas.GetLeft(_cursorImage) : 0,
-            CursorY       = _cursorImage != null ? Canvas.GetTop(_cursorImage)  : 0,
+            CanvasScaleX    = _canvasScaleX,
+            CanvasScaleY    = _canvasScaleY,
+            HasCrop         = !_sel.IsEmpty,
+            CropX           = _sel.X,
+            CropY           = _sel.Y,
+            CropW           = _sel.Width,
+            CropH           = _sel.Height,
+            HasAppliedCrop  = hasCrop,
+            AppliedCropX    = _appliedCropOffsetX,
+            AppliedCropY    = _appliedCropOffsetY,
+            AppliedCropW    = _canvas.Width,
+            AppliedCropH    = _canvas.Height,
+            CursorEnabled   = _cursorEnabled,
+            CursorX         = _cursorImage != null ? Canvas.GetLeft(_cursorImage) : 0,
+            CursorY         = _cursorImage != null ? Canvas.GetTop(_cursorImage)  : 0,
         };
 
         foreach (var a in _arrows) {
@@ -5443,19 +5465,29 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void RestoreAnnotationState(ClipboardAnnotationState state) {
         _suppressUndo = true;
         try {
-            _sel = state.HasCrop
-                ? new Rect(state.CropX, state.CropY, state.CropW, state.CropH)
-                : Rect.Empty;
+            // If the state captured a destructive crop, it was made from a sub-region of
+            // the original image.  The re-open path always passes the full original image,
+            // so we restore the crop as a *selection* (the user can adjust/expand it) and
+            // shift all annotation coordinates back into original-image space.
+            double ox = state.HasAppliedCrop ? state.AppliedCropX : 0;
+            double oy = state.HasAppliedCrop ? state.AppliedCropY : 0;
+
+            if (state.HasAppliedCrop)
+                _sel = new Rect(state.AppliedCropX, state.AppliedCropY, state.AppliedCropW, state.AppliedCropH);
+            else
+                _sel = state.HasCrop
+                    ? new Rect(state.CropX, state.CropY, state.CropW, state.CropH)
+                    : Rect.Empty;
 
             foreach (var a in state.Arrows) {
-                var targetBounds = new Rect(a.TargetBoundsX, a.TargetBoundsY, a.TargetBoundsW, a.TargetBoundsH);
+                var targetBounds = new Rect(a.TargetBoundsX + ox, a.TargetBoundsY + oy, a.TargetBoundsW, a.TargetBoundsH);
                 var arrow = CreateArrow(targetBounds);
                 arrow.ArrowheadAngleDeg    = a.ArrowheadAngleDeg;
                 arrow.ArrowLength          = a.ArrowLength;
                 arrow.TailLength           = a.TailLength;
                 arrow.UserTailLength       = a.UserTailLength;
                 arrow.ArrowColor           = ParseHexColor(a.Color, Color.FromRgb(255, 120, 20));
-                arrow.TargetCenterOnCanvas = new Point(a.TargetCenterX, a.TargetCenterY);
+                arrow.TargetCenterOnCanvas = new Point(a.TargetCenterX + ox, a.TargetCenterY + oy);
                 arrow.OffsetX              = a.OffsetX;
                 arrow.OffsetY              = a.OffsetY;
                 UpdateArrowGeometry(arrow);
@@ -5463,12 +5495,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             SelectArrow(null);
 
             foreach (var r in state.Rects)
-                CreateAnnotationRect(new Rect(r.X, r.Y, r.W, r.H), ParseHexColor(r.Color, Color.FromRgb(255, 80, 80)));
+                CreateAnnotationRect(new Rect(r.X + ox, r.Y + oy, r.W, r.H), ParseHexColor(r.Color, Color.FromRgb(255, 80, 80)));
             SelectAnnotationRect(null);
 
             foreach (var t in state.Texts) {
                 var at = new AnnotationText {
-                    Bounds          = new Rect(t.X, t.Y, t.W, t.H),
+                    Bounds          = new Rect(t.X + ox, t.Y + oy, t.W, t.H),
                     Text            = t.Text,
                     FontSize        = t.FontSize,
                     TextColor       = ParseHexColor(t.FgColor, Colors.White),
@@ -5480,7 +5512,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
             foreach (var ml in state.MeasureLines)
                 CreateMeasureLine(
-                    new Point(ml.X1, ml.Y1), new Point(ml.X2, ml.Y2),
+                    new Point(ml.X1 + ox, ml.Y1 + oy), new Point(ml.X2 + ox, ml.Y2 + oy),
                     ml.IsHorizontal,
                     ParseHexColor(ml.Color, Color.FromRgb(255, 120, 20)));
             SelectMeasureLine(null);
@@ -5488,8 +5520,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _cursorEnabled = state.CursorEnabled;
             if (state.CursorEnabled) {
                 EnsureCursorImageCreated();
-                Canvas.SetLeft(_cursorImage!, state.CursorX);
-                Canvas.SetTop(_cursorImage!,  state.CursorY);
+                Canvas.SetLeft(_cursorImage!, state.CursorX + ox);
+                Canvas.SetTop(_cursorImage!,  state.CursorY + oy);
                 _cursorImage!.Visibility = Visibility.Visible;
             }
 
