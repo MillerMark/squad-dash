@@ -33,7 +33,7 @@ using Shapes = System.Windows.Shapes;
 
 namespace SquadDash;
 
-public partial class MainWindow : Window, ILiveElementLocator
+public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext, IPromptBoxState, ITranscriptRenderSink, IAgentRosterView
 {
     private const string PostInstallPrompt =
         "Take a look at my code base and suggest a starting Squad team.";
@@ -1142,34 +1142,13 @@ public partial class MainWindow : Window, ILiveElementLocator
                 _bridge.RunNamedAgentDelegationAsync(selectedOption, targetAgentHandle, cwd, sessionId, configDir),
             runNamedAgentDirectAsync: (targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir) =>
                 _bridge.RunNamedAgentDirectAsync(targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir),
-            getCurrentWorkspace: () => _currentWorkspace,
-            getSettingsSnapshot: () => _settingsSnapshot,
+            workspaceContext: this,
+            promptBoxState:   this,
+            transcriptSink:   this,
+            agentRosterView:  this,
             conversationManager: _conversationManager,
             backgroundTaskPresenter: _backgroundTaskPresenter,
             squadCliAdapter: _squadCliAdapter,
-            beginTranscriptTurn: prompt => BeginTranscriptTurn(prompt),
-            finalizeCurrentTurnResponse: () => FinalizeCurrentTurnResponse(),
-            appendLine: (text, brush) => AppendLine(text, brush),
-            selectTranscriptThread: thread => {
-                // When the coordinator thread is shown during prompt execution, make the
-                // main transcript visible if it was hidden (e.g. user had only agent
-                // secondary panels open). We do NOT close secondary panels — the user
-                // keeps seeing what they were looking at, and the coordinator is added.
-                //
-                // However, if the user is actively viewing an agent in the main transcript
-                // area, do NOT displace it.  Let the coordinator run silently in the
-                // background; its transcript is still updated (OutputTextBox.Document) and
-                // the user can switch to it at any time by clicking the coordinator header.
-                var currentSelected = _selectedTranscriptThread ?? CoordinatorThread;
-                if (_mainTranscriptVisible && currentSelected.Kind != TranscriptThreadKind.Coordinator)
-                    return;
-                if (!_mainTranscriptVisible)
-                    ShowMainTranscript();
-                SelectTranscriptThread(thread);
-            },
-            getCoordinatorThread: () => CoordinatorThread,
-            getAgents: () => _agents,
-            getCurrentSessionState: () => _currentSessionState,
             getIsPromptRunning: () => _isPromptRunning,
             setIsPromptRunning: v =>
             {
@@ -1247,19 +1226,6 @@ public partial class MainWindow : Window, ILiveElementLocator
             getIsClosing: () => _isClosing,
             getRestartPending: () => _restartPending,
             close: () => TryCompletePendingRestart("prompt-controller-finally"),
-            clearPromptTextBox: () => ClearPromptTextBoxLogicalBuffer("prompt-executed"),
-            focusPromptTextBox: () => PromptTextBox.Focus(),
-            isPromptTextBoxEnabled: () => PromptTextBox.IsEnabled,
-            getQueueCount: () => _promptQueue.Count,
-            getPromptBoxText: () => PromptTextBox.Text,
-            setPromptBoxText: text => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft"),
-            enqueueSimItem: item => {
-                item.SequenceNumber = ++_promptQueueSeq;
-                item.QueueNumber    = NextQueueNumber();
-                _promptQueue.EnqueueItem(item);
-                SyncQueuePanel();
-                _ = DrainQueueIfNeededAsync();
-            },
             getPendingRoutingRepairRecheck: () => _pendingRoutingRepairRecheck,
             setPendingRoutingRepairRecheck: v => _pendingRoutingRepairRecheck = v,
             getPendingSupplementalInstruction: () => _pendingSupplementalPromptInstruction,
@@ -1291,14 +1257,6 @@ public partial class MainWindow : Window, ILiveElementLocator
             promptHealthTimer: _promptHealthTimer,
             waitForPostedUiActionsAsync: () => _postedUiActionTracker.WaitForDrainAsync(),
             getModelObservedThisSession: () => _modelObservedThisSession,
-            getLastQuickReplyEntry: () => _lastQuickReplyEntry,
-            setLastQuickReplyEntryNull: () => ClearActiveQuickReplyState(),
-            renderResponseEntry: entry => RenderResponseEntry(entry),
-            ensureThreadFooterAtEnd: thread => EnsureThreadFooterAtEnd(thread),
-            scrollToEndIfAtBottom: () => ScrollToEndIfAtBottom(),
-            getToolEntries: () => _agentThreadRegistry.ToolEntries.Values,
-            renderToolEntry: entry => RenderToolEntry(entry),
-            updateToolSpinnerState: () => UpdateToolSpinnerState(),
             workspacePaths: _workspacePaths,
             instructionProvider: serviceProvider?.GetRequiredService<IPromptInstructionProvider>() ?? new DefaultPromptInstructionProvider(),
             getSubmittedAttachments: () => _pendingTranscriptAttachments ?? Array.Empty<FollowUpAttachment>());
@@ -16610,6 +16568,55 @@ public partial class MainWindow : Window, ILiveElementLocator
     {
         SelectTranscriptThreadCore(thread, scrollToStart, allowSnapshotFastPath: true, previousThreadOverride: null);
     }
+
+    // Called by ITranscriptRenderSink.SelectTranscriptThread — contains the "don't displace an
+    // agent in the main area" guard that was previously an inline lambda in the PEC constructor.
+    private void PecSelectTranscriptThread(TranscriptThreadState thread) {
+        var currentSelected = _selectedTranscriptThread ?? CoordinatorThread;
+        if (_mainTranscriptVisible && currentSelected.Kind != TranscriptThreadKind.Coordinator)
+            return;
+        if (!_mainTranscriptVisible)
+            ShowMainTranscript();
+        SelectTranscriptThread(thread);
+    }
+
+    // ── IWorkspaceContext ─────────────────────────────────────────────────
+    SessionWorkspace? IWorkspaceContext.GetCurrentWorkspace() => _currentWorkspace;
+    ApplicationSettingsSnapshot IWorkspaceContext.GetSettingsSnapshot() => _settingsSnapshot;
+
+    // ── IPromptBoxState ───────────────────────────────────────────────────
+    void IPromptBoxState.ClearPromptTextBox() => ClearPromptTextBoxLogicalBuffer("prompt-executed");
+    void IPromptBoxState.FocusPromptTextBox() => PromptTextBox.Focus();
+    bool IPromptBoxState.IsPromptTextBoxEnabled => PromptTextBox.IsEnabled;
+    int IPromptBoxState.QueueCount => _promptQueue.Count;
+    string IPromptBoxState.PromptBoxText => PromptTextBox.Text;
+    void IPromptBoxState.SetPromptBoxText(string text) => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft");
+    void IPromptBoxState.EnqueueSimItem(PromptQueueItem item) {
+        item.SequenceNumber = ++_promptQueueSeq;
+        item.QueueNumber    = NextQueueNumber();
+        _promptQueue.EnqueueItem(item);
+        SyncQueuePanel();
+        _ = DrainQueueIfNeededAsync();
+    }
+
+    // ── ITranscriptRenderSink ─────────────────────────────────────────────
+    TranscriptTurnView ITranscriptRenderSink.BeginTranscriptTurn(string prompt) => BeginTranscriptTurn(prompt);
+    void ITranscriptRenderSink.FinalizeCurrentTurnResponse() => FinalizeCurrentTurnResponse();
+    void ITranscriptRenderSink.AppendLine(string text, Brush? brush) => AppendLine(text, brush);
+    void ITranscriptRenderSink.SelectTranscriptThread(TranscriptThreadState thread) => PecSelectTranscriptThread(thread);
+    TranscriptThreadState ITranscriptRenderSink.CoordinatorThread => CoordinatorThread;
+    TranscriptResponseEntry? ITranscriptRenderSink.LastQuickReplyEntry => _lastQuickReplyEntry;
+    void ITranscriptRenderSink.ClearLastQuickReplyEntry() => ClearActiveQuickReplyState();
+    void ITranscriptRenderSink.RenderResponseEntry(TranscriptResponseEntry entry) => RenderResponseEntry(entry);
+    void ITranscriptRenderSink.EnsureThreadFooterAtEnd(TranscriptThreadState thread) => EnsureThreadFooterAtEnd(thread);
+    void ITranscriptRenderSink.ScrollToEndIfAtBottom() => ScrollToEndIfAtBottom();
+    IEnumerable<ToolTranscriptEntry> ITranscriptRenderSink.GetToolEntries() => _agentThreadRegistry.ToolEntries.Values;
+    void ITranscriptRenderSink.RenderToolEntry(ToolTranscriptEntry entry) => RenderToolEntry(entry);
+    void ITranscriptRenderSink.UpdateToolSpinnerState() => UpdateToolSpinnerState();
+
+    // ── IAgentRosterView ──────────────────────────────────────────────────
+    IReadOnlyList<AgentStatusCard> IAgentRosterView.GetAgents() => _agents;
+    string? IAgentRosterView.CurrentSessionState => _currentSessionState;
 
     private bool IsThreadAlreadyVisibleInMainTranscript(TranscriptThreadState thread)
     {

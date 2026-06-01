@@ -124,9 +124,11 @@ internal sealed class PromptExecutionController {
     private readonly Func<string, string, string, string?, string?, Task> _runNamedAgentDelegationAsync;
     private readonly Func<string, string, string?, string, string?, string?, Task> _runNamedAgentDirectAsync;
 
-    // ── Injected — Workspace ──────────────────────────────────────────────
-    private readonly Func<SessionWorkspace?>            _getCurrentWorkspace;
-    private readonly Func<ApplicationSettingsSnapshot>  _getSettingsSnapshot;
+    // ── Injected — Interfaces ─────────────────────────────────────────────
+    private readonly IWorkspaceContext     _workspaceContext;
+    private readonly IPromptBoxState       _promptBoxState;
+    private readonly ITranscriptRenderSink _transcriptSink;
+    private readonly IAgentRosterView      _agentRosterView;
 
     // ── Injected — Conversation ───────────────────────────────────────────
     private readonly TranscriptConversationManager _conversationManager;
@@ -137,32 +139,12 @@ internal sealed class PromptExecutionController {
     // ── Injected — CLI Adapter ────────────────────────────────────────────
     private readonly SquadCliAdapter _squadCliAdapter;
 
-    // ── Injected — Transcript Rendering ──────────────────────────────────
-    private readonly Func<string, TranscriptTurnView>           _beginTranscriptTurn;
-    private readonly Action                                      _finalizeCurrentTurnResponse;
-    private readonly Action<string, Brush?>                      _appendLine;
-    private readonly Action<TranscriptThreadState>               _selectTranscriptThread;
-    private readonly Func<TranscriptThreadState>                 _getCoordinatorThread;
-
-    // ── Injected — Agent Data ─────────────────────────────────────────────
-    private readonly Func<IReadOnlyList<AgentStatusCard>> _getAgents;
-    private readonly Func<string?>                        _getCurrentSessionState;
-
     // ── Injected — Running State ──────────────────────────────────────────
     private readonly Func<bool>   _getIsPromptRunning;
     private readonly Action<bool> _setIsPromptRunning;
     private readonly Func<bool>   _getIsClosing;
     private readonly Func<bool>   _getRestartPending;
     private readonly Action       _close;
-
-    // ── Injected — PromptBox ──────────────────────────────────────────────
-    private readonly Action      _clearPromptTextBox;
-    private readonly Action      _focusPromptTextBox;
-    private readonly Func<bool>  _isPromptTextBoxEnabled;
-    private readonly Func<int>   _getQueueCount;
-    private readonly Func<string> _getPromptBoxText;
-    private readonly Action<string> _setPromptBoxText;
-    private readonly Action<PromptQueueItem> _enqueueSimItem;
 
     // ── Injected — Routing Flags ──────────────────────────────────────────
     private readonly Func<bool>   _getPendingRoutingRepairRecheck;
@@ -206,16 +188,6 @@ internal sealed class PromptExecutionController {
 
     // ── Injected — Misc MainWindow helpers ────────────────────────────────
     private readonly Func<bool>                       _getModelObservedThisSession;
-    private readonly Func<TranscriptResponseEntry?>   _getLastQuickReplyEntry;
-    private readonly Action                           _setLastQuickReplyEntryNull;
-    private readonly Action<TranscriptResponseEntry>  _renderResponseEntry;
-    private readonly Action<TranscriptThreadState>    _ensureThreadFooterAtEnd;
-    private readonly Action                           _scrollToEndIfAtBottom;
-
-    // ── Injected — Tool Entries (for MarkActiveToolsAsFailed) ────────────
-    private readonly Func<IEnumerable<ToolTranscriptEntry>> _getToolEntries;
-    private readonly Action<ToolTranscriptEntry>            _renderToolEntry;
-    private readonly Action                                 _updateToolSpinnerState;
 
     // ── IWorkspacePaths ───────────────────────────────────────────────────
     private readonly IWorkspacePaths _workspacePaths;
@@ -344,38 +316,23 @@ internal sealed class PromptExecutionController {
         Func<string, string, string?, string?, Task> runPromptAsync,
         Func<string, string, string, string?, string?, Task> runNamedAgentDelegationAsync,
         Func<string, string, string?, string, string?, string?, Task> runNamedAgentDirectAsync,
-        // Workspace
-        Func<SessionWorkspace?> getCurrentWorkspace,
-        Func<ApplicationSettingsSnapshot> getSettingsSnapshot,
+        // Core interfaces
+        IWorkspaceContext workspaceContext,
+        IPromptBoxState promptBoxState,
+        ITranscriptRenderSink transcriptSink,
+        IAgentRosterView agentRosterView,
         // Conversation
         TranscriptConversationManager conversationManager,
         // Background Tasks
         BackgroundTaskPresenter backgroundTaskPresenter,
         // CLI Adapter
         SquadCliAdapter squadCliAdapter,
-        // Transcript Rendering
-        Func<string, TranscriptTurnView> beginTranscriptTurn,
-        Action finalizeCurrentTurnResponse,
-        Action<string, Brush?> appendLine,
-        Action<TranscriptThreadState> selectTranscriptThread,
-        Func<TranscriptThreadState> getCoordinatorThread,
-        // Agent Data
-        Func<IReadOnlyList<AgentStatusCard>> getAgents,
-        Func<string?> getCurrentSessionState,
         // Running State
         Func<bool> getIsPromptRunning,
         Action<bool> setIsPromptRunning,
         Func<bool> getIsClosing,
         Func<bool> getRestartPending,
         Action close,
-        // PromptBox
-        Action clearPromptTextBox,
-        Action focusPromptTextBox,
-        Func<bool> isPromptTextBoxEnabled,
-        Func<int> getQueueCount,
-        Func<string> getPromptBoxText,
-        Action<string> setPromptBoxText,
-        Action<PromptQueueItem> enqueueSimItem,
         // Routing Flags
         Func<bool> getPendingRoutingRepairRecheck,
         Action<bool> setPendingRoutingRepairRecheck,
@@ -413,15 +370,7 @@ internal sealed class PromptExecutionController {
         Func<Task> waitForPostedUiActionsAsync,
         // Misc MainWindow helpers
         Func<bool> getModelObservedThisSession,
-        Func<TranscriptResponseEntry?> getLastQuickReplyEntry,
-        Action setLastQuickReplyEntryNull,
-        Action<TranscriptResponseEntry> renderResponseEntry,
-        Action<TranscriptThreadState> ensureThreadFooterAtEnd,
-        Action scrollToEndIfAtBottom,
         // Tool entries (for MarkActiveToolsAsFailed)
-        Func<IEnumerable<ToolTranscriptEntry>> getToolEntries,
-        Action<ToolTranscriptEntry> renderToolEntry,
-        Action updateToolSpinnerState,
         IWorkspacePaths workspacePaths,
         IPromptInstructionProvider? instructionProvider = null,
         Func<IReadOnlyList<FollowUpAttachment>>? getSubmittedAttachments = null) {
@@ -429,30 +378,18 @@ internal sealed class PromptExecutionController {
         _runPromptAsync                        = runPromptAsync;
         _runNamedAgentDelegationAsync          = runNamedAgentDelegationAsync;
         _runNamedAgentDirectAsync              = runNamedAgentDirectAsync;
-        _getCurrentWorkspace                   = getCurrentWorkspace;
-        _getSettingsSnapshot                   = getSettingsSnapshot;
+        _workspaceContext                      = workspaceContext;
+        _promptBoxState                        = promptBoxState;
+        _transcriptSink                        = transcriptSink;
+        _agentRosterView                       = agentRosterView;
         _conversationManager                   = conversationManager;
         _backgroundTaskPresenter               = backgroundTaskPresenter;
         _squadCliAdapter                       = squadCliAdapter;
-        _beginTranscriptTurn                   = beginTranscriptTurn;
-        _finalizeCurrentTurnResponse           = finalizeCurrentTurnResponse;
-        _appendLine                            = appendLine;
-        _selectTranscriptThread                = selectTranscriptThread;
-        _getCoordinatorThread                  = getCoordinatorThread;
-        _getAgents                             = getAgents;
-        _getCurrentSessionState                = getCurrentSessionState;
         _getIsPromptRunning                    = getIsPromptRunning;
         _setIsPromptRunning                    = setIsPromptRunning;
         _getIsClosing                          = getIsClosing;
         _getRestartPending                     = getRestartPending;
         _close                                 = close;
-        _clearPromptTextBox                    = clearPromptTextBox;
-        _focusPromptTextBox                    = focusPromptTextBox;
-        _isPromptTextBoxEnabled                = isPromptTextBoxEnabled;
-        _getQueueCount                         = getQueueCount;
-        _getPromptBoxText                      = getPromptBoxText;
-        _setPromptBoxText                      = setPromptBoxText;
-        _enqueueSimItem                        = enqueueSimItem;
         _getPendingRoutingRepairRecheck        = getPendingRoutingRepairRecheck;
         _setPendingRoutingRepairRecheck        = setPendingRoutingRepairRecheck;
         _getPendingSupplementalInstruction     = getPendingSupplementalInstruction;
@@ -484,14 +421,6 @@ internal sealed class PromptExecutionController {
         _promptHealthTimer                     = promptHealthTimer;
         _waitForPostedUiActionsAsync           = waitForPostedUiActionsAsync;
         _getModelObservedThisSession           = getModelObservedThisSession;
-        _getLastQuickReplyEntry                = getLastQuickReplyEntry;
-        _setLastQuickReplyEntryNull            = setLastQuickReplyEntryNull;
-        _renderResponseEntry                   = renderResponseEntry;
-        _ensureThreadFooterAtEnd               = ensureThreadFooterAtEnd;
-        _scrollToEndIfAtBottom                 = scrollToEndIfAtBottom;
-        _getToolEntries                        = getToolEntries;
-        _renderToolEntry                       = renderToolEntry;
-        _updateToolSpinnerState                = updateToolSpinnerState;
         _workspacePaths                        = workspacePaths;
         _instructionProvider                   = instructionProvider ?? new DefaultPromptInstructionProvider();
         _getSubmittedAttachments               = getSubmittedAttachments ?? (() => Array.Empty<FollowUpAttachment>());
@@ -512,7 +441,7 @@ internal sealed class PromptExecutionController {
             _promptNoActivityWarningShown = true;
             SquadDashTrace.Write(
                 "PromptHealth",
-                $"No bridge activity for {idleFor.TotalSeconds:0}s since prompt start. state={_getCurrentSessionState() ?? "(unknown)"}");
+                $"No bridge activity for {idleFor.TotalSeconds:0}s since prompt start. state={_agentRosterView.CurrentSessionState ?? "(unknown)"}");
             _updateLeadAgent("Waiting", string.Empty, "Waiting for the next response chunk.");
             _updateSessionState("Waiting");
         }
@@ -1088,10 +1017,10 @@ internal sealed class PromptExecutionController {
                     var modelLabel = _getModelObservedThisSession()
                         ? "Active model"
                         : "Model (last session)";
-                    _appendLine($"{modelLabel}: **{_squadCliAdapter.LastObservedModel}**", null);
+                    _transcriptSink.AppendLine($"{modelLabel}: **{_squadCliAdapter.LastObservedModel}**", null);
                 }
                 else {
-                    _appendLine("Active model: *(not yet observed — run a prompt first)*", null);
+                    _transcriptSink.AppendLine("Active model: *(not yet observed — run a prompt first)*", null);
                 }
             });
     }
@@ -1105,8 +1034,8 @@ internal sealed class PromptExecutionController {
         MaybeClearPromptAfterLocalCommand(prompt, clearPromptBox);
         var submission = _showHireAgentWindow();
         if (submission is null) {
-            if (!_getIsClosing() && _isPromptTextBoxEnabled())
-                _focusPromptTextBox();
+            if (!_getIsClosing() && _promptBoxState.IsPromptTextBoxEnabled)
+                _promptBoxState.FocusPromptTextBox();
             return true;
         }
 
@@ -1179,7 +1108,7 @@ internal sealed class PromptExecutionController {
                 prompt,
                 addToHistory,
                 clearPromptBox,
-                () => _appendLine($"Usage: `/{commandName} <agent name>`", null));
+                () => _transcriptSink.AppendLine($"Usage: `/{commandName} <agent name>`", null));
         }
 
         if (addToHistory)
@@ -1192,7 +1121,7 @@ internal sealed class PromptExecutionController {
                 prompt,
                 addToHistory: false,
                 clearPromptBox: false,
-                () => _appendLine($"Finish the current prompt before trying to /{commandName} an agent.", null),
+                () => _transcriptSink.AppendLine($"Finish the current prompt before trying to /{commandName} an agent.", null),
                 refreshLeadAgentBackgroundStatusAfterCompletion: true);
         }
 
@@ -1255,10 +1184,10 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             () => {
-                _appendLine("## Session", null);
-                _appendLine("Use `/session fresh` to detach from the current SDK session without clearing the transcript.", null);
-                _appendLine("Use `/sessions` to list remembered session ids.", null);
-                _appendLine("Use `/resume <id-prefix>` to point the next prompt back at an older session.", null);
+                _transcriptSink.AppendLine("## Session", null);
+                _transcriptSink.AppendLine("Use `/session fresh` to detach from the current SDK session without clearing the transcript.", null);
+                _transcriptSink.AppendLine("Use `/sessions` to list remembered session ids.", null);
+                _transcriptSink.AppendLine("Use `/resume <id-prefix>` to point the next prompt back at an older session.", null);
             });
     }
 
@@ -1270,41 +1199,41 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             () => {
-                _appendLine("## How it works", null);
-                _appendLine("Just type what you need — Squad routes your message to the right agent.", null);
-                _appendLine("- `@AgentName message` — send directly to one agent", null);
-                _appendLine("- `@Agent1 @Agent2 message` — send to multiple agents in parallel", null);
-                _appendLine(string.Empty, null);
-                _appendLine("## Squad Commands", null);
-                _appendLine("- `/agents` — List all team members", null);
-                _appendLine("- `/history [N]` — See recent messages (default 10)", null);
-                _appendLine("- `/nap [--deep]` — Context hygiene (compress, prune, archive)", null);
-                _appendLine("- `/resume <id>` — Restore a past session by ID prefix", null);
-                _appendLine("- `/session` — Manage SDK sessions (type `/session` for details)", null);
-                _appendLine("- `/sessions` — List saved sessions", null);
-                _appendLine("- `/status` — Check your team & what's happening", null);
-                _appendLine("- `/version` — Show version", null);
-                _appendLine(string.Empty, null);
-                _appendLine("## SquadDash Commands", null);
-                _appendLine("- `/activate <name>` — Restore an inactive or retired agent to the active roster", null);
-                _appendLine("- `/agents` — List all team members", null);
-                _appendLine("- `/clear` — Clear the transcript (with confirmation)", null);
-                _appendLine("- `/deactivate <name>` — Remove an agent from the active roster without deleting them", null);
-                _appendLine("- `/doctor` — Run Squad Doctor diagnostics", null);
-                _appendLine("- `/dropTasks` — Hide the live tasks popup", null);
-                _appendLine("- `/help` — Show this command reference", null);
-                _appendLine("- `/hire` — Open the visual hire-agent workflow", null);
-                _appendLine("- `/model` — Show the active AI model", null);
-                _appendLine("- `/queue-sim` — Alias for `/test-queue` with the default scenario", null);
-                _appendLine("- `/test-queue` — Enqueue sim items to exercise queue mechanics without a real AI call", null);
-                _appendLine("- `/test-queue` DSL: `$QueuePrompt$(\"prompt\", \"response\", delaySecs)` and `$ActiveDraft$(\"prompt\", \"response\", delaySecs)`", null);
-                _appendLine("- `/retire <name>` — Archive an agent and remove them from the active roster", null);
-                _appendLine("- `/session` — Manage SDK sessions (type `/session` for details)", null);
-                _appendLine("- `/sessions` — List saved sessions", null);
-                _appendLine("- `/status` — Show team, session, and current turn state", null);
-                _appendLine("- `/tasks` — Show or refresh the live tasks popup", null);
-                _appendLine("- `/trace` — Open the live trace window", null);
-                _appendLine("- `/version` — Show Squad and SquadDash version", null);
+                _transcriptSink.AppendLine("## How it works", null);
+                _transcriptSink.AppendLine("Just type what you need — Squad routes your message to the right agent.", null);
+                _transcriptSink.AppendLine("- `@AgentName message` — send directly to one agent", null);
+                _transcriptSink.AppendLine("- `@Agent1 @Agent2 message` — send to multiple agents in parallel", null);
+                _transcriptSink.AppendLine(string.Empty, null);
+                _transcriptSink.AppendLine("## Squad Commands", null);
+                _transcriptSink.AppendLine("- `/agents` — List all team members", null);
+                _transcriptSink.AppendLine("- `/history [N]` — See recent messages (default 10)", null);
+                _transcriptSink.AppendLine("- `/nap [--deep]` — Context hygiene (compress, prune, archive)", null);
+                _transcriptSink.AppendLine("- `/resume <id>` — Restore a past session by ID prefix", null);
+                _transcriptSink.AppendLine("- `/session` — Manage SDK sessions (type `/session` for details)", null);
+                _transcriptSink.AppendLine("- `/sessions` — List saved sessions", null);
+                _transcriptSink.AppendLine("- `/status` — Check your team & what's happening", null);
+                _transcriptSink.AppendLine("- `/version` — Show version", null);
+                _transcriptSink.AppendLine(string.Empty, null);
+                _transcriptSink.AppendLine("## SquadDash Commands", null);
+                _transcriptSink.AppendLine("- `/activate <name>` — Restore an inactive or retired agent to the active roster", null);
+                _transcriptSink.AppendLine("- `/agents` — List all team members", null);
+                _transcriptSink.AppendLine("- `/clear` — Clear the transcript (with confirmation)", null);
+                _transcriptSink.AppendLine("- `/deactivate <name>` — Remove an agent from the active roster without deleting them", null);
+                _transcriptSink.AppendLine("- `/doctor` — Run Squad Doctor diagnostics", null);
+                _transcriptSink.AppendLine("- `/dropTasks` — Hide the live tasks popup", null);
+                _transcriptSink.AppendLine("- `/help` — Show this command reference", null);
+                _transcriptSink.AppendLine("- `/hire` — Open the visual hire-agent workflow", null);
+                _transcriptSink.AppendLine("- `/model` — Show the active AI model", null);
+                _transcriptSink.AppendLine("- `/queue-sim` — Alias for `/test-queue` with the default scenario", null);
+                _transcriptSink.AppendLine("- `/test-queue` — Enqueue sim items to exercise queue mechanics without a real AI call", null);
+                _transcriptSink.AppendLine("- `/test-queue` DSL: `$QueuePrompt$(\"prompt\", \"response\", delaySecs)` and `$ActiveDraft$(\"prompt\", \"response\", delaySecs)`", null);
+                _transcriptSink.AppendLine("- `/retire <name>` — Archive an agent and remove them from the active roster", null);
+                _transcriptSink.AppendLine("- `/session` — Manage SDK sessions (type `/session` for details)", null);
+                _transcriptSink.AppendLine("- `/sessions` — List saved sessions", null);
+                _transcriptSink.AppendLine("- `/status` — Show team, session, and current turn state", null);
+                _transcriptSink.AppendLine("- `/tasks` — Show or refresh the live tasks popup", null);
+                _transcriptSink.AppendLine("- `/trace` — Open the live trace window", null);
+                _transcriptSink.AppendLine("- `/version` — Show Squad and SquadDash version", null);
             });
     }
 
@@ -1312,8 +1241,8 @@ internal sealed class PromptExecutionController {
         SquadDashTrace.Write("UI", "Local command intercepted prompt=/test-queue");
 
         // ── Precondition guard ────────────────────────────────────────────
-        var queueCount  = _getQueueCount();
-        var boxText     = _getPromptBoxText().Trim();
+        var queueCount  = _promptBoxState.QueueCount;
+        var boxText     = _promptBoxState.PromptBoxText.Trim();
         var hasOtherDraftContent =
             !string.IsNullOrWhiteSpace(boxText) &&
             !boxText.StartsWith("/test-queue", StringComparison.OrdinalIgnoreCase) &&
@@ -1324,7 +1253,7 @@ internal sealed class PromptExecutionController {
                 prompt,
                 addToHistory,
                 clearPromptBox,
-                () => _appendLine("[Queue test] Cannot start: queue must be empty and prompt box must be blank.", null));
+                () => _transcriptSink.AppendLine("[Queue test] Cannot start: queue must be empty and prompt box must be blank.", null));
         }
 
         // ── Parse DSL (or use default scenario) ───────────────────────────
@@ -1337,7 +1266,7 @@ internal sealed class PromptExecutionController {
                 prompt,
                 addToHistory,
                 clearPromptBox,
-                () => _appendLine("[Queue test] No valid `$QueuePrompt$` or `$ActiveDraft$` directives found in the body.", null));
+                () => _transcriptSink.AppendLine("[Queue test] No valid `$QueuePrompt$` or `$ActiveDraft$` directives found in the body.", null));
         }
 
         var queueEntries    = entries.Where(e => !e.IsActiveDraft).ToList();
@@ -1353,12 +1282,12 @@ internal sealed class PromptExecutionController {
                 SimResponse     = entry.FakeResponse,
                 SimDelaySeconds = entry.DelaySeconds,
             };
-            _enqueueSimItem(item);
+            _promptBoxState.EnqueueSimItem(item);
         }
 
         // Set the active-draft box text and stash sim metadata for when it is submitted.
         if (activeDraftEntry is not null) {
-            _setPromptBoxText(activeDraftEntry.PromptText);
+            _promptBoxState.SetPromptBoxText(activeDraftEntry.PromptText);
             _activeDraftSimEntry = (activeDraftEntry.FakeResponse, activeDraftEntry.DelaySeconds);
         }
 
@@ -1368,9 +1297,9 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox: activeDraftEntry is null && clearPromptBox,
             () => {
-                _appendLine("## Queue Test Started", null);
-                _appendLine($"Enqueued **{queueEntries.Count}** sim item(s){(activeDraftEntry is not null ? " and set the active draft" : "")} — no real AI calls will be made.", null);
-                _appendLine("Each item uses its configured delay and fake response. Try **pause/resume** or **Ctrl+Enter** to prioritize.", null);
+                _transcriptSink.AppendLine("## Queue Test Started", null);
+                _transcriptSink.AppendLine($"Enqueued **{queueEntries.Count}** sim item(s){(activeDraftEntry is not null ? " and set the active draft" : "")} — no real AI calls will be made.", null);
+                _transcriptSink.AppendLine("Each item uses its configured delay and fake response. Try **pause/resume** or **Ctrl+Enter** to prioritize.", null);
             });
     }
 
@@ -1495,45 +1424,45 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             () => {
-                var workspace = _getCurrentWorkspace()?.FolderPath ?? "*(none)*";
+                var workspace = _workspaceContext.GetCurrentWorkspace()?.FolderPath ?? "*(none)*";
                 var knownSessionIds = _conversationManager.GetKnownSessionIds();
-                _appendLine($"## {Path.GetFileName(_getCurrentWorkspace()?.FolderPath ?? "Squad Status")}", null);
-                _appendLine($"- **Workspace:** `{workspace}`", null);
-                _appendLine($"- **Session:** {(_conversationManager.CurrentSessionId is not null ? $"`{_conversationManager.CurrentSessionId}`" : "*(not started)*")}", null);
-                _appendLine($"- **State:** {_getCurrentSessionState() ?? "Unknown"}", null);
+                _transcriptSink.AppendLine($"## {Path.GetFileName(_workspaceContext.GetCurrentWorkspace()?.FolderPath ?? "Squad Status")}", null);
+                _transcriptSink.AppendLine($"- **Workspace:** `{workspace}`", null);
+                _transcriptSink.AppendLine($"- **Session:** {(_conversationManager.CurrentSessionId is not null ? $"`{_conversationManager.CurrentSessionId}`" : "*(not started)*")}", null);
+                _transcriptSink.AppendLine($"- **State:** {_agentRosterView.CurrentSessionState ?? "Unknown"}", null);
                 if (knownSessionIds.Count > 0)
-                    _appendLine($"- **Remembered Sessions:** {string.Join(", ", knownSessionIds.Select(FormatSessionListEntry))}", null);
+                    _transcriptSink.AppendLine($"- **Remembered Sessions:** {string.Join(", ", knownSessionIds.Select(FormatSessionListEntry))}", null);
                 if (!string.IsNullOrWhiteSpace(LatestSessionDiagnosticsSummary))
-                    _appendLine($"- **Session Forensics:** {LatestSessionDiagnosticsSummary}", null);
+                    _transcriptSink.AppendLine($"- **Session Forensics:** {LatestSessionDiagnosticsSummary}", null);
                 if (!string.IsNullOrWhiteSpace(_squadCliAdapter.LastObservedModel)) {
                     var modelLabel = _getModelObservedThisSession() ? "Model" : "Model (last session)";
-                    _appendLine($"- **{modelLabel}:** {_squadCliAdapter.LastObservedModel}", null);
+                    _transcriptSink.AppendLine($"- **{modelLabel}:** {_squadCliAdapter.LastObservedModel}", null);
                 }
 
                 var currentTurnLine = CurrentTurnStatusPresentation.BuildReportLine(_backgroundTaskPresenter.BuildCurrentTurnStatusSnapshot());
                 if (!string.IsNullOrWhiteSpace(currentTurnLine)) {
-                    _appendLine(string.Empty, null);
-                    _appendLine("## Current Turn", null);
-                    _appendLine("- " + currentTurnLine, null);
+                    _transcriptSink.AppendLine(string.Empty, null);
+                    _transcriptSink.AppendLine("## Current Turn", null);
+                    _transcriptSink.AppendLine("- " + currentTurnLine, null);
                 }
 
-                var agents = _getAgents();
+                var agents = _agentRosterView.GetAgents();
                 var teamCards = agents.Where(c => !c.IsLeadAgent).ToList();
                 if (teamCards.Count > 0) {
-                    _appendLine(string.Empty, null);
-                    _appendLine("## Team", null);
+                    _transcriptSink.AppendLine(string.Empty, null);
+                    _transcriptSink.AppendLine("## Team", null);
                     foreach (var card in teamCards) {
                         var status = string.IsNullOrWhiteSpace(card.StatusText) ? "Idle" : card.StatusText;
                         var detail = string.IsNullOrWhiteSpace(card.DetailText) ? string.Empty : $" — {card.DetailText}";
                         var roleLabel = string.IsNullOrWhiteSpace(card.RoleText) ? string.Empty : $" ({card.RoleText})";
-                        _appendLine($"- **{card.Name}**{roleLabel}: {status}{detail}", null);
+                        _transcriptSink.AppendLine($"- **{card.Name}**{roleLabel}: {status}{detail}", null);
                     }
                 }
 
                 if (_backgroundTaskPresenter.HasBackgroundTasks()) {
-                    _appendLine(string.Empty, null);
-                    _appendLine("## Background Tasks", null);
-                    _appendLine(_backgroundTaskPresenter.BuildBackgroundTaskReport(), null);
+                    _transcriptSink.AppendLine(string.Empty, null);
+                    _transcriptSink.AppendLine("## Background Tasks", null);
+                    _transcriptSink.AppendLine(_backgroundTaskPresenter.BuildBackgroundTaskReport(), null);
                 }
             });
     }
@@ -1547,23 +1476,23 @@ internal sealed class PromptExecutionController {
             clearPromptBox,
             () => {
                 var knownSessionIds = _conversationManager.GetKnownSessionIds();
-                _appendLine("## Sessions", null);
-                _appendLine(
+                _transcriptSink.AppendLine("## Sessions", null);
+                _transcriptSink.AppendLine(
                     $"Current: {(_conversationManager.CurrentSessionId is null ? "*(fresh / not started)*" : $"`{_conversationManager.CurrentSessionId}`")}",
                     null);
 
                 if (knownSessionIds.Count == 0) {
-                    _appendLine("Remembered: *(none yet)*", null);
+                    _transcriptSink.AppendLine("Remembered: *(none yet)*", null);
                 }
                 else {
-                    _appendLine("Remembered:", null);
+                    _transcriptSink.AppendLine("Remembered:", null);
                     foreach (var sessionId in knownSessionIds)
-                        _appendLine($"- {FormatSessionListEntry(sessionId)}", null);
+                        _transcriptSink.AppendLine($"- {FormatSessionListEntry(sessionId)}", null);
                 }
 
-                _appendLine(string.Empty, null);
-                _appendLine("Use `/session fresh` to detach from the current SDK session without clearing the transcript.", null);
-                _appendLine("Use `/resume <id-prefix>` to point the next prompt back at one of the remembered sessions.", null);
+                _transcriptSink.AppendLine(string.Empty, null);
+                _transcriptSink.AppendLine("Use `/session fresh` to detach from the current SDK session without clearing the transcript.", null);
+                _transcriptSink.AppendLine("Use `/resume <id-prefix>` to point the next prompt back at one of the remembered sessions.", null);
             });
     }
 
@@ -1581,15 +1510,15 @@ internal sealed class PromptExecutionController {
                 _refreshAgentCards();
                 _refreshSidebar();
 
-                _appendLine("## Session", null);
+                _transcriptSink.AppendLine("## Session", null);
                 if (previousSessionId is null) {
-                    _appendLine("There was no active SDK session to detach. The next prompt will start fresh.", null);
+                    _transcriptSink.AppendLine("There was no active SDK session to detach. The next prompt will start fresh.", null);
                     return;
                 }
 
-                _appendLine($"Detached from `{previousSessionId}`.", null);
-                _appendLine("The transcript stayed in place. The next prompt will create a brand-new SDK session.", null);
-                _appendLine($"To return later, run `/resume {TranscriptConversationManager.AbbreviateSessionId(previousSessionId)}`.", null);
+                _transcriptSink.AppendLine($"Detached from `{previousSessionId}`.", null);
+                _transcriptSink.AppendLine("The transcript stayed in place. The next prompt will create a brand-new SDK session.", null);
+                _transcriptSink.AppendLine($"To return later, run `/resume {TranscriptConversationManager.AbbreviateSessionId(previousSessionId)}`.", null);
             });
     }
 
@@ -1603,9 +1532,9 @@ internal sealed class PromptExecutionController {
             clearPromptBox,
             () => {
                 var result = _conversationManager.TryResumeSession(normalizedArgs);
-                _appendLine("## Session", null);
+                _transcriptSink.AppendLine("## Session", null);
                 if (!result.Succeeded) {
-                    _appendLine(result.ErrorMessage ?? "Unable to resume that session.", ThemeBrush("SystemErrorText"));
+                    _transcriptSink.AppendLine(result.ErrorMessage ?? "Unable to resume that session.", ThemeBrush("SystemErrorText"));
                     return;
                 }
 
@@ -1613,8 +1542,8 @@ internal sealed class PromptExecutionController {
                 _updateSessionState("Ready");
                 _refreshAgentCards();
                 _refreshSidebar();
-                _appendLine($"Next prompt will use `{result.SelectedSessionId}`.", null);
-                _appendLine("The transcript was left as-is so you can keep investigating this workspace.", null);
+                _transcriptSink.AppendLine($"Next prompt will use `{result.SelectedSessionId}`.", null);
+                _transcriptSink.AppendLine("The transcript was left as-is so you can keep investigating this workspace.", null);
             });
     }
 
@@ -1626,28 +1555,28 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             () => {
-                var agents = _getAgents();
-                _appendLine("## Team Members", null);
+                var agents = _agentRosterView.GetAgents();
+                _transcriptSink.AppendLine("## Team Members", null);
 
                 // Output coordinator first
                 var leadAgent = agents.FirstOrDefault(c => c.IsLeadAgent);
                 if (leadAgent is not null)
-                    _appendLine($"- **{leadAgent.Name}** *(coordinator)*", null);
+                    _transcriptSink.AppendLine($"- **{leadAgent.Name}** *(coordinator)*", null);
 
                 // Output permanent team members
                 foreach (var card in agents.Where(c => !c.IsLeadAgent && !c.IsDynamicAgent)) {
                     var roleLabel = string.IsNullOrWhiteSpace(card.RoleText) ? string.Empty : $" — {card.RoleText}";
-                    _appendLine($"- **{card.Name}**{roleLabel}", null);
+                    _transcriptSink.AppendLine($"- **{card.Name}**{roleLabel}", null);
                 }
 
                 // Output temporary agents if any exist
                 var dynamicAgents = agents.Where(c => c.IsDynamicAgent).ToList();
                 if (dynamicAgents.Count > 0) {
-                    _appendLine(string.Empty, null);
-                    _appendLine("**Temporary Agents:**", null);
+                    _transcriptSink.AppendLine(string.Empty, null);
+                    _transcriptSink.AppendLine("**Temporary Agents:**", null);
                     foreach (var card in dynamicAgents) {
                         var roleLabel = string.IsNullOrWhiteSpace(card.RoleText) ? string.Empty : $" — {card.RoleText}";
-                        _appendLine($"- **{card.Name}**{roleLabel}", null);
+                        _transcriptSink.AppendLine($"- **{card.Name}**{roleLabel}", null);
                     }
                 }
             });
@@ -1663,14 +1592,14 @@ internal sealed class PromptExecutionController {
             () => {
                 var appVersion = System.Reflection.Assembly.GetExecutingAssembly()
                     .GetName().Version?.ToString() ?? "unknown";
-                _appendLine("## Version", null);
-                _appendLine($"- **SquadDash:** {appVersion}", null);
+                _transcriptSink.AppendLine("## Version", null);
+                _transcriptSink.AppendLine($"- **SquadDash:** {appVersion}", null);
                 if (!string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion))
-                    _appendLine($"- **Squad CLI:** {_squadCliAdapter.SquadVersion}", null);
+                    _transcriptSink.AppendLine($"- **Squad CLI:** {_squadCliAdapter.SquadVersion}", null);
                 else
-                    _appendLine("- **Squad CLI:** *(not resolved)*", null);
+                    _transcriptSink.AppendLine("- **Squad CLI:** *(not resolved)*", null);
                 if (!string.IsNullOrWhiteSpace(_squadCliAdapter.LastObservedModel))
-                    _appendLine($"- **Model:** {_squadCliAdapter.LastObservedModel}", null);
+                    _transcriptSink.AppendLine($"- **Model:** {_squadCliAdapter.LastObservedModel}", null);
             });
     }
 
@@ -1682,15 +1611,15 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             () => {
-                _appendLine("This is text BEFORE the table. Select from here, drag through the table, and include the line below it, then copy and paste.", null);
-                _appendLine(string.Empty, null);
-                _appendLine("| Animal | Speed | Habitat |", null);
-                _appendLine("| --- | --- | --- |", null);
-                _appendLine("| Cheetah | 120 km/h | Savanna |", null);
-                _appendLine("| Peregrine Falcon | 390 km/h | Cliffs |", null);
-                _appendLine("| Sailfish | 110 km/h | Ocean |", null);
-                _appendLine(string.Empty, null);
-                _appendLine("This is text AFTER the table. If the table rows appear between these two lines when you paste, the fix is working.", null);
+                _transcriptSink.AppendLine("This is text BEFORE the table. Select from here, drag through the table, and include the line below it, then copy and paste.", null);
+                _transcriptSink.AppendLine(string.Empty, null);
+                _transcriptSink.AppendLine("| Animal | Speed | Habitat |", null);
+                _transcriptSink.AppendLine("| --- | --- | --- |", null);
+                _transcriptSink.AppendLine("| Cheetah | 120 km/h | Savanna |", null);
+                _transcriptSink.AppendLine("| Peregrine Falcon | 390 km/h | Cliffs |", null);
+                _transcriptSink.AppendLine("| Sailfish | 110 km/h | Ocean |", null);
+                _transcriptSink.AppendLine(string.Empty, null);
+                _transcriptSink.AppendLine("This is text AFTER the table. If the table rows appear between these two lines when you paste, the fix is working.", null);
             });
     }
 
@@ -1700,20 +1629,20 @@ internal sealed class PromptExecutionController {
         if (addToHistory)
             _conversationManager.AddPromptToHistory(prompt);
 
-        _selectTranscriptThread(_getCoordinatorThread());
-        _beginTranscriptTurn(prompt);
+        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+        _transcriptSink.BeginTranscriptTurn(prompt);
 
         if (clearPromptBox)
-            _clearPromptTextBox();
+            _promptBoxState.ClearPromptTextBox();
 
         _clearConfirmationPending = true;
-        _appendLine("Are you sure you want to clear this transcript?\n\n[Yes] [No]", null);
+        _transcriptSink.AppendLine("Are you sure you want to clear this transcript?\n\n[Yes] [No]", null);
 
-        _finalizeCurrentTurnResponse();
+        _transcriptSink.FinalizeCurrentTurnResponse();
         _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "local-clear-confirmation");
         SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=local-clear-confirmation");
-        _getCoordinatorThread().CurrentTurn = null;
-        _scrollToEndIfAtBottom();
+        _transcriptSink.CoordinatorThread.CurrentTurn = null;
+        _transcriptSink.ScrollToEndIfAtBottom();
         return true;
     }
 
@@ -1722,9 +1651,9 @@ internal sealed class PromptExecutionController {
         _clearConfirmationPending = false;
 
         if (clearPromptBox)
-            _clearPromptTextBox();
+            _promptBoxState.ClearPromptTextBox();
 
-        var workspace = _getCurrentWorkspace();
+        var workspace = _workspaceContext.GetCurrentWorkspace();
         if (workspace is not null) {
             _conversationManager.ConversationStore.Save(
                 workspace.FolderPath,
@@ -1742,15 +1671,15 @@ internal sealed class PromptExecutionController {
         _clearConfirmationPending = false;
 
         if (clearPromptBox)
-            _clearPromptTextBox();
+            _promptBoxState.ClearPromptTextBox();
 
-        _selectTranscriptThread(_getCoordinatorThread());
-        _beginTranscriptTurn(prompt);
-        _appendLine("Transcript clear cancelled.", null);
-        _finalizeCurrentTurnResponse();
+        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+        _transcriptSink.BeginTranscriptTurn(prompt);
+        _transcriptSink.AppendLine("Transcript clear cancelled.", null);
+        _transcriptSink.FinalizeCurrentTurnResponse();
         _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "local-command-turn");
         SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=local-clear-cancelled");
-        _getCoordinatorThread().CurrentTurn = null;
+        _transcriptSink.CoordinatorThread.CurrentTurn = null;
         return true;
     }
 
@@ -1763,7 +1692,7 @@ internal sealed class PromptExecutionController {
             return;
         }
 
-        _clearPromptTextBox();
+        _promptBoxState.ClearPromptTextBox();
     }
 
     private bool ExecuteLocalUiCommand(
@@ -1777,8 +1706,8 @@ internal sealed class PromptExecutionController {
         MaybeClearPromptAfterLocalCommand(prompt, clearPromptBox);
         action();
 
-        if (!_getIsClosing() && _isPromptTextBoxEnabled())
-            _focusPromptTextBox();
+        if (!_getIsClosing() && _promptBoxState.IsPromptTextBoxEnabled)
+            _promptBoxState.FocusPromptTextBox();
 
         return true;
     }
@@ -1792,26 +1721,26 @@ internal sealed class PromptExecutionController {
         if (addToHistory)
             _conversationManager.AddPromptToHistory(prompt);
 
-        var executionPlan = LocalCommandTurnExecutionPolicy.Create(_getIsPromptRunning(), _getCoordinatorThread().CurrentTurn);
-        _selectTranscriptThread(_getCoordinatorThread());
-        var localTurn = _beginTranscriptTurn(prompt);
+        var executionPlan = LocalCommandTurnExecutionPolicy.Create(_getIsPromptRunning(), _transcriptSink.CoordinatorThread.CurrentTurn);
+        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+        var localTurn = _transcriptSink.BeginTranscriptTurn(prompt);
 
         try {
             MaybeClearPromptAfterLocalCommand(prompt, clearPromptBox);
             renderResponse();
-            _finalizeCurrentTurnResponse();
+            _transcriptSink.FinalizeCurrentTurnResponse();
             _conversationManager.SaveTranscriptTurnToConversation(localTurn, DateTimeOffset.Now, "local-command-execute");
         }
         finally {
             if (executionPlan.ShouldRestoreSuspendedTurn &&
                 executionPlan.SuspendedTurn is { } suspendedTurn) {
                 SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn restored reason=local-command-suspended-turn");
-                _getCoordinatorThread().CurrentTurn = suspendedTurn;
+                _transcriptSink.CoordinatorThread.CurrentTurn = suspendedTurn;
                 MoveTranscriptTurnToDocumentEnd(suspendedTurn);
             }
             else {
                 SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=local-command-execute");
-                _getCoordinatorThread().CurrentTurn = null;
+                _transcriptSink.CoordinatorThread.CurrentTurn = null;
             }
         }
 
@@ -1834,8 +1763,8 @@ internal sealed class PromptExecutionController {
                 addToHistory,
                 clearPromptBox,
                 () => {
-                    _appendLine("## Session", null);
-                    _appendLine("Wait for the current prompt to finish before switching SDK sessions.", ThemeBrush("SystemWarningText"));
+                    _transcriptSink.AppendLine("## Session", null);
+                    _transcriptSink.AppendLine("Wait for the current prompt to finish before switching SDK sessions.", ThemeBrush("SystemWarningText"));
                 },
                 refreshLeadAgentBackgroundStatusAfterCompletion: true);
         }
@@ -1862,7 +1791,7 @@ internal sealed class PromptExecutionController {
         foreach (var block in blocks)
             document.Blocks.Add(block);
 
-        _ensureThreadFooterAtEnd(turn.OwnerThread);
+        _transcriptSink.EnsureThreadFooterAtEnd(turn.OwnerThread);
     }
 
     private string FormatSessionListEntry(string sessionId) {
@@ -1874,15 +1803,15 @@ internal sealed class PromptExecutionController {
 
     internal void InjectUniverseSelectorTurn() {
         _universeSelectionPending = true;
-        _selectTranscriptThread(_getCoordinatorThread());
-        _beginTranscriptTurn(string.Empty);
-        _appendLine("Ready to create a team? Select a universe:\n\n" +
+        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+        _transcriptSink.BeginTranscriptTurn(string.Empty);
+        _transcriptSink.AppendLine("Ready to create a team? Select a universe:\n\n" +
             string.Join(" ", MainWindow.UniverseSelectorOptions.Select(u => $"[{u}]")), null);
-        _finalizeCurrentTurnResponse();
+        _transcriptSink.FinalizeCurrentTurnResponse();
         _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "named-agent-command-turn");
         SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=universe-selector-turn");
-        _getCoordinatorThread().CurrentTurn = null;
-        _scrollToEndIfAtBottom();
+        _transcriptSink.CoordinatorThread.CurrentTurn = null;
+        _transcriptSink.ScrollToEndIfAtBottom();
     }
 
     private bool HandleUniverseSelection(string universeName) {
@@ -1984,7 +1913,7 @@ internal sealed class PromptExecutionController {
     internal async Task ExecuteMaintenanceTurnAsync(
         string targetAgentHandle,
         string prompt) {
-        var workspace = _getCurrentWorkspace();
+        var workspace = _workspaceContext.GetCurrentWorkspace();
         if (workspace is null) return;
 
         _setIsPromptRunning(true);
@@ -2014,11 +1943,11 @@ internal sealed class PromptExecutionController {
         }
         finally {
             await _waitForPostedUiActionsAsync();
-            _getCoordinatorThread().CurrentTurn = null;
+            _transcriptSink.CoordinatorThread.CurrentTurn = null;
             _setIsPromptRunning(false);
             _updateInteractiveControlState();
-            if (_isPromptTextBoxEnabled())
-                _focusPromptTextBox();
+            if (_promptBoxState.IsPromptTextBoxEnabled)
+                _promptBoxState.FocusPromptTextBox();
         }
     }
 
@@ -2028,15 +1957,15 @@ internal sealed class PromptExecutionController {
         bool clearPromptBox,
         bool allowLocalCommandHandling,
         Func<SessionWorkspace, string?, Task> runBridgeTurnAsync) {
-        if (_getCurrentWorkspace() is null)
+        if (_workspaceContext.GetCurrentWorkspace() is null)
             return;
 
         if (allowLocalCommandHandling && TryHandleLocalCommand(visiblePrompt, addToHistory, clearPromptBox))
             return;
 
-        DisableTranscriptQuickReplies(_getCoordinatorThread());
+        DisableTranscriptQuickReplies(_transcriptSink.CoordinatorThread);
 
-        var workspace = _getCurrentWorkspace()!;
+        var workspace = _workspaceContext.GetCurrentWorkspace()!;
         SquadDashTrace.Write(
             "UI",
             $"ExecutePromptAsync start prompt={visiblePrompt} cwd={workspace.FolderPath}");
@@ -2055,11 +1984,11 @@ internal sealed class PromptExecutionController {
             _conversationManager.AddPromptToHistory(historyText, _getSubmittedAttachments());
         }
 
-        _selectTranscriptThread(_getCoordinatorThread());
-        _beginTranscriptTurn(visiblePrompt);
+        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+        _transcriptSink.BeginTranscriptTurn(visiblePrompt);
 
         if (clearPromptBox)
-            _clearPromptTextBox();
+            _promptBoxState.ClearPromptTextBox();
 
         _currentPromptContextDiagnostics = _conversationManager.CapturePromptContextDiagnostics();
         SquadDashTrace.Write(
@@ -2072,7 +2001,7 @@ internal sealed class PromptExecutionController {
 
         try {
             var configDirectory = _conversationManager.ConversationStore.GetSessionConfigDirectory(workspace.FolderPath);
-            var settings = _getSettingsSnapshot();
+            var settings = _workspaceContext.GetSettingsSnapshot();
             if (settings.GetRuntimeIssueSimulation(workspace.FolderPath) != DeveloperRuntimeIssueSimulation.None) {
                 throw new InvalidOperationException(
                     WorkspaceIssueFactory.CreateSimulatedRuntimeErrorMessage(
@@ -2083,16 +2012,16 @@ internal sealed class PromptExecutionController {
                 var simItem = CurrentDispatchedItem;
                 _updateLeadAgent("Thinking", string.Empty, "Simulating AI response…");
                 await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, simItem.SimDelaySeconds)));
-                _appendLine(simItem.SimResponse ?? $"[Queue sim] Processed \"{visiblePrompt}\"", null);
-                _finalizeCurrentTurnResponse();
+                _transcriptSink.AppendLine(simItem.SimResponse ?? $"[Queue sim] Processed \"{visiblePrompt}\"", null);
+                _transcriptSink.FinalizeCurrentTurnResponse();
                 _clearRuntimeIssue();
             }
             else if (_activeDraftSimEntry is { } draftSim) {
                 _activeDraftSimEntry = null;
                 _updateLeadAgent("Thinking", string.Empty, "Simulating AI response…");
                 await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, draftSim.SimDelaySeconds)));
-                _appendLine(draftSim.SimResponse, null);
-                _finalizeCurrentTurnResponse();
+                _transcriptSink.AppendLine(draftSim.SimResponse, null);
+                _transcriptSink.FinalizeCurrentTurnResponse();
                 _clearRuntimeIssue();
             }
             else {
@@ -2108,7 +2037,7 @@ internal sealed class PromptExecutionController {
                 SquadDashTrace.Write("UI", $"ExecutePromptAsync aborted by user: {ex.GetType().Name}: {ex.Message}");
                 StopPromptHealthMonitoring("aborted");
                 MarkActiveToolsAsFailed("Aborted");
-                _appendLine("[aborted]", ThemeBrush("SystemInfoText"));
+                _transcriptSink.AppendLine("[aborted]", ThemeBrush("SystemInfoText"));
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
                 _nextPromptShouldRetractAborted = true;
             }
@@ -2119,7 +2048,7 @@ internal sealed class PromptExecutionController {
                 SquadDashTrace.Write("UI", $"ExecutePromptAsync interrupted: {ex.GetType().Name}: {message}");
                 StopPromptHealthMonitoring("interrupted");
                 MarkActiveToolsAsFailed("Interrupted");
-                _appendLine(
+                _transcriptSink.AppendLine(
                     $"[interrupted] {message}\n\n[{ResendLastPromptQuickReply}] [{CheckGitDiffQuickReply}]",
                     ThemeBrush("SystemInfoText"));
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
@@ -2130,7 +2059,7 @@ internal sealed class PromptExecutionController {
             StopPromptHealthMonitoring("error");
             var issue = _showRuntimeIssue(ex.Message);
             MarkActiveToolsAsFailed(issue.Message);
-            _appendLine("[error] " + issue.Message, Brushes.Red);
+            _transcriptSink.AppendLine("[error] " + issue.Message, Brushes.Red);
             _updateLeadAgent("Error", string.Empty, "The last prompt ended with an error.");
             _updateSessionState("Error");
             _setInstallStatus(issue.Message);
@@ -2152,7 +2081,7 @@ internal sealed class PromptExecutionController {
 
             _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow, "execute-coordinator-finally");
             SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=execute-coordinator-finally");
-            _getCoordinatorThread().CurrentTurn = null;
+            _transcriptSink.CoordinatorThread.CurrentTurn = null;
             _setIsPromptRunning(false);
             _updateInteractiveControlState();
             var shouldRecheckRoutingRepair = _getPendingRoutingRepairRecheck();
@@ -2173,18 +2102,18 @@ internal sealed class PromptExecutionController {
                 _close();
             }
             else if (!_getIsClosing()) {
-                if (_isPromptTextBoxEnabled())
-                    _focusPromptTextBox();
+                if (_promptBoxState.IsPromptTextBoxEnabled)
+                    _promptBoxState.FocusPromptTextBox();
             }
         }
     }
 
     private void DisableTranscriptQuickReplies(TranscriptThreadState thread) {
-        var lastEntry = _getLastQuickReplyEntry();
+        var lastEntry = _transcriptSink.LastQuickReplyEntry;
         if (lastEntry is not null) {
             if (lastEntry.AllowQuickReplies)
                 DisableQuickReplies(lastEntry);
-            _setLastQuickReplyEntryNull();
+            _transcriptSink.ClearLastQuickReplyEntry();
         }
 
         if (thread.CurrentTurn is null)
@@ -2206,7 +2135,7 @@ internal sealed class PromptExecutionController {
             return;
 
         entry.AllowQuickReplies = false;
-        _renderResponseEntry(entry);
+        _transcriptSink.RenderResponseEntry(entry);
     }
 
     private string BuildBridgePrompt(string prompt) {
@@ -2242,14 +2171,14 @@ internal sealed class PromptExecutionController {
             _getPendingQuickReplyRoutingInstruction(),
             _getPendingQuickReplyRouteMode(),
             supplemental,
-            _getCurrentWorkspace()?.FolderPath,
+            _workspaceContext.GetCurrentWorkspace()?.FolderPath,
             _instructionProvider.Get().CoordinatorDelegationAccountability);
         SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary} accountability=included");
         return buildResult.PromptText;
     }
 
     private string? BuildTriggeredInjections(string prompt) {
-        var workspaceFolder = _getCurrentWorkspace()?.FolderPath;
+        var workspaceFolder = _workspaceContext.GetCurrentWorkspace()?.FolderPath;
         var variables = TriggeredInjectionEvaluator.BuildVariables(workspaceFolder);
         var fired = TriggeredInjectionEvaluator.Evaluate(prompt, BuiltInPromptInjections.All, variables);
         if (fired.Count == 0)
@@ -2296,8 +2225,8 @@ internal sealed class PromptExecutionController {
     }
 
     private void MarkActiveToolsAsFailed(string errorMessage) {
-        var coordinatorTurn = _getCoordinatorThread().CurrentTurn;
-        foreach (var entry in _getToolEntries().Where(item =>
+        var coordinatorTurn = _transcriptSink.CoordinatorThread.CurrentTurn;
+        foreach (var entry in _transcriptSink.GetToolEntries().Where(item =>
                      !item.IsCompleted &&
                      ReferenceEquals(item.Turn, coordinatorTurn))) {
             entry.IsCompleted = true;
@@ -2313,10 +2242,10 @@ internal sealed class PromptExecutionController {
                 entry.ProgressText,
                 entry.IsCompleted,
                 Success: false));
-            _renderToolEntry(entry);
+            _transcriptSink.RenderToolEntry(entry);
         }
 
-        _updateToolSpinnerState();
+        _transcriptSink.UpdateToolSpinnerState();
         // All active tools are now completed — tool name is definitively null
         ActiveToolName = null;
     }
