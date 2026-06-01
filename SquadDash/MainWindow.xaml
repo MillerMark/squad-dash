@@ -1652,17 +1652,8 @@
                                 </StackPanel>
                             </DockPanel>
 
-                            <!-- Row 1: Status label + Run Now button -->
+                            <!-- Row 1: Status label + Run on idle picker -->
                             <DockPanel Grid.Row="1" Margin="0,6,0,0" LastChildFill="True">
-                                <Button x:Name="MaintenanceRunNowButton"
-                                        DockPanel.Dock="Right"
-                                        Content="Run Now"
-                                        Height="20"
-                                        Padding="6,0"
-                                        Margin="6,0,0,0"
-                                        FontSize="{DynamicResource FontSizeSmall}"
-                                        Style="{StaticResource ThemedButtonStyle}"
-                                        ToolTip="Start a maintenance cycle immediately" />
                                 <ContentControl x:Name="MaintenanceEnabledOnIdleHost"
                                               DockPanel.Dock="Left"
                                               VerticalAlignment="Center"

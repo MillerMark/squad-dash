@@ -28803,10 +28803,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             _maintenancePanel = new MaintenancePanelController(
                 listPanel:              MaintenanceTaskListPanel,
                 statusLabel:            MaintenanceStatusLabel,
-                runNowButton:           MaintenanceRunNowButton,
                 enabledOnIdleHost:      MaintenanceEnabledOnIdleHost,
                 getWorkspacePath:       () => _currentWorkspace?.FolderPath,
-                runNow:                 () => _ = StartMaintenanceCycleAsync(isManual: true),
                 toggleTaskEnabled:      (taskId, enabled) => OnMaintenanceTaskToggled(taskId, enabled),
                 reloadPanel:            () => OnMaintenanceTaskToggled(string.Empty, false),
                 openInMarkdownEditor:   path => MarkdownDocumentWindow.Show(
@@ -28816,6 +28814,8 @@ public partial class MainWindow : Window, ILiveElementLocator
                     showSource: true,
                     BuildMarkdownCaptureContext()),
                 showInboxPanel:         () => ShowInboxPanel(),
+                runTask:                taskId => _ = StartMaintenanceCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId }),
+                simulateIdle:           () => _ = StartMaintenanceCycleAsync(),
                 onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
                 onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
         }

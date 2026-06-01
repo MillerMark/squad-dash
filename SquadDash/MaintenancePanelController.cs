@@ -15,14 +15,14 @@ internal sealed class MaintenancePanelController {
 
     private readonly StackPanel           _listPanel;
     private readonly TextBlock            _statusLabel;
-    private readonly Button               _runNowButton;
     private readonly CompactPickerButton  _enabledOnIdlePicker;
     private readonly Func<string?>        _getWorkspacePath;
-    private readonly Action               _runNow;
     private readonly Action<string, bool> _toggleTaskEnabled;
     private readonly Action               _reloadPanel;
     private readonly Action<string>       _openInMarkdownEditor;
     private readonly Action               _showInboxPanel;
+    private readonly Action<string>       _runTask;
+    private readonly Action               _simulateIdle;
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
     private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
 
@@ -42,26 +42,26 @@ internal sealed class MaintenancePanelController {
     internal MaintenancePanelController(
         StackPanel           listPanel,
         TextBlock            statusLabel,
-        Button               runNowButton,
         ContentControl       enabledOnIdleHost,
         Func<string?>        getWorkspacePath,
-        Action               runNow,
         Action<string, bool> toggleTaskEnabled,
         Action               reloadPanel,
         Action<string>       openInMarkdownEditor,
         Action               showInboxPanel,
+        Action<string>       runTask,
+        Action               simulateIdle,
         Action<RichTextBox, string>?            onReviseWithAi = null,
         Action<RichTextBox, string, string>?    onDirectRevise = null) {
 
         _listPanel              = listPanel;
         _statusLabel            = statusLabel;
-        _runNowButton           = runNowButton;
         _getWorkspacePath       = getWorkspacePath;
-        _runNow                 = runNow;
         _toggleTaskEnabled      = toggleTaskEnabled;
         _reloadPanel            = reloadPanel;
         _openInMarkdownEditor   = openInMarkdownEditor;
         _showInboxPanel         = showInboxPanel;
+        _runTask                = runTask;
+        _simulateIdle           = simulateIdle;
         _onReviseWithAi         = onReviseWithAi;
         _onDirectRevise         = onDirectRevise;
 
@@ -73,9 +73,15 @@ internal sealed class MaintenancePanelController {
             getButtonLabel: v => v == "on-idle" ? "✔ Run on idle" : "(run manually)");
         _enabledOnIdlePicker.Control.SetResourceReference(Button.FontSizeProperty, "FontSizeSmall");
         _enabledOnIdlePicker.Control.Margin = new Thickness(0);
+        var pickerMenu = new ContextMenu();
+        pickerMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        var simulateIdleItem = new MenuItem { Header = "Simulate Idle" };
+        simulateIdleItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        simulateIdleItem.Click += (_, _) => _simulateIdle();
+        pickerMenu.Items.Add(simulateIdleItem);
+        _enabledOnIdlePicker.Control.ContextMenu = pickerMenu;
         enabledOnIdleHost.Content = _enabledOnIdlePicker.Control;
 
-        _runNowButton.Click += (_, _) => _runNow();
         WireListPanelContextMenu();
     }
 
@@ -203,23 +209,20 @@ internal sealed class MaintenancePanelController {
 
     /// <summary>
     /// Call when the runner starts a task. Updates the header to "Running now — [title]…"
-    /// and disables the Run Now button.
     /// </summary>
     internal void OnRunnerStarted(string taskTitle) {
         _runnerActive      = true;
         _runningTaskTitle  = taskTitle;
         StopCountdown();
         SyncStatusLabel();
-        _runNowButton.IsEnabled = false;
     }
 
     /// <summary>
-    /// Call when the runner finishes. Re-enables the Run Now button and restarts the countdown.
+    /// Call when the runner finishes. Restarts the countdown.
     /// </summary>
     internal void OnRunnerCompleted() {
         _runnerActive      = false;
         _runningTaskTitle  = null;
-        _runNowButton.IsEnabled = true;
         SyncStatusLabel();
     }
 
@@ -683,9 +686,15 @@ internal sealed class MaintenancePanelController {
             };
         }
 
-        // Per-task context menu — "Edit Task"
+        // Per-task context menu — "Run Now" and "Edit Task"
         var taskMenu    = new ContextMenu();
         taskMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        var runNowItem = new MenuItem { Header = "Run Now" };
+        runNowItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        var capturedTaskIdForRun = task.Id;
+        runNowItem.Click += (_, _) => _runTask(capturedTaskIdForRun);
+        taskMenu.Items.Add(runNowItem);
+        taskMenu.Items.Add(new Separator());
         var editTaskItem = new MenuItem { Header = "Edit Task..." };
         editTaskItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         editTaskItem.Click += (_, _) => {
