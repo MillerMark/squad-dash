@@ -28315,7 +28315,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
-    private void OpenOrFocusInboxMessage(string messageId)
+    private void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
     {
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: messageId={messageId} openWindowCount={_openInboxWindows.Count}");
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
@@ -28338,7 +28338,8 @@ public partial class MainWindow : Window, ILiveElementLocator
             msg, 
             DispatchInboxAction, 
             LookupTaskById,
-            attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp);
+            attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
+            onMarkedRead: onMarkedRead);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -28884,7 +28885,7 @@ public partial class MainWindow : Window, ILiveElementLocator
                 delete:                 id => _inboxStore?.Delete(id),
                 viewerActionsPanel:     InboxViewerActionsPanel!,
                 onActionClicked:        DispatchInboxAction,
-                openMessageWindow:      msg => OpenOrFocusInboxMessage(msg.Id),
+                openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
                 lookupTask:             LookupTaskById,
                 addToChat:              msg => AttachInboxMessageFollowUp(msg));
 

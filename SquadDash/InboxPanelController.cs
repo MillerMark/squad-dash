@@ -29,7 +29,7 @@ internal sealed class InboxPanelController
     private readonly Action<string>            _archive;
     private readonly Action<string>            _delete;
     private readonly Action<InboxAction, InboxMessage> _onActionClicked;
-    private readonly Action<InboxMessage>      _openMessageWindow;
+    private readonly Action<InboxMessage, Action?> _openMessageWindow;
     private readonly Action<InboxMessage>?    _addToChat;
     private Func<string, TaskItem?>?          _lookupTask;
 
@@ -54,7 +54,7 @@ internal sealed class InboxPanelController
         Action<string>           delete,
         WrapPanel                viewerActionsPanel,
         Action<InboxAction, InboxMessage> onActionClicked,
-        Action<InboxMessage>     openMessageWindow,
+        Action<InboxMessage, Action?> openMessageWindow,
         Func<string, TaskItem?>? lookupTask = null,
         Action<InboxMessage>?    addToChat  = null)
     {
@@ -287,11 +287,12 @@ internal sealed class InboxPanelController
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: msgId={msg.Id} subject='{msg.Subject}' read={msg.Read}");
         _selectedMessage = msg;
 
-        if (!msg.Read)
-            MarkRowRead(msg, row, dot, subjectLabel);
+        // Defer mark-as-read: the window fires the callback after 3 s of viewing
+        // or on any scroll, whichever comes first.
+        Action? markReadCallback = msg.Read ? null : () => MarkRowRead(msg, row, dot, subjectLabel);
 
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: calling _openMessageWindow (wired to OpenOrFocusInboxMessage) for msgId={msg.Id}");
-        _openMessageWindow(msg);
+        _openMessageWindow(msg, markReadCallback);
     }
 
     private void MarkRowRead(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)

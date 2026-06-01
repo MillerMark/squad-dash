@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -21,17 +22,21 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<string, InboxMessage>? _attachSelectedTextToChat;
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
+    private readonly Action? _onMarkedRead;
+    private bool _markedRead;
 
     public InboxMessageWindow(
         InboxMessage message,
         Action<InboxAction, InboxMessage> onActionClicked,
         Func<string, TaskItem?>? lookupTask = null,
-        Action<string, InboxMessage>? attachSelectedTextToChat = null)
+        Action<string, InboxMessage>? attachSelectedTextToChat = null,
+        Action? onMarkedRead = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
         _attachSelectedTextToChat = attachSelectedTextToChat;
         _message                = message;
+        _onMarkedRead           = onMarkedRead;
         MessageId               = message.Id;
         Title                   = message.Subject;
         SizeToContent           = SizeToContent.Manual;
@@ -146,6 +151,18 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.Loaded: msgId={MessageId} ActualWidth={ActualWidth} ActualHeight={ActualHeight} bodyDocBlocks={_bodyViewer.Document?.Blocks.Count ?? -1}");
 
+            // Deferred mark-as-read: fire after 3 s of viewing OR on any downward scroll.
+            if (_onMarkedRead is not null)
+            {
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                timer.Tick += (_, _) => { timer.Stop(); FireMarkRead(); };
+                timer.Start();
+
+                var sv = FindScrollViewer(_bodyViewer);
+                if (sv is not null)
+                    sv.ScrollChanged += (_, e) => { if (e.VerticalChange > 0) FireMarkRead(); };
+            }
+
             // Set up the context menu after OnApplyTemplate so our assignment wins
             // over any default ContextMenu the FlowDocumentScrollViewer installs.
             if (_attachSelectedTextToChat is not null)
@@ -181,6 +198,25 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 };
             }
         };
+    }
+
+    private void FireMarkRead()
+    {
+        if (_markedRead) return;
+        _markedRead = true;
+        _onMarkedRead?.Invoke();
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject parent)
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is ScrollViewer sv) return sv;
+            var found = FindScrollViewer(child);
+            if (found is not null) return found;
+        }
+        return null;
     }
 
     private static void OnFlowDocumentCopying(object sender, DataObjectCopyingEventArgs e)
