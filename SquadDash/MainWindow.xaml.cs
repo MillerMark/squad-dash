@@ -26942,6 +26942,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             _inboxStore.MarkRead(id);
 
                         var win = new InboxMessageWindow(msg, DispatchInboxAction, LookupTaskById,
+                            attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
                             initialFontSize:   _inboxFontSize,
                             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
                         win.Owner = this;
