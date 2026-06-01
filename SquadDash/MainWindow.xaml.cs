@@ -25656,6 +25656,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         MarkdownDocumentWindow.RefreshAllOpenWindows();
 
+        foreach (var inboxWin in _openInboxWindows)
+            inboxWin.NotifyThemeChanged();
+
         RefreshDocumentationViewer();
 
         // Rebuild queue tabs after the current dispatcher frame so WPF's deferred

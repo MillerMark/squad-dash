@@ -488,6 +488,17 @@ internal sealed class InboxMessageWindow : ChromedWindow
     /// Selects the specified text in the body viewer and scrolls it into view.
     /// Used when clicking on an inbox-excerpt attachment to highlight the referenced text.
     /// </summary>
+    /// <summary>
+    /// Rebuilds the FlowDocument body with fresh theme brushes.
+    /// Call this whenever the application theme switches.
+    /// </summary>
+    public void NotifyThemeChanged()
+    {
+        var doc = MarkdownFlowDocumentBuilder.Build(_message.Body ?? string.Empty);
+        doc.FontSize = _bodyFontSize;
+        _bodyViewer.Document = doc;
+    }
+
     public void SelectAndScrollToText(string excerptText)
     {
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: called for msgId={MessageId} excerptLen={excerptText.Length} excerpt='{excerptText[..Math.Min(80, excerptText.Length)]}'");
