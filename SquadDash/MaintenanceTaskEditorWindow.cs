@@ -303,13 +303,13 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     }
 
     private UIElement BuildOptionsSection() {
-        var expander = new Expander { IsExpanded = true, Margin = new Thickness(8, 4, 8, 2) };
-        expander.SetResourceReference(Expander.StyleProperty, "ThemedExpanderStyle");
+        var container = new DockPanel { Margin = new Thickness(8, 4, 8, 2), LastChildFill = true };
 
-        var headerTb = new TextBlock { Text = "UI Options" };
+        var headerTb = new TextBlock { Text = "UI Options", Margin = new Thickness(0, 0, 0, 2) };
         headerTb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         headerTb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-        expander.Header = headerTb;
+        DockPanel.SetDock(headerTb, Dock.Top);
+        container.Children.Add(headerTb);
 
         var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -347,8 +347,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         grid.Children.Add(leftPanel);
         grid.Children.Add(rightPanel);
-        expander.Content = grid;
-        return expander;
+        container.Children.Add(grid);
+        return container;
     }
 
     private UIElement BuildInstructionsSection() {
