@@ -854,7 +854,7 @@ internal sealed class UiRevealOverlay
 
         private static void DrawMarginCorners(DrawingContext dc, Thickness m, double w, double h)
         {
-            const double arm = 16;
+            const double arm = 8;
 
             // Top-left
             if (m.Left > 0.01 || m.Top > 0.01)
