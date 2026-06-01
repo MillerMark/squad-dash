@@ -18801,7 +18801,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                     OpenOrFocusInboxMessage(msgId);
                             }
                             else
-                                PromptAttachmentViewerWindow.Show(capturedAttachments, CanShowOwnedWindow() ? this : null);
+                                PromptAttachmentViewerWindow.Show(capturedAttachments, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
                         }
                     };
                     promptParagraph.Inlines.Add(link);
@@ -28682,7 +28682,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         // For other content blocks: show the viewer window
                         label.MouseLeftButtonUp += (_, _) =>
-                            PromptAttachmentViewerWindow.Show(new[] { capturedContent }, CanShowOwnedWindow() ? this : null);
+                            PromptAttachmentViewerWindow.Show(new[] { capturedContent }, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
                     }
                 }
                 else if (att.TranscriptQuote != null)
