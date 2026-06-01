@@ -1568,7 +1568,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
             _startupInitialized = true;
 
-            // Global shortcut: Ctrl+Alt+Shift+F12 → toggle UI Reveal on the active window.
+            // Global shortcut: F12 → toggle UI Reveal on the active window.
             // InputManager.PreProcessInput fires before WPF dispatch for every window on this
             // thread, so the shortcut works even when a floating window has keyboard focus.
             InputManager.Current.PreProcessInput += OnGlobalPreProcessInput;
@@ -11655,7 +11655,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     /// <summary>
     /// Activates or deactivates UI Reveal on the given window.
-    /// Called from both the menu item and the global Ctrl+Alt+Shift+F12 shortcut.
+    /// Called from both the menu item and the global F12 shortcut.
     /// </summary>
     private void ToggleUiReveal(Window targetWindow)
     {
@@ -11668,7 +11668,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
     /// <summary>
     /// Global input handler registered on <see cref="InputManager.PreProcessInput"/>.
-    /// Fires for every WPF window on this thread before dispatch, so Ctrl+Alt+Shift+F12
+    /// Fires for every WPF window on this thread before dispatch, so F12
     /// works even when a floating window (hint overlay, doc window, etc.) has keyboard focus.
     /// </summary>
     private void OnGlobalPreProcessInput(object sender, PreProcessInputEventArgs e)
@@ -11689,9 +11689,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             }
 
             if (keyArgs.Key != Key.F12) return;
-            if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift))
-                != (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift))
-                return;
+            if (Keyboard.Modifiers != ModifierKeys.None) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
             var target = Application.Current.Windows

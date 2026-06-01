@@ -522,6 +522,7 @@
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
                           Visibility="Collapsed">
                     <MenuItem Header="_UI Reveal"
+                              InputGestureText="F12"
                               Click="UiRevealMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Simulation"
