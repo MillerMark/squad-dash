@@ -28537,7 +28537,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
-                if (att.InboxMessageId != null && att.ContentBlock == null)
+                if (att.InboxMessageId != null
+                    && (att.ContentBlock == null
+                        || att.ContentBlock.Contains("type=\"inbox-message\"", StringComparison.Ordinal)))
                 {
                     var icon    = new Run("📧 ");
                     var descRun = new Run(att.Description);
