@@ -11708,6 +11708,7 @@ public partial class MainWindow : Window, ILiveElementLocator
             RecordDockingTestMenuItem.Header    = "Record Docking Test Case";
             RecordDockingTestMenuItem.IsEnabled = true;
             _dockingService.TestRecorder        = null;
+            RecordingIndicatorBorder.Visibility = Visibility.Collapsed;
         });
 
         var layoutData = _dockingService.GetCurrentLayoutData();
@@ -11716,6 +11717,7 @@ public partial class MainWindow : Window, ILiveElementLocator
 
         RecordDockingTestMenuItem.Header    = "⏺ Recording... (dock to complete)";
         RecordDockingTestMenuItem.IsEnabled = false;
+        RecordingIndicatorBorder.Visibility = Visibility.Visible;
     }
 
     private void DockingTestCasesFolderMenuItem_Click(object sender, RoutedEventArgs e)

@@ -725,10 +725,33 @@
         </Grid.ColumnDefinitions>
 
 
-        <Border x:Name="WorkspaceIssuePanelBorder"
-                Grid.Row="0"
-                Grid.Column="0"
-                Margin="0,0,0,12"
+        <StackPanel Grid.Row="0"
+                    Grid.Column="0">
+
+            <!-- Recording indicator — shown while a docking test case is being recorded -->
+            <Border x:Name="RecordingIndicatorBorder"
+                    Margin="0,0,0,6"
+                    Padding="10,5,10,5"
+                    Background="{DynamicResource ChromeSurface}"
+                    BorderBrush="{DynamicResource DangerButtonBg}"
+                    BorderThickness="0,0,0,1"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Ellipse Width="9"
+                             Height="9"
+                             Margin="0,0,7,0"
+                             VerticalAlignment="Center"
+                             Fill="{DynamicResource DangerButtonBg}" />
+                    <TextBlock Text="Recording docking test case — dock a panel to complete"
+                               VerticalAlignment="Center"
+                               FontSize="{DynamicResource FontSizeSmall}"
+                               Foreground="{DynamicResource ImportantText}" />
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="WorkspaceIssuePanelBorder"
+                    Margin="0,0,0,12"
                 Padding="14"
                 Background="{DynamicResource AlertSurface}"
                 BorderBrush="{DynamicResource AlertBorder}"
@@ -825,6 +848,8 @@
                 </StackPanel>
             </Grid>
         </Border>
+
+        </StackPanel>
 
         <Border x:Name="StatusPanelBorder"
                 Grid.Row="1"
