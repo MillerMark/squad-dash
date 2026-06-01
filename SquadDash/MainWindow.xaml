@@ -332,7 +332,8 @@
     <!-- Root panel: Border + caption-button overlay share window space so buttons
          always anchor to the real window right edge, not the scrolled grid content. -->
     <Grid x:Name="RootPanel">
-    <Border BorderBrush="{DynamicResource WindowBorder}"
+    <Border x:Name="WindowFrameBorder"
+            BorderBrush="{DynamicResource WindowBorder}"
             BorderThickness="1">
     <Grid x:Name="ContentZoneGrid">
         <Grid.ColumnDefinitions>
