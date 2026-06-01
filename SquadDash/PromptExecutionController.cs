@@ -2206,7 +2206,7 @@ internal sealed class PromptExecutionController {
             $"If you do not need human input, do not include the sentinel; the next queued prompt will run automatically.";
     }
 
-    private static string BuildQueuedQuestionInboxHint() =>
+    internal static string BuildQueuedQuestionInboxHint() =>
         "The user's prompt contains a question. There are also queued prompts that will run " +
         "automatically — the user may have stepped away and might not be watching the transcript " +
         "in real time. If your answer is detailed or requires action on their part, send them an " +

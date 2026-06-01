@@ -227,6 +227,9 @@
     <Compile Include="..\SquadDash\MarkdownFlowDocumentBuilder.cs"  Link="Source\MarkdownFlowDocumentBuilder.cs" />
     <Compile Include="..\SquadDash\MaintenancePanelController.cs" Link="Source\MaintenancePanelController.cs" />
     <Compile Include="..\SquadDash\MaintenancePanelViewModel.cs" Link="Source\MaintenancePanelViewModel.cs" />
+    <Compile Include="..\SquadDash\InboxPanelViewModel.cs"      Link="Source\InboxPanelViewModel.cs" />
+    <Compile Include="..\SquadDash\TasksPanelViewModel.cs"      Link="Source\TasksPanelViewModel.cs" />
+    <Compile Include="..\SquadDash\NotesPanelViewModel.cs"      Link="Source\NotesPanelViewModel.cs" />
     <Compile Include="..\SquadDash\MaintenancePanelUiState.cs"    Link="Source\MaintenancePanelUiState.cs" />
     <Compile Include="..\SquadDash\SquadDashEnvironment.cs"       Link="Source\SquadDashEnvironment.cs" />
     <Compile Include="..\SquadDash\IdleDetectionService.cs"       Link="Source\IdleDetectionService.cs" />
