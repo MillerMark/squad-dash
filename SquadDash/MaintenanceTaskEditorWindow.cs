@@ -285,6 +285,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         mainGrid.Children.Add(optionsSection);
 
         var midSep = new GridSplitter {
+            Name                = "TaskEditorOptionsSplitter",
             Height              = 4,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment   = VerticalAlignment.Center,
@@ -377,6 +378,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Splitter
         var splitter = new GridSplitter {
+            Name                = "TaskEditorInstructionsSplitter",
             Width               = 4,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment   = VerticalAlignment.Stretch,

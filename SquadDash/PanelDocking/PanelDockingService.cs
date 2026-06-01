@@ -534,6 +534,7 @@ internal sealed class PanelDockingService
                 zone.RowDefinitions.Add(new RowDefinition { Height = new GridLength(5) });
                 var splitter = new GridSplitter
                 {
+                    Name = $"{zone.Name}RowSplitter{i - 1}",
                     Height = 5,
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment   = VerticalAlignment.Center,

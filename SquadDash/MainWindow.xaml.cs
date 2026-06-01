@@ -17416,6 +17416,7 @@ public partial class MainWindow : Window, ILiveElementLocator
         {
             var splitter = new GridSplitter
             {
+                Name = $"TranscriptPanelSplitter{i}",
                 Width = 8,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,

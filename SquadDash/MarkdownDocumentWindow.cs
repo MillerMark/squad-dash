@@ -409,6 +409,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         }
 
         _splitter = new GridSplitter {
+            Name = "MarkdownDocSourceSplitter",
             Width = 6,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
