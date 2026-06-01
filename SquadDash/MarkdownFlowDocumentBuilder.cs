@@ -117,6 +117,32 @@ internal static class MarkdownFlowDocumentBuilder {
                 continue;
             }
 
+            if (IsOrderedListItem(trimmed)) {
+                var dotIdx = trimmed.IndexOf(". ", StringComparison.Ordinal);
+                var currentItem = new System.Text.StringBuilder(trimmed[(dotIdx + 2)..].Trim());
+                var listItems   = new List<string>();
+                while (index + 1 < lines.Length) {
+                    var nextRaw = lines[index + 1];
+                    var next    = nextRaw.Trim();
+                    if (IsOrderedListItem(next)) {
+                        listItems.Add(currentItem.ToString());
+                        var nextDotIdx = next.IndexOf(". ", StringComparison.Ordinal);
+                        currentItem = new System.Text.StringBuilder(next[(nextDotIdx + 2)..].Trim());
+                        index++;
+                    } else if (!string.IsNullOrWhiteSpace(next) &&
+                               nextRaw.Length > 0 && char.IsWhiteSpace(nextRaw[0])) {
+                        currentItem.Append(' ').Append(next);
+                        index++;
+                    } else {
+                        break;
+                    }
+                }
+                listItems.Add(currentItem.ToString());
+                document.Blocks.Add(BuildOrderedList(listItems));
+                blockLineRanges.Add((startIndex, index));
+                continue;
+            }
+
             if (IsHorizontalRule(trimmed)) {
                 document.Blocks.Add(new BlockUIContainer(new Border {
                     Height = 1,
@@ -152,7 +178,14 @@ internal static class MarkdownFlowDocumentBuilder {
         trimmed.StartsWith("* ",  StringComparison.Ordinal) ||
         trimmed.StartsWith("> ",  StringComparison.Ordinal) ||
         trimmed.StartsWith("```", StringComparison.Ordinal) ||
-        IsHorizontalRule(trimmed);
+        IsHorizontalRule(trimmed)      ||
+        IsOrderedListItem(trimmed);
+
+    private static bool IsOrderedListItem(string trimmed) {
+        var dotIdx = trimmed.IndexOf(". ", StringComparison.Ordinal);
+        if (dotIdx <= 0) return false;
+        return trimmed[..dotIdx].All(char.IsAsciiDigit);
+    }
 
     private static string Normalize(string markdown) {
         return (markdown ?? string.Empty)
@@ -215,6 +248,22 @@ internal static class MarkdownFlowDocumentBuilder {
             list.ListItems.Add(new ListItem(paragraph));
         }
 
+        return list;
+    }
+
+    private static List BuildOrderedList(IEnumerable<string> items) {
+        var list = new List {
+            MarkerStyle = TextMarkerStyle.Decimal,
+            Margin      = new Thickness(24, 2, 0, 2),
+            Padding     = new Thickness(4, 0, 0, 0),
+        };
+        foreach (var item in items) {
+            var paragraph = new Paragraph {
+                Margin = new Thickness(0, 1, 0, 1)
+            };
+            AddInlineText(paragraph.Inlines, item);
+            list.ListItems.Add(new ListItem(paragraph));
+        }
         return list;
     }
 
