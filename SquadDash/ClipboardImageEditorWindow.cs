@@ -5213,7 +5213,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         try {
             SourceImage = _workingImage;
-            AnnotationState = HasChanges() ? CaptureAnnotationState() : null;
+            AnnotationState = CaptureAnnotationState();
             Result = RenderFinalBitmap();
             if (Result is not null)
                 ImageAccepted?.Invoke(Result);

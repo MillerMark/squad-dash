@@ -8768,8 +8768,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         editor.ImageAccepted += edited =>
                         {
                             var path = _pastedImageStore.SaveImage(edited, workspace.FolderPath);
-                            if (editor.SourceImage != null && editor.AnnotationState != null)
-                                _pastedImageStore.SaveAnnotationSidecar(editor.SourceImage, editor.AnnotationState, path);
+                            if (editor.SourceImage != null)
+                                _pastedImageStore.SaveAnnotationSidecar(editor.SourceImage, editor.AnnotationState ?? new ClipboardAnnotationState(), path);
                             var att  = new FollowUpAttachment("", "Image", null, null, null, ImagePath: path);
                             var list = GetOrCreateFollowUpList(_activeTabId ?? "");
                             list.Add(att);
@@ -28791,8 +28791,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         editor.ImageAccepted += edited =>
         {
             _pastedImageStore.OverwriteImage(edited, capturedAtt.ImagePath!);
-            if (editor.SourceImage != null && editor.AnnotationState != null)
-                _pastedImageStore.SaveAnnotationSidecar(editor.SourceImage, editor.AnnotationState, capturedAtt.ImagePath!);
+            if (editor.SourceImage != null)
+                _pastedImageStore.SaveAnnotationSidecar(editor.SourceImage, editor.AnnotationState ?? new ClipboardAnnotationState(), capturedAtt.ImagePath!);
             else
                 _pastedImageStore.DeleteAnnotationSidecar(capturedAtt.ImagePath!);
             UpdateFollowUpStrip();
