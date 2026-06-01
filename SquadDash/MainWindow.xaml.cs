@@ -8768,8 +8768,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         editor.ImageAccepted += edited =>
                         {
                             var path = _pastedImageStore.SaveImage(edited, workspace.FolderPath);
+                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Paste accepted: path={path} SourceImage={editor.SourceImage != null} AnnotationState={editor.AnnotationState != null}");
                             if (editor.SourceImage != null)
+                            {
                                 _pastedImageStore.SaveAnnotationSidecar(editor.SourceImage, editor.AnnotationState ?? new ClipboardAnnotationState(), path);
+                                SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Sidecar saved: source={path}.source.png json={path}.annotation.json");
+                            }
+                            else
+                            {
+                                SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] WARNING: SourceImage was null — sidecar NOT saved");
+                            }
                             var att  = new FollowUpAttachment("", "Image", null, null, null, ImagePath: path);
                             var list = GetOrCreateFollowUpList(_activeTabId ?? "");
                             list.Add(att);
@@ -28610,10 +28618,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         var annotJsonPath = capturedImg.ImagePath + ".annotation.json";
                         var sourcePngPath = capturedImg.ImagePath + ".source.png";
-                        if (File.Exists(annotJsonPath) && File.Exists(sourcePngPath))
+                        var annotExists  = File.Exists(annotJsonPath);
+                        var sourceExists = File.Exists(sourcePngPath);
+                        SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Chip clicked: imagePath={capturedImg.ImagePath} annotJson={annotExists} sourcePng={sourceExists}");
+                        if (annotExists && sourceExists)
+                        {
+                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening editor (sidecar present)");
                             ReopenImageForEditing(capturedImg);
+                        }
                         else
+                        {
+                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening plain viewer (no sidecar) annotJson={annotJsonPath} sourcePng={sourcePngPath}");
                             PromptAttachmentViewerWindow.Show(new[] { capturedImg }, CanShowOwnedWindow() ? this : null);
+                        }
                     };
                     if (File.Exists(att.ImagePath))
                     {
@@ -28762,10 +28779,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private void ReopenImageForEditing(FollowUpAttachment att)
     {
-        if (att.ImagePath == null || _currentWorkspace == null) return;
+        if (att.ImagePath == null || _currentWorkspace == null)
+        {
+            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] ReopenImageForEditing: early exit — ImagePath={att.ImagePath} workspace={_currentWorkspace != null}");
+            return;
+        }
 
         var annotJsonPath = att.ImagePath + ".annotation.json";
         var sourcePngPath = att.ImagePath + ".source.png";
+        SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] ReopenImageForEditing: annotJson={File.Exists(annotJsonPath)} sourcePng={File.Exists(sourcePngPath)} path={att.ImagePath}");
         if (!File.Exists(annotJsonPath) || !File.Exists(sourcePngPath)) return;
 
         ClipboardAnnotationState? state    = null;
@@ -28777,15 +28799,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var bi = new System.Windows.Media.Imaging.BitmapImage(new Uri(sourcePngPath));
             bi.Freeze();
             srcImage = bi;
+            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Sidecar loaded: state={state != null} srcImage={srcImage != null}");
         }
-        catch { /* fall through to plain viewer on corrupt sidecar */ }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] ERROR loading sidecar: {ex.Message}");
+        }
 
         if (state == null || srcImage == null)
         {
+            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Falling back to plain viewer (state={state != null} srcImage={srcImage != null})");
             PromptAttachmentViewerWindow.Show(new[] { att }, CanShowOwnedWindow() ? this : null);
             return;
         }
 
+        SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening editor with restored state");
         var capturedAtt = att;
         var editor = new ClipboardImageEditorWindow(this, srcImage, isPromptMode: true, initialState: state);
         editor.ImageAccepted += edited =>
