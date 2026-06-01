@@ -219,7 +219,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             FontWeight        = FontWeights.SemiBold,
             Margin            = new Thickness(12, 8, 50, 4),
         };
-        captionLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        captionLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         captionLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
         DockPanel.SetDock(captionLabel, Dock.Top);
         root.Children.Add(captionLabel);
@@ -228,7 +228,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var titleRow = new DockPanel { Margin = new Thickness(8, 2, 50, 4), LastChildFill = true };
         var titleLabel = new TextBlock { Text = "Title:", VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0) };
-        titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         titleLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         DockPanel.SetDock(titleLabel, Dock.Left);
         titleRow.Children.Add(titleLabel);
@@ -306,7 +306,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var container = new DockPanel { Margin = new Thickness(8, 4, 8, 2), LastChildFill = true };
 
         var headerTb = new TextBlock { Text = "UI Options", Margin = new Thickness(0, 0, 0, 2) };
-        headerTb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        headerTb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         headerTb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         DockPanel.SetDock(headerTb, Dock.Top);
         container.Children.Add(headerTb);
@@ -318,7 +318,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         // Left: live preview (interactive)
         var leftPanel = new DockPanel { Margin = new Thickness(0, 0, 4, 0), LastChildFill = true };
         var previewLabel = new TextBlock { Text = "Preview", Margin = new Thickness(0, 0, 0, 2) };
-        previewLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        previewLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         previewLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
         DockPanel.SetDock(previewLabel, Dock.Top);
         leftPanel.Children.Add(previewLabel);
@@ -326,14 +326,14 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             Content             = _optionsPreviewPanel,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
-        previewScroll.SetResourceReference(ScrollViewer.BackgroundProperty, "InputSurface");
+        previewScroll.SetResourceReference(ScrollViewer.BackgroundProperty, "RosterPanelSurface");
         leftPanel.Children.Add(previewScroll);
         Grid.SetColumn(leftPanel, 0);
 
         // Right: YAML editor with error line below
         var rightPanel = new DockPanel { Margin = new Thickness(4, 0, 0, 0), LastChildFill = true };
         var yamlLabel = new TextBlock { Text = "Options YAML", Margin = new Thickness(0, 0, 0, 2) };
-        yamlLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        yamlLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         yamlLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
         DockPanel.SetDock(yamlLabel, Dock.Top);
         rightPanel.Children.Add(yamlLabel);
@@ -355,7 +355,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var panel = new DockPanel { Margin = new Thickness(8, 2, 8, 0), LastChildFill = true };
 
         var headerTb = new TextBlock { Text = "Instructions", Margin = new Thickness(0, 0, 0, 2) };
-        headerTb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        headerTb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         headerTb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         DockPanel.SetDock(headerTb, Dock.Top);
         panel.Children.Add(headerTb);
@@ -367,7 +367,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Left: Markdown preview
         var leftLabel = new TextBlock { Text = "Preview", Margin = new Thickness(0, 0, 0, 2) };
-        leftLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        leftLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         leftLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
 
         var leftStack = new DockPanel { LastChildFill = true };
@@ -388,7 +388,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Right: editable RichTextBox
         var rightLabel = new TextBlock { Text = "Edit", Margin = new Thickness(4, 0, 0, 2) };
-        rightLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        rightLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         rightLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
 
         _instructionsHost = new Grid();
@@ -416,8 +416,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             VerticalAlignment = VerticalAlignment.Center,
         };
         tb.SetResourceReference(TextBox.FontSizeProperty,   "FontSizeLarge");
-        tb.SetResourceReference(TextBox.ForegroundProperty, "BodyText");
-        tb.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
+        tb.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        tb.SetResourceReference(TextBox.BackgroundProperty, "RosterPanelSurface");
         tb.SetResourceReference(TextBox.BorderBrushProperty,"SubtleBorder");
         WindowChrome.SetIsHitTestVisibleInChrome(tb, true);
         return tb;
@@ -440,8 +440,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         foreach (var item in new[] { "always", "daily", "weekly", "monthly", "after-commits" })
             cb.Items.Add(item);
         cb.SelectedItem = cb.Items.Contains(_task.Frequency) ? _task.Frequency : "daily";
-        cb.SetResourceReference(ComboBox.ForegroundProperty,    "BodyText");
-        cb.SetResourceReference(ComboBox.BackgroundProperty,    "InputSurface");
+        cb.SetResourceReference(ComboBox.ForegroundProperty,    "LabelText");
+        cb.SetResourceReference(ComboBox.BackgroundProperty,    "RosterPanelSurface");
         cb.SetResourceReference(ComboBox.FontSizeProperty,      "FontSizeBody");
         cb.SetResourceReference(ComboBox.StyleProperty, "ThemedComboBoxStyle");
         return cb;
@@ -452,8 +452,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         foreach (var item in new[] { "report-only", "branch", "direct" })
             cb.Items.Add(item);
         cb.SelectedItem = cb.Items.Contains(_task.Safety) ? _task.Safety : "branch";
-        cb.SetResourceReference(ComboBox.ForegroundProperty, "BodyText");
-        cb.SetResourceReference(ComboBox.BackgroundProperty, "InputSurface");
+        cb.SetResourceReference(ComboBox.ForegroundProperty, "LabelText");
+        cb.SetResourceReference(ComboBox.BackgroundProperty, "RosterPanelSurface");
         cb.SetResourceReference(ComboBox.FontSizeProperty,   "FontSizeBody");
         cb.SetResourceReference(ComboBox.StyleProperty, "ThemedComboBoxStyle");
         return cb;
@@ -471,8 +471,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
         tb.SetResourceReference(TextBox.FontSizeProperty,    "FontSizeBody");
-        tb.SetResourceReference(TextBox.ForegroundProperty,  "BodyText");
-        tb.SetResourceReference(TextBox.BackgroundProperty,  "InputSurface");
+        tb.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
+        tb.SetResourceReference(TextBox.BackgroundProperty,  "RosterPanelSurface");
         tb.SetResourceReference(TextBox.BorderBrushProperty, "SubtleBorder");
         tb.TextChanged += (_, _) => ScheduleOptionsDebounce();
         return tb;
@@ -484,7 +484,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             HorizontalAlignment  = HorizontalAlignment.Stretch,
             VerticalAlignment    = VerticalAlignment.Stretch,
         };
-        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "PanelBackground");
+        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "RosterPanelSurface");
         return viewer;
     }
 
@@ -497,8 +497,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             FontFamily          = new FontFamily("Consolas, Courier New"),
         };
         rtb.SetResourceReference(RichTextBox.FontSizeProperty,   "FontSizeBody");
-        rtb.SetResourceReference(RichTextBox.ForegroundProperty, "BodyText");
-        rtb.SetResourceReference(RichTextBox.BackgroundProperty, "InputSurface");
+        rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
+        rtb.SetResourceReference(RichTextBox.BackgroundProperty, "RosterPanelSurface");
         rtb.SetResourceReference(RichTextBox.BorderBrushProperty,"SubtleBorder");
 
         // Populate with initial text (plain)
@@ -517,7 +517,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(0, 0, 4, 0),
         };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         tb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         return tb;
     }
@@ -944,8 +944,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                     Text   = _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? string.Empty),
                     Margin = new Thickness(0, 2, 0, 2),
                 };
-                tb.SetResourceReference(TextBox.ForegroundProperty,  "BodyText");
-                tb.SetResourceReference(TextBox.BackgroundProperty,  "InputSurface");
+                tb.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
+                tb.SetResourceReference(TextBox.BackgroundProperty,  "RosterPanelSurface");
                 tb.SetResourceReference(TextBox.BorderBrushProperty, "SubtleBorder");
                 tb.SetResourceReference(TextBox.FontSizeProperty,    "FontSizeSmall");
                 tb.TextChanged += (_, _) => {
