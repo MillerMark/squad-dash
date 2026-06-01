@@ -656,54 +656,37 @@ internal sealed class UiRevealOverlay
             }
             else
             {
-                sb.AppendLine($"Type: {element.GetType().Name}");
-                sb.AppendLine($"Name: {(string.IsNullOrEmpty(element.Name) ? "(unnamed)" : element.Name)}");
+                // Build the ancestor chain from Window → ... → element.
+                var chain = BuildAncestorChain(element);
 
-                // Own property → resource-key mappings
+                sb.AppendLine();
+                sb.AppendLine("--- Ancestor Chain (Window → Element) ---");
+                for (int i = 0; i < chain.Count; i++)
+                {
+                    var node = chain[i];
+                    var indent = new string(' ', i * 2);
+                    var marker = i == chain.Count - 1 ? "▶ " : "  ";
+                    sb.AppendLine($"{indent}{marker}{node}");
+                }
+
+                // Detail block for the hovered element
+                sb.AppendLine();
+                sb.AppendLine("--- Hovered Element ---");
+                sb.AppendLine($"Type: {element.GetType().Name}");
+                sb.AppendLine($"Name: {GetElementLabel(element)}");
+
                 var ownEntries = CollectResourceKeyEntries(element);
                 if (ownEntries.Count > 0)
                 {
-                    sb.AppendLine("--- Properties ---");
+                    sb.AppendLine("Properties:");
                     foreach (var (prop, key) in ownEntries)
                         sb.AppendLine($"  {prop}: {key}");
                 }
 
-                // Style
                 var styleKey = GetStyleKey(element);
-                sb.AppendLine($"Style: {styleKey ?? "(none)"}");
+                if (styleKey is not null)
+                    sb.AppendLine($"Style: {styleKey}");
 
-                // Ancestors (up to 3)
-                var ancestorLines = new List<string>();
-                try
-                {
-                    var anc = VisualTreeHelper.GetParent(element) as DependencyObject;
-                    for (int depth = 1; depth <= 3 && anc is not null; depth++)
-                    {
-                        if (anc is FrameworkElement fe)
-                        {
-                            var entries = CollectResourceKeyEntries(fe);
-                            foreach (var (prop, key) in entries)
-                            {
-                                var feLabel = string.IsNullOrEmpty(fe.Name) ? fe.GetType().Name : $"{fe.GetType().Name} \"{fe.Name}\"";
-                                ancestorLines.Add($"  ↑{depth} {feLabel}.{prop}: {key}");
-                            }
-                        }
-                        anc = VisualTreeHelper.GetParent(anc);
-                    }
-                }
-                catch (Exception ancEx)
-                {
-                    SquadDashTrace.Write("UI", $"[UiReveal] BuildClipboardText ancestor walk threw: {ancEx.GetType().Name}: {ancEx.Message}");
-                }
-
-                if (ancestorLines.Count > 0)
-                {
-                    sb.AppendLine("--- Ancestor Properties ---");
-                    foreach (var line in ancestorLines)
-                        sb.AppendLine(line);
-                }
-
-                // DataContext
                 var dcLine = BuildDataContextLine(element);
                 if (!string.IsNullOrEmpty(dcLine))
                     sb.AppendLine($"DataContext: {dcLine.Replace("◈ dc: ", "")}");
@@ -713,13 +696,70 @@ internal sealed class UiRevealOverlay
         }
         catch (Exception ex)
         {
-            // Log the exception and return whatever was built so far rather than silently
-            // returning empty string — the partial output is still useful.
             SquadDashTrace.Write("UI", $"[UiReveal] BuildClipboardText THREW {ex.GetType().Name}: {ex.Message}");
             var partial = sb.ToString().TrimEnd();
             return partial.Length > 0 ? partial + "\n[partial — " + ex.GetType().Name + "]" : string.Empty;
         }
     }
+
+    /// <summary>
+    /// Walks the visual tree from <paramref name="element"/> up to the root Window,
+    /// then reverses so the list runs Window → ... → element.
+    /// Each entry is a short label: "TypeName \"x:Name\"" or just "TypeName".
+    /// </summary>
+    private static List<string> BuildAncestorChain(FrameworkElement element)
+    {
+        var chain = new List<string>();
+        DependencyObject? current = element;
+        while (current is not null)
+        {
+            chain.Add(DescribeNode(current));
+            if (current is Window) break;
+            try { current = VisualTreeHelper.GetParent(current); }
+            catch { break; }
+        }
+        chain.Reverse();
+        return chain;
+    }
+
+    /// <summary>
+    /// Returns a short descriptive label for a visual tree node, including:
+    /// - The type name
+    /// - The x:Name (if any, via FrameworkElement.Name or FrameworkContentElement.Name)
+    /// - Whether it implements ILiveElementLocator / IFixtureLoader / IReplayableUiAction
+    ///   (proxy for the "IHaveDisplayName" concept — any named interface on the DataContext)
+    /// </summary>
+    private static string DescribeNode(DependencyObject node)
+    {
+        var typeName = node.GetType().Name;
+
+        // Try to get the x:Name
+        string? name = null;
+        if (node is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+            name = fe.Name;
+        else if (node is System.Windows.FrameworkContentElement fce && !string.IsNullOrEmpty(fce.Name))
+            name = fce.Name;
+
+        var label = name is not null ? $"{typeName} \"{name}\"" : typeName;
+
+        // Annotate DataContext interfaces if interesting
+        if (node is FrameworkElement fe2 && fe2.DataContext is not null)
+        {
+            var dc = fe2.DataContext;
+            var ifaces = new List<string>();
+            if (dc is ILiveElementLocator)  ifaces.Add(nameof(ILiveElementLocator));
+            if (dc is IFixtureLoader)        ifaces.Add(nameof(IFixtureLoader));
+            if (dc is IReplayableUiAction)   ifaces.Add(nameof(IReplayableUiAction));
+            if (ifaces.Count > 0)
+                label += $" [dc:{dc.GetType().Name}({string.Join(",", ifaces)})]";
+        }
+
+        return label;
+    }
+
+    /// <summary>Returns the display label for a FrameworkElement (name or "(unnamed)").</summary>
+    private static string GetElementLabel(FrameworkElement element)
+        => string.IsNullOrEmpty(element.Name) ? "(unnamed)" : element.Name;
 
     private static List<(string Prop, string Key)> CollectResourceKeyEntries(FrameworkElement element)
     {
