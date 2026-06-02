@@ -722,7 +722,9 @@ internal sealed class MaintenancePanelController {
         var capturedTaskIdForRun = task.Id;
         runNowItem.Click += (_, _) => _runTask(capturedTaskIdForRun);
         taskMenu.Items.Add(runNowItem);
-        taskMenu.Items.Add(new Separator());
+        var sep = new Separator();
+        sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+        taskMenu.Items.Add(sep);
         var editTaskItem = new MenuItem { Header = "Edit Task..." };
         editTaskItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         editTaskItem.Click += (_, _) => {
