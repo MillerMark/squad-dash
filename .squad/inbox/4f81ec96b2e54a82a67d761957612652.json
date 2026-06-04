@@ -1,0 +1,28 @@
+{
+  "id": "4f81ec96b2e54a82a67d761957612652",
+  "subject": "N\u002B1 Docking Rule Regression \u2014 Fully Fixed",
+  "from": "coordinator",
+  "timestamp": "2026-06-04T08:15:21.3439706-04:00",
+  "read": false,
+  "body": "## N\u002B1 Rule Fixed: Both Code and Tests \u2705\n\n**Issue Resolved:** The docking layout engine was violating the N\u002B1 rule by over-filtering thin slot creation.\n\n### What Was Fixed\n\n**Lyra Morn (Code):**\n- Removed overly aggressive solo-panel filtering from 10 thin slot generation pairs\n- Restored correct N\u002B1 thin slot creation between adjacent occupied zones\n- All 2,213 tests pass\n\n**Vesper Knox (Tests):**\n- Added \u0060ValidateN1Rule()\u0060 and \u0060ValidateN1RuleOnSlots()\u0060 validators\n- Integrated N\u002B1 compliance checks into all docking tests\n- Created \u0060AssertN1RuleCompliance()\u0060 helper method\n- Added demonstration tests showing valid/invalid N\u002B1 scenarios\n\n### The N\u002B1 Rule\nFor N occupied zones, create N\u002B1 thin insertion slots:\n- 1 before the first zone\n- 1 BETWEEN each pair of adjacent zones\n- 1 after the last zone\n\n**Example:** 2 occupied zones require 3 thin slots: \u0060[thin] [Zone1] [thin] [Zone2] [thin]\u0060\n\n### Benefits\n- \u2705 Interactive Docking Test Playback shows \u0022Layout OK\u0022 without violations\n- \u2705 Unit tests automatically catch N\u002B1 regressions\n- \u2705 Future changes validated immediately\n- \u2705 Clear error messages identifying violations",
+  "attachments": [
+    {
+      "type": "file",
+      "label": "Updated docking service",
+      "path": "SquadDash/PanelDocking/PanelDockingService.cs",
+      "href": null,
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "file",
+      "label": "Updated tests with N\u002B1 validation",
+      "path": "SquadDash.Tests/DockingLayoutEngineTests.cs",
+      "href": null,
+      "taskId": null,
+      "content": null
+    }
+  ],
+  "actions": [],
+  "usedActions": []
+}

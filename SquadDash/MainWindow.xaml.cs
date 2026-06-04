@@ -24798,7 +24798,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             AttachContextFollowUp(
                 BuildClipboardAttachDescription(_activeUiException.Details),
                 BuildTypedAttachmentBlock("clipboard", _activeUiException.Title, _activeUiException.Details));
-            SquadDashTrace.Write("UI", "Added exception details to chat.");
+            
+            // Pre-fill the prompt box with error context and select all text
+            const string ErrorPromptText = "Just saw this error inside SquadDash.";
+            SetPromptTextBoxLogicalBuffer(
+                text: ErrorPromptText,
+                caretIndex: 0,
+                selectionStart: 0,
+                selectionLength: ErrorPromptText.Length,
+                reason: "error-add-to-chat");
+            
+            // Focus the prompt box so the user can immediately start typing
+            PromptTextBox.Focus();
+            
+            SquadDashTrace.Write("UI", "Added exception details to chat and pre-filled prompt.");
         }
         catch (Exception ex)
         {
