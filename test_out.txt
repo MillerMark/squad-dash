@@ -1,0 +1,50 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+C:\Program Files\dotnet\sdk\10.0.300-preview.0.26177.108\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\Drive\Source\SquadDash-public\SquadDash.Tests\SquadDash.Tests.csproj]
+  VoiceHeuristics -> D:\Drive\Source\SquadDash-public\VoiceHeuristics\bin\Debug\net10.0\VoiceHeuristics.dll
+  SquadDash.Tests -> D:\Drive\Source\SquadDash-public\SquadDash.Tests\bin\Debug\net10.0-windows\SquadDash.Tests.dll
+Test run for D:\Drive\Source\SquadDash-public\SquadDash.Tests\bin\Debug\net10.0-windows\SquadDash.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+  Failed BuildDockingMap_WithComplexMultiZoneLayout_ShouldMaintainNPlusOneRule [24 ms]
+  Error Message:
+     Should not have layout violations in complex layout
+Assert.That(violations, Is.Empty)
+  Expected: <empty>
+  But was:  < "Left: N+1 rule violated ΓÇö 2 occupied zone(s) require 3 thin slot(s), got 2" >
+
+  Stack Trace:
+     at SquadDash.Tests.DockingMapBuilderTests.BuildDockingMap_WithComplexMultiZoneLayout_ShouldMaintainNPlusOneRule() in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingMapBuilderTests.cs:line 264
+
+1)    at SquadDash.Tests.DockingMapBuilderTests.BuildDockingMap_WithComplexMultiZoneLayout_ShouldMaintainNPlusOneRule() in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingMapBuilderTests.cs:line 264
+
+
+  Failed BuildDockingMap_WithSourceAloneInLeftOuterZone_WithExcessThins_ShouldNotOfferAdjacentThins [17 ms]
+  Error Message:
+     Should have at least N+1 thins for 4 occupied zones
+Assert.That(leftThins.Count, Is.GreaterThanOrEqualTo(5))
+  Expected: greater than or equal to 5
+  But was:  4
+
+  Stack Trace:
+     at SquadDash.Tests.DockingMapBuilderTests.BuildDockingMap_WithSourceAloneInLeftOuterZone_WithExcessThins_ShouldNotOfferAdjacentThins() in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingMapBuilderTests.cs:line 241
+
+1)    at SquadDash.Tests.DockingMapBuilderTests.BuildDockingMap_WithSourceAloneInLeftOuterZone_WithExcessThins_ShouldNotOfferAdjacentThins() in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingMapBuilderTests.cs:line 241
+
+
+  Failed BuildDockingMap_WithSourceAsSoleOccupantOfSideZone_WithExcessThins_ShouldNotOfferAdjacentThins [14 ms]
+  Error Message:
+     Should have at least N+1 thins for 4 occupied zones
+Assert.That(rightThins.Count, Is.GreaterThanOrEqualTo(5))
+  Expected: greater than or equal to 5
+  But was:  4
+
+  Stack Trace:
+     at SquadDash.Tests.DockingMapBuilderTests.BuildDockingMap_WithSourceAsSoleOccupantOfSideZone_WithExcessThins_ShouldNotOfferAdjacentThins() in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingMapBuilderTests.cs:line 215
+
+1)    at SquadDash.Tests.DockingMapBuilderTests.BuildDockingMap_WithSourceAsSoleOccupantOfSideZone_WithExcessThins_ShouldNotOfferAdjacentThins() in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingMapBuilderTests.cs:line 215
+
+
+  Skipped IsEligible_Weekly_RunTodayAtStartOfWeek_ReturnsFalse [1 ms]
+  Skipped EnsureSquadDashUniverseFiles_WritesSquadDashMdToBothUniversesAndTemplatesUniverses [11 ms]
+
+Failed!  - Failed:     3, Passed:  2226, Skipped:     0, Total:  2229, Duration: 19 s - SquadDash.Tests.dll (net10.0)

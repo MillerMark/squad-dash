@@ -955,6 +955,7 @@ internal static class DockingMapBuilder
             // 1. InsertAfter in the source zone (inserting within same zone)
             // 2. Thins targeting empty adjacent zones (visually identical to source zone)
             // But KEEP thins on occupied adjacent zones—they're inter-zone separators
+            // Also KEEP InsertBefore on source zone—it's a boundary separator in multi-zone layouts
             
             bool isInsertWithinSourceZone = (thin.TargetZone == sourceZone && thin.Kind == SyntheticInsertKind.InsertAfter);
             
@@ -1002,29 +1003,54 @@ internal static class DockingMapBuilder
     }
 
     /// <summary>
-    /// Filters out cross-side thin slots that target a solo-panel source zone.
-    /// Should only be called when there are multiple occupied zones on the source side,
-    /// so that filtering doesn't violate N+1 rule.
+    /// Filters out cross-side thin slots that would be no-ops for a solo-panel source.
+    /// When source is alone in its zone with other occupied zones on the same side,
+    /// cross-side thins targeting ANY of those zones are no-ops (dropping there = same column).
+    /// Should only be called when there are multiple occupied zones on the source side.
     /// </summary>
     private static List<SyntheticThin> FilterCrossSideThinsThatTargetSoloPanelZone(
         IReadOnlyList<SyntheticThin> thins,
         DockZone soloPanelZone,
         DockLayout currentLayout)
     {
-        var filtered = thins.Where(thin => thin.TargetZone != soloPanelZone).ToList();
+        // Get all occupied zones on the same side as the solo-panel zone
+        var sameZoneSide = IsLeftSideZone(soloPanelZone) ? LeftSideZones : RightSideZones;
+        var occupiedZonesOnSameSide = sameZoneSide.Where(z => PanelsInZone(currentLayout, z).Count > 0).ToList();
         
-        if (filtered.Count < thins.Count)
+        // If there are other occupied zones besides the solo-panel zone, 
+        // filter cross-side thins targeting ANY of them (all are no-ops for solo-panel source)
+        if (occupiedZonesOnSameSide.Count > 1)
         {
-            var removed = thins.Where(t => !filtered.Contains(t)).ToList();
+            var filtered = thins.Where(thin => !occupiedZonesOnSameSide.Contains(thin.TargetZone)).ToList();
+            
+            if (filtered.Count < thins.Count)
+            {
+                var removed = thins.Where(t => !filtered.Contains(t)).ToList();
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"[cross-side-filter] Solo-panel source in {DockingLayoutEngine.GetZoneDisplayName(soloPanelZone)} with {occupiedZonesOnSameSide.Count} occupied zones. " +
+                    $"Removing {removed.Count} cross-side thin(s) (all no-ops for solo-panel with multiple zones)");
+                foreach (var thin in removed)
+                    SquadDashTrace.Write(TraceCategory.Docking,
+                        $"  Removed cross-side thin: {DockingLayoutEngine.GetZoneDisplayName(thin.TargetZone)}@{thin.TargetOrder}");
+            }
+            
+            return filtered;
+        }
+        
+        // Single zone case: only filter thins targeting the exact solo-panel zone
+        var singleFiltered = thins.Where(thin => thin.TargetZone != soloPanelZone).ToList();
+        
+        if (singleFiltered.Count < thins.Count)
+        {
+            var removed = thins.Where(t => !singleFiltered.Contains(t)).ToList();
             SquadDashTrace.Write(TraceCategory.Docking,
-                $"[cross-side-filter] Removing {removed.Count} cross-side thin(s) targeting solo-panel zone {DockingLayoutEngine.GetZoneDisplayName(soloPanelZone)} " +
-                $"(multiple occupied zones on that side)");
+                $"[cross-side-filter] Removing {removed.Count} cross-side thin(s) targeting solo-panel zone {DockingLayoutEngine.GetZoneDisplayName(soloPanelZone)}");
             foreach (var thin in removed)
                 SquadDashTrace.Write(TraceCategory.Docking,
                     $"  Removed cross-side thin: {DockingLayoutEngine.GetZoneDisplayName(thin.TargetZone)}@{thin.TargetOrder}");
         }
         
-        return filtered;
+        return singleFiltered;
     }
 
     // Total height needed for a column zone (Rule B has N slots, Rule C has N+1, Rule D has 1)

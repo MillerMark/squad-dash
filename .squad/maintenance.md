@@ -506,7 +506,7 @@ tasks:
 
   - id: readme-currency
     enabled: true
-    frequency: daily
+    frequency: weekly-Wednesday
     safety: report-only
     title: README Currency Check
     instructions: |
