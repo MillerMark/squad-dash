@@ -1,0 +1,28 @@
+{
+  "id": "9f0b2f66c0104c32b9ebbed017f425d1",
+  "subject": "Daily Issue \u0026 PR Tracker \u2014 Maintenance Task Created",
+  "from": "coordinator",
+  "timestamp": "2026-06-04T07:56:06.3263368-04:00",
+  "read": false,
+  "body": "## New Maintenance Task: Daily Issue \u0026 PR Tracker \u2705\n\nArgus Weld has successfully created and tested a new daily maintenance task that monitors new issues and pull requests in your repository.\n\n### Task Details\n- **File**: \u0060.squad/maintenance.md\u0060\n- **Frequency**: Daily\n- **Safety**: report-only (no file changes)\n- **Configuration**: Checkbox option to include/exclude pull requests\n\n### Features\n- Queries GitHub API for issues created in last 24 hours\n- Optionally includes pull requests\n- Works on any GitHub repository\n- Sends results to Inbox with clear formatting\n- Ready for distribution to other SquadDash users\n\n### What\u0027s Included\n1. **Maintenance task definition** \u2014 Added to \u0060.squad/maintenance.md\u0060\n2. **Example implementation** \u2014 \u0060.squad/examples/daily-issue-pr-tracker-example.ps1\u0060\n3. **Documentation** \u2014 \u0060.squad/examples/DAILY-ISSUE-PR-TRACKER.md\u0060 with usage guide\n\n### Next Steps\nThe task is ready to use. Simply enable it in maintenance mode and it will run daily, reporting new issues and PRs to your Inbox panel.",
+  "attachments": [
+    {
+      "type": "file",
+      "label": "Maintenance task definition",
+      "path": ".squad/maintenance.md",
+      "href": null,
+      "taskId": null,
+      "content": null
+    },
+    {
+      "type": "file",
+      "label": "Usage documentation",
+      "path": ".squad/examples/DAILY-ISSUE-PR-TRACKER.md",
+      "href": null,
+      "taskId": null,
+      "content": null
+    }
+  ],
+  "actions": [],
+  "usedActions": []
+}

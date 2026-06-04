@@ -1,0 +1,23 @@
+Test run for D:\Drive\Source\SquadDash-public\SquadDash.Tests\bin\Debug\net10.0-windows\SquadDash.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+  Failed maintenance_Right1_to_Top_order-1_20260604_073234 [18 ms]
+  Error Message:
+     BuildSlotButtons result does not match recorded slot buttons
+Assert.That(builtSet, Is.EqualTo(recordedSet))
+  Expected and actual are both <System.Collections.Generic.HashSet`1[System.ValueTuple`2[System.String,System.Int32]]>
+  Values differ at index [3]
+  Expected: ("Right 1", 0)
+  But was:  ("Right 2", 0)
+
+  Stack Trace:
+     at SquadDash.Tests.DockingLayoutEngineTests.RecordedDockingTestCase(String filePath) in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingLayoutEngineTests.cs:line 87
+   at InvokeStub_DockingLayoutEngineTests.RecordedDockingTestCase(Object, Span`1)
+
+1)    at SquadDash.Tests.DockingLayoutEngineTests.RecordedDockingTestCase(String filePath) in D:\Drive\Source\SquadDash-public\SquadDash.Tests\DockingLayoutEngineTests.cs:line 87
+   at InvokeStub_DockingLayoutEngineTests.RecordedDockingTestCase(Object, Span`1)
+
+
+  Skipped IsEligible_Weekly_RunTodayAtStartOfWeek_ReturnsFalse [1 ms]
+  Skipped EnsureSquadDashUniverseFiles_WritesSquadDashMdToBothUniversesAndTemplatesUniverses [8 ms]
+
+Failed!  - Failed:     1, Passed:  2213, Skipped:     0, Total:  2214, Duration: 18 s - SquadDash.Tests.dll (net10.0)

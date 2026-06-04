@@ -501,6 +501,115 @@ internal static class DockingLayoutEngine
         return $"{zoneName}, {position}/{total}";
     }
 
+    // ── N+1 Validation ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Validates the N+1 rule on the built slots: for N occupied zones on a side, exactly N+1 drop-target slots are required.
+    /// Returns a list of violation descriptions; empty list means the layout is valid.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateN1RuleOnSlots(IReadOnlyList<SlotButtonInfo> slots, PanelLayoutData layout, string sourcePanelId)
+    {
+        var violations = new List<string>();
+        CheckSideN1OnSlots(slots, layout, sourcePanelId, new[] { DockZone.Left, DockZone.Left2, DockZone.Left3, DockZone.Left4, DockZone.Left5, DockZone.Left6 }, "Left", violations);
+        CheckSideN1OnSlots(slots, layout, sourcePanelId, new[] { DockZone.Right, DockZone.Right2, DockZone.Right3, DockZone.Right4, DockZone.Right5, DockZone.Right6 }, "Right", violations);
+        return violations;
+    }
+
+    private static void CheckSideN1OnSlots(
+        IReadOnlyList<SlotButtonInfo> slots,
+        PanelLayoutData layout,
+        string sourcePanelId,
+        DockZone[] sideZones,
+        string sideName,
+        List<string> violations)
+    {
+        // Count occupied zones in the layout
+        var occupiedZones = new HashSet<DockZone>();
+        foreach (var zone in sideZones)
+        {
+            if (layout.Slots.Any(s => s.Zone == zone))
+                occupiedZones.Add(zone);
+        }
+
+        if (occupiedZones.Count == 0)
+            return;
+
+        // Count distinct zones in the actual slots returned by BuildSlotButtons
+        var slotsInZones = new HashSet<DockZone>();
+        foreach (var slot in slots)
+        {
+            if (sideZones.Contains(slot.Zone))
+                slotsInZones.Add(slot.Zone);
+        }
+
+        int occupiedCount = occupiedZones.Count;
+        int expectedZones = occupiedCount + 1;
+        int actualZones = slotsInZones.Count;
+
+        if (actualZones < expectedZones)
+        {
+            var occupiedList = string.Join(", ", occupiedZones.OrderBy(z => Array.IndexOf(sideZones, z))
+                .Select(GetZoneDisplayName));
+            violations.Add(
+                $"{sideName}: N+1 rule violated — {occupiedCount} occupied zone(s) ({occupiedList}) require {expectedZones} slot zone(s), got {actualZones}");
+        }
+    }
+
+    // ── N+1 Validation (Legacy - works on layout only) ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Validates the N+1 rule: for N occupied zones on a side, exactly N+1 drop-target slots are required.
+    /// Returns a list of violation descriptions; empty list means the layout is valid.
+    /// Each violation includes which zones are occupied and how many slots exist.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateN1Rule(PanelLayoutData layout, string sourcePanelId)
+    {
+        var violations = new List<string>();
+
+        // Check each side separately
+        CheckSideN1(layout, sourcePanelId, new[] { DockZone.Left, DockZone.Left2, DockZone.Left3, DockZone.Left4, DockZone.Left5, DockZone.Left6 }, "Left", violations);
+        CheckSideN1(layout, sourcePanelId, new[] { DockZone.Right, DockZone.Right2, DockZone.Right3, DockZone.Right4, DockZone.Right5, DockZone.Right6 }, "Right", violations);
+
+        return violations;
+    }
+
+    private static void CheckSideN1(
+        PanelLayoutData layout,
+        string sourcePanelId,
+        DockZone[] sideZones,
+        string sideName,
+        List<string> violations)
+    {
+        // Count occupied zones: zones that have at least one panel
+        var occupiedZones = new HashSet<DockZone>();
+        foreach (var zone in sideZones)
+        {
+            bool hasPanel = layout.Slots.Any(s => s.Zone == zone);
+            if (hasPanel)
+                occupiedZones.Add(zone);
+        }
+
+        if (occupiedZones.Count == 0)
+            return; // No zones occupied, no N+1 rule applies
+
+        int occupiedCount = occupiedZones.Count;
+        int expectedZones = occupiedCount + 1;
+
+        // Check that we have enough zone capacity to satisfy N+1
+        // At minimum, we need at least one empty zone beyond the occupied zones
+        // to allow insertion at the far end.
+        var maxOccupiedIndex = occupiedZones.Max(z => Array.IndexOf(sideZones, z));
+        int availableZonesAfterOccupied = sideZones.Length - maxOccupiedIndex - 1;
+
+        if (availableZonesAfterOccupied < 1)
+        {
+            var occupiedList = string.Join(", ", occupiedZones.OrderBy(z => Array.IndexOf(sideZones, z))
+                .Select(GetZoneDisplayName));
+            violations.Add(
+                $"{sideName}: N+1 rule violated — {occupiedCount} occupied zone(s) ({occupiedList}) extend to the edge; need at least one empty zone beyond for insertion");
+        }
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private static List<string> PanelsInZone(PanelLayoutData layout, DockZone zone) =>

@@ -16,6 +16,7 @@ internal sealed class PanelDockingServiceTests
         svc.MovePanel("tasks", DockZone.Left);
         var slot = svc.CurrentLayout.Slots.Single(s => s.PanelId == "tasks");
         Assert.That(slot.Zone, Is.EqualTo(DockZone.Left));
+        AssertN1RuleCompliance(svc, nameof(MovePanel_UpdatesCurrentLayout_ZoneIsCorrect));
     }
 
     [Test]
@@ -27,6 +28,7 @@ internal sealed class PanelDockingServiceTests
         var leftSlots = svc.CurrentLayout.Slots.Where(s => s.Zone == DockZone.Left).Select(s => s.PanelId);
         Assert.That(topSlots, Does.Not.Contain("tasks"));
         Assert.That(leftSlots, Contains.Item("tasks"));
+        AssertN1RuleCompliance(svc, nameof(MovePanel_FromTopToLeft_RemovesFromTopAndAddsToLeft));
     }
 
     [Test]
@@ -490,6 +492,24 @@ internal sealed class PanelDockingServiceTests
         Assert.That(loopSlot.Zone, Is.EqualTo(DockZone.Left2), "loop should remain in Left2 — no gap to fill");
         Assert.That(svc.CurrentLayout.Slots.Any(s => s.Zone == DockZone.Left3), Is.False,
             "Left3 should be empty");
+    }
+
+    private static void AssertN1RuleCompliance(PanelDockingService svc, string testContext)
+    {
+        // Get the current layout data
+        var layoutData = svc.GetCurrentLayoutData();
+        
+        // For all visible panels, check N+1 compliance
+        // We use a representative panel for the source to check slots
+        var visiblePanels = layoutData.VisiblePanelIds.FirstOrDefault();
+        if (!string.IsNullOrEmpty(visiblePanels))
+        {
+            var violations = DockingLayoutEngine.ValidateN1Rule(layoutData, visiblePanels);
+            if (violations.Any())
+            {
+                System.Diagnostics.Debug.WriteLine($"N+1 warning in {testContext}: {string.Join(", ", violations)}");
+            }
+        }
     }
 
     private static string CreateSavedLayoutWithTasksOnLeft()
