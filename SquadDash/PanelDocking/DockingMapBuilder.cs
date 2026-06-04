@@ -102,7 +102,7 @@ internal static class DockingMapBuilder
         double popupHeight = innerHeight + PopupPadding * 2 + LabelRowHeight;
 
         double curX = 0;
-        var leftThinPositions = LayoutSide(leftStates, isLeft: true, ref curX, currentLayout, topPanels, rightStates);
+        var leftThinPositions = LayoutSide(leftStates, isLeft: true, ref curX, currentLayout, topPanels, rightStates, sourcePanelId);
         if (HasVisibleSide(leftStates))
             curX += ZoneGutter;
 
@@ -111,7 +111,7 @@ internal static class DockingMapBuilder
 
         if (HasVisibleSide(rightStates))
             curX += ZoneGutter;
-        var rightThinPositions = LayoutSide(rightStates, isLeft: false, ref curX, currentLayout, topPanels, leftStates);
+        var rightThinPositions = LayoutSide(rightStates, isLeft: false, ref curX, currentLayout, topPanels, leftStates, sourcePanelId);
 
         // Filter out adjacent thins for solo-panel source zones
         // Only filter on the side where the source actually is
@@ -128,6 +128,15 @@ internal static class DockingMapBuilder
                 var leftThinsDesc = string.Join(", ", leftThinPositions.Select(t => $"{t.TargetZone}@{t.TargetOrder}({t.X:F0})"));
                 SquadDashTrace.Write(TraceCategory.Docking,
                     $"[docking-trace] Thins after filter (Left): {leftThinsDesc}");
+                
+                // Also filter RIGHT thins (cross-side thins) that target this solo-panel LEFT zone
+                // Only if there are multiple occupied zones on the LEFT side (so filtering doesn't break N+1)
+                var panelsInSourceZone = PanelsInZone(currentLayout, sourceZone.Value);
+                if (panelsInSourceZone.Count == 1 && LeftSideZones.Count(z => PanelsInZone(currentLayout, z).Count > 0) > 1)
+                {
+                    rightThinPositions = FilterCrossSideThinsThatTargetSoloPanelZone(
+                        rightThinPositions, sourceZone.Value, currentLayout);
+                }
             }
             else
             {
@@ -145,6 +154,15 @@ internal static class DockingMapBuilder
                 var rightThinsDesc = string.Join(", ", rightThinPositions.Select(t => $"{t.TargetZone}@{t.TargetOrder}({t.X:F0})"));
                 SquadDashTrace.Write(TraceCategory.Docking,
                     $"[docking-trace] Thins after filter (Right): {rightThinsDesc}");
+                
+                // Also filter LEFT thins (cross-side thins) that target this solo-panel RIGHT zone
+                // Only if there are multiple occupied zones on the RIGHT side (so filtering doesn't break N+1)
+                var panelsInSourceZone = PanelsInZone(currentLayout, sourceZone.Value);
+                if (panelsInSourceZone.Count == 1 && RightSideZones.Count(z => PanelsInZone(currentLayout, z).Count > 0) > 1)
+                {
+                    leftThinPositions = FilterCrossSideThinsThatTargetSoloPanelZone(
+                        leftThinPositions, sourceZone.Value, currentLayout);
+                }
             }
             else
             {
@@ -348,7 +366,8 @@ internal static class DockingMapBuilder
         ref double curX,
         DockLayout currentLayout,
         List<string> topPanels,
-        List<SideZoneState> otherSideStates)
+        List<SideZoneState> otherSideStates,
+        string sourcePanelId)
     {
         var sideName = isLeft ? "Left" : "Right";
         var visible = SideVisualOrder(states, isLeft).Where(s => !s.Suppressed).ToList();
@@ -396,7 +415,7 @@ internal static class DockingMapBuilder
         var occupiedOnThisSide = states.Where(s => s.Occupied).ToList();
         if (occupiedOnThisSide.Count == 0)
         {
-            GenerateCrossSideThins(thins, isLeft, topPanels, otherSideStates, currentLayout);
+            GenerateCrossSideThins(thins, isLeft, topPanels, otherSideStates, currentLayout, sourcePanelId);
         }
 
         return thins;
@@ -412,7 +431,8 @@ internal static class DockingMapBuilder
         bool isLeft,
         List<string> topPanels,
         List<SideZoneState> otherSideStates,
-        DockLayout currentLayout)
+        DockLayout currentLayout,
+        string sourcePanelId)
     {
         var sideName = isLeft ? "Left" : "Right";
         var otherSideName = isLeft ? "Right" : "Left";
@@ -971,6 +991,32 @@ internal static class DockingMapBuilder
                 $"  [adjacent-thin-filter] {sideName}: No thins matched filter zones");
         }
 
+        return filtered;
+    }
+
+    /// <summary>
+    /// Filters out cross-side thin slots that target a solo-panel source zone.
+    /// Should only be called when there are multiple occupied zones on the source side,
+    /// so that filtering doesn't violate N+1 rule.
+    /// </summary>
+    private static List<SyntheticThin> FilterCrossSideThinsThatTargetSoloPanelZone(
+        IReadOnlyList<SyntheticThin> thins,
+        DockZone soloPanelZone,
+        DockLayout currentLayout)
+    {
+        var filtered = thins.Where(thin => thin.TargetZone != soloPanelZone).ToList();
+        
+        if (filtered.Count < thins.Count)
+        {
+            var removed = thins.Where(t => !filtered.Contains(t)).ToList();
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"[cross-side-filter] Removing {removed.Count} cross-side thin(s) targeting solo-panel zone {DockingLayoutEngine.GetZoneDisplayName(soloPanelZone)} " +
+                $"(multiple occupied zones on that side)");
+            foreach (var thin in removed)
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"  Removed cross-side thin: {DockingLayoutEngine.GetZoneDisplayName(thin.TargetZone)}@{thin.TargetOrder}");
+        }
+        
         return filtered;
     }
 
