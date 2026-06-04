@@ -123,6 +123,34 @@
             </Setter>
         </Style>
 
+        <Style x:Key="RestartStatusCloseButtonStyle" TargetType="Button">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                Padding="0">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#FFE6E6" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#FFCCCC" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <DataTemplate x:Key="AgentCardTemplate">
             <Grid Margin="0,0,12,12"
                   Width="170"
@@ -860,6 +888,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -870,8 +899,15 @@
         </Grid.ColumnDefinitions>
 
 
+        <!-- Restart Status Panel: shown when restart is requested and active turn is running -->
+        <local:RestartStatusPanel x:Name="RestartStatusPanelControl"
+                                   Grid.Row="0"
+                                   Grid.Column="0"
+                                   Grid.ColumnSpan="27"
+                                   Visibility="Collapsed" />
+
         <Border x:Name="WorkspaceIssuePanelBorder"
-                Grid.Row="0"
+                Grid.Row="1"
                 Grid.Column="0"
                 Margin="0,0,0,12"
                 Padding="14"
@@ -972,7 +1008,7 @@
         </Border>
 
         <Border x:Name="StatusPanelBorder"
-                Grid.Row="1"
+                Grid.Row="2"
                 Grid.Column="0"
                 Padding="0"
                 Background="Transparent"
@@ -1988,7 +2024,7 @@
             </DockPanel>
         </Border>
 
-        <Grid x:Name="TranscriptPanelsGrid" Grid.Row="3" Grid.Column="0" Margin="0,14,0,14">
+        <Grid x:Name="TranscriptPanelsGrid" Grid.Row="4" Grid.Column="0" Margin="0,14,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>

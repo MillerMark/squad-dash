@@ -318,6 +318,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private Border? _dropIndicator;           // Narrow vertical bar shown between tabs during drag
     private const double DragThreshold = 4.0; // px of movement before drag mode activates
     private bool _restartPending;
+    private RestartStatusPanel? _restartStatusPanelControl;
     private bool _userCloseRequested;
     private bool _clipboardEditorOpen; // true while any ClipboardImageEditorWindow is open; defers restart
     private int  _clipboardEditorCount; // number of ClipboardImageEditorWindows currently open
@@ -667,6 +668,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
+        _restartStatusPanelControl = (RestartStatusPanel?)FindName("RestartStatusPanelControl");
         _dockingService = new PanelDockingService(
             new Dictionary<string, FrameworkElement>
             {
@@ -1284,6 +1286,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SyncLoopPanel();
                 if (_remoteAccessActive)
                     _ = _bridge.BroadcastRcStatusAsync(v);
+                UpdateRestartStatusPanelVisibility();
             },
             getIsClosing: () => _isClosing,
             getRestartPending: () => _restartPending,
@@ -2158,6 +2161,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // callback adds the resulting hire prompt to the back of the queue.
             if (LocalPromptSubmissionPolicy.IsImmediateLocalCommand(prompt))
             {
+                AutoActivateCoordinatorTranscriptOnPromptSubmit();
                 await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
                 SyncPromptTextBoxSimBorder();
                 return;
@@ -2181,6 +2185,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ResetQueuePausedState();
             if (_remoteAccessActive)
                 _ = _bridge.BroadcastRcPromptAsync(prompt);
+            AutoActivateCoordinatorTranscriptOnPromptSubmit();
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(prompt, ""), addToHistory: true, clearPromptBox: true);
 
             // In fullscreen mode the prompt was peeked temporarily — hide it again now.
@@ -4120,6 +4125,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void ForceCoordinatorAbortCleanup(string marker = "[aborted]")
     {
         _isPromptRunning = false;
+        UpdateRestartStatusPanelVisibility();
         CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
         // Close any still-spinning coordinator tool entries.
         _agentThreadRegistry.CompleteOutstandingAgentTools(CoordinatorThread);
@@ -18189,6 +18195,36 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ScheduleGridRebuild();
     }
 
+    /// <summary>
+    /// Auto-activates the coordinator transcript when a prompt is submitted from a non-coordinator view.
+    /// If the user is viewing an agent's transcript and submits a prompt, this method will:
+    /// 1. Make the coordinator transcript visible
+    /// 2. Switch the focus to the coordinator transcript
+    /// 3. Scroll the coordinator transcript to the bottom to show the incoming prompt
+    /// </summary>
+    private void AutoActivateCoordinatorTranscriptOnPromptSubmit()
+    {
+        // Check if the currently active transcript is not the coordinator's
+        var isCoordinatorActive = (_selectedTranscriptThread?.Kind ?? TranscriptThreadKind.Coordinator) == TranscriptThreadKind.Coordinator;
+        if (isCoordinatorActive)
+            return; // Coordinator is already active, no change needed
+
+        // Make the main (coordinator) transcript visible
+        ShowMainTranscript();
+
+        // Switch focus to the coordinator thread, keeping it at the bottom
+        SelectTranscriptThreadCore(
+            CoordinatorThread,
+            scrollToStart: false,
+            allowSnapshotFastPath: true,
+            previousThreadOverride: _selectedTranscriptThread);
+
+        // Force scroll the coordinator transcript to the bottom to show the new prompt
+        _coordinatorScrollController.ForceScrollToBottom();
+
+        SquadDashTrace.Write("UI", "Auto-activated coordinator transcript on prompt submit");
+    }
+
     private void HandleActiveAgentCountdownCheck()
     {
         foreach (var entry in _secondaryTranscripts.ToList())
@@ -25705,6 +25741,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _lastHandledRestartRequestId = request.RequestId;
         _restartPending = true;
+        UpdateRestartStatusPanelVisibility();
 
         TryCompletePendingRestart("restart-request");
     }
@@ -25791,6 +25828,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             EmergencySaveAfterDrainingBridgeEvents(reason);
         Close();
         return true;
+    }
+
+    private void UpdateRestartStatusPanelVisibility()
+    {
+        if (_restartStatusPanelControl == null) return;
+
+        var shouldShow = _restartPending && _isPromptRunning;
+        _restartStatusPanelControl.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
