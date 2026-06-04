@@ -117,6 +117,48 @@ public class DockingMapBuilderTests
         Assert.That(DockingMapBuilder.FindAdjacentThinViolations(map.Slots), Is.Empty);
     }
 
+    [Test]
+    public void BuildDockingMap_WithSourceAloneInMiddleRightZone_AndOtherPanelsOnLeft_ShouldNotOfferAdjacentThinsForSourceZone()
+    {
+        var map = Build(
+            sourcePanelId: "inbox",
+            ("approvals", DockZone.Left),
+            ("inbox", DockZone.Right2));
+
+        var rightThins = ThinSlots(map, RightZones);
+
+        // The source (inbox) is alone in Right2. We should NOT show thin slots
+        // immediately adjacent to Right2 (i.e., Right and Right3) because those
+        // would be no-op moves.
+        var adjacentToSourceZone = rightThins.Where(t => 
+            t.TargetZone == DockZone.Right || t.TargetZone == DockZone.Right3).ToList();
+        Assert.That(adjacentToSourceZone, Is.Empty, 
+            "Should not show thin slots adjacent to solo-panel zone (Right2)");
+    }
+
+    [Test]
+    public void BuildDockingMap_WithSourceAloneInMiddleRightZone_WithOtherOccupiedRightZones_ShouldNotOfferAdjacentThinsForSourceZone()
+    {
+        // This test case reproduces the bug scenario - source is alone in Right2,
+        // and there are other occupied zones on the same side.
+        // The fix should filter out thins for immediately adjacent zones.
+        var map = Build(
+            sourcePanelId: "inbox",
+            ("approvals", DockZone.Right),
+            ("inbox", DockZone.Right2),
+            ("notes", DockZone.Right4));
+
+        var rightThins = ThinSlots(map, RightZones);
+
+        // Right2 has only the source (inbox). Immediately adjacent zones:
+        // - Right (tier 0) is occupied by approvals - valid target
+        // - Right3 (tier 2) is empty - this is immediately adjacent to the source zone
+        // We should NOT show a thin for Right3 because moving source there is a no-op
+        var right3Thin = rightThins.FirstOrDefault(t => t.TargetZone == DockZone.Right3);
+        Assert.That(right3Thin, Is.Null,
+            "Should not show thin slot for Right3 when it's immediately adjacent to source zone Right2");
+    }
+
     private static DockingMapViewModel Build(
         string sourcePanelId,
         params (string PanelId, DockZone Zone)[] placements)

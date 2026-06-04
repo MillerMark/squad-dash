@@ -113,6 +113,16 @@ internal static class DockingMapBuilder
             curX += ZoneGutter;
         var rightThinPositions = LayoutSide(rightStates, isLeft: false, ref curX);
 
+        // Filter out adjacent thins for solo-panel source zones
+        var sourceZone = DockLayout_FindSourceZone(currentLayout, sourcePanelId);
+        if (sourceZone.HasValue)
+        {
+            leftThinPositions = FilterAdjacentThinsForSoloPanelZone(
+                leftThinPositions, currentLayout, sourceZone.Value, sourcePanelId, LeftSideZones);
+            rightThinPositions = FilterAdjacentThinsForSoloPanelZone(
+                rightThinPositions, currentLayout, sourceZone.Value, sourcePanelId, RightSideZones);
+        }
+
         double innerWidth = curX;
         double popupWidth = innerWidth + PopupPadding * 2;
 
@@ -590,6 +600,77 @@ internal static class DockingMapBuilder
 
     private static string LabelFor(string panelId) =>
         PanelLabels.TryGetValue(panelId, out var lbl) ? lbl : panelId[..Math.Min(6, panelId.Length)];
+
+    /// <summary>
+    /// Finds which zone contains the source panel, if any.
+    /// </summary>
+    private static DockZone? DockLayout_FindSourceZone(DockLayout layout, string sourcePanelId)
+    {
+        var slot = layout.Slots.FirstOrDefault(s => Same(s.PanelId, sourcePanelId));
+        return slot?.Zone;
+    }
+
+    /// <summary>
+    /// Filters out synthetic thin slots that are immediately adjacent to a solo-panel source zone.
+    /// If the source panel is the only occupant of its zone, we don't want to show thin slots for
+    /// immediately adjacent empty zones, because moving there would be a no-op.
+    /// </summary>
+    private static List<SyntheticThin> FilterAdjacentThinsForSoloPanelZone(
+        IReadOnlyList<SyntheticThin> thins,
+        DockLayout layout,
+        DockZone sourceZone,
+        string sourcePanelId,
+        IReadOnlyList<DockZone> sideZones)
+    {
+        int sourceZoneIdx = -1;
+        for (int i = 0; i < sideZones.Count; i++)
+        {
+            if (sideZones[i] == sourceZone)
+            {
+                sourceZoneIdx = i;
+                break;
+            }
+        }
+
+        if (sourceZoneIdx < 0)
+            return new List<SyntheticThin>(thins);
+
+        // Check if source is the sole occupant of its zone
+        var panelsInSourceZone = PanelsInZone(layout, sourceZone);
+        bool isSoloPanelZone = panelsInSourceZone.Count == 1 && Same(panelsInSourceZone[0], sourcePanelId);
+
+        if (!isSoloPanelZone)
+            return new List<SyntheticThin>(thins);
+
+        // Source is alone in its zone. Filter out thins for immediately adjacent zones.
+        DockZone? leftAdjacentZone = sourceZoneIdx > 0 ? sideZones[sourceZoneIdx - 1] : null;
+        DockZone? rightAdjacentZone = sourceZoneIdx < sideZones.Count - 1 ? sideZones[sourceZoneIdx + 1] : null;
+
+        var filtered = thins
+            .Where(thin => thin.TargetZone != leftAdjacentZone && thin.TargetZone != rightAdjacentZone)
+            .ToList();
+
+        if (filtered.Count < thins.Count)
+        {
+            var removed = thins.Where(t => !filtered.Contains(t)).ToList();
+            var sideName = sideZones == LeftSideZones ? "Left" : "Right";
+            var srcZoneName = DockingLayoutEngine.GetZoneDisplayName(sourceZone);
+            var adjacentZones = new List<string>();
+            if (leftAdjacentZone.HasValue)
+                adjacentZones.Add(DockingLayoutEngine.GetZoneDisplayName(leftAdjacentZone.Value));
+            if (rightAdjacentZone.HasValue)
+                adjacentZones.Add(DockingLayoutEngine.GetZoneDisplayName(rightAdjacentZone.Value));
+
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"  [adjacent-thin-filter] {sideName}: Filtered {removed.Count} adjacent thin(s) for solo-panel zone {srcZoneName} " +
+                $"(adjacent: {string.Join(", ", adjacentZones)})");
+            foreach (var thin in removed)
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"    Removed: {thin.Kind} {DockingLayoutEngine.GetZoneDisplayName(thin.TargetZone)}@{thin.TargetOrder}");
+        }
+
+        return filtered;
+    }
 
     // Total height needed for a column zone (Rule B has N slots, Rule C has N+1, Rule D has 1)
     private static double ZoneColumnHeight(int panelCount, bool sourceInZone, double slotHeight)
