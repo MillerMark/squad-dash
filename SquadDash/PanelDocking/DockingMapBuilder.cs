@@ -370,10 +370,21 @@ internal static class DockingMapBuilder
             sequence.Add(SideSequenceItem.ForZone(state));
 
             var next = i + 1 < visible.Count ? visible[i + 1] : null;
-            if (next is not null && state.Occupied && next.Occupied && Math.Abs(state.Tier - next.Tier) == 1)
+            if (next is not null)
             {
-                sequence.Add(SideSequenceItem.ForSynthetic(
-                    next.Zone, 0, SyntheticInsertKind.InsertBefore));
+                // For adjacent zones (Tier difference = 1), use the existing adjacent logic
+                // For non-adjacent zones (Tier difference > 1), still generate a thin for N+1 rule compliance
+                if (state.Occupied && next.Occupied && Math.Abs(state.Tier - next.Tier) == 1)
+                {
+                    sequence.Add(SideSequenceItem.ForSynthetic(
+                        next.Zone, 0, SyntheticInsertKind.InsertBefore));
+                }
+                else if (Math.Abs(state.Tier - next.Tier) > 1)
+                {
+                    // Non-adjacent zones: generate synthetic thin for drop targets
+                    sequence.Add(SideSequenceItem.ForSynthetic(
+                        next.Zone, 0, SyntheticInsertKind.InsertBefore));
+                }
             }
 
             if (isLeft && needsInnerSynthetic && state == innermostOccupied)
