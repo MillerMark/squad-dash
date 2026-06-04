@@ -28,6 +28,9 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
     private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
 
+    // Track if there are unsaved changes
+    private bool _hasUnsavedChanges;
+
     // ── Controls ──────────────────────────────────────────────────────────────
 
     private readonly TextBox     _titleBox;
@@ -135,6 +138,18 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         PreviewKeyUp   += OnPreviewKeyUp;
         Closed         += OnClosed;
 
+        // Track changes to the title
+        _titleBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
+        // Track changes to the enabled state
+        _enabledCheck.Checked += (_, _) => _hasUnsavedChanges = true;
+        _enabledCheck.Unchecked += (_, _) => _hasUnsavedChanges = true;
+        // Track changes to frequency
+        _frequencyCombo.SelectionChanged += (_, _) => _hasUnsavedChanges = true;
+        // Track changes to options YAML
+        _optionsYamlBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
+        // Track changes to instructions
+        _instructionsBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
+
         // Use PreviewMouseMove on the viewer instead of Block.MouseEnter — FlowDocumentScrollViewer
         // does not route ContentElement mouse events to individual Block instances.
         _markdownPreview.PreviewMouseMove += OnMarkdownPreviewMouseMove;
@@ -160,6 +175,26 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             if (_pttOptions.HandlePreviewKeyDown(e, _optionsYamlBox)) e.Handled = true;
         if (_instructionsBox.IsKeyboardFocusWithin)
             if (_pttInstructions.HandlePreviewKeyDown(e, _instructionsBox)) e.Handled = true;
+
+        // Escape: close with unsaved changes confirmation
+        if (e.Key == Key.Escape && !e.Handled) {
+            if (_hasUnsavedChanges) {
+                var result = MessageBox.Show(
+                    "Are you sure you want to close without saving your changes?",
+                    "Unsaved Changes",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.No);
+                if (result == MessageBoxResult.Yes) {
+                    Close();
+                }
+            }
+            else {
+                Close();
+            }
+            e.Handled = true;
+            return;
+        }
 
         // Ctrl+Shift+A: Revise with AI
         if (_instructionsBox.IsKeyboardFocusWithin
@@ -244,8 +279,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         propsRow.Children.Add(_enabledCheck);
         propsRow.Children.Add(BuildLabel("Frequency:"));
         propsRow.Children.Add(_frequencyCombo);
-        propsRow.Children.Add(BuildLabel("Safety:"));
-        propsRow.Children.Add(_safetyCombo);
         DockPanel.SetDock(propsRow, Dock.Top);
         root.Children.Add(propsRow);
 
@@ -305,7 +338,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private UIElement BuildOptionsSection() {
         var container = new DockPanel { Margin = new Thickness(8, 4, 8, 2), LastChildFill = true };
 
-        var headerTb = new TextBlock { Text = "UI Options", Margin = new Thickness(0, 0, 0, 2) };
+        var headerTb = new TextBlock { Text = "UI preview", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
         headerTb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         headerTb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         DockPanel.SetDock(headerTb, Dock.Top);
@@ -317,11 +350,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Left: live preview (interactive)
         var leftPanel = new DockPanel { Margin = new Thickness(0, 0, 4, 0), LastChildFill = true };
-        var previewLabel = new TextBlock { Text = "Preview", Margin = new Thickness(0, 0, 0, 2) };
-        previewLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        previewLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-        DockPanel.SetDock(previewLabel, Dock.Top);
-        leftPanel.Children.Add(previewLabel);
         var previewScroll = new ScrollViewer {
             Content             = _optionsPreviewPanel,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -332,7 +360,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Right: YAML editor with error line below
         var rightPanel = new DockPanel { Margin = new Thickness(4, 0, 0, 0), LastChildFill = true };
-        var yamlLabel = new TextBlock { Text = "Options YAML", Margin = new Thickness(0, 0, 0, 2) };
+        var yamlLabel = new TextBlock { Text = "YAML", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
         yamlLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         yamlLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
         DockPanel.SetDock(yamlLabel, Dock.Top);
@@ -548,6 +576,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             }
         }
 
+        _hasUnsavedChanges = false;
         _onSaved();
         Close();
     }
@@ -906,7 +935,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         }
 
         foreach (var opt in opts) {
-            if (!string.IsNullOrEmpty(opt.Label)) {
+            if (!string.IsNullOrEmpty(opt.Label) && !string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
                 var label = new TextBlock {
                     Text         = opt.Label,
                     TextWrapping = TextWrapping.Wrap,

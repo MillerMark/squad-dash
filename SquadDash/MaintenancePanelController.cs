@@ -129,7 +129,7 @@ internal sealed class MaintenancePanelController {
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
                 onDirectRevise: _onDirectRevise)
-                .ShowDialog();
+                .Show();
         };
 
         var editItem = new MenuItem { Header = "Edit Maintenance File…" };
@@ -610,10 +610,6 @@ internal sealed class MaintenancePanelController {
             selectedValue:  task.Frequency,
             onValueChanged: newFreq => ChangeTaskFrequency(taskIdForFreq, newFreq));
         chipRow.Children.Add(frequencyPicker.Control);
-        if (string.Equals(task.Safety, "direct", StringComparison.OrdinalIgnoreCase))
-            chipRow.Children.Add(BuildWarningChip("⚠ direct commits"));
-        else if (!string.Equals(task.Safety, "branch", StringComparison.OrdinalIgnoreCase))
-            chipRow.Children.Add(BuildChip(task.Safety, SafetyTooltip(task.Safety)));
         rightPanel.Children.Add(chipRow);
 
         // Run Now button — only shown for enabled tasks when in manual mode
@@ -764,7 +760,7 @@ internal sealed class MaintenancePanelController {
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
                 onDirectRevise: _onDirectRevise)
-                .ShowDialog();
+                .Show();
         };
         taskMenu.Items.Add(editTaskItem);
         row.ContextMenu = taskMenu;
@@ -782,32 +778,6 @@ internal sealed class MaintenancePanelController {
         _                => $"Frequency: {frequency}",
     };
 
-    private static string SafetyTooltip(string safety) => safety.ToLowerInvariant() switch {
-        "report-only" => "Read-only — no file changes. Produces a written analysis only.",
-        "branch"      => "Creates a new git branch and commits changes there. Never touches the current branch.",
-        "direct"      => "Edits and commits directly on the current branch.",
-        _             => $"Safety: {safety}",
-    };
-
-    private static Border BuildChip(string text, string? tooltip) {
-        var label = new TextBlock { Text = text };
-        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeXSmall");
-        label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-
-        var chip = new Border {
-            Child         = label,
-            Padding       = new Thickness(5, 1, 5, 1),
-            Margin        = new Thickness(0, 0, 4, 2),
-            CornerRadius  = new CornerRadius(8),
-        };
-        chip.SetResourceReference(Border.BackgroundProperty, "InputSurface");
-        chip.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
-        chip.BorderThickness = new Thickness(1);
-        if (tooltip is not null)
-            chip.ToolTip = MakeThemedToolTip(tooltip);
-        return chip;
-    }
-
     private static ToolTip MakeThemedToolTip(string text) {
         var tb = new TextBlock { Text = text };
         tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
@@ -824,23 +794,6 @@ internal sealed class MaintenancePanelController {
     private static bool IsStringTrueValue(string? value) =>
         string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "1",    StringComparison.OrdinalIgnoreCase);
-
-    private static Border BuildWarningChip(string text) {
-        var label = new TextBlock { Text = text };
-        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeXSmall");
-        label.SetResourceReference(TextBlock.ForegroundProperty, "WarningText");
-
-        var chip = new Border {
-            Child            = label,
-            Padding          = new Thickness(5, 1, 5, 1),
-            Margin           = new Thickness(0, 0, 4, 2),
-            CornerRadius     = new CornerRadius(8),
-            BorderThickness  = new Thickness(1),
-        };
-        chip.SetResourceReference(Border.BackgroundProperty, "WarningBackground");
-        chip.SetResourceReference(Border.BorderBrushProperty, "WarningBorder");
-        return chip;
-    }
 
     // ── Status header ─────────────────────────────────────────────────────────
 

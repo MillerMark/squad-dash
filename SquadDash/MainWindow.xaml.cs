@@ -25811,6 +25811,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _clipboardEditorCount++;
         _clipboardEditorOpen = true;
+        editor.Owner = this;
         editor.Closed += (_, _) =>
         {
             _clipboardEditorCount--;
