@@ -272,6 +272,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private PanelDockingService? _dockingService;
     internal PanelDockingService? DockingService => _dockingService;
     private DockingTestRecorder? _dockingRecorder;
+    private LayoutPresetManager _layoutPresetManager = new();
     // Set true while we are programmatically moving a floating window so its
     // LocationChanged does not overwrite the saved offset.
     private bool _movingFloatingWindow;
@@ -9487,6 +9488,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
+            // ── F7/F8/F9 with Shift: save layout preset ──────────────────────
+            if ((e.Key == Key.F7 || e.Key == Key.F8 || e.Key == Key.F9) &&
+                (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                int slotIndex = e.Key - Key.F7; // F7 -> 0, F8 -> 1, F9 -> 2
+                SaveLayoutPreset(slotIndex);
+                e.Handled = true;
+                return;
+            }
+
+            // ── F7/F8/F9 without Shift: restore layout preset ──────────────────
+            if ((e.Key == Key.F7 || e.Key == Key.F8 || e.Key == Key.F9) &&
+                (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+            {
+                int slotIndex = e.Key - Key.F7; // F7 -> 0, F8 -> 1, F9 -> 2
+                RestoreLayoutPreset(slotIndex);
+                e.Handled = true;
+                return;
+            }
+
             switch (_pttState)
             {
                 case PttState.Idle:
@@ -12365,6 +12386,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ToolIconGalleryMenuItem.Visibility = shiftDown ? Visibility.Visible : Visibility.Collapsed;
         if (ToolIconGallerySeparator is not null)
             ToolIconGallerySeparator.Visibility = shiftDown ? Visibility.Visible : Visibility.Collapsed;
+
+        // Update restore layout menu item enabled states
+        if (RestoreLayoutSlot1MenuItem is not null)
+            RestoreLayoutSlot1MenuItem.IsEnabled = _layoutPresetManager.HasPreset(0);
+        if (RestoreLayoutSlot2MenuItem is not null)
+            RestoreLayoutSlot2MenuItem.IsEnabled = _layoutPresetManager.HasPreset(1);
+        if (RestoreLayoutSlot3MenuItem is not null)
+            RestoreLayoutSlot3MenuItem.IsEnabled = _layoutPresetManager.HasPreset(2);
     }
 
     private void PanelsMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
@@ -12748,6 +12777,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             HandleUiCallbackException(nameof(ViewDocumentationMenuItem_Click), ex);
         }
     }
+
+    private void RestoreLayoutSlot1MenuItem_Click(object sender, RoutedEventArgs e) => RestoreLayoutPreset(0);
+    private void RestoreLayoutSlot2MenuItem_Click(object sender, RoutedEventArgs e) => RestoreLayoutPreset(1);
+    private void RestoreLayoutSlot3MenuItem_Click(object sender, RoutedEventArgs e) => RestoreLayoutPreset(2);
+
+    private void SaveLayoutSlot1MenuItem_Click(object sender, RoutedEventArgs e) => SaveLayoutPreset(0);
+    private void SaveLayoutSlot2MenuItem_Click(object sender, RoutedEventArgs e) => SaveLayoutPreset(1);
+    private void SaveLayoutSlot3MenuItem_Click(object sender, RoutedEventArgs e) => SaveLayoutPreset(2);
 
     private void ViewTasksMenuItem_Click(object sender, RoutedEventArgs e)
     {
@@ -16091,6 +16128,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Load persisted panel layout for this workspace and apply any non-default placements.
         if (_dockingService is not null)
         {
+            _layoutPresetManager.Initialize(_currentWorkspace.FolderPath);
             var loadedLayout = _dockingService.LoadAndApplyLayout(_currentWorkspace.FolderPath);
 
             if (loadedLayout.LeftZoneWidth is double lw && lw > 0
@@ -32923,6 +32961,78 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SearchMatchCountText.Text = $"{_searchMatchCursor + 1} of {_searchMatches.Count}";
             ClearSearchButton.Visibility = Visibility.Visible;
         }
+    }
+
+    private void SaveLayoutPreset(int slotIndex)
+    {
+        if (_dockingService is null || _currentWorkspace is null) return;
+
+        try
+        {
+            _layoutPresetManager.SavePreset(slotIndex, _dockingService.CurrentLayout);
+            ShowStatusNotification($"Layout preset {slotIndex + 1} saved (Shift+F{7 + slotIndex})", 2000);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SaveLayoutPreset), ex);
+        }
+    }
+
+    private void RestoreLayoutPreset(int slotIndex)
+    {
+        if (_dockingService is null || _currentWorkspace is null) return;
+
+        try
+        {
+            var preset = _layoutPresetManager.GetPreset(slotIndex);
+            if (preset is null)
+            {
+                ShowStatusNotification($"Layout preset {slotIndex + 1} is empty", 1500);
+                return;
+            }
+
+            _dockingService.ApplyLayout(preset);
+            _dockingService.SaveLayout(_currentWorkspace.FolderPath);
+            
+            // Restore zone widths
+            if (preset.LeftZoneWidth is double lw && lw > 0 && LeftZoneColumn.Width.Value > 0)
+                LeftZoneColumn.Width = new System.Windows.GridLength(lw, System.Windows.GridUnitType.Pixel);
+            if (preset.RightZoneWidth is double rw && rw > 0 && RightZoneColumn.Width.Value > 0)
+                RightZoneColumn.Width = new System.Windows.GridLength(rw, System.Windows.GridUnitType.Pixel);
+            if (preset.Left2ZoneWidth is double l2w && l2w > 0 && Left2ZoneColumn.Width.Value > 0)
+                Left2ZoneColumn.Width = new System.Windows.GridLength(l2w, System.Windows.GridUnitType.Pixel);
+            if (preset.Right2ZoneWidth is double r2w && r2w > 0 && Right2ZoneColumn.Width.Value > 0)
+                Right2ZoneColumn.Width = new System.Windows.GridLength(r2w, System.Windows.GridUnitType.Pixel);
+            if (preset.Left3ZoneWidth is double l3w && l3w > 0 && Left3ZoneColumn.Width.Value > 0)
+                Left3ZoneColumn.Width = new System.Windows.GridLength(l3w, System.Windows.GridUnitType.Pixel);
+            if (preset.Right3ZoneWidth is double r3w && r3w > 0 && Right3ZoneColumn.Width.Value > 0)
+                Right3ZoneColumn.Width = new System.Windows.GridLength(r3w, System.Windows.GridUnitType.Pixel);
+            if (preset.Left4ZoneWidth is double l4w && l4w > 0 && Left4ZoneColumn.Width.Value > 0)
+                Left4ZoneColumn.Width = new System.Windows.GridLength(l4w, System.Windows.GridUnitType.Pixel);
+            if (preset.Right4ZoneWidth is double r4w && r4w > 0 && Right4ZoneColumn.Width.Value > 0)
+                Right4ZoneColumn.Width = new System.Windows.GridLength(r4w, System.Windows.GridUnitType.Pixel);
+            if (preset.Left5ZoneWidth is double l5w && l5w > 0 && Left5ZoneColumn.Width.Value > 0)
+                Left5ZoneColumn.Width = new System.Windows.GridLength(l5w, System.Windows.GridUnitType.Pixel);
+            if (preset.Right5ZoneWidth is double r5w && r5w > 0 && Right5ZoneColumn.Width.Value > 0)
+                Right5ZoneColumn.Width = new System.Windows.GridLength(r5w, System.Windows.GridUnitType.Pixel);
+            if (preset.Left6ZoneWidth is double l6w && l6w > 0 && Left6ZoneColumn.Width.Value > 0)
+                Left6ZoneColumn.Width = new System.Windows.GridLength(l6w, System.Windows.GridUnitType.Pixel);
+            if (preset.Right6ZoneWidth is double r6w && r6w > 0 && Right6ZoneColumn.Width.Value > 0)
+                Right6ZoneColumn.Width = new System.Windows.GridLength(r6w, System.Windows.GridUnitType.Pixel);
+            
+            ShowStatusNotification($"Layout preset {slotIndex + 1} restored (F{7 + slotIndex})", 2000);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RestoreLayoutPreset), ex);
+        }
+    }
+
+    private void ShowStatusNotification(string message, int durationMs)
+    {
+        // Display a brief status notification. Using Trace for now as a simple feedback mechanism.
+        // A more sophisticated implementation could use a status bar message or toast notification.
+        SquadDashTrace.Write(TraceCategory.UI, message);
     }
 }
 

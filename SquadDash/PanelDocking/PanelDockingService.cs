@@ -1675,7 +1675,7 @@ internal sealed class PanelDockingService
         ApplyLayout(target);
     }
 
-    private void ApplyLayout(DockLayout targetLayout)
+    public void ApplyLayout(DockLayout targetLayout)
     {
         var targetSnapshot = CloneLayout(targetLayout);
         var currentSlots = CurrentLayout.Slots.ToList();

@@ -1,8 +1,55 @@
 {
-  "activeLayout": "Default",
+  "activeLayout": "Preset 1",
   "layouts": [
     {
       "name": "Default",
+      "slots": [
+        {
+          "panelId": "notes",
+          "zone": "Top",
+          "order": 2
+        },
+        {
+          "panelId": "inbox",
+          "zone": "Right",
+          "order": 0
+        },
+        {
+          "panelId": "maintenance",
+          "zone": "Right",
+          "order": 1
+        },
+        {
+          "panelId": "tasks",
+          "zone": "Right2",
+          "order": 0
+        },
+        {
+          "panelId": "loop",
+          "zone": "Left",
+          "order": 0
+        },
+        {
+          "panelId": "approvals",
+          "zone": "Left",
+          "order": 1
+        }
+      ],
+      "leftZoneWidth": 280,
+      "rightZoneWidth": 280,
+      "left2ZoneWidth": null,
+      "right2ZoneWidth": 280,
+      "left3ZoneWidth": null,
+      "right3ZoneWidth": null,
+      "left4ZoneWidth": null,
+      "right4ZoneWidth": null,
+      "left5ZoneWidth": null,
+      "right5ZoneWidth": null,
+      "left6ZoneWidth": null,
+      "right6ZoneWidth": null
+    },
+    {
+      "name": "Preset 1",
       "slots": [
         {
           "panelId": "approvals",
@@ -10,39 +57,39 @@
           "order": 1
         },
         {
-          "panelId": "maintenance",
+          "panelId": "loop",
           "zone": "Right",
           "order": 0
         },
         {
-          "panelId": "inbox",
-          "zone": "Right2",
+          "panelId": "tasks",
+          "zone": "Right4",
           "order": 0
         },
         {
-          "panelId": "notes",
-          "zone": "Top",
-          "order": 2
-        },
-        {
-          "panelId": "tasks",
+          "panelId": "inbox",
           "zone": "Right3",
           "order": 0
         },
         {
-          "panelId": "loop",
-          "zone": "Right4",
+          "panelId": "maintenance",
+          "zone": "Right3",
+          "order": 1
+        },
+        {
+          "panelId": "notes",
+          "zone": "Right2",
           "order": 0
         }
       ],
       "leftZoneWidth": null,
-      "rightZoneWidth": 298.42589743589747,
+      "rightZoneWidth": 280,
       "left2ZoneWidth": null,
-      "right2ZoneWidth": 280,
+      "right2ZoneWidth": 252.14666666666665,
       "left3ZoneWidth": null,
-      "right3ZoneWidth": 320,
+      "right3ZoneWidth": 280,
       "left4ZoneWidth": null,
-      "right4ZoneWidth": 219.81333333333333,
+      "right4ZoneWidth": 280,
       "left5ZoneWidth": null,
       "right5ZoneWidth": null,
       "left6ZoneWidth": null,

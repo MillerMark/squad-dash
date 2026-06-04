@@ -549,6 +549,37 @@
                               Header="_Documentation"
                               IsCheckable="True"
                               Click="ViewDocumentationMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem Header="_Restore Layout"
+                              ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                        <MenuItem x:Name="RestoreLayoutSlot1MenuItem"
+                                  Header="Slot _1"
+                                  InputGestureText="F7"
+                                  Click="RestoreLayoutSlot1MenuItem_Click" />
+                        <MenuItem x:Name="RestoreLayoutSlot2MenuItem"
+                                  Header="Slot _2"
+                                  InputGestureText="F8"
+                                  Click="RestoreLayoutSlot2MenuItem_Click" />
+                        <MenuItem x:Name="RestoreLayoutSlot3MenuItem"
+                                  Header="Slot _3"
+                                  InputGestureText="F9"
+                                  Click="RestoreLayoutSlot3MenuItem_Click" />
+                    </MenuItem>
+                    <MenuItem Header="_Save Layout"
+                              ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                        <MenuItem x:Name="SaveLayoutSlot1MenuItem"
+                                  Header="Slot _1"
+                                  InputGestureText="Shift+F7"
+                                  Click="SaveLayoutSlot1MenuItem_Click" />
+                        <MenuItem x:Name="SaveLayoutSlot2MenuItem"
+                                  Header="Slot _2"
+                                  InputGestureText="Shift+F8"
+                                  Click="SaveLayoutSlot2MenuItem_Click" />
+                        <MenuItem x:Name="SaveLayoutSlot3MenuItem"
+                                  Header="Slot _3"
+                                  InputGestureText="Shift+F9"
+                                  Click="SaveLayoutSlot3MenuItem_Click" />
+                    </MenuItem>
                 </MenuItem>
                 <MenuItem Header="_Panels"
                           Style="{StaticResource TopLevelMenuItemStyle}"

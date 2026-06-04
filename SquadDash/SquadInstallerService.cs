@@ -269,15 +269,24 @@ internal sealed class SquadInstallerService {
     }
 
     /// <summary>
-    /// Ensures SquadDash runtime files are excluded from version control by adding
-    /// any missing entries to the workspace <c>.gitignore</c>. Creates the file if
-    /// absent. Returns <c>true</c> if the file was modified.
+    /// Ensures Squad ephemeral files and SquadDash runtime files are excluded from version
+    /// control by adding any missing entries to the workspace <c>.gitignore</c>. Creates
+    /// the file if absent. Returns <c>true</c> if the file was modified.
     /// </summary>
     internal static bool EnsureMaintenanceStateInGitIgnore(string workspaceFolder) {
         // Each tuple: (gitignore entry, comment line written above it on first add)
         (string Entry, string Comment)[] required = [
-            ("maintenance-state.json",       "# SquadDash — maintenance state (auto-managed)"),
-            (".squad/maintenance-reports/",  "# SquadDash — maintenance reports (runtime, not for version control)"),
+            // Squad ephemeral directories — never track runtime state or user-local data
+            (".squad/inbox/",              "# Squad: user inbox messages (ephemeral, user-local)"),
+            (".squad/orchestration-log/",  "# Squad: agent orchestration logs (runtime, not for version control)"),
+            (".squad/log/",                "# Squad: Squad runtime logs"),
+            (".squad/decisions/inbox/",    "# Squad: decisions inbox (user-local, ephemeral)"),
+            (".squad/sessions/",           "# Squad: session state (user-local, ephemeral)"),
+            (".squad-workstream",          "# Squad: SubSquad activation file (local to this machine)"),
+            
+            // SquadDash-specific entries
+            ("maintenance-state.json",       "# SquadDash: maintenance state (auto-managed)"),
+            (".squad/maintenance-reports/",  "# SquadDash: maintenance reports (runtime, not for version control)"),
         ];
 
         var gitIgnorePath = Path.Combine(workspaceFolder, ".gitignore");

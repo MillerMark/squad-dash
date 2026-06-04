@@ -223,6 +223,8 @@ Messages are persisted as JSON files in `.squad/inbox/` inside your workspace di
 
 Files are written when the message is received and read back each time SquadDash opens, so your inbox survives restarts.
 
+> **⚠️ Never commit inbox files:** `.squad/inbox/` is **user-local and ephemeral** — it must never be tracked by git. Each user's inbox is specific to their session and machine. The inbox is automatically excluded from version control during Squad setup. If you manually manage `.gitignore`, ensure `.squad/inbox/` is listed.
+
 ---
 
 ## Related

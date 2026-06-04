@@ -232,7 +232,10 @@ internal sealed class GitIgnoreMaintenanceStateTests {
     [Test]
     public void EnsureMaintenanceStateInGitIgnore_NoChange_WhenEntryAlreadyPresent() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
-        File.WriteAllText(gitIgnorePath, "node_modules\nmaintenance-state.json\n.squad/maintenance-reports/\n");
+        var allEntries = "node_modules\n.squad/inbox/\n.squad/orchestration-log/\n.squad/log/\n" +
+                         ".squad/decisions/inbox/\n.squad/sessions/\n.squad-workstream\n" +
+                         "maintenance-state.json\n.squad/maintenance-reports/\n";
+        File.WriteAllText(gitIgnorePath, allEntries);
         var originalLineCount = File.ReadAllLines(gitIgnorePath).Length;
 
         var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
@@ -250,13 +253,18 @@ internal sealed class GitIgnoreMaintenanceStateTests {
 
         Assert.That(result, Is.True);
         Assert.That(File.Exists(gitIgnorePath), Is.True);
-        Assert.That(File.ReadAllText(gitIgnorePath), Does.Contain("maintenance-state.json"));
+        var content = File.ReadAllText(gitIgnorePath);
+        Assert.That(content, Does.Contain("maintenance-state.json"));
+        Assert.That(content, Does.Contain(".squad/inbox/"));
     }
 
     [Test]
     public void EnsureMaintenanceStateInGitIgnore_CaseInsensitive_ExistingEntry() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
-        File.WriteAllText(gitIgnorePath, "MAINTENANCE-STATE.JSON\n.SQUAD/MAINTENANCE-REPORTS/\n");
+        var allEntriesCased = ".SQUAD/INBOX/\n.SQUAD/ORCHESTRATION-LOG/\n.SQUAD/LOG/\n" +
+                              ".SQUAD/DECISIONS/INBOX/\n.SQUAD/SESSIONS/\n.SQUAD-WORKSTREAM\n" +
+                              "MAINTENANCE-STATE.JSON\n.SQUAD/MAINTENANCE-REPORTS/\n";
+        File.WriteAllText(gitIgnorePath, allEntriesCased);
 
         var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
 

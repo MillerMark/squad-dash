@@ -655,7 +655,9 @@ internal sealed class MaintenancePanelController {
         if (task.Enabled && task.Options is { Count: > 0 }) {
             optionsPanel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             foreach (var opt in task.Options) {
-                if (opt.Label is { Length: > 0 }) {
+                // For checkbox type, embed label in the checkbox itself
+                if (!string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) &&
+                    opt.Label is { Length: > 0 }) {
                     var labelBlock = new TextBlock {
                         Text         = opt.Label,
                         TextWrapping = TextWrapping.Wrap,
@@ -690,6 +692,30 @@ internal sealed class MaintenancePanelController {
                         };
                         optionsPanel.Children.Add(rb);
                     }
+                }
+                else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+                    var isChecked = IsStringTrueValue(opt.RawValue);
+                    var cb = new CheckBox {
+                        Content   = opt.Label ?? opt.Key,
+                        IsChecked = isChecked,
+                        Margin    = new Thickness(0, 1, 0, 1),
+                    };
+                    cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeSmall");
+                    cb.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+                    if (!string.IsNullOrEmpty(opt.Tooltip))
+                        cb.ToolTip = MakeThemedToolTip(opt.Tooltip);
+                    var capturedPath   = GetMaintenanceMdPath();
+                    var capturedTaskId = task.Id;
+                    var capturedOptKey = opt.Key;
+                    cb.Checked += (_, _) => {
+                        if (capturedPath is not null)
+                            MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "true");
+                    };
+                    cb.Unchecked += (_, _) => {
+                        if (capturedPath is not null)
+                            MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
+                    };
+                    optionsPanel.Children.Add(cb);
                 }
             }
             rightPanel.Children.Add(optionsPanel);
@@ -794,6 +820,10 @@ internal sealed class MaintenancePanelController {
         tip.SetResourceReference(ToolTip.BorderBrushProperty, "InputBorder");
         return tip;
     }
+
+    private static bool IsStringTrueValue(string? value) =>
+        string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "1",    StringComparison.OrdinalIgnoreCase);
 
     private static Border BuildWarningChip(string text) {
         var label = new TextBlock { Text = text };

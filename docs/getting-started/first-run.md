@@ -41,6 +41,7 @@ You can specify a workspace folder via command line (in quotes) or you can open 
 2. Installs the Squad CLI locally via `npm install`
 3. Applies Windows compatibility fixes to the installed CLI
 4. Runs `squad init` if `.squad/team.md` doesn't exist
+5. **Updates `.gitignore`** to exclude Squad runtime files (see below)
 
 ---
 
@@ -65,6 +66,23 @@ When basic configuration is complete, you'll be able to select the universe from
 ![Team Universe](images/select-your-team-universe-2afb1eb8.png)
 
 The blue quick-reply buttons at the bottom of the transcript let you choose the universe your team will originate from. If you select the **SquadDash Universe**, SquadDash will automatically use the built in artwork for each of the characters within that universe.
+
+#### What Gets Added to `.gitignore`
+
+During initialization, SquadDash automatically adds entries to your `.gitignore` to exclude Squad runtime and user-local data that should never be tracked by git:
+
+```
+.squad/inbox/              # User inbox messages (ephemeral, user-local)
+.squad/orchestration-log/  # Agent orchestration logs
+.squad/log/                # Squad runtime logs
+.squad/decisions/inbox/    # Decisions inbox (user-local)
+.squad/sessions/           # Session state (user-local)
+.squad-workstream          # SubSquad activation (per-machine)
+maintenance-state.json     # SquadDash maintenance state
+.squad/maintenance-reports/# SquadDash maintenance reports
+```
+
+These files are **workspace-local and ephemeral**—they should never be committed to git. If you accidentally committed them, you can safely remove them from git history without affecting other users' local work.
 
 ![first-run screenshot](images/first-run-20260427143754.png)
 ---

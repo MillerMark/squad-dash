@@ -1,0 +1,42 @@
+{
+  "Presets": [
+    {
+      "Name": "Preset 1",
+      "Slots": [
+        {
+          "PanelId": "approvals",
+          "Zone": "Top",
+          "Order": 1
+        },
+        {
+          "PanelId": "loop",
+          "Zone": "Left",
+          "Order": 0
+        },
+        {
+          "PanelId": "notes",
+          "Zone": "Top",
+          "Order": 2
+        },
+        {
+          "PanelId": "inbox",
+          "Zone": "Right",
+          "Order": 0
+        },
+        {
+          "PanelId": "maintenance",
+          "Zone": "Right",
+          "Order": 1
+        },
+        {
+          "PanelId": "tasks",
+          "Zone": "Right2",
+          "Order": 0
+        }
+      ],
+      "LeftZoneWidth": 280,
+      "RightZoneWidth": 280,
+      "Right2ZoneWidth": 280
+    }
+  ]
+}

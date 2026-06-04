@@ -924,7 +924,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                     var rb = new RadioButton {
                         Content   = choice.Value,
                         GroupName = $"preview-{opt.Key}",
-                        IsChecked = string.Equals(choice.Value, _optionValues.GetValueOrDefault(opt.Key, opt.RawValue),
+                        IsChecked = string.Equals(choice.Value, _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? string.Empty),
                             StringComparison.OrdinalIgnoreCase),
                         Margin    = new Thickness(8, 1, 0, 1),
                     };
@@ -937,6 +937,29 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                     };
                     _optionsPreviewPanel.Children.Add(rb);
                 }
+            }
+            else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+                var optKey = opt.Key;
+                var currentValue = _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? "false");
+                var isChecked = IsStringTrueValue(currentValue);
+                var cb = new CheckBox {
+                    Content   = opt.Label ?? opt.Key,
+                    IsChecked = isChecked,
+                    Margin    = new Thickness(0, 2, 0, 2),
+                };
+                cb.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+                cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeSmall");
+                if (!string.IsNullOrEmpty(opt.Tooltip))
+                    cb.ToolTip = opt.Tooltip;
+                cb.Checked += (_, _) => {
+                    _optionValues[optKey] = "true";
+                    UpdateMarkdownPreview();
+                };
+                cb.Unchecked += (_, _) => {
+                    _optionValues[optKey] = "false";
+                    UpdateMarkdownPreview();
+                };
+                _optionsPreviewPanel.Children.Add(cb);
             }
             else {
                 var optKey = opt.Key;
@@ -1085,6 +1108,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         !string.IsNullOrEmpty(value) &&
         !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(value, "0",     StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsStringTrueValue(string? value) =>
+        string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(value, "1",    StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Delegates to <see cref="LoopMdParser.ResolveSegments"/> using the current
