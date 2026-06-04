@@ -67,17 +67,17 @@
           "order": 2
         },
         {
-          "panelId": "inbox",
-          "zone": "Right",
-          "order": 0
-        },
-        {
           "panelId": "maintenance",
           "zone": "Right",
           "order": 1
         },
         {
           "panelId": "tasks",
+          "zone": "Right3",
+          "order": 0
+        },
+        {
+          "panelId": "inbox",
           "zone": "Right2",
           "order": 0
         }
@@ -87,7 +87,7 @@
       "left2ZoneWidth": null,
       "right2ZoneWidth": 280,
       "left3ZoneWidth": null,
-      "right3ZoneWidth": null,
+      "right3ZoneWidth": 280,
       "left4ZoneWidth": null,
       "right4ZoneWidth": null,
       "left5ZoneWidth": null,

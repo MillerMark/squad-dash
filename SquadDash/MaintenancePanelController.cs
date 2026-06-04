@@ -351,10 +351,17 @@ internal sealed class MaintenancePanelController {
     /// Otherwise, updates the frequency directly.
     /// </summary>
     private void HandleFrequencyChange(string taskId, string newFreq, CompactPickerButton picker) {
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-frequency] HandleFrequencyChange: taskId={taskId}, newFreq={newFreq}");
+        
         if (newFreq == "weekly") {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[maintenance-frequency] Weekly selected, showing day menu for taskId={taskId}");
             // Show submenu with day options
             ShowWeeklyDayMenu(taskId, picker);
         } else {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[maintenance-frequency] Direct frequency change: {newFreq}");
             ChangeTaskFrequency(taskId, newFreq);
         }
     }
@@ -364,21 +371,34 @@ internal sealed class MaintenancePanelController {
     /// When a day is selected, updates the frequency to "weekly-{Day}" and updates the picker.
     /// </summary>
     private void ShowWeeklyDayMenu(string taskId, CompactPickerButton picker) {
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] ShowWeeklyDayMenu starting for taskId={taskId}");
+        
         var menu = new ContextMenu();
         menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
         var header = new MenuItem { Header = "Select Day:", IsEnabled = false };
         header.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         menu.Items.Add(header);
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] Added header menu item");
 
         var sep = new Separator();
         sep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
         menu.Items.Add(sep);
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] Added separator, menu item count now: {menu.Items.Count}");
 
         var days = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
         var currentFreq = _viewModel.Config?.Tasks?.FirstOrDefault(t => t.Id == taskId)?.Frequency ?? "";
         var currentDay = currentFreq.StartsWith("weekly-") ? currentFreq.Substring(7) : "";
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] Current frequency: '{currentFreq}', current day: '{currentDay}'");
 
+        int daysAdded = 0;
         foreach (var day in days) {
             var capturedDay = day;
             var item = new MenuItem {
@@ -387,15 +407,30 @@ internal sealed class MaintenancePanelController {
             };
             item.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             item.Click += (_, _) => {
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"[maintenance-weekly-menu] Day selected: {capturedDay}, taskId={taskId}");
                 ChangeTaskFrequency(taskId, $"weekly-{capturedDay}");
                 picker.SelectedValue = $"weekly-{capturedDay}";
             };
             menu.Items.Add(item);
+            daysAdded++;
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[maintenance-weekly-menu] Added day menu item: {day} (IsChecked={item.IsChecked})");
         }
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] Total menu items created: {menu.Items.Count} (header + sep + {daysAdded} days)");
 
         menu.PlacementTarget = picker.Control;
         menu.Placement       = PlacementMode.Bottom;
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] Opening menu, PlacementTarget set, opening menu...");
+        
         menu.IsOpen          = true;
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[maintenance-weekly-menu] Menu IsOpen set to true");
     }
 
     /// <summary>
