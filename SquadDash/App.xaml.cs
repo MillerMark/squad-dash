@@ -3,6 +3,7 @@ using System.IO;
 using System.Data;
 using System.Windows;
 using System.Configuration;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using System.Windows.Shell;
@@ -25,7 +26,7 @@ namespace SquadDash {
             SquadDashEnvironment.Initialize(workspacePaths.ApplicationRoot);
             SquadDashTrace.Write(
                 "Startup",
-                $"App.OnStartup appRoot={startupArguments.ApplicationRoot ?? "(auto)"} workspace={startupArguments.StartupFolder ?? "(none)"} newWindow={startupArguments.NoWorkspaceOnStart} devMode={SquadDashEnvironment.IsDeveloperMode}");
+                $"App.OnStartup appRoot={startupArguments.ApplicationRoot ?? "(auto)"} workspace={startupArguments.StartupFolder ?? "(none)"} newWindow={startupArguments.NoWorkspaceOnStart} restartRelaunch={startupArguments.RestartRelaunch} devMode={SquadDashEnvironment.IsDeveloperMode}");
             SquadDashRuntimeStamp.WriteStartupStamp(workspacePaths);
             var startupFolder = startupArguments.StartupFolder;
 
@@ -72,7 +73,7 @@ namespace SquadDash {
             var noWorkspaceOnStart = startupArguments.NoWorkspaceOnStart;
             if (!noWorkspaceOnStart &&
                 !WorkspaceStartupRoutingPolicy.ShouldBypassSingleInstanceRouting(refreshOptions) &&
-                TryHandleStartupWorkspaceRouting(startupFolder, workspacePaths, serviceProvider, out startupWorkspaceLease, out noWorkspaceOnStart))
+                TryHandleStartupWorkspaceRouting(startupFolder, workspacePaths, serviceProvider, startupArguments.RestartRelaunch, out startupWorkspaceLease, out noWorkspaceOnStart))
                 return;
 
             var window = new MainWindow(startupFolder, startupWorkspaceLease, workspacePaths, refreshOptions, noWorkspaceOnStart, serviceProvider);
@@ -203,6 +204,7 @@ namespace SquadDash {
             string? startupFolder,
             IWorkspacePaths workspacePaths,
             IServiceProvider serviceProvider,
+            bool restartRelaunch,
             out WorkspaceOwnershipLease? startupWorkspaceLease,
             out bool noWorkspaceOnStart) {
             startupWorkspaceLease = null;
@@ -265,6 +267,17 @@ namespace SquadDash {
                         return true;
                     }
 
+                    if (restartRelaunch &&
+                        TryHandleRestartRelaunchBlockedStartup(
+                            workspacePaths.ApplicationRoot,
+                            candidateWorkspace,
+                            out startupWorkspaceLease)) {
+                        return startupWorkspaceLease is null;
+                    }
+
+                    SquadDashTrace.Write(
+                        "Startup",
+                        $"Blocked for {candidateWorkspace}; showing Workspace Already Open dialog.");
                     MessageBox.Show(
                         $"That workspace is already open in another SquadDash window:{Environment.NewLine}{candidateWorkspace}",
                         "Workspace Already Open",
@@ -276,6 +289,47 @@ namespace SquadDash {
                 default:
                     return false;
             }
+        }
+
+        private bool TryHandleRestartRelaunchBlockedStartup(
+            string applicationRoot,
+            string candidateWorkspace,
+            out WorkspaceOwnershipLease? startupWorkspaceLease) {
+            startupWorkspaceLease = null;
+
+            var coordinator = new WorkspaceOpenCoordinator();
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+            while (DateTime.UtcNow < deadline) {
+                Thread.Sleep(200);
+
+                var decision = coordinator.ReserveOrActivate(
+                    applicationRoot,
+                    candidateWorkspace,
+                    Environment.ProcessId,
+                    ProcessIdentity.GetCurrentProcessStartedAtUtcTicks());
+
+                switch (decision.Disposition) {
+                    case WorkspaceOpenDisposition.OpenHere:
+                        startupWorkspaceLease = decision.Lease;
+                        SquadDashTrace.Write(
+                            "Startup",
+                            $"Restart relaunch acquired workspace after startup contention workspace={candidateWorkspace}.");
+                        return true;
+
+                    case WorkspaceOpenDisposition.ActivatedExisting:
+                        SquadDashTrace.Write(
+                            "Startup",
+                            $"Restart relaunch activated existing workspace owner after startup contention workspace={candidateWorkspace}.");
+                        Shutdown();
+                        return true;
+                }
+            }
+
+            SquadDashTrace.Write(
+                "Startup",
+                $"Restart relaunch stayed blocked for {candidateWorkspace}; exiting without Workspace Already Open dialog.");
+            Shutdown();
+            return true;
         }
 
         private void TryEmergencySave() {

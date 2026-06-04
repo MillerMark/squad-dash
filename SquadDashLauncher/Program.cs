@@ -27,7 +27,7 @@ internal static class Program {
                 return CompleteRestart(requestId!);
 
             var startup = StartupFolderParser.ParseArguments(args);
-            return LaunchPayload(startup.StartupFolder, startup.RefreshScreenshots, startup.RefreshScreenshotName);
+            return LaunchPayload(startup.StartupFolder, startup.RefreshScreenshots, startup.RefreshScreenshotName, startup.RestartRelaunch);
         }
         catch (Exception ex) {
             // Console.Error is invisible when the launcher is spawned from Explorer
@@ -177,7 +177,7 @@ internal static class Program {
         return 0;
     }
 
-    private static int LaunchPayload(string? startupFolder, bool refreshScreenshots = false, string? refreshScreenshotName = null) {
+    private static int LaunchPayload(string? startupFolder, bool refreshScreenshots = false, string? refreshScreenshotName = null, bool restartRelaunch = false) {
         var slotStore = new RuntimeSlotStateStore(_workspacePaths.RunRootDirectory);
         var state = slotStore.Load();
         var payloadPath = ResolvePayloadPath(slotStore, state.ActiveSlot);
@@ -195,7 +195,7 @@ internal static class Program {
         }
 
         var workingDirectory = ResolveWorkingDirectory(startupFolder);
-        var arguments = BuildPayloadArguments(startupFolder, _workspacePaths.ApplicationRoot, refreshScreenshots, refreshScreenshotName);
+        var arguments = BuildPayloadArguments(startupFolder, _workspacePaths.ApplicationRoot, refreshScreenshots, refreshScreenshotName, restartRelaunch);
 
         var process = Process.Start(new ProcessStartInfo {
             FileName = payloadPath,
@@ -239,7 +239,7 @@ internal static class Program {
     /// finishes its current turn.
     /// </summary>
     private static void WaitAndRelaunchInstances(IReadOnlyList<RunningInstanceRecord> instances) {
-        var pending = new List<RunningInstanceRecord>(instances);
+        var pending = DeduplicateRelaunchInstances(instances);
 
         while (pending.Count > 0) {
             for (var i = pending.Count - 1; i >= 0; i--) {
@@ -259,13 +259,11 @@ internal static class Program {
         if (string.IsNullOrWhiteSpace(launcherPath) || !File.Exists(launcherPath))
             throw new FileNotFoundException("Could not resolve the SquadDash launcher path.", launcherPath);
 
-        var workspaceFolder = Directory.Exists(instance.WorkspaceFolder)
-            ? instance.WorkspaceFolder
-            : Environment.CurrentDirectory;
+        var workspaceFolder = ResolveRelaunchWorkspaceFolder(instance);
 
         Process.Start(new ProcessStartInfo {
             FileName = launcherPath,
-            Arguments = QuoteArgument(workspaceFolder),
+            Arguments = $"{QuoteArgument(workspaceFolder)} --restart-relaunch",
             WorkingDirectory = workspaceFolder,
             UseShellExecute = true
         });
@@ -356,7 +354,7 @@ internal static class Program {
         return Environment.CurrentDirectory;
     }
 
-    private static string BuildPayloadArguments(string? startupFolder, string applicationRoot, bool refreshScreenshots, string? refreshScreenshotName) {
+    private static string BuildPayloadArguments(string? startupFolder, string applicationRoot, bool refreshScreenshots, string? refreshScreenshotName, bool restartRelaunch) {
         var arguments = new List<string> {
             "--app-root",
             QuoteArgument(applicationRoot)
@@ -373,7 +371,43 @@ internal static class Program {
                 arguments.Add(QuoteArgument(refreshScreenshotName));
         }
 
+        if (restartRelaunch)
+            arguments.Add("--restart-relaunch");
+
         return string.Join(" ", arguments);
+    }
+
+    private static List<RunningInstanceRecord> DeduplicateRelaunchInstances(IReadOnlyList<RunningInstanceRecord> instances) {
+        var pending = new List<RunningInstanceRecord>();
+        var seenWorkspaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var instance in instances) {
+            var workspaceFolder = ResolveRelaunchWorkspaceFolder(instance);
+            var key = NormalizePathForKey(workspaceFolder);
+            if (seenWorkspaces.Add(key))
+                pending.Add(instance);
+        }
+
+        return pending;
+    }
+
+    private static string ResolveRelaunchWorkspaceFolder(RunningInstanceRecord instance) {
+        var preferred = !string.IsNullOrWhiteSpace(instance.ActiveWorkspaceFolder)
+            ? instance.ActiveWorkspaceFolder
+            : instance.WorkspaceFolder;
+
+        if (!string.IsNullOrWhiteSpace(preferred) && Directory.Exists(preferred))
+            return preferred;
+
+        if (!string.IsNullOrWhiteSpace(instance.WorkspaceFolder) && Directory.Exists(instance.WorkspaceFolder))
+            return instance.WorkspaceFolder;
+
+        return Environment.CurrentDirectory;
+    }
+
+    private static string NormalizePathForKey(string path) {
+        return Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private static bool TryGetDeployBuildOutput(string[] args, out string? buildOutputDirectory) {

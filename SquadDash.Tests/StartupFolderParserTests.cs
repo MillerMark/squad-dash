@@ -36,4 +36,18 @@ internal sealed class StartupFolderParserTests {
             Assert.That(result.StartupFolder, Is.EqualTo(@"C:\Users\Mark\source\repos\WpfCalc"));
         });
     }
+
+    [Test]
+    public void ParseArguments_ParsesRestartRelaunchFlag() {
+        var result = StartupFolderParser.ParseArguments([
+            "--workspace",
+            @"D:\Drive\Source\SquadDash-public",
+            "--restart-relaunch"
+        ]);
+
+        Assert.Multiple(() => {
+            Assert.That(result.StartupFolder, Is.EqualTo(@"D:\Drive\Source\SquadDash-public"));
+            Assert.That(result.RestartRelaunch, Is.True);
+        });
+    }
 }
