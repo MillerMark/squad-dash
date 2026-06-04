@@ -98,6 +98,9 @@ internal sealed class CompactPickerButton {
         _getButtonLabel?.Invoke(value) ?? GetMenuDisplayName(value);
 
     private void OnButtonClick(object sender, RoutedEventArgs e) {
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[compact-picker] OnButtonClick: creating menu, selectedValue={_selectedValue}");
+        
         var menu = new ContextMenu();
         menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
@@ -116,19 +119,44 @@ internal sealed class CompactPickerButton {
                 IsChecked = string.Equals(value, _selectedValue, StringComparison.OrdinalIgnoreCase),
             };
             item.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            item.Click += (_, _) => SelectValue(capturedValue);
+            item.Click += (_, _) => {
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"[compact-picker] Menu item clicked: {displayName} ({capturedValue})");
+                SelectValue(capturedValue);
+            };
             menu.Items.Add(item);
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[compact-picker] Added menu item: {displayName} ({value}), IsChecked={item.IsChecked}");
         }
 
         menu.PlacementTarget = Control;
         menu.Placement       = PlacementMode.Bottom;
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[compact-picker] Opening menu with {menu.Items.Count} items");
+        
         menu.IsOpen          = true;
     }
 
     private void SelectValue(string value) {
-        if (string.Equals(value, _selectedValue, StringComparison.OrdinalIgnoreCase)) return;
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[compact-picker] SelectValue: oldValue={_selectedValue}, newValue={value}");
+        
+        if (string.Equals(value, _selectedValue, StringComparison.OrdinalIgnoreCase)) {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[compact-picker] Value unchanged, returning early");
+            return;
+        }
+        
         _selectedValue  = value;
         Control.Content = GetButtonLabel(value);
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[compact-picker] Invoking onValueChanged callback with value={value}");
+        
         _onValueChanged?.Invoke(value);
+        
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[compact-picker] onValueChanged callback completed");
     }
 }
