@@ -817,8 +817,8 @@ internal sealed class DockingTestPlaybackWindow : ChromedWindow
         }
 
         // Target zone slot — highlight with yellow/gold for destination visibility
-        // Only highlight synthetic insert slots (the drop targets), not regular panels at that location
-        bool isTargetSlot = slot.IsSyntheticInsert && targetZone.HasValue && targetOrder.HasValue &&
+        // Highlight the slot that matches the target zone and order (whether it's synthetic or a regular panel)
+        bool isTargetSlot = targetZone.HasValue && targetOrder.HasValue &&
                             slot.TargetZone == targetZone.Value &&
                             slot.TargetOrder == targetOrder.Value;
 
