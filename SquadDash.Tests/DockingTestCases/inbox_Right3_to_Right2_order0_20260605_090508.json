@@ -1,6 +1,6 @@
 {
-  "name": "tasks_Right3_to_Right2_order0",
-  "sourcePanelId": "tasks",
+  "name": "inbox_Right3_to_Right2_order0",
+  "sourcePanelId": "inbox",
   "initialLayout": {
     "Top": [
       "loop",
@@ -15,10 +15,10 @@
       "maintenance"
     ],
     "Right 2": [
-      "inbox"
+      "tasks"
     ],
     "Right 3": [
-      "tasks"
+      "inbox"
     ],
     "Right 4": []
   },
@@ -88,11 +88,12 @@
       "maintenance"
     ],
     "Right 2": [
-      "tasks"
-    ],
-    "Right 3": [
       "inbox"
     ],
+    "Right 3": [
+      "tasks"
+    ],
     "Right 4": []
-  }
+  },
+  "expectedDockingMap": []
 }

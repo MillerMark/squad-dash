@@ -55,7 +55,11 @@ internal sealed class DockingTestRecorder : IDockingMoveRecorder
     public void OnDockingMapBuilt(IReadOnlyList<SlotButtonViewModel> slots)
     {
         if (_state != RecorderState.Recording) return;
+        SquadDashTrace.Write(TraceCategory.Docking, 
+            $"[DockingTestRecorder] OnDockingMapBuilt called with {slots.Count} slots");
         _dockingMapSlots = slots.ToList();
+        SquadDashTrace.Write(TraceCategory.Docking, 
+            $"[DockingTestRecorder] _dockingMapSlots set to list with {_dockingMapSlots.Count} items");
     }
 
     public void OnMoveCompleted(string sourcePanelId, DockZone targetZone, int targetOrder, PanelLayoutData layoutAfter)

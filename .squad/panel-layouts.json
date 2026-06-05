@@ -72,13 +72,13 @@
           "order": 1
         },
         {
-          "panelId": "tasks",
-          "zone": "Right2",
+          "panelId": "inbox",
+          "zone": "Right3",
           "order": 0
         },
         {
-          "panelId": "inbox",
-          "zone": "Right3",
+          "panelId": "tasks",
+          "zone": "Right2",
           "order": 0
         }
       ],

@@ -304,6 +304,10 @@ internal sealed class PanelDockingService
         // Capture source zone before try so the finally block can check it.
         DockZone? sourceZoneCapture = CurrentLayout.Slots
             .FirstOrDefault(s => string.Equals(s.PanelId, panelId, StringComparison.OrdinalIgnoreCase))?.Zone;
+        
+        // Declare variables for test recording at function scope so they're accessible in finally
+        DockingMapViewModel? preMoveDockingMapForRecording = null;
+        
         try
         {
         var existing = CurrentLayout.Slots.FirstOrDefault(s =>
@@ -327,6 +331,18 @@ internal sealed class PanelDockingService
             int clampedTarget = targetOrder < 0 ? zoneSlots.Count - 1 : Math.Clamp(targetOrder, 0, zoneSlots.Count - 1);
             if (currentIdx == clampedTarget) return;
 
+            // Capture docking map with PRE-MOVE layout for test recording
+            preMoveDockingMapForRecording = (TestRecorder is not null) ?
+                DockingMapBuilder.BuildDockingMap(panelId, CurrentLayout, GetCurrentLayoutData().VisiblePanelIds) :
+                null;
+            
+            if (TestRecorder is not null)
+            {
+                var slotCount = preMoveDockingMapForRecording?.Slots.Count ?? -1;
+                SquadDashTrace.Write(TraceCategory.Docking, 
+                    $"[docking-recorder] Same-zone move: captured preMove docking map with {slotCount} slots");
+            }
+
             // Reorder the list and reassign Order values using immutable record updates.
             zoneSlots.Remove(panelId);
             zoneSlots.Insert(Math.Clamp(clampedTarget, 0, zoneSlots.Count), panelId);
@@ -338,12 +354,10 @@ internal sealed class PanelDockingService
 
             TestRecorder?.OnMoveCompleted(panelId, targetZone, targetOrder, GetCurrentLayoutData());
 
-            // For test recording: also capture the docking map that would be displayed after the move.
-            if (TestRecorder is not null)
+            // For test recording: capture the docking map that was visible during the drag (pre-move layout)
+            if (preMoveDockingMapForRecording is not null && TestRecorder is not null)
             {
-                var dockingMapAfterMove = DockingMapBuilder.BuildDockingMap(panelId, CurrentLayout, 
-                    GetCurrentLayoutData().VisiblePanelIds);
-                TestRecorder.OnDockingMapBuilt(dockingMapAfterMove.Slots);
+                TestRecorder.OnDockingMapBuilt(preMoveDockingMapForRecording.Slots);
             }
 
             // WPF: reorder the panel within the zone list and rebuild the grid.
@@ -373,6 +387,18 @@ internal sealed class PanelDockingService
             (targetZone, targetOrder) = ResolveInsertBeforeColumnShift(panelId, targetZone, targetOrder);
         else if (insertKind == SyntheticInsertKind.InsertAfter)
             (targetZone, targetOrder) = ResolveInsertAfterColumnShift(panelId, targetZone, targetOrder);
+
+        // Capture docking map with PRE-MOVE layout for test recording (before we update CurrentLayout below)
+        preMoveDockingMapForRecording = (TestRecorder is not null) ?
+            DockingMapBuilder.BuildDockingMap(panelId, CurrentLayout, GetCurrentLayoutData().VisiblePanelIds) :
+            null;
+        
+        if (TestRecorder is not null)
+        {
+            var slotCount = preMoveDockingMapForRecording?.Slots.Count ?? -1;
+            SquadDashTrace.Write(TraceCategory.Docking, 
+                $"[docking-recorder] Cross-zone move: captured preMove docking map with {slotCount} slots");
+        }
 
         // Cross-zone move — update data model.
         SquadDashTrace.Write(TraceCategory.Docking,
@@ -633,12 +659,10 @@ internal sealed class PanelDockingService
                 {
                     TestRecorder?.OnMoveCompleted(panelId, targetZone, targetOrder, GetCurrentLayoutData());
                     
-                    // For test recording: also capture the docking map that would be displayed after the move.
-                    if (TestRecorder is not null)
+                    // For test recording: use the pre-move docking map that we captured before the layout changed
+                    if (preMoveDockingMapForRecording is not null && TestRecorder is not null)
                     {
-                        var dockingMapAfterMove = DockingMapBuilder.BuildDockingMap(panelId, CurrentLayout,
-                            GetCurrentLayoutData().VisiblePanelIds);
-                        TestRecorder.OnDockingMapBuilt(dockingMapAfterMove.Slots);
+                        TestRecorder.OnDockingMapBuilt(preMoveDockingMapForRecording.Slots);
                     }
                 }
             }
