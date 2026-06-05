@@ -1,0 +1,481 @@
+{
+  "schemaVersion": 2,
+  "name": "approvals_Left4_to_Left2_order0",
+  "sourcePanelId": "approvals",
+  "initialLayout": {
+    "Top": [],
+    "Left 1": [
+      "notes"
+    ],
+    "Left 2": [
+      "inbox"
+    ],
+    "Left 3": [
+      "loop"
+    ],
+    "Left 4": [
+      "approvals"
+    ],
+    "Right 1": [
+      "maintenance"
+    ],
+    "Right 2": [
+      "tasks"
+    ],
+    "Right 3": [],
+    "Right 4": []
+  },
+  "slotButtons": [
+    {
+      "zone": "Left 3",
+      "order": 0,
+      "preview": "Left 3, 1/2"
+    },
+    {
+      "zone": "Left 3",
+      "order": 1,
+      "preview": "Left 3, 2/2"
+    },
+    {
+      "zone": "Left 2",
+      "order": 0,
+      "preview": "Left 2, 1/2"
+    },
+    {
+      "zone": "Left 2",
+      "order": 1,
+      "preview": "Left 2, 2/2"
+    },
+    {
+      "zone": "Left 1",
+      "order": 0,
+      "preview": "Left 1, 1/2"
+    },
+    {
+      "zone": "Left 1",
+      "order": 1,
+      "preview": "Left 1, 2/2"
+    },
+    {
+      "zone": "Top",
+      "order": 0,
+      "preview": "Top, 1/1"
+    },
+    {
+      "zone": "Right 1",
+      "order": 0,
+      "preview": "Right 1, 1/2"
+    },
+    {
+      "zone": "Right 1",
+      "order": 1,
+      "preview": "Right 1, 2/2"
+    },
+    {
+      "zone": "Right 2",
+      "order": 0,
+      "preview": "Right 2, 1/2"
+    },
+    {
+      "zone": "Right 2",
+      "order": 1,
+      "preview": "Right 2, 2/2"
+    },
+    {
+      "zone": "Right 3",
+      "order": 0,
+      "preview": "Right 3, 1/1"
+    }
+  ],
+  "action": {
+    "targetZone": "Left 2",
+    "targetOrder": 0,
+    "insertKind": "InsertBefore"
+  },
+  "chosenPreview": "Left 2, 1/2",
+  "expectedLayout": {
+    "Top": [],
+    "Left 1": [
+      "notes"
+    ],
+    "Left 2": [
+      "approvals"
+    ],
+    "Left 3": [
+      "inbox"
+    ],
+    "Left 4": [
+      "loop"
+    ],
+    "Right 1": [
+      "maintenance"
+    ],
+    "Right 2": [
+      "tasks"
+    ],
+    "Right 3": [],
+    "Right 4": []
+  },
+  "expectedDockingMap": [
+    {
+      "label": "Aprvl",
+      "panelId": "Aprvl",
+      "isSourcePanel": true,
+      "isExpansionButton": false,
+      "x": 0,
+      "y": 16,
+      "width": 48,
+      "height": 128,
+      "zone": "Left 4",
+      "order": 0,
+      "targetZone": "Left4",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "Loop",
+      "panelId": "Loop",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 52,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 3",
+      "order": 0,
+      "targetZone": "Left3",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 52,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 3",
+      "order": 1,
+      "targetZone": "Left3",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 104,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 2",
+      "order": 0,
+      "targetZone": "Left2",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Inbox",
+      "panelId": "Inbox",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 124,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 2",
+      "order": 0,
+      "targetZone": "Left2",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 124,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 2",
+      "order": 1,
+      "targetZone": "Left2",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 176,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 1",
+      "order": 0,
+      "targetZone": "Left",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Notes",
+      "panelId": "Notes",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 196,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 1",
+      "order": 0,
+      "targetZone": "Left",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 196,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 1",
+      "order": 1,
+      "targetZone": "Left",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 248,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 1",
+      "order": 1,
+      "targetZone": "Left",
+      "targetOrder": 1,
+      "insertKind": "InsertAfter",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "",
+      "panelId": "",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 276,
+      "y": 16,
+      "width": 4,
+      "height": 128,
+      "zone": "Top",
+      "order": -1,
+      "targetZone": "Top",
+      "targetOrder": -1,
+      "insertKind": "",
+      "isSeparator": true,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 292,
+      "y": 16,
+      "width": 40,
+      "height": 50,
+      "zone": "Top",
+      "order": 0,
+      "targetZone": "Top",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "",
+      "panelId": "",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 344,
+      "y": 16,
+      "width": 4,
+      "height": 128,
+      "zone": "Top",
+      "order": -2,
+      "targetZone": "Top",
+      "targetOrder": -2,
+      "insertKind": "",
+      "isSeparator": true,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 360,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Right 1",
+      "order": 0,
+      "targetZone": "Right",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Maint",
+      "panelId": "Maint",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 380,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 1",
+      "order": 0,
+      "targetZone": "Right",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 380,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 1",
+      "order": 1,
+      "targetZone": "Right",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 432,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Right 2",
+      "order": 0,
+      "targetZone": "Right2",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Tasks",
+      "panelId": "Tasks",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 452,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 2",
+      "order": 0,
+      "targetZone": "Right2",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 452,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 2",
+      "order": 1,
+      "targetZone": "Right2",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 504,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Right 3",
+      "order": 0,
+      "targetZone": "Right3",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    }
+  ]
+}
