@@ -10,6 +10,7 @@ namespace SquadDash;
 internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName {
     private static bool _isDarkTheme = false;
     private static bool _imagesVisible = true;
+    private static bool _avatarsSettingEnabled = true;
     private static readonly List<WeakReference<AgentStatusCard>> _liveInstances = [];
 
     public static bool ImagesVisible {
@@ -17,6 +18,22 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
         set {
             if (_imagesVisible == value) return;
             _imagesVisible = value;
+            lock (_liveInstances) {
+                foreach (var weakRef in _liveInstances) {
+                    if (weakRef.TryGetTarget(out var card)) {
+                        card.OnPropertyChanged(nameof(AvatarImageVisibility));
+                        card.OnPropertyChanged(nameof(InitialVisibility));
+                    }
+                }
+            }
+        }
+    }
+
+    public static bool AvatarsSettingEnabled {
+        get => _avatarsSettingEnabled;
+        set {
+            if (_avatarsSettingEnabled == value) return;
+            _avatarsSettingEnabled = value;
             lock (_liveInstances) {
                 foreach (var weakRef in _liveInstances) {
                     if (weakRef.TryGetTarget(out var card)) {
@@ -238,9 +255,9 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     }
 
     public Visibility AvatarImageVisibility =>
-        _imagesVisible && !_hideImage && _agentImageSource is not null ? Visibility.Visible : Visibility.Collapsed;
+        _imagesVisible && !_hideImage && _agentImageSource is not null && _avatarsSettingEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility InitialVisibility =>
-        !_imagesVisible || _hideImage || _agentImageSource is null ? Visibility.Visible : Visibility.Collapsed;
+        !_imagesVisible || _hideImage || _agentImageSource is null || !_avatarsSettingEnabled ? Visibility.Visible : Visibility.Collapsed;
 
     public bool HideImage {
         get => _hideImage;

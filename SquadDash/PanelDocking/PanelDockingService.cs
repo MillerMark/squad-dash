@@ -2023,35 +2023,20 @@ internal sealed class PanelDockingService
                 // already at the window boundary — same overlap treatment.
                 double x = zone switch
                 {
-                    DockZone.Left   => neighborRect.Left,
-                    DockZone.Left2  => neighborRect.Left,
-                    DockZone.Left3  => neighborRect.Left,
-                    DockZone.Left4  => neighborRect.Left,
-                    DockZone.Right  => neighborRect.Right - StripWidth,
-                    DockZone.Right2 => neighborRect.Right - StripWidth,
-                    DockZone.Right3 => neighborRect.Right - StripWidth,
-                    DockZone.Right4 => neighborRect.Right - StripWidth,
-                    _               => isRightSide ? neighborRect.Right : neighborRect.Left - StripWidth,
+                    DockZone.Left   => neighborRect.Left  - StripWidth / 2,
+                    DockZone.Left2  => neighborRect.Left  - StripWidth / 2,
+                    DockZone.Left3  => neighborRect.Left  - StripWidth / 2,
+                    DockZone.Left4  => neighborRect.Left  - StripWidth / 2,
+                    DockZone.Right  => neighborRect.Right - StripWidth / 2,
+                    DockZone.Right2 => neighborRect.Right - StripWidth / 2,
+                    DockZone.Right3 => neighborRect.Right - StripWidth / 2,
+                    DockZone.Right4 => neighborRect.Right - StripWidth / 2,
+                    _               => isRightSide ? neighborRect.Right - StripWidth / 2 : neighborRect.Left - StripWidth / 2,
                 };
 
-                // The neighborRect height is only the top-zone panel height (~330px).
-                // The preview strip for an empty side zone should span the full window height.
-                // Walk up from _topZoneGrid to find the host Window for full bounds.
+                // The strip spans the neighbor column's bounds.
                 double stripTop    = neighborRect.Top;
                 double stripHeight = neighborRect.Height;
-                if (_topZoneGrid is DependencyObject tgDep)
-                {
-                    var win = System.Windows.Window.GetWindow(tgDep);
-                    if (win is FrameworkElement winFe)
-                    {
-                        var winRect = GetScreenRect(winFe);
-                        if (!winRect.IsEmpty)
-                        {
-                            stripTop    = winRect.Top;
-                            stripHeight = winRect.Height;
-                        }
-                    }
-                }
 
                 var result = new Rect(x, stripTop, StripWidth, stripHeight);
                 SquadDashTrace.Write(TraceCategory.Docking,
@@ -2109,20 +2094,11 @@ internal sealed class PanelDockingService
         // toward outer for left-side zones).  InsertAfter = right edge.
         // This is symmetric: InsertBefore always lands at columnRect.Left regardless of side.
         double stripX = kind == SyntheticInsertKind.InsertBefore
-            ? columnRect.Left
-            : columnRect.Right - StripWidth;
+            ? columnRect.Left   - StripWidth / 2
+            : columnRect.Right  - StripWidth / 2;
 
-        double stripTop = columnRect.Top;
+        double stripTop    = columnRect.Top;
         double stripHeight = columnRect.Height;
-        if (_topZoneGrid is DependencyObject tgDep)
-        {
-            var win = System.Windows.Window.GetWindow(tgDep);
-            if (win is FrameworkElement winFe)
-            {
-                var winRect = GetScreenRect(winFe);
-                if (!winRect.IsEmpty) { stripTop = winRect.Top; stripHeight = winRect.Height; }
-            }
-        }
 
         var result = new Rect(stripX, stripTop, StripWidth, stripHeight);
         SquadDashTrace.Write(TraceCategory.Docking,

@@ -48,7 +48,7 @@
     <SolidColorBrush x:Key="DangerButtonHover"   Color="#9A1C1C"/>
     <SolidColorBrush x:Key="DangerButtonPressed" Color="#7B1414"/>
     <SolidColorBrush x:Key="DangerButtonFg"      Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="GripStripLine" Color="#E2D5C3"/>  <!-- same hue as surface, matches SubtleBorder for low-contrast hatching -->
+    <SolidColorBrush x:Key="GripStripLine" Color="#BCB1A2"/>  <!-- same hue as surface, matches SubtleBorder for low-contrast hatching -->
     <!-- Border / Line Tokens -->
     <SolidColorBrush x:Key="PanelBorder" Color="#D6C8B4"/>
     <SolidColorBrush x:Key="ActivePanelBorder" Color="#C4D8F5"/>

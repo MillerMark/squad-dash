@@ -70,19 +70,24 @@ internal sealed class DockingMapWindow : Window
         Color groundingColor = isDark ? Colors.Black : Colors.White;
         Color polarColor     = isDark ? Colors.White : Colors.Black;
 
-        // Background: use the same tinted panel background the status panels use.
-        Color bgColor = appResources.Contains("ActivePanelSurface") && appResources["ActivePanelSurface"] is SolidColorBrush aps
-            ? aps.Color
-            : (isDark ? Color.FromRgb(26, 37, 53) : Color.FromRgb(234, 244, 255));
+        Color bgColor = appResources.Contains("PopupSurface") && appResources["PopupSurface"] is SolidColorBrush ps
+            ? ps.Color
+            : (isDark ? Color.FromRgb(42, 37, 32) : Color.FromRgb(255, 255, 255));
+
+        Color borderColor = appResources.Contains("PopupBorder") && appResources["PopupBorder"] is SolidColorBrush pb
+            ? pb.Color
+            : (isDark ? Color.FromRgb(74, 68, 64) : Color.FromRgb(204, 204, 204));
 
         var root = new Border
         {
-            Background   = new SolidColorBrush(bgColor),
-            CornerRadius = new CornerRadius(4),
-            Padding      = new Thickness(PopupPadding),
-            Width        = _viewModel.PopupWidth,
-            Height       = _viewModel.PopupHeight,
-            Effect       = new DropShadowEffect
+            Background      = new SolidColorBrush(bgColor),
+            BorderBrush     = new SolidColorBrush(borderColor),
+            BorderThickness = new Thickness(1),
+            CornerRadius    = new CornerRadius(4),
+            Padding         = new Thickness(PopupPadding + 2),
+            Width           = _viewModel.PopupWidth,
+            Height          = _viewModel.PopupHeight,
+            Effect          = new DropShadowEffect
             {
                 BlurRadius  = 8,
                 Opacity     = 0.35,

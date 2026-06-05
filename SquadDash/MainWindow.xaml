@@ -546,6 +546,11 @@
                               IsCheckable="True"
                               InputGestureText="Shift+F11"
                               Click="FocusModeMenuItem_Click" />
+                    <MenuItem x:Name="ShowAgentAvatarsMenuItem"
+                              Header="Show Agent _Avatars"
+                              IsCheckable="True"
+                              IsChecked="True"
+                              Click="ShowAgentAvatarsMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem Header="_Theme"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">

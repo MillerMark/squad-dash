@@ -2028,6 +2028,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var initWsSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
         _settingsSnapshot = _settingsStore.Load();
+        AgentStatusCard.AvatarsSettingEnabled = _settingsSnapshot.ShowAgentAvatars;
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: settings loaded {initWsSw.ElapsedMilliseconds}ms.");
         _promptFontSize = Math.Clamp(_settingsSnapshot.PromptFontSize, PromptFontSizeMin, PromptFontSizeMax);
         _transcriptFontSize = Math.Clamp(_settingsSnapshot.TranscriptFontSize, TranscriptFontSizeMin, TranscriptFontSizeMax);
@@ -12689,6 +12690,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private void ShowAgentAvatarsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            bool show = ShowAgentAvatarsMenuItem.IsChecked;
+            AgentStatusCard.AvatarsSettingEnabled = show;
+            _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(show);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ShowAgentAvatarsMenuItem_Click), ex); }
+    }
+
     private void ToggleAgentsPanelFocusMode()
     {
         // Per spec: if in full-screen, exit it first, then toggle focus mode.
@@ -15950,6 +15962,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (FocusModeMenuItem is not null)
             FocusModeMenuItem.IsChecked = _agentsPanelFocusModeEnabled;
+
+        if (ShowAgentAvatarsMenuItem is not null)
+            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars;
 
         if (ViewDocumentationMenuItem is not null)
             ViewDocumentationMenuItem.IsChecked = _documentationModeEnabled;
