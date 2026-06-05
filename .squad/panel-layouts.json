@@ -100,41 +100,41 @@
       "slots": [
         {
           "panelId": "inbox",
-          "zone": "Left",
-          "order": 0
-        },
-        {
-          "panelId": "maintenance",
-          "zone": "Right",
+          "zone": "Right2",
           "order": 0
         },
         {
           "panelId": "tasks",
           "zone": "Right2",
+          "order": 1
+        },
+        {
+          "panelId": "loop",
+          "zone": "Right",
           "order": 0
         },
         {
           "panelId": "notes",
-          "zone": "Left2",
-          "order": 0
-        },
-        {
-          "panelId": "loop",
-          "zone": "Left2",
+          "zone": "Right",
           "order": 1
         },
         {
-          "panelId": "approvals",
-          "zone": "Left2",
+          "panelId": "maintenance",
+          "zone": "Right",
           "order": 2
+        },
+        {
+          "panelId": "approvals",
+          "zone": "Right3",
+          "order": 0
         }
       ],
-      "leftZoneWidth": 220,
-      "rightZoneWidth": 276.35333333333335,
-      "left2ZoneWidth": 220,
-      "right2ZoneWidth": 317.43,
+      "leftZoneWidth": null,
+      "rightZoneWidth": 233.48333333333332,
+      "left2ZoneWidth": null,
+      "right2ZoneWidth": 276.1966666666667,
       "left3ZoneWidth": null,
-      "right3ZoneWidth": null,
+      "right3ZoneWidth": 319.95666666666665,
       "left4ZoneWidth": null,
       "right4ZoneWidth": null,
       "left5ZoneWidth": null,

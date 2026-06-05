@@ -92,7 +92,7 @@ tasks:
             tooltip: Write a report — do not change any code
 
   - id: code-smells
-    enabled: true
+    enabled: false
     frequency: weekly-Saturday
     safety: report-only
     title: Code Smell Cleanup
@@ -127,7 +127,7 @@ tasks:
             tooltip: List each smell — do not change any code
 
   - id: commit-review
-    enabled: false
+    enabled: true
     frequency: per-commit
     safety: report-only
     title: Commit Quality Review

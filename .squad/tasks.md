@@ -63,7 +63,7 @@
 
 ## 🔴 High Priority
 
-- [ ] **[Bug] Voice dictation focus: auto-route to prompt input when transcript has focus** *(Owner: Lyra Morn)*
+- [x] **[Bug] Voice dictation focus: auto-route to prompt input when transcript has focus** *(Owner: Lyra Morn)*
   When voice dictation is activated (Ctrl double-tap) while the coordinator transcript panel has focus,
   the dictated text is added to the transcript instead of the active prompt input box. Expected behavior:
   immediately shift focus to the current prompt input box so dictation lands there. Affects usability
