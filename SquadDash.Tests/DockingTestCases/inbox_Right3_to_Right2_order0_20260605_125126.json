@@ -1,0 +1,287 @@
+{
+  "name": "inbox_Right3_to_Right2_order0",
+  "sourcePanelId": "inbox",
+  "initialLayout": {
+    "Top": [
+      "loop",
+      "approvals",
+      "notes"
+    ],
+    "Left 1": [],
+    "Left 2": [],
+    "Left 3": [],
+    "Left 4": [],
+    "Right 1": [
+      "maintenance"
+    ],
+    "Right 2": [
+      "tasks"
+    ],
+    "Right 3": [
+      "inbox"
+    ],
+    "Right 4": []
+  },
+  "slotButtons": [
+    {
+      "zone": "Left 1",
+      "order": 0,
+      "preview": "Left 1, 1/1"
+    },
+    {
+      "zone": "Top",
+      "order": 0,
+      "preview": "Top, 1/4"
+    },
+    {
+      "zone": "Top",
+      "order": 1,
+      "preview": "Top, 2/4"
+    },
+    {
+      "zone": "Top",
+      "order": 2,
+      "preview": "Top, 3/4"
+    },
+    {
+      "zone": "Top",
+      "order": 3,
+      "preview": "Top, 4/4"
+    },
+    {
+      "zone": "Right 1",
+      "order": 0,
+      "preview": "Right 1, 1/2"
+    },
+    {
+      "zone": "Right 1",
+      "order": 1,
+      "preview": "Right 1, 2/2"
+    },
+    {
+      "zone": "Right 2",
+      "order": 0,
+      "preview": "Right 2, 1/2"
+    },
+    {
+      "zone": "Right 2",
+      "order": 1,
+      "preview": "Right 2, 2/2"
+    }
+  ],
+  "action": {
+    "targetZone": "Right 2",
+    "targetOrder": 0
+  },
+  "chosenPreview": "Right 2, 1/2",
+  "expectedLayout": {
+    "Top": [
+      "loop",
+      "approvals",
+      "notes"
+    ],
+    "Left 1": [],
+    "Left 2": [],
+    "Left 3": [],
+    "Left 4": [],
+    "Right 1": [
+      "maintenance"
+    ],
+    "Right 2": [
+      "inbox"
+    ],
+    "Right 3": [
+      "tasks"
+    ],
+    "Right 4": []
+  },
+  "expectedDockingMap": [
+    {
+      "zone": "Left 1",
+      "order": 0,
+      "x": 0,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Right 1",
+      "order": 0,
+      "x": 0,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Right 1",
+      "order": 0,
+      "x": 244,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Right 1",
+      "order": 0,
+      "x": 262,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "panelId": "Maint",
+      "isSeparator": false,
+      "isVirtualThin": false
+    },
+    {
+      "zone": "Right 1",
+      "order": 1,
+      "x": 262,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "panelId": "\u002B",
+      "isSeparator": false,
+      "isVirtualThin": false
+    },
+    {
+      "zone": "Right 2",
+      "order": 0,
+      "x": 312,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Right 3",
+      "order": 0,
+      "x": 0,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Right 3",
+      "order": 0,
+      "x": 330,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "panelId": "Tasks",
+      "isSeparator": false,
+      "isVirtualThin": false
+    },
+    {
+      "zone": "Right 3",
+      "order": 1,
+      "x": 330,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "panelId": "Inbox",
+      "isSeparator": false,
+      "isVirtualThin": false
+    },
+    {
+      "zone": "Right 4",
+      "order": 0,
+      "x": 380,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": -2,
+      "x": 228,
+      "y": 16,
+      "width": 4,
+      "height": 128,
+      "panelId": "",
+      "isSeparator": true,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": -1,
+      "x": 28,
+      "y": 16,
+      "width": 4,
+      "height": 128,
+      "panelId": "",
+      "isSeparator": true,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": 0,
+      "x": 0,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "panelId": "\u2014",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": 0,
+      "x": 44,
+      "y": 16,
+      "width": 40,
+      "height": 50,
+      "panelId": "Loop",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": 1,
+      "x": 88,
+      "y": 16,
+      "width": 40,
+      "height": 50,
+      "panelId": "Aprvl",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": 2,
+      "x": 132,
+      "y": 16,
+      "width": 40,
+      "height": 50,
+      "panelId": "Notes",
+      "isSeparator": false,
+      "isVirtualThin": true
+    },
+    {
+      "zone": "Top",
+      "order": 3,
+      "x": 176,
+      "y": 16,
+      "width": 40,
+      "height": 50,
+      "panelId": "\u002B",
+      "isSeparator": false,
+      "isVirtualThin": true
+    }
+  ]
+}
