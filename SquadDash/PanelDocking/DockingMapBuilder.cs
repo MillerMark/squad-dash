@@ -101,7 +101,7 @@ internal static class DockingMapBuilder
 
         double popupHeight = innerHeight + PopupPadding * 2 + LabelRowHeight;
 
-        double curX = 0;
+        double curX = PopupPadding * 2;  // left inset — mirrors the right-side margin baked into popupWidth
         var leftThinPositions = LayoutSide(leftStates, isLeft: true, ref curX, currentLayout, topPanels, rightStates, sourcePanelId);
         if (HasVisibleSide(leftStates))
             curX += ZoneGutter;
