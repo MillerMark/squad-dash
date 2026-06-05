@@ -88,7 +88,7 @@ internal sealed class DockingTestPlaybackWindow : ChromedWindow
         _getMapViolations    = getMapViolations;
 
         Title      = "Docking Test Playback";
-        Width      = 720;
+        Width      = 936;
         Height     = 500;
 
         var contentHolder = ApplyOuterBorder("AppSurface", "Docking Test Playback");
@@ -300,17 +300,24 @@ internal sealed class DockingTestPlaybackWindow : ChromedWindow
             int idx = _entries.FindIndex(e => e.DisplayName == selectedName);
             if (idx >= 0)
             {
-                _testList.SelectedIndex = idx; // SelectionChanged not wired — restores quietly
+                _testList.SelectedIndex = idx; // SelectionChanged fires; re-runs the test with restored selection
             }
             else
             {
                 // Previously-selected file was removed; reset playback state.
+                _testList.SelectedIndex = -1; // Explicitly deselect to prevent auto-selection
                 _currentTest = null;
                 _testLoaded  = false;
                 _detailBlock.Text     = string.Empty;
                 _stepButton.IsEnabled = false;
                 SetStatus("Selected test file was removed. Choose another.", StatusKind.Subtle);
             }
+        }
+        else
+        {
+            // No previously selected item; explicitly deselect all to prevent auto-selection
+            // of the first item or new items when the file watcher detects changes.
+            _testList.SelectedIndex = -1;
         }
     }
 
@@ -542,10 +549,9 @@ internal sealed class DockingTestPlaybackWindow : ChromedWindow
     private void SetStatus(string text, StatusKind kind)
     {
         _statusLabel.Text = text;
-        // Pass/neutral messages use high-contrast label text; only failures get red.
+        // Pass/neutral messages use high-contrast label text; only failures get theme-aware high-contrast red.
         if (kind == StatusKind.Error)
-            _statusLabel.SetValue(TextBlock.ForegroundProperty,
-                new SolidColorBrush(Color.FromRgb(210, 60, 60)));
+            _statusLabel.SetResourceReference(TextBlock.ForegroundProperty, "DangerButtonBg");
         else
             _statusLabel.SetResourceReference(TextBlock.ForegroundProperty,
                 kind == StatusKind.Subtle ? "SubtleText" : "LabelText");
