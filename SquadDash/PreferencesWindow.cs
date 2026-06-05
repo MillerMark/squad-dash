@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Windows;
 using System.Net.Http;
+using System.IO;
+using System.Text.Json;
 using System.Windows.Input;
 using System.Threading.Tasks;
 using System.Windows.Controls;
@@ -10,6 +12,7 @@ using System.Windows.Shell;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Threading;
 using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.CognitiveServices.Speech;
@@ -18,6 +21,7 @@ namespace SquadDash;
 
 internal sealed class PreferencesWindow : Window {
     private readonly ApplicationSettingsStore _settingsStore;
+    private readonly IWorkspacePaths _workspacePaths;
     private readonly Action<ApplicationSettingsSnapshot> _onSaved;
     private readonly TextBox _userNameBox;
     private readonly PasswordBox _apiKeyPasswordBox;
@@ -48,6 +52,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly RadioButton _githubCopilotProviderRadio;
     private readonly RadioButton _customModelProviderRadio;
     private readonly ComboBox _copilotModelComboBox;
+    private readonly TextBlock _copilotModelStatusText;
     private readonly StackPanel _githubCopilotModelPanel;
     private readonly StackPanel _customModelProviderPanel;
     private readonly TextBox _byokProviderUrlBox;
@@ -78,7 +83,7 @@ internal sealed class PreferencesWindow : Window {
 
     private static readonly string[] KnownCopilotModelOptions = {
         ApplicationSettingsSnapshot.DefaultCopilotModel,
-        "auto",
+        "claude-sonnet-4.6",
         "claude-sonnet-4.5",
         "claude-sonnet-4",
         "claude-opus-4.6",
@@ -114,12 +119,14 @@ internal sealed class PreferencesWindow : Window {
         ApplicationSettingsStore settingsStore,
         ApplicationSettingsSnapshot currentSettings,
         PushNotificationService pushNotificationService,
+        IWorkspacePaths workspacePaths,
         Action<ApplicationSettingsSnapshot> onSaved,
         bool showDevOptions = false,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null) {
         _settingsStore = settingsStore;
         _pushNotificationService = pushNotificationService;
+        _workspacePaths = workspacePaths;
         _onSaved = onSaved;
         _startPtt = startPtt;
         _stopPtt  = stopPtt;
@@ -367,13 +374,21 @@ internal sealed class PreferencesWindow : Window {
             IsEditable = true,
             IsTextSearchEnabled = true
         };
-        _copilotModelComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _copilotModelComboBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        _copilotModelComboBox.SetResourceReference(Control.BackgroundProperty, "TextBoxBackground");
+        _copilotModelComboBox.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
         foreach (var model in KnownCopilotModelOptions)
             _copilotModelComboBox.Items.Add(model);
         var savedCopilotModel = ApplicationSettingsSnapshot.NormalizeCopilotDefaultModel(currentSettings.CopilotDefaultModel);
         if (!KnownCopilotModelOptions.Contains(savedCopilotModel, StringComparer.OrdinalIgnoreCase))
             _copilotModelComboBox.Items.Add(savedCopilotModel);
-        _copilotModelComboBox.Text = savedCopilotModel;
+        SelectCopilotModel(savedCopilotModel);
+        _copilotModelStatusText = new TextBlock {
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
+            Margin = new Thickness(0, -8, 0, 12)
+        };
+        _copilotModelStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
 
         _githubCopilotModelPanel = new StackPanel {
             Visibility = useCustomModelProvider ? Visibility.Collapsed : Visibility.Visible
@@ -579,6 +594,7 @@ internal sealed class PreferencesWindow : Window {
 
         NavigateTo(Math.Min(currentSettings.Preferences_LastPage, _pages.Length - 1));
         UpdateQrCode();
+        Loaded += async (_, _) => await LoadCopilotModelsIntoComboBoxAsync();
     }
 
     private void NavigateTo(int index) {
@@ -1096,14 +1112,8 @@ internal sealed class PreferencesWindow : Window {
 
         AddLabel(_githubCopilotModelPanel, "Default Model:", topMargin: 8);
         _githubCopilotModelPanel.Children.Add(_copilotModelComboBox);
-        var copilotHint = new TextBlock {
-            Text = "Use auto to let GitHub Copilot choose. Type a model ID if it is not listed yet.",
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
-            Margin = new Thickness(0, -8, 0, 12)
-        };
-        copilotHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        _githubCopilotModelPanel.Children.Add(copilotHint);
+        _copilotModelStatusText.Text = "Use auto to let GitHub Copilot choose. Loading available models...";
+        _githubCopilotModelPanel.Children.Add(_copilotModelStatusText);
         form.Children.Add(_githubCopilotModelPanel);
 
         var byokDevWarning = new TextBlock {
@@ -1176,6 +1186,154 @@ internal sealed class PreferencesWindow : Window {
         var useCustomModelProvider = _customModelProviderRadio.IsChecked == true;
         _githubCopilotModelPanel.Visibility = useCustomModelProvider ? Visibility.Collapsed : Visibility.Visible;
         _customModelProviderPanel.Visibility = useCustomModelProvider ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async Task LoadCopilotModelsIntoComboBoxAsync() {
+        var currentModel = ReadCopilotDefaultModelInput();
+        try {
+            var modelIds = await FetchCopilotModelIdsAsync();
+            if (modelIds.Count == 0)
+                throw new InvalidOperationException("The Copilot API returned no models.");
+
+            PopulateCopilotModelOptions(modelIds, currentModel);
+            _copilotModelStatusText.Text = "Use auto to let GitHub Copilot choose. Model list loaded from GitHub Copilot.";
+        }
+        catch (Exception ex) {
+            PopulateCopilotModelOptions(KnownCopilotModelOptions, currentModel);
+            _copilotModelStatusText.Text = $"Use auto to let GitHub Copilot choose. Using the built-in list because live model discovery failed: {ex.Message}";
+            SquadDashTrace.Write("Preferences", $"Copilot model discovery failed: {ex.Message}");
+        }
+    }
+
+    private void PopulateCopilotModelOptions(IEnumerable<string> models, string selectedModel) {
+        var options = models
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Select(model => model.Trim())
+            .Prepend(ApplicationSettingsSnapshot.DefaultCopilotModel)
+            .Append(selectedModel)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(model => string.Equals(model, ApplicationSettingsSnapshot.DefaultCopilotModel, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(model => model, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        _copilotModelComboBox.Items.Clear();
+        foreach (var model in options)
+            _copilotModelComboBox.Items.Add(model);
+
+        SelectCopilotModel(selectedModel);
+    }
+
+    private void SelectCopilotModel(string model) {
+        var normalizedModel = ApplicationSettingsSnapshot.NormalizeCopilotDefaultModel(model);
+        foreach (var item in _copilotModelComboBox.Items) {
+            if (string.Equals(item as string, normalizedModel, StringComparison.OrdinalIgnoreCase)) {
+                _copilotModelComboBox.SelectedItem = item;
+                _copilotModelComboBox.Text = item as string ?? normalizedModel;
+                return;
+            }
+        }
+
+        _copilotModelComboBox.Items.Add(normalizedModel);
+        _copilotModelComboBox.SelectedItem = normalizedModel;
+        _copilotModelComboBox.Text = normalizedModel;
+    }
+
+    private async Task<IReadOnlyList<string>> FetchCopilotModelIdsAsync() {
+        var sdkDirectory = _workspacePaths.SquadSdkDirectory;
+        var scriptPath = Path.Combine(sdkDirectory, "listModels.js");
+        if (!File.Exists(scriptPath))
+            throw new FileNotFoundException("Bundled model discovery script was not found.", scriptPath);
+
+        using var process = new Process {
+            StartInfo = new ProcessStartInfo {
+                FileName = ResolveNodeExecutablePath(),
+                Arguments = "listModels.js",
+                WorkingDirectory = sdkDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            }
+        };
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        process.Start();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        try {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) {
+            TryKillProcess(process);
+            throw new TimeoutException("Timed out while asking GitHub Copilot for models.");
+        }
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr)
+                ? $"Model discovery exited with code {process.ExitCode}."
+                : stderr.Trim());
+
+        return ParseModelIds(stdout);
+    }
+
+    private static IReadOnlyList<string> ParseModelIds(string json) {
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+
+        var models = new List<string>();
+        foreach (var element in document.RootElement.EnumerateArray()) {
+            string? id = element.ValueKind switch {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Object when element.TryGetProperty("id", out var idProperty) => idProperty.GetString(),
+                _ => null
+            };
+
+            if (!string.IsNullOrWhiteSpace(id))
+                models.Add(id.Trim());
+        }
+
+        return models
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string ResolveNodeExecutablePath() {
+        static IEnumerable<string> SplitPath(string? value) =>
+            string.IsNullOrWhiteSpace(value)
+                ? Enumerable.Empty<string>()
+                : value.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var candidates = new[] {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe")
+        };
+
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate))
+                return candidate;
+
+        foreach (var scope in new[] { EnvironmentVariableTarget.Process, EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine }) {
+            foreach (var directory in SplitPath(Environment.GetEnvironmentVariable("PATH", scope))) {
+                var nodePath = Path.Combine(directory.Trim('"'), "node.exe");
+                if (File.Exists(nodePath))
+                    return nodePath;
+            }
+        }
+
+        return "node";
+    }
+
+    private static void TryKillProcess(Process process) {
+        try {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch {
+        }
     }
 
     private UIElement BuildNotificationsPage(ApplicationSettingsSnapshot currentSettings) {
@@ -1825,11 +1983,12 @@ internal sealed class PreferencesWindow : Window {
         ApplicationSettingsStore settingsStore,
         ApplicationSettingsSnapshot currentSettings,
         PushNotificationService pushNotificationService,
+        IWorkspacePaths workspacePaths,
         bool showDevOptions,
         Action<ApplicationSettingsSnapshot> onSaved,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null) {
-        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, onSaved, showDevOptions, startPtt, stopPtt);
+        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt);
         if (owner != null)
             window.Owner = owner;
         window.Show();

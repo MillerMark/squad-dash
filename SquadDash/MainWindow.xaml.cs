@@ -12388,6 +12388,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _settingsStore,
                 _settingsSnapshot,
                 _pushNotificationService,
+                _workspacePaths,
                 showDevOptions,
                 snapshot =>
                 {

@@ -1300,7 +1300,7 @@ internal sealed record ApplicationSettingsSnapshot(
     public IReadOnlyDictionary<string, int> AccentHueOffsetByWorkspace { get; init; } =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-    public const string DefaultCopilotModel = "claude-sonnet-4.6";
+    public const string DefaultCopilotModel = "auto";
 
     public static ApplicationSettingsSnapshot Empty{ get; } =
         new(
