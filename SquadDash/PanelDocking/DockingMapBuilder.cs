@@ -939,80 +939,19 @@ internal static class DockingMapBuilder
         }
 
         // Source is alone in its zone and there are other occupied zones.
-        // For solo-panel sources spanning multiple zones: all thins within that region are no-ops.
-        // Find all zones containing the SOURCE panel specifically.
-        
-        var sourceZonesOnThisSide = new List<DockZone>();
-        for (int i = 0; i < sideZones.Count; i++)
-        {
-            var panelsInZone = PanelsInZone(layout, sideZones[i]);
-            if (panelsInZone.Any(p => Same(p, sourcePanelId)))
-            {
-                sourceZonesOnThisSide.Add(sideZones[i]);
-            }
-        }
-        
-        int firstSourceZoneIdx = -1, lastSourceZoneIdx = -1;
-        if (sourceZonesOnThisSide.Count > 0)
-        {
-            for (int i = 0; i < sideZones.Count; i++)
-            {
-                if (sideZones[i] == sourceZonesOnThisSide[0])
-                    firstSourceZoneIdx = i;
-                if (sideZones[i] == sourceZonesOnThisSide[sourceZonesOnThisSide.Count - 1])
-                    lastSourceZoneIdx = i;
-            }
-        }
+        // A solo-panel occupies exactly ONE zone. Only filter thins within that zone
+        // and those targeting immediately adjacent EMPTY zones.
         
         SquadDashTrace.Write(TraceCategory.Docking,
-            $"  [adjacent-thin-filter-DEBUG] {sideName}: sourceZonesOnThisSide={sourceZonesOnThisSide.Count}, firstSourceZoneIdx={firstSourceZoneIdx}, lastSourceZoneIdx={lastSourceZoneIdx}, sourceZoneIdx={sourceZoneIdx}");
+            $"  [adjacent-thin-filter-DEBUG] {sideName}: Finding zones with source panel '{sourcePanelId}'");
         
-        bool isSoloPanelSpanningMultipleZones = sourceZonesOnThisSide.Count > 1;
+        bool isSoloPanelSpanningMultipleZones = false; // Solo-panels by definition occupy exactly ONE zone
         var sameSideFiltered = new List<SyntheticThin>();
         var sameSideRemoved = new List<SyntheticThin>();
 
-        if (isSoloPanelSpanningMultipleZones)
-        {
-            // Solo-panel spans multiple zones. All synthetic thins within the SOURCE's zone region are no-ops
-            // because dropping anywhere in that region puts the multi-zone block back in the same place.
-            SquadDashTrace.Write(TraceCategory.Docking,
-                $"  [adjacent-thin-filter] {sideName}: Solo-panel spans {sourceZonesOnThisSide.Count} zones ({DockingLayoutEngine.GetZoneDisplayName(sourceZonesOnThisSide[0])}-{DockingLayoutEngine.GetZoneDisplayName(sourceZonesOnThisSide[sourceZonesOnThisSide.Count - 1])})—filtering all thins in that region");
-            
-            foreach (var thin in thins)
-            {
-                // Check if thin targets a zone within the SOURCE panel's zone region
-                int thinZoneIdx = -1;
-                for (int i = 0; i < sideZones.Count; i++)
-                {
-                    if (sideZones[i] == thin.TargetZone)
-                    {
-                        thinZoneIdx = i;
-                        break;
-                    }
-                }
-                bool isThinInSourceRegion = thinZoneIdx >= firstSourceZoneIdx && thinZoneIdx <= lastSourceZoneIdx;
-                
-                if (isThinInSourceRegion)
-                {
-                    sameSideRemoved.Add(thin);
-                    SquadDashTrace.Write(TraceCategory.Docking,
-                        $"    [solo-panel-same-side] Filtering no-op thin (in source region): {thin.Kind} {DockingLayoutEngine.GetZoneDisplayName(thin.TargetZone)}@{thin.TargetOrder} (idx={thinZoneIdx})");
-                }
-                else
-                {
-                    sameSideFiltered.Add(thin);
-                    SquadDashTrace.Write(TraceCategory.Docking,
-                        $"    [solo-panel-same-side] KEEPING thin (outside source region): {thin.Kind} {DockingLayoutEngine.GetZoneDisplayName(thin.TargetZone)}@{thin.TargetOrder} (idx={thinZoneIdx})");
-                }
-            }
-            SquadDashTrace.Write(TraceCategory.Docking,
-                $"  [adjacent-thin-filter] {sideName}: Removed {sameSideRemoved.Count} thins in source region for multi-zone solo-panel");
-        }
-        else
-        {
-            // Single-zone solo-panel: use selective filtering
-            SquadDashTrace.Write(TraceCategory.Docking,
-                $"  [adjacent-thin-filter] {sideName}: Solo-panel is single-zone—filter selectively");
+        // Always use selective filtering (multi-zone should never occur)
+        SquadDashTrace.Write(TraceCategory.Docking,
+            $"  [adjacent-thin-filter] {sideName}: Solo-panel occupies zone {DockingLayoutEngine.GetZoneDisplayName(sourceZone)}—filter selectively");
             
             DockZone? leftAdjacentZone = sourceZoneIdx > 0 ? sideZones[sourceZoneIdx - 1] : null;
             DockZone? rightAdjacentZone = sourceZoneIdx < sideZones.Count - 1 ? sideZones[sourceZoneIdx + 1] : null;
@@ -1059,7 +998,6 @@ internal static class DockingMapBuilder
                 SquadDashTrace.Write(TraceCategory.Docking,
                     $"  [adjacent-thin-filter] {sideName}: Removed {sameSideRemoved.Count} no-op same-side thin(s) for solo-panel {srcZoneName}");
             }
-        }
 
         // Now check N+1 rule with the filtered result
         if (sameSideFiltered.Count >= expectedThins)
