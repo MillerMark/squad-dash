@@ -252,6 +252,11 @@
     <Compile Include="..\SquadDash\PanelDocking\DockingMapBuilder.cs"   Link="Source\PanelDocking\DockingMapBuilder.cs" />
     <Compile Include="..\SquadDash\PanelDocking\PanelLayoutData.cs"       Link="Source\PanelDocking\PanelLayoutData.cs" />
     <Compile Include="..\SquadDash\PanelDocking\DockingLayoutEngine.cs"   Link="Source\PanelDocking\DockingLayoutEngine.cs" />
+
+    <!-- Clipboard Editor State Persistence -->
+    <Compile Include="..\SquadDash\ClipboardAnnotationState.cs"    Link="Source\ClipboardAnnotationState.cs" />
+    <Compile Include="..\SquadDash\ClipboardEditorSessionState.cs" Link="Source\ClipboardEditorSessionState.cs" />
+    <Compile Include="..\SquadDash\ClipboardEditorStateStore.cs"   Link="Source\ClipboardEditorStateStore.cs" />
   </ItemGroup>
 
 </Project>

@@ -8,7 +8,6 @@ internal enum RestartDeferralReason {
     DirectQuickReplyHandoff,
     VoiceInput,
     DocRevision,
-    ClipboardEditor
 }
 
 internal static class RestartDeferralPolicy {
@@ -19,7 +18,6 @@ internal static class RestartDeferralPolicy {
         bool hasPendingDirectQuickReplyHandoff,
         bool isVoiceInputActiveOrDraining,
         bool hasDocRevisionInFlight,
-        bool isClipboardEditorOpen,
         // When true the bridge has been silent for ≥5 min and is assumed dead.
         // We lift the restart gate so a pending build-restart can proceed without
         // requiring the user to manually cancel the unresponsive prompt first.
@@ -38,8 +36,6 @@ internal static class RestartDeferralPolicy {
             return RestartDeferralReason.VoiceInput;
         if (hasDocRevisionInFlight)
             return RestartDeferralReason.DocRevision;
-        if (isClipboardEditorOpen)
-            return RestartDeferralReason.ClipboardEditor;
 
         return RestartDeferralReason.None;
     }
@@ -58,8 +54,6 @@ internal static class RestartDeferralPolicy {
                 "Build finished. Restart will happen after voice recording completes.",
             RestartDeferralReason.DocRevision =>
                 "Build finished. Restart will happen after in-flight AI revisions complete.",
-            RestartDeferralReason.ClipboardEditor =>
-                "Build finished. Restart will happen after the image editor closes.",
             _ =>
                 "Build finished. Restart pending."
         };

@@ -323,6 +323,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _clipboardEditorOpen; // true while any ClipboardImageEditorWindow is open; defers restart
     private int  _clipboardEditorCount; // number of ClipboardImageEditorWindows currently open
     private bool _pendingShutdown;     // true when a close was requested while ClipboardImageEditorWindow was open
+    private ClipboardEditorStateStore _clipboardEditorStateStore = null!;
     private bool _programmaticExpanderChange;
     private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
@@ -649,6 +650,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _instanceRegistry = serviceProvider?.GetRequiredService<RunningInstanceRegistry>() ?? new RunningInstanceRegistry();
         _restartCoordinatorStateStore = serviceProvider?.GetRequiredService<RestartCoordinatorStateStore>() ?? new RestartCoordinatorStateStore();
         _pastedImageStore = serviceProvider?.GetRequiredService<PastedImageStore>() ?? new PastedImageStore();
+        _clipboardEditorStateStore = serviceProvider?.GetRequiredService<ClipboardEditorStateStore>() ?? new ClipboardEditorStateStore();
         _promptQueue = serviceProvider?.GetRequiredService<PromptQueue>() ?? new PromptQueue();
         _hostCommandRegistry = serviceProvider?.GetRequiredService<HostCommandRegistry>() ?? new HostCommandRegistry();
         _postedUiActionTracker = serviceProvider?.GetRequiredService<PostedUiActionTracker>() ?? new PostedUiActionTracker();
@@ -1644,6 +1646,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             phaseSw.Restart();
             RestoreUtilityWindowVisibility();
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: RestoreUtilityWindowVisibility {phaseSw.ElapsedMilliseconds}ms.");
+
+            // Restore any clipboard editors whose state was saved before the last restart.
+            _ = RestoreClipboardEditorsAsync();
+            // Clean up stale pending state files (>7 days old) in the background.
+            _ = _clipboardEditorStateStore.CleanupStaleFilesAsync();
 
             // Grant focus before the async version-check so the user can type immediately
             // without waiting for the npx squad --version probe to complete.
@@ -24375,31 +24382,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // If the clipboard image editor is open, block the close and let the user finish
-            // (or dismiss) all editors first.  Once the last one closes, OnClipboardEditorClosed
-            // will call Close() again.
+            // If the clipboard image editor is open, save its state async so it can be
+            // restored on next launch, then allow the close to proceed immediately.
             if (_clipboardEditorOpen)
             {
-                e.Cancel = true;
-                _pendingShutdown = true;
-                HideRestartingOverlay();
-                if (_restartPending)
-                {
-                    SetInstallStatus("Build finished. Restart will happen after the image editor closes.");
-                    UpdateSessionState("Restart pending");
-                }
-                // Bring the editor to the foreground so the user sees why the close was blocked.
-                foreach (Window w in Application.Current.Windows)
-                {
-                    if (w is ClipboardImageEditorWindow editorWin)
-                    {
-                        editorWin.Activate();
-                        break;
-                    }
-                }
-                SquadDashTrace.Write("Shutdown", "Close requested while ClipboardImageEditorWindow is open. Deferring until editor closes.");
-                _mainWindowClosingInProgress = false;
-                return;
+                _ = SaveAllClipboardEditorsAsync("window-closing");
+                SquadDashTrace.Write("Shutdown", $"Close requested while {_clipboardEditorCount} ClipboardImageEditorWindow(s) open. State saved async; proceeding with close.");
             }
 
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
@@ -25865,14 +25853,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             hasPendingDirectQuickReplyHandoff: HasPendingDirectQuickReplyAgentFollowUp(),
             isVoiceInputActiveOrDraining:    _pttState == PttState.Active || _pttDraining,
             hasDocRevisionInFlight:          MarkdownDocumentWindow.AnyRevisionInFlight,
-            isClipboardEditorOpen:           _clipboardEditorOpen,
             promptAppearsStalled:            _pec.PromptAppearsDeadShown);
 
     private bool DeferPendingRestartIfBlocked(string reason)
     {
         var blocker = GetRestartDeferralReason();
         if (blocker == RestartDeferralReason.None)
+        {
+            // Clipboard editors are no longer a blocking concern; save state async and proceed.
+            _ = SaveAllClipboardEditorsAsync(reason);
             return false;
+        }
 
         HideRestartingOverlay();
         var message = RestartDeferralPolicy.BuildStatusMessage(blocker);
@@ -25880,7 +25871,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         UpdateSessionState("Restart pending");
         SquadDashTrace.Write(
             "Shutdown",
-            $"Restart deferred reason={reason} blocker={blocker} promptRunning={_isPromptRunning} loop={IsLoopRunning} background={_backgroundTaskPresenter.HasRestartBlockingBackgroundWork()} directQuickReply={HasPendingDirectQuickReplyAgentFollowUp()} ptt={_pttState}/{_pttDraining} docRevision={MarkdownDocumentWindow.AnyRevisionInFlight} clipboard={_clipboardEditorOpen}");
+            $"Restart deferred reason={reason} blocker={blocker} promptRunning={_isPromptRunning} loop={IsLoopRunning} background={_backgroundTaskPresenter.HasRestartBlockingBackgroundWork()} directQuickReply={HasPendingDirectQuickReplyAgentFollowUp()} ptt={_pttState}/{_pttDraining} docRevision={MarkdownDocumentWindow.AnyRevisionInFlight}");
         return true;
     }
 
@@ -25964,6 +25955,134 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         TryCompletePendingRestart("clipboard-editor-closed-restart", emergencySaveBeforeClose: true);
+    }
+
+    /// <summary>
+    /// Asynchronously saves the state of all open <see cref="ClipboardImageEditorWindow"/> instances.
+    /// Fire-and-forget safe — catches all exceptions and logs them.
+    /// </summary>
+    private async Task SaveAllClipboardEditorsAsync(string reason)
+    {
+        SquadDashTrace.Write("ClipboardPersist", $"SaveAllClipboardEditorsAsync: reason={reason}");
+        foreach (Window w in Application.Current.Windows)
+        {
+            if (w is ClipboardImageEditorWindow editorWin)
+            {
+                try
+                {
+                    await editorWin.SaveStateAsync(reason, _clipboardEditorStateStore).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("ClipboardPersist",
+                        $"SaveAllClipboardEditorsAsync: error saving editor: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// On startup, restores any clipboard editor windows whose state was persisted
+    /// before the last restart. Fire-and-forget safe.
+    /// </summary>
+    private async Task RestoreClipboardEditorsAsync()
+    {
+        try
+        {
+            var pending = await _clipboardEditorStateStore.GetAllPendingAsync().ConfigureAwait(false);
+            if (pending.Count == 0)
+                return;
+
+            SquadDashTrace.Write("ClipboardPersist", $"RestoreClipboardEditorsAsync: found {pending.Count} editor(s) to restore.");
+
+            foreach (var (editorId, state) in pending)
+            {
+                try
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        try
+                        {
+                            // Load the source image from disk if available.
+                            System.Windows.Media.Imaging.BitmapSource? srcImage = null;
+                            var sourcePath = state.ImageMetadata?.SourceImagePath;
+                            if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+                            {
+                                try
+                                {
+                                    var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
+                                    bitmapImage.BeginInit();
+                                    bitmapImage.UriSource = new Uri(sourcePath, UriKind.Absolute);
+                                    bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                                    bitmapImage.EndInit();
+                                    bitmapImage.Freeze();
+                                    srcImage = bitmapImage;
+                                }
+                                catch (Exception ex)
+                                {
+                                    SquadDashTrace.Write("ClipboardPersist",
+                                        $"RestoreClipboardEditorsAsync: could not load image from {sourcePath}: {ex.Message}. Opening blank editor.");
+                                }
+                            }
+                            else if (!string.IsNullOrWhiteSpace(sourcePath))
+                            {
+                                SquadDashTrace.Write("ClipboardPersist",
+                                    $"RestoreClipboardEditorsAsync: source image not found at {sourcePath}. Opening blank editor.");
+                            }
+
+                            if (srcImage == null)
+                            {
+                                // No image to restore; skip this editor rather than open a blank one.
+                                SquadDashTrace.Write("ClipboardPersist",
+                                    $"RestoreClipboardEditorsAsync: skipping editor {editorId} (no source image).");
+                                await _clipboardEditorStateStore.DeleteAsync(editorId, isPending: false).ConfigureAwait(false);
+                                return;
+                            }
+
+                            // TODO (UI agent — Phase 2): pass full ClipboardEditorSessionState to
+                            // a dedicated constructor overload so geometry, tool state, and zoom
+                            // are also restored. For now, pass only annotation state.
+                            var editor = new ClipboardImageEditorWindow(
+                                this,
+                                srcImage,
+                                isPromptMode: false,
+                                initialState: state.AnnotationState);
+
+                            // Restore window geometry if available.
+                            if (state.WindowGeometry is { } geom)
+                            {
+                                editor.Left   = geom.X;
+                                editor.Top    = geom.Y;
+                                editor.Width  = geom.Width > 0 ? geom.Width  : editor.Width;
+                                editor.Height = geom.Height > 0 ? geom.Height : editor.Height;
+                                if (geom.IsMaximized)
+                                    editor.WindowState = System.Windows.WindowState.Maximized;
+                            }
+
+                            OpenEditorModeless(editor);
+                            await _clipboardEditorStateStore.DeleteAsync(editorId, isPending: false).ConfigureAwait(false);
+                            SquadDashTrace.Write("ClipboardPersist", $"Restored editor {editorId}.");
+                        }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("ClipboardPersist",
+                                $"RestoreClipboardEditorsAsync: failed to restore editor {editorId}: {ex.Message}");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("ClipboardPersist",
+                        $"RestoreClipboardEditorsAsync: dispatcher error for editor {editorId}: {ex.Message}");
+                }
+            }
+
+            SquadDashTrace.Write("ClipboardPersist", $"Restored {pending.Count} clipboard editor(s) from disk.");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("ClipboardPersist", $"RestoreClipboardEditorsAsync failed: {ex.Message}");
+        }
     }
 
     private void EmergencySaveAfterDrainingBridgeEvents(string reason)

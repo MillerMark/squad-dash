@@ -40,6 +40,7 @@ namespace SquadDash {
             services.AddSingleton<SquadInstallerService>();
             services.AddSingleton<RunningInstanceRegistry>();
             services.AddSingleton<RestartCoordinatorStateStore>();
+            services.AddSingleton<ClipboardEditorStateStore>();
             services.AddSingleton<PastedImageStore>();
             services.AddSingleton<PromptQueue>();
             services.AddSingleton<HostCommandRegistry>();

@@ -10,8 +10,7 @@ internal sealed class RestartDeferralPolicyTests {
             hasBackgroundWork: true,
             hasPendingDirectQuickReplyHandoff: false,
             isVoiceInputActiveOrDraining: false,
-            hasDocRevisionInFlight: false,
-            isClipboardEditorOpen: false);
+            hasDocRevisionInFlight: false);
 
         Assert.That(reason, Is.EqualTo(RestartDeferralReason.BackgroundWork));
     }
@@ -25,7 +24,6 @@ internal sealed class RestartDeferralPolicyTests {
             hasPendingDirectQuickReplyHandoff: false,
             isVoiceInputActiveOrDraining: false,
             hasDocRevisionInFlight: false,
-            isClipboardEditorOpen: false,
             promptAppearsStalled: true);
 
         Assert.That(reason, Is.EqualTo(RestartDeferralReason.None));
@@ -39,8 +37,7 @@ internal sealed class RestartDeferralPolicyTests {
             hasBackgroundWork: false,
             hasPendingDirectQuickReplyHandoff: true,
             isVoiceInputActiveOrDraining: false,
-            hasDocRevisionInFlight: false,
-            isClipboardEditorOpen: false);
+            hasDocRevisionInFlight: false);
 
         Assert.That(reason, Is.EqualTo(RestartDeferralReason.DirectQuickReplyHandoff));
     }
@@ -53,8 +50,21 @@ internal sealed class RestartDeferralPolicyTests {
             hasBackgroundWork: false,
             hasPendingDirectQuickReplyHandoff: false,
             isVoiceInputActiveOrDraining: false,
-            hasDocRevisionInFlight: false,
-            isClipboardEditorOpen: false);
+            hasDocRevisionInFlight: false);
+
+        Assert.That(reason, Is.EqualTo(RestartDeferralReason.None));
+    }
+
+    [Test]
+    public void GetDeferralReason_AllowsRestart_EvenWhenClipboardEditorWouldHaveBlocked() {
+        // Clipboard editor open no longer blocks restart — state is persisted async instead.
+        var reason = RestartDeferralPolicy.GetDeferralReason(
+            isPromptRunning: false,
+            isLoopRunning: false,
+            hasBackgroundWork: false,
+            hasPendingDirectQuickReplyHandoff: false,
+            isVoiceInputActiveOrDraining: false,
+            hasDocRevisionInFlight: false);
 
         Assert.That(reason, Is.EqualTo(RestartDeferralReason.None));
     }

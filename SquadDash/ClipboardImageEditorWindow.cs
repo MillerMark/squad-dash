@@ -404,10 +404,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// </summary>
     private readonly ClipboardAnnotationState? _initialState;
 
+    // ── Session persistence ───────────────────────────────────────────────────
+
+    /// <summary>Stable identifier for this editor instance; used as the file key in the state store.</summary>
+    private readonly string _editorId = Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// Full session state to restore on <see cref="System.Windows.FrameworkElement.Loaded"/>.
+    /// Provided by the startup restoration path (Phase 4).
+    /// </summary>
+    private readonly ClipboardEditorSessionState? _sessionState;
+
     // ────────────────────────────────────────────────────────────────────────
 
     internal ClipboardImageEditorWindow(Window owner, BitmapSource clipboardImage, bool isPromptMode = false,
-                                        ClipboardAnnotationState? initialState = null, bool isUpdateMode = false)
+                                        ClipboardAnnotationState? initialState = null, bool isUpdateMode = false,
+                                        ClipboardEditorSessionState? sessionState = null)
         : base(captionHeight: 36) {
         _clipboardImage = clipboardImage ?? throw new ArgumentNullException(nameof(clipboardImage));
 
@@ -416,6 +428,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _isUpdateMode = isUpdateMode;
         _themeName = AgentStatusCard.IsDarkTheme ? "dark" : "light";
         _initialState = initialState;
+        _sessionState = sessionState;
 
         // Owner is intentionally not set — this window is modeless and fully independent.
         Title = "Edit Clipboard Image";
@@ -424,6 +437,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         _textBoxPttAttachment = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
         Closed += (_, _) => _textBoxPttAttachment.Dispose();
+        Closing += (_, _) => { _ = SaveStateAsync("editor-closing"); };
 
         LoadArrowDefaults();
         LoadTextDefaults();
@@ -849,10 +863,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var outerBorder = ApplyOuterBorder();
         outerBorder.Child = root;
 
-        Loaded += (_, _) => {
+        Loaded += async (_, _) => {
             RefreshLayout();
             UpdateWindowSizeForZoom(); // center on first paint
-            if (_initialState != null)
+            if (_sessionState != null)
+                await RestoreFromSessionStateAsync(_sessionState);
+            else if (_initialState != null)
                 RestoreAnnotationState(_initialState);
             else
                 EnterCropMode();
@@ -6347,6 +6363,217 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         }
         finally {
             _suppressUndo = false;
+        }
+    }
+
+    // ── Session state capture ─────────────────────────────────────────────────
+
+    /// <summary>Returns current window position, size, and maximized state as a tuple.</summary>
+    private (double x, double y, double w, double h, bool isMaximized) CaptureWindowGeometry()
+        => (Left, Top, Width, Height, WindowState == WindowState.Maximized);
+
+    /// <summary>Returns the name of the active tool and the current zoom level.</summary>
+    private (string tool, double zoom) CaptureToolState() {
+        string tool = "move";
+        if      (_inArrowMode)           tool = "arrow";
+        else if (_inRectMode)            tool = "rect";
+        else if (_inTextMode)            tool = "text";
+        else if (_inCropMode)            tool = "crop";
+        else if (_inMeasureLineMode)     tool = "measureLine";
+        else if (_inXMode)               tool = "x";
+        else if (_inCursorPlacementMode) tool = "cursor";
+        else if (_inEyedropperMode)      tool = "eyedropper";
+        return (tool, _zoom);
+    }
+
+    /// <summary>Builds a complete serialisable snapshot of the current editor state.</summary>
+    private ClipboardEditorSessionState CaptureSessionState() {
+        var (x, y, w, h, isMax) = CaptureWindowGeometry();
+        var (tool, zoom)        = CaptureToolState();
+        return new ClipboardEditorSessionState {
+            EditorId       = _editorId,
+            WindowGeometry = new WindowGeometryState { X = x, Y = y, Width = w, Height = h, IsMaximized = isMax },
+            ToolState      = new ToolStateInfo { SelectedTool = tool, ZoomLevel = zoom },
+            AnnotationState = CaptureAnnotationState(),
+            ImageMetadata  = new ImageMetadataInfo {
+                OriginalImageWidth  = _originalImage.PixelWidth,
+                OriginalImageHeight = _originalImage.PixelHeight,
+            },
+            SavedAt    = DateTime.UtcNow.ToString("O"),
+            AppVersion = typeof(ClipboardImageEditorWindow).Assembly.GetName().Version?.ToString() ?? "",
+        };
+    }
+
+    // ── Session state restoration ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Clamps and applies window position/size from a previously saved snapshot.
+    /// Ensures no part of the window lands off every connected screen.
+    /// </summary>
+    private void RestoreWindowGeometry(double x, double y, double w, double h, bool isMaximized) {
+        const double MinVisible = 50.0;
+
+        if (w < MinWidth) w = MinWidth;
+        if (h < 200)      h = 200;
+
+        double screenLeft   = SystemParameters.VirtualScreenLeft;
+        double screenTop    = SystemParameters.VirtualScreenTop;
+        double screenRight  = screenLeft + SystemParameters.VirtualScreenWidth;
+        double screenBottom = screenTop  + SystemParameters.VirtualScreenHeight;
+
+        x = Math.Max(screenLeft, Math.Min(x, screenRight  - MinVisible));
+        y = Math.Max(screenTop,  Math.Min(y, screenBottom - MinVisible));
+
+        Left   = x;
+        Top    = y;
+        Width  = w;
+        Height = h;
+        if (isMaximized)
+            WindowState = WindowState.Maximized;
+    }
+
+    /// <summary>
+    /// Restores all persisted editor state: window geometry, source image, annotations,
+    /// tool selection, and zoom level.  Called from the <c>Loaded</c> handler when a
+    /// <see cref="ClipboardEditorSessionState"/> is provided to the constructor.
+    /// </summary>
+    private async Task RestoreFromSessionStateAsync(ClipboardEditorSessionState state) {
+        try {
+            SquadDashTrace.Write("ClipboardPersist", $"Restoring editor {state.EditorId}");
+
+            // Restore window geometry (UI-thread, synchronous).
+            if (state.WindowGeometry is { } geo)
+                RestoreWindowGeometry(geo.X, geo.Y, geo.Width, geo.Height, geo.IsMaximized);
+
+            // Load source image from disk if the path is available and valid.
+            string? imagePath = state.ImageMetadata?.SourceImagePath;
+            if (!string.IsNullOrEmpty(imagePath) && File.Exists(imagePath)) {
+                try {
+                    // Load on a background thread; ConfigureAwait(true) brings the
+                    // continuation back to the UI thread so we can update visual elements.
+                    BitmapSource bmp = await Task.Run(() => {
+                        var img = new BitmapImage();
+                        img.BeginInit();
+                        img.CacheOption = BitmapCacheOption.OnLoad;
+                        img.UriSource   = new Uri(imagePath);
+                        img.EndInit();
+                        img.Freeze();
+                        return (BitmapSource)img;
+                    }).ConfigureAwait(true);
+
+                    _workingImage        = bmp;
+                    _originalImage       = bmp;
+                    _imageCtrl.Source    = bmp;
+                    _canvas.Width        = bmp.PixelWidth;
+                    _canvas.Height       = bmp.PixelHeight;
+                    _imageCtrl.Width     = bmp.PixelWidth;
+                    _imageCtrl.Height    = bmp.PixelHeight;
+                    RefreshLayout();
+                }
+                catch (Exception ex) {
+                    SquadDashTrace.Write("ClipboardPersist",
+                        $"Image load failed from {imagePath}: {ex.Message} — keeping existing image");
+                }
+            }
+
+            // Restore annotations (falls back to move mode if AnnotationState is null).
+            if (state.AnnotationState != null)
+                RestoreAnnotationState(state.AnnotationState);
+            else
+                EnterMoveMode();
+
+            // Restore tool selection and zoom level.
+            if (state.ToolState != null) {
+                RestoreToolMode(state.ToolState.SelectedTool ?? "move");
+                double zoomLevel = Math.Max(0.1, Math.Min(8.0, state.ToolState.ZoomLevel));
+                _zoom                   = zoomLevel;
+                _scaleTransform.ScaleX  = _zoom;
+                _scaleTransform.ScaleY  = _zoom;
+                if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
+                UpdateWindowSizeForZoom();
+            }
+
+            SquadDashTrace.Write("ClipboardPersist", $"Editor {state.EditorId} restored");
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("ClipboardPersist",
+                $"RestoreFromSessionStateAsync failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Activates the named tool without triggering multi-drop mode.</summary>
+    private void RestoreToolMode(string selectedTool) {
+        ExitAllToolModes();
+        switch (selectedTool) {
+            case "arrow":       EnterArrowMode();       break;
+            case "rect":        EnterRectMode();        break;
+            case "text":        EnterTextMode();        break;
+            case "crop":        EnterCropMode();        break;
+            case "measureLine": EnterMeasureLineMode(); break;
+            case "x":           EnterXMode();           break;
+            default:            EnterMoveMode();        break;
+        }
+    }
+
+    // ── Session state save ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Fire-and-forget save of the full editor state to disk.
+    /// All UI-thread reads happen synchronously before the first <c>await</c>;
+    /// the method never propagates exceptions to the UI thread.
+    /// An optional <paramref name="store"/> may be supplied by the caller (e.g. MainWindow) to
+    /// reuse an existing store instance; if null, a default store is created.
+    /// </summary>
+    internal async Task SaveStateAsync(string reason, ClipboardEditorStateStore? store = null) {
+        try {
+            SquadDashTrace.Write("ClipboardPersist",
+                $"SaveStateAsync start: editor={_editorId} reason={reason}");
+
+            // Capture all UI-thread state synchronously before any await.
+            int    imgW  = _originalImage.PixelWidth;
+            int    imgH  = _originalImage.PixelHeight;
+            var    state = CaptureSessionState();
+
+            // Encode original image to a byte array while still on the UI thread.
+            // PngBitmapEncoder requires UI-thread access to BitmapSource.
+            byte[]? imageBytes = null;
+            try {
+                using var ms = new MemoryStream();
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(_originalImage));
+                encoder.Save(ms);
+                imageBytes = ms.ToArray();
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write("ClipboardPersist",
+                    $"Image encode failed for {_editorId}: {ex.Message}");
+            }
+
+            // Capture editorId locally — the rest runs on a thread-pool thread.
+            var editorId    = _editorId;
+            var storeToUse  = store ?? new ClipboardEditorStateStore();
+            string sourceImagePath = storeToUse.GetSourceImagePath(editorId);
+
+            if (imageBytes != null) {
+                try {
+                    await File.WriteAllBytesAsync(sourceImagePath, imageBytes).ConfigureAwait(false);
+                    state.ImageMetadata = new ImageMetadataInfo {
+                        SourceImagePath     = sourceImagePath,
+                        OriginalImageWidth  = imgW,
+                        OriginalImageHeight = imgH,
+                    };
+                }
+                catch (Exception ex) {
+                    SquadDashTrace.Write("ClipboardPersist",
+                        $"Image write failed for {editorId}: {ex.Message}");
+                }
+            }
+
+            await storeToUse.SaveAsync(state, reason).ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("ClipboardPersist",
+                $"SaveStateAsync failed for {_editorId}: {ex.Message}");
         }
     }
 
