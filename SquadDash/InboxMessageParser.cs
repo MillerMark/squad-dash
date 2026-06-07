@@ -125,22 +125,47 @@ internal static class InboxMessageParser
     /// Replaces common malformed content inside JSON string values with valid escape
     /// sequences. The AI sometimes emits multi-line prompt text with real newlines
     /// rather than \n, or prose quotes rather than \", which makes the JSON invalid.
+    /// Also fixes invalid escape sequences (e.g. \d → \\d) and strips C0 control chars.
     /// </summary>
-    private static string SanitizeMalformedStringContent(string json)
+    internal static string SanitizeMalformedStringContent(string json)
     {
         var sb = new System.Text.StringBuilder(json.Length + 64);
         bool inString = false;
-        bool escaped  = false;
         for (int i = 0; i < json.Length; i++)
         {
             char c = json[i];
-            if (escaped)
+            if (c == '\\' && inString)
             {
-                sb.Append(c);
-                escaped = false;
+                if (i + 1 < json.Length)
+                {
+                    char next = json[i + 1];
+                    if (next == '"' || next == '\\' || next == '/' ||
+                        next == 'b' || next == 'f'  || next == 'n' ||
+                        next == 'r' || next == 't'  || next == 'u')
+                    {
+                        // Valid JSON escape — emit as-is and consume both chars.
+                        sb.Append('\\');
+                        sb.Append(next);
+                        i++;
+                    }
+                    else
+                    {
+                        // Invalid escape (e.g. \d, \p) — double the backslash so
+                        // the sequence becomes valid JSON string content.
+                        sb.Append('\\');
+                        sb.Append('\\');
+                        sb.Append(next);
+                        i++;
+                    }
+                }
+                else
+                {
+                    // Trailing backslash at end of input — escape it.
+                    sb.Append('\\');
+                    sb.Append('\\');
+                }
                 continue;
             }
-            if (c == '\\' && inString) { sb.Append(c); escaped = true; continue; }
             if (c == '"')
             {
                 if (!inString || IsLikelyJsonStringTerminator(json, i))
@@ -165,6 +190,7 @@ internal static class InboxMessageParser
                 }
                 if (c == '\n') { sb.Append("\\n"); continue; }
                 if (c == '\t') { sb.Append("\\t"); continue; }
+                if (c < ' ')  { continue; }  // strip other C0 control chars (U+0001–U+001F)
             }
             sb.Append(c);
         }

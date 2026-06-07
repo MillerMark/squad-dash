@@ -30460,12 +30460,66 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var rawSample = responseForParsing.Length > 3000
                     ? "...(truncated)...\n" + responseForParsing[^3000..]
                     : responseForParsing;
-                var parseEx = new InvalidOperationException(
+                var parseExMessage =
                     $"INBOX_MESSAGE_JSON was present in the response but could not be parsed as valid JSON.\n\n" +
                     $"Response length: {responseForParsing.Length} chars\n\n" +
-                    $"--- JSON head (first 200 chars after marker) ---\n{jsonSnippet}\n\n" +
-                    $"--- Raw response (tail) ---\n{rawSample}");
-                ReportUnhandledUiException("Inbox parse", parseEx);
+                    $"--- JSON head (first 200 chars after marker) ---\n{jsonSnippet}";
+
+                SquadDashTrace.Write(TraceCategory.Inbox,
+                    $"INBOX_SAVE: hasActualBlock — attempting fallback parse. jsonSnippetStart={jsonSnippetStart}");
+
+                // --- Fallback parse: recover subject/from; store a degraded inbox message ---
+                // subject and from are typically simple one-line strings, so a line-safe Regex
+                // extracts them even when body/attachments/actions are malformed.
+                string recoveredSubject = "Inbox message (parse error)";
+                string recoveredFrom    = "system";
+                if (jsonSnippetStart >= 0)
+                {
+                    var rawJsonText = responseForParsing[jsonSnippetStart..];
+                    var subjectMatch = System.Text.RegularExpressions.Regex.Match(
+                        rawJsonText, @"""subject""\s*:\s*""([^""\r\n\\]*)""");
+                    var fromMatch = System.Text.RegularExpressions.Regex.Match(
+                        rawJsonText, @"""from""\s*:\s*""([^""\r\n\\]*)""");
+                    if (subjectMatch.Success && !string.IsNullOrWhiteSpace(subjectMatch.Groups[1].Value))
+                        recoveredSubject = subjectMatch.Groups[1].Value.Trim();
+                    if (fromMatch.Success && !string.IsNullOrWhiteSpace(fromMatch.Groups[1].Value))
+                        recoveredFrom = fromMatch.Groups[1].Value.Trim();
+                }
+
+                // Attempt a minimal JsonSerializer round-trip on just subject + from.
+                InboxMessageDto? fallbackDto = null;
+                try
+                {
+                    var minimalJsonOptions = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    var minimalJson = $"{{\"subject\":{System.Text.Json.JsonSerializer.Serialize(recoveredSubject)}," +
+                                     $"\"from\":{System.Text.Json.JsonSerializer.Serialize(recoveredFrom)}}}";
+                    fallbackDto = System.Text.Json.JsonSerializer.Deserialize<InboxMessageDto>(minimalJson, minimalJsonOptions);
+                }
+                catch (System.Text.Json.JsonException) { /* ignore — use recovered strings */ }
+
+                var degradedMessage = new InboxMessage
+                {
+                    Id          = Guid.NewGuid().ToString("N"),
+                    Subject     = fallbackDto?.Subject ?? recoveredSubject,
+                    From        = fallbackDto?.From    ?? recoveredFrom,
+                    Body        = "⚠️ This inbox message could not be fully parsed. The raw response is attached below.",
+                    Timestamp   = DateTimeOffset.Now,
+                    Attachments = [
+                        new InboxAttachment { Type = "text", Label = "Parse error details", Content = parseExMessage },
+                        new InboxAttachment { Type = "text", Label = "Raw response",        Content = rawSample },
+                    ],
+                    Actions = [],
+                };
+
+                _inboxStore.Save(degradedMessage);
+                SquadDashTrace.Write(TraceCategory.Inbox,
+                    $"INBOX_SAVE: saved degraded message id={degradedMessage.Id} subject=\"{degradedMessage.Subject}\"");
+
+                if (_inboxPanel is not null)
+                    _inboxPanel.Refresh(_inboxStore.LoadAll());
+
+                AppendInboxReceivedEntry(degradedMessage.Subject, degradedMessage.Id);
+                return degradedMessage.Id;
             }
             return null;
         }
