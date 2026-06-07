@@ -688,6 +688,58 @@ internal static class MaintenanceMdParser {
         }
     }
 
+    /// <summary>
+    /// Flips the <c>enabled:</c> field for <paramref name="taskId"/> in a single pass and
+    /// writes the file back.  Returns the new enabled value, or <see langword="null"/> if the
+    /// task or its <c>enabled:</c> field was not found.
+    /// </summary>
+    internal static bool? ToggleTaskEnabled(string mdPath, string taskId) {
+        if (!File.Exists(mdPath)) return null;
+        var raw   = File.ReadAllText(mdPath);
+        var le    = raw.Contains("\r\n") ? "\r\n" : "\n";
+        var lines = raw.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+        bool inFrontmatter = false, pastFirst = false;
+        bool inTasksList   = false, inTargetTask = false;
+
+        for (int i = 0; i < lines.Length; i++) {
+            var line    = lines[i];
+            var trimmed = line.TrimStart();
+            int indent  = line.Length - trimmed.Length;
+
+            if (trimmed == "---") {
+                if (!pastFirst) { pastFirst = true; inFrontmatter = true; }
+                else            { inFrontmatter = false; }
+                continue;
+            }
+
+            if (!inFrontmatter) continue;
+            if (indent == 0 && trimmed == "tasks:") { inTasksList = true; continue; }
+            if (!inTasksList) continue;
+            if (string.IsNullOrWhiteSpace(trimmed)) continue;
+            if (indent == 0) { inTargetTask = false; inTasksList = false; continue; }
+
+            if (indent == 2 && trimmed.StartsWith("- ")) {
+                var rest = trimmed[2..];
+                inTargetTask = rest.StartsWith("id:") &&
+                    string.Equals(rest["id:".Length..].Trim().Trim('"', '\''), taskId, StringComparison.Ordinal);
+                continue;
+            }
+
+            if (!inTargetTask) continue;
+
+            if (indent == 4 && trimmed.StartsWith("enabled:")) {
+                var val      = trimmed["enabled:".Length..].Trim().Trim('"', '\'');
+                bool newVal  = !string.Equals(val, "true", StringComparison.OrdinalIgnoreCase);
+                lines[i]     = "    enabled: " + (newVal ? "true" : "false");
+                File.WriteAllText(mdPath, string.Join(le, lines));
+                return newVal;
+            }
+        }
+
+        return null;
+    }
+
     private static int CountLeadingSpaces(string line) {
         int n = 0;
         while (n < line.Length && line[n] == ' ') n++;
