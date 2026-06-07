@@ -12,10 +12,12 @@ namespace SquadDash;
 internal sealed class MaintenanceStateStore {
 
     private readonly string _statePath;
+    private readonly ITimeProvider _clock;
     private Dictionary<string, TaskState> _tasks = new(StringComparer.Ordinal);
 
-    internal MaintenanceStateStore(string stateDir) {
+    internal MaintenanceStateStore(string stateDir, ITimeProvider? clock = null) {
         _statePath = Path.Combine(stateDir, "maintenance-state.json");
+        _clock = clock ?? SystemTimeProvider.Instance;
     }
 
     /// <summary>Reloads state from disk. On any failure, starts with empty state.</summary>
@@ -71,7 +73,7 @@ internal sealed class MaintenanceStateStore {
                 return true;
             if (weeklyState.LastRunAt is null)
                 return true;
-            return weeklyState.LastRunAt.Value < StartOfCurrentWeekUtc();
+            return weeklyState.LastRunAt.Value < StartOfCurrentWeekUtc(_clock.UtcNow.Date);
         }
 
         // Handle "weekly-Monday", "weekly-Tuesday", etc.
@@ -84,7 +86,7 @@ internal sealed class MaintenanceStateStore {
                     return true;
                 
                 var lastRun = weeklyDayState.LastRunAt.Value;
-                var today = DateTime.UtcNow.Date;
+                var today = _clock.UtcNow.Date;
                 var todayDow = today.DayOfWeek;
                 
                 // Check if today is the target day and last run was before today
@@ -108,7 +110,7 @@ internal sealed class MaintenanceStateStore {
                 return true;
             if (monthlyState.LastRunAt is null)
                 return true;
-            var now = DateTime.UtcNow;
+            var now = _clock.UtcNow;
             var last = monthlyState.LastRunAt.Value;
             return last.Year < now.Year || (last.Year == now.Year && last.Month < now.Month);
         }
@@ -119,7 +121,7 @@ internal sealed class MaintenanceStateStore {
             return true;
         if (dailyState.LastRunAt is null)
             return true;
-        return dailyState.LastRunAt.Value.Date < DateTime.UtcNow.Date;
+        return dailyState.LastRunAt.Value.Date < _clock.UtcNow.Date;
     }
 
     /// <summary>Attempts to parse a day-of-week string (e.g., "Monday", "tuesday").</summary>
@@ -137,7 +139,7 @@ internal sealed class MaintenanceStateStore {
     /// <summary>Records a completed run and persists state atomically.</summary>
     public void RecordRun(string taskId, string? commitSha) {
         var entry = new TaskState {
-            LastRunAt    = DateTime.UtcNow,
+            LastRunAt    = _clock.UtcNow,
             LastCommitSha = commitSha,
         };
         _tasks[taskId] = entry;
@@ -189,9 +191,8 @@ internal sealed class MaintenanceStateStore {
     }
 
     /// <summary>Returns the UTC DateTime for the start of the current ISO week (Monday 00:00:00).</summary>
-    private static DateTime StartOfCurrentWeekUtc()
+    private static DateTime StartOfCurrentWeekUtc(DateTime today)
     {
-        var today = DateTime.UtcNow.Date;
         // DayOfWeek: Sunday=0, Monday=1 … Saturday=6; we want Monday=0
         int daysSinceMonday = ((int)today.DayOfWeek + 6) % 7;
         return today.AddDays(-daysSinceMonday);

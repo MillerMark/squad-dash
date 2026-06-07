@@ -18,8 +18,11 @@ internal sealed class MaintenanceStateStoreTests {
     [SetUp]
     public void SetUp() {
         _workspace = new TestWorkspace();
-        _store = new MaintenanceStateStore(_workspace.RootPath);
+        _store = CreateStore();
     }
+
+    private MaintenanceStateStore CreateStore(ITimeProvider? clock = null) =>
+        new MaintenanceStateStore(_workspace.RootPath, clock);
 
     [TearDown]
     public void TearDown() => _workspace.Dispose();
@@ -214,11 +217,10 @@ internal sealed class MaintenanceStateStoreTests {
 
     [Test]
     public void IsEligible_Weekly_RunMidweekThisWeek_ReturnsFalse() {
-        var today = DateTime.UtcNow.Date;
-        var thisMonday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
-        var thisWednesday = thisMonday.AddDays(2);
-        Assume.That(today >= thisWednesday, "Test only runs when today is Wednesday or later in the week");
-        WriteStateWithLastRunAt("weekly-task", lastRunAt: thisWednesday, lastSha: "sha1");
+        // Wednesday 2025-01-08 is used as "today"; last run is also Wednesday of the same week.
+        var wednesday = new DateTime(2025, 1, 8, 0, 0, 0, DateTimeKind.Utc);
+        _store = CreateStore(new FakeTimeProvider(wednesday));
+        WriteStateWithLastRunAt("weekly-task", lastRunAt: wednesday, lastSha: "sha1");
         _store.Reload();
         var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
         Assert.That(eligible, Is.False, "A weekly task run this Wednesday must not be eligible again this week");
@@ -226,10 +228,10 @@ internal sealed class MaintenanceStateStoreTests {
 
     [Test]
     public void IsEligible_Weekly_RunTodayAtStartOfWeek_ReturnsFalse() {
-        var today = DateTime.UtcNow.Date;
-        var thisMonday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
-        Assume.That(today == thisMonday, "Test only applies when today is Monday (start of week)");
-        WriteStateWithLastRunAt("weekly-task", lastRunAt: today, lastSha: "sha1");
+        // Monday 2025-01-06 is used as "today".
+        var monday = new DateTime(2025, 1, 6, 0, 0, 0, DateTimeKind.Utc);
+        _store = CreateStore(new FakeTimeProvider(monday));
+        WriteStateWithLastRunAt("weekly-task", lastRunAt: monday, lastSha: "sha1");
         _store.Reload();
         var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
         Assert.That(eligible, Is.False, "A weekly task run today when today is Monday must not be eligible");
@@ -284,7 +286,10 @@ internal sealed class MaintenanceStateStoreTests {
 
     [Test]
     public void IsEligible_Monthly_RunThisCalendarMonth_ReturnsFalse() {
-        WriteStateWithLastRunAt("monthly-task", lastRunAt: DateTime.UtcNow.AddDays(-3), lastSha: "sha1");
+        // Use a fixed "today" mid-month so AddDays(-3) stays in the same calendar month.
+        var today = new DateTime(2025, 6, 15, 0, 0, 0, DateTimeKind.Utc);
+        _store = CreateStore(new FakeTimeProvider(today));
+        WriteStateWithLastRunAt("monthly-task", lastRunAt: today.AddDays(-3), lastSha: "sha1");
         _store.Reload();
         var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
         Assert.That(eligible, Is.False, "A monthly task run 3 days ago (same month) must not be eligible");

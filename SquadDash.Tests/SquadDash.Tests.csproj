@@ -218,6 +218,7 @@
     <Compile Include="..\SquadDash\MaintenanceModels.cs"                Link="Source\MaintenanceModels.cs" />
     <Compile Include="..\SquadDash\MaintenanceOptionChoice.cs"          Link="Source\MaintenanceOptionChoice.cs" />
     <Compile Include="..\SquadDash\MaintenanceStateStore.cs"            Link="Source\MaintenanceStateStore.cs" />
+    <Compile Include="..\SquadDash\ITimeProvider.cs"                    Link="Source\ITimeProvider.cs" />
     <Compile Include="..\SquadDash\MaintenanceRunner.cs"                Link="Source\MaintenanceRunner.cs" />
     <Compile Include="..\SquadDash\MaintenanceReportWriter.cs"          Link="Source\MaintenanceReportWriter.cs" />
     <Compile Include="..\SquadDash\MaintenanceStubStateStore.cs"        Link="Source\MaintenanceStubStateStore.cs" />
