@@ -97,6 +97,23 @@ internal sealed class DockResizeEngineTests
     }
 
     [Test]
+    public void ChainDragRight_WhenLeftPanelAlreadyAtMaximum_GrowsBoundaryAndShrinksRightSide()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants(
+                (1381, 260, null),
+                (360, 200, 360),
+                (320, 200, 320),
+                (390, 220, 560),
+                (553, 220, 620)),
+            splitterLeftParticipantIndex: 1,
+            DockResizeMode.Chain,
+            delta: 878);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 2004, 360, 200, 220, 220 }).Within(0.001));
+    }
+
+    [Test]
     public void ChainDrag_ShrinksNearestThenNextAtMinimum()
     {
         var sizes = DockResizeEngine.Resize(
