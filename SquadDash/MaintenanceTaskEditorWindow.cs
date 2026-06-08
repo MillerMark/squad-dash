@@ -310,11 +310,11 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         };
         var cancelBtn = new Button { Content = "Cancel", Margin = new Thickness(0, 0, 8, 0),
             Padding = new Thickness(16, 4, 16, 4) };
-        cancelBtn.SetResourceReference(Button.StyleProperty, "FlatButtonStyle");
+        cancelBtn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         cancelBtn.Click += (_, _) => Close();
 
         var saveBtn = new Button { Content = "Save", Padding = new Thickness(16, 4, 16, 4) };
-        saveBtn.SetResourceReference(Button.StyleProperty, "FlatButtonStyle");
+        saveBtn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         saveBtn.Click += OnSave;
 
         buttonRow.Children.Add(cancelBtn);
@@ -365,7 +365,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         // Header row: "UI preview" (Col 0) and "YAML" (Col 1)
-        var uiPreviewLabel = new TextBlock { Text = "UI preview", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
+        var uiPreviewLabel = new TextBlock { Text = "UI Preview", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
         uiPreviewLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         uiPreviewLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         Grid.SetRow(uiPreviewLabel, 0);
@@ -410,12 +410,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private UIElement BuildInstructionsSection() {
         var panel = new DockPanel { Margin = new Thickness(8, 2, 8, 0), LastChildFill = true };
 
-        var headerTb = new TextBlock { Text = "Instructions", Margin = new Thickness(0, 0, 0, 2) };
-        headerTb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        headerTb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-        DockPanel.SetDock(headerTb, Dock.Top);
-        panel.Children.Add(headerTb);
-
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -424,7 +418,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         // Header row: "Preview" (Col 0) and "Source" (Col 2)
-        var leftLabel = new TextBlock { Text = "Preview", Margin = new Thickness(0, 0, 0, 2) };
+        var leftLabel = new TextBlock { Text = "Instructions - Preview", Margin = new Thickness(0, 0, 0, 2) };
         leftLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         leftLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
         Grid.SetRow(leftLabel, 0);
@@ -626,7 +620,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             HorizontalAlignment  = HorizontalAlignment.Stretch,
             VerticalAlignment    = VerticalAlignment.Stretch,
         };
-        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "RosterPanelSurface");
+        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "InputSurface");
         return viewer;
     }
 
