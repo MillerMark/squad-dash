@@ -43,7 +43,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private readonly TextBox     _optionsYamlBox;
     private readonly StackPanel  _optionsPreviewPanel;
     private readonly FlowDocumentScrollViewer _markdownPreview;
-    private readonly RichTextBox _instructionsBox;
+    private readonly MarkdownEditorPanel _instructionsPanel;
     private StackPanel? _weeklyDayPickerPanel;  // Day picker UI for weekly frequency
 
     // ── Voice ─────────────────────────────────────────────────────────────────
@@ -55,15 +55,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Debounce timers ───────────────────────────────────────────────────────
 
     private DispatcherTimer? _optionsDebounce;
-    private DispatcherTimer? _instructionsDebounce;
-
-    // ── Selection-embedding suppression ───────────────────────────────────────
-    private bool _suppressInstructionsNextTextInput;
-
-    // ── Manual undo/redo stack (replaces WPF built-in undo, which tracks highlight rebuilds) ──
-    private readonly List<string> _undoStack  = new();
-    private int                   _undoPos    = -1;   // current position in _undoStack
-    private bool                  _applyingUndoRedo;  // suppress snapshot during undo/redo
 
     // ── Preview→source hover highlight ────────────────────────────────────────
 
@@ -77,8 +68,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
     // ── Re-entrance guard ─────────────────────────────────────────────────────
 
-    private bool _updatingHighlight;
-
     // Tracks current option values for conditional preview resolution
     private readonly Dictionary<string, string> _optionValues = new();
 
@@ -86,11 +75,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private TextBlock _yamlErrorText = null!;
 
     // ── Highlight colours ─────────────────────────────────────────────────────
-
-    private static readonly Brush BlockTagBrush    = new SolidColorBrush(Color.FromRgb(0xB8, 0x86, 0x0B)); // amber (light)
-    private static readonly Brush BlockTagBrushDk  = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)); // gold (dark)
-    private static readonly Brush VarBrush         = new SolidColorBrush(Color.FromRgb(0x2A, 0x8A, 0x8A)); // teal
-    private static readonly Brush VarBrushDk       = new SolidColorBrush(Color.FromRgb(0x4D, 0xC4, 0xC4)); // lighter teal
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -128,7 +112,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _optionsYamlBox      = BuildOptionsYamlBox();
         _optionsPreviewPanel = new StackPanel { Margin = new Thickness(4) };
         _markdownPreview     = BuildMarkdownPreview();
-        _instructionsBox     = BuildInstructionsBox();
+        _instructionsPanel   = BuildInstructionsPanel();
 
         // Initialize the weekly day selection based on the task's current frequency
         if (_task.Frequency.StartsWith("weekly-", StringComparison.OrdinalIgnoreCase)) {
@@ -167,8 +151,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _frequencyCombo.SelectionChanged += OnFrequencyComboChanged;
         // Track changes to options YAML
         _optionsYamlBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
-        // Track changes to instructions
-        _instructionsBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
+        // Track changes to instructions (TextChanged + PreviewUpdateRequested wired in BuildInstructionsPanel)
 
         // Use PreviewMouseMove on the viewer instead of Block.MouseEnter — FlowDocumentScrollViewer
         // does not route ContentElement mouse events to individual Block instances.
@@ -180,7 +163,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Initial renders
         Loaded += (_, _) => {
-            UpdateInstructionsHighlight();
             UpdateMarkdownPreview();
             UpdateOptionsPreview();
         };
@@ -193,8 +175,8 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             if (_pttTitle.HandlePreviewKeyDown(e, _titleBox)) e.Handled = true;
         if (_optionsYamlBox.IsKeyboardFocusWithin)
             if (_pttOptions.HandlePreviewKeyDown(e, _optionsYamlBox)) e.Handled = true;
-        if (_instructionsBox.IsKeyboardFocusWithin)
-            if (_pttInstructions.HandlePreviewKeyDown(e, _instructionsBox)) e.Handled = true;
+        if (_instructionsPanel.IsKeyboardFocusWithin)
+            if (_pttInstructions.HandlePreviewKeyDown(e, _instructionsPanel.EditorBox)) e.Handled = true;
 
         // Escape: close with unsaved changes confirmation
         if (e.Key == Key.Escape && !e.Handled) {
@@ -217,30 +199,30 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         }
 
         // Ctrl+Shift+A: Revise with AI
-        if (_instructionsBox.IsKeyboardFocusWithin
+        if (_instructionsPanel.IsKeyboardFocusWithin
             && e.Key == Key.A
             && (Keyboard.Modifiers & ModifierKeys.Control) != 0
             && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
             && _onReviseWithAi is not null
-            && _instructionsBox.GetSelectionLength() > 0)
+            && _instructionsPanel.EditorBox.GetSelectionLength() > 0)
         {
-            _onReviseWithAi(_instructionsBox, "");
+            _onReviseWithAi(_instructionsPanel.EditorBox, "");
             e.Handled = true;
             return;
         }
 
         // Ctrl+Shift+C: Quick Cleanup
-        if (_instructionsBox.IsKeyboardFocusWithin
+        if (_instructionsPanel.IsKeyboardFocusWithin
             && e.Key == Key.C
             && (Keyboard.Modifiers & ModifierKeys.Control) != 0
             && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
             && _onDirectRevise is not null
-            && _instructionsBox.GetSelectionLength() > 0)
+            && _instructionsPanel.EditorBox.GetSelectionLength() > 0)
         {
             var cleanupPrompt = _settingsProvider().CleanupPrompt;
             if (!string.IsNullOrWhiteSpace(cleanupPrompt))
             {
-                _onDirectRevise(_instructionsBox, "", cleanupPrompt);
+                _onDirectRevise(_instructionsPanel.EditorBox, "", cleanupPrompt);
                 e.Handled = true;
                 return;
             }
@@ -455,9 +437,9 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         Grid.SetColumn(leftStack, 0);
         leftStack.Children.Add(_markdownPreview);
 
-        // Right: editable RichTextBox (Row 1, Col 2)
+        // Right: editable MarkdownEditorPanel (Row 1, Col 2)
         _instructionsHost = new Grid();
-        _instructionsHost.Children.Add(_instructionsBox);
+        _instructionsHost.Children.Add(_instructionsPanel);
 
         var rightStack = new DockPanel { Margin = new Thickness(4, 0, 0, 0), LastChildFill = true };
         Grid.SetRow(rightStack, 1);
@@ -632,37 +614,12 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         return viewer;
     }
 
-    private RichTextBox BuildInstructionsBox() {
-        var rtb = new RichTextBox {
-            AcceptsReturn       = true,
-            AcceptsTab          = true,
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            FontFamily          = new FontFamily("Consolas, Courier New"),
-        };
-        rtb.SetResourceReference(RichTextBox.FontSizeProperty,   "FontSizeBody");
-        rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
-        rtb.SetResourceReference(RichTextBox.BackgroundProperty, "RosterPanelSurface");
-        rtb.SetResourceReference(RichTextBox.BorderBrushProperty,"SubtleBorder");
-
-        // Disable WPF's built-in undo — it tracks syntax-highlight rebuilds which
-        // causes an infinite undo loop. We use a manual plain-text undo stack instead.
-        rtb.IsUndoEnabled = false;
-
-        // Populate with initial text (plain)
-        rtb.Document.Blocks.Clear();
-        rtb.AppendText(_task.Instructions ?? "");
-
-        // Seed the manual undo stack with the initial state
-        _undoStack.Add(_task.Instructions ?? "");
-        _undoPos = 0;
-
-        rtb.TextChanged      += OnInstructionsTextChanged;
-        rtb.MouseMove        += OnInstructionsMouseMove;
-        rtb.PreviewKeyDown   += OnInstructionsPreviewKeyDown;
-        rtb.PreviewTextInput += OnInstructionsPreviewTextInput;
-
-        return rtb;
+    private MarkdownEditorPanel BuildInstructionsPanel() {
+        var panel = new MarkdownEditorPanel(showImageButton: false, showHrButton: false);
+        panel.SetText(_task.Instructions ?? "");
+        panel.TextChanged            += (_, _)    => _hasUnsavedChanges = true;
+        panel.PreviewUpdateRequested += (_, _)    => UpdateMarkdownPreview();
+        return panel;
     }
 
     private static TextBlock BuildLabel(string text) {
@@ -679,9 +636,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Save ──────────────────────────────────────────────────────────────────
 
     private void OnSave(object sender, RoutedEventArgs e) {
-        var instructionsText = new TextRange(
-            _instructionsBox.Document.ContentStart,
-            _instructionsBox.Document.ContentEnd).Text.TrimEnd('\r', '\n');
+        var instructionsText = _instructionsPanel.GetText().TrimEnd('\r', '\n');
 
         // Build the frequency value: if "weekly" is selected, append the day of week
         var baseFrequency = (_frequencyCombo.SelectedItem as string) ?? _task.Frequency;
@@ -715,207 +670,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         Close();
     }
 
-    // ── Instructions syntax highlighting ─────────────────────────────────────
-
-    private void OnInstructionsTextChanged(object sender, TextChangedEventArgs e) {
-        if (_updatingHighlight || _applyingUndoRedo) return;
-        SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] TextChanged — scheduling debounce + snapshot");
-        PushUndoSnapshot();
-        ScheduleInstructionsDebounce();
-    }
-
-    private void PushUndoSnapshot() {
-        var text = _instructionsBox.GetPlainText();
-        // Don't push duplicate of current position
-        if (_undoPos >= 0 && _undoPos < _undoStack.Count && _undoStack[_undoPos] == text) return;
-        // Truncate any redo history above current position
-        if (_undoPos < _undoStack.Count - 1)
-            _undoStack.RemoveRange(_undoPos + 1, _undoStack.Count - _undoPos - 1);
-        _undoStack.Add(text);
-        _undoPos = _undoStack.Count - 1;
-        SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Undo snapshot pushed — stack depth={_undoStack.Count}, pos={_undoPos}");
-    }
-
-    private void OnInstructionsPreviewKeyDown(object sender, KeyEventArgs e) {
-        if (sender is not RichTextBox box) return;
-
-        // ── Manual undo / redo ────────────────────────────────────────────────
-        var modifiers = Keyboard.Modifiers;
-        if (e.Key == Key.Z && modifiers == ModifierKeys.Control) {
-            SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Ctrl+Z — pos={_undoPos}, stack={_undoStack.Count}");
-            if (_undoPos > 0) {
-                _undoPos--;
-                ApplyUndoRedoState(_undoStack[_undoPos]);
-                SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Undo applied — now pos={_undoPos}");
-            }
-            else {
-                SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] Ctrl+Z — already at bottom of undo stack");
-            }
-            e.Handled = true;
-            return;
-        }
-        if ((e.Key == Key.Y && modifiers == ModifierKeys.Control) ||
-            (e.Key == Key.Z && modifiers == (ModifierKeys.Control | ModifierKeys.Shift))) {
-            SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Ctrl+Y/Ctrl+Shift+Z — pos={_undoPos}, stack={_undoStack.Count}");
-            if (_undoPos < _undoStack.Count - 1) {
-                _undoPos++;
-                ApplyUndoRedoState(_undoStack[_undoPos]);
-                SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Redo applied — now pos={_undoPos}");
-            }
-            else {
-                SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] Ctrl+Y — already at top of undo stack");
-            }
-            e.Handled = true;
-            return;
-        }
-
-        // ── Backtick embedding ────────────────────────────────────────────────
-        if (e.Key == Key.OemTilde
-            && Keyboard.Modifiers == ModifierKeys.None
-            && !box.Selection.IsEmpty) {
-            if (MarkdownEditorCommands.ApplyInlineCodeOrFence(box)) {
-                _suppressInstructionsNextTextInput = true;
-                e.Handled = true;
-            }
-        }
-    }
-
-    private void ApplyUndoRedoState(string text) {
-        _applyingUndoRedo = true;
-        try {
-            var caretOffset = _instructionsBox.GetCaretOffset();
-            _updatingHighlight = true;
-            try {
-                RebuildHighlightedDocument(_instructionsBox.Document, text);
-            }
-            finally { _updatingHighlight = false; }
-            var clampedCaret = Math.Min(caretOffset, text.Length);
-            _instructionsBox.SetCaretOffset(clampedCaret);
-            UpdateMarkdownPreview();
-        }
-        finally { _applyingUndoRedo = false; }
-    }
-
-    private void OnInstructionsPreviewTextInput(object sender, TextCompositionEventArgs e) {
-        if (_suppressInstructionsNextTextInput) {
-            _suppressInstructionsNextTextInput = false;
-            e.Handled = true;
-        }
-    }
-
-    private void ScheduleInstructionsDebounce() {
-        _instructionsDebounce?.Stop();
-        _instructionsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-        _instructionsDebounce.Tick += (_, _) => {
-            _instructionsDebounce?.Stop();
-            _instructionsDebounce = null;
-            UpdateInstructionsHighlight();
-            UpdateMarkdownPreview();
-        };
-        _instructionsDebounce.Start();
-    }
-
-    private void UpdateInstructionsHighlight() {
-        if (_updatingHighlight) return;
-        _updatingHighlight = true;
-        SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] UpdateInstructionsHighlight — start");
-        try {
-            // Use GetPlainText() (not TextRange.Text) so separators are \n not \r\n.
-            // GetTextPointerAt also counts paragraph separators as 1 char, matching \n.
-            // Using TextRange.Text would embed \r\n in a single Run, making offsets inconsistent.
-            var plainText   = _instructionsBox.GetPlainText();
-            var caretOffset = _instructionsBox.GetCaretOffset();
-
-            RebuildHighlightedDocument(_instructionsBox.Document, plainText);
-
-            var clamped = Math.Min(caretOffset, plainText.Length);
-            _instructionsBox.SetCaretOffset(clamped);
-        }
-        finally {
-            _updatingHighlight = false;
-            SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] UpdateInstructionsHighlight — done");
-        }
-    }
-
-    // Clears doc.Blocks and rebuilds one Paragraph per \n-delimited line.
-    // All block operations happen with _updatingHighlight = true (caller's responsibility).
-    private void RebuildHighlightedDocument(FlowDocument doc, string plainText) {
-        doc.Blocks.Clear();
-        var lines = plainText.Split('\n');
-        for (int i = 0; i < lines.Length; i++) {
-            // Skip the empty string that Split produces when text ends with \n
-            if (i == lines.Length - 1 && lines[i].Length == 0) break;
-            var para = new Paragraph { Margin = new Thickness(0) };
-            AppendHighlightedRuns(para.Inlines, lines[i]);
-            doc.Blocks.Add(para);
-        }
-        if (doc.Blocks.Count == 0)
-            doc.Blocks.Add(new Paragraph { Margin = new Thickness(0) });
-    }
-
-    private bool IsDark() {
-        // InputSurface is the actual preview background — reliably present in both theme files.
-        if (TryFindResource("InputSurface") is SolidColorBrush b) {
-            var lum = b.Color.R * 0.299 + b.Color.G * 0.587 + b.Color.B * 0.114;
-            return lum < 128;
-        }
-        // Fallback: light label text implies dark theme.
-        if (TryFindResource("LabelText") is SolidColorBrush lt)
-            return lt.Color.R > 128;
-        return false;
-    }
-
-    private void AppendHighlightedRuns(InlineCollection inlines, string text) {
-        var blockTagBrush = IsDark() ? BlockTagBrushDk : BlockTagBrush;
-        var varBrush      = IsDark() ? VarBrushDk      : VarBrush;
-
-        // Pattern for {{ ... }}
-        var pattern = @"\{\{[^}]*\}\}";
-        int pos = 0;
-        foreach (Match m in Regex.Matches(text, pattern)) {
-            if (m.Index > pos) {
-                inlines.Add(new Run(text[pos..m.Index]));
-            }
-
-            var tag        = m.Value;
-            bool isBlock   = tag.StartsWith("{{#", StringComparison.Ordinal)
-                          || tag.StartsWith("{{/", StringComparison.Ordinal);
-            var run = new Run(tag) { Foreground = isBlock ? blockTagBrush : varBrush };
-
-            if (!isBlock) {
-                var tip = MakeToolTip("System variable — will be replaced when the task runs.");
-                run.ToolTip = tip;
-            }
-
-            inlines.Add(run);
-            pos = m.Index + m.Length;
-        }
-
-        if (pos < text.Length)
-            inlines.Add(new Run(text[pos..]));
-    }
-
-    private static ToolTip MakeToolTip(string text) {
-        var tb = new TextBlock { Text = text };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        var tip = new ToolTip {
-            Content         = tb,
-            Padding         = new Thickness(6, 4, 6, 4),
-            BorderThickness = new Thickness(1),
-        };
-        tip.SetResourceReference(Control.BackgroundProperty,    "InputSurface");
-        tip.SetResourceReference(Control.BorderBrushProperty,  "InputBorder");
-        return tip;
-    }
-
-    private void OnInstructionsMouseMove(object sender, MouseEventArgs e) {
-        // Tooltip is on the Run inlines themselves — no extra hit-test needed.
-    }
-
     // ── Markdown preview ──────────────────────────────────────────────────────
 
     private void UpdateMarkdownPreview() {
-        var rawText = _instructionsBox.GetPlainText();
+        var rawText = _instructionsPanel.GetText();
 
         var segments         = ResolveConditionalSegments(rawText);
         var conditionalBrush = GetConditionalTextBrush();
@@ -1085,22 +843,23 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         ClearInstructionsHoverHighlight();
         if (length <= 0) return;
 
-        var rect = _instructionsBox.GetRectFromOffset(start);
+        var editorBox = _instructionsPanel.EditorBox;
+        var rect = editorBox.GetRectFromOffset(start);
         if (rect == Rect.Empty) return;
 
         var overlay    = EnsureInstructionsOverlay();
-        var origin     = _instructionsBox.TranslatePoint(new Point(0, 0), overlay);
-        var charTopLeft = _instructionsBox.TranslatePoint(rect.TopLeft, overlay);
+        var origin     = editorBox.TranslatePoint(new Point(0, 0), overlay);
+        var charTopLeft = editorBox.TranslatePoint(rect.TopLeft, overlay);
 
         // Don't draw if the target line is scrolled outside the visible area.
-        if (charTopLeft.Y < origin.Y || charTopLeft.Y >= origin.Y + _instructionsBox.ActualHeight) return;
+        if (charTopLeft.Y < origin.Y || charTopLeft.Y >= origin.Y + editorBox.ActualHeight) return;
 
         var isDark = IsDark();
         var highlightColor = isDark
             ? Color.FromArgb(60, 255, 220, 80)
             : Color.FromArgb(50, 100, 180, 255);
 
-        double highlightWidth = Math.Max(_instructionsBox.ActualWidth - (charTopLeft.X - origin.X), 0);
+        double highlightWidth = Math.Max(editorBox.ActualWidth - (charTopLeft.X - origin.X), 0);
 
         _instructionsHighlight = new System.Windows.Shapes.Rectangle {
             Width             = highlightWidth,
@@ -1390,6 +1149,18 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             return _optionValues.TryGetValue(key, out var val) ? val : m.Value;
         });
 
+    private bool IsDark() {
+        // InputSurface is the actual preview background — reliably present in both theme files.
+        if (TryFindResource("InputSurface") is SolidColorBrush b) {
+            var lum = b.Color.R * 0.299 + b.Color.G * 0.587 + b.Color.B * 0.114;
+            return lum < 128;
+        }
+        // Fallback: light label text implies dark theme.
+        if (TryFindResource("LabelText") is SolidColorBrush lt)
+            return lt.Color.R > 128;
+        return false;
+    }
+
     /// <summary>
     /// Returns a brush that is halfway between the current body text colour
     /// and the maximum contrast endpoint (white in dark theme, black in light).
@@ -1435,23 +1206,5 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     }
 
     // ── Caret helpers ─────────────────────────────────────────────────────────
-
-    private static int GetCaretOffset(RichTextBox rtb) {
-        try {
-            var start = rtb.Document.ContentStart;
-            var caret = rtb.CaretPosition;
-            return start.GetOffsetToPosition(caret);
-        }
-        catch { return 0; }
-    }
-
-    private static void RestoreCaretOffset(RichTextBox rtb, int offset) {
-        try {
-            var start    = rtb.Document.ContentStart;
-            var restored = start.GetPositionAtOffset(Math.Max(0, offset));
-            if (restored is not null)
-                rtb.CaretPosition = restored;
-        }
-        catch { /* ignore */ }
-    }
+    // (Plain-text caret API provided by RichTextBoxExtensions)
 }
