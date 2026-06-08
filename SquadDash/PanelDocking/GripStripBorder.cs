@@ -15,7 +15,8 @@ public sealed class GripStripBorder : Border
 {
     public GripStripBorder()
     {
-        ToolTipService.SetToolTip(this, "Docking map\u2026");
+        ToolTipService.SetToolTip(this, "Click for docking map");
+        ToolTipService.SetIsEnabled(this, false);
     }
 
     public event EventHandler? GripStripClicked;
@@ -102,17 +103,20 @@ public sealed class GripStripBorder : Border
         }
     }
 
-    // Set cursor to Hand when over the grip strip area
+    // Set cursor to Hand when over the grip strip area; show tooltip only over grip strip
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
         var pos = e.GetPosition(this);
-        Cursor = pos.Y <= GripHeight ? Cursors.Hand : Cursors.Arrow;
+        var overGrip = pos.Y <= GripHeight;
+        Cursor = overGrip ? Cursors.Hand : Cursors.Arrow;
+        ToolTipService.SetIsEnabled(this, overGrip);
     }
 
     protected override void OnMouseLeave(MouseEventArgs e)
     {
         base.OnMouseLeave(e);
         Cursor = Cursors.Arrow;
+        ToolTipService.SetIsEnabled(this, false);
     }
 }
