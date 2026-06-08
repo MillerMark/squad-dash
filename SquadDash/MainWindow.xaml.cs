@@ -12892,7 +12892,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             transcriptRow.Height = new GridLength(1, GridUnitType.Auto);
             promptRow.Height     = new GridLength(1, GridUnitType.Star);
             PromptBorder.Margin        = new Thickness(0, 0, 0, 14);
-            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 4);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 6);
         }
         else
         {
@@ -12901,7 +12901,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             transcriptRow.Height = new GridLength(1, GridUnitType.Star);
             promptRow.Height     = new GridLength(1, GridUnitType.Auto);
             PromptBorder.Margin        = new Thickness(0);
-            TranscriptPanelsGrid.Margin = new Thickness(0, 4, 0, 4);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 6, 0, 6);
         }
 
         // Persist per workspace.
@@ -16072,8 +16072,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             TranscriptPanelsGrid.Margin = _transcriptFullScreenEnabled
                 ? new Thickness(0)
                 : _agentsPanelFocusModeEnabled
-                    ? new Thickness(0, 0, 0, 4)
-                    : new Thickness(0, 4, 0, 4);
+                    ? new Thickness(0, 0, 0, 6)
+                    : new Thickness(0, 6, 0, 6);
 
         // Documentation mode: show docs panel whenever documentation mode is active
         var docsVisible = _documentationModeEnabled;
