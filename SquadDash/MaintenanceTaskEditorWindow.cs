@@ -60,6 +60,11 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Selection-embedding suppression ───────────────────────────────────────
     private bool _suppressInstructionsNextTextInput;
 
+    // ── Manual undo/redo stack (replaces WPF built-in undo, which tracks highlight rebuilds) ──
+    private readonly List<string> _undoStack  = new();
+    private int                   _undoPos    = -1;   // current position in _undoStack
+    private bool                  _applyingUndoRedo;  // suppress snapshot during undo/redo
+
     // ── Preview→source hover highlight ────────────────────────────────────────
 
     private Grid                                          _instructionsHost       = null!;
@@ -640,9 +645,17 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         rtb.SetResourceReference(RichTextBox.BackgroundProperty, "RosterPanelSurface");
         rtb.SetResourceReference(RichTextBox.BorderBrushProperty,"SubtleBorder");
 
+        // Disable WPF's built-in undo — it tracks syntax-highlight rebuilds which
+        // causes an infinite undo loop. We use a manual plain-text undo stack instead.
+        rtb.IsUndoEnabled = false;
+
         // Populate with initial text (plain)
         rtb.Document.Blocks.Clear();
         rtb.AppendText(_task.Instructions ?? "");
+
+        // Seed the manual undo stack with the initial state
+        _undoStack.Add(_task.Instructions ?? "");
+        _undoPos = 0;
 
         rtb.TextChanged      += OnInstructionsTextChanged;
         rtb.MouseMove        += OnInstructionsMouseMove;
@@ -705,12 +718,58 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Instructions syntax highlighting ─────────────────────────────────────
 
     private void OnInstructionsTextChanged(object sender, TextChangedEventArgs e) {
-        if (_updatingHighlight) return;
+        if (_updatingHighlight || _applyingUndoRedo) return;
+        SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] TextChanged — scheduling debounce + snapshot");
+        PushUndoSnapshot();
         ScheduleInstructionsDebounce();
+    }
+
+    private void PushUndoSnapshot() {
+        var text = _instructionsBox.GetPlainText();
+        // Don't push duplicate of current position
+        if (_undoPos >= 0 && _undoPos < _undoStack.Count && _undoStack[_undoPos] == text) return;
+        // Truncate any redo history above current position
+        if (_undoPos < _undoStack.Count - 1)
+            _undoStack.RemoveRange(_undoPos + 1, _undoStack.Count - _undoPos - 1);
+        _undoStack.Add(text);
+        _undoPos = _undoStack.Count - 1;
+        SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Undo snapshot pushed — stack depth={_undoStack.Count}, pos={_undoPos}");
     }
 
     private void OnInstructionsPreviewKeyDown(object sender, KeyEventArgs e) {
         if (sender is not RichTextBox box) return;
+
+        // ── Manual undo / redo ────────────────────────────────────────────────
+        var modifiers = Keyboard.Modifiers;
+        if (e.Key == Key.Z && modifiers == ModifierKeys.Control) {
+            SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Ctrl+Z — pos={_undoPos}, stack={_undoStack.Count}");
+            if (_undoPos > 0) {
+                _undoPos--;
+                ApplyUndoRedoState(_undoStack[_undoPos]);
+                SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Undo applied — now pos={_undoPos}");
+            }
+            else {
+                SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] Ctrl+Z — already at bottom of undo stack");
+            }
+            e.Handled = true;
+            return;
+        }
+        if ((e.Key == Key.Y && modifiers == ModifierKeys.Control) ||
+            (e.Key == Key.Z && modifiers == (ModifierKeys.Control | ModifierKeys.Shift))) {
+            SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Ctrl+Y/Ctrl+Shift+Z — pos={_undoPos}, stack={_undoStack.Count}");
+            if (_undoPos < _undoStack.Count - 1) {
+                _undoPos++;
+                ApplyUndoRedoState(_undoStack[_undoPos]);
+                SquadDashTrace.Write(TraceCategory.UI, $"[InstructionsEditor] Redo applied — now pos={_undoPos}");
+            }
+            else {
+                SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] Ctrl+Y — already at top of undo stack");
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // ── Backtick embedding ────────────────────────────────────────────────
         if (e.Key == Key.OemTilde
             && Keyboard.Modifiers == ModifierKeys.None
             && !box.Selection.IsEmpty) {
@@ -719,6 +778,27 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                 e.Handled = true;
             }
         }
+    }
+
+    private void ApplyUndoRedoState(string text) {
+        _applyingUndoRedo = true;
+        try {
+            var caretOffset = _instructionsBox.GetCaretOffset();
+            _updatingHighlight = true;
+            try {
+                var doc = _instructionsBox.Document;
+                doc.Blocks.Clear();
+                var para = new Paragraph { Margin = new Thickness(0) };
+                AppendHighlightedRuns(para.Inlines, text + "\r\n"); // include trailing sentinel
+                doc.Blocks.Add(para);
+            }
+            finally { _updatingHighlight = false; }
+            // Restore caret, clamped to new text length
+            var clampedCaret = Math.Min(caretOffset, text.Length);
+            RestoreCaretOffset(_instructionsBox, clampedCaret);
+            UpdateMarkdownPreview();
+        }
+        finally { _applyingUndoRedo = false; }
     }
 
     private void OnInstructionsPreviewTextInput(object sender, TextCompositionEventArgs e) {
@@ -743,6 +823,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private void UpdateInstructionsHighlight() {
         if (_updatingHighlight) return;
         _updatingHighlight = true;
+        SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] UpdateInstructionsHighlight — start");
         try {
             var doc      = _instructionsBox.Document;
             var fullText = new TextRange(doc.ContentStart, doc.ContentEnd).Text;
@@ -750,24 +831,19 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             // Preserve caret
             var caretOffset = GetCaretOffset(_instructionsBox);
 
-            // Rebuild with highlighted runs as a single undo group so the entire
-            // highlight pass collapses to one undo step instead of many.
-            _instructionsBox.BeginChange();
-            try {
-                doc.Blocks.Clear();
-                var para = new Paragraph { Margin = new Thickness(0) };
-                AppendHighlightedRuns(para.Inlines, fullText);
-                doc.Blocks.Add(para);
-            }
-            finally {
-                _instructionsBox.EndChange();
-            }
+            // Rebuild highlighted runs. WPF built-in undo is disabled so these
+            // document mutations do NOT enter the undo stack.
+            doc.Blocks.Clear();
+            var para = new Paragraph { Margin = new Thickness(0) };
+            AppendHighlightedRuns(para.Inlines, fullText);
+            doc.Blocks.Add(para);
 
             // Restore caret
             RestoreCaretOffset(_instructionsBox, caretOffset);
         }
         finally {
             _updatingHighlight = false;
+            SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] UpdateInstructionsHighlight — done");
         }
     }
 
