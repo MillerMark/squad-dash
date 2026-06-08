@@ -572,7 +572,7 @@ internal sealed class MaintenancePanelController {
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(0, 0, 0, 6),
             };
-            popupTitleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            popupTitleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             popupTitleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             popupOptionsPanel.Children.Add(popupTitleBlock);
             foreach (var opt in task.Options) {
