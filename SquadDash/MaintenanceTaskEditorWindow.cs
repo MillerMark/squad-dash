@@ -675,8 +675,9 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private void UpdateMarkdownPreview() {
         var rawText = _instructionsPanel.GetText();
 
-        var segments         = ResolveConditionalSegments(rawText);
-        var conditionalBrush = GetConditionalTextBrush();
+        var segments             = ResolveConditionalSegments(rawText);
+        var conditionalBrush     = GetConditionalTextBrush();
+        var conditionalBgBrush   = GetConditionalBackgroundBrush();
 
         var combined = new FlowDocument {
             FontFamily    = new FontFamily("Segoe UI, Segoe UI Emoji"),
@@ -711,7 +712,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                     var srcRange = ComputeBlockCharRange(segLines, segStart, range);
 
                     segDoc.Blocks.Remove(block);
-                    if (isConditional) ApplyForeground(block, conditionalBrush);
+                    if (isConditional) {
+                        ApplyForeground(block, conditionalBrush);
+                        ApplyBackground(block, conditionalBgBrush);
+                    }
 
                     _previewBlockSrcRanges.Add(srcRange);
                     _previewBlocks.Add(block);
@@ -721,7 +725,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             }
             catch {
                 var para = new Paragraph(new Run(resolved));
-                if (isConditional) para.Foreground = conditionalBrush;
+                if (isConditional) {
+                    para.Foreground = conditionalBrush;
+                    para.Background = conditionalBgBrush;
+                }
                 _previewBlockSrcRanges.Add((segStart, segText.Length));
                 _previewBlocks.Add(para);
                 combined.Blocks.Add(para);
@@ -1166,6 +1173,13 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     /// and the maximum contrast endpoint (white in dark theme, black in light).
     /// Conditional preview text is rendered with this brush to make it stand out.
     /// </summary>
+    private Brush GetConditionalBackgroundBrush() {
+        if (TryFindResource("ActivePanelSurface") is Brush b) return b;
+        return IsDark()
+            ? new SolidColorBrush(Color.FromArgb(0x50, 0x60, 0x80, 0xFF))
+            : new SolidColorBrush(Color.FromArgb(0x30, 0x20, 0x60, 0xC0));
+    }
+
     private Brush GetConditionalTextBrush() {
         var baseColor = IsDark()
             ? Color.FromRgb(0xCC, 0xCC, 0xCC)   // fallback dark-theme body
@@ -1178,6 +1192,23 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             (byte)((baseColor.R * 1 + target.R * 3) / 4),
             (byte)((baseColor.G * 1 + target.G * 3) / 4),
             (byte)((baseColor.B * 1 + target.B * 3) / 4)));
+    }
+
+    private static void ApplyBackground(Block block, Brush brush) {
+        switch (block) {
+            case Paragraph p:
+                p.Background = brush;
+                break;
+            case Section s:
+                s.Background = brush;
+                break;
+            case List l:
+                l.Background = brush;
+                break;
+            case BlockUIContainer buc:
+                buc.SetValue(TextElement.BackgroundProperty, brush);
+                break;
+        }
     }
 
     private static void ApplyForeground(Block block, Brush brush) {
