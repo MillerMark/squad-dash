@@ -1553,11 +1553,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 $"ContentRendered post-refresh: ActiveH={ActiveAgentItemsControl.ActualHeight:F0} ActiveViewport={ActiveAgentsScrollViewer.ActualHeight:F0} " +
                 $"InactiveH={InactiveAgentItemsControl.ActualHeight:F0} InactiveViewport={InactiveAgentsScrollViewer.ActualHeight:F0} RootH={StatusAgentPanelsGrid.ActualHeight:F0}");
             PromptTextBox.Focus();
+            LogMainLayoutPositions();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(MainWindow_ContentRendered), ex);
         }
+    }
+
+    private void LogMainLayoutPositions()
+    {
+        static string Pos(FrameworkElement el, UIElement root)
+        {
+            var pt = el.TranslatePoint(new System.Windows.Point(0, 0), root);
+            return $"x={pt.X:F0} y={pt.Y:F0} w={el.ActualWidth:F0} h={el.ActualHeight:F0} bottom={pt.Y + el.ActualHeight:F0}";
+        }
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] StatusPanelBorder:    {Pos(StatusPanelBorder,    this)}");
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] TranscriptPanelsGrid: {Pos(TranscriptPanelsGrid, this)}");
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] PromptBorder:         {Pos(PromptBorder,         this)}");
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] Gap StatusPanel→Transcript: {TranslatePoint(new System.Windows.Point(0,0), this).Y:F0}" +
+            $" | gap={TranscriptPanelsGrid.TranslatePoint(new System.Windows.Point(0,0), this).Y - (StatusPanelBorder.TranslatePoint(new System.Windows.Point(0,0), this).Y + StatusPanelBorder.ActualHeight):F0}px" +
+            $" | gap2={PromptBorder.TranslatePoint(new System.Windows.Point(0,0), this).Y - (TranscriptPanelsGrid.TranslatePoint(new System.Windows.Point(0,0), this).Y + TranscriptPanelsGrid.ActualHeight):F0}px");
     }
 
     private void MainWindow_Activated(object? sender, EventArgs e)
