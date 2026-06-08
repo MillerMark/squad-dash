@@ -675,5 +675,5 @@ tasks:
         type: checkbox
         label: Include Pull Requests
         tooltip: When enabled, report will include PRs in addition to issues
-        value: false
+        value: true
 ---
