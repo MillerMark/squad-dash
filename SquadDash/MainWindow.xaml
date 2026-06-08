@@ -1043,21 +1043,23 @@
                         <ColumnDefinition Width="Auto" />
                         <!-- col 7: WatchPanelBorder (non-dockable) -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 8: TopZoneSplitter23 (left of rank-2 panel) -->
+                        <!-- col 8: flex buffer so S2 doesn't reach back to rank-1 -->
+                        <ColumnDefinition Width="0*" MinWidth="0" />
+                        <!-- col 9: TopZoneSplitter23 (left of rank-2 panel) -->
                         <ColumnDefinition Width="4" />
-                        <!-- col 9: rank-2 panel slot -->
+                        <!-- col 10: rank-2 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 10: TopZoneSplitter34 (left of rank-3 panel) -->
+                        <!-- col 11: TopZoneSplitter34 (left of rank-3 panel) -->
                         <ColumnDefinition Width="4" />
-                        <!-- col 11: rank-3 panel slot -->
+                        <!-- col 12: rank-3 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 12: TopZoneSplitter45 (left of rank-4 panel) -->
+                        <!-- col 13: TopZoneSplitter45 (left of rank-4 panel) -->
                         <ColumnDefinition Width="4" />
-                        <!-- col 13: rank-4 panel slot -->
+                        <!-- col 14: rank-4 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 14: TopZoneSplitter56 (left of rank-5 panel) -->
+                        <!-- col 15: TopZoneSplitter56 (left of rank-5 panel) -->
                         <ColumnDefinition Width="4" />
-                        <!-- col 15: rank-5 panel slot -->
+                        <!-- col 16: rank-5 panel slot -->
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
@@ -2029,28 +2031,28 @@
                                   Background="{DynamicResource AppSurface}"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter23"
-                                  Grid.Column="8"
+                                  Grid.Column="9"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   Background="{DynamicResource AppSurface}"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter34"
-                                  Grid.Column="10"
+                                  Grid.Column="11"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   Background="{DynamicResource AppSurface}"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter45"
-                                  Grid.Column="12"
+                                  Grid.Column="13"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   Background="{DynamicResource AppSurface}"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter56"
-                                  Grid.Column="14"
+                                  Grid.Column="15"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"

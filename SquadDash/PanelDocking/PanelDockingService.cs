@@ -87,18 +87,18 @@ internal sealed class PanelDockingService
     {
         ["loop"]        = 4,
         ["tasks"]       = 6,
-        ["approvals"]   = 9,
-        ["notes"]       = 11,
-        ["maintenance"] = 13,
-        ["inbox"]       = 15,
+        ["approvals"]   = 10,
+        ["notes"]       = 12,
+        ["maintenance"] = 14,
+        ["inbox"]       = 16,
     };
 
     // Physical grid columns available for dockable top-zone panels, in left-to-right order.
-    // Columns 3,5,7,8,10,12,14 are splitter/WatchPanel columns and are skipped.
-    private static readonly int[] TopZonePhysicalColumns = [4, 6, 9, 11, 13, 15];
+    // Columns 3,5,7,8,9,11,13,15 are splitter/WatchPanel/buffer columns and are skipped.
+    private static readonly int[] TopZonePhysicalColumns = [4, 6, 10, 12, 14, 16];
 
     // Splitter columns to the left of each panel slot (index i is left of PhysicalColumns[i]).
-    private static readonly int[] TopZoneSplitterColumns = [3, 5, 8, 10, 12, 14];
+    private static readonly int[] TopZoneSplitterColumns = [3, 5, 9, 11, 13, 15];
 
     // Width of the thin insertion-indicator strip used for both top-zone and empty side-zone
     // docking previews, keeping the visual language consistent across all drop targets.
