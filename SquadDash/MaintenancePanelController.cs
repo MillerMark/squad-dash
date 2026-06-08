@@ -660,11 +660,21 @@ internal sealed class MaintenancePanelController {
             gearButton.SetResourceReference(Button.ForegroundProperty, "SubtleText");
 
             var popup = new Popup {
-                StaysOpen          = false,
-                Placement          = PlacementMode.Left,
-                PlacementTarget    = gearButton,
-                AllowsTransparency = false,
-                PopupAnimation     = PopupAnimation.None,
+                StaysOpen               = false,
+                Placement               = PlacementMode.Custom,
+                PlacementTarget         = gearButton,
+                AllowsTransparency      = false,
+                PopupAnimation          = PopupAnimation.None,
+                CustomPopupPlacementCallback = (popupSize, targetSize, _) => {
+                    // Prefer right of the gear button; fall back to left if it would clip off-screen.
+                    var screen = SystemParameters.PrimaryScreenWidth;
+                    var target = gearButton.PointToScreen(new Point(0, 0));
+                    var rightX = targetSize.Width;                  // popup left = right edge of target
+                    var leftX  = -popupSize.Width;                  // popup right = left edge of target
+                    var fitsRight = (target.X + targetSize.Width + popupSize.Width) <= screen;
+                    var x = fitsRight ? rightX : leftX;
+                    return [new CustomPopupPlacement(new Point(x, 0), PopupPrimaryAxis.Vertical)];
+                },
                 Child              = popupBorder,
             };
 
