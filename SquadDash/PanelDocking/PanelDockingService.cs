@@ -337,6 +337,9 @@ internal sealed class PanelDockingService
             if (_workspacePath is not null)
                 SaveLayout(_workspacePath);
         }
+
+        SquadDashTrace.Write(TraceCategory.Docking, $"TopZoneSplitter drag completed — logging column widths:");
+        LogTopZoneWidths();
     }
 
     /// <summary>The live panel layout for the current session.</summary>
@@ -1093,7 +1096,7 @@ internal sealed class PanelDockingService
                     double minW = element.MinWidth > 0 ? element.MinWidth : 80;
                     colDef.MinWidth = minW;
                     double defaultW = Math.Max(minW, 280);
-                    double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] > 0
+                    double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 600
                         ? pw[rank] : 0;
                     colDef.Width = new GridLength(persistedW > 0 ? persistedW : defaultW);
                 }
@@ -1183,7 +1186,12 @@ internal sealed class PanelDockingService
         for (int i = 0; i < widths.Count && i < _topZonePanelColumns.Length; i++)
         {
             if (_topZonePanelColumns[i] is { } col && widths[i] > 0)
-                col.Width = new GridLength(widths[i]);
+            {
+                // Clamp to sensible pixel range — guards against stale star-weight values
+                // from the old layout format being applied as oversized pixel widths.
+                var w = widths[i] is >= 80 and <= 600 ? widths[i] : 280;
+                col.Width = new GridLength(w);
+            }
         }
     }
 
