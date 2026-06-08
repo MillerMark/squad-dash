@@ -1035,14 +1035,16 @@
                         <!-- col 0: ActiveAgents panel -->
                         <ColumnDefinition x:Name="ActiveAgentsColumnDefinition"
                                           Width="Auto" />
-                        <!-- col 1: InactiveAgents panel (to the right of Active Agents) -->
-                        <ColumnDefinition Width="Auto" />
+                        <!-- col 1: InactiveAgents panel (to the right of Active Agents);
+                             stretches to meet the leftmost top-zone splitter. -->
+                        <ColumnDefinition x:Name="InactiveAgentsColumnDefinition"
+                                          Width="*"
+                                          MinWidth="260" />
                         <!-- col 2: spacer -->
                         <ColumnDefinition Width="14" />
-                        <!-- col 3: flex absorber — set to 0* by code when panels are present so they
-                             fill available width; restored to 1* when the top zone is empty so the
-                             Active Agents + WatchPanel panels render at natural size on the left. -->
-                        <ColumnDefinition Width="*" MinWidth="10" />
+                        <!-- col 3: legacy absorber, kept for fixed-column compatibility but collapsed.
+                             Roster & History now absorbs the space up to the leftmost splitter. -->
+                        <ColumnDefinition Width="0" MinWidth="0" />
                         <!-- col 4: TopZoneSplitter01 (left of rank-0 panel) -->
                         <ColumnDefinition Width="4" />
                         <!-- col 5: rank-0 panel slot -->
@@ -1127,7 +1129,7 @@
 
                     <Border x:Name="InactiveAgentsPanelBorder"
                             Grid.Column="1"
-                            MaxWidth="600"
+                            MinWidth="260"
                             VerticalAlignment="Top"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"
@@ -1177,6 +1179,8 @@
                             Visibility="Collapsed"
                             Margin="14,0,0,0"
                             MinWidth="136"
+                            DockMinimumWidth="136"
+                            DockMaximumUsefulWidth="260"
                                 VerticalAlignment="Top"
                                 Padding="12,8,12,12"
                                 Background="{DynamicResource RosterPanelSurface}"
@@ -1405,6 +1409,8 @@
                     <panelDocking:GripStripBorder x:Name="TasksPanelBorder"
                             Grid.Column="5"
                             MinWidth="200"
+                            DockMinimumWidth="200"
+                            DockMaximumUsefulWidth="360"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1537,6 +1543,8 @@
                     <panelDocking:GripStripBorder x:Name="ApprovalPanelBorder"
                             Grid.Column="9"
                             MinWidth="220"
+                            DockMinimumWidth="220"
+                            DockMaximumUsefulWidth="620"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1681,6 +1689,8 @@
                     <panelDocking:GripStripBorder x:Name="NotesPanelBorder"
                             Grid.Column="11"
                             MinWidth="200"
+                            DockMinimumWidth="200"
+                            DockMaximumUsefulWidth="360"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1762,6 +1772,8 @@
                     <panelDocking:GripStripBorder x:Name="MaintenancePanelBorder"
                             Grid.Column="13"
                             MinWidth="200"
+                            DockMinimumWidth="200"
+                            DockMaximumUsefulWidth="320"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1885,6 +1897,8 @@
                     <panelDocking:GripStripBorder x:Name="InboxPanelBorder"
                             Grid.Column="15"
                             MinWidth="220"
+                            DockMinimumWidth="220"
+                            DockMaximumUsefulWidth="560"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"

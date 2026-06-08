@@ -2,11 +2,23 @@
 
 namespace SquadDash.PanelDocking;
 
+public enum DockResizeOrientation
+{
+    Horizontal,
+    Vertical,
+}
+
 internal enum DockResizeMode
 {
     Normal,
     Proportional,
     Chain,
+}
+
+public interface IDockResizeSizeHint
+{
+    double GetMinimumDockSize(DockResizeOrientation orientation);
+    double? GetMaximumUsefulDockSize(DockResizeOrientation orientation);
 }
 
 internal readonly record struct DockResizeParticipant(

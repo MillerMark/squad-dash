@@ -11,15 +11,104 @@ namespace SquadDash.PanelDocking;
 /// raises GripStripClicked when the user clicks within the strip area.
 /// The strip height equals the border's CornerRadius.TopLeft value.
 /// </summary>
-public sealed class GripStripBorder : Border
+public sealed class GripStripBorder : Border, IDockResizeSizeHint
 {
+    public static readonly DependencyProperty DockMinimumWidthProperty =
+        DependencyProperty.Register(
+            nameof(DockMinimumWidth),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
+    public static readonly DependencyProperty DockMaximumUsefulWidthProperty =
+        DependencyProperty.Register(
+            nameof(DockMaximumUsefulWidth),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
+    public static readonly DependencyProperty DockMinimumHeightProperty =
+        DependencyProperty.Register(
+            nameof(DockMinimumHeight),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
+    public static readonly DependencyProperty DockMaximumUsefulHeightProperty =
+        DependencyProperty.Register(
+            nameof(DockMaximumUsefulHeight),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
     public GripStripBorder()
     {
         ToolTipService.SetToolTip(this, "Click for docking map");
         ToolTipService.SetIsEnabled(this, false);
     }
 
+    public double DockMinimumWidth
+    {
+        get => (double)GetValue(DockMinimumWidthProperty);
+        set => SetValue(DockMinimumWidthProperty, value);
+    }
+
+    public double DockMaximumUsefulWidth
+    {
+        get => (double)GetValue(DockMaximumUsefulWidthProperty);
+        set => SetValue(DockMaximumUsefulWidthProperty, value);
+    }
+
+    public double DockMinimumHeight
+    {
+        get => (double)GetValue(DockMinimumHeightProperty);
+        set => SetValue(DockMinimumHeightProperty, value);
+    }
+
+    public double DockMaximumUsefulHeight
+    {
+        get => (double)GetValue(DockMaximumUsefulHeightProperty);
+        set => SetValue(DockMaximumUsefulHeightProperty, value);
+    }
+
     public event EventHandler? GripStripClicked;
+
+    public double GetMinimumDockSize(DockResizeOrientation orientation)
+    {
+        var explicitValue = orientation == DockResizeOrientation.Horizontal
+            ? DockMinimumWidth
+            : DockMinimumHeight;
+        if (IsUsefulSize(explicitValue))
+            return explicitValue;
+
+        var frameworkValue = orientation == DockResizeOrientation.Horizontal
+            ? MinWidth
+            : MinHeight;
+        if (IsUsefulSize(frameworkValue))
+            return frameworkValue;
+
+        return orientation == DockResizeOrientation.Horizontal ? 80 : 100;
+    }
+
+    public double? GetMaximumUsefulDockSize(DockResizeOrientation orientation)
+    {
+        var explicitValue = orientation == DockResizeOrientation.Horizontal
+            ? DockMaximumUsefulWidth
+            : DockMaximumUsefulHeight;
+        if (IsUsefulSize(explicitValue))
+            return Math.Max(GetMinimumDockSize(orientation), explicitValue);
+
+        var frameworkValue = orientation == DockResizeOrientation.Horizontal
+            ? MaxWidth
+            : MaxHeight;
+        if (IsUsefulSize(frameworkValue))
+            return Math.Max(GetMinimumDockSize(orientation), frameworkValue);
+
+        return null;
+    }
+
+    private static bool IsUsefulSize(double value) =>
+        value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
 
     protected override void OnRender(DrawingContext dc)
     {

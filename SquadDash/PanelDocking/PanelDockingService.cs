@@ -135,9 +135,11 @@ internal sealed class PanelDockingService
     private GridSplitter? _topZoneSplitter56;
     private UIElement? _watchPanelElement;
     private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[6];
-    // Col 2 of TopZonePanelsGrid: 1* when top zone is empty (absorbs space so Active Agents
-    // renders at natural size), 0* when panels are present (panels fill all available width).
+    // Legacy absorber column retained by the fixed top-zone grid. It is kept collapsed so
+    // Roster & History, not a blank column, fills the space up to the leftmost splitter.
     private ColumnDefinition? _topZoneFlexAbsorberColumn;
+    // Roster & History column; the leftmost top-zone splitter resizes this against panel 0.
+    private ColumnDefinition? _topZoneLeftBoundaryColumn;
     private TopZoneSplitterDragState? _topZoneSplitterDragState;
 
     private sealed class TopZoneSplitterDragState
@@ -324,7 +326,8 @@ internal sealed class PanelDockingService
         GridSplitter splitter34, GridSplitter splitter45, GridSplitter splitter56,
         UIElement watchPanel,
         ColumnDefinition[] panelColumnDefs,
-        ColumnDefinition? flexAbsorberColumn = null)
+        ColumnDefinition? flexAbsorberColumn = null,
+        ColumnDefinition? leftBoundaryColumn = null)
     {
         _topZoneSplitter01 = splitter01;
         _topZoneSplitter12 = splitter12;
@@ -334,6 +337,7 @@ internal sealed class PanelDockingService
         _topZoneSplitter56 = splitter56;
         _watchPanelElement = watchPanel;
         _topZoneFlexAbsorberColumn = flexAbsorberColumn;
+        _topZoneLeftBoundaryColumn = leftBoundaryColumn;
 
         for (int i = 0; i < Math.Min(panelColumnDefs.Length, _topZonePanelColumns.Length); i++)
             _topZonePanelColumns[i] = panelColumnDefs[i];
@@ -417,7 +421,7 @@ internal sealed class PanelDockingService
         var absorberCanResize = splitterIndex == 0;
         var participants = new List<DockResizeParticipant>
         {
-            new(GetTopZoneAbsorberWidth(), 10, null, absorberCanResize, absorberCanResize),
+            new(GetTopZoneLeftBoundaryWidth(), GetTopZoneLeftBoundaryMinimumWidth(), null, absorberCanResize, absorberCanResize),
         };
 
         foreach (var panel in panels)
@@ -1270,7 +1274,7 @@ internal sealed class PanelDockingService
                     double minW = element.MinWidth > 0 ? element.MinWidth : 80;
                     colDef.MinWidth = minW;
                     double defaultW = Math.Max(minW, 280);
-                    double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 600
+                    double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
                         ? pw[rank] : 0;
                     colDef.Width = new GridLength(persistedW > 0 ? persistedW : defaultW);
                 }
@@ -1358,18 +1362,23 @@ internal sealed class PanelDockingService
         return panels;
     }
 
-    private double GetTopZoneAbsorberWidth()
+    private double GetTopZoneLeftBoundaryWidth()
     {
-        if (_topZoneFlexAbsorberColumn is null)
-            return 10;
+        if (_topZoneLeftBoundaryColumn is null)
+            return GetTopZoneLeftBoundaryMinimumWidth();
 
-        if (_topZoneFlexAbsorberColumn.ActualWidth > 0)
-            return _topZoneFlexAbsorberColumn.ActualWidth;
+        if (_topZoneLeftBoundaryColumn.ActualWidth > 0)
+            return Math.Max(GetTopZoneLeftBoundaryMinimumWidth(), _topZoneLeftBoundaryColumn.ActualWidth);
 
-        return _topZoneFlexAbsorberColumn.Width.IsAbsolute
-            ? Math.Max(10, _topZoneFlexAbsorberColumn.Width.Value)
-            : 10;
+        return _topZoneLeftBoundaryColumn.Width.IsAbsolute
+            ? Math.Max(GetTopZoneLeftBoundaryMinimumWidth(), _topZoneLeftBoundaryColumn.Width.Value)
+            : GetTopZoneLeftBoundaryMinimumWidth();
     }
+
+    private double GetTopZoneLeftBoundaryMinimumWidth() =>
+        _topZoneLeftBoundaryColumn?.MinWidth > 0
+            ? _topZoneLeftBoundaryColumn.MinWidth
+            : 260;
 
     private static double GetColumnResizeWidth(ColumnDefinition column, double minimum)
     {
@@ -1382,13 +1391,24 @@ internal sealed class PanelDockingService
         return Math.Max(minimum, 280);
     }
 
-    private static double GetTopZoneMinimumWidth(FrameworkElement element) =>
-        element.MinWidth > 0 && !double.IsInfinity(element.MinWidth)
+    private static double GetTopZoneMinimumWidth(FrameworkElement element)
+    {
+        if (element is IDockResizeSizeHint hint)
+            return hint.GetMinimumDockSize(DockResizeOrientation.Horizontal);
+
+        return element.MinWidth > 0 && !double.IsInfinity(element.MinWidth)
             ? element.MinWidth
             : 80;
+    }
 
     private static double? GetTopZoneMaximumUsefulWidth(FrameworkElement element, double currentWidth, double minimumWidth)
     {
+        if (element is IDockResizeSizeHint hint &&
+            hint.GetMaximumUsefulDockSize(DockResizeOrientation.Horizontal) is { } hintedWidth)
+        {
+            return Math.Max(minimumWidth, Math.Max(currentWidth, hintedWidth));
+        }
+
         if (element.MaxWidth > 0 &&
             !double.IsInfinity(element.MaxWidth) &&
             !double.IsNaN(element.MaxWidth))
@@ -1403,6 +1423,14 @@ internal sealed class PanelDockingService
     {
         ResetTopZoneLayoutColumnKinds();
 
+        if (_topZoneLeftBoundaryColumn is not null && state.Participants.Length > 0)
+        {
+            var participant = state.Participants[0];
+            var width = Math.Max(participant.MinimumSize, participant.CurrentSize);
+            _topZoneLeftBoundaryColumn.MinWidth = participant.MinimumSize;
+            _topZoneLeftBoundaryColumn.Width = new GridLength(width);
+        }
+
         for (int i = 0; i < state.PanelColumns.Length && i + 1 < state.Participants.Length; i++)
         {
             var participant = state.Participants[i + 1];
@@ -1415,7 +1443,10 @@ internal sealed class PanelDockingService
     private void ResetTopZoneLayoutColumnKinds()
     {
         if (_topZoneFlexAbsorberColumn is { } absorber)
-            absorber.Width = new GridLength(1, GridUnitType.Star);
+        {
+            absorber.MinWidth = 0;
+            absorber.Width = new GridLength(0);
+        }
 
         if (_topZoneGrid?.ColumnDefinitions is not { } cols)
             return;
@@ -1464,7 +1495,7 @@ internal sealed class PanelDockingService
             {
                 // Clamp to sensible pixel range — guards against stale star-weight values
                 // from the old layout format being applied as oversized pixel widths.
-                var w = widths[i] is >= 80 and <= 600 ? widths[i] : 280;
+                var w = widths[i] is >= 80 and <= 1200 ? widths[i] : 280;
                 col.Width = new GridLength(w);
             }
         }

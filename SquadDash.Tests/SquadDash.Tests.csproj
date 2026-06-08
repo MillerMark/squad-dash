@@ -258,6 +258,7 @@
     <Compile Include="..\SquadDash\PanelDocking\DockLayout.cs"          Link="Source\PanelDocking\DockLayout.cs" />
     <Compile Include="..\SquadDash\PanelDocking\PanelLayoutsFile.cs"    Link="Source\PanelDocking\PanelLayoutsFile.cs" />
     <Compile Include="..\SquadDash\PanelDocking\DockResizeEngine.cs"    Link="Source\PanelDocking\DockResizeEngine.cs" />
+    <Compile Include="..\SquadDash\PanelDocking\GripStripBorder.cs"     Link="Source\PanelDocking\GripStripBorder.cs" />
     <Compile Include="..\SquadDash\PanelDocking\PanelDockingService.cs" Link="Source\PanelDocking\PanelDockingService.cs" />
     <Compile Include="..\SquadDash\PanelDocking\DockingMapViewModel.cs" Link="Source\PanelDocking\DockingMapViewModel.cs" />
     <Compile Include="..\SquadDash\PanelDocking\DockingMapBuilder.cs"   Link="Source\PanelDocking\DockingMapBuilder.cs" />

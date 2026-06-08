@@ -7,6 +7,21 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class DockResizeEngineTests
 {
+    [Test, Apartment(ApartmentState.STA)]
+    public void GripStripBorder_ExposesDockResizeSizeHints()
+    {
+        var panel = new GripStripBorder
+        {
+            MinWidth = 200,
+            DockMinimumWidth = 220,
+            DockMaximumUsefulWidth = 620,
+        };
+
+        Assert.That(panel, Is.AssignableTo<IDockResizeSizeHint>());
+        Assert.That(panel.GetMinimumDockSize(DockResizeOrientation.Horizontal), Is.EqualTo(220));
+        Assert.That(panel.GetMaximumUsefulDockSize(DockResizeOrientation.Horizontal), Is.EqualTo(620));
+    }
+
     [Test]
     public void NormalDrag_ResizesOnlyAdjacentParticipants()
     {
