@@ -509,6 +509,66 @@ internal sealed class CommitApprovalPanel {
         panel.Children.Add(row);
     }
 
+    // ── Dynamic width measurement ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Measures the first <paramref name="maxRows"/> rows across all three panels and
+    /// returns the minimum panel width required to display the widest row without truncation.
+    /// Returns null if no panel is loaded or no rows are present.
+    /// </summary>
+    public double? GetMaximumUsefulWidth(int maxRows = 50)
+    {
+        if (!_needsApprovalPanel.IsLoaded && !_approvedPanel.IsLoaded && !_rejectedPanel.IsLoaded)
+            return null;
+
+        var referenceElement = _needsApprovalPanel.IsLoaded ? _needsApprovalPanel
+            : (_approvedPanel.IsLoaded ? _approvedPanel : _rejectedPanel);
+
+        double maxRowContentWidth = 0;
+        int rowsChecked = 0;
+
+        foreach (var panel in new[] { _needsApprovalPanel, _approvedPanel, _rejectedPanel })
+        {
+            foreach (Border row in panel.Children)
+            {
+                if (rowsChecked >= maxRows) break;
+                if (row.Tag is not CommitApprovalItem item) continue;
+
+                var text = CleanDescription(item.Description);
+                bool isBold = item.TouchesDecisionsFile;
+                bool hasSha = item.CommitUrl is not null;
+
+                var textWidth = MeasureTextWidth(text, referenceElement, isBold);
+                double rowWidth = textWidth + (hasSha ? 100 : 40); // per-row chrome
+                maxRowContentWidth = Math.Max(maxRowContentWidth, rowWidth);
+                rowsChecked++;
+            }
+            if (rowsChecked >= maxRows) break;
+        }
+
+        if (maxRowContentWidth <= 0) return null;
+
+        const double panelChrome = 43; // padding + border + scrollbar
+        return maxRowContentWidth + panelChrome;
+    }
+
+    private static double MeasureTextWidth(string text, FrameworkElement referenceElement, bool isBold)
+    {
+        var fontFamily = SystemFonts.MessageFontFamily;
+        var fontSize = referenceElement.TryFindResource("FontSizeBody") is double fs ? fs : 13.0;
+        var typeface = new Typeface(fontFamily, FontStyles.Normal, isBold ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
+        var pixelsPerDip = VisualTreeHelper.GetDpi(referenceElement).PixelsPerDip;
+        var ft = new FormattedText(
+            text,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            Brushes.Black,
+            pixelsPerDip);
+        return ft.Width;
+    }
+
     // ── Filter ────────────────────────────────────────────────────────────────
 
     private string _filterText = string.Empty;

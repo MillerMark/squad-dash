@@ -1544,7 +1544,6 @@
                             Grid.Column="9"
                             MinWidth="220"
                             DockMinimumWidth="220"
-                            DockMaximumUsefulWidth="620"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"

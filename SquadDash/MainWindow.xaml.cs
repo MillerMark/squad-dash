@@ -29243,6 +29243,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 initialShowRejected: _settingsStore.Load().ApprovalShowRejected,
                 onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show));
             _approvalPanel.ReplaceAllItems(_approvalItems);
+
+            // Wire dynamic max-width hint so splitter double-click snaps to content width
+            if (ApprovalPanelBorder is { } apb)
+                apb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _approvalPanel.GetMaximumUsefulWidth()
+                        : null;
         }
     }
 

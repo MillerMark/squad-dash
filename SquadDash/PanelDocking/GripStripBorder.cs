@@ -73,6 +73,12 @@ public sealed class GripStripBorder : Border, IDockResizeSizeHint
 
     public event EventHandler? GripStripClicked;
 
+    /// <summary>
+    /// When set, this delegate is called first in <see cref="GetMaximumUsefulDockSize"/>.
+    /// A non-null return value takes priority over <see cref="DockMaximumUsefulWidth"/>.
+    /// </summary>
+    public Func<DockResizeOrientation, double?>? MaximumUsefulSizeProvider { get; set; }
+
     public double GetMinimumDockSize(DockResizeOrientation orientation)
     {
         var explicitValue = orientation == DockResizeOrientation.Horizontal
@@ -92,6 +98,9 @@ public sealed class GripStripBorder : Border, IDockResizeSizeHint
 
     public double? GetMaximumUsefulDockSize(DockResizeOrientation orientation)
     {
+        if (MaximumUsefulSizeProvider?.Invoke(orientation) is { } computed)
+            return Math.Max(GetMinimumDockSize(orientation), computed);
+
         var explicitValue = orientation == DockResizeOrientation.Horizontal
             ? DockMaximumUsefulWidth
             : DockMaximumUsefulHeight;
