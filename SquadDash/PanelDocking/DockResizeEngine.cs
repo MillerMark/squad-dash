@@ -62,16 +62,17 @@ internal static class DockResizeEngine
         int rightIndex = leftIndex + 1;
         if (delta > 0)
         {
-            // Left panel grows intentionally — hard cap at MaximumUsefulSize.
-            var amount = Math.Min(delta, Math.Min(GrowCapacity(participants[leftIndex], sizes[leftIndex]), ShrinkCapacity(participants[rightIndex], sizes[rightIndex])));
+            // Normal-mode drag: in a two-panel exchange we cannot know whether the user's intent
+            // is to grow the left panel or shrink the right panel, so neither growing side is
+            // hard-capped. ConsequenceGrowCapacity allows free growth only when a panel is already
+            // above its max (preserving the cap for panels approaching max from below).
+            var amount = Math.Min(delta, Math.Min(ConsequenceGrowCapacity(participants[leftIndex], sizes[leftIndex]), ShrinkCapacity(participants[rightIndex], sizes[rightIndex])));
             sizes[leftIndex] += amount;
             sizes[rightIndex] -= amount;
         }
         else
         {
             var requested = -delta;
-            // Right panel grows as a consequence of left shrinking.
-            // Use ConsequenceGrowCapacity so a panel already past its max doesn't freeze the splitter.
             var amount = Math.Min(requested, Math.Min(ShrinkCapacity(participants[leftIndex], sizes[leftIndex]), ConsequenceGrowCapacity(participants[rightIndex], sizes[rightIndex])));
             sizes[leftIndex] -= amount;
             sizes[rightIndex] += amount;
