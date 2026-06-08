@@ -431,7 +431,7 @@ internal sealed class PanelDockingService
             participants.Add(new DockResizeParticipant(
                 width,
                 minWidth,
-                GetTopZoneMaximumUsefulWidth(panel.Element, width, minWidth)));
+                GetTopZoneMaximumUsefulWidth(panel.Element, minWidth)));
         }
 
         _topZoneSplitterDragState = new TopZoneSplitterDragState
@@ -1401,22 +1401,22 @@ internal sealed class PanelDockingService
             : 80;
     }
 
-    private static double? GetTopZoneMaximumUsefulWidth(FrameworkElement element, double currentWidth, double minimumWidth)
+    private static double? GetTopZoneMaximumUsefulWidth(FrameworkElement element, double minimumWidth)
     {
         if (element is IDockResizeSizeHint hint &&
             hint.GetMaximumUsefulDockSize(DockResizeOrientation.Horizontal) is { } hintedWidth)
         {
-            return Math.Max(minimumWidth, Math.Max(currentWidth, hintedWidth));
+            return Math.Max(minimumWidth, hintedWidth);
         }
 
         if (element.MaxWidth > 0 &&
             !double.IsInfinity(element.MaxWidth) &&
             !double.IsNaN(element.MaxWidth))
         {
-            return Math.Max(minimumWidth, Math.Max(currentWidth, element.MaxWidth));
+            return Math.Max(minimumWidth, element.MaxWidth);
         }
 
-        return Math.Max(minimumWidth, Math.Max(currentWidth, 600));
+        return null;
     }
 
     private void ApplyTopZoneDragWidths(TopZoneSplitterDragState state)

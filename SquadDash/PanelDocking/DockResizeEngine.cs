@@ -62,6 +62,7 @@ internal static class DockResizeEngine
         int rightIndex = leftIndex + 1;
         if (delta > 0)
         {
+            // Left panel grows intentionally — hard cap at MaximumUsefulSize.
             var amount = Math.Min(delta, Math.Min(GrowCapacity(participants[leftIndex], sizes[leftIndex]), ShrinkCapacity(participants[rightIndex], sizes[rightIndex])));
             sizes[leftIndex] += amount;
             sizes[rightIndex] -= amount;
@@ -69,7 +70,9 @@ internal static class DockResizeEngine
         else
         {
             var requested = -delta;
-            var amount = Math.Min(requested, Math.Min(ShrinkCapacity(participants[leftIndex], sizes[leftIndex]), GrowCapacity(participants[rightIndex], sizes[rightIndex])));
+            // Right panel grows as a consequence of left shrinking.
+            // Use ConsequenceGrowCapacity so a panel already past its max doesn't freeze the splitter.
+            var amount = Math.Min(requested, Math.Min(ShrinkCapacity(participants[leftIndex], sizes[leftIndex]), ConsequenceGrowCapacity(participants[rightIndex], sizes[rightIndex])));
             sizes[leftIndex] -= amount;
             sizes[rightIndex] += amount;
         }
@@ -140,9 +143,17 @@ internal static class DockResizeEngine
     {
         if (!participant.CanGrow) return 0;
         if (participant.MaximumUsefulSize is not { } max) return double.PositiveInfinity;
-        // Already past useful max: allow unlimited growth — max is a soft snap/cascade hint,
-        // not a hard cap, and blocking resize on an already-oversized panel freezes splitters.
-        if (size >= max) return double.PositiveInfinity;
+        return Math.Max(0, Math.Max(participant.MinimumSize, max) - size);
+    }
+
+    // Used when a panel grows as a consequence of its neighbor shrinking (Normal mode drag-left).
+    // If the panel is already past its MaximumUsefulSize, allow free growth so the splitter
+    // isn't frozen when both adjacent panels start above their content-optimal width.
+    private static double ConsequenceGrowCapacity(DockResizeParticipant participant, double size)
+    {
+        if (!participant.CanGrow) return 0;
+        if (participant.MaximumUsefulSize is not { } max) return double.PositiveInfinity;
+        if (size > max) return double.PositiveInfinity;
         return Math.Max(0, Math.Max(participant.MinimumSize, max) - size);
     }
 
