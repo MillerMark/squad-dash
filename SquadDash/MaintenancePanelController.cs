@@ -540,7 +540,7 @@ internal sealed class MaintenancePanelController {
         var optsSummary = BuildOptionsSummary(task.Options);
         if (!string.IsNullOrEmpty(optsSummary)) {
             var summaryBlock = new TextBlock {
-                Text              = $", {optsSummary}",
+                Text              = $" \u2014 {optsSummary}",
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin            = new Thickness(0, 0, 0, 2),
             };
