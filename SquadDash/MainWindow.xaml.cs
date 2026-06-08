@@ -12892,7 +12892,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             transcriptRow.Height = new GridLength(1, GridUnitType.Auto);
             promptRow.Height     = new GridLength(1, GridUnitType.Star);
             PromptBorder.Margin        = new Thickness(0, 0, 0, 14);
-            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 14);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 4);
         }
         else
         {
@@ -12901,7 +12901,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             transcriptRow.Height = new GridLength(1, GridUnitType.Star);
             promptRow.Height     = new GridLength(1, GridUnitType.Auto);
             PromptBorder.Margin        = new Thickness(0);
-            TranscriptPanelsGrid.Margin = new Thickness(0, 14, 0, 14);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 4, 0, 4);
         }
 
         // Persist per workspace.
