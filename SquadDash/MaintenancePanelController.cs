@@ -880,23 +880,26 @@ internal sealed class MaintenancePanelController {
 
     public double? GetMaximumUsefulWidth(int maxRows = 50)
     {
-        if (!_listPanel.IsLoaded) return null;
-
         double maxRowWidth = 0;
         int count = 0;
-        foreach (var child in _listPanel.Children)
+
+        if (_listPanel.IsLoaded)
         {
-            if (count >= maxRows) break;
-            if (child is not Border { Tag: MaintenanceTask task }) continue;
-            var textWidth = MeasureTextWidth(task.Title, FontWeights.Normal);
-            const double perRowChrome = 19; // checkbox col (~13) + checkbox right margin (6)
-            maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
-            count++;
+            foreach (var child in _listPanel.Children)
+            {
+                if (count >= maxRows) break;
+                if (child is not Border { Tag: MaintenanceTask task }) continue;
+                var textWidth = MeasureTextWidth(task.Title, FontWeights.Normal);
+                const double perRowChrome = 19; // checkbox col (~13) + checkbox right margin (6)
+                maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+                count++;
+            }
         }
 
-        if (maxRowWidth <= 0) return null;
-
         const double panelChrome = 43; // padding(24) + border(2) + scrollbar(17)
+        if (maxRowWidth <= 0)
+            return 260 + panelChrome;
+
         return maxRowWidth + panelChrome;
     }
 

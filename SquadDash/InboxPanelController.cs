@@ -332,24 +332,29 @@ internal sealed class InboxPanelController
 
     public double? GetMaximumUsefulWidth(int maxRows = 50)
     {
-        if (!_listPanel.IsLoaded) return null;
-
         double maxRowWidth = 0;
         int count = 0;
-        foreach (var child in _listPanel.Children)
+
+        if (_listPanel.IsLoaded)
         {
-            if (count >= maxRows) break;
-            if (child is not Border { Tag: InboxMessage msg }) continue;
-            var weight = msg.Read ? FontWeights.Normal : FontWeights.SemiBold;
-            var textWidth = MeasureTextWidth(msg.Subject, weight);
-            const double perRowChrome = 20; // row padding + dot
-            maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
-            count++;
+            foreach (var child in _listPanel.Children)
+            {
+                if (count >= maxRows) break;
+                if (child is not Border { Tag: InboxMessage msg }) continue;
+                var weight = msg.Read ? FontWeights.Normal : FontWeights.SemiBold;
+                var textWidth = MeasureTextWidth(msg.Subject, weight);
+                const double perRowChrome = 20; // row padding + dot
+                maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+                count++;
+            }
         }
 
-        if (maxRowWidth <= 0) return null;
-
         const double panelChrome = 43; // padding + border + scrollbar
+        // If panel not yet loaded or has no measurable rows, return a reasonable cap
+        // rather than null so the drag engine doesn't treat it as uncapped.
+        if (maxRowWidth <= 0)
+            return 420 + panelChrome;
+
         return maxRowWidth + panelChrome;
     }
 

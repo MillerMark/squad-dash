@@ -154,6 +154,7 @@ internal sealed class PanelDockingService
         public required double StartX { get; init; }
         public required ModifierKeys StartModifiers { get; init; }
         public required DockResizeMode StartMode { get; init; }
+        public DockResizeMode EndMode { get; set; }
     }
 
     private readonly record struct TopZoneResizePanel(
@@ -491,6 +492,7 @@ internal sealed class PanelDockingService
         for (int i = 0; i < resized.Length; i++)
             state.Participants[i] = state.Participants[i] with { CurrentSize = resized[i] };
 
+        state.EndMode = mode;
         ApplyTopZoneDragWidths(state);
     }
 
@@ -531,21 +533,29 @@ internal sealed class PanelDockingService
             ? "none"
             : string.Join("+", new[] { "Shift", "Alt", "Ctrl" }
                 .Where(k => state.StartModifiers.HasFlag(Enum.Parse<ModifierKeys>(k == "Ctrl" ? "Control" : k))));
-        var modeStr = state.StartMode switch
+        var startModeStr = state.StartMode switch
         {
             DockResizeMode.Chain => "Chain (Shift)",
             DockResizeMode.Proportional => "Proportional (Alt)",
             _ => "Normal",
         };
+        var endModeStr = state.EndMode switch
+        {
+            DockResizeMode.Chain => "Chain (Shift)",
+            DockResizeMode.Proportional => "Proportional (Alt)",
+            _ => "Normal",
+        };
+        var modeNote = state.EndMode != state.StartMode ? $" → {endModeStr} at release" : "";
 
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"TopZoneDragSummary  splitter={splitterName}  totalDelta={totalDelta:F1}px ({direction})  modifiers=[{modStr}]  mode={modeStr}");
+        sb.AppendLine($"TopZoneDragSummary  splitter={splitterName}  totalDelta={totalDelta:F1}px ({direction})  modifiers=[{modStr}]  mode={startModeStr}{modeNote}");
 
         // Left boundary (roster/inactive agents)
         var lbBefore = state.InitialParticipants[0].CurrentSize;
         var lbAfter = state.Participants[0].CurrentSize;
         var lbDiff = lbAfter - lbBefore;
-        sb.AppendLine($"  [roster/inactive]  before={lbBefore:F0}  after={lbAfter:F0}  diff={lbDiff:+0.#;-0.#;0}");
+        var lbMax = state.InitialParticipants[0].MaximumUsefulSize is { } lm ? $"{lm:F0}" : "∞";
+        sb.AppendLine($"  [roster/inactive]  before={lbBefore:F0}  after={lbAfter:F0}  diff={lbDiff:+0.#;-0.#;0}  max={lbMax}");
 
         // Panels
         for (int i = 0; i < state.PanelIds.Length; i++)
@@ -556,7 +566,8 @@ internal sealed class PanelDockingService
             var after = state.Participants[pi].CurrentSize;
             var diff = after - before;
             var side = i < state.SplitterIndex ? "left" : "right";
-            sb.AppendLine($"  [{state.PanelIds[i]}]  rank={i}  side={side}  before={before:F0}  after={after:F0}  diff={diff:+0.#;-0.#;0}");
+            var maxUseful = state.InitialParticipants[pi].MaximumUsefulSize is { } mu ? $"{mu:F0}" : "∞";
+            sb.AppendLine($"  [{state.PanelIds[i]}]  rank={i}  side={side}  before={before:F0}  after={after:F0}  diff={diff:+0.#;-0.#;0}  max={maxUseful}");
         }
 
         SquadDashTrace.Write(TraceCategory.Docking, sb.ToString().TrimEnd());

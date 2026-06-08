@@ -437,26 +437,29 @@ internal sealed class TasksPanelController {
 
     public double? GetMaximumUsefulWidth(int maxRows = 50)
     {
-        if (!_activePanel.IsLoaded) return null;
-
         double maxRowWidth = 0;
         int count = 0;
-        foreach (var panel in new[] { _activePanel, _completedPanel })
+
+        if (_activePanel.IsLoaded)
         {
-            foreach (var child in panel.Children)
+            foreach (var panel in new[] { _activePanel, _completedPanel })
             {
-                if (count >= maxRows) break;
-                if (child is not Border { Tag: TaskItem item }) continue;
-                var textWidth = MeasureTextWidth(item.Text, FontWeights.Normal);
-                const double perRowChrome = 28; // grid left+right margin(8) + fixed col0 width(20)
-                maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
-                count++;
+                foreach (var child in panel.Children)
+                {
+                    if (count >= maxRows) break;
+                    if (child is not Border { Tag: TaskItem item }) continue;
+                    var textWidth = MeasureTextWidth(item.Text, FontWeights.Normal);
+                    const double perRowChrome = 28; // grid left+right margin(8) + fixed col0 width(20)
+                    maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+                    count++;
+                }
             }
         }
 
-        if (maxRowWidth <= 0) return null;
-
         const double panelChrome = 43; // padding(24) + border(2) + scrollbar(17)
+        if (maxRowWidth <= 0)
+            return 280 + panelChrome;
+
         return maxRowWidth + panelChrome;
     }
 
