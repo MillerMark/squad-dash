@@ -16072,8 +16072,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             TranscriptPanelsGrid.Margin = _transcriptFullScreenEnabled
                 ? new Thickness(0)
                 : _agentsPanelFocusModeEnabled
-                    ? new Thickness(0, 0, 0, 14)
-                    : new Thickness(0, 14, 0, 14);
+                    ? new Thickness(0, 0, 0, 4)
+                    : new Thickness(0, 4, 0, 4);
 
         // Documentation mode: show docs panel whenever documentation mode is active
         var docsVisible = _documentationModeEnabled;
