@@ -340,22 +340,24 @@ internal sealed class NotesPanelController {
         double maxRowWidth = 0;
         int count = 0;
 
+        const double titleLabelMaxWidth = 240.0; // matches titleLabel.MaxWidth in BuildRow — text wraps at this width
+        const double perRowChrome      = 8;      // title label left+right margin (4+4)
+        const double panelChrome       = 43;     // padding(24) + border(2) + scrollbar(17)
+
         if (_listPanel.IsLoaded)
         {
             foreach (var child in _listPanel.Children)
             {
                 if (count >= maxRows) break;
                 if (child is not Border { Tag: NoteItem note }) continue;
-                var textWidth = MeasureTextWidth(note.Title, FontWeights.Normal);
-                const double perRowChrome = 8; // title label left+right margin (4+4)
+                var textWidth = Math.Min(MeasureTextWidth(note.Title, FontWeights.Normal), titleLabelMaxWidth);
                 maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
                 count++;
             }
         }
 
-        const double panelChrome = 43; // padding(24) + border(2) + scrollbar(17)
         if (maxRowWidth <= 0)
-            return 260 + panelChrome;
+            return titleLabelMaxWidth + perRowChrome + panelChrome; // 291px
 
         return maxRowWidth + panelChrome;
     }
