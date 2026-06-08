@@ -57,6 +57,9 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private DispatcherTimer? _optionsDebounce;
     private DispatcherTimer? _instructionsDebounce;
 
+    // ── Selection-embedding suppression ───────────────────────────────────────
+    private bool _suppressInstructionsNextTextInput;
+
     // ── Preview→source hover highlight ────────────────────────────────────────
 
     private Grid                                          _instructionsHost       = null!;
@@ -641,8 +644,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         rtb.Document.Blocks.Clear();
         rtb.AppendText(_task.Instructions ?? "");
 
-        rtb.TextChanged     += OnInstructionsTextChanged;
-        rtb.MouseMove       += OnInstructionsMouseMove;
+        rtb.TextChanged      += OnInstructionsTextChanged;
+        rtb.MouseMove        += OnInstructionsMouseMove;
+        rtb.PreviewKeyDown   += OnInstructionsPreviewKeyDown;
+        rtb.PreviewTextInput += OnInstructionsPreviewTextInput;
 
         return rtb;
     }
@@ -704,6 +709,25 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         ScheduleInstructionsDebounce();
     }
 
+    private void OnInstructionsPreviewKeyDown(object sender, KeyEventArgs e) {
+        if (sender is not RichTextBox box) return;
+        if (e.Key == Key.OemTilde
+            && Keyboard.Modifiers == ModifierKeys.None
+            && !box.Selection.IsEmpty) {
+            if (MarkdownEditorCommands.ApplyInlineCodeOrFence(box)) {
+                _suppressInstructionsNextTextInput = true;
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void OnInstructionsPreviewTextInput(object sender, TextCompositionEventArgs e) {
+        if (_suppressInstructionsNextTextInput) {
+            _suppressInstructionsNextTextInput = false;
+            e.Handled = true;
+        }
+    }
+
     private void ScheduleInstructionsDebounce() {
         _instructionsDebounce?.Stop();
         _instructionsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -726,11 +750,18 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             // Preserve caret
             var caretOffset = GetCaretOffset(_instructionsBox);
 
-            // Clear and rebuild with highlighted runs
-            doc.Blocks.Clear();
-            var para = new Paragraph { Margin = new Thickness(0) };
-            AppendHighlightedRuns(para.Inlines, fullText);
-            doc.Blocks.Add(para);
+            // Rebuild with highlighted runs as a single undo group so the entire
+            // highlight pass collapses to one undo step instead of many.
+            _instructionsBox.BeginChange();
+            try {
+                doc.Blocks.Clear();
+                var para = new Paragraph { Margin = new Thickness(0) };
+                AppendHighlightedRuns(para.Inlines, fullText);
+                doc.Blocks.Add(para);
+            }
+            finally {
+                _instructionsBox.EndChange();
+            }
 
             // Restore caret
             RestoreCaretOffset(_instructionsBox, caretOffset);
