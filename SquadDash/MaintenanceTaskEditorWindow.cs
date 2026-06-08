@@ -141,6 +141,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp   += OnPreviewKeyUp;
         Closed         += OnClosed;
+        Closing        += OnClosing;
 
         // Track changes to the title
         _titleBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
@@ -180,20 +181,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Escape: close with unsaved changes confirmation
         if (e.Key == Key.Escape && !e.Handled) {
-            if (_hasUnsavedChanges) {
-                var result = MessageBox.Show(
-                    "Are you sure you want to close without saving your changes?",
-                    "Unsaved Changes",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.No);
-                if (result == MessageBoxResult.Yes) {
-                    Close();
-                }
-            }
-            else {
-                Close();
-            }
+            if (HandleCloseRequest()) Close();
             e.Handled = true;
             return;
         }
@@ -242,6 +230,36 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _pttTitle.Dispose();
         _pttOptions.Dispose();
         _pttInstructions.Dispose();
+    }
+
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!HandleCloseRequest())
+            e.Cancel = true;
+    }
+
+    /// <summary>Returns <c>true</c> when the close should proceed, <c>false</c> to cancel it.</summary>
+    private bool HandleCloseRequest()
+    {
+        if (!_hasUnsavedChanges) return true;
+
+        var result = MessageBox.Show(
+            "Save changes before closing?",
+            "Save Changes?",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Yes);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            OnSave(this, new RoutedEventArgs());
+            return true;
+        }
+        if (result == MessageBoxResult.No)
+            return true;
+
+        // Cancel or dialog dismissed — stay open
+        return false;
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -301,7 +319,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var cancelBtn = new Button { Content = "Cancel", Margin = new Thickness(0, 0, 8, 0),
             Padding = new Thickness(16, 4, 16, 4) };
         cancelBtn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
-        cancelBtn.Click += (_, _) => Close();
+        cancelBtn.Click += (_, _) => { if (HandleCloseRequest()) Close(); };
 
         var saveBtn = new Button { Content = "Save", Padding = new Thickness(16, 4, 16, 4) };
         saveBtn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
