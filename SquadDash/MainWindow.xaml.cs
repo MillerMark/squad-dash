@@ -6355,6 +6355,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                  ? []
                                  : _teamRosterLoader.Load(_currentWorkspace.FolderPath));
 
+        // Wire dynamic max-width hint so splitter snap targets content width
+        if (TasksPanelBorder is { } tpb && tpb.MaximumUsefulSizeProvider is null)
+            tpb.MaximumUsefulSizeProvider = orientation =>
+                orientation == DockResizeOrientation.Horizontal
+                    ? _tasksPanelController.GetMaximumUsefulWidth()
+                    : null;
+
         var workspace = _currentWorkspace;
         if (workspace is null) { _tasksPanelController.ShowEmpty("No workspace open"); return; }
 
@@ -30200,6 +30207,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
                 });
             _notesPanel.Refresh(_noteItems);
+
+            // Wire dynamic max-width hint so splitter snap targets content width
+            if (NotesPanelBorder is { } npb)
+                npb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _notesPanel.GetMaximumUsefulWidth()
+                        : null;
         }
     }
 
@@ -30241,6 +30255,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 simulateIdle:           () => _ = StartMaintenanceCycleAsync(),
                 onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
                 onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
+
+            // Wire dynamic max-width hint so splitter snap targets content width
+            if (MaintenancePanelBorder is { } mpb)
+                mpb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _maintenancePanel.GetMaximumUsefulWidth()
+                        : null;
         }
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));

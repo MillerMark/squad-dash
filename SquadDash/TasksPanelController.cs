@@ -2,6 +2,7 @@ namespace SquadDash;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -414,6 +415,49 @@ internal sealed class TasksPanelController {
         empty.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         empty.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         _activePanel.Children.Add(empty);
+    }
+
+    // ── Width measurement ─────────────────────────────────────────────────────
+
+    private double MeasureTextWidth(string text, FontWeight weight)
+    {
+        var fontSize = _activePanel.TryFindResource("FontSizeBody") is double fs ? fs : 13.0;
+        var typeface = new Typeface(SystemFonts.MessageFontFamily, FontStyles.Normal, weight, FontStretches.Normal);
+        var pixelsPerDip = VisualTreeHelper.GetDpi(_activePanel).PixelsPerDip;
+        var ft = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            Brushes.Black,
+            pixelsPerDip);
+        return ft.Width;
+    }
+
+    public double? GetMaximumUsefulWidth(int maxRows = 50)
+    {
+        if (!_activePanel.IsLoaded) return null;
+
+        double maxRowWidth = 0;
+        int count = 0;
+        foreach (var panel in new[] { _activePanel, _completedPanel })
+        {
+            foreach (var child in panel.Children)
+            {
+                if (count >= maxRows) break;
+                if (child is not Border { Tag: TaskItem item }) continue;
+                var textWidth = MeasureTextWidth(item.Text, FontWeights.Normal);
+                const double perRowChrome = 28; // grid left+right margin(8) + fixed col0 width(20)
+                maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+                count++;
+            }
+        }
+
+        if (maxRowWidth <= 0) return null;
+
+        const double panelChrome = 43; // padding(24) + border(2) + scrollbar(17)
+        return maxRowWidth + panelChrome;
     }
 
     // ── Write-back ────────────────────────────────────────────────────────────

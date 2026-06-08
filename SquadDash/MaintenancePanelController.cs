@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -857,6 +858,46 @@ internal sealed class MaintenancePanelController {
 
         _statusLabel.Text       = text;
         _statusLabel.Visibility = Visibility.Visible;
+    }
+
+    // ── Width measurement ─────────────────────────────────────────────────────
+
+    private double MeasureTextWidth(string text, FontWeight weight)
+    {
+        var fontSize = _listPanel.TryFindResource("FontSizeBody") is double fs ? fs : 13.0;
+        var typeface = new Typeface(SystemFonts.MessageFontFamily, FontStyles.Normal, weight, FontStretches.Normal);
+        var pixelsPerDip = VisualTreeHelper.GetDpi(_listPanel).PixelsPerDip;
+        var ft = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            Brushes.Black,
+            pixelsPerDip);
+        return ft.Width;
+    }
+
+    public double? GetMaximumUsefulWidth(int maxRows = 50)
+    {
+        if (!_listPanel.IsLoaded) return null;
+
+        double maxRowWidth = 0;
+        int count = 0;
+        foreach (var child in _listPanel.Children)
+        {
+            if (count >= maxRows) break;
+            if (child is not Border { Tag: MaintenanceTask task }) continue;
+            var textWidth = MeasureTextWidth(task.Title, FontWeights.Normal);
+            const double perRowChrome = 19; // checkbox col (~13) + checkbox right margin (6)
+            maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+            count++;
+        }
+
+        if (maxRowWidth <= 0) return null;
+
+        const double panelChrome = 43; // padding(24) + border(2) + scrollbar(17)
+        return maxRowWidth + panelChrome;
     }
 
     // ── Countdown timer ───────────────────────────────────────────────────────
