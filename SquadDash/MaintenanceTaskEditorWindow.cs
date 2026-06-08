@@ -1198,18 +1198,37 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         switch (block) {
             case Paragraph p:
                 p.Background = brush;
+                ApplyBackgroundToInlines(p.Inlines, brush);
                 break;
             case Section s:
                 s.Background = brush;
+                foreach (var b in s.Blocks) ApplyBackground(b, brush);
                 break;
             case List l:
                 l.Background = brush;
+                foreach (var li in l.ListItems)
+                    foreach (var b in li.Blocks) ApplyBackground(b, brush);
                 break;
             case BlockUIContainer buc:
                 buc.SetValue(TextElement.BackgroundProperty, brush);
                 break;
         }
     }
+
+    // Override the CodeSurface background on inline-code Runs inside a conditional block
+    // so they blend with the ActivePanelSurface rather than standing out as a different shade.
+    private static void ApplyBackgroundToInlines(InlineCollection inlines, Brush brush) {
+        foreach (var inline in inlines) {
+            if (inline is Run run && IsInlineCodeRun(run))
+                run.Background = brush;
+            else if (inline is Span span)
+                ApplyBackgroundToInlines(span.Inlines, brush);
+        }
+    }
+
+    // Inline code runs from MarkdownFlowDocumentBuilder are identifiable by their Consolas font.
+    private static bool IsInlineCodeRun(Run run)
+        => run.FontFamily?.Source?.Contains("Consolas", StringComparison.OrdinalIgnoreCase) == true;
 
     private static void ApplyForeground(Block block, Brush brush) {
         switch (block) {
