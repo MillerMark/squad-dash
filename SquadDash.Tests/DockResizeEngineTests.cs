@@ -202,6 +202,44 @@ internal sealed class DockResizeEngineTests
     }
 
     [Test]
+    public void ChainDragLeft_WhenRightSideAlreadyAtMaximumUsefulSize_DoesNotBlowOutLastPanel()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants(
+                (746, 260, null),
+                (360, 200, 360),
+                (628, 200, 628),
+                (320, 200, 320),
+                (260, 136, 260),
+                (560, 220, 560),
+                (690, 220, 690)),
+            splitterLeftParticipantIndex: 2,
+            DockResizeMode.Chain,
+            delta: -1224);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 746, 360, 628, 320, 260, 560, 690 }).Within(0.001));
+    }
+
+    [Test]
+    public void ChainDragLeft_WhenReceiverOnlyRoundingAboveMaximumUsefulSize_DoesNotTreatAsInfiniteCapacity()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants(
+                (746, 260, null),
+                (360, 200, 360),
+                (628, 200, 628),
+                (320, 200, 320),
+                (260, 136, 260),
+                (560, 220, 560),
+                (690.4, 220, 690)),
+            splitterLeftParticipantIndex: 2,
+            DockResizeMode.Chain,
+            delta: -1224);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 746, 360, 628, 320, 260, 560, 690.4 }).Within(0.001));
+    }
+
+    [Test]
     public void ChainDragLeft_RecomputedFromDragStart_DoesNotKeepOversizedReceiverAfterReturningRight()
     {
         var participants = Participants(

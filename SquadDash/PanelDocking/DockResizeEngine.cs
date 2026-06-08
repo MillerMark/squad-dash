@@ -30,6 +30,8 @@ internal readonly record struct DockResizeParticipant(
 
 internal static class DockResizeEngine
 {
+    private const double UsefulMaxOverflowTolerance = 1.0;
+
     public static double[] Resize(
         IReadOnlyList<DockResizeParticipant> participants,
         int splitterLeftParticipantIndex,
@@ -154,7 +156,7 @@ internal static class DockResizeEngine
     {
         if (!participant.CanGrow) return 0;
         if (participant.MaximumUsefulSize is not { } max) return double.PositiveInfinity;
-        if (size > max) return double.PositiveInfinity;
+        if (size > max + UsefulMaxOverflowTolerance) return double.PositiveInfinity;
         return Math.Max(0, Math.Max(participant.MinimumSize, max) - size);
     }
 
