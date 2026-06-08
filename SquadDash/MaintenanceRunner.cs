@@ -64,8 +64,12 @@ internal sealed class MaintenanceRunner {
         try {
             var tasks = config.Tasks ?? [];
 
-            // Try to obtain the HEAD commit SHA only when an enabled per-commit task needs it.
-            string? commitSha = NeedsCommitSha(tasks)
+            // When forceTaskIds is provided, only check those tasks for commit-SHA needs.
+            var tasksForCommitCheck = forceTaskIds is { Count: > 0 }
+                ? (IEnumerable<MaintenanceTask>)tasks.Where(t => forceTaskIds.Contains(t.Id))
+                : tasks;
+
+            string? commitSha = NeedsCommitSha(tasksForCommitCheck)
                 ? await _getCommitShaAsync(workspacePath, ct).ConfigureAwait(false)
                 : null;
 
@@ -77,6 +81,12 @@ internal sealed class MaintenanceRunner {
 
                 if (!task.Enabled)
                     continue;
+
+                // When forceTaskIds is provided (manual single-task run), skip any task not in the set.
+                if (forceTaskIds is { Count: > 0 } && !forceTaskIds.Contains(task.Id)) {
+                    skippedIds.Add(task.Id);
+                    continue;
+                }
 
                 var isForced = forceTaskIds?.Contains(task.Id) == true;
                 if (!isForced && !_stateStore.IsEligible(task.Id, task.Frequency, commitSha)) {

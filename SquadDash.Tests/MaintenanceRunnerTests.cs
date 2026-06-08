@@ -534,6 +534,106 @@ internal sealed class MaintenanceRunnerTests {
             "SafetyOverrideNote must be set when report-only global floor overrides direct task safety");
     }
 
+    // ── forceTaskIds — "Run Now" single-task behaviour ───────────────────────
+
+    [Test]
+    public async Task StartAsync_ForceTaskIds_RunsOnlyForcedTask_SkipsOtherEligibleTasks() {
+        var started = new List<string>();
+        var config = MakeConfig([
+            MakeTask("task-a", frequency: "always"),
+            MakeTask("task-b", frequency: "always"),
+            MakeTask("task-c", frequency: "always"),
+        ]);
+
+        var runner = MakeRunner(onTaskStarted: id => started.Add(id));
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None,
+            forceTaskIds: new HashSet<string> { "task-b" });
+
+        Assert.That(started, Is.EqualTo(new[] { "task-b" }),
+            "Only the forced task must run; other eligible tasks must be skipped");
+    }
+
+    [Test]
+    public async Task StartAsync_ForceTaskIds_RunsForcedTask_EvenWhenIneligible() {
+        const string taskId = "ran-today";
+        var stateStore = new MaintenanceStateStore(_stateDir);
+        stateStore.RecordRun(taskId, commitSha: null);
+
+        var started = new List<string>();
+        var config = MakeConfig([
+            MakeTask(taskId, frequency: "daily"),
+        ]);
+
+        var runner = MakeRunner(
+            onTaskStarted: id => started.Add(id),
+            stateStore: stateStore);
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None,
+            forceTaskIds: new HashSet<string> { taskId });
+
+        Assert.That(started, Does.Contain(taskId),
+            "A forced task must run even if it is not yet eligible");
+    }
+
+    [Test]
+    public async Task StartAsync_ForceTaskIds_SkippedTasksInReport_ContainNonForcedTasks() {
+        MaintenanceReport? report = null;
+        var config = MakeConfig([
+            MakeTask("forced-task",  frequency: "always"),
+            MakeTask("skipped-task", frequency: "always"),
+        ]);
+
+        var runner = MakeRunner(onCompleted: r => report = r);
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None,
+            forceTaskIds: new HashSet<string> { "forced-task" });
+
+        Assert.That(report, Is.Not.Null);
+        Assert.That(report!.RanTaskIds,     Does.Contain("forced-task"));
+        Assert.That(report.SkippedTaskIds,  Does.Contain("skipped-task"),
+            "Non-forced tasks must appear in SkippedTaskIds even when normally eligible");
+    }
+
+    [Test]
+    public async Task StartAsync_ForceTaskIds_Empty_RunsAllEligibleTasksNormally() {
+        var started = new List<string>();
+        var config = MakeConfig([
+            MakeTask("task-x", frequency: "always"),
+            MakeTask("task-y", frequency: "always"),
+        ]);
+
+        var runner = MakeRunner(onTaskStarted: id => started.Add(id));
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None,
+            forceTaskIds: new HashSet<string>());
+
+        Assert.That(started, Is.EqualTo(new[] { "task-x", "task-y" }),
+            "An empty forceTaskIds set must behave identically to null (all eligible tasks run)");
+    }
+
+    [Test]
+    public async Task StartAsync_ForceTaskIds_PerCommitTask_DoesNotFetchCommitSha_WhenForcedTaskIsNotPerCommit() {
+        var commitShaCalls = 0;
+        var config = MakeConfig([
+            MakeTask("per-commit-task", enabled: true, frequency: "per-commit"),
+            MakeTask("daily-task",      enabled: true, frequency: "daily"),
+        ]);
+
+        var runner = MakeRunner(
+            getCommitShaAsync: (_, _) => {
+                commitShaCalls++;
+                return Task.FromResult<string?>("abc123");
+            });
+
+        // Force only the daily task — the per-commit task is not in scope, so no SHA needed.
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None,
+            forceTaskIds: new HashSet<string> { "daily-task" });
+
+        Assert.That(commitShaCalls, Is.Zero,
+            "Commit SHA must not be fetched when the forced task does not require it");
+    }
+
     // ── IsRunning ────────────────────────────────────────────────────────────
 
     [Test]
