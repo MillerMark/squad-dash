@@ -566,7 +566,15 @@ internal sealed class MaintenancePanelController {
 
         // Gear button + popup (if task has options)
         if (task.Options is { Count: > 0 }) {
-            var popupOptionsPanel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+            var popupOptionsPanel = new StackPanel { Margin = new Thickness(0) };
+            var popupTitleBlock = new TextBlock {
+                Text         = task.Title,
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 0, 0, 6),
+            };
+            popupTitleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            popupTitleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            popupOptionsPanel.Children.Add(popupTitleBlock);
             foreach (var opt in task.Options) {
                 if (!string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) &&
                     opt.Label is { Length: > 0 }) {
@@ -633,7 +641,7 @@ internal sealed class MaintenancePanelController {
 
             var popupBorder = new Border {
                 BorderThickness = new Thickness(1),
-                Padding         = new Thickness(10, 8, 10, 10),
+                Padding         = new Thickness(10, 4, 10, 10),
                 MinWidth        = 180,
                 Child           = popupOptionsPanel,
             };
