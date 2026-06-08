@@ -31,7 +31,7 @@
 idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
-enabled_on_idle: false
+enabled_on_idle: true
 configured: false  # ← change to true to activate
 # ─────────────────────────────────────────────
 # DECOMPOSE POLICY
