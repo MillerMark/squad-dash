@@ -31494,6 +31494,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
     }
 
+    private async void MaintenanceDoTheseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await StartMaintenanceCycleAsync(isManual: true);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceDoTheseButton_Click), ex); }
+    }
+
     private bool IsFilteredTasksLoopSelected()
     {
         if (_selectedLoopMdPath is null) return false;

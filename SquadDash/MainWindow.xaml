@@ -1821,6 +1821,17 @@
                                               DockPanel.Dock="Left"
                                               VerticalAlignment="Center"
                                               Margin="0,0,8,0" />
+                                <Button x:Name="MaintenanceDoTheseButton"
+                                        DockPanel.Dock="Right"
+                                        Content="▶ Do these"
+                                        Height="17"
+                                        FontSize="{DynamicResource FontSizeXSmall}"
+                                        Margin="4,0,0,0"
+                                        Padding="4,0"
+                                        VerticalAlignment="Center"
+                                        ToolTip="Runs the selected maintenance tasks if needed."
+                                        Style="{StaticResource ThemedIconButtonStyle}"
+                                        Click="MaintenanceDoTheseButton_Click" />
                                 <TextBlock x:Name="MaintenanceStatusLabel"
                                            Text=""
                                            Visibility="Collapsed"

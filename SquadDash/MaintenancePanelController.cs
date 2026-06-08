@@ -529,7 +529,7 @@ internal sealed class MaintenancePanelController {
         rightPanel.Children.Add(titleBlock);
 
         // Chips: frequency picker + safety — only visible when task is enabled
-        var chipRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0),
+        var chipRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 0),
             Visibility = task.Enabled ? Visibility.Visible : Visibility.Collapsed };
         var taskIdForFreq   = task.Id;
         
@@ -563,7 +563,7 @@ internal sealed class MaintenancePanelController {
                 new DateTimeOffset(lastRun.Value, TimeSpan.Zero));
             var lastRunBlock = new TextBlock {
                 Text   = $"Last run: {relTime}",
-                Margin = new Thickness(0, 3, 0, 0),
+                Margin = new Thickness(5, -1, 0, 0),
             };
             lastRunBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             lastRunBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
