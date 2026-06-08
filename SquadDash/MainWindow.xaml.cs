@@ -758,14 +758,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             WatchPanelBorder,
             new[]
             {
-                TopZonePanelsGrid.ColumnDefinitions[4],
-                TopZonePanelsGrid.ColumnDefinitions[6],
-                TopZonePanelsGrid.ColumnDefinitions[9],
-                TopZonePanelsGrid.ColumnDefinitions[11],
-                TopZonePanelsGrid.ColumnDefinitions[13],
-                TopZonePanelsGrid.ColumnDefinitions[15],
+                TopZonePanelsGrid.ColumnDefinitions[5],
+                TopZonePanelsGrid.ColumnDefinitions[7],
+                TopZonePanelsGrid.ColumnDefinitions[10],
+                TopZonePanelsGrid.ColumnDefinitions[12],
+                TopZonePanelsGrid.ColumnDefinitions[14],
+                TopZonePanelsGrid.ColumnDefinitions[16],
             },
-            TopZonePanelsGrid.ColumnDefinitions[2]);
+            TopZonePanelsGrid.ColumnDefinitions[3]);
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,

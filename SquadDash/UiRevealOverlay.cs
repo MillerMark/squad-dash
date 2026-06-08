@@ -791,6 +791,7 @@ internal sealed class UiRevealOverlay
     /// - The x:Name (if any, via FrameworkElement.Name or FrameworkContentElement.Name)
     /// - Whether it implements ILiveElementLocator / IFixtureLoader / IReplayableUiAction
     ///   (proxy for the "IHaveDisplayName" concept — any named interface on the DataContext)
+    /// - Inline geometry: pos=(x,y), size=[w,h], and grid row/col if non-zero
     /// </summary>
     private static string DescribeNode(DependencyObject node)
     {
@@ -815,6 +816,37 @@ internal sealed class UiRevealOverlay
             if (dc is IReplayableUiAction)   ifaces.Add(nameof(IReplayableUiAction));
             if (ifaces.Count > 0)
                 label += $" [dc:{dc.GetType().Name}({string.Join(",", ifaces)})]";
+        }
+
+        // Append inline geometry for rendered FrameworkElements
+        if (node is FrameworkElement feGeo && (feGeo.ActualWidth > 0 || feGeo.ActualHeight > 0))
+        {
+            try
+            {
+                var segments = new List<string>();
+
+                var window = Window.GetWindow(feGeo);
+                if (window is not null)
+                {
+                    var pt = feGeo.TranslatePoint(new System.Windows.Point(0, 0), window);
+                    segments.Add($"pos = ({(int)Math.Round(pt.X)}, {(int)Math.Round(pt.Y)})");
+                }
+
+                segments.Add($"size = [{(int)Math.Round(feGeo.ActualWidth)}, {(int)Math.Round(feGeo.ActualHeight)}]");
+
+                var parentGrid = VisualTreeHelper.GetParent(feGeo) as Grid;
+                if (parentGrid is not null)
+                {
+                    int row = Grid.GetRow(feGeo);
+                    int col = Grid.GetColumn(feGeo);
+                    if (row > 0 || col > 0)
+                        segments.Add($"row {row}, col {col}");
+                }
+
+                if (segments.Count > 0)
+                    label += "   --   " + string.Join("   ·   ", segments);
+            }
+            catch { /* visual tree not ready — return plain label */ }
         }
 
         return label;
