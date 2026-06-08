@@ -22,6 +22,19 @@ internal sealed class DockResizeEngineTests
         Assert.That(panel.GetMaximumUsefulDockSize(DockResizeOrientation.Horizontal), Is.EqualTo(620));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void GripStripBorder_ProviderCannotUndercutExplicitMaximumUsefulWidth()
+    {
+        var panel = new GripStripBorder
+        {
+            DockMinimumWidth = 200,
+            DockMaximumUsefulWidth = 360,
+            MaximumUsefulSizeProvider = orientation => orientation == DockResizeOrientation.Horizontal ? 206 : null,
+        };
+
+        Assert.That(panel.GetMaximumUsefulDockSize(DockResizeOrientation.Horizontal), Is.EqualTo(360));
+    }
+
     [Test]
     public void NormalDrag_ResizesOnlyAdjacentParticipants()
     {
@@ -59,7 +72,7 @@ internal sealed class DockResizeEngineTests
     }
 
     [Test]
-    public void NormalDrag_GrowingPanelAlreadyAboveMaximumUsefulSize_DoesNotFreeze()
+    public void NormalDrag_GrowingPanelAlreadyAboveMaximumUsefulSize_StopsAtCurrentSize()
     {
         var sizes = DockResizeEngine.Resize(
             Participants((320, 100, 260), (240, 100, null)),
@@ -67,7 +80,36 @@ internal sealed class DockResizeEngineTests
             DockResizeMode.Normal,
             delta: 80);
 
-        Assert.That(sizes, Is.EqualTo(new[] { 400, 160 }).Within(0.001));
+        Assert.That(sizes, Is.EqualTo(new[] { 320, 240 }).Within(0.001));
+    }
+
+    [Test]
+    public void NormalDragLeft_FromBoundary_DoesNotStretchRightPanelPastMaximumUsefulSize()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants((1485, 260, null), (280, 200, 206), (248, 200, 248)),
+            splitterLeftParticipantIndex: 0,
+            DockResizeMode.Normal,
+            delta: -981);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 1485, 280, 248 }).Within(0.001));
+    }
+
+    [Test]
+    public void NormalDragRight_InteriorSplitter_ShrinksRightPanelWhenLeftPanelAtMaximum()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants(
+                (1304, 260, null),
+                (200, 200, 360),
+                (320, 200, 320),
+                (560, 220, 560),
+                (620, 220, 620)),
+            splitterLeftParticipantIndex: 2,
+            DockResizeMode.Normal,
+            delta: 155);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 1459, 200, 320, 405, 620 }).Within(0.001));
     }
 
     [Test]

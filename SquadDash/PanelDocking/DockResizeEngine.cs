@@ -62,14 +62,18 @@ internal static class DockResizeEngine
         int rightIndex = leftIndex + 1;
         if (delta > 0)
         {
-            var amount = Math.Min(delta, Math.Min(ConsequenceGrowCapacity(participants[leftIndex], sizes[leftIndex]), ShrinkCapacity(participants[rightIndex], sizes[rightIndex])));
-            sizes[leftIndex] += amount;
+            var amount = Math.Min(
+                delta,
+                Math.Min(
+                    GrowCapacity(participants[leftIndex], sizes[leftIndex]) + BoundaryOverflowGrowCapacity(participants, sizes, leftIndex),
+                    ShrinkCapacity(participants[rightIndex], sizes[rightIndex])));
+            ApplyNormalLeftGrowth(participants, sizes, leftIndex, amount);
             sizes[rightIndex] -= amount;
         }
         else
         {
             var requested = -delta;
-            var amount = Math.Min(requested, Math.Min(ShrinkCapacity(participants[leftIndex], sizes[leftIndex]), ConsequenceGrowCapacity(participants[rightIndex], sizes[rightIndex])));
+            var amount = Math.Min(requested, Math.Min(ShrinkCapacity(participants[leftIndex], sizes[leftIndex]), GrowCapacity(participants[rightIndex], sizes[rightIndex])));
             sizes[leftIndex] -= amount;
             sizes[rightIndex] += amount;
         }
@@ -152,6 +156,31 @@ internal static class DockResizeEngine
         if (participant.MaximumUsefulSize is not { } max) return double.PositiveInfinity;
         if (size > max) return double.PositiveInfinity;
         return Math.Max(0, Math.Max(participant.MinimumSize, max) - size);
+    }
+
+    private static double BoundaryOverflowGrowCapacity(IReadOnlyList<DockResizeParticipant> participants, double[] sizes, int leftIndex)
+    {
+        if (leftIndex <= 0 || participants.Count == 0)
+            return 0;
+
+        return GrowCapacity(participants[0], sizes[0]);
+    }
+
+    private static void ApplyNormalLeftGrowth(
+        IReadOnlyList<DockResizeParticipant> participants,
+        double[] sizes,
+        int leftIndex,
+        double amount)
+    {
+        var adjacentGrowth = Math.Min(amount, GrowCapacity(participants[leftIndex], sizes[leftIndex]));
+        sizes[leftIndex] += adjacentGrowth;
+
+        var remaining = amount - adjacentGrowth;
+        if (remaining <= 0.01 || leftIndex <= 0)
+            return;
+
+        var boundaryGrowth = Math.Min(remaining, GrowCapacity(participants[0], sizes[0]));
+        sizes[0] += boundaryGrowth;
     }
 
     private static double TotalShrinkCapacity(IReadOnlyList<DockResizeParticipant> participants, double[] sizes, IReadOnlyList<int> indices) =>

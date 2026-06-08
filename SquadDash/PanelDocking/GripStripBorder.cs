@@ -98,14 +98,23 @@ public sealed class GripStripBorder : Border, IDockResizeSizeHint
 
     public double? GetMaximumUsefulDockSize(DockResizeOrientation orientation)
     {
-        if (MaximumUsefulSizeProvider?.Invoke(orientation) is { } computed)
-            return Math.Max(GetMinimumDockSize(orientation), computed);
-
         var explicitValue = orientation == DockResizeOrientation.Horizontal
             ? DockMaximumUsefulWidth
             : DockMaximumUsefulHeight;
-        if (IsUsefulSize(explicitValue))
-            return Math.Max(GetMinimumDockSize(orientation), explicitValue);
+        double? explicitUsefulSize = IsUsefulSize(explicitValue)
+            ? Math.Max(GetMinimumDockSize(orientation), explicitValue)
+            : null;
+
+        if (MaximumUsefulSizeProvider?.Invoke(orientation) is { } computed)
+        {
+            var computedUsefulSize = Math.Max(GetMinimumDockSize(orientation), computed);
+            return explicitUsefulSize is { } floor
+                ? Math.Max(floor, computedUsefulSize)
+                : computedUsefulSize;
+        }
+
+        if (explicitUsefulSize is not null)
+            return explicitUsefulSize;
 
         var frameworkValue = orientation == DockResizeOrientation.Horizontal
             ? MaxWidth
