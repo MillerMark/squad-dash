@@ -421,7 +421,10 @@ internal sealed class PanelDockingService
         var absorberCanResize = splitterIndex == 0;
         var participants = new List<DockResizeParticipant>
         {
-            new(GetTopZoneLeftBoundaryWidth(), GetTopZoneLeftBoundaryMinimumWidth(), null, absorberCanResize, absorberCanResize),
+            // canShrink=true always: in Chain mode, dragging left past panel minimums shifts all
+            // panels leftward by compressing the left-boundary (InactiveAgents) column.
+            // canGrow restricted to S01 only — other splitters should not widen the roster area.
+            new(GetTopZoneLeftBoundaryWidth(), GetTopZoneLeftBoundaryMinimumWidth(), null, CanShrink: true, CanGrow: absorberCanResize),
         };
 
         foreach (var panel in panels)
