@@ -24412,6 +24412,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashTrace.Write("Shutdown", $"Close requested while {_clipboardEditorCount} ClipboardImageEditorWindow(s) open. State saved async; proceeding with close.");
             }
 
+            // Safety-net: save positions for any inbox windows still open.
+            foreach (var inboxWin in _openInboxWindows)
+                FloatingWindowPositionStore.Shared.Save("InboxMessage", inboxWin);
+
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
                 e.Cancel = true;
@@ -25974,8 +25978,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _clipboardEditorCount++;
         _clipboardEditorOpen = true;
         editor.Owner = this;
+        FloatingWindowPositionStore.Shared.TryRestore("ClipboardImageEditor", editor);
         editor.Closed += (_, _) =>
         {
+            FloatingWindowPositionStore.Shared.Save("ClipboardImageEditor", editor);
             _clipboardEditorCount--;
             if (_clipboardEditorCount == 0)
             {
@@ -28115,6 +28121,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         win.Owner = this;
                         _openInboxWindows.Add(win);
                         win.Closed += (_, _) => _openInboxWindows.Remove(win);
+                        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("InboxMessage", win);
+                        FloatingWindowPositionStore.Shared.TryRestore("InboxMessage", win);
                         win.Show();
                     }
                 }
@@ -29616,6 +29624,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("InboxMessage", win);
+        FloatingWindowPositionStore.Shared.TryRestore("InboxMessage", win);
         win.Show();
     }
 
@@ -29650,6 +29660,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("InboxMessage", win);
+        FloatingWindowPositionStore.Shared.TryRestore("InboxMessage", win);
         
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: hooking win.Loaded to defer SelectAndScrollToText via Dispatcher.BeginInvoke(Loaded priority) — excerptLen={excerptText.Length}");
         win.Loaded += (_, _) =>

@@ -121,14 +121,16 @@ internal sealed class MaintenancePanelController {
             }
             var ownerWindow = Window.GetWindow(_listPanel);
             if (ownerWindow is null) return;
-            new MaintenanceTaskEditorWindow(
+            var editor = new MaintenanceTaskEditorWindow(
                 ownerWindow,
                 newTask,
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
-                onDirectRevise: _onDirectRevise)
-                .Show();
+                onDirectRevise: _onDirectRevise);
+            editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("MaintenanceTaskEditor", editor);
+            FloatingWindowPositionStore.Shared.TryRestore("MaintenanceTaskEditor", editor);
+            editor.Show();
         };
 
         var editItem = new MenuItem { Header = "Edit Maintenance File…" };
@@ -709,14 +711,16 @@ internal sealed class MaintenancePanelController {
             var ownerWindow = Window.GetWindow(_listPanel);
             if (ownerWindow is null) return;
             var capturedTask = task;
-            new MaintenanceTaskEditorWindow(
+            var editor = new MaintenanceTaskEditorWindow(
                 ownerWindow,
                 capturedTask,
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
-                onDirectRevise: _onDirectRevise)
-                .Show();
+                onDirectRevise: _onDirectRevise);
+            editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("MaintenanceTaskEditor", editor);
+            FloatingWindowPositionStore.Shared.TryRestore("MaintenanceTaskEditor", editor);
+            editor.Show();
         };
         taskMenu.Items.Add(editTaskItem);
         row.ContextMenu = taskMenu;
