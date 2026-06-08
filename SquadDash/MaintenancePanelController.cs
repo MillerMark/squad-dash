@@ -595,7 +595,7 @@ internal sealed class MaintenancePanelController {
                             Content   = choice.Value,
                             GroupName = $"task-{task.Id}-{opt.Key}",
                             IsChecked = string.Equals(choice.Value, opt.RawValue, StringComparison.OrdinalIgnoreCase),
-                            Margin    = new Thickness(8, 1, 0, 1),
+                            Margin    = new Thickness(8, 1, 0, 2),
                         };
                         rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
                         rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");

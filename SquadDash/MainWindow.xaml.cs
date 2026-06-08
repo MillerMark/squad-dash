@@ -6245,7 +6245,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Content   = choice,
                     GroupName = opt.Key,
                     IsChecked = string.Equals(choice, opt.RawValue, StringComparison.Ordinal),
-                    Margin    = new Thickness(12, 0, 0, 0),
+                    Margin    = new Thickness(12, 0, 0, 1),
                 };
                 rb.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
                 rb.SetResourceReference(Control.ForegroundProperty, "LabelText");
