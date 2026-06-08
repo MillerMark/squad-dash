@@ -389,9 +389,8 @@ internal sealed class PanelDockingService
         }
 
         var x = e.GetPosition(_topZoneGrid).X;
-        var delta = x - state.LastX;
         state.LastX = x;
-        ApplyTopZoneResizeDelta(delta);
+        ApplyTopZoneResizeFromDragStart();
         e.Handled = true;
     }
 
@@ -464,7 +463,12 @@ internal sealed class PanelDockingService
 
     private void OnTopZoneSplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
-        ApplyTopZoneResizeDelta(e.HorizontalChange);
+        if (_topZoneSplitterDragState is { } state)
+        {
+            state.LastX += e.HorizontalChange;
+            ApplyTopZoneResizeFromDragStart();
+        }
+
         e.Handled = true;
     }
 
@@ -473,17 +477,17 @@ internal sealed class PanelDockingService
         CompleteTopZoneSplitterDrag(sender);
     }
 
-    private void ApplyTopZoneResizeDelta(double delta)
+    private void ApplyTopZoneResizeFromDragStart()
     {
         if (_topZoneSplitterDragState is not { } state)
             return;
 
         var mode = GetCurrentDockResizeMode();
         var resized = DockResizeEngine.Resize(
-            state.Participants,
+            state.InitialParticipants,
             state.SplitterIndex,
             mode,
-            delta);
+            state.LastX - state.StartX);
 
         for (int i = 0; i < resized.Length; i++)
             state.Participants[i] = state.Participants[i] with { CurrentSize = resized[i] };

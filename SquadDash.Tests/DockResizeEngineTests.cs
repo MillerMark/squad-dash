@@ -142,6 +142,26 @@ internal sealed class DockResizeEngineTests
         Assert.That(sizes, Is.EqualTo(new[] { 924, 317, 320, 340, 650 }).Within(0.001));
     }
 
+    [Test]
+    public void ChainDragLeft_RecomputedFromDragStart_DoesNotKeepOversizedReceiverAfterReturningRight()
+    {
+        var participants = Participants(
+            (1382, 260, null),
+            (359, 200, 360),
+            (320, 200, 320),
+            (390, 220, 560),
+            (553, 220, 620));
+
+        var returnedNearStart = DockResizeEngine.Resize(
+            participants,
+            splitterLeftParticipantIndex: 1,
+            DockResizeMode.Chain,
+            delta: -160);
+
+        Assert.That(returnedNearStart, Is.EqualTo(new[] { 1381, 200, 320, 550, 553 }).Within(0.001));
+        Assert.That(returnedNearStart[3], Is.LessThan(600), "Inbox should unwind to the net drag result instead of staying at the old oversized path state.");
+    }
+
     private static DockResizeParticipant[] Participants(params (double Size, double Min, double? Max)[] values) =>
         values.Select(v => new DockResizeParticipant(v.Size, v.Min, v.Max)).ToArray();
 }
