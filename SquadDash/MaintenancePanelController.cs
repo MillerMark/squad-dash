@@ -583,7 +583,7 @@ internal sealed class MaintenancePanelController {
                         TextWrapping = TextWrapping.Wrap,
                         Margin       = new Thickness(0, 2, 0, 1),
                     };
-                    labelBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                    labelBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
                     labelBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                     if (!string.IsNullOrEmpty(opt.Tooltip))
                         labelBlock.ToolTip = MakeThemedToolTip(opt.Tooltip);
@@ -597,7 +597,7 @@ internal sealed class MaintenancePanelController {
                             IsChecked = string.Equals(choice.Value, opt.RawValue, StringComparison.OrdinalIgnoreCase),
                             Margin    = new Thickness(8, 1, 0, 1),
                         };
-                        rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeSmall");
+                        rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
                         rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
                         rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
                         if (!string.IsNullOrEmpty(choice.Tooltip))
@@ -620,7 +620,7 @@ internal sealed class MaintenancePanelController {
                         IsChecked = isChecked,
                         Margin    = new Thickness(0, 1, 0, 1),
                     };
-                    cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeSmall");
+                    cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeBody");
                     cb.SetResourceReference(CheckBox.ForegroundProperty, "ImportantText");
                     if (!string.IsNullOrEmpty(opt.Tooltip))
                         cb.ToolTip = MakeThemedToolTip(opt.Tooltip);
