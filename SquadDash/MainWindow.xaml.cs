@@ -1319,7 +1319,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             showHireAgentWindow: () => ShowHireAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) => EnqueuePrompt(text, isSystemInjected),
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
-            triggerMaintenanceCycle: () => _ = StartMaintenanceCycleAsync(isManual: true),
+            triggerMaintenanceCycle: async () => {
+                try { await StartMaintenanceCycleAsync(isManual: true); }
+                catch (Exception ex) { HandleUiCallbackException("triggerMaintenanceCycle", ex); }
+            },
             showRuntimeIssue: msg => ShowRuntimeIssue(msg),
             clearRuntimeIssue: () => ClearRuntimeIssue(),
             waitForRoutingRepairSettleAsync: () => WaitForRoutingRepairStateToSettleAsync(),
