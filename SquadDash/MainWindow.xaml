@@ -335,9 +335,6 @@
                         Visibility="Hidden" />
             </Grid>
             <DataTemplate.Triggers>
-                <Trigger SourceName="AgentCardBorder" Property="IsMouseOver" Value="True">
-                    <Setter TargetName="AgentCardBorder" Property="Background" Value="{DynamicResource HoverSurface}" />
-                </Trigger>
                 <DataTrigger Binding="{Binding IsTranscriptTargetSelected}" Value="True">
                     <Setter TargetName="SelectedIndicator" Property="Visibility" Value="Visible" />
                 </DataTrigger>

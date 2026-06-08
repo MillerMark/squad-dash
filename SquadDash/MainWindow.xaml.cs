@@ -11132,6 +11132,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
             }
 
+            // Apply glow to the agent card border itself
+            if (sender is System.Windows.Controls.Border agentCardBorder)
+            {
+                double cardStartOpacity = isDark ? 0.6 : 0.4;
+                var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = accentColor,
+                    BlurRadius = isDark ? 28 : 20,
+                    ShadowDepth = 0,
+                    Opacity = cardStartOpacity
+                };
+                agentCardBorder.Effect = cardGlow;
+
+                var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(cardStartOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
+                cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
+            }
+
             // If this is the lead/coordinator agent, apply glow to main transcript border
             if (agentCard.IsLeadAgent)
             {
@@ -11186,6 +11203,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (sender is not FrameworkElement { DataContext: AgentStatusCard agentCard })
                 return;
+
+            // Remove glow effect from the agent card border itself
+            if (sender is System.Windows.Controls.Border agentCardBorder
+                && agentCardBorder.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
+            {
+                cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+                agentCardBorder.Effect = null;
+            }
 
             // If this is the lead/coordinator agent, remove glow from main transcript border
             if (agentCard.IsLeadAgent)
