@@ -1127,6 +1127,7 @@
 
                     <Border x:Name="InactiveAgentsPanelBorder"
                             Grid.Column="1"
+                            MaxWidth="600"
                             VerticalAlignment="Top"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"

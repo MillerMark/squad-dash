@@ -760,10 +760,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 TopZonePanelsGrid.ColumnDefinitions[5],
                 TopZonePanelsGrid.ColumnDefinitions[7],
-                TopZonePanelsGrid.ColumnDefinitions[10],
-                TopZonePanelsGrid.ColumnDefinitions[12],
-                TopZonePanelsGrid.ColumnDefinitions[14],
-                TopZonePanelsGrid.ColumnDefinitions[16],
+                TopZonePanelsGrid.ColumnDefinitions[11],
+                TopZonePanelsGrid.ColumnDefinitions[13],
+                TopZonePanelsGrid.ColumnDefinitions[15],
+                TopZonePanelsGrid.ColumnDefinitions[17],
             },
             TopZonePanelsGrid.ColumnDefinitions[3]);
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");

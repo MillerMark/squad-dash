@@ -1092,18 +1092,19 @@ internal sealed class PanelDockingService
                 {
                     double minW = element.MinWidth > 0 ? element.MinWidth : 80;
                     colDef.MinWidth = minW;
-                    colDef.Width = new GridLength(1, GridUnitType.Star);
+                    double defaultW = Math.Max(minW, 280);
+                    double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] > 0
+                        ? pw[rank] : 0;
+                    colDef.Width = new GridLength(persistedW > 0 ? persistedW : defaultW);
                 }
             }
         }
         SquadDashTrace.Write(TraceCategory.Docking, $"RebuildTopZoneLayout:{assignments}");
 
-        // Toggle flex absorber (col 2): 0* when panels present so they fill available width;
-        // 1* when top zone is empty so Active Agents renders naturally and doesn't compete.
+        // Flex absorber (col 3) is always 1* so it fills space to the left of the panels,
+        // creating a natural "panels anchored to the right" layout.
         if (_topZoneFlexAbsorberColumn is { } absorber)
-            absorber.Width = topSlots.Count > 0
-                ? new GridLength(0, GridUnitType.Star)
-                : new GridLength(1, GridUnitType.Star);
+            absorber.Width = new GridLength(1, GridUnitType.Star);
 
         UpdateTopZoneSplitterVisibility(occupiedRanks);
         ApplyTopZonePanelWidths();
@@ -1118,14 +1119,15 @@ internal sealed class PanelDockingService
     {
         if (_topZoneGrid is null) return;
         var cols = _topZoneGrid.ColumnDefinitions;
-        if (cols.Count < 17) return;
+        if (cols.Count < 18) return;
 
         var sb = new System.Text.StringBuilder();
         sb.Append($"TopZoneWidths  grid.ActualW={_topZoneGrid.ActualWidth:F0}");
         sb.Append($"  | col0(ActiveAgents)={cols[0].ActualWidth:F0}");
-        sb.Append($"  | col2(flexAbsorber)={cols[2].ActualWidth:F0}({cols[2].Width})");
-        sb.Append($"  | col7(WatchPanel)={cols[7].ActualWidth:F0}");
-        sb.Append($"  | col8(flexBuffer)={cols[8].ActualWidth:F0}({cols[8].Width})");
+        sb.Append($"  | col1(InactiveAgents)={cols[1].ActualWidth:F0}");
+        sb.Append($"  | col3(flexAbsorber)={cols[3].ActualWidth:F0}({cols[3].Width})");
+        sb.Append($"  | col8(WatchPanel)={cols[8].ActualWidth:F0}");
+        sb.Append($"  | col9(flexBuffer)={cols[9].ActualWidth:F0}({cols[9].Width})");
 
         var slotLabels = new[] { "rank0", "rank1", "rank2", "rank3", "rank4", "rank5" };
         for (int i = 0; i < TopZonePhysicalColumns.Length; i++)
@@ -1181,7 +1183,7 @@ internal sealed class PanelDockingService
         for (int i = 0; i < widths.Count && i < _topZonePanelColumns.Length; i++)
         {
             if (_topZonePanelColumns[i] is { } col && widths[i] > 0)
-                col.Width = new GridLength(widths[i], GridUnitType.Star);
+                col.Width = new GridLength(widths[i]);
         }
     }
 
