@@ -1019,6 +1019,7 @@
         <Border x:Name="StatusPanelBorder"
                 Grid.Row="2"
                 Grid.Column="0"
+                Margin="0,-11,0,0"
                 Padding="0"
                 Background="Transparent"
                 BorderThickness="0">
@@ -1041,7 +1042,7 @@
                                           Width="*"
                                           MinWidth="260" />
                         <!-- col 2: spacer -->
-                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="2" />
                         <!-- col 3: legacy absorber, kept for fixed-column compatibility but collapsed.
                              Roster & History now absorbs the space up to the leftmost splitter. -->
                         <ColumnDefinition Width="0" MinWidth="0" />
@@ -1130,6 +1131,7 @@
                     <Border x:Name="InactiveAgentsPanelBorder"
                             Grid.Column="1"
                             MinWidth="260"
+                            Margin="4,0,0,0"
                             VerticalAlignment="Top"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"
