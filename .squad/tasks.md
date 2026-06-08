@@ -93,7 +93,7 @@
 
 ## 🟡 Mid Priority
 
-- [ ] **Maintenance — custom task editor** *(Owner: Arjun Sen + Lyra Morn)*
+- [x] **Maintenance — custom task editor** *(Owner: Arjun Sen + Lyra Morn)*
 - [ ] Test and evaluate the Decompose feature
   Manually walk through decompose in a range of circumstances to verify reliability.
   Define a test plan covering: typical prompts, edge cases (empty input, very long input,
@@ -108,7 +108,7 @@
   Requires adding `SourceFilePath` to `MaintenanceTask` record. Requires round-trip tests.
   **Prerequisite for:** Maintenance — multi-file support.
 
-- [ ] **Maintenance — multi-file support** *(Owner: Arjun Sen + Lyra Morn)*
+- [x] **Maintenance — multi-file support** *(Owner: Arjun Sen + Lyra Morn)*
   Load all `maintenance*.md` files from the `.squad/` folder (e.g. `maintenance.md`,
   `maintenance-docs.md`, `maintenance-screenshots.md`). The base `maintenance.md` tasks are
   treated as "system" tasks. Additional files contribute supplemental tasks.

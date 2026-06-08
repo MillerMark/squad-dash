@@ -638,17 +638,17 @@ tasks:
     enabled: true
     frequency: daily
     safety: report-only
-    title: Daily Issue & PR Tracker
+    title: Issue & PR Tracker
     instructions: |
       Query the GitHub API to find new issues posted to the repository in the last
       24 hours. {{#if includePullRequests}}Also include pull requests.{{/if}}{{#if !includePullRequests}}Pull requests are not included in this report.{{/if}}
-
+      
       Use the GitHub CLI (`gh`) to query the repository. The query should:
       - Identify the current repository (use `gh repo view --json nameWithOwner`)
       - Search for issues created in the last 24 hours using GitHub's search syntax
       {{#if includePullRequests}}- Also search for pull requests created in the last 24 hours{{/if}}
       - Retrieve title, number, creation time, and URL for each result
-
+      
       Format the findings into a clear, actionable report:
       1. **Summary**: Total count of new issues{{#if includePullRequests}} and pull requests{{/if}}
       2. **New Issues** (if any):
@@ -663,10 +663,10 @@ tasks:
       {{#if !includePullRequests}}
       3. **Suggested Next Steps**: Brief recommendations for issue triage
       {{/if}}
-
+      
       Do not change any code or issues. Send the report to the user's Inbox using
       an INBOX_MESSAGE_JSON block (from: "argus-weld").
-
+      
       **Note**: This task is designed to be distributed to other repositories. It
       queries the current workspace's repository dynamically, so it will work on
       any GitHub repository that uses SquadDash.
@@ -674,6 +674,6 @@ tasks:
       includePullRequests:
         type: checkbox
         label: Include Pull Requests
-        tooltip: "When enabled, report will include PRs in addition to issues"
+        tooltip: When enabled, report will include PRs in addition to issues
         value: false
 ---
