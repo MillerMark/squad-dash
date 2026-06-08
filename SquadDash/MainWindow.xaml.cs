@@ -11607,7 +11607,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (documents.Count == 0)
                 return;
 
-            OpenMarkdownFiles(documents, $"{agent.Name} Charter & History");
+            OpenMarkdownFiles(documents, "Agent Charter & History");
         }
         catch (Exception ex)
         {

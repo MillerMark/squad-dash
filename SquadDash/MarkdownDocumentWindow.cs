@@ -433,7 +433,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             Padding = new Thickness(8),
             Child = _sourceEditorHost,
         };
-        _sourceBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        _sourceBorder.SetResourceReference(Border.BackgroundProperty, "TextBoxBackground");
         _sourceBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
 
         _mdToolbar = new MarkdownEditorToolbar {
