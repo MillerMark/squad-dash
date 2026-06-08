@@ -650,7 +650,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _instanceRegistry = serviceProvider?.GetRequiredService<RunningInstanceRegistry>() ?? new RunningInstanceRegistry();
         _restartCoordinatorStateStore = serviceProvider?.GetRequiredService<RestartCoordinatorStateStore>() ?? new RestartCoordinatorStateStore();
         _pastedImageStore = serviceProvider?.GetRequiredService<PastedImageStore>() ?? new PastedImageStore();
-        _clipboardEditorStateStore = serviceProvider?.GetRequiredService<ClipboardEditorStateStore>() ?? new ClipboardEditorStateStore();
+        _clipboardEditorStateStore = serviceProvider?.GetRequiredService<ClipboardEditorStateStore>() ??
+            new ClipboardEditorStateStore(Path.Combine(
+                SquadDashPaths.WorkspaceStateDirectory((workspacePaths ?? WorkspacePathsProvider.Discover()).ApplicationRoot),
+                "clipboard-editors"));
         _promptQueue = serviceProvider?.GetRequiredService<PromptQueue>() ?? new PromptQueue();
         _hostCommandRegistry = serviceProvider?.GetRequiredService<HostCommandRegistry>() ?? new HostCommandRegistry();
         _postedUiActionTracker = serviceProvider?.GetRequiredService<PostedUiActionTracker>() ?? new PostedUiActionTracker();

@@ -40,7 +40,10 @@ namespace SquadDash {
             services.AddSingleton<SquadInstallerService>();
             services.AddSingleton<RunningInstanceRegistry>();
             services.AddSingleton<RestartCoordinatorStateStore>();
-            services.AddSingleton<ClipboardEditorStateStore>();
+            var clipboardEditorsDir = Path.Combine(
+                SquadDashPaths.WorkspaceStateDirectory(workspacePaths.ApplicationRoot),
+                "clipboard-editors");
+            services.AddSingleton(_ => new ClipboardEditorStateStore(clipboardEditorsDir));
             services.AddSingleton<PastedImageStore>();
             services.AddSingleton<PromptQueue>();
             services.AddSingleton<HostCommandRegistry>();
