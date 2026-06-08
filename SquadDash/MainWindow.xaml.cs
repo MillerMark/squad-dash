@@ -24451,7 +24451,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Safety-net: save positions for any inbox windows still open.
             foreach (var inboxWin in _openInboxWindows)
-                FloatingWindowPositionStore.Shared.Save("InboxMessage", inboxWin);
+                FloatingWindowPositionStore.Shared.Save($"InboxMessage:{inboxWin.MessageId}", inboxWin);
 
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
@@ -28158,8 +28158,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         win.Owner = this;
                         _openInboxWindows.Add(win);
                         win.Closed += (_, _) => _openInboxWindows.Remove(win);
-                        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("InboxMessage", win);
-                        FloatingWindowPositionStore.Shared.TryRestore("InboxMessage", win);
+                        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+                        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{msg.Id}", win);
                         win.Show();
                     }
                 }
@@ -29668,8 +29668,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
-        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("InboxMessage", win);
-        FloatingWindowPositionStore.Shared.TryRestore("InboxMessage", win);
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         win.Show();
     }
 
@@ -29704,8 +29704,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
-        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("InboxMessage", win);
-        FloatingWindowPositionStore.Shared.TryRestore("InboxMessage", win);
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: hooking win.Loaded to defer SelectAndScrollToText via Dispatcher.BeginInvoke(Loaded priority) — excerptLen={excerptText.Length}");
         win.Loaded += (_, _) =>

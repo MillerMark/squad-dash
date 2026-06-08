@@ -26,6 +26,15 @@
 
 - [x] **[Docking] Panel docking UI spec** *(Owner: mira-quill)* — commit fc205b2
 
+- [ ] **[Architecture] Extract shared MarkdownEditorPanel base class** *(Owner: Lyra Morn)*
+  MaintenanceTaskEditorWindow and MarkdownDocumentWindow both implement markdown editing with preview
+  but diverge on undo strategy (manual stack vs. WPF built-in), preview renderer (FlowDoc only vs.
+  WebBrowser+FlowDoc), and feature set (maintenance editor is missing toolbar, find bar, case cycling,
+  auto-list continuation). A shared base class or embedded-control approach would eliminate duplication
+  and close the feature gap. See source editor audit (inbox 2026-06-08) for full analysis and options.
+  Short-term: attach MarkdownEditorToolbar to MaintenanceTaskEditorWindow.
+  Long-term: extract shared MarkdownEditorPanel that both editors subclass.
+
 - [ ] **[Duplication] Investigate DUP-007— re-scan or re-examine original findings** *(Owner: Fred)*
   The original duplication scan (2026-05-21) identified DUP-001–010. Fixes were committed for
   DUP-001–006 and DUP-008–010. DUP-007 has no recorded fix and no description was persisted.

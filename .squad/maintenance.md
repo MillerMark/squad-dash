@@ -151,33 +151,29 @@ tasks:
     instructions: |
       Review the documentation in the `docs/` folder (or the repo's primary docs
       location) for the following issues:
-
+      
       1. **Accuracy** — Are instructions, command examples, configuration values,
          and feature descriptions still accurate relative to the current codebase?
          Flag anything that appears outdated or incorrect.
-
       2. **Broken internal links** — Scan all Markdown files for links to other
          pages within the docs. Check whether each target file exists. If a page
          exists but has `published: false` (or equivalent front-matter), flag any
          other page that links to it as a warning — the reader will hit an
          unpublished page.
-
       3. **Broken external links** — Optionally check HTTP/HTTPS links to see if
          they return a non-200 status. Flag dead external links.
-
       4. **Missing images** — Find image references (`![...](...)`). Check whether
          the referenced file exists on disk. Flag missing image files.
-
       5. **Orphaned pages** — Identify docs pages that are not reachable from any
          other page (no inbound links from within the docs tree). These may be
          forgotten or accidentally unpublished pages.
-
+      
       {{#if if_found == "report"}}
       Do not change any files. Produce a structured report grouped by issue type,
       listing file path, structural anchor (e.g. `## Section > ### Subsection`),
       and a description of each problem found. Include a severity: Warning for
       unpublished-page links and dead links, Info for orphaned pages and accuracy
-      concerns. Send the report to the user's Inbox using an INBOX_MESSAGE_JSON
+      concerns. Send the report to the user's Inbox using an `INBOX_MESSAGE_JSON`
       block (from: "argus-weld").
       {{/if}}
       {{#if if_found == "fix"}}
@@ -190,14 +186,13 @@ tasks:
       if_found:
         type: radio
         label: If documentation issues are found
-        tooltip: "Produce a report or fix what can be fixed automatically"
+        tooltip: Produce a report or fix what can be fixed automatically
         value: report
         choices:
           - value: report
             tooltip: Write a report — do not change any files
           - value: fix
             tooltip: Fix auto-correctable issues on a maintenance branch; report the rest
-
   - id: eliminate-duplication
     enabled: false
     frequency: daily
