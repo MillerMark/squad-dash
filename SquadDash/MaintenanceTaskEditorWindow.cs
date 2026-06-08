@@ -620,7 +620,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             HorizontalAlignment  = HorizontalAlignment.Stretch,
             VerticalAlignment    = VerticalAlignment.Stretch,
         };
-        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "InputSurface");
+        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "RosterPanelSurface");
         return viewer;
     }
 
@@ -810,10 +810,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var combined = new FlowDocument {
             FontFamily    = new FontFamily("Segoe UI, Segoe UI Emoji"),
             FontSize      = Application.Current.Resources["FontSizeMedium"] is double sz ? sz : 13.0,
-            Background    = Brushes.Transparent,
             PagePadding   = new Thickness(18),
             TextAlignment = TextAlignment.Left,
         };
+        combined.SetResourceReference(FlowDocument.BackgroundProperty, "RosterPanelSurface");
         combined.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
 
         _previewBlockSrcRanges.Clear();
