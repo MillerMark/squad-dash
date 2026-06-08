@@ -147,8 +147,13 @@ internal sealed class PanelDockingService
         public required int SplitterIndex { get; init; }
         public required GridSplitter Splitter { get; init; }
         public required DockResizeParticipant[] Participants { get; set; }
+        public required DockResizeParticipant[] InitialParticipants { get; init; }
         public required ColumnDefinition[] PanelColumns { get; init; }
+        public required string[] PanelIds { get; init; }
         public required double LastX { get; set; }
+        public required double StartX { get; init; }
+        public required ModifierKeys StartModifiers { get; init; }
+        public required DockResizeMode StartMode { get; init; }
     }
 
     private readonly record struct TopZoneResizePanel(
@@ -437,13 +442,21 @@ internal sealed class PanelDockingService
                 GetTopZoneMaximumUsefulWidth(panel.Element, minWidth)));
         }
 
+        var startModifiers = Keyboard.Modifiers;
+        var startMode = GetCurrentDockResizeMode();
+        var participantsArray = participants.ToArray();
         _topZoneSplitterDragState = new TopZoneSplitterDragState
         {
             SplitterIndex = splitterIndex,
             Splitter = splitter,
-            Participants = participants.ToArray(),
+            Participants = participantsArray,
+            InitialParticipants = participantsArray.ToArray(),
             PanelColumns = panels.Select(p => p.Column).ToArray(),
+            PanelIds = panels.Select(p => p.PanelId).ToArray(),
             LastX = startX,
+            StartX = startX,
+            StartModifiers = startModifiers,
+            StartMode = startMode,
         };
 
         ResetTopZoneLayoutColumnKinds();
@@ -480,7 +493,9 @@ internal sealed class PanelDockingService
 
     private void CompleteTopZoneSplitterDrag(object sender)
     {
-        if (_topZoneSplitterDragState is { } state)
+        var completedState = _topZoneSplitterDragState;
+
+        if (completedState is { } state)
             ApplyTopZoneDragWidths(state);
 
         _topZoneSplitterDragState = null;
@@ -500,6 +515,48 @@ internal sealed class PanelDockingService
         var splitterName = (sender as System.Windows.FrameworkElement)?.Name ?? "unknown";
         SquadDashTrace.Write(TraceCategory.Docking, $"TopZoneSplitter drag completed ({splitterName}) — logging column widths:");
         LogTopZoneWidths();
+
+        if (completedState is { } s)
+            LogTopZoneDragSummary(s, splitterName);
+    }
+
+    private void LogTopZoneDragSummary(TopZoneSplitterDragState state, string splitterName)
+    {
+        var totalDelta = state.LastX - state.StartX;
+        var direction = totalDelta > 0.5 ? "right" : totalDelta < -0.5 ? "left" : "no net movement";
+        var modStr = state.StartModifiers == ModifierKeys.None
+            ? "none"
+            : string.Join("+", new[] { "Shift", "Alt", "Ctrl" }
+                .Where(k => state.StartModifiers.HasFlag(Enum.Parse<ModifierKeys>(k == "Ctrl" ? "Control" : k))));
+        var modeStr = state.StartMode switch
+        {
+            DockResizeMode.Chain => "Chain (Shift)",
+            DockResizeMode.Proportional => "Proportional (Alt)",
+            _ => "Normal",
+        };
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"TopZoneDragSummary  splitter={splitterName}  totalDelta={totalDelta:F1}px ({direction})  modifiers=[{modStr}]  mode={modeStr}");
+
+        // Left boundary (roster/inactive agents)
+        var lbBefore = state.InitialParticipants[0].CurrentSize;
+        var lbAfter = state.Participants[0].CurrentSize;
+        var lbDiff = lbAfter - lbBefore;
+        sb.AppendLine($"  [roster/inactive]  before={lbBefore:F0}  after={lbAfter:F0}  diff={lbDiff:+0.#;-0.#;0}");
+
+        // Panels
+        for (int i = 0; i < state.PanelIds.Length; i++)
+        {
+            var pi = i + 1; // participant index (0 is left-boundary)
+            if (pi >= state.InitialParticipants.Length) break;
+            var before = state.InitialParticipants[pi].CurrentSize;
+            var after = state.Participants[pi].CurrentSize;
+            var diff = after - before;
+            var side = i < state.SplitterIndex ? "left" : "right";
+            sb.AppendLine($"  [{state.PanelIds[i]}]  rank={i}  side={side}  before={before:F0}  after={after:F0}  diff={diff:+0.#;-0.#;0}");
+        }
+
+        SquadDashTrace.Write(TraceCategory.Docking, sb.ToString().TrimEnd());
     }
 
     private static DockResizeMode GetCurrentDockResizeMode()
