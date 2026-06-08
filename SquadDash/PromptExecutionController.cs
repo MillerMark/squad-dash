@@ -174,6 +174,7 @@ internal sealed class PromptExecutionController {
     private readonly Func<HireAgentWindow.HireAgentSubmission?> _showHireAgentWindow;
     private readonly Action<string, bool>       _enqueuePrompt;
     private readonly Action                     _showScreenshotOverlay;
+    private readonly Action                     _triggerMaintenanceCycle;
 
     // ── Injected — Runtime Issue ──────────────────────────────────────────
     private readonly Func<string, WorkspaceIssuePresentation> _showRuntimeIssue;
@@ -359,6 +360,7 @@ internal sealed class PromptExecutionController {
         Func<HireAgentWindow.HireAgentSubmission?> showHireAgentWindow,
         Action<string, bool> enqueuePrompt,
         Action showScreenshotOverlay,
+        Action triggerMaintenanceCycle,
         // Runtime Issue
         Func<string, WorkspaceIssuePresentation> showRuntimeIssue,
         Action clearRuntimeIssue,
@@ -415,6 +417,7 @@ internal sealed class PromptExecutionController {
         _showHireAgentWindow                   = showHireAgentWindow;
         _enqueuePrompt                         = enqueuePrompt;
         _showScreenshotOverlay                 = showScreenshotOverlay;
+        _triggerMaintenanceCycle               = triggerMaintenanceCycle;
         _showRuntimeIssue                      = showRuntimeIssue;
         _clearRuntimeIssue                     = clearRuntimeIssue;
         _waitForRoutingRepairSettleAsync       = waitForRoutingRepairSettleAsync;
@@ -937,6 +940,9 @@ internal sealed class PromptExecutionController {
         if (TryMatchCommandWithBody(trimmed, "/queue-sim", out var queueSimBody))
             return HandleLocalTestQueueCommand(prompt, queueSimBody, addToHistory, clearPromptBox);
 
+        if (string.Equals(trimmed, "/maintenance", StringComparison.OrdinalIgnoreCase))
+            return HandleLocalMaintenanceCommand(prompt, addToHistory, clearPromptBox);
+
         return false;
     }
 
@@ -995,6 +1001,11 @@ internal sealed class PromptExecutionController {
     private bool HandleLocalDoctorCommand(string prompt, bool addToHistory, bool clearPromptBox) {
         SquadDashTrace.Write("UI", "Local command intercepted prompt=/doctor");
         return ExecuteLocalUiCommand(prompt, addToHistory, clearPromptBox, _runDoctor);
+    }
+
+    private bool HandleLocalMaintenanceCommand(string prompt, bool addToHistory, bool clearPromptBox) {
+        SquadDashTrace.Write("UI", "Local command intercepted prompt=/maintenance");
+        return ExecuteLocalUiCommand(prompt, addToHistory, clearPromptBox, _triggerMaintenanceCycle);
     }
 
     private bool HandleLocalModelCommand(string prompt, bool addToHistory, bool clearPromptBox) {

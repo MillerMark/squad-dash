@@ -1823,7 +1823,7 @@
                                               Margin="0,0,8,0" />
                                 <Button x:Name="MaintenanceDoTheseButton"
                                         DockPanel.Dock="Right"
-                                        Content="▶ Do these"
+                                        Content="▶ Run now"
                                         Height="17"
                                         FontSize="{DynamicResource FontSizeXSmall}"
                                         Margin="4,0,0,0"

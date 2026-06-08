@@ -1319,6 +1319,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             showHireAgentWindow: () => ShowHireAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) => EnqueuePrompt(text, isSystemInjected),
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
+            triggerMaintenanceCycle: () => _ = StartMaintenanceCycleAsync(isManual: true),
             showRuntimeIssue: msg => ShowRuntimeIssue(msg),
             clearRuntimeIssue: () => ClearRuntimeIssue(),
             waitForRoutingRepairSettleAsync: () => WaitForRoutingRepairStateToSettleAsync(),
@@ -7054,7 +7055,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         "/activate", "/add-dir", "/agents", "/allow-all", "/approval", "/changelog", "/clear",
         "/context", "/copy", "/delegate", "/deactivate", "/diff", "/doctor", "/experimental", "/feedback",
         "/fleet", "/dropTasks", "/health", "/help", "/hire", "/ide", "/init", "/instructions", "/login", "/logout",
-        "/lsp", "/mcp", "/model", "/new", "/plan", "/pr", "/queue-sim", "/research", "/restart",
+        "/lsp", "/maintenance", "/mcp", "/model", "/new", "/plan", "/pr", "/queue-sim", "/research", "/restart",
         "/resume", "/review", "/rewind", "/rename", "/retire", "/session", "/sessions", "/share", "/skills",
         "/status", "/tasks", "/test-queue", "/trace", "/update", "/usage", "/version"
     ];
@@ -31498,6 +31499,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            if (ShouldSuppressMaintenanceCycle())
+            {
+                EnqueuePrompt("/maintenance", isSystemInjected: false);
+                _maintenancePanel?.ShowTransientStatus("Queued — will run when AI is free.");
+                return;
+            }
             await StartMaintenanceCycleAsync(isManual: true);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceDoTheseButton_Click), ex); }
