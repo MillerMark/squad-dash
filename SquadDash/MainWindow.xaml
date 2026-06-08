@@ -2034,14 +2034,13 @@
                         </Grid>
                     </panelDocking:GripStripBorder>
 
-                    <!-- Splitter backgrounds are RED for diagnostics — easy to spot during layout debugging. -->
                     <GridSplitter x:Name="TopZoneSplitter01"
                                   Grid.Column="4"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   ResizeBehavior="PreviousAndNext"
-                                  Background="Red"
+                                  Background="Transparent"
                                   ToolTip="S1 · col 4 · left of rank-0 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter12"
@@ -2050,7 +2049,7 @@
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   ResizeBehavior="PreviousAndNext"
-                                  Background="Red"
+                                  Background="Transparent"
                                   ToolTip="S2 · col 6 · left of rank-1 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter23"
@@ -2059,7 +2058,7 @@
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   ResizeBehavior="PreviousAndNext"
-                                  Background="Red"
+                                  Background="Transparent"
                                   ToolTip="S3 · col 10 · left of rank-2 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter34"
@@ -2068,7 +2067,7 @@
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   ResizeBehavior="PreviousAndNext"
-                                  Background="Red"
+                                  Background="Transparent"
                                   ToolTip="S4 · col 12 · left of rank-3 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter45"
@@ -2077,7 +2076,7 @@
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   ResizeBehavior="PreviousAndNext"
-                                  Background="Red"
+                                  Background="Transparent"
                                   ToolTip="S5 · col 14 · left of rank-4 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter56"
@@ -2086,7 +2085,7 @@
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   ResizeBehavior="PreviousAndNext"
-                                  Background="Red"
+                                  Background="Transparent"
                                   ToolTip="S6 · col 16 · left of rank-5 panel slot"
                                   Visibility="Collapsed" />
                 </Grid>
