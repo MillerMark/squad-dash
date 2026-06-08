@@ -167,6 +167,7 @@
                         BorderBrush="{Binding EffectiveAccentBrush}"
                         BorderThickness="2"
                         CornerRadius="18"
+                        ClipToBounds="False"
                         Cursor="Hand"
                         MouseLeftButtonUp="AgentCardBorder_MouseLeftButtonUp"
                         PreviewMouseRightButtonUp="AgentAccentBorder_PreviewMouseRightButtonUp"
@@ -1079,6 +1080,7 @@
                             Margin="-4,0,0,0"
                             VerticalAlignment="Top"
                             Padding="12"
+                            ClipToBounds="False"
                             Background="{DynamicResource ActivePanelSurface}"
                             BorderBrush="{DynamicResource ActivePanelBorder}"
                             BorderThickness="1"
@@ -1112,7 +1114,8 @@
                                           Grid.Row="2"
                                           HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Disabled"
-                                          CanContentScroll="False">
+                                          CanContentScroll="False"
+                                          ClipToBounds="False">
                                 <ItemsControl x:Name="ActiveAgentItemsControl"
                                               VerticalAlignment="Top"
                                               ItemTemplate="{StaticResource AgentCardTemplate}">
