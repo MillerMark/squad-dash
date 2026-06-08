@@ -256,7 +256,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             return true;
         }
         if (result == MessageBoxResult.No)
+        {
+            _hasUnsavedChanges = false;
             return true;
+        }
 
         // Cancel or dialog dismissed — stay open
         return false;
