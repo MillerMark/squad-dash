@@ -27,7 +27,6 @@ internal sealed class MaintenancePanelController {
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
     private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
 
-    private MaintenancePanelUiState? _uiState;
     private readonly MaintenancePanelViewModel _viewModel = new();
     internal MaintenancePanelViewModel ViewModel => _viewModel;
     private DispatcherTimer?       _countdownTimer;
@@ -160,31 +159,14 @@ internal sealed class MaintenancePanelController {
         menu.Items.Add(newTaskItem);
         menu.Items.Add(editItem);
 
-        var collapseItem = new MenuItem { Header = "Collapse All Tasks" };
-        collapseItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-        collapseItem.Click += (_, _) => CollapseAllTaskRows();
-        menu.Items.Add(collapseItem);
-
         _listPanel.ContextMenu = menu;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    private void CollapseAllTaskRows() {
-        foreach (var (taskId, panel) in _viewModel.TaskOptionsPanels) {
-            panel.Visibility = Visibility.Collapsed;
-            _uiState?.SetExpanded(taskId, false);
-        }
-    }
-
     internal void Refresh(MaintenanceMdConfig? config, MaintenanceStateStore? stateStore) {
         _viewModel.Config     = config;
         _viewModel.StateStore = stateStore;
-
-        if (_uiState is null && _getWorkspacePath() is { } wp) {
-            _uiState = new MaintenancePanelUiState(Path.Combine(wp, ".squad"));
-            _uiState.Load();
-        }
 
         _enabledOnIdlePicker.SelectedValue = (config?.EnabledOnIdle ?? false) ? "on-idle" : "manual";
 
@@ -300,7 +282,6 @@ internal sealed class MaintenancePanelController {
 
     private void RebuildList() {
         _listPanel.Children.Clear();
-        _viewModel.TaskOptionsPanels.Clear();
 
         if (_viewModel.Config is null || _viewModel.Config.Tasks is null || _viewModel.Config.Tasks.Count == 0) {
             var empty = new TextBlock {
@@ -513,10 +494,12 @@ internal sealed class MaintenancePanelController {
         check.Unchecked += (_, _) => ToggleTaskEnabled(task.Id);
         grid.Children.Add(check);
 
-        // ── Right column: title + chips + options ─────────────────────────────
+        // ── Right column: DockPanel with optional gear button + content ───────
+        var rightColumn = new DockPanel { LastChildFill = true };
+        Grid.SetColumn(rightColumn, 1);
+        grid.Children.Add(rightColumn);
+
         var rightPanel = new StackPanel { Margin = new Thickness(0) };
-        Grid.SetColumn(rightPanel, 1);
-        grid.Children.Add(rightPanel);
 
         // Title
         var titleBlock = new TextBlock {
@@ -570,12 +553,10 @@ internal sealed class MaintenancePanelController {
             rightPanel.Children.Add(lastRunBlock);
         }
 
-        // Radio options (if present and task is enabled)
-        StackPanel? optionsPanel = null;
-        if (task.Enabled && task.Options is { Count: > 0 }) {
-            optionsPanel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+        // Gear button + popup (if task has options)
+        if (task.Options is { Count: > 0 }) {
+            var popupOptionsPanel = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             foreach (var opt in task.Options) {
-                // For checkbox type, embed label in the checkbox itself
                 if (!string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) &&
                     opt.Label is { Length: > 0 }) {
                     var labelBlock = new TextBlock {
@@ -587,7 +568,7 @@ internal sealed class MaintenancePanelController {
                     labelBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                     if (!string.IsNullOrEmpty(opt.Tooltip))
                         labelBlock.ToolTip = MakeThemedToolTip(opt.Tooltip);
-                    optionsPanel.Children.Add(labelBlock);
+                    popupOptionsPanel.Children.Add(labelBlock);
                 }
                 if (opt.Choices is { Count: > 0 }) {
                     foreach (var choice in opt.Choices) {
@@ -597,7 +578,7 @@ internal sealed class MaintenancePanelController {
                             IsChecked = string.Equals(choice.Value, opt.RawValue, StringComparison.OrdinalIgnoreCase),
                             Margin    = new Thickness(8, 1, 0, 1),
                         };
-                        rb.SetResourceReference(RadioButton.FontSizeProperty,  "FontSizeSmall");
+                        rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeSmall");
                         rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
                         rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
                         if (!string.IsNullOrEmpty(choice.Tooltip))
@@ -610,7 +591,7 @@ internal sealed class MaintenancePanelController {
                             if (capturedPath is not null)
                                 MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, capturedValue);
                         };
-                        optionsPanel.Children.Add(rb);
+                        popupOptionsPanel.Children.Add(rb);
                     }
                 }
                 else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
@@ -635,30 +616,52 @@ internal sealed class MaintenancePanelController {
                         if (capturedPath is not null)
                             MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
                     };
-                    optionsPanel.Children.Add(cb);
+                    popupOptionsPanel.Children.Add(cb);
                 }
             }
-            rightPanel.Children.Add(optionsPanel);
 
-            // Apply persisted expand state (default collapsed)
-            optionsPanel.Visibility = (_uiState?.IsExpanded(task.Id) == true)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-
-            _viewModel.TaskOptionsPanels.Add((task.Id, optionsPanel));
-        }
-
-        // Double-click the row to expand or collapse the options panel.
-        if (optionsPanel is not null) {
-            // Use Preview (tunnel) event so child controls (CheckBox, RadioButton) don't swallow it first.
-            row.PreviewMouseLeftButtonDown += (_, e) => {
-                if (e.ClickCount != 2) return;
-                var nowVisible = optionsPanel.Visibility != Visibility.Visible;
-                optionsPanel.Visibility = nowVisible ? Visibility.Visible : Visibility.Collapsed;
-                _uiState?.SetExpanded(task.Id, nowVisible);
-                e.Handled = true;
+            var popupBorder = new Border {
+                BorderThickness = new Thickness(1),
+                Padding         = new Thickness(10, 8, 10, 10),
+                MinWidth        = 180,
+                Child           = popupOptionsPanel,
             };
+            popupBorder.SetResourceReference(Border.BackgroundProperty,  "InputSurface");
+            popupBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+
+            var gearButton = new Button {
+                Content           = "⚙",
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin            = new Thickness(4, 0, 0, 0),
+                Cursor            = Cursors.Hand,
+                ToolTip           = "Settings",
+            };
+            gearButton.SetResourceReference(Button.StyleProperty,      "FlatButtonStyle");
+            gearButton.SetResourceReference(Button.FontSizeProperty,   "FontSizeSmall");
+            gearButton.SetResourceReference(Button.ForegroundProperty, "SubtleText");
+
+            var popup = new Popup {
+                StaysOpen          = false,
+                Placement          = PlacementMode.Left,
+                PlacementTarget    = gearButton,
+                AllowsTransparency = false,
+                PopupAnimation     = PopupAnimation.None,
+                Child              = popupBorder,
+            };
+
+            gearButton.Click += (_, _) => {
+                if (popup.IsOpen) {
+                    popup.IsOpen = false;
+                    return;
+                }
+                popup.IsOpen = true;
+            };
+
+            DockPanel.SetDock(gearButton, Dock.Right);
+            rightColumn.Children.Add(gearButton);
         }
+
+        rightColumn.Children.Add(rightPanel);
 
         // Per-task context menu — "Run Now" and "Edit Task"
         var taskMenu    = new ContextMenu();
