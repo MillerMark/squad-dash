@@ -537,6 +537,17 @@ internal sealed class MaintenancePanelController {
             onValueChanged: newFreq => ChangeTaskFrequency(taskIdForFreq, newFreq),
             getButtonLabel: freq => GetFrequencyDisplayText(freq));
         chipRow.Children.Add(frequencyPicker.Control);
+        var optsSummary = BuildOptionsSummary(task.Options);
+        if (!string.IsNullOrEmpty(optsSummary)) {
+            var summaryBlock = new TextBlock {
+                Text              = $", {optsSummary}",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 0, 2),
+            };
+            summaryBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            chipRow.Children.Add(summaryBlock);
+        }
         rightPanel.Children.Add(chipRow);
 
         // Last-run status
@@ -743,6 +754,26 @@ internal sealed class MaintenancePanelController {
         tip.SetResourceReference(ToolTip.BackgroundProperty, "InputSurface");
         tip.SetResourceReference(ToolTip.BorderBrushProperty, "InputBorder");
         return tip;
+    }
+
+    private static string BuildOptionsSummary(IReadOnlyList<MaintenanceOption>? options) {
+        if (options is null or { Count: 0 }) return string.Empty;
+        var parts = new List<string>();
+        foreach (var opt in options) {
+            if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+                if (IsStringTrueValue(opt.RawValue))
+                    parts.Add(opt.Label ?? opt.Key);
+            }
+            else if (opt.Choices is { Count: > 0 }) {
+                if (!string.IsNullOrWhiteSpace(opt.RawValue))
+                    parts.Add(opt.RawValue);
+            }
+            else {
+                if (!string.IsNullOrWhiteSpace(opt.RawValue))
+                    parts.Add($"\"{opt.RawValue}\"");
+            }
+        }
+        return string.Join(", ", parts);
     }
 
     private static bool IsStringTrueValue(string? value) =>
