@@ -269,48 +269,149 @@ internal sealed class LoopTemplatePreprocessingTests
         Assert.That(count, Is.EqualTo(1), "duplicate mention should be de-duplicated");
     }
 
-    // ── Safety cleanup ────────────────────────────────────────────────────────
+    // ── Bare boolean {{#if key}} form ─────────────────────────────────────────
 
     [Test]
-    public void PreprocessConditionals_StrayClosingTag_Stripped()
+    public void PreprocessConditionals_BareBoolIfTrue_IncludesContent()
     {
-        // A stray {{/if}} with no matching open tag must be removed.
-        var options = new[] { Opt("foo", "bar") };
-        var text = "Normal line\n{{/if}}\nEnd";
+        var options = new[] { Opt("includePullRequests", "true") };
+        var text = "{{#if includePullRequests}}\nAlso include pull requests.\n{{/if}}";
         var result = LoopMdParser.PreprocessConditionals(text, options);
 
-        Assert.That(result, Does.Not.Contain("{{/if}}"));
-        Assert.That(result, Does.Contain("Normal line"));
-        Assert.That(result, Does.Contain("End"));
-    }
-
-    [Test]
-    public void PreprocessConditionals_StrayOpeningTag_Stripped()
-    {
-        // A stray {{#if}} block with no closing tag: its content is consumed until
-        // end-of-text, and any remaining syntax lines are stripped by safety cleanup.
-        var options = new[] { Opt("foo", "bar") };
-        var text = "Before\n{{#if orphan == \"x\"}}\nOrphaned content\nAfter";
-
-        // Since there is no {{/if}}, "Orphaned content" and "After" are consumed.
-        // Safety cleanup then removes any leftover syntax lines.
-        var result = LoopMdParser.PreprocessConditionals(text, options);
-
+        Assert.That(result, Does.Contain("Also include pull requests."));
         Assert.That(result, Does.Not.Contain("{{#if"));
-        Assert.That(result, Does.Contain("Before"));
+        Assert.That(result, Does.Not.Contain("{{/if}}"));
     }
 
     [Test]
-    public void PreprocessConditionals_MultipleBlankLines_CollapsedToTwo()
+    public void PreprocessConditionals_BareBoolIfFalse_RemovesBlock()
     {
-        var options = new[] { Opt("x", "y") };
-        // A false if-block, when removed, may leave surrounding blank lines
-        var text = "line1\n\n{{#if x == \"z\"}}\ncontent\n{{/if}}\n\n\n\nline2";
+        var options = new[] { Opt("includePullRequests", "false") };
+        var text = "before\n{{#if includePullRequests}}\nAlso include pull requests.\n{{/if}}\nafter";
         var result = LoopMdParser.PreprocessConditionals(text, options);
 
-        // Must not have 3+ consecutive newlines
-        Assert.That(result, Does.Not.Match(@"\n{3,}"));
-        Assert.That(result, Does.Contain("line1"));
-        Assert.That(result, Does.Contain("line2"));
+        Assert.That(result, Does.Not.Contain("Also include pull requests."));
+        Assert.That(result, Does.Not.Contain("{{#if"));
+        Assert.That(result, Does.Contain("before"));
+        Assert.That(result, Does.Contain("after"));
+    }
+
+    [Test]
+    public void PreprocessConditionals_BareBoolUnlessFalse_IncludesContent()
+    {
+        var options = new[] { Opt("includePullRequests", "false") };
+        var text = "{{#unless includePullRequests}}\nPRs not included.\n{{/unless}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Contain("PRs not included."));
+        Assert.That(result, Does.Not.Contain("{{#unless"));
+    }
+
+    [Test]
+    public void PreprocessConditionals_BareBoolUnlessTrue_RemovesBlock()
+    {
+        var options = new[] { Opt("includePullRequests", "true") };
+        var text = "{{#unless includePullRequests}}\nPRs not included.\n{{/unless}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Not.Contain("PRs not included."));
+        Assert.That(result, Does.Not.Contain("{{#unless"));
+    }
+
+    // ── Inline same-line {{#if key}}text{{/if}} form ──────────────────────────
+
+    [Test]
+    public void PreprocessConditionals_InlineIfTrue_IncludesContent()
+    {
+        var options = new[] { Opt("includePullRequests", "true") };
+        var text = "Query issues.{{#if includePullRequests}} Also include pull requests.{{/if}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Contain("Query issues. Also include pull requests."));
+        Assert.That(result, Does.Not.Contain("{{#if"));
+        Assert.That(result, Does.Not.Contain("{{/if}}"));
+    }
+
+    [Test]
+    public void PreprocessConditionals_InlineIfFalse_RemovesContent()
+    {
+        var options = new[] { Opt("includePullRequests", "false") };
+        var text = "Summary: issues{{#if includePullRequests}} and pull requests{{/if}}.";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Contain("Summary: issues."));
+        Assert.That(result, Does.Not.Contain("pull requests"));
+        Assert.That(result, Does.Not.Contain("{{#if"));
+    }
+
+    [Test]
+    public void PreprocessConditionals_InlineNegatedIfTrue_RemovesContent()
+    {
+        // {{#if !key}} — key is truthy, so negated form excludes the block
+        var options = new[] { Opt("includePullRequests", "true") };
+        var text = "{{#if !includePullRequests}}Pull requests are not included.{{/if}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Not.Contain("Pull requests are not included."));
+        Assert.That(result, Does.Not.Contain("{{#if"));
+    }
+
+    [Test]
+    public void PreprocessConditionals_InlineNegatedIfFalse_IncludesContent()
+    {
+        // {{#if !key}} — key is falsy, so negated form includes the block
+        var options = new[] { Opt("includePullRequests", "false") };
+        var text = "{{#if !includePullRequests}}Pull requests are not included.{{/if}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Contain("Pull requests are not included."));
+        Assert.That(result, Does.Not.Contain("{{#if"));
+    }
+
+    [Test]
+    public void PreprocessConditionals_InlineUnlessTrue_RemovesContent()
+    {
+        var options = new[] { Opt("includePullRequests", "true") };
+        var text = "{{#unless includePullRequests}}PRs not included.{{/unless}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Not.Contain("PRs not included."));
+    }
+
+    [Test]
+    public void PreprocessConditionals_InlineUnlessFalse_IncludesContent()
+    {
+        var options = new[] { Opt("includePullRequests", "false") };
+        var text = "{{#unless includePullRequests}}PRs not included.{{/unless}}";
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Contain("PRs not included."));
+    }
+
+    [Test]
+    public void PreprocessConditionals_IssuePrTrackerTemplate_InlineAndBlockForms()
+    {
+        // Mirrors the actual maintenance.md "Issue & PR Tracker" pattern
+        var options = new[] { Opt("includePullRequests", "false") };
+        var text =
+            "Query the GitHub API.{{#if includePullRequests}} Also include pull requests.{{/if}}" +
+            "{{#if !includePullRequests}}Pull requests are not included in this report.{{/if}}\n" +
+            "\n" +
+            "- item{{#if includePullRequests}}- Also search for pull requests{{/if}}\n" +
+            "\n" +
+            "1. **Summary**: Total count of new issues{{#if includePullRequests}} and pull requests{{/if}}\n" +
+            "{{#if includePullRequests}}\n3. **New Pull Requests** (if any):\n{{/if}}\n" +
+            "{{#if !includePullRequests}}\n3. **Suggested Next Steps**: Brief recommendations\n{{/if}}";
+
+        var result = LoopMdParser.PreprocessConditionals(text, options);
+
+        Assert.That(result, Does.Contain("Pull requests are not included in this report."));
+        Assert.That(result, Does.Contain("3. **Suggested Next Steps**"));
+        Assert.That(result, Does.Not.Contain("Also include pull requests."));
+        Assert.That(result, Does.Not.Contain("and pull requests"));
+        Assert.That(result, Does.Not.Contain("3. **New Pull Requests**"));
+        Assert.That(result, Does.Not.Contain("{{#if"));
+        Assert.That(result, Does.Not.Contain("{{/if}}"));
     }
 }
+

@@ -288,14 +288,19 @@ internal static class LoopMdParser {
         return string.Join("\n", lines, i, lines.Length - i);
     }
 
-    // Matches {{#if key == "value"}} or {{#unless key == "value"}}, optionally preceded
-    // by non-tag content on the same line (e.g. "4. {{#if key == "val"}}").
+    // Equality form: {{#if key == "value"}} or {{#unless key == "value"}}
     // Group 1 = prefix text (may be empty or whitespace-only)
     // Group 2 = "if" or "unless"
     // Group 3 = key
     // Group 4 = expected value
-    private static readonly Regex _conditionalOpenPattern =
+    private static readonly Regex _conditionalOpenEqualityPattern =
         new(@"^(.*?)\{\{#(if|unless)\s+(\w+)\s*==\s*""([^""]*)""\s*\}\}\s*$",
+            RegexOptions.Compiled);
+
+    // Bare boolean form: {{#if key}} or {{#unless key}}  (no == "value")
+    // Group 1 = prefix, Group 2 = "if"|"unless", Group 3 = key
+    private static readonly Regex _conditionalOpenBoolPattern =
+        new(@"^(.*?)\{\{#(if|unless)\s+(\w+)\s*\}\}\s*$",
             RegexOptions.Compiled);
 
     // Matches {{/if}} or {{/unless}}
@@ -307,9 +312,93 @@ internal static class LoopMdParser {
         new(@"^\s*\{\{[/#](?:if|unless)[^}]*\}\}\s*$",
             RegexOptions.Compiled | RegexOptions.Multiline);
 
+    // Inline same-line form: {{#if [!]key}}content{{/if}}
+    // Group 1 = optional "!" negation, Group 2 = key, Group 3 = inner content
+    private static readonly Regex _inlineIfPattern =
+        new(@"\{\{#if\s+(!?)(\w+)\s*\}\}(.*?)\{\{/if\s*\}\}",
+            RegexOptions.Compiled | RegexOptions.Singleline);
+
+    // Inline same-line unless form: {{#unless key}}content{{/unless}}
+    // Group 1 = key, Group 2 = inner content
+    private static readonly Regex _inlineUnlessPattern =
+        new(@"\{\{#unless\s+(\w+)\s*\}\}(.*?)\{\{/unless\s*\}\}",
+            RegexOptions.Compiled | RegexOptions.Singleline);
+
+    /// <summary>Returns true when <paramref name="value"/> is considered truthy —
+    /// i.e. non-empty, not <c>"false"</c>, and not <c>"0"</c>.</summary>
+    internal static bool IsOptionTruthy(string? value) =>
+        !string.IsNullOrEmpty(value) &&
+        !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(value, "0",     StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Evaluates <c>{{#if key == "value"}}…{{/if}}</c> and
-    /// <c>{{#unless key == "value"}}…{{/unless}}</c> conditional blocks in
+    /// Tries to match a conditional-open tag at <paramref name="line"/>.
+    /// Returns <see langword="true"/> on a match and sets the out parameters;
+    /// <paramref name="expectedValue"/> is <see langword="null"/> for the bare
+    /// boolean form <c>{{#if key}}</c>.
+    /// </summary>
+    private static bool TryMatchConditionalOpen(
+        string line,
+        out string prefix, out string verb, out string key, out string? expectedValue)
+    {
+        var m = _conditionalOpenEqualityPattern.Match(line);
+        if (m.Success)
+        {
+            prefix        = m.Groups[1].Value;
+            verb          = m.Groups[2].Value;
+            key           = m.Groups[3].Value;
+            expectedValue = m.Groups[4].Value;
+            return true;
+        }
+        var m2 = _conditionalOpenBoolPattern.Match(line);
+        if (m2.Success)
+        {
+            prefix        = m2.Groups[1].Value;
+            verb          = m2.Groups[2].Value;
+            key           = m2.Groups[3].Value;
+            expectedValue = null;
+            return true;
+        }
+        prefix = verb = key = string.Empty;
+        expectedValue = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves inline same-line conditionals of the form
+    /// <c>{{#if [!]key}}content{{/if}}</c> and <c>{{#unless key}}content{{/unless}}</c>.
+    /// This pass must run before block-level processing.
+    /// </summary>
+    private static string ResolveInlineConditionals(string text, IReadOnlyDictionary<string, string> values)
+    {
+        // Inline {{#unless key}}...{{/unless}}
+        text = _inlineUnlessPattern.Replace(text, m =>
+        {
+            var key     = m.Groups[1].Value;
+            var content = m.Groups[2].Value;
+            var actual  = values.TryGetValue(key, out var v) ? v : string.Empty;
+            return IsOptionTruthy(actual) ? string.Empty : content;
+        });
+
+        // Inline {{#if [!]key}}...{{/if}}
+        text = _inlineIfPattern.Replace(text, m =>
+        {
+            bool negate  = m.Groups[1].Value == "!";
+            var key      = m.Groups[2].Value;
+            var content  = m.Groups[3].Value;
+            var actual   = values.TryGetValue(key, out var v) ? v : string.Empty;
+            bool truthy  = IsOptionTruthy(actual);
+            bool include = negate ? !truthy : truthy;
+            return include ? content : string.Empty;
+        });
+
+        return text;
+    }
+
+    /// <summary>
+    /// Evaluates <c>{{#if key == "value"}}…{{/if}}</c>,
+    /// <c>{{#if key}}…{{/if}}</c>, <c>{{#if !key}}…{{/if}}</c>,
+    /// and <c>{{#unless key}}…{{/unless}}</c> conditional blocks in
     /// <paramref name="text"/>, including or discarding their inner content based on
     /// the current option values.  Must be called <em>before</em> plain
     /// <c>{{key}}</c> substitution so that variable tokens inside included blocks
@@ -341,6 +430,8 @@ internal static class LoopMdParser {
     public static List<(string Text, bool IsConditional)> ResolveSegments(
         string text, IReadOnlyDictionary<string, string> values)
     {
+        text = ResolveInlineConditionals(text, values);
+
         var lines = text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
         var segments  = new List<(string, bool)>();
         var normalBuf = new List<string>();
@@ -366,15 +457,13 @@ internal static class LoopMdParser {
         {
             if (!inBlock)
             {
-                var m = _conditionalOpenPattern.Match(line);
-                if (m.Success)
+                if (TryMatchConditionalOpen(line, out var prefix, out var verb, out var key, out var expectedValue))
                 {
-                    var prefix   = m.Groups[1].Value;
-                    blockVerb    = m.Groups[2].Value;
-                    var key      = m.Groups[3].Value;
-                    var expected = m.Groups[4].Value;
+                    blockVerb    = verb;
                     var actual   = values.TryGetValue(key, out var v) ? v : string.Empty;
-                    var met      = string.Equals(actual, expected, StringComparison.Ordinal);
+                    bool met     = expectedValue != null
+                        ? string.Equals(actual, expectedValue, StringComparison.Ordinal)
+                        : IsOptionTruthy(actual);
                     includeBlock = blockVerb == "if" ? met : !met;
                     inBlock      = true;
                     if (!string.IsNullOrWhiteSpace(prefix))
@@ -413,6 +502,8 @@ internal static class LoopMdParser {
     /// </summary>
     public static string PreprocessConditionals(string text, IReadOnlyDictionary<string, string> values)
     {
+        text = ResolveInlineConditionals(text, values);
+
         var lines = text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
         var output = new List<string>(lines.Length);
         bool inBlock      = false;
@@ -424,15 +515,13 @@ internal static class LoopMdParser {
         {
             if (!inBlock)
             {
-                var m = _conditionalOpenPattern.Match(line);
-                if (m.Success)
+                if (TryMatchConditionalOpen(line, out var prefix, out var verb, out var key, out var expectedValue))
                 {
-                    var prefix   = m.Groups[1].Value;   // text before the tag (may be empty)
-                    blockVerb    = m.Groups[2].Value;   // "if" or "unless"
-                    var key      = m.Groups[3].Value;
-                    var expected = m.Groups[4].Value;
+                    blockVerb    = verb;
                     var actual   = values.TryGetValue(key, out var v) ? v : string.Empty;
-                    var met      = string.Equals(actual, expected, StringComparison.Ordinal);
+                    bool met     = expectedValue != null
+                        ? string.Equals(actual, expectedValue, StringComparison.Ordinal)
+                        : IsOptionTruthy(actual);
                     includeBlock = blockVerb == "if" ? met : !met;
                     inBlock      = true;
                     // When the block is included and the prefix has non-whitespace content,

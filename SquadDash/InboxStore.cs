@@ -201,6 +201,9 @@ public class InboxStore
         }
     }
 
+    /// <summary>Returns the absolute path to the JSON file for the given message id.</summary>
+    public string GetMessageFilePath(string id) => GetFilePath(id);
+
     /// <summary>
     /// Returns true if any inbox message attachment references the given absolute file path.
     /// Attachment paths that are relative are resolved against the workspace folder.

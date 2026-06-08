@@ -1243,9 +1243,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Conditional preview helpers ──────────────────────────────────────────────
 
     private static bool IsOptionTruthy(string? value) =>
-        !string.IsNullOrEmpty(value) &&
-        !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(value, "0",     StringComparison.OrdinalIgnoreCase);
+        LoopMdParser.IsOptionTruthy(value);
 
     private static bool IsStringTrueValue(string? value) =>
         string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||

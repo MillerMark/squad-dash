@@ -2196,6 +2196,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_remoteAccessActive)
                 _ = _bridge.BroadcastRcPromptAsync(prompt);
             AutoActivateCoordinatorTranscriptOnPromptSubmit();
+            HandleOpenEditorsBeforeSend();
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(prompt, ""), addToHistory: true, clearPromptBox: true);
 
             // In fullscreen mode the prompt was peeked temporarily — hide it again now.
@@ -2429,6 +2430,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             ResetQueuePausedState();
+            HandleOpenEditorsBeforeSend();
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
         }
         catch (Exception ex)
@@ -2565,6 +2567,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
+        HandleOpenEditorsBeforeSend();
         SquadDashTrace.Write("Queue", $"DrainQueueAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         _promptQueue.Remove(item.Id);
         SyncQueuePanel();
@@ -2654,6 +2657,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 continue;
             }
 
+            HandleOpenEditorsBeforeSend();
             SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
             SquadDashTrace.Write("UI", "Prompt sent: queue drain (item dispatched)");
             _promptQueue.Remove(item.Id);
@@ -2746,6 +2750,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             dispatched = true;
+            HandleOpenEditorsBeforeSend();
             SquadDashTrace.Write("Queue", $"DrainQueueBeforeLoopIterationAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
@@ -25910,6 +25915,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
+    /// Called just before dispatching any prompt. If update-mode image editors are open,
+    /// either closes them silently (no changes) or prompts the user to save first.
+    /// </summary>
+    private void HandleOpenEditorsBeforeSend()
+    {
+        var updateModeEditors = Application.Current.Windows
+            .OfType<ClipboardImageEditorWindow>()
+            .Where(w => w.IsUpdateMode)
+            .ToList();
+
+        foreach (var editor in updateModeEditors)
+        {
+            if (!editor.HasUnsavedChangesVsInitialState())
+            {
+                editor.Close();
+            }
+            else
+            {
+                var result = MessageBox.Show(
+                    this,
+                    "You have unsaved edits to the attached image. Save your changes before sending?",
+                    "Unsaved Image Edits",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.Yes);
+                if (result == MessageBoxResult.Yes)
+                    editor.TriggerInsertImage(); // fires ImageAccepted + closes
+                else
+                    editor.Close();             // discard changes
+            }
+        }
+    }
+
+    /// <summary>
     /// Shows a <see cref="ClipboardImageEditorWindow"/> as a modeless window and tracks it
     /// so that <see cref="OnClipboardEditorClosed"/> is invoked once the last instance closes.
     /// </summary>
@@ -30287,7 +30326,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            string prompt = action.Prompt;
+            var filePath = _inboxStore?.GetMessageFilePath(message.Id);
 
             if (action.RouteMode == "start_named_agent" && !string.IsNullOrWhiteSpace(action.TargetAgent))
             {
@@ -30295,7 +30334,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     var targetAgent = action.TargetAgent.Trim().TrimStart('@');
                     var selectedOption = string.IsNullOrWhiteSpace(action.Label)
-                        ? prompt
+                        ? action.Prompt
                         : action.Label.Trim();
                     SquadDashTrace.Write(
                         TraceCategory.Inbox,
@@ -30304,18 +30343,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     await _pec.ExecuteNamedAgentDirectAsync(
                         targetAgent,
                         selectedOption,
-                        BuildInboxActionHandoffContext(action, message),
+                        BuildInboxActionHandoffContext(action, message, filePath),
                         addToHistory: true,
                         clearPromptBox: false);
                     return;
                 }
 
-                prompt = $"[Deferred inbox action — route to @{action.TargetAgent}]\n\n{prompt}";
+                var context = BuildInboxActionHandoffContext(action, message, filePath);
+                var deferredPrompt = $"[Deferred inbox action — route to @{action.TargetAgent}]\n\n{context}";
+                var item = EnqueuePrompt(deferredPrompt, isSystemInjected: true);
+                if (item is not null)
+                    AttachInboxMessageFollowUp(message, item.Id);
+                return;
             }
 
-            var item = EnqueuePrompt(prompt, isSystemInjected: true);
-            if (item is not null)
-                AttachInboxMessageFollowUp(message, item.Id);
+            var coordContext = BuildInboxActionHandoffContext(action, message, filePath);
+            var coordItem = EnqueuePrompt(coordContext, isSystemInjected: true);
+            if (coordItem is not null)
+                AttachInboxMessageFollowUp(message, coordItem.Id);
         }
         catch (Exception ex)
         {
@@ -30323,7 +30368,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private static string BuildInboxActionHandoffContext(InboxAction action, InboxMessage message)
+    private static string BuildInboxActionHandoffContext(InboxAction action, InboxMessage message, string? messageFilePath = null)
     {
         var builder = new StringBuilder();
         builder.AppendLine("SquadDash deferred inbox action context.");
@@ -30331,6 +30376,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         builder.AppendLine($"Inbox subject: {message.Subject}");
         builder.AppendLine($"Inbox from: {message.From}");
         builder.AppendLine($"Inbox timestamp: {message.Timestamp:u}");
+        if (!string.IsNullOrWhiteSpace(messageFilePath))
+            builder.AppendLine($"Inbox message file: {messageFilePath}");
         builder.AppendLine($"Clicked action: {action.Label}");
         if (!string.IsNullOrWhiteSpace(action.TargetAgent))
             builder.AppendLine($"Target handle: @{action.TargetAgent.Trim().TrimStart('@')}");

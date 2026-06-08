@@ -404,6 +404,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// </summary>
     private readonly ClipboardAnnotationState? _initialState;
 
+    private string? _openStateSnapshotJson;
+
     // ── Session persistence ───────────────────────────────────────────────────
 
     /// <summary>Stable identifier for this editor instance; used as the file key in the state store.</summary>
@@ -869,7 +871,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             if (_sessionState != null)
                 await RestoreFromSessionStateAsync(_sessionState);
             else if (_initialState != null)
+            {
                 RestoreAnnotationState(_initialState);
+                _openStateSnapshotJson = System.Text.Json.JsonSerializer.Serialize(CaptureAnnotationState());
+            }
             else
                 EnterCropMode();
         };
@@ -7235,5 +7240,25 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         || _annotXShapes.Count > 0
         || (_cursorEnabled && _cursorImage != null)
         || !_sel.IsEmpty;
+
+    internal bool IsUpdateMode => _isUpdateMode;
+
+    /// <summary>
+    /// Returns true if the annotation state has changed from what was loaded when the editor opened.
+    /// Used by the send-guard to decide whether to prompt the user before dispatching a prompt.
+    /// </summary>
+    internal bool HasUnsavedChangesVsInitialState()
+    {
+        if (_openStateSnapshotJson == null)
+            return HasChanges(); // no snapshot available: fall back to "any annotations" check
+        var current = System.Text.Json.JsonSerializer.Serialize(CaptureAnnotationState());
+        return current != _openStateSnapshotJson;
+    }
+
+    /// <summary>
+    /// Programmatically triggers the "Update Image" action — renders the final bitmap,
+    /// fires <see cref="ImageAccepted"/>, and closes the window.
+    /// </summary>
+    internal void TriggerInsertImage() => DoInsertImage();
 }
 
