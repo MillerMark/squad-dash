@@ -2137,12 +2137,13 @@
             </DockPanel>
         </Border>
 
-        <Grid x:Name="TranscriptPanelsGrid" Grid.Row="4" Grid.Column="0" Margin="-8,6,0,14">
+        <Grid x:Name="TranscriptPanelsGrid" Grid.Row="4" Grid.Column="0" Margin="0,6,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
         <Border x:Name="MainTranscriptBorder"
                 Grid.Column="0"
+                Margin="-4,0,0,0"
                 Padding="14"
                 Background="{DynamicResource TranscriptSurface}"
                 BorderBrush="{DynamicResource TranscriptBorder}"
