@@ -62,10 +62,6 @@ internal static class DockResizeEngine
         int rightIndex = leftIndex + 1;
         if (delta > 0)
         {
-            // Normal-mode drag: in a two-panel exchange we cannot know whether the user's intent
-            // is to grow the left panel or shrink the right panel, so neither growing side is
-            // hard-capped. ConsequenceGrowCapacity allows free growth only when a panel is already
-            // above its max (preserving the cap for panels approaching max from below).
             var amount = Math.Min(delta, Math.Min(ConsequenceGrowCapacity(participants[leftIndex], sizes[leftIndex]), ShrinkCapacity(participants[rightIndex], sizes[rightIndex])));
             sizes[leftIndex] += amount;
             sizes[rightIndex] -= amount;
@@ -126,9 +122,9 @@ internal static class DockResizeEngine
         else
         {
             var requested = -delta;
-            var amount = Math.Min(requested, Math.Min(TotalShrinkCapacity(participants, sizes, leftNearestFirst), TotalGrowCapacity(participants, sizes, rightNearestFirst)));
+            var amount = Math.Min(requested, Math.Min(TotalShrinkCapacity(participants, sizes, leftNearestFirst), TotalConsequenceGrowCapacity(participants, sizes, rightNearestFirst)));
             ApplySequentialShrink(participants, sizes, leftNearestFirst, amount);
-            ApplySequentialGrow(participants, sizes, rightNearestFirst, amount);
+            ApplySequentialConsequenceGrow(participants, sizes, rightNearestFirst, amount);
         }
 
         return sizes;
@@ -147,9 +143,9 @@ internal static class DockResizeEngine
         return Math.Max(0, Math.Max(participant.MinimumSize, max) - size);
     }
 
-    // Used when a panel grows as a consequence of its neighbor shrinking (Normal mode drag-left).
-    // If the panel is already past its MaximumUsefulSize, allow free growth so the splitter
-    // isn't frozen when both adjacent panels start above their content-optimal width.
+    // Used when a panel receives space because another participant is being compressed.
+    // MaximumUsefulSize remains a cap while approaching it from below, but it must not freeze
+    // the splitter when the receiving participant already starts above that soft cap.
     private static double ConsequenceGrowCapacity(DockResizeParticipant participant, double size)
     {
         if (!participant.CanGrow) return 0;
@@ -167,6 +163,20 @@ internal static class DockResizeEngine
         foreach (var i in indices)
         {
             var capacity = GrowCapacity(participants[i], sizes[i]);
+            if (double.IsPositiveInfinity(capacity))
+                return double.PositiveInfinity;
+            total += capacity;
+        }
+
+        return total;
+    }
+
+    private static double TotalConsequenceGrowCapacity(IReadOnlyList<DockResizeParticipant> participants, double[] sizes, IReadOnlyList<int> indices)
+    {
+        double total = 0;
+        foreach (var i in indices)
+        {
+            var capacity = ConsequenceGrowCapacity(participants[i], sizes[i]);
             if (double.IsPositiveInfinity(capacity))
                 return double.PositiveInfinity;
             total += capacity;
@@ -202,6 +212,23 @@ internal static class DockResizeEngine
         {
             if (remaining <= 0) break;
             var capacity = GrowCapacity(participants[i], sizes[i]);
+            var applied = double.IsPositiveInfinity(capacity) ? remaining : Math.Min(remaining, capacity);
+            sizes[i] += applied;
+            remaining -= applied;
+        }
+    }
+
+    private static void ApplySequentialConsequenceGrow(
+        IReadOnlyList<DockResizeParticipant> participants,
+        double[] sizes,
+        IReadOnlyList<int> indices,
+        double amount)
+    {
+        var remaining = amount;
+        foreach (var i in indices)
+        {
+            if (remaining <= 0) break;
+            var capacity = ConsequenceGrowCapacity(participants[i], sizes[i]);
             var applied = double.IsPositiveInfinity(capacity) ? remaining : Math.Min(remaining, capacity);
             sizes[i] += applied;
             remaining -= applied;

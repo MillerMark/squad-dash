@@ -47,6 +47,30 @@ internal sealed class DockResizeEngineTests
     }
 
     [Test]
+    public void NormalDrag_GrowingPanelBelowMaximumUsefulSize_StopsAtMaximum()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants((240, 100, 260), (240, 100, null)),
+            splitterLeftParticipantIndex: 0,
+            DockResizeMode.Normal,
+            delta: 80);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 260, 220 }).Within(0.001));
+    }
+
+    [Test]
+    public void NormalDrag_GrowingPanelAlreadyAboveMaximumUsefulSize_DoesNotFreeze()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants((320, 100, 260), (240, 100, null)),
+            splitterLeftParticipantIndex: 0,
+            DockResizeMode.Normal,
+            delta: 80);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 400, 160 }).Within(0.001));
+    }
+
+    [Test]
     public void ProportionalDrag_ShrinksRightSideTogether()
     {
         var sizes = DockResizeEngine.Resize(
@@ -82,6 +106,40 @@ internal sealed class DockResizeEngineTests
             delta: -140);
 
         Assert.That(sizes, Is.EqualTo(new[] { 100, 100, 500 }).Within(0.001));
+    }
+
+    [Test]
+    public void ChainDragLeft_WhenReceiverAlreadyAboveMaximumUsefulSize_CompressesLeftBoundary()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants(
+                (924, 260, null),
+                (317, 200, 360),
+                (320, 200, 320),
+                (390, 220, 560),
+                (1053, 220, 650)),
+            splitterLeftParticipantIndex: 3,
+            DockResizeMode.Chain,
+            delta: -500);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 831, 200, 200, 220, 1553 }).Within(0.001));
+    }
+
+    [Test]
+    public void ChainDragLeft_WhenReceiverBelowMaximumUsefulSize_StopsAtMaximum()
+    {
+        var sizes = DockResizeEngine.Resize(
+            Participants(
+                (924, 260, null),
+                (317, 200, 360),
+                (320, 200, 320),
+                (390, 220, 560),
+                (600, 220, 650)),
+            splitterLeftParticipantIndex: 3,
+            DockResizeMode.Chain,
+            delta: -500);
+
+        Assert.That(sizes, Is.EqualTo(new[] { 924, 317, 320, 340, 650 }).Within(0.001));
     }
 
     private static DockResizeParticipant[] Participants(params (double Size, double Min, double? Max)[] values) =>
