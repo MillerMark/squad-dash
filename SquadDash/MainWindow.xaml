@@ -1033,30 +1033,30 @@
                                           Width="Auto" />
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
-                        <!-- col 3: rank-0 panel slot -->
+                        <!-- col 3: TopZoneSplitter01 (left of rank-0 panel) -->
+                        <ColumnDefinition Width="4" />
+                        <!-- col 4: rank-0 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 4: TopZoneSplitter01 -->
-                        <ColumnDefinition Width="Auto" />
-                        <!-- col 5: rank-1 panel slot -->
-                        <ColumnDefinition Width="Auto" />
-                        <!-- col 6: TopZoneSplitter12 -->
+                        <!-- col 5: TopZoneSplitter12 (left of rank-1 panel) -->
+                        <ColumnDefinition Width="4" />
+                        <!-- col 6: rank-1 panel slot -->
                         <ColumnDefinition Width="Auto" />
                         <!-- col 7: WatchPanelBorder (non-dockable) -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 8: TopZoneSplitter23 -->
-                        <ColumnDefinition Width="Auto" />
+                        <!-- col 8: TopZoneSplitter23 (left of rank-2 panel) -->
+                        <ColumnDefinition Width="4" />
                         <!-- col 9: rank-2 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 10: TopZoneSplitter34 -->
-                        <ColumnDefinition Width="Auto" />
+                        <!-- col 10: TopZoneSplitter34 (left of rank-3 panel) -->
+                        <ColumnDefinition Width="4" />
                         <!-- col 11: rank-3 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 12: TopZoneSplitter45 -->
-                        <ColumnDefinition Width="Auto" />
+                        <!-- col 12: TopZoneSplitter45 (left of rank-4 panel) -->
+                        <ColumnDefinition Width="4" />
                         <!-- col 13: rank-4 panel slot -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 14: TopZoneSplitter56 -->
-                        <ColumnDefinition Width="Auto" />
+                        <!-- col 14: TopZoneSplitter56 (left of rank-5 panel) -->
+                        <ColumnDefinition Width="4" />
                         <!-- col 15: rank-5 panel slot -->
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
@@ -2015,14 +2015,14 @@
                     </panelDocking:GripStripBorder>
 
                     <GridSplitter x:Name="TopZoneSplitter01"
-                                  Grid.Column="4"
+                                  Grid.Column="3"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
                                   Background="{DynamicResource AppSurface}"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter12"
-                                  Grid.Column="6"
+                                  Grid.Column="5"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"

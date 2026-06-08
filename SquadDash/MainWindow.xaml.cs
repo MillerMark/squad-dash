@@ -755,8 +755,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             WatchPanelBorder,
             new[]
             {
-                TopZonePanelsGrid.ColumnDefinitions[3],
-                TopZonePanelsGrid.ColumnDefinitions[5],
+                TopZonePanelsGrid.ColumnDefinitions[4],
+                TopZonePanelsGrid.ColumnDefinitions[6],
                 TopZonePanelsGrid.ColumnDefinitions[9],
                 TopZonePanelsGrid.ColumnDefinitions[11],
                 TopZonePanelsGrid.ColumnDefinitions[13],

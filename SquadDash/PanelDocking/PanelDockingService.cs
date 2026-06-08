@@ -85,8 +85,8 @@ internal sealed class PanelDockingService
     // Used only to validate which panels may live in the top zone.
     private static readonly Dictionary<string, int> TopZoneColumnMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["loop"]        = 3,
-        ["tasks"]       = 5,
+        ["loop"]        = 4,
+        ["tasks"]       = 6,
         ["approvals"]   = 9,
         ["notes"]       = 11,
         ["maintenance"] = 13,
@@ -94,11 +94,11 @@ internal sealed class PanelDockingService
     };
 
     // Physical grid columns available for dockable top-zone panels, in left-to-right order.
-    // Columns 4,6,7,8,10,12,14 are splitter/WatchPanel columns and are skipped.
-    private static readonly int[] TopZonePhysicalColumns = [3, 5, 9, 11, 13, 15];
+    // Columns 3,5,7,8,10,12,14 are splitter/WatchPanel columns and are skipped.
+    private static readonly int[] TopZonePhysicalColumns = [4, 6, 9, 11, 13, 15];
 
-    // Splitter columns between adjacent panel slots (index i is between PhysicalColumns[i] and PhysicalColumns[i+1]).
-    private static readonly int[] TopZoneSplitterColumns = [4, 6, 8, 10, 12, 14];
+    // Splitter columns to the left of each panel slot (index i is left of PhysicalColumns[i]).
+    private static readonly int[] TopZoneSplitterColumns = [3, 5, 8, 10, 12, 14];
 
     // Width of the thin insertion-indicator strip used for both top-zone and empty side-zone
     // docking previews, keeping the visual language consistent across all drop targets.
@@ -1063,6 +1063,17 @@ internal sealed class PanelDockingService
 
         var occupiedRanks = new bool[TopZonePhysicalColumns.Length];
         var assignments = new System.Text.StringBuilder();
+
+        // Reset all panel column definitions first, then set them for occupied ranks.
+        for (int r = 0; r < _topZonePanelColumns.Length; r++)
+        {
+            if (_topZonePanelColumns[r] is { } colDef)
+            {
+                colDef.Width = GridLength.Auto;
+                colDef.MinWidth = 0;
+            }
+        }
+
         for (int rank = 0; rank < topSlots.Count && rank < TopZonePhysicalColumns.Length; rank++)
         {
             var col = TopZonePhysicalColumns[rank];
@@ -1071,6 +1082,13 @@ internal sealed class PanelDockingService
             {
                 Grid.SetColumn(element, col);
                 occupiedRanks[rank] = true;
+
+                if (_topZonePanelColumns[rank] is { } colDef)
+                {
+                    double minW = element.MinWidth > 0 ? element.MinWidth : 80;
+                    colDef.MinWidth = minW;
+                    colDef.Width = new GridLength(1, GridUnitType.Star);
+                }
             }
         }
         SquadDashTrace.Write(TraceCategory.Docking, $"RebuildTopZoneLayout:{assignments}");
@@ -1089,14 +1107,13 @@ internal sealed class PanelDockingService
         bool rank3 = occupiedRanks.Length > 3 && occupiedRanks[3];
         bool rank4 = occupiedRanks.Length > 4 && occupiedRanks[4];
         bool rank5 = occupiedRanks.Length > 5 && occupiedRanks[5];
-        bool watchVisible = _watchPanelElement?.Visibility == Visibility.Visible;
 
-        SetSplitterVisibility(_topZoneSplitter01, rank0 && rank1);
-        SetSplitterVisibility(_topZoneSplitter12, rank1 && watchVisible);
-        SetSplitterVisibility(_topZoneSplitter23, watchVisible && rank2);
-        SetSplitterVisibility(_topZoneSplitter34, rank2 && rank3);
-        SetSplitterVisibility(_topZoneSplitter45, rank3 && rank4);
-        SetSplitterVisibility(_topZoneSplitter56, rank4 && rank5);
+        SetSplitterVisibility(_topZoneSplitter01, rank0);
+        SetSplitterVisibility(_topZoneSplitter12, rank1);
+        SetSplitterVisibility(_topZoneSplitter23, rank2);
+        SetSplitterVisibility(_topZoneSplitter34, rank3);
+        SetSplitterVisibility(_topZoneSplitter45, rank4);
+        SetSplitterVisibility(_topZoneSplitter56, rank5);
     }
 
     private static void SetSplitterVisibility(GridSplitter? splitter, bool visible) =>
@@ -1108,7 +1125,7 @@ internal sealed class PanelDockingService
         for (int i = 0; i < widths.Count && i < _topZonePanelColumns.Length; i++)
         {
             if (_topZonePanelColumns[i] is { } col && widths[i] > 0)
-                col.Width = new GridLength(widths[i]);
+                col.Width = new GridLength(widths[i], GridUnitType.Star);
         }
     }
 
