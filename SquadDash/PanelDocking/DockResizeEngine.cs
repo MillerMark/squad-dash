@@ -140,6 +140,9 @@ internal static class DockResizeEngine
     {
         if (!participant.CanGrow) return 0;
         if (participant.MaximumUsefulSize is not { } max) return double.PositiveInfinity;
+        // Already past useful max: allow unlimited growth — max is a soft snap/cascade hint,
+        // not a hard cap, and blocking resize on an already-oversized panel freezes splitters.
+        if (size >= max) return double.PositiveInfinity;
         return Math.Max(0, Math.Max(participant.MinimumSize, max) - size);
     }
 
