@@ -1028,6 +1028,10 @@
                 </Grid.RowDefinitions>
 
                 <Grid x:Name="TopZonePanelsGrid" Grid.Row="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition x:Name="ActiveAgentsColumnDefinition"
                                           Width="Auto" />
@@ -1119,7 +1123,8 @@
                     </Border>
 
                     <Border x:Name="InactiveAgentsPanelBorder"
-                            Grid.Column="2"
+                            Grid.Column="0"
+                            Grid.Row="1"
                             VerticalAlignment="Top"
                             Padding="12"
                             Background="{DynamicResource RosterPanelSurface}"

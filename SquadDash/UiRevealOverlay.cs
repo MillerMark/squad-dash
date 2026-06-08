@@ -716,6 +716,28 @@ internal sealed class UiRevealOverlay
                 sb.AppendLine($"Type: {element.GetType().Name}");
                 sb.AppendLine($"Name: {GetElementLabel(element)}");
 
+                if (element.ActualWidth > 0 || element.ActualHeight > 0)
+                {
+                    var desiredW = double.IsNaN(element.Width)  ? "Auto" : element.Width.ToString("G");
+                    var desiredH = double.IsNaN(element.Height) ? "Auto" : element.Height.ToString("G");
+                    sb.AppendLine($"Width: {element.ActualWidth:G} (desired: {desiredW})");
+                    sb.AppendLine($"Height: {element.ActualHeight:G} (desired: {desiredH})");
+
+                    string xStr = "?", yStr = "?";
+                    var win = Window.GetWindow(element);
+                    if (win != null)
+                    {
+                        try
+                        {
+                            var pt = element.TranslatePoint(new Point(0, 0), win);
+                            xStr = pt.X.ToString("G");
+                            yStr = pt.Y.ToString("G");
+                        }
+                        catch { }
+                    }
+                    sb.AppendLine($"X: {xStr}  Y: {yStr}   (position relative to root Window)");
+                }
+
                 var ownEntries = CollectResourceKeyEntries(element);
                 if (ownEntries.Count > 0)
                 {
