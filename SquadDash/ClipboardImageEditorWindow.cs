@@ -6202,65 +6202,69 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// Captures the current annotation state as a JSON-serialisable object.
     /// Called in <see cref="DoInsertImage"/> so the caller can persist it.
     /// </summary>
+    // Guards against NaN/±Infinity values that JSON cannot serialize.
+    // Canvas.Width/Height and Canvas.GetLeft/GetTop return NaN when not explicitly set.
+    private static double Safe(double v) => double.IsFinite(v) ? v : 0.0;
+
     private ClipboardAnnotationState CaptureAnnotationState() {
         bool hasCrop = _appliedCropOffsetX != 0 || _appliedCropOffsetY != 0
                        || _workingImage.PixelWidth  != _originalImage.PixelWidth
                        || _workingImage.PixelHeight != _originalImage.PixelHeight;
         var state = new ClipboardAnnotationState {
-            CanvasScaleX    = _canvasScaleX,
-            CanvasScaleY    = _canvasScaleY,
+            CanvasScaleX    = Safe(_canvasScaleX),
+            CanvasScaleY    = Safe(_canvasScaleY),
             HasCrop         = !_sel.IsEmpty,
-            CropX           = _sel.X,
-            CropY           = _sel.Y,
-            CropW           = _sel.Width,
-            CropH           = _sel.Height,
+            CropX           = Safe(_sel.X),
+            CropY           = Safe(_sel.Y),
+            CropW           = Safe(_sel.Width),
+            CropH           = Safe(_sel.Height),
             HasAppliedCrop  = hasCrop,
-            AppliedCropX    = _appliedCropOffsetX,
-            AppliedCropY    = _appliedCropOffsetY,
-            AppliedCropW    = _canvas.Width,
-            AppliedCropH    = _canvas.Height,
+            AppliedCropX    = Safe(_appliedCropOffsetX),
+            AppliedCropY    = Safe(_appliedCropOffsetY),
+            AppliedCropW    = Safe(_canvas.Width),
+            AppliedCropH    = Safe(_canvas.Height),
             CursorEnabled   = _cursorEnabled,
-            CursorX         = _cursorImage != null ? Canvas.GetLeft(_cursorImage) : 0,
-            CursorY         = _cursorImage != null ? Canvas.GetTop(_cursorImage)  : 0,
+            CursorX         = _cursorImage != null ? Safe(Canvas.GetLeft(_cursorImage)) : 0,
+            CursorY         = _cursorImage != null ? Safe(Canvas.GetTop(_cursorImage))  : 0,
         };
 
         foreach (var a in _arrows) {
             state.Arrows.Add(new ClipboardAnnotationArrowState {
                 TargetElementName = a.TargetElementName,
-                TargetBoundsX     = a.TargetElementBounds.X,
-                TargetBoundsY     = a.TargetElementBounds.Y,
-                TargetBoundsW     = a.TargetElementBounds.Width,
-                TargetBoundsH     = a.TargetElementBounds.Height,
-                ArrowheadAngleDeg = a.ArrowheadAngleDeg,
-                ArrowLength       = a.ArrowLength,
-                TailLength        = a.TailLength,
-                UserTailLength    = a.UserTailLength,
+                TargetBoundsX     = Safe(a.TargetElementBounds.X),
+                TargetBoundsY     = Safe(a.TargetElementBounds.Y),
+                TargetBoundsW     = Safe(a.TargetElementBounds.Width),
+                TargetBoundsH     = Safe(a.TargetElementBounds.Height),
+                ArrowheadAngleDeg = Safe(a.ArrowheadAngleDeg),
+                ArrowLength       = Safe(a.ArrowLength),
+                TailLength        = Safe(a.TailLength),
+                UserTailLength    = Safe(a.UserTailLength),
                 Color             = $"#{a.ArrowColor.R:X2}{a.ArrowColor.G:X2}{a.ArrowColor.B:X2}",
-                TargetCenterX     = a.TargetCenterOnCanvas.X,
-                TargetCenterY     = a.TargetCenterOnCanvas.Y,
-                OffsetX           = a.OffsetX,
-                OffsetY           = a.OffsetY,
+                TargetCenterX     = Safe(a.TargetCenterOnCanvas.X),
+                TargetCenterY     = Safe(a.TargetCenterOnCanvas.Y),
+                OffsetX           = Safe(a.OffsetX),
+                OffsetY           = Safe(a.OffsetY),
             });
         }
 
         foreach (var r in _annotRects) {
             state.Rects.Add(new ClipboardAnnotationRectState {
-                X     = r.Bounds.X,
-                Y     = r.Bounds.Y,
-                W     = r.Bounds.Width,
-                H     = r.Bounds.Height,
+                X     = Safe(r.Bounds.X),
+                Y     = Safe(r.Bounds.Y),
+                W     = Safe(r.Bounds.Width),
+                H     = Safe(r.Bounds.Height),
                 Color = $"#{r.RectColor.R:X2}{r.RectColor.G:X2}{r.RectColor.B:X2}",
             });
         }
 
         foreach (var t in _texts) {
             state.Texts.Add(new ClipboardAnnotationTextState {
-                X        = t.Bounds.X,
-                Y        = t.Bounds.Y,
-                W        = t.Bounds.Width,
-                H        = t.Bounds.Height,
+                X        = Safe(t.Bounds.X),
+                Y        = Safe(t.Bounds.Y),
+                W        = Safe(t.Bounds.Width),
+                H        = Safe(t.Bounds.Height),
                 Text     = t.Text,
-                FontSize = t.FontSize,
+                FontSize = Safe(t.FontSize),
                 FgColor  = $"#{t.TextColor.R:X2}{t.TextColor.G:X2}{t.TextColor.B:X2}",
                 BgColor  = t.BackgroundColor.A == 0
                     ? "#00000000"
@@ -6270,10 +6274,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         foreach (var ml in _measureLines) {
             state.MeasureLines.Add(new ClipboardAnnotationMeasureLineState {
-                X1           = ml.StartPt.X,
-                Y1           = ml.StartPt.Y,
-                X2           = ml.EndPt.X,
-                Y2           = ml.EndPt.Y,
+                X1           = Safe(ml.StartPt.X),
+                Y1           = Safe(ml.StartPt.Y),
+                X2           = Safe(ml.EndPt.X),
+                Y2           = Safe(ml.EndPt.Y),
                 IsHorizontal = ml.IsHorizontal,
                 Color        = $"#{ml.LineColor.R:X2}{ml.LineColor.G:X2}{ml.LineColor.B:X2}",
             });
@@ -6281,10 +6285,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         foreach (var x in _annotXShapes) {
             state.Xs.Add(new ClipboardAnnotationXState {
-                X     = x.Bounds.X,
-                Y     = x.Bounds.Y,
-                W     = x.Bounds.Width,
-                H     = x.Bounds.Height,
+                X     = Safe(x.Bounds.X),
+                Y     = Safe(x.Bounds.Y),
+                W     = Safe(x.Bounds.Width),
+                H     = Safe(x.Bounds.Height),
                 Color = $"#{x.XColor.R:X2}{x.XColor.G:X2}{x.XColor.B:X2}",
             });
         }
