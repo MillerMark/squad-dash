@@ -2019,47 +2019,54 @@
                         </Grid>
                     </panelDocking:GripStripBorder>
 
+                    <!-- Splitter backgrounds are RED for diagnostics — easy to spot during layout debugging. -->
                     <GridSplitter x:Name="TopZoneSplitter01"
                                   Grid.Column="3"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
-                                  Background="{DynamicResource AppSurface}"
+                                  Background="Red"
+                                  ToolTip="S1 · col 3 · left of rank-0 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter12"
                                   Grid.Column="5"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
-                                  Background="{DynamicResource AppSurface}"
+                                  Background="Red"
+                                  ToolTip="S2 · col 5 · left of rank-1 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter23"
                                   Grid.Column="9"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
-                                  Background="{DynamicResource AppSurface}"
+                                  Background="Red"
+                                  ToolTip="S3 · col 9 · left of rank-2 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter34"
                                   Grid.Column="11"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
-                                  Background="{DynamicResource AppSurface}"
+                                  Background="Red"
+                                  ToolTip="S4 · col 11 · left of rank-3 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter45"
                                   Grid.Column="13"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
-                                  Background="{DynamicResource AppSurface}"
+                                  Background="Red"
+                                  ToolTip="S5 · col 13 · left of rank-4 panel slot"
                                   Visibility="Collapsed" />
                     <GridSplitter x:Name="TopZoneSplitter56"
                                   Grid.Column="15"
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
-                                  Background="{DynamicResource AppSurface}"
+                                  Background="Red"
+                                  ToolTip="S6 · col 15 · left of rank-5 panel slot"
                                   Visibility="Collapsed" />
                 </Grid>
             </Grid>

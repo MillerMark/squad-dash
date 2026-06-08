@@ -1107,6 +1107,50 @@ internal sealed class PanelDockingService
 
         UpdateTopZoneSplitterVisibility(occupiedRanks);
         ApplyTopZonePanelWidths();
+
+        // Log actual column widths after WPF layout settles (ActualWidth is stale until then).
+        _topZoneGrid.Dispatcher.BeginInvoke(
+            LogTopZoneWidths,
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void LogTopZoneWidths()
+    {
+        if (_topZoneGrid is null) return;
+        var cols = _topZoneGrid.ColumnDefinitions;
+        if (cols.Count < 17) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"TopZoneWidths  grid.ActualW={_topZoneGrid.ActualWidth:F0}");
+        sb.Append($"  | col0(ActiveAgents)={cols[0].ActualWidth:F0}");
+        sb.Append($"  | col2(flexAbsorber)={cols[2].ActualWidth:F0}({cols[2].Width})");
+        sb.Append($"  | col7(WatchPanel)={cols[7].ActualWidth:F0}");
+        sb.Append($"  | col8(flexBuffer)={cols[8].ActualWidth:F0}({cols[8].Width})");
+
+        var slotLabels = new[] { "rank0", "rank1", "rank2", "rank3", "rank4", "rank5" };
+        for (int i = 0; i < TopZonePhysicalColumns.Length; i++)
+        {
+            int ci = TopZonePhysicalColumns[i];
+            sb.Append($"  | col{ci}({slotLabels[i]})=act:{cols[ci].ActualWidth:F0}" +
+                      $" star:{cols[ci].Width} min:{cols[ci].MinWidth:F0}");
+        }
+
+        // Log each docked panel's element position and width after layout.
+        var topSlots = CurrentLayout.Slots
+            .Where(s => s.Zone == DockZone.Top)
+            .OrderBy(s => s.Order)
+            .ToList();
+        for (int rank = 0; rank < topSlots.Count && rank < TopZonePhysicalColumns.Length; rank++)
+        {
+            var panelId = topSlots[rank].PanelId;
+            if (_panelRegistry is not null && _panelRegistry.TryGetValue(panelId, out var el))
+            {
+                var pt = el.TranslatePoint(new System.Windows.Point(0, 0), _topZoneGrid);
+                sb.Append($"  | panel[{panelId}] x={pt.X:F0} w={el.ActualWidth:F0}");
+            }
+        }
+
+        SquadDashTrace.Write(TraceCategory.Docking, sb.ToString());
     }
 
     private void UpdateTopZoneSplitterVisibility(bool[] occupiedRanks)
