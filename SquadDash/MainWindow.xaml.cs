@@ -30316,6 +30316,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 lookupTask:             LookupTaskById,
                 addToChat:              msg => AttachInboxMessageFollowUp(msg));
 
+            // Wire dynamic max-width hint so splitter snap targets content width
+            if (InboxPanelBorder is { } ipb)
+                ipb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _inboxPanel.GetMaximumUsefulWidth()
+                        : null;
+
             var messages = _inboxStore?.LoadAll() ?? [];
             _inboxPanel.Refresh(messages);
 
