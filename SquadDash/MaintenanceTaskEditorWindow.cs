@@ -786,16 +786,11 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             var caretOffset = _instructionsBox.GetCaretOffset();
             _updatingHighlight = true;
             try {
-                var doc = _instructionsBox.Document;
-                doc.Blocks.Clear();
-                var para = new Paragraph { Margin = new Thickness(0) };
-                AppendHighlightedRuns(para.Inlines, text + "\r\n"); // include trailing sentinel
-                doc.Blocks.Add(para);
+                RebuildHighlightedDocument(_instructionsBox.Document, text);
             }
             finally { _updatingHighlight = false; }
-            // Restore caret, clamped to new text length
             var clampedCaret = Math.Min(caretOffset, text.Length);
-            RestoreCaretOffset(_instructionsBox, clampedCaret);
+            _instructionsBox.SetCaretOffset(clampedCaret);
             UpdateMarkdownPreview();
         }
         finally { _applyingUndoRedo = false; }
@@ -825,26 +820,37 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _updatingHighlight = true;
         SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] UpdateInstructionsHighlight — start");
         try {
-            var doc      = _instructionsBox.Document;
-            var fullText = new TextRange(doc.ContentStart, doc.ContentEnd).Text;
+            // Use GetPlainText() (not TextRange.Text) so separators are \n not \r\n.
+            // GetTextPointerAt also counts paragraph separators as 1 char, matching \n.
+            // Using TextRange.Text would embed \r\n in a single Run, making offsets inconsistent.
+            var plainText   = _instructionsBox.GetPlainText();
+            var caretOffset = _instructionsBox.GetCaretOffset();
 
-            // Preserve caret
-            var caretOffset = GetCaretOffset(_instructionsBox);
+            RebuildHighlightedDocument(_instructionsBox.Document, plainText);
 
-            // Rebuild highlighted runs. WPF built-in undo is disabled so these
-            // document mutations do NOT enter the undo stack.
-            doc.Blocks.Clear();
-            var para = new Paragraph { Margin = new Thickness(0) };
-            AppendHighlightedRuns(para.Inlines, fullText);
-            doc.Blocks.Add(para);
-
-            // Restore caret
-            RestoreCaretOffset(_instructionsBox, caretOffset);
+            var clamped = Math.Min(caretOffset, plainText.Length);
+            _instructionsBox.SetCaretOffset(clamped);
         }
         finally {
             _updatingHighlight = false;
             SquadDashTrace.Write(TraceCategory.UI, "[InstructionsEditor] UpdateInstructionsHighlight — done");
         }
+    }
+
+    // Clears doc.Blocks and rebuilds one Paragraph per \n-delimited line.
+    // All block operations happen with _updatingHighlight = true (caller's responsibility).
+    private void RebuildHighlightedDocument(FlowDocument doc, string plainText) {
+        doc.Blocks.Clear();
+        var lines = plainText.Split('\n');
+        for (int i = 0; i < lines.Length; i++) {
+            // Skip the empty string that Split produces when text ends with \n
+            if (i == lines.Length - 1 && lines[i].Length == 0) break;
+            var para = new Paragraph { Margin = new Thickness(0) };
+            AppendHighlightedRuns(para.Inlines, lines[i]);
+            doc.Blocks.Add(para);
+        }
+        if (doc.Blocks.Count == 0)
+            doc.Blocks.Add(new Paragraph { Margin = new Thickness(0) });
     }
 
     private bool IsDark() {
