@@ -5990,6 +5990,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     UpdateTextDisplay(t);
                 }
             }
+
+            foreach (var ml in _measureLines.ToList()) {
+                var mlBounds = new Rect(
+                    Math.Min(ml.StartPt.X, ml.EndPt.X),
+                    Math.Min(ml.StartPt.Y, ml.EndPt.Y),
+                    Math.Abs(ml.EndPt.X - ml.StartPt.X),
+                    Math.Abs(ml.EndPt.Y - ml.StartPt.Y));
+                if (!sel.IntersectsWith(mlBounds) && mlBounds.Width + mlBounds.Height > 0) {
+                    RemoveMeasureLine(ml);
+                }
+                else {
+                    ml.StartPt = new Point(ml.StartPt.X - dx, ml.StartPt.Y - dy);
+                    ml.EndPt   = new Point(ml.EndPt.X   - dx, ml.EndPt.Y   - dy);
+                    UpdateMeasureLineGeometry(ml);
+                }
+            }
         }
         finally { _suppressUndo = false; }
 
