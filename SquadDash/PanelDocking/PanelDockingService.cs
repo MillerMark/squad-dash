@@ -133,6 +133,9 @@ internal sealed class PanelDockingService
     private GridSplitter? _topZoneSplitter56;
     private UIElement? _watchPanelElement;
     private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[6];
+    // Col 2 of TopZonePanelsGrid: 1* when top zone is empty (absorbs space so Active Agents
+    // renders at natural size), 0* when panels are present (panels fill all available width).
+    private ColumnDefinition? _topZoneFlexAbsorberColumn;
 
     /// <summary>Data-model-only constructor for unit tests.</summary>
     public PanelDockingService() { }
@@ -303,7 +306,8 @@ internal sealed class PanelDockingService
         GridSplitter splitter01, GridSplitter splitter12, GridSplitter splitter23,
         GridSplitter splitter34, GridSplitter splitter45, GridSplitter splitter56,
         UIElement watchPanel,
-        ColumnDefinition[] panelColumnDefs)
+        ColumnDefinition[] panelColumnDefs,
+        ColumnDefinition? flexAbsorberColumn = null)
     {
         _topZoneSplitter01 = splitter01;
         _topZoneSplitter12 = splitter12;
@@ -312,6 +316,7 @@ internal sealed class PanelDockingService
         _topZoneSplitter45 = splitter45;
         _topZoneSplitter56 = splitter56;
         _watchPanelElement = watchPanel;
+        _topZoneFlexAbsorberColumn = flexAbsorberColumn;
 
         for (int i = 0; i < Math.Min(panelColumnDefs.Length, _topZonePanelColumns.Length); i++)
             _topZonePanelColumns[i] = panelColumnDefs[i];
@@ -1092,6 +1097,13 @@ internal sealed class PanelDockingService
             }
         }
         SquadDashTrace.Write(TraceCategory.Docking, $"RebuildTopZoneLayout:{assignments}");
+
+        // Toggle flex absorber (col 2): 0* when panels present so they fill available width;
+        // 1* when top zone is empty so Active Agents renders naturally and doesn't compete.
+        if (_topZoneFlexAbsorberColumn is { } absorber)
+            absorber.Width = topSlots.Count > 0
+                ? new GridLength(0, GridUnitType.Star)
+                : new GridLength(1, GridUnitType.Star);
 
         UpdateTopZoneSplitterVisibility(occupiedRanks);
         ApplyTopZonePanelWidths();

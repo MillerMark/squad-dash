@@ -1032,10 +1032,10 @@
                         <ColumnDefinition x:Name="ActiveAgentsColumnDefinition"
                                           Width="Auto" />
                         <ColumnDefinition Width="14" />
-                        <!-- col 2: 0* flex absorber — starts at zero so panels fill available width;
-                             GridSplitter S0 can grow this column when the user drags the first panel's
-                             left edge rightward, but panels are not starved of space by default. -->
-                        <ColumnDefinition Width="0*" />
+                        <!-- col 2: flex absorber — set to 0* by code when panels are present so they
+                             fill available width; restored to 1* when the top zone is empty so the
+                             Active Agents + WatchPanel panels render at natural size on the left. -->
+                        <ColumnDefinition Width="*" />
                         <!-- col 3: TopZoneSplitter01 (left of rank-0 panel) -->
                         <ColumnDefinition Width="4" />
                         <!-- col 4: rank-0 panel slot -->
