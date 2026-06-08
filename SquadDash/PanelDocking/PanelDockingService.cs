@@ -5,7 +5,9 @@ using System.Text.Json.Serialization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace SquadDash.PanelDocking;
@@ -136,6 +138,21 @@ internal sealed class PanelDockingService
     // Col 2 of TopZonePanelsGrid: 1* when top zone is empty (absorbs space so Active Agents
     // renders at natural size), 0* when panels are present (panels fill all available width).
     private ColumnDefinition? _topZoneFlexAbsorberColumn;
+    private TopZoneSplitterDragState? _topZoneSplitterDragState;
+
+    private sealed class TopZoneSplitterDragState
+    {
+        public required int SplitterIndex { get; init; }
+        public required GridSplitter Splitter { get; init; }
+        public required DockResizeParticipant[] Participants { get; set; }
+        public required ColumnDefinition[] PanelColumns { get; init; }
+        public required double LastX { get; set; }
+    }
+
+    private readonly record struct TopZoneResizePanel(
+        string PanelId,
+        FrameworkElement Element,
+        ColumnDefinition Column);
 
     /// <summary>Data-model-only constructor for unit tests.</summary>
     public PanelDockingService() { }
@@ -322,11 +339,146 @@ internal sealed class PanelDockingService
             _topZonePanelColumns[i] = panelColumnDefs[i];
 
         foreach (var splitter in new[] { splitter01, splitter12, splitter23, splitter34, splitter45, splitter56 })
+        {
+            splitter.PreviewMouseLeftButtonDown += OnTopZoneSplitterMouseLeftButtonDown;
+            splitter.MouseMove += OnTopZoneSplitterMouseMove;
+            splitter.MouseLeftButtonUp += OnTopZoneSplitterMouseLeftButtonUp;
+            splitter.LostMouseCapture += OnTopZoneSplitterLostMouseCapture;
+            splitter.DragStarted += OnTopZoneSplitterDragStarted;
+            splitter.DragDelta += OnTopZoneSplitterDragDelta;
             splitter.DragCompleted += OnTopZoneSplitterDragCompleted;
+        }
+    }
+
+    private void OnTopZoneSplitterDragStarted(object sender, DragStartedEventArgs e)
+    {
+        if (sender is not GridSplitter splitter || _topZoneGrid is null)
+            return;
+
+        BeginTopZoneSplitterDrag(splitter, Mouse.GetPosition(_topZoneGrid).X);
+        e.Handled = true;
+    }
+
+    private void OnTopZoneSplitterMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not GridSplitter splitter || _topZoneGrid is null || splitter.Visibility != Visibility.Visible)
+            return;
+
+        BeginTopZoneSplitterDrag(splitter, e.GetPosition(_topZoneGrid).X);
+        splitter.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void OnTopZoneSplitterMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_topZoneSplitterDragState is not { } state ||
+            !ReferenceEquals(sender, state.Splitter) ||
+            e.LeftButton != MouseButtonState.Pressed ||
+            _topZoneGrid is null)
+        {
+            return;
+        }
+
+        var x = e.GetPosition(_topZoneGrid).X;
+        var delta = x - state.LastX;
+        state.LastX = x;
+        ApplyTopZoneResizeDelta(delta);
+        e.Handled = true;
+    }
+
+    private void OnTopZoneSplitterMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_topZoneSplitterDragState is not { } state || !ReferenceEquals(sender, state.Splitter))
+            return;
+
+        CompleteTopZoneSplitterDrag(sender);
+        state.Splitter.ReleaseMouseCapture();
+        e.Handled = true;
+    }
+
+    private void OnTopZoneSplitterLostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_topZoneSplitterDragState is not { } state || !ReferenceEquals(sender, state.Splitter))
+            return;
+
+        CompleteTopZoneSplitterDrag(sender);
+    }
+
+    private void BeginTopZoneSplitterDrag(GridSplitter splitter, double startX)
+    {
+        var splitterIndex = GetTopZoneSplitterIndex(splitter);
+        if (splitterIndex < 0)
+            return;
+
+        var panels = GetTopZoneResizePanels();
+        if (splitterIndex >= panels.Count)
+            return;
+
+        var absorberCanResize = splitterIndex == 0;
+        var participants = new List<DockResizeParticipant>
+        {
+            new(GetTopZoneAbsorberWidth(), 10, null, absorberCanResize, absorberCanResize),
+        };
+
+        foreach (var panel in panels)
+        {
+            var minWidth = GetTopZoneMinimumWidth(panel.Element);
+            var width = GetColumnResizeWidth(panel.Column, minWidth);
+            participants.Add(new DockResizeParticipant(
+                width,
+                minWidth,
+                GetTopZoneMaximumUsefulWidth(panel.Element, width, minWidth)));
+        }
+
+        _topZoneSplitterDragState = new TopZoneSplitterDragState
+        {
+            SplitterIndex = splitterIndex,
+            Splitter = splitter,
+            Participants = participants.ToArray(),
+            PanelColumns = panels.Select(p => p.Column).ToArray(),
+            LastX = startX,
+        };
+
+        ResetTopZoneLayoutColumnKinds();
+    }
+
+    private void OnTopZoneSplitterDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        ApplyTopZoneResizeDelta(e.HorizontalChange);
+        e.Handled = true;
     }
 
     private void OnTopZoneSplitterDragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
     {
+        CompleteTopZoneSplitterDrag(sender);
+    }
+
+    private void ApplyTopZoneResizeDelta(double delta)
+    {
+        if (_topZoneSplitterDragState is not { } state)
+            return;
+
+        var mode = GetCurrentDockResizeMode();
+        var resized = DockResizeEngine.Resize(
+            state.Participants,
+            state.SplitterIndex,
+            mode,
+            delta);
+
+        for (int i = 0; i < resized.Length; i++)
+            state.Participants[i] = state.Participants[i] with { CurrentSize = resized[i] };
+
+        ApplyTopZoneDragWidths(state);
+    }
+
+    private void CompleteTopZoneSplitterDrag(object sender)
+    {
+        if (_topZoneSplitterDragState is { } state)
+            ApplyTopZoneDragWidths(state);
+
+        _topZoneSplitterDragState = null;
+        ResetTopZoneLayoutColumnKinds();
+
         var widths = _topZonePanelColumns
             .Select(c => c is not null && c.ActualWidth > 0 ? c.ActualWidth : 0.0)
             .ToList();
@@ -341,6 +493,27 @@ internal sealed class PanelDockingService
         var splitterName = (sender as System.Windows.FrameworkElement)?.Name ?? "unknown";
         SquadDashTrace.Write(TraceCategory.Docking, $"TopZoneSplitter drag completed ({splitterName}) — logging column widths:");
         LogTopZoneWidths();
+    }
+
+    private static DockResizeMode GetCurrentDockResizeMode()
+    {
+        var modifiers = Keyboard.Modifiers;
+        if ((modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+            return DockResizeMode.Chain;
+        if ((modifiers & ModifierKeys.Alt) == ModifierKeys.Alt)
+            return DockResizeMode.Proportional;
+        return DockResizeMode.Normal;
+    }
+
+    private int GetTopZoneSplitterIndex(GridSplitter splitter)
+    {
+        if (ReferenceEquals(splitter, _topZoneSplitter01)) return 0;
+        if (ReferenceEquals(splitter, _topZoneSplitter12)) return 1;
+        if (ReferenceEquals(splitter, _topZoneSplitter23)) return 2;
+        if (ReferenceEquals(splitter, _topZoneSplitter34)) return 3;
+        if (ReferenceEquals(splitter, _topZoneSplitter45)) return 4;
+        if (ReferenceEquals(splitter, _topZoneSplitter56)) return 5;
+        return -1;
     }
 
     /// <summary>The live panel layout for the current session.</summary>
@@ -1112,6 +1285,7 @@ internal sealed class PanelDockingService
 
         UpdateTopZoneSplitterVisibility(occupiedRanks);
         ApplyTopZonePanelWidths();
+        ResetTopZoneLayoutColumnKinds();
 
         // Log actual column widths after WPF layout settles (ActualWidth is stale until then).
         _topZoneGrid.Dispatcher.BeginInvoke(
@@ -1157,6 +1331,106 @@ internal sealed class PanelDockingService
         }
 
         SquadDashTrace.Write(TraceCategory.Docking, sb.ToString());
+    }
+
+    private List<TopZoneResizePanel> GetTopZoneResizePanels()
+    {
+        var panels = new List<TopZoneResizePanel>();
+        if (_panelRegistry is null)
+            return panels;
+
+        var topSlots = CurrentLayout.Slots
+            .Where(s => s.Zone == DockZone.Top)
+            .OrderBy(s => s.Order)
+            .ToList();
+
+        for (int rank = 0; rank < topSlots.Count && rank < _topZonePanelColumns.Length; rank++)
+        {
+            var panelId = topSlots[rank].PanelId;
+            if (_topZonePanelColumns[rank] is { } column &&
+                _panelRegistry.TryGetValue(panelId, out var element) &&
+                element.Visibility != Visibility.Collapsed)
+            {
+                panels.Add(new TopZoneResizePanel(panelId, element, column));
+            }
+        }
+
+        return panels;
+    }
+
+    private double GetTopZoneAbsorberWidth()
+    {
+        if (_topZoneFlexAbsorberColumn is null)
+            return 10;
+
+        if (_topZoneFlexAbsorberColumn.ActualWidth > 0)
+            return _topZoneFlexAbsorberColumn.ActualWidth;
+
+        return _topZoneFlexAbsorberColumn.Width.IsAbsolute
+            ? Math.Max(10, _topZoneFlexAbsorberColumn.Width.Value)
+            : 10;
+    }
+
+    private static double GetColumnResizeWidth(ColumnDefinition column, double minimum)
+    {
+        if (column.ActualWidth > 0)
+            return Math.Max(minimum, column.ActualWidth);
+
+        if (column.Width.IsAbsolute && column.Width.Value > 0)
+            return Math.Max(minimum, column.Width.Value);
+
+        return Math.Max(minimum, 280);
+    }
+
+    private static double GetTopZoneMinimumWidth(FrameworkElement element) =>
+        element.MinWidth > 0 && !double.IsInfinity(element.MinWidth)
+            ? element.MinWidth
+            : 80;
+
+    private static double? GetTopZoneMaximumUsefulWidth(FrameworkElement element, double currentWidth, double minimumWidth)
+    {
+        if (element.MaxWidth > 0 &&
+            !double.IsInfinity(element.MaxWidth) &&
+            !double.IsNaN(element.MaxWidth))
+        {
+            return Math.Max(minimumWidth, Math.Max(currentWidth, element.MaxWidth));
+        }
+
+        return Math.Max(minimumWidth, Math.Max(currentWidth, 600));
+    }
+
+    private void ApplyTopZoneDragWidths(TopZoneSplitterDragState state)
+    {
+        ResetTopZoneLayoutColumnKinds();
+
+        for (int i = 0; i < state.PanelColumns.Length && i + 1 < state.Participants.Length; i++)
+        {
+            var participant = state.Participants[i + 1];
+            var width = Math.Max(participant.MinimumSize, participant.CurrentSize);
+            state.PanelColumns[i].MinWidth = participant.MinimumSize;
+            state.PanelColumns[i].Width = new GridLength(width);
+        }
+    }
+
+    private void ResetTopZoneLayoutColumnKinds()
+    {
+        if (_topZoneFlexAbsorberColumn is { } absorber)
+            absorber.Width = new GridLength(1, GridUnitType.Star);
+
+        if (_topZoneGrid?.ColumnDefinitions is not { } cols)
+            return;
+
+        for (int i = 0; i < TopZoneSplitterColumns.Length; i++)
+        {
+            int columnIndex = TopZoneSplitterColumns[i];
+            if (columnIndex < cols.Count)
+                cols[columnIndex].Width = new GridLength(4);
+        }
+
+        if (cols.Count > 8)
+            cols[8].Width = GridLength.Auto;
+        if (cols.Count > 9)
+            cols[9].Width = GridLength.Auto;
     }
 
     private void UpdateTopZoneSplitterVisibility(bool[] occupiedRanks)
