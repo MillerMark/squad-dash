@@ -358,15 +358,26 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private UIElement BuildOptionsSection() {
         var container = new DockPanel { Margin = new Thickness(8, 4, 8, 2), LastChildFill = true };
 
-        var headerTb = new TextBlock { Text = "UI preview", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
-        headerTb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        headerTb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-        DockPanel.SetDock(headerTb, Dock.Top);
-        container.Children.Add(headerTb);
-
         var grid = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // Header row: "UI preview" (Col 0) and "YAML" (Col 1)
+        var uiPreviewLabel = new TextBlock { Text = "UI preview", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
+        uiPreviewLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        uiPreviewLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        Grid.SetRow(uiPreviewLabel, 0);
+        Grid.SetColumn(uiPreviewLabel, 0);
+        grid.Children.Add(uiPreviewLabel);
+
+        var yamlLabel = new TextBlock { Text = "YAML", Margin = new Thickness(4, 0, 0, 2), TextAlignment = TextAlignment.Left };
+        yamlLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        yamlLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        Grid.SetRow(yamlLabel, 0);
+        Grid.SetColumn(yamlLabel, 1);
+        grid.Children.Add(yamlLabel);
 
         // Left: live preview (interactive)
         var leftPanel = new DockPanel { Margin = new Thickness(0, 0, 8, 0), LastChildFill = true };
@@ -376,21 +387,18 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         };
         previewScroll.SetResourceReference(ScrollViewer.BackgroundProperty, "RosterPanelSurface");
         leftPanel.Children.Add(previewScroll);
+        Grid.SetRow(leftPanel, 1);
         Grid.SetColumn(leftPanel, 0);
 
         // Right: YAML editor with error line below
         var rightPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 0), LastChildFill = true };
-        var yamlLabel = new TextBlock { Text = "YAML", Margin = new Thickness(0, 0, 0, 2), TextAlignment = TextAlignment.Left };
-        yamlLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        yamlLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-        DockPanel.SetDock(yamlLabel, Dock.Top);
-        rightPanel.Children.Add(yamlLabel);
         DockPanel.SetDock(_yamlErrorText, Dock.Bottom);
         rightPanel.Children.Add(_yamlErrorText);
         rightPanel.Children.Add(new ScrollViewer {
             Content             = _optionsYamlBox,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         });
+        Grid.SetRow(rightPanel, 1);
         Grid.SetColumn(rightPanel, 1);
 
         grid.Children.Add(leftPanel);
@@ -409,22 +417,26 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         panel.Children.Add(headerTb);
 
         var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // Left: Markdown preview
+        // Header row: "Preview" (Col 0) and "Source" (Col 2)
         var leftLabel = new TextBlock { Text = "Preview", Margin = new Thickness(0, 0, 0, 2) };
         leftLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         leftLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+        Grid.SetRow(leftLabel, 0);
+        Grid.SetColumn(leftLabel, 0);
 
-        var leftStack = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(leftLabel, Dock.Top);
-        leftStack.Children.Add(leftLabel);
-        leftStack.Children.Add(_markdownPreview);
-        Grid.SetColumn(leftStack, 0);
+        var rightLabel = new TextBlock { Text = "Source", Margin = new Thickness(4, 0, 0, 2) };
+        rightLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        rightLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+        Grid.SetRow(rightLabel, 0);
+        Grid.SetColumn(rightLabel, 2);
 
-        // Splitter
+        // Splitter (Row 1 only)
         var splitter = new GridSplitter {
             Name                = "TaskEditorInstructionsSplitter",
             Width               = 4,
@@ -432,22 +444,26 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             VerticalAlignment   = VerticalAlignment.Stretch,
         };
         splitter.SetResourceReference(GridSplitter.BackgroundProperty, "SubtleBorder");
+        Grid.SetRow(splitter, 1);
         Grid.SetColumn(splitter, 1);
 
-        // Right: editable RichTextBox
-        var rightLabel = new TextBlock { Text = "Source", Margin = new Thickness(4, 0, 0, 2) };
-        rightLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        rightLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+        // Left: Markdown preview (Row 1, Col 0)
+        var leftStack = new DockPanel { LastChildFill = true };
+        Grid.SetRow(leftStack, 1);
+        Grid.SetColumn(leftStack, 0);
+        leftStack.Children.Add(_markdownPreview);
 
+        // Right: editable RichTextBox (Row 1, Col 2)
         _instructionsHost = new Grid();
         _instructionsHost.Children.Add(_instructionsBox);
 
         var rightStack = new DockPanel { Margin = new Thickness(4, 0, 0, 0), LastChildFill = true };
-        DockPanel.SetDock(rightLabel, Dock.Top);
-        rightStack.Children.Add(rightLabel);
-        rightStack.Children.Add(_instructionsHost);
+        Grid.SetRow(rightStack, 1);
         Grid.SetColumn(rightStack, 2);
+        rightStack.Children.Add(_instructionsHost);
 
+        grid.Children.Add(leftLabel);
+        grid.Children.Add(rightLabel);
         grid.Children.Add(leftStack);
         grid.Children.Add(splitter);
         grid.Children.Add(rightStack);
