@@ -338,7 +338,8 @@ internal sealed class PanelDockingService
                 SaveLayout(_workspacePath);
         }
 
-        SquadDashTrace.Write(TraceCategory.Docking, $"TopZoneSplitter drag completed — logging column widths:");
+        var splitterName = (sender as System.Windows.FrameworkElement)?.Name ?? "unknown";
+        SquadDashTrace.Write(TraceCategory.Docking, $"TopZoneSplitter drag completed ({splitterName}) — logging column widths:");
         LogTopZoneWidths();
     }
 
@@ -1130,7 +1131,7 @@ internal sealed class PanelDockingService
         sb.Append($"  | col1(InactiveAgents)={cols[1].ActualWidth:F0}");
         sb.Append($"  | col3(flexAbsorber)={cols[3].ActualWidth:F0}({cols[3].Width})");
         sb.Append($"  | col8(WatchPanel)={cols[8].ActualWidth:F0}");
-        sb.Append($"  | col9(flexBuffer)={cols[9].ActualWidth:F0}({cols[9].Width})");
+        sb.Append($"  | col9(flexBufAuto)={cols[9].ActualWidth:F0}({cols[9].Width})");
 
         var slotLabels = new[] { "rank0", "rank1", "rank2", "rank3", "rank4", "rank5" };
         for (int i = 0; i < TopZonePhysicalColumns.Length; i++)

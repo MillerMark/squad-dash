@@ -1053,8 +1053,8 @@
                         <ColumnDefinition Width="Auto" />
                         <!-- col 8: WatchPanelBorder (non-dockable) -->
                         <ColumnDefinition Width="Auto" />
-                        <!-- col 9: flex buffer so S2 doesn't reach back to rank-1 -->
-                        <ColumnDefinition Width="0*" MinWidth="0" />
+                        <!-- col 9: Auto so GridSplitter23 skips it and finds rank-1 panel (col7) as its Previous -->
+                        <ColumnDefinition Width="Auto" />
                         <!-- col 10: TopZoneSplitter23 (left of rank-2 panel) -->
                         <ColumnDefinition Width="4" />
                         <!-- col 11: rank-2 panel slot -->
@@ -2033,6 +2033,7 @@
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
                                   Background="Red"
                                   ToolTip="S1 · col 4 · left of rank-0 panel slot"
                                   Visibility="Collapsed" />
@@ -2041,6 +2042,7 @@
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
                                   Background="Red"
                                   ToolTip="S2 · col 6 · left of rank-1 panel slot"
                                   Visibility="Collapsed" />
@@ -2049,6 +2051,7 @@
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
                                   Background="Red"
                                   ToolTip="S3 · col 10 · left of rank-2 panel slot"
                                   Visibility="Collapsed" />
@@ -2057,6 +2060,7 @@
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
                                   Background="Red"
                                   ToolTip="S4 · col 12 · left of rank-3 panel slot"
                                   Visibility="Collapsed" />
@@ -2065,6 +2069,7 @@
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
                                   Background="Red"
                                   ToolTip="S5 · col 14 · left of rank-4 panel slot"
                                   Visibility="Collapsed" />
@@ -2073,6 +2078,7 @@
                                   Width="4"
                                   HorizontalAlignment="Stretch"
                                   VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
                                   Background="Red"
                                   ToolTip="S6 · col 16 · left of rank-5 panel slot"
                                   Visibility="Collapsed" />
