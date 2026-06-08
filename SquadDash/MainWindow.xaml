@@ -1033,12 +1033,31 @@
                                           Width="Auto" />
                         <ColumnDefinition Width="14" />
                         <ColumnDefinition Width="*" />
+                        <!-- col 3: rank-0 panel slot -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 4: TopZoneSplitter01 -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 5: rank-1 panel slot -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 6: TopZoneSplitter12 -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 7: WatchPanelBorder (non-dockable) -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 8: TopZoneSplitter23 -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 9: rank-2 panel slot -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- col 10: TopZoneSplitter34 -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- col 11: rank-3 panel slot -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- col 12: TopZoneSplitter45 -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- col 13: rank-4 panel slot -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- col 14: TopZoneSplitter56 -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- col 15: rank-5 panel slot -->
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
@@ -1371,9 +1390,8 @@
                     </Popup>
 
                     <panelDocking:GripStripBorder x:Name="TasksPanelBorder"
-                            Grid.Column="4"
+                            Grid.Column="5"
                             MinWidth="200"
-                            MaxWidth="280"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1478,7 +1496,7 @@
                     </panelDocking:GripStripBorder>
 
                     <Border x:Name="WatchPanelBorder"
-                            Grid.Column="5"
+                            Grid.Column="7"
                             MinWidth="180"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
@@ -1504,7 +1522,7 @@
                     </Border>
 
                     <panelDocking:GripStripBorder x:Name="ApprovalPanelBorder"
-                            Grid.Column="6"
+                            Grid.Column="9"
                             MinWidth="220"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
@@ -1648,9 +1666,8 @@
 
                     <!-- Notes panel (Column 7) -->
                     <panelDocking:GripStripBorder x:Name="NotesPanelBorder"
-                            Grid.Column="7"
+                            Grid.Column="11"
                             MinWidth="200"
-                            MaxWidth="280"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1730,9 +1747,8 @@
 
                     <!-- Maintenance panel (Column 8) -->
                     <panelDocking:GripStripBorder x:Name="MaintenancePanelBorder"
-                            Grid.Column="8"
+                            Grid.Column="13"
                             MinWidth="200"
-                            MaxWidth="280"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1854,9 +1870,8 @@
 
                     <!-- Inbox panel (Column 9) -->
                     <panelDocking:GripStripBorder x:Name="InboxPanelBorder"
-                            Grid.Column="9"
+                            Grid.Column="15"
                             MinWidth="220"
-                            MaxWidth="320"
                             VerticalAlignment="Top"
                             Margin="14,0,0,0"
                             Padding="12,8,12,12"
@@ -1998,12 +2013,55 @@
                             </Border>
                         </Grid>
                     </panelDocking:GripStripBorder>
+
+                    <GridSplitter x:Name="TopZoneSplitter01"
+                                  Grid.Column="4"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource AppSurface}"
+                                  Visibility="Collapsed" />
+                    <GridSplitter x:Name="TopZoneSplitter12"
+                                  Grid.Column="6"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource AppSurface}"
+                                  Visibility="Collapsed" />
+                    <GridSplitter x:Name="TopZoneSplitter23"
+                                  Grid.Column="8"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource AppSurface}"
+                                  Visibility="Collapsed" />
+                    <GridSplitter x:Name="TopZoneSplitter34"
+                                  Grid.Column="10"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource AppSurface}"
+                                  Visibility="Collapsed" />
+                    <GridSplitter x:Name="TopZoneSplitter45"
+                                  Grid.Column="12"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource AppSurface}"
+                                  Visibility="Collapsed" />
+                    <GridSplitter x:Name="TopZoneSplitter56"
+                                  Grid.Column="14"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  Background="{DynamicResource AppSurface}"
+                                  Visibility="Collapsed" />
                 </Grid>
             </Grid>
         </Border>
 
 
-        <!-- Maintenance "While You Were Away" banner (Row 3) — shown after a maintenance cycle completes -->
+        <!-- Maintenance "While You Were Away" banner(Row 3) — shown after a maintenance cycle completes -->
         <Border x:Name="MaintenanceBannerBorder"
                 Grid.Row="3"
                 Grid.Column="0"

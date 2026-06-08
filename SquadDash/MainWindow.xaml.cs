@@ -749,6 +749,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         WireRight4ZoneSplitterDrag();
         WireRight5ZoneSplitterDrag();
         WireRight6ZoneSplitterDrag();
+        _dockingService.InitializeTopZoneSplitters(
+            TopZoneSplitter01, TopZoneSplitter12, TopZoneSplitter23,
+            TopZoneSplitter34, TopZoneSplitter45, TopZoneSplitter56,
+            WatchPanelBorder,
+            new[]
+            {
+                TopZonePanelsGrid.ColumnDefinitions[3],
+                TopZonePanelsGrid.ColumnDefinitions[5],
+                TopZonePanelsGrid.ColumnDefinitions[9],
+                TopZonePanelsGrid.ColumnDefinitions[11],
+                TopZonePanelsGrid.ColumnDefinitions[13],
+                TopZonePanelsGrid.ColumnDefinitions[15],
+            });
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,

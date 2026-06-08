@@ -81,25 +81,24 @@ internal sealed class PanelDockingService
     private readonly UIElement? _left6ZoneSplitter;
     private readonly UIElement? _right6ZoneSplitter;
 
-    // Maps each dockable panel ID to its column index within TopZonePanelsGrid.
+    // Maps each dockable panel ID to its default column index within TopZonePanelsGrid.
     // Used only to validate which panels may live in the top zone.
     private static readonly Dictionary<string, int> TopZoneColumnMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["loop"]        = 3,
-        ["tasks"]       = 4,
-        ["approvals"]   = 6,
-        ["notes"]       = 7,
-        ["maintenance"] = 8,
-        ["inbox"]       = 9,
+        ["tasks"]       = 5,
+        ["approvals"]   = 9,
+        ["notes"]       = 11,
+        ["maintenance"] = 13,
+        ["inbox"]       = 15,
     };
 
     // Physical grid columns available for dockable top-zone panels, in left-to-right order.
-    // Column 5 is occupied by WatchPanelBorder (non-dockable) so it is skipped.
-    private static readonly int[] TopZonePhysicalColumns = [3, 4, 6, 7, 8, 9];
+    // Columns 4,6,7,8,10,12,14 are splitter/WatchPanel columns and are skipped.
+    private static readonly int[] TopZonePhysicalColumns = [3, 5, 9, 11, 13, 15];
 
-    // Maximum width for panels placed in the Top zone, preventing side-zone panels from
-    // expanding too wide when moved here (consistent with MaxWidth="320" in MainWindow.xaml).
-    private const double TopZonePanelMaxWidth = 320;
+    // Splitter columns between adjacent panel slots (index i is between PhysicalColumns[i] and PhysicalColumns[i+1]).
+    private static readonly int[] TopZoneSplitterColumns = [4, 6, 8, 10, 12, 14];
 
     // Width of the thin insertion-indicator strip used for both top-zone and empty side-zone
     // docking previews, keeping the visual language consistent across all drop targets.
@@ -124,6 +123,16 @@ internal sealed class PanelDockingService
     private readonly List<FrameworkElement> _right5ZonePanels = new();
     private readonly List<FrameworkElement> _left6ZonePanels  = new();
     private readonly List<FrameworkElement> _right6ZonePanels = new();
+
+    // Top-zone GridSplitter elements; null when running under unit tests.
+    private GridSplitter? _topZoneSplitter01;
+    private GridSplitter? _topZoneSplitter12;
+    private GridSplitter? _topZoneSplitter23;
+    private GridSplitter? _topZoneSplitter34;
+    private GridSplitter? _topZoneSplitter45;
+    private GridSplitter? _topZoneSplitter56;
+    private UIElement? _watchPanelElement;
+    private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[6];
 
     /// <summary>Data-model-only constructor for unit tests.</summary>
     public PanelDockingService() { }
@@ -283,6 +292,46 @@ internal sealed class PanelDockingService
         _right5ZoneSplitter = right5ZoneSplitter;
         _left6ZoneSplitter = left6ZoneSplitter;
         _right6ZoneSplitter = right6ZoneSplitter;
+    }
+
+    /// <summary>
+    /// Registers the top-zone GridSplitter elements and their associated panel column definitions
+    /// so that <see cref="RebuildTopZoneLayout"/> can show/hide splitters and restore widths.
+    /// Call this once after <see cref="InitializeComponent"/> in MainWindow.
+    /// </summary>
+    public void InitializeTopZoneSplitters(
+        GridSplitter splitter01, GridSplitter splitter12, GridSplitter splitter23,
+        GridSplitter splitter34, GridSplitter splitter45, GridSplitter splitter56,
+        UIElement watchPanel,
+        ColumnDefinition[] panelColumnDefs)
+    {
+        _topZoneSplitter01 = splitter01;
+        _topZoneSplitter12 = splitter12;
+        _topZoneSplitter23 = splitter23;
+        _topZoneSplitter34 = splitter34;
+        _topZoneSplitter45 = splitter45;
+        _topZoneSplitter56 = splitter56;
+        _watchPanelElement = watchPanel;
+
+        for (int i = 0; i < Math.Min(panelColumnDefs.Length, _topZonePanelColumns.Length); i++)
+            _topZonePanelColumns[i] = panelColumnDefs[i];
+
+        foreach (var splitter in new[] { splitter01, splitter12, splitter23, splitter34, splitter45, splitter56 })
+            splitter.DragCompleted += OnTopZoneSplitterDragCompleted;
+    }
+
+    private void OnTopZoneSplitterDragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+    {
+        var widths = _topZonePanelColumns
+            .Select(c => c is not null && c.ActualWidth > 0 ? c.ActualWidth : 0.0)
+            .ToList();
+
+        if (CurrentLayout is not null)
+        {
+            CurrentLayout.TopZonePanelWidths = widths;
+            if (_workspacePath is not null)
+                SaveLayout(_workspacePath);
+        }
     }
 
     /// <summary>The live panel layout for the current session.</summary>
@@ -990,7 +1039,6 @@ internal sealed class PanelDockingService
             BindingOperations.SetBinding(element, FrameworkElement.HeightProperty, saved);
 
         element.VerticalAlignment = VerticalAlignment.Top;
-        element.MaxWidth = TopZonePanelMaxWidth;
         element.Margin = new Thickness(14, 0, 0, 0);
         DetachFromCurrentPanelParent(element);
         _topZoneGrid.Children.Add(element);
@@ -1013,15 +1061,55 @@ internal sealed class PanelDockingService
             .OrderBy(s => s.Order)
             .ToList();
 
+        var occupiedRanks = new bool[TopZonePhysicalColumns.Length];
         var assignments = new System.Text.StringBuilder();
         for (int rank = 0; rank < topSlots.Count && rank < TopZonePhysicalColumns.Length; rank++)
         {
             var col = TopZonePhysicalColumns[rank];
             assignments.Append($" {topSlots[rank].PanelId}→col{col}");
             if (_panelRegistry.TryGetValue(topSlots[rank].PanelId, out var element))
+            {
                 Grid.SetColumn(element, col);
+                occupiedRanks[rank] = true;
+            }
         }
         SquadDashTrace.Write(TraceCategory.Docking, $"RebuildTopZoneLayout:{assignments}");
+
+        UpdateTopZoneSplitterVisibility(occupiedRanks);
+        ApplyTopZonePanelWidths();
+    }
+
+    private void UpdateTopZoneSplitterVisibility(bool[] occupiedRanks)
+    {
+        if (_topZoneSplitter01 is null) return;
+
+        bool rank0 = occupiedRanks.Length > 0 && occupiedRanks[0];
+        bool rank1 = occupiedRanks.Length > 1 && occupiedRanks[1];
+        bool rank2 = occupiedRanks.Length > 2 && occupiedRanks[2];
+        bool rank3 = occupiedRanks.Length > 3 && occupiedRanks[3];
+        bool rank4 = occupiedRanks.Length > 4 && occupiedRanks[4];
+        bool rank5 = occupiedRanks.Length > 5 && occupiedRanks[5];
+        bool watchVisible = _watchPanelElement?.Visibility == Visibility.Visible;
+
+        SetSplitterVisibility(_topZoneSplitter01, rank0 && rank1);
+        SetSplitterVisibility(_topZoneSplitter12, rank1 && watchVisible);
+        SetSplitterVisibility(_topZoneSplitter23, watchVisible && rank2);
+        SetSplitterVisibility(_topZoneSplitter34, rank2 && rank3);
+        SetSplitterVisibility(_topZoneSplitter45, rank3 && rank4);
+        SetSplitterVisibility(_topZoneSplitter56, rank4 && rank5);
+    }
+
+    private static void SetSplitterVisibility(GridSplitter? splitter, bool visible) =>
+        splitter?.SetValue(UIElement.VisibilityProperty, visible ? Visibility.Visible : Visibility.Collapsed);
+
+    private void ApplyTopZonePanelWidths()
+    {
+        if (CurrentLayout?.TopZonePanelWidths is not { } widths) return;
+        for (int i = 0; i < widths.Count && i < _topZonePanelColumns.Length; i++)
+        {
+            if (_topZonePanelColumns[i] is { } col && widths[i] > 0)
+                col.Width = new GridLength(widths[i]);
+        }
     }
 
     private static void DetachFromCurrentPanelParent(FrameworkElement element)
@@ -1659,6 +1747,7 @@ internal sealed class PanelDockingService
             Right5ZoneWidth = (_right5ZoneColumn is { } r5c && r5c.Width.IsAbsolute && r5c.Width.Value > 0) ? r5c.Width.Value : (double?)null,
             Left6ZoneWidth  = (_left6ZoneColumn  is { } l6c && l6c.Width.IsAbsolute && l6c.Width.Value > 0) ? l6c.Width.Value : (double?)null,
             Right6ZoneWidth = (_right6ZoneColumn is { } r6c && r6c.Width.IsAbsolute && r6c.Width.Value > 0) ? r6c.Width.Value : (double?)null,
+            TopZonePanelWidths = CurrentLayout.TopZonePanelWidths,
         };
 
         if (idx >= 0)
@@ -1749,6 +1838,7 @@ internal sealed class PanelDockingService
             Right5ZoneWidth = CurrentLayout.Right5ZoneWidth,
             Left6ZoneWidth  = CurrentLayout.Left6ZoneWidth,
             Right6ZoneWidth = CurrentLayout.Right6ZoneWidth,
+            TopZonePanelWidths = CurrentLayout.TopZonePanelWidths,
         };
         ApplyLayout(target);
     }
@@ -1786,6 +1876,7 @@ internal sealed class PanelDockingService
         Right5ZoneWidth = layout.Right5ZoneWidth,
         Left6ZoneWidth  = layout.Left6ZoneWidth,
         Right6ZoneWidth = layout.Right6ZoneWidth,
+        TopZonePanelWidths = layout.TopZonePanelWidths is null ? null : [..layout.TopZonePanelWidths],
     };
 
     private static DockLayout ReadActiveLayout(string workspacePath)
