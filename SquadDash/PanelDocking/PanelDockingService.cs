@@ -1385,7 +1385,7 @@ internal sealed class PanelDockingService
             absorber.Width = new GridLength(1, GridUnitType.Star);
 
         UpdateTopZoneSplitterVisibility(occupiedRanks);
-        ResetTopZoneLayoutColumnKinds();
+        ResetTopZoneLayoutColumnKinds(occupiedRanks);
 
         // Log actual column widths after WPF layout settles (ActualWidth is stale until then).
         _topZoneGrid.Dispatcher.BeginInvoke(
@@ -1536,7 +1536,7 @@ internal sealed class PanelDockingService
         }
     }
 
-    private void ResetTopZoneLayoutColumnKinds()
+    private void ResetTopZoneLayoutColumnKinds(bool[]? occupiedRanks = null)
     {
         if (_topZoneFlexAbsorberColumn is { } absorber)
         {
@@ -1551,7 +1551,10 @@ internal sealed class PanelDockingService
         {
             int columnIndex = TopZoneSplitterColumns[i];
             if (columnIndex < cols.Count)
-                cols[columnIndex].Width = new GridLength(4);
+            {
+                bool occupied = occupiedRanks is not null && i < occupiedRanks.Length && occupiedRanks[i];
+                cols[columnIndex].Width = new GridLength(occupied ? 4 : 0);
+            }
         }
 
         if (cols.Count > 8)
