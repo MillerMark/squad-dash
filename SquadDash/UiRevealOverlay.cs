@@ -825,6 +825,19 @@ internal sealed class UiRevealOverlay
             {
                 var segments = new List<string>();
 
+                // Show Left/Top if explicitly set (Canvas children, Window, etc.)
+                double leftVal = Canvas.GetLeft(feGeo);
+                double topVal  = Canvas.GetTop(feGeo);
+                bool hasLeft = !double.IsNaN(leftVal);
+                bool hasTop  = !double.IsNaN(topVal);
+                if (feGeo is Window win)
+                {
+                    hasLeft = true; hasTop = true;
+                    leftVal = win.Left; topVal = win.Top;
+                }
+                if (hasLeft) segments.Add($"Left = {(int)Math.Round(leftVal)}");
+                if (hasTop)  segments.Add($"Top = {(int)Math.Round(topVal)}");
+
                 var window = Window.GetWindow(feGeo);
                 if (window is not null)
                 {
