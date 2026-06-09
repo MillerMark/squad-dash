@@ -911,6 +911,7 @@
                                    Grid.Row="0"
                                    Grid.Column="0"
                                    Grid.ColumnSpan="27"
+                                   Margin="0,-8,0,0"
                                    Visibility="Collapsed" />
 
         <Border x:Name="WorkspaceIssuePanelBorder"
@@ -1017,7 +1018,7 @@
         <Border x:Name="StatusPanelBorder"
                 Grid.Row="2"
                 Grid.Column="0"
-                Margin="0,-9,0,0"
+                Margin="0,-8,0,0"
                 Padding="0"
                 Background="Transparent"
                 BorderThickness="0">
