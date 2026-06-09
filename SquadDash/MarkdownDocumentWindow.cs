@@ -1570,13 +1570,16 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
     private void HandleShowScreenshotMenu(string imagePath) {
         var menu = new ContextMenu();
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
         var pasteItem = new MenuItem { Header = "Paste screenshot from clipboard" };
         pasteItem.IsEnabled = Clipboard.ContainsImage();
+        pasteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         pasteItem.Click += (_, _) => PasteScreenshotFromClipboard(imagePath);
         menu.Items.Add(pasteItem);
 
         var captureItem = new MenuItem { Header = "Capture image" };
+        captureItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         captureItem.Click += (_, _) => _ = CaptureImageAsync(imagePath);
         menu.Items.Add(captureItem);
 
@@ -1587,13 +1590,16 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
     private void HandleShowImageMenu(string imagePath) {
         var menu = new ContextMenu();
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
         var pasteItem = new MenuItem { Header = "Replace with clipboard image" };
         pasteItem.IsEnabled = Clipboard.ContainsImage();
+        pasteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         pasteItem.Click += (_, _) => ReplaceImageFromClipboard(imagePath);
         menu.Items.Add(pasteItem);
 
         var captureItem = new MenuItem { Header = "Replace with captured image" };
+        captureItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         captureItem.Click += (_, _) => _ = CaptureImageAsync(imagePath);
         menu.Items.Add(captureItem);
 

@@ -397,6 +397,8 @@ internal sealed class MarkdownDocumentRenderer {
             Content   = "Copied!",
             Placement = PlacementMode.Bottom,
         };
+        copiedTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        copiedTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
 
         var copyBtn = new Button {
             Content             = "📋",

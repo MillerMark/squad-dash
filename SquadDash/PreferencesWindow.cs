@@ -1777,6 +1777,8 @@ internal sealed class PreferencesWindow : Window {
             }
         };
         var ctxMenu = new ContextMenu();
+        ctxMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        testMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         ctxMenu.Items.Add(testMenuItem);
         pathBox.ContextMenu = ctxMenu;
 

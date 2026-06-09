@@ -1012,7 +1012,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         };
         _eyedropperHexLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         _eyedropperHexLabel.ContextMenu = new ContextMenu();
+        _eyedropperHexLabel.ContextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
         var copyHexItem = new MenuItem { Header = "Copy" };
+        copyHexItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         copyHexItem.Click += (_, _) => {
             if (!string.IsNullOrEmpty(_eyedropperHexLabel.Text))
                 Clipboard.SetText(_eyedropperHexLabel.Text);

@@ -3398,7 +3398,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             TextWrapping = TextWrapping.Wrap,
             MaxWidth    = 280,
         };
-        ToolTipService.SetToolTip(path, new ToolTip { Content = tipText });
+        var tipPathTt = new ToolTip { Content = tipText };
+        tipPathTt.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        tipPathTt.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        tipPathTt.BorderThickness = new Thickness(1);
+        tipPathTt.Padding = new Thickness(6, 4, 6, 4);
+        ToolTipService.SetToolTip(path, tipPathTt);
         return path;
     }
 
@@ -3467,7 +3472,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var tipPanel = new StackPanel { MaxWidth = 320 };
                 tipPanel.Children.Add(hintBlock);
                 tipPanel.Children.Add(pauseBlock);
-                tipContent = new ToolTip { Content = tipPanel };
+                var tipPanelTt = new ToolTip { Content = tipPanel };
+                tipPanelTt.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+                tipPanelTt.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+                tipPanelTt.BorderThickness = new Thickness(1);
+                tipPanelTt.Padding = new Thickness(6, 4, 6, 4);
+                tipContent = tipPanelTt;
             }
             else
             {
@@ -6638,7 +6648,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Validate interval
         if (!int.TryParse(LoopConfigIntervalBox.Text.Trim(), out var interval) || interval <= 0)
         {
-            LoopConfigIntervalBox.BorderBrush = Brushes.Red;
+            LoopConfigIntervalBox.SetResourceReference(System.Windows.Controls.TextBox.BorderBrushProperty, "SystemErrorText");
             return;
         }
         LoopConfigIntervalBox.ClearValue(System.Windows.Controls.TextBox.BorderBrushProperty);
@@ -6646,7 +6656,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Validate timeout
         if (!int.TryParse(LoopConfigTimeoutBox.Text.Trim(), out var timeout) || timeout <= 0)
         {
-            LoopConfigTimeoutBox.BorderBrush = Brushes.Red;
+            LoopConfigTimeoutBox.SetResourceReference(System.Windows.Controls.TextBox.BorderBrushProperty, "SystemErrorText");
             return;
         }
         LoopConfigTimeoutBox.ClearValue(System.Windows.Controls.TextBox.BorderBrushProperty);
@@ -31754,6 +31764,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         // Rebuild tooltip on each open so the relative timestamp ("3 minutes ago") stays current.
         var toolTip = new ToolTip();
+        toolTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        toolTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
         paragraph.ToolTip = toolTip;
         paragraph.ToolTipOpening += (_, _) =>
         {
