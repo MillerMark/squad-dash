@@ -1370,9 +1370,15 @@ internal sealed class PanelDockingService
                         double minW = element.MinWidth > 0 ? element.MinWidth : 80;
                         colDef.MinWidth = minW;
                         double defaultW = Math.Max(minW, 280);
-                        double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
-                            ? pw[rank] : 0;
-                        colDef.Width = new GridLength(persistedW > 0 ? persistedW : defaultW);
+                        // Prefer the panel's own current ActualWidth (rank-independent) so that
+                        // reordering panels within the top zone preserves each panel's width.
+                        // Fall back to the rank-indexed persisted value only on first load (when
+                        // ActualWidth is 0 because the element hasn't been rendered yet).
+                        double actualW = element.ActualWidth is >= 80 and <= 1200 ? element.ActualWidth : 0;
+                        double persistedW = actualW > 0 ? 0
+                            : CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
+                                ? pw[rank] : 0;
+                        colDef.Width = new GridLength(actualW > 0 ? actualW : persistedW > 0 ? persistedW : defaultW);
                     }
                 }
             }
