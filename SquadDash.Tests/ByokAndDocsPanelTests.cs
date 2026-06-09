@@ -98,7 +98,7 @@ internal sealed class ByokAndDocsPanelTests {
             Assert.That(loaded.ByokProviderUrl, Is.EqualTo("https://provider.example.com"));
             Assert.That(loaded.ByokModel, Is.EqualTo("gpt-4"));
             Assert.That(loaded.ByokProviderType, Is.EqualTo("openai"));
-            Assert.That(loaded.ByokApiKey, Is.EqualTo("sk-secret"));
+            Assert.That(ApplicationSettingsStore.DecryptSettingValue(loaded.ByokApiKey), Is.EqualTo("sk-secret"));
         });
     }
 
@@ -156,7 +156,7 @@ internal sealed class ByokAndDocsPanelTests {
         Assert.Multiple(() => {
             Assert.That(loaded.ByokProviderUrl, Is.EqualTo("https://provider.example.com"));
             Assert.That(loaded.ByokModel, Is.EqualTo("gpt-4"));
-            Assert.That(loaded.ByokApiKey, Is.EqualTo("sk-key"));
+            Assert.That(ApplicationSettingsStore.DecryptSettingValue(loaded.ByokApiKey), Is.EqualTo("sk-key"));
         });
     }
 

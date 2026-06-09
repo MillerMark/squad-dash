@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Collections.Generic;
@@ -30,8 +32,7 @@ internal sealed class ApplicationSettingsStore {
 
     public ApplicationSettingsSnapshot Load() {
         using var mutex = AcquireMutex();
-        var snapshot = JsonFileStorage.ReadOrDefault<ApplicationSettingsSnapshot>(_settingsPath, null!);
-        return snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
+        return LoadCore();
     }
 
     public ApplicationSettingsSnapshot RememberFolder(string folderPath) {
@@ -332,7 +333,7 @@ internal sealed class ApplicationSettingsStore {
         var current = LoadCore();
         var updated = current with {
             TunnelMode = mode is "ngrok" or "cloudflare" ? mode : null,
-            TunnelToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim()
+            TunnelToken = EncryptSettingValue(string.IsNullOrWhiteSpace(token) ? null : token.Trim())
         };
         SaveCore(updated);
         return updated;
@@ -350,7 +351,7 @@ internal sealed class ApplicationSettingsStore {
             ByokProviderUrl = string.IsNullOrWhiteSpace(providerUrl) ? null : providerUrl.Trim(),
             ByokModel = string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
             ByokProviderType = providerType is "openai" or "azure" or "anthropic" ? providerType : null,
-            ByokApiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim(),
+            ByokApiKey = EncryptSettingValue(string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim()),
             ByokOfflineMode = offlineMode
         };
         SaveCore(updated);
@@ -715,10 +716,60 @@ internal sealed class ApplicationSettingsStore {
         try {
             var json = File.ReadAllText(_settingsPath);
             var snapshot = JsonSerializer.Deserialize<ApplicationSettingsSnapshot>(json);
-            return snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
+            var normalized = snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
+            return MigrateEncryptedFieldsIfNeeded(normalized);
         }
         catch {
             return ApplicationSettingsSnapshot.Empty.Normalize();
+        }
+    }
+
+    private ApplicationSettingsSnapshot MigrateEncryptedFieldsIfNeeded(ApplicationSettingsSnapshot snapshot) {
+        bool tunnelNeedsMigration = IsLegacyPlaintext(snapshot.TunnelToken);
+        bool byokNeedsMigration = IsLegacyPlaintext(snapshot.ByokApiKey);
+        if (!tunnelNeedsMigration && !byokNeedsMigration) return snapshot;
+
+        var migrated = snapshot with {
+            TunnelToken = tunnelNeedsMigration ? EncryptSettingValue(snapshot.TunnelToken) : snapshot.TunnelToken,
+            ByokApiKey  = byokNeedsMigration   ? EncryptSettingValue(snapshot.ByokApiKey)  : snapshot.ByokApiKey
+        };
+        try { SaveCore(migrated); } catch { /* migration will be retried on next save */ }
+        return migrated;
+    }
+
+    private static bool IsLegacyPlaintext(string? value) {
+        if (string.IsNullOrEmpty(value)) return false;
+        try {
+            ProtectedData.Unprotect(Convert.FromBase64String(value), null, DataProtectionScope.CurrentUser);
+            return false;
+        }
+        catch {
+            return true;
+        }
+    }
+
+    /// <summary>Encrypts <paramref name="plainText"/> with DPAPI and returns a Base64 string, or null if the input is null/empty.</summary>
+    internal static string? EncryptSettingValue(string? plainText) {
+        if (string.IsNullOrEmpty(plainText)) return null;
+        byte[] encrypted = ProtectedData.Protect(
+            Encoding.UTF8.GetBytes(plainText), null, DataProtectionScope.CurrentUser);
+        return Convert.ToBase64String(encrypted);
+    }
+
+    /// <summary>
+    /// Decrypts a DPAPI-encrypted Base64 value produced by <see cref="EncryptSettingValue"/>.
+    /// Returns null/empty for null/empty input. Falls back to returning the value as-is when
+    /// decryption fails so that legacy plaintext settings continue to work until re-saved.
+    /// </summary>
+    internal static string? DecryptSettingValue(string? encryptedBase64) {
+        if (string.IsNullOrEmpty(encryptedBase64)) return null;
+        try {
+            byte[] decrypted = ProtectedData.Unprotect(
+                Convert.FromBase64String(encryptedBase64), null, DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(decrypted);
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException) {
+            return encryptedBase64;
         }
     }
 

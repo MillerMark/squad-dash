@@ -191,7 +191,7 @@ internal sealed class ApplicationSettingsStoreTests {
         var loaded = store.Load();
         Assert.Multiple(() => {
             Assert.That(loaded.TunnelMode, Is.EqualTo("ngrok"));
-            Assert.That(loaded.TunnelToken, Is.EqualTo("my-auth-token"));
+            Assert.That(ApplicationSettingsStore.DecryptSettingValue(loaded.TunnelToken), Is.EqualTo("my-auth-token"));
         });
     }
 
@@ -205,7 +205,7 @@ internal sealed class ApplicationSettingsStoreTests {
         var loaded = store.Load();
         Assert.Multiple(() => {
             Assert.That(loaded.TunnelMode, Is.EqualTo("cloudflare"));
-            Assert.That(loaded.TunnelToken, Is.EqualTo("cf-token-abc"));
+            Assert.That(ApplicationSettingsStore.DecryptSettingValue(loaded.TunnelToken), Is.EqualTo("cf-token-abc"));
         });
     }
 
@@ -260,7 +260,7 @@ internal sealed class ApplicationSettingsStoreTests {
         var loaded = store.Load();
         Assert.Multiple(() => {
             Assert.That(loaded.TunnelMode, Is.EqualTo("ngrok"));
-            Assert.That(loaded.TunnelToken, Is.EqualTo("persistme"));
+            Assert.That(ApplicationSettingsStore.DecryptSettingValue(loaded.TunnelToken), Is.EqualTo("persistme"));
         });
     }
 

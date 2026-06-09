@@ -5801,7 +5801,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 port: _rcActivePort,
                 sessionId: _conversationManager.CurrentSessionId,
                 tunnelMode: _settingsSnapshot.TunnelMode,
-                tunnelToken: _settingsSnapshot.TunnelToken,
+                tunnelToken: ApplicationSettingsStore.DecryptSettingValue(_settingsSnapshot.TunnelToken),
                 rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -5826,7 +5826,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 port: _rcActivePort,
                 sessionId: _conversationManager.CurrentSessionId,
                 tunnelMode: _settingsSnapshot.TunnelMode,
-                tunnelToken: _settingsSnapshot.TunnelToken,
+                tunnelToken: ApplicationSettingsStore.DecryptSettingValue(_settingsSnapshot.TunnelToken),
                 rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -12179,7 +12179,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     cwd: _currentWorkspace.FolderPath,
                     sessionId: _conversationManager.CurrentSessionId,
                     tunnelMode: _settingsSnapshot.TunnelMode,
-                    tunnelToken: _settingsSnapshot.TunnelToken,
+                    tunnelToken: ApplicationSettingsStore.DecryptSettingValue(_settingsSnapshot.TunnelToken),
                     rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(false);
             }
         }
@@ -17040,7 +17040,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     port: savedPort,
                     sessionId: _conversationManager.CurrentSessionId,
                     tunnelMode: _settingsSnapshot.TunnelMode,
-                    tunnelToken: _settingsSnapshot.TunnelToken,
+                    tunnelToken: ApplicationSettingsStore.DecryptSettingValue(_settingsSnapshot.TunnelToken),
                     rcToken: _settingsSnapshot.RcPersistentToken).ConfigureAwait(false);
             }, System.Windows.Threading.DispatcherPriority.Background);
         }
@@ -26138,7 +26138,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             snapshot.ByokProviderUrl,
             snapshot.ByokModel,
             snapshot.ByokProviderType,
-            snapshot.ByokApiKey,
+            ApplicationSettingsStore.DecryptSettingValue(snapshot.ByokApiKey),
             snapshot.ByokOfflineMode);
     }
 
