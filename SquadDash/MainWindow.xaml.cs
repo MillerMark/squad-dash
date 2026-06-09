@@ -588,6 +588,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         double PreviousWidth);
 
     private readonly List<SecondaryTranscriptEntry> _secondaryTranscripts = new();
+    private readonly TranscriptPanelOwnershipMap _ownershipMap = new();
     private DispatcherTimer? _transcriptTitleRefreshTimer;
     private DispatcherTimer? _completedTimeFooterTimer;
     private TranscriptSelectionController _selectionController = null!; // initialized in constructor
@@ -7591,6 +7592,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         foreach (var card in _agents)
             card.IsTranscriptTargetSelected = ReferenceEquals(card, agent);
 
+        _ownershipMap.SetMainPanelOwner(agent);
+
         if (!ReferenceEquals(previousVisualThread, thread))
         {
             previousVisualThread.IsSelected = false;
@@ -11380,8 +11383,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Glow the transcript border that belongs to this agent.
             // MainTranscriptBorder only glows if this agent's transcript is currently displayed there.
-            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
-            if (ReferenceEquals(agentCard, displayedAgent))
+            if (_ownershipMap.IsMainPanelOwner(agentCard))
             {
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                 {
@@ -11402,8 +11404,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Find open secondary transcript panel for this agent
-            var entry = _secondaryTranscripts.FirstOrDefault(t => ReferenceEquals(t.Agent, agentCard));
-            if (entry is null)
+            if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is not Border secondaryPanelBorder)
                 return;
 
             // Apply pulsing glow effect to secondary panel
@@ -11416,7 +11417,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     ShadowDepth = 0,
                     Opacity = startOpacity
                 };
-                entry.PanelBorder.Effect = secondaryGlow;
+                secondaryPanelBorder.Effect = secondaryGlow;
 
                 var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(startOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
                 secondaryGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, secondaryOpacityAnim);
@@ -11442,8 +11443,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Remove glow from transcript border — only MainTranscriptBorder if this agent owns it.
-            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
-            if (ReferenceEquals(agentCard, displayedAgent))
+            if (_ownershipMap.IsMainPanelOwner(agentCard))
             {
                 if (MainTranscriptBorder is not null && MainTranscriptBorder.Effect is System.Windows.Media.Effects.DropShadowEffect mainGlow)
                 {
@@ -11454,15 +11454,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Find open secondary transcript panel for this agent
-            var entry = _secondaryTranscripts.FirstOrDefault(t => ReferenceEquals(t.Agent, agentCard));
-            if (entry is null)
+            if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is not Border secondaryPanelBorder)
                 return;
 
             // Remove glow effect from secondary panel
-            if (entry.PanelBorder.Effect is System.Windows.Media.Effects.DropShadowEffect glow)
+            if (secondaryPanelBorder.Effect is System.Windows.Media.Effects.DropShadowEffect glow)
             {
                 glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                entry.PanelBorder.Effect = null;
+                secondaryPanelBorder.Effect = null;
             }
         }
         catch (Exception ex)
@@ -11493,17 +11492,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Glow the transcript border that belongs to this agent.
             // MainTranscriptBorder only glows if this agent's transcript is currently shown there.
-            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
-            if (ReferenceEquals(agentCard, displayedAgent))
+            if (_ownershipMap.IsMainPanelOwner(agentCard))
             {
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                     ApplyAgentCardBorderGlow(MainTranscriptBorder, accentColor, isDark);
             }
-            else
+            else if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is Border secondaryPanelBorder)
             {
-                var entry = _secondaryTranscripts.FirstOrDefault(t => ReferenceEquals(t.Agent, agentCard));
-                if (entry is not null)
-                    ApplyAgentCardBorderGlow(entry.PanelBorder, accentColor, isDark);
+                ApplyAgentCardBorderGlow(secondaryPanelBorder, accentColor, isDark);
             }
         }
         catch (Exception ex)
@@ -11524,17 +11520,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Clear the transcript border glow — only clear MainTranscriptBorder if this agent owns it.
-            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
-            if (ReferenceEquals(agentCard, displayedAgent))
+            if (_ownershipMap.IsMainPanelOwner(agentCard))
             {
                 if (MainTranscriptBorder is not null)
                     ClearAgentCardBorderGlow(MainTranscriptBorder);
             }
-            else
+            else if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is Border secondaryPanelBorder)
             {
-                var entry = _secondaryTranscripts.FirstOrDefault(t => ReferenceEquals(t.Agent, agentCard));
-                if (entry is not null)
-                    ClearAgentCardBorderGlow(entry.PanelBorder);
+                ClearAgentCardBorderGlow(secondaryPanelBorder);
             }
         }
         catch (Exception ex)
@@ -11547,11 +11540,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            // Use the agent whose transcript is currently displayed in the main panel,
-            // not always _leadAgent — the user may have clicked a different agent card.
-            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
-            if (displayedAgent is null) return;
-            TranscriptPanelBorder_MouseEnter(displayedAgent);
+            var mainOwner = _ownershipMap.MainPanelOwner ?? _leadAgent;
+            if (mainOwner is null) return;
+            TranscriptPanelBorder_MouseEnter(mainOwner);
         }
         catch (Exception ex)
         {
@@ -11563,9 +11554,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
-            if (displayedAgent is null) return;
-            TranscriptPanelBorder_MouseLeave(displayedAgent);
+            var mainOwner = _ownershipMap.MainPanelOwner ?? _leadAgent;
+            if (mainOwner is null) return;
+            TranscriptPanelBorder_MouseLeave(mainOwner);
         }
         catch (Exception ex)
         {
@@ -18620,6 +18611,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         sw.Restart();
         entry.IsAutoOpenedInMultiMode = isAutoOpenedInMultiMode;
         _secondaryTranscripts.Add(entry);
+        _ownershipMap.RegisterSecondaryPanel(entry.PanelBorder, entry.Agent);
         EnsureTranscriptTitleRefreshTimerRunning();
         thread.IsSecondaryPanelOpen = true;
         UpdateCompletedTimeFooters();
@@ -18652,6 +18644,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write(TraceCategory.TranscriptPanels,
             $"CloseSecondaryPanel closing thread={entry.Thread.ThreadId} agent={entry.Agent.Name} seq={entry.Thread.SequenceNumber} title=\"{entry.TitleBlock.Text}\"");
         _secondaryTranscripts.Remove(entry);
+        _ownershipMap.UnregisterSecondaryPanel(entry.PanelBorder);
         entry.Thread.IsSecondaryPanelOpen = false;
         SyncThreadChip(entry.Thread);
         if (_secondaryTranscripts.Count == 0)
@@ -19646,22 +19639,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? _selectedTranscriptThread ?? CoordinatorThread
             : null;
 
+        AgentStatusCard? mainPanelOwner = null;
+
         foreach (var card in _agents)
         {
             if (card.IsLeadAgent)
             {
                 card.IsTranscriptTargetSelected = visibleMainThread is not null &&
                                                   ReferenceEquals(visibleMainThread, CoordinatorThread);
+                if (card.IsTranscriptTargetSelected)
+                    mainPanelOwner = card;
                 continue;
             }
 
+            bool ownsMainPanel = card.Threads.Any(thread => ReferenceEquals(thread, visibleMainThread));
+            if (ownsMainPanel)
+                mainPanelOwner = card;
+
             card.IsTranscriptTargetSelected =
-                card.Threads.Any(thread => ReferenceEquals(thread, visibleMainThread)) ||
+                ownsMainPanel ||
                 _secondaryTranscripts.Any(entry =>
                     ReferenceEquals(entry.Thread, visibleMainThread) ||
                     ReferenceEquals(entry.Agent, card) ||
                     ReferenceEquals(FindAgentCardForThread(entry.Thread), card));
         }
+
+        _ownershipMap.SetMainPanelOwner(mainPanelOwner);
     }
 
     private void CancelAutoCloseCountdown(SecondaryTranscriptEntry entry)
