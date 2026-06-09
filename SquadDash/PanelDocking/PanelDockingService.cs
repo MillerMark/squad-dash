@@ -1306,7 +1306,7 @@ internal sealed class PanelDockingService
             BindingOperations.SetBinding(element, FrameworkElement.HeightProperty, saved);
 
         element.VerticalAlignment = VerticalAlignment.Top;
-        element.Margin = new Thickness(14, 0, 0, 0);
+        element.Margin = new Thickness(0);
         DetachFromCurrentPanelParent(element);
         _topZoneGrid.Children.Add(element);
 
