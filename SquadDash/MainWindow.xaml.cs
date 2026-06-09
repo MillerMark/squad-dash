@@ -9264,13 +9264,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
 
-            // ── Ctrl+Shift+C: Quick AI Cleanup — directly revises selection with the configured cleanup prompt ──
+            // ── Ctrl+Shift+C: Append selection to clipboard ──────────────────────
             if (e.Key == Key.C
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-                && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
             {
-                if (TryDirectReviseForFocusedTextBox(_settingsSnapshot.CleanupPrompt))
+                string? selected = null;
+                if (Keyboard.FocusedElement is System.Windows.Controls.RichTextBox rtb)
+                    selected = rtb.Selection.Text;
+                else if (Keyboard.FocusedElement is System.Windows.Controls.TextBox tb)
+                    selected = tb.SelectedText;
+
+                if (!string.IsNullOrEmpty(selected))
                 {
+                    ClipboardUtilities.AppendToClipboard(selected);
                     e.Handled = true;
                     return;
                 }

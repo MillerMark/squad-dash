@@ -216,6 +216,12 @@ internal sealed class UiRevealOverlay
                 return;
             }
 
+            bool isAppend =
+                keyArgs.Key == Key.C
+                    && mods.HasFlag(ModifierKeys.Control)
+                    && mods.HasFlag(ModifierKeys.Shift)
+                    && !mods.HasFlag(ModifierKeys.Alt);
+
             bool isCopy =
                 (keyArgs.Key == Key.C
                     && mods.HasFlag(ModifierKeys.Control)
@@ -226,9 +232,9 @@ internal sealed class UiRevealOverlay
                     && !mods.HasFlag(ModifierKeys.Shift)
                     && !mods.HasFlag(ModifierKeys.Alt));
 
-            if (!isCopy) return;
+            if (!isCopy && !isAppend) return;
 
-            DiagLog("  → COPY TRIGGERED — building clipboard text");
+            DiagLog($"  → {(isAppend ? "APPEND-COPY" : "COPY")} TRIGGERED — building clipboard text");
             var text = BuildClipboardText(_lastElement);
             DiagLog($"  → BuildClipboardText: {(string.IsNullOrEmpty(text) ? "EMPTY" : $"{text.Length} chars")}");
 
@@ -236,12 +242,20 @@ internal sealed class UiRevealOverlay
             {
                 try
                 {
-                    Clipboard.SetText(text);
-                    DiagLog("  → Clipboard.SetText: OK");
+                    if (isAppend)
+                    {
+                        ClipboardUtilities.AppendToClipboard(text);
+                        DiagLog("  → ClipboardUtilities.AppendToClipboard: OK");
+                    }
+                    else
+                    {
+                        Clipboard.SetText(text);
+                        DiagLog("  → Clipboard.SetText: OK");
+                    }
                 }
                 catch (Exception clipEx)
                 {
-                    DiagLog($"  → Clipboard.SetText THREW: {clipEx.Message}");
+                    DiagLog($"  → Clipboard operation THREW: {clipEx.Message}");
                 }
                 ShowCopyFeedback();
             }
