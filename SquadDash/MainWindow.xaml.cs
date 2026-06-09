@@ -11432,6 +11432,101 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    // ── Transcript-panel → agent-card reverse hover glow ──────────────────────
+
+    private void TranscriptPanelBorder_MouseEnter(AgentStatusCard agentCard)
+    {
+        try
+        {
+            var cardBorder = FindAgentCardBorderForCard(agentCard);
+            if (cardBorder is null) return;
+
+            var accentColor = (System.Windows.Media.Color)ColorConverter.ConvertFromString(agentCard.AccentColorHex);
+            bool isDark = AgentStatusCard.IsDarkTheme;
+            if (isDark)
+            {
+                accentColor = System.Windows.Media.Color.FromRgb(
+                    (byte)(accentColor.R + (255 - accentColor.R) * 0.55),
+                    (byte)(accentColor.G + (255 - accentColor.G) * 0.55),
+                    (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
+            }
+
+            ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(TranscriptPanelBorder_MouseEnter), ex);
+        }
+    }
+
+    private void TranscriptPanelBorder_MouseLeave(AgentStatusCard agentCard)
+    {
+        try
+        {
+            var cardBorder = FindAgentCardBorderForCard(agentCard);
+            if (cardBorder is null) return;
+
+            HideAgentCardGlowOverlay(cardBorder);
+            ClearAgentCardBorderGlow(cardBorder);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(TranscriptPanelBorder_MouseLeave), ex);
+        }
+    }
+
+    private void MainTranscriptBorder_MouseEnter(object sender, MouseEventArgs e)
+    {
+        try
+        {
+            if (_leadAgent is null) return;
+            TranscriptPanelBorder_MouseEnter(_leadAgent);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(MainTranscriptBorder_MouseEnter), ex);
+        }
+    }
+
+    private void MainTranscriptBorder_MouseLeave(object sender, MouseEventArgs e)
+    {
+        try
+        {
+            if (_leadAgent is null) return;
+            TranscriptPanelBorder_MouseLeave(_leadAgent);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(MainTranscriptBorder_MouseLeave), ex);
+        }
+    }
+
+    private Border? FindAgentCardBorderForCard(AgentStatusCard card)
+    {
+        foreach (var itemsControl in new ItemsControl[] { ActiveAgentItemsControl, InactiveAgentItemsControl })
+        {
+            var container = itemsControl.ItemContainerGenerator.ContainerFromItem(card);
+            if (container is null) continue;
+            var border = FindNamedVisualChild<Border>(container, "AgentCardBorder");
+            if (border is not null) return border;
+        }
+        return null;
+    }
+
+    private static T? FindNamedVisualChild<T>(DependencyObject parent, string name)
+        where T : FrameworkElement
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T typedChild && typedChild.Name == name)
+                return typedChild;
+            var result = FindNamedVisualChild<T>(child, name);
+            if (result is not null) return result;
+        }
+        return null;
+    }
+
     // ── Context-menu helpers ───────────────────────────────────────────────────
 
     private static ContextMenu MakeMenu()
@@ -18985,6 +19080,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         outerBorder.MouseMove += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };
         outerBorder.PreviewMouseDown += (_, _) => { try { CancelAutoCloseCountdown(entry); } catch { } };
         outerBorder.PreviewMouseWheel += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };
+
+        // Reverse hover glow: hovering the transcript panel glows its agent card
+        outerBorder.MouseEnter += (_, _) => TranscriptPanelBorder_MouseEnter(entry.Agent);
+        outerBorder.MouseLeave += (_, _) => TranscriptPanelBorder_MouseLeave(entry.Agent);
 
         headerDock.SizeChanged += (_, _) =>
         {
