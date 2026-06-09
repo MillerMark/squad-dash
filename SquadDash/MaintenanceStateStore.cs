@@ -13,11 +13,14 @@ internal sealed class MaintenanceStateStore {
 
     private readonly string _statePath;
     private readonly ITimeProvider _clock;
+    private readonly Func<string, string, int> _commitCounter;
     private Dictionary<string, TaskState> _tasks = new(StringComparer.Ordinal);
 
-    internal MaintenanceStateStore(string stateDir, ITimeProvider? clock = null) {
+    internal MaintenanceStateStore(string stateDir, ITimeProvider? clock = null,
+        Func<string, string, int>? commitCounter = null) {
         _statePath = Path.Combine(stateDir, "maintenance-state.json");
         _clock = clock ?? SystemTimeProvider.Instance;
+        _commitCounter = commitCounter ?? CountCommitsSince;
     }
 
     /// <summary>Reloads state from disk. On any failure, starts with empty state.</summary>
@@ -47,12 +50,27 @@ internal sealed class MaintenanceStateStore {
     }
 
     /// <summary>Returns true if this task is eligible to run based on its frequency.</summary>
-    public bool IsEligible(string taskId, string frequency, string? commitSha) {
+    public bool IsEligible(string taskId, string frequency, string? commitSha, string? workspacePath = null) {
         var freqLower = frequency.ToLowerInvariant();
         
         // Handle "always"
         if (freqLower == "always")
             return true;
+
+        // Handle "every-N-commits" (e.g., "every-5-commits", "every-10-commits")
+        if (freqLower.StartsWith("every-") && freqLower.EndsWith("-commits")) {
+            var nStr = freqLower["every-".Length..^"-commits".Length];
+            if (!int.TryParse(nStr, out var n) || n < 1) goto HandleDaily;
+
+            if (commitSha is null || workspacePath is null) goto HandleDaily;
+            if (!_tasks.TryGetValue(taskId, out var everyNState)) return true;
+            if (string.IsNullOrEmpty(everyNState.LastCommitSha)) return true;
+            if (string.Equals(everyNState.LastCommitSha, commitSha, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            int count = _commitCounter(everyNState.LastCommitSha, workspacePath);
+            return count >= n;
+        }
 
         // Handle "after-commits" / "per-commit"
         if (freqLower == "after-commits" || freqLower == "per-commit") {
@@ -136,6 +154,23 @@ internal sealed class MaintenanceStateStore {
         return null;
     }
 
+    /// <summary>Returns the last recorded commit SHA for the task, or null if never run.</summary>
+    public string? GetLastCommitSha(string taskId) {
+        if (_tasks.TryGetValue(taskId, out var state))
+            return state.LastCommitSha;
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the number of commits between the task's last-run SHA and HEAD,
+    /// using the injected commit counter. Returns 0 if the task has no recorded baseline.
+    /// </summary>
+    public int GetCommitCountSince(string taskId, string workspacePath) {
+        if (!_tasks.TryGetValue(taskId, out var state) || string.IsNullOrEmpty(state.LastCommitSha))
+            return 0;
+        return _commitCounter(state.LastCommitSha, workspacePath);
+    }
+
     /// <summary>Records a completed run and persists state atomically.</summary>
     public void RecordRun(string taskId, string? commitSha) {
         var entry = new TaskState {
@@ -196,6 +231,27 @@ internal sealed class MaintenanceStateStore {
         // DayOfWeek: Sunday=0, Monday=1 … Saturday=6; we want Monday=0
         int daysSinceMonday = ((int)today.DayOfWeek + 6) % 7;
         return today.AddDays(-daysSinceMonday);
+    }
+
+    private static int CountCommitsSince(string baseSha, string workspacePath) {
+        try {
+            var psi = new System.Diagnostics.ProcessStartInfo(
+                "git", $"rev-list HEAD ^{baseSha} --count") {
+                WorkingDirectory       = workspacePath,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null) return 0;
+            var output = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit(3000);
+            return int.TryParse(output, out var n) ? n : 0;
+        }
+        catch {
+            return 0;
+        }
     }
 
     private sealed class TaskState {

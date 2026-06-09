@@ -7,6 +7,7 @@
 #   monthly       — run at most once per calendar month (UTC year+month)
 #   after-commits — run once per new HEAD commit SHA
 #   per-commit    — backward-compat alias for after-commits
+#   every-N-commits — run once ≥N new commits since last run (e.g., every-5-commits)
 # Set configured: true to enable maintenance mode.
 # Set enabled: true on individual tasks to activate them.
 # Global safety floor: per-task safety cannot be less safe than this value.
@@ -128,12 +129,12 @@ tasks:
 
   - id: commit-review
     enabled: true
-    frequency: per-commit
+    frequency: every-5-commits
     safety: report-only
     title: Commit Quality Review
     instructions: |
-      Retrieve the list of commits since the last time this task ran (use the
-      stored last-run SHA if available; otherwise review the last 10 commits).
+      Review all commits since {{last_reviewed_sha}} ({{new_commit_count}} new commits since last review).
+      If {{last_reviewed_sha}} is empty, review the last 10 commits.
       For each commit, review the diff and note:
       - Code quality issues introduced (smells, complexity, missing tests)
       - Missing or inadequate commit message detail
@@ -628,6 +629,72 @@ tasks:
 
       If this is not a C# project, adapt to the equivalent docstring convention
       (JSDoc for TypeScript/JavaScript, docstrings for Python, godoc for Go).
+
+  - id: thematic-compliance
+    enabled: true
+    frequency: weekly-Saturday
+    safety: report-only
+    title: Thematic Compliance Audit
+    instructions: |
+      Audit the codebase for UI controls that are not respecting the application's
+      selected theme (dark/light). This project uses dynamic resource references
+      (DynamicResource) and a named style system to support user- or system-selected
+      themes. Controls that hardcode colors, use default OS styles, or skip the
+      app's named styles break the theme contract.
+
+      **Step 1 — Understand the theme system**
+      Before scanning for violations, read enough of the codebase to understand
+      how theming works in this project:
+      - In WPF projects: look at App.xaml for named styles and brush resource keys
+        (e.g., PrimaryText, InputSurface, RosterPanelSurface). Find examples of
+        controls using SetResourceReference or DynamicResource correctly.
+      - In web projects: look for CSS custom properties, design tokens, or a theme
+        provider pattern.
+      - Note which control types have custom themed styles (e.g., Button, ComboBox,
+        ScrollViewer, ToolTip, ContextMenu, CheckBox) and what the correct style
+        key or resource reference pattern is for each.
+
+      **Step 2 — Scan for violations**
+      Look for any of the following in C# code-behind (.cs), XAML (.xaml), CSS,
+      TypeScript, or equivalent UI files:
+
+      1. **Hardcoded colors** — `Background = Brushes.White`, `Foreground = Colors.Black`,
+         `color: #ffffff`, hex/RGB color values set directly on controls rather than
+         via a themed resource.
+      2. **Default/unstyled controls** — Controls created with `new ToolTip()`,
+         `new ComboBox()`, `new ContextMenu()` etc. without applying the app's
+         named themed style. Compare against controls that do use the themed style.
+      3. **StaticResource instead of DynamicResource** for theme-sensitive brushes —
+         StaticResource does not update when the theme switches at runtime.
+      4. **Missing style on a control type that has a themed style** — e.g., if
+         ComboBoxes elsewhere use `ThemedComboBoxStyle` but one ComboBox does not.
+      5. **ToolTips** that use the OS default (plain white/yellow) instead of the
+         app's themed tooltip helper or style.
+      6. **Inline style overrides** that re-hardcode colors already provided by
+         a themed brush (redundant overrides that will break if the theme changes).
+
+      **Step 3 — Report findings**
+      Do not change any code. For each violation found, report:
+      - File path and approximate line number or method/class anchor
+      - Control type and property affected
+      - What the current (incorrect) value is
+      - What the correct themed equivalent should be (specific style key or
+        resource reference)
+      - Severity: High (visible in normal use), Medium (edge case or secondary UI),
+        Low (cosmetic or rarely seen)
+
+      Group findings by severity. Include a brief summary at the top: how many
+      violations found, which control types are most affected, and whether any
+      systematic pattern explains the violations (e.g., "all violations are in
+      the Settings window, which predates the themed style system").
+
+      Send the full report to the user's Inbox using an INBOX_MESSAGE_JSON block
+      (from: "argus-weld").
+
+      **Note:** This task applies to any project with a theme system — WPF apps
+      using DynamicResource/named styles, web apps using CSS custom properties or
+      design tokens, MAUI/.NET apps, etc. Adapt the scan patterns to the tech stack
+      in use.
 
   - id: daily-issue-pr-tracker
     enabled: true

@@ -209,16 +209,39 @@ The flag clears after the single run. If you want another run after that, type `
 
 ## Frequency values
 
-| Value           | Behaviour                                                                                          |
-|-----------------|----------------------------------------------------------------------------------------------------|
-| `daily`         | Runs at most once per UTC calendar day; skipped on subsequent windows the same day                 |
-| `weekly`        | Runs at most once per Monday–Sunday calendar week (UTC); skipped on subsequent windows the same week |
-| `monthly`       | Runs at most once per calendar month; skipped on subsequent windows the same month                 |
-| `after-commits` | Runs once per unique HEAD commit SHA; re-runs automatically when new commits land                  |
-| `per-commit`    | Backward-compat alias for `after-commits`; identical behaviour; prefer `after-commits` in new configs |
-| `always`        | Runs every maintenance window regardless of when it last ran                                       |
+| Value              | Behaviour                                                                                          |
+|--------------------|-----------------------------------------------------------------------------------------------------|
+| `daily`            | Runs at most once per UTC calendar day; skipped on subsequent windows the same day                 |
+| `weekly`           | Runs at most once per Monday–Sunday calendar week (UTC); skipped on subsequent windows the same week |
+| `monthly`          | Runs at most once per calendar month; skipped on subsequent windows the same month                 |
+| `after-commits`    | Runs once per unique HEAD commit SHA; re-runs automatically when new commits land                  |
+| `per-commit`       | Backward-compat alias for `after-commits`; identical behaviour; prefer `after-commits` in new configs |
+| `every-N-commits`  | Runs once ≥N new commits have accumulated since the last run (e.g. `every-5-commits`)              |
+| `always`           | Runs every maintenance window regardless of when it last ran                                       |
 
 > **`after-commits` fallback:** If git is unavailable or HEAD cannot be resolved, `after-commits` tasks (and the `per-commit` alias) fall back to `daily` behaviour and a trace entry is written to the SquadDash trace log.
+
+### `every-N-commits` — threshold-based commit frequency
+
+The `every-N-commits` variant (e.g. `every-5-commits`, `every-10-commits`) runs the task only after **at least N new commits** have landed since the last run. This avoids the "fire on every single commit" behaviour of `after-commits` and is ideal for batch review tasks where re-examining the same recent history on each commit wastes tokens.
+
+**How it works:**
+
+1. On each maintenance window the runner records the current HEAD SHA as the task's baseline.
+2. At the next window it counts `git rev-list HEAD ^<baseline> --count`.
+3. If the count ≥ N, the task is eligible and runs; the baseline advances to the new HEAD.
+4. If the count < N, the task is skipped until enough commits accumulate.
+
+**Template variables available in `instructions:`:**
+
+| Variable               | Value                                                             |
+|------------------------|-------------------------------------------------------------------|
+| `{{last_reviewed_sha}}`| The HEAD SHA recorded at the last run (empty string if never run) |
+| `{{new_commit_count}}` | Number of new commits since the last run (0 if never run)         |
+
+These same variables are also available for `after-commits` and `per-commit` tasks.
+
+**Fallback:** If git is unavailable or `workspacePath` cannot be determined, `every-N-commits` falls back silently to `daily` behaviour.
 
 ---
 

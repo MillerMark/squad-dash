@@ -21,8 +21,9 @@ internal sealed class MaintenanceStateStoreTests {
         _store = CreateStore();
     }
 
-    private MaintenanceStateStore CreateStore(ITimeProvider? clock = null) =>
-        new MaintenanceStateStore(_workspace.RootPath, clock);
+    private MaintenanceStateStore CreateStore(ITimeProvider? clock = null,
+        Func<string, string, int>? commitCounter = null) =>
+        new MaintenanceStateStore(_workspace.RootPath, clock, commitCounter);
 
     [TearDown]
     public void TearDown() => _workspace.Dispose();
@@ -414,6 +415,93 @@ internal sealed class MaintenanceStateStoreTests {
         var eligible = store.IsEligible("any-task", "per-commit", commitSha: "sha");
         Assert.That(eligible, Is.True,
             "A missing state file must not crash the store; all tasks should be eligible");
+    }
+
+    // ── IsEligible — frequency: every-N-commits ──────────────────────────────
+
+    [Test]
+    public void IsEligible_EveryNCommits_NeverRun_ReturnsTrue() {
+        // A task that has never run has no baseline — always eligible.
+        var store = CreateStore(commitCounter: (_, _) => 3);
+        var eligible = store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.True, "A task with no prior run must be eligible regardless of commit count");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_NoBaselineSha_ReturnsTrue() {
+        // Task exists in state but LastCommitSha is null → no baseline → eligible.
+        WriteStateWithNullLastRunAt("every-n-task", lastSha: "");
+        var store = CreateStore(commitCounter: (_, _) => 0);
+        store.Reload();
+        var eligible = store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.True, "A task with no recorded baseline SHA must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_BelowThreshold_ReturnsFalse() {
+        // 4 new commits, threshold is 5 → not eligible.
+        WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "base-sha");
+        var store = CreateStore(commitCounter: (_, _) => 4);
+        store.Reload();
+        var eligible = store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.False, "4 new commits against a threshold of 5 must not be eligible");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_AtThreshold_ReturnsTrue() {
+        // Exactly 5 new commits, threshold is 5 → eligible.
+        WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "base-sha");
+        var store = CreateStore(commitCounter: (_, _) => 5);
+        store.Reload();
+        var eligible = store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.True, "Exactly 5 new commits against a threshold of 5 must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_AboveThreshold_ReturnsTrue() {
+        // 9 new commits, threshold is 5 → eligible.
+        WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "base-sha");
+        var store = CreateStore(commitCounter: (_, _) => 9);
+        store.Reload();
+        var eligible = store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.True, "9 new commits against a threshold of 5 must be eligible");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_SameHeadSha_ReturnsFalse() {
+        // HEAD hasn't moved since the last run — not eligible regardless of threshold.
+        const string sha = "same-sha";
+        WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: sha);
+        var store = CreateStore(commitCounter: (_, _) => 99);
+        store.Reload();
+        var eligible = store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: sha, workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.False, "If HEAD SHA matches the last-run SHA, task must not be eligible");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_NullWorkspacePath_FallsBackToDaily_NotEligibleAfterRunToday() {
+        // workspacePath is null → cannot count commits → fall back to daily.
+        _store.RecordRun("every-n-task", commitSha: "base-sha");
+        var eligible = _store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: null);
+        Assert.That(eligible, Is.False,
+            "Null workspacePath must fall back to daily — not eligible again on the same day");
+    }
+
+    [Test]
+    public void IsEligible_EveryNCommits_NullCommitSha_FallsBackToDaily_NotEligibleAfterRunToday() {
+        // commitSha is null (git unavailable) → fall back to daily.
+        _store.RecordRun("every-n-task", commitSha: "base-sha");
+        var eligible = _store.IsEligible("every-n-task", "every-5-commits",
+            commitSha: null, workspacePath: _workspace.RootPath);
+        Assert.That(eligible, Is.False,
+            "Null commitSha must fall back to daily — not eligible again on the same day");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -89,7 +89,7 @@ internal sealed class MaintenanceRunner {
                 }
 
                 var isForced = forceTaskIds?.Contains(task.Id) == true;
-                if (!isForced && !_stateStore.IsEligible(task.Id, task.Frequency, commitSha)) {
+                if (!isForced && !_stateStore.IsEligible(task.Id, task.Frequency, commitSha, workspacePath)) {
                     skippedIds.Add(task.Id);
                     continue;
                 }
@@ -112,7 +112,11 @@ internal sealed class MaintenanceRunner {
                 var taskStartedAt = DateTimeOffset.UtcNow;
                 var taskStart = Stopwatch.GetTimestamp();
                 try {
-                    var prompt = BuildPrompt(task, config.Safety, startedAt);
+                    var lastReviewedSha = _stateStore.GetLastCommitSha(task.Id);
+                    var newCommitCount  = NeedsCommitCount(task.Frequency) && commitSha is not null
+                        ? _stateStore.GetCommitCountSince(task.Id, workspacePath)
+                        : 0;
+                    var prompt = BuildPrompt(task, config.Safety, startedAt, lastReviewedSha, newCommitCount);
                     int anchorIndex;
                     string? responseText = null;
 
@@ -285,7 +289,8 @@ internal sealed class MaintenanceRunner {
         return prompt.Trim();
     }
 
-    private static string BuildPrompt(MaintenanceTask task, string globalSafety, DateTimeOffset runDate) {
+    private static string BuildPrompt(MaintenanceTask task, string globalSafety, DateTimeOffset runDate,
+        string? lastReviewedSha = null, int newCommitCount = 0) {
         var effectiveSafety = ApplySafetyFloor(globalSafety, task.Safety);
         var branchName      = $"maintenance/{runDate:yyyyMMdd}-{task.Id}";
 
@@ -312,6 +317,10 @@ internal sealed class MaintenanceRunner {
 
         // Apply {{branch}} substitution so task instructions can reference the computed branch name.
         instructions = instructions.Replace("{{branch}}", branchName, StringComparison.OrdinalIgnoreCase);
+
+        // Apply commit-range substitutions for commit-frequency tasks.
+        instructions = instructions.Replace("{{last_reviewed_sha}}", lastReviewedSha ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        instructions = instructions.Replace("{{new_commit_count}}", newCommitCount.ToString(), StringComparison.OrdinalIgnoreCase);
 
         return safetyPrefix + instructions + inboxReminder + suffix;
     }
@@ -366,9 +375,18 @@ internal sealed class MaintenanceRunner {
 
     private static bool NeedsCommitSha(IEnumerable<MaintenanceTask> tasks) =>
         tasks.Any(task =>
-            task.Enabled &&
-            (string.Equals(task.Frequency, "after-commits", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(task.Frequency, "per-commit",    StringComparison.OrdinalIgnoreCase)));
+            task.Enabled && (
+                string.Equals(task.Frequency, "after-commits", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(task.Frequency, "per-commit",    StringComparison.OrdinalIgnoreCase) ||
+                (task.Frequency.StartsWith("every-", StringComparison.OrdinalIgnoreCase) &&
+                 task.Frequency.EndsWith("-commits", StringComparison.OrdinalIgnoreCase))
+            ));
+
+    private static bool NeedsCommitCount(string frequency) =>
+        string.Equals(frequency, "after-commits", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(frequency, "per-commit",    StringComparison.OrdinalIgnoreCase) ||
+        (frequency.StartsWith("every-", StringComparison.OrdinalIgnoreCase) &&
+         frequency.EndsWith("-commits", StringComparison.OrdinalIgnoreCase));
 
     private static async Task<string?> TryGetCommitShaAsync(string workspacePath, CancellationToken ct) {
         try {
