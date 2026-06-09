@@ -167,6 +167,46 @@ To force a specific task to run regardless of when it last ran, use **Run Now** 
 
 ---
 
+## `/maintenance` — Run once on idle
+
+The `/maintenance` command arms a one-shot "run-once-on-idle" flag. It is primarily useful when the panel is set to **Manual runs only** and you want to schedule a single maintenance cycle for when you are done working, without changing the panel's persistent mode setting.
+
+### What it does
+
+Typing `/maintenance` in the prompt box sets an internal flag. When SquadDash next reaches a true idle state — queue empty, no active prompt turn, no loop iteration running — it fires one maintenance cycle and then clears the flag. Everything else (frequency rules, safety model, reports) behaves exactly as a normal idle-triggered cycle.
+
+**Two temporary overrides are active while the flag is armed:**
+
+1. **Manual runs only bypassed** — the cycle fires even when the panel is set to **Manual runs only**.
+2. **Idle timer bypassed** — the cycle does not wait for the `idle_timeout` (default: 15 minutes); it fires at the next structural idle transition, typically seconds after the last activity finishes.
+
+The flag survives new prompts arriving after it is set — those prompts delay the run until they complete, but do not cancel the flag.
+
+### When it fires
+
+The trigger is structural, not time-based:
+
+- Queue drains to empty, **or**
+- The active prompt turn completes, **or**
+- The loop stops its current iteration
+
+...whichever comes last. At that point, if the system is genuinely idle, the cycle runs.
+
+### Contrast with other triggers
+
+| Method | When it runs | Frequency rules | Mode setting affected? |
+|---|---|---|---|
+| **`/maintenance`** | Next true idle (seconds after last activity) | Applied normally | No — one-shot flag only |
+| **Simulate Idle** (right-click picker) | Immediately | Applied normally | No |
+| **Run Now** (right-click task row) | Immediately | Bypassed entirely | No |
+| **Run on idle** mode | After `idle_timeout` expires | Applied normally | Yes — changes persistent setting |
+
+### One-shot behaviour
+
+The flag clears after the single run. If you want another run after that, type `/maintenance` again. If you switch the panel back to **Run on idle** before the flag fires, the flag is redundant (the idle cycle will run anyway) but harmless.
+
+---
+
 ## Frequency values
 
 | Value           | Behaviour                                                                                          |
@@ -408,4 +448,5 @@ SquadDash will wait for any currently-running prompt or Loop iteration to finish
 | Inbox messages   | `INBOX_MESSAGE_JSON` block at end of task output        |
 | Deferred actions | `actions` array in inbox messages; rendered as buttons  |
 | File location anchors | Structural signpost (class/method, heading path, key path, selector, excerpt) — not bare line numbers |
+| `/maintenance` command | Arms a one-shot "run-once-on-idle" flag; bypasses "Manual runs only" and the idle timer; clears after one run |
 | Conditionals in instructions | `{{#if key == "value"}}…{{/if}}` and `{{#unless …}}` — see [template preprocessing](#task-instructions--template-preprocessing) |

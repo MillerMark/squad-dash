@@ -183,6 +183,7 @@ After a maintenance cycle completes, a notification banner appears at the top of
 - Keep `safety: branch` as your global floor while getting started. Promote individual tasks to `direct` only when you are confident they will not make unintended edits.
 - Right-click any task row and choose **Run Now** to force that task to execute immediately, bypassing its frequency history — useful for testing newly-created tasks.
 - Right-click the **Maintenance Tasks:** picker and choose **Simulate Idle** (or type `trigger_idle_cycle` in the prompt box) to simulate an idle window without waiting for the real timeout.
+- If you normally use **Manual runs only** but want a single maintenance cycle when you finish your next prompt, type `/maintenance` in the prompt box. The cycle fires at the next true idle point without changing the panel's mode setting. See [/maintenance — Run once on idle](../features/maintenance-mode.md#maintenance--run-once-on-idle) for details.
 - If a task's `after-commits` frequency never seems to trigger, check `maintenance-state.json` in the workspace root — delete the file to reset all run history.
 
 ---

@@ -36,6 +36,7 @@ These commands are intercepted locally by SquadDash and execute immediately — 
 | `/dropTasks` | Hide the live background-tasks popup | No |
 | `/help` | Show the built-in command reference in the transcript | No |
 | `/hire` | Open the visual hire-agent workflow | **Yes — Hire Agent dialog** |
+| `/maintenance` | Arm a one-shot "run-once-on-idle" flag; fires at the next true idle point regardless of the panel's mode setting | No |
 | `/model` | Show the active AI model in the transcript | No |
 | `/retire <name>` | Archive an agent and remove them from the active roster | No — delegates to AI |
 | `/screenshot` | Open the screenshot capture overlay | Yes — screenshot overlay |
@@ -81,7 +82,7 @@ Additionally, the full IntelliSense list includes Squad CLI pass-through command
 
 | Behaviour | Commands |
 |---|---|
-| **Safe while a prompt is running** | `/activate`, `/agents`, `/deactivate`, `/doctor`, `/dropTasks`, `/help`, `/hire`, `/model`, `/retire`, `/screenshot`, `/status`, `/tasks`, `/version` |
+| **Safe while a prompt is running** | `/activate`, `/agents`, `/deactivate`, `/doctor`, `/dropTasks`, `/help`, `/hire`, `/maintenance`, `/model`, `/retire`, `/screenshot`, `/status`, `/tasks`, `/version` |
 | **Opens a dialog or overlay** | `/hire`, `/screenshot`, `/trace`, `/clear` (confirmation) |
 | **Requires a `<name>` argument** | `/activate`, `/deactivate`, `/retire` |
 | **Forwarded to AI coordinator** | All Squad AI commands + lifecycle commands |
