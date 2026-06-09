@@ -11357,8 +11357,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (sender is System.Windows.Controls.Border agentCardBorder)
                 ShowAgentCardGlowOverlay(agentCardBorder, accentColor, isDark);
 
-            // If this is the lead/coordinator agent, apply glow to main transcript border
-            if (agentCard.IsLeadAgent)
+            // Glow the transcript border that belongs to this agent.
+            // MainTranscriptBorder only glows if this agent's transcript is currently displayed there.
+            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
+            if (ReferenceEquals(agentCard, displayedAgent))
             {
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                 {
@@ -11418,8 +11420,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ClearAgentCardBorderGlow(agentCardBorder);
             }
 
-            // If this is the lead/coordinator agent, remove glow from main transcript border
-            if (agentCard.IsLeadAgent)
+            // Remove glow from transcript border — only MainTranscriptBorder if this agent owns it.
+            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
+            if (ReferenceEquals(agentCard, displayedAgent))
             {
                 if (MainTranscriptBorder is not null && MainTranscriptBorder.Effect is System.Windows.Media.Effects.DropShadowEffect mainGlow)
                 {
