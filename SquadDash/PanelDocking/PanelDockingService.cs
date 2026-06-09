@@ -1038,7 +1038,14 @@ internal sealed class PanelDockingService
 
         var slot = CurrentLayout.Slots.FirstOrDefault(s =>
             string.Equals(s.PanelId, panelId, StringComparison.OrdinalIgnoreCase));
-        if (slot is null || slot.Zone == DockZone.Top) return;
+        if (slot is null) return;
+
+        // Top zone uses a fixed Grid with per-rank columns — collapse/expand the column directly.
+        if (slot.Zone == DockZone.Top)
+        {
+            RebuildTopZoneLayout();
+            return;
+        }
 
         var (zoneList, zoneGrid, scrollViewer) = GetZoneContext(slot.Zone);
 
@@ -1345,16 +1352,28 @@ internal sealed class PanelDockingService
             if (_panelRegistry.TryGetValue(topSlots[rank].PanelId, out var element))
             {
                 Grid.SetColumn(element, col);
-                occupiedRanks[rank] = true;
 
-                if (_topZonePanelColumns[rank] is { } colDef)
+                if (element.Visibility == Visibility.Collapsed)
                 {
-                    double minW = element.MinWidth > 0 ? element.MinWidth : 80;
-                    colDef.MinWidth = minW;
-                    double defaultW = Math.Max(minW, 280);
-                    double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
-                        ? pw[rank] : 0;
-                    colDef.Width = new GridLength(persistedW > 0 ? persistedW : defaultW);
+                    // Hidden panel — keep slot in layout but collapse its column.
+                    if (_topZonePanelColumns[rank] is { } hiddenColDef)
+                    {
+                        hiddenColDef.Width    = new GridLength(0);
+                        hiddenColDef.MinWidth = 0;
+                    }
+                }
+                else
+                {
+                    occupiedRanks[rank] = true;
+                    if (_topZonePanelColumns[rank] is { } colDef)
+                    {
+                        double minW = element.MinWidth > 0 ? element.MinWidth : 80;
+                        colDef.MinWidth = minW;
+                        double defaultW = Math.Max(minW, 280);
+                        double persistedW = CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
+                            ? pw[rank] : 0;
+                        colDef.Width = new GridLength(persistedW > 0 ? persistedW : defaultW);
+                    }
                 }
             }
         }
