@@ -3080,8 +3080,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (paused)
             {
                 QueueStatusLabel.Text = $"Queue is paused{qrbSuffix}";
-                QueueStatusLabel.Background = Brushes.Black;
-                QueueStatusLabel.Foreground = Brushes.Yellow;
+                QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
+                QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
             }
             else if (IsRightmostQueueTabActive())
             {
@@ -3139,8 +3139,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Icon is already showing play ▶ (set during Case 2); update tooltip only.
             QueuePlayPauseButton.ToolTip = "Click to resume automatic prompt queue processing.";
             // Apply high-contrast styling now that pause is fully active.
-            QueueStatusLabel.Background = Brushes.Black;
-            QueueStatusLabel.Foreground = Brushes.Yellow;
+            QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
+            QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
         }
         else
         {
@@ -28544,8 +28544,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 QueueTabBorder.Visibility = Visibility.Visible;
 
             QueueStatusLabel.Text = msg;
-            QueueStatusLabel.Background = Brushes.DarkRed;
-            QueueStatusLabel.Foreground = Brushes.White;
+            QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "DangerButtonBg");
+            QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "DangerButtonFg");
 
             // After 5 min silence show the "Cancel stalled agent" recovery button.
             ForceAbortStalledAgentButton.Visibility = _pec.PromptAppearsDeadShown

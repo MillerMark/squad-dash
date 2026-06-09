@@ -2832,8 +2832,8 @@
                                 <Button x:Name="ForceAbortStalledAgentButton"
                                         Height="20"
                                         Style="{StaticResource ThemedChipButtonStyle}"
-                                        Background="DarkRed"
-                                        BorderBrush="DarkRed"
+                                        Background="{DynamicResource DangerButtonBg}"
+                                        BorderBrush="{DynamicResource DangerButtonBg}"
                                         BorderThickness="1"
                                         Padding="6,2"
                                         Margin="0,0,6,0"
@@ -2841,7 +2841,7 @@
                                         ToolTip="Bridge has been silent for 5+ minutes. Click to cancel the stalled agent and return to Ready."
                                         Click="ForceAbortStalledAgent_Click">
                                     <TextBlock Text="✕ Cancel stalled agent"
-                                               Foreground="White"
+                                               Foreground="{DynamicResource DangerButtonFg}"
                                                FontSize="{DynamicResource FontSizeSmall}" />
                                 </Button>
                                 <Button x:Name="QueuePlayPauseButton"
@@ -3319,7 +3319,7 @@
                Text="Restarting…"
                FontSize="{DynamicResource FontSizeHero}"
                FontWeight="Bold"
-               Foreground="#CCFF3333"
+               Foreground="{DynamicResource SystemErrorText}"
                HorizontalAlignment="Center"
                VerticalAlignment="Center"
                IsHitTestVisible="False"
