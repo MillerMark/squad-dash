@@ -760,6 +760,10 @@
                               Header="Approvals"
                               IsCheckable="True"
                               Click="ViewCommitApprovalsMenuItem_Click" />
+                    <MenuItem x:Name="ViewInboxMenuItem"
+                              Header="Inbox"
+                              IsCheckable="True"
+                              Click="ViewInboxMenuItem_Click" />
                     <MenuItem x:Name="ViewLoopPanelMenuItem"
                               Header="Loop"
                               IsCheckable="True"
@@ -768,10 +772,6 @@
                               Header="Maintenance"
                               IsCheckable="True"
                               Click="ViewMaintenanceMenuItem_Click" />
-                    <MenuItem x:Name="ViewInboxMenuItem"
-                              Header="Inbox"
-                              IsCheckable="True"
-                              Click="ViewInboxMenuItem_Click" />
                     <MenuItem x:Name="ViewNotesMenuItem"
                               Header="Notes"
                               IsCheckable="True"
