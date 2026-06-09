@@ -1380,10 +1380,10 @@ internal sealed class PanelDockingService
         UpdateTopZoneSplitterVisibility(occupiedRanks);
         ResetTopZoneLayoutColumnKinds(occupiedRanks);
 
-        // Bug 3: when all top-zone panels are removed, restore the left-boundary column (col 1,
-        // InactiveAgents) back to 1* so the roster/history panels expand to fill the top zone
-        // instead of leaving dead space to their right.
-        if (!occupiedRanks.Any(r => r) && _topZoneLeftBoundaryColumn is not null)
+        // After any top-zone membership/order rebuild, let Roster & History consume spare
+        // horizontal space. A fixed left-boundary width from a previous splitter drag can
+        // otherwise leave slack after the rightmost top-zone panel.
+        if (_topZoneLeftBoundaryColumn is not null)
             _topZoneLeftBoundaryColumn.Width = new GridLength(1, GridUnitType.Star);
 
         // Log actual column widths after WPF layout settles (ActualWidth is stale until then).
