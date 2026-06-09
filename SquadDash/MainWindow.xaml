@@ -1193,6 +1193,8 @@
                             <ScrollViewer x:Name="InactiveAgentsScrollViewer"
                                           Grid.Row="2"
                                           Panel.ZIndex="1"
+                                          Style="{StaticResource RosterScrollViewerStyle}"
+                                          Background="{DynamicResource RosterPanelSurface}"
                                           HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Auto"
                                           CanContentScroll="False"

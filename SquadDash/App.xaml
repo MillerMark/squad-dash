@@ -1354,6 +1354,61 @@
                 </Setter>
             </Style>
 
+
+            <!-- ── RosterScrollViewerStyle ────────────────────────────────────────
+                 Named style for InactiveAgentsScrollViewer. Mirrors the default
+                 WPF ScrollViewer ControlTemplate but sets the Corner Rectangle
+                 Fill to {TemplateBinding Background} so the gap between the two
+                 scrollbars matches the panel surface instead of the system white.
+                 Apply with Background="{DynamicResource RosterPanelSurface}". -->
+            <Style x:Key="RosterScrollViewerStyle" TargetType="{x:Type ScrollViewer}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ScrollViewer}">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <ScrollContentPresenter Name="PART_ScrollContentPresenter"
+                                                            Grid.Row="0"
+                                                            Grid.Column="0"
+                                                            CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                            Content="{TemplateBinding Content}"
+                                                            Margin="{TemplateBinding Padding}"/>
+                                    <ScrollBar Name="PART_VerticalScrollBar"
+                                               Grid.Row="0"
+                                               Grid.Column="1"
+                                               Value="{TemplateBinding VerticalOffset}"
+                                               Maximum="{TemplateBinding ScrollableHeight}"
+                                               ViewportSize="{TemplateBinding ViewportHeight}"
+                                               Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+                                    <ScrollBar Name="PART_HorizontalScrollBar"
+                                               Grid.Row="1"
+                                               Grid.Column="0"
+                                               Orientation="Horizontal"
+                                               Value="{TemplateBinding HorizontalOffset}"
+                                               Maximum="{TemplateBinding ScrollableWidth}"
+                                               ViewportSize="{TemplateBinding ViewportWidth}"
+                                               Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"/>
+                                    <Rectangle Name="Corner"
+                                               Grid.Row="1"
+                                               Grid.Column="1"
+                                               Fill="{TemplateBinding Background}"/>
+                                </Grid>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
