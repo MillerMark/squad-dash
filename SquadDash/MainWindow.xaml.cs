@@ -281,6 +281,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly List<InboxMessageWindow> _openInboxWindows = new();
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
+    private bool _maintenancePendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private bool _bridgeRestartForSettingsPending;
@@ -1300,7 +1301,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             {
                                 SoundNotifications.Play(SoundEvent.QueueEmpty);
                                 // Resume a queued loop now that there are no more items to drain.
+                                bool loopAboutToStart = _loopQueued || _loopInterruptedByQueue || _loopPausedForQuickReply;
                                 _ = MaybeFireQueuedLoopAsync();
+                                if (!loopAboutToStart)
+                                    TryFireDeferredMaintenance();
                             }
                         }
                     }
@@ -1338,9 +1342,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             showHireAgentWindow: () => ShowHireAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) => EnqueuePrompt(text, isSystemInjected),
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
-            triggerMaintenanceCycle: async () => {
-                try { await StartMaintenanceCycleAsync(isManual: true); }
-                catch (Exception ex) { HandleUiCallbackException("triggerMaintenanceCycle", ex); }
+            triggerMaintenanceCycle: () => {
+                SquadDashTrace.Write("UI", "triggerMaintenanceCycle: scheduling maintenance on next idle");
+                _maintenancePendingOnIdle = true;
+                TryFireDeferredMaintenance();
             },
             showRuntimeIssue: msg => ShowRuntimeIssue(msg),
             clearRuntimeIssue: () => ClearRuntimeIssue(),
@@ -5201,6 +5206,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write("UI", $"Loop stopped mdPath={evt.LoopMdPath ?? "(none)"}");
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
+        TryFireDeferredMaintenance();
     }
 
     private void HandleLoopError(SquadSdkEvent evt)
@@ -5318,6 +5324,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
+        TryFireDeferredMaintenance();
     }
 
     private void OnNativeLoopError(string msg)
@@ -31528,6 +31535,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Fires a deferred maintenance cycle if <c>_maintenancePendingOnIdle</c> is set and the
+    /// system is currently truly idle.  Uses <see cref="ShouldSuppressMaintenanceCycle"/> for
+    /// the idle check (which does NOT include manual-mode), then calls
+    /// <see cref="StartMaintenanceCycleAsync"/> with <c>isManual: true</c> to bypass the
+    /// manual-mode gate — that is the whole point of the /maintenance override.
+    /// </summary>
+    private void TryFireDeferredMaintenance()
+    {
+        if (!_maintenancePendingOnIdle)
+            return;
+
+        if (ShouldSuppressMaintenanceCycle())
+            return;
+
+        _maintenancePendingOnIdle = false;
+        SquadDashTrace.Write("UI", "TryFireDeferredMaintenance: firing deferred maintenance cycle");
+        _ = StartMaintenanceCycleAsync(isManual: true);
     }
 
     private void EnsureArgusWeldRegistered(string workspacePath) {
