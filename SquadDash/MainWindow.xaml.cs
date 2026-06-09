@@ -12245,11 +12245,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (e.StagingItem.Input is not KeyEventArgs keyArgs) return;
             if (keyArgs.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
+            var key = keyArgs.Key == Key.System ? keyArgs.SystemKey : keyArgs.Key;
 
             // Ctrl+C or Ctrl+Insert while UI Reveal is active → copy happened, exit reveal.
             if (_uiRevealOverlay?.IsActive == true
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-                && (keyArgs.Key == Key.C || keyArgs.Key == Key.Insert))
+                && (key == Key.C || key == Key.Insert))
             {
                 _uiRevealOverlay.Deactivate();
                 // Don't mark Handled — let the copy go through normally.
@@ -12258,7 +12259,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Escape while UI Reveal is active → cancel reveal.
             if (_uiRevealOverlay?.IsActive == true
-                && keyArgs.Key == Key.Escape
+                && key == Key.Escape
                 && Keyboard.Modifiers == ModifierKeys.None)
             {
                 _uiRevealOverlay.Deactivate();
@@ -12266,7 +12267,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            if (keyArgs.Key != Key.F12) return;
+            if (key == Key.D &&
+                Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift))
+            {
+                CaptureDockingLayoutSnapshot("manual Ctrl+Alt+Shift+D");
+                keyArgs.Handled = true;
+                return;
+            }
+
+            if (key != Key.F12) return;
             if (Keyboard.Modifiers != ModifierKeys.None) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
@@ -26969,6 +26978,194 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         StatusPanelBorder.MaxHeight = cap;
         InactiveAgentsScrollViewer.MaxHeight = Math.Max(160, cap - inactiveRosterPanelChrome);
         StatusAgentPanelsGrid.MaxHeight = double.PositiveInfinity;
+    }
+
+    private void CaptureDockingLayoutSnapshot(string reason)
+    {
+        LogDockingLayoutSnapshot($"{reason}:immediate");
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+        {
+            try
+            {
+                LogDockingLayoutSnapshot($"{reason}:settled");
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(CaptureDockingLayoutSnapshot), ex);
+            }
+        }));
+    }
+
+    private void LogDockingLayoutSnapshot(string reason)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"=== TopZoneLayoutSnapshot reason=\"{reason}\" ===");
+        sb.AppendLine(
+            $"Window state={WindowState} actual={FormatSize(ActualWidth, ActualHeight)} " +
+            $"main={FormatElementBounds(MainGrid)}");
+        sb.AppendLine(
+            $"Status cap={FormatDouble(StatusPanelBorder.MaxHeight)} " +
+            $"ActualHeight/3={FormatDouble(Math.Floor(ActualHeight / 3))} " +
+            $"inactiveScrollMax={FormatDouble(InactiveAgentsScrollViewer.MaxHeight)}");
+        sb.AppendLine(
+            $"Rows status={FormatElementBounds(StatusPanelBorder)} " +
+            $"statusGrid={FormatElementBounds(StatusAgentPanelsGrid)} " +
+            $"topGrid={FormatElementBounds(TopZonePanelsGrid)}");
+        sb.AppendLine(
+            $"Transcript transcriptGrid={FormatElementBounds(TranscriptPanelsGrid)} " +
+            $"prompt={FormatElementBounds(PromptBorder)}");
+
+        AppendDockingGapSnapshot(sb);
+        AppendTopZoneColumnSnapshot(sb);
+        AppendTopZonePanelSnapshot(sb);
+
+        SquadDashTrace.Write(TraceCategory.Docking, sb.ToString().TrimEnd());
+    }
+
+    private void AppendDockingGapSnapshot(StringBuilder sb)
+    {
+        if (!TryTranslateToWindow(StatusPanelBorder, out var statusPt) ||
+            !TryTranslateToWindow(StatusAgentPanelsGrid, out var statusGridPt) ||
+            !TryTranslateToWindow(TopZonePanelsGrid, out var topGridPt) ||
+            !TryTranslateToWindow(TranscriptPanelsGrid, out var transcriptPt))
+        {
+            sb.AppendLine("Gaps unavailable: one or more elements are not connected to the visual tree.");
+            return;
+        }
+
+        var statusBottom = statusPt.Y + StatusPanelBorder.ActualHeight;
+        var statusGridBottom = statusGridPt.Y + StatusAgentPanelsGrid.ActualHeight;
+        var topGridBottom = topGridPt.Y + TopZonePanelsGrid.ActualHeight;
+        sb.AppendLine(
+            $"Gaps statusToTranscript={FormatDouble(transcriptPt.Y - statusBottom)} " +
+            $"statusGridToTranscript={FormatDouble(transcriptPt.Y - statusGridBottom)} " +
+            $"topGridToTranscript={FormatDouble(transcriptPt.Y - topGridBottom)} " +
+            $"statusOverflow={FormatDouble(statusGridBottom - statusBottom)} " +
+            $"topGridOverflow={FormatDouble(topGridBottom - statusBottom)}");
+    }
+
+    private void AppendTopZoneColumnSnapshot(StringBuilder sb)
+    {
+        var topSlots = _dockingService?.CurrentLayout.Slots
+            .Where(static s => s.Zone == DockZone.Top)
+            .OrderBy(static s => s.Order)
+            .Select(static s => $"{s.PanelId}@{s.Order}")
+            .ToArray() ?? [];
+
+        sb.AppendLine($"TopSlots count={topSlots.Length} [{string.Join(", ", topSlots)}]");
+
+        var cols = TopZonePanelsGrid.ColumnDefinitions;
+        var interestingColumns = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
+        foreach (var index in interestingColumns)
+        {
+            if (index >= cols.Count)
+                continue;
+
+            var col = cols[index];
+            sb.AppendLine(
+                $"Column[{index}] actual={FormatDouble(col.ActualWidth)} " +
+                $"width={FormatGridLength(col.Width)} min={FormatDouble(col.MinWidth)} " +
+                $"max={FormatDouble(col.MaxWidth)}");
+        }
+    }
+
+    private void AppendTopZonePanelSnapshot(StringBuilder sb)
+    {
+        var panels = new (string Id, FrameworkElement Element)[]
+        {
+            ("active", ActiveAgentsPanelBorder),
+            ("inactive", InactiveAgentsPanelBorder),
+            ("loop", LoopPanelBorder),
+            ("tasks", TasksPanelBorder),
+            ("approvals", ApprovalPanelBorder),
+            ("notes", NotesPanelBorder),
+            ("maintenance", MaintenancePanelBorder),
+            ("inbox", InboxPanelBorder),
+            ("watch", WatchPanelBorder),
+        };
+
+        foreach (var (id, element) in panels)
+        {
+            sb.AppendLine(
+                $"Panel[{id}] gridCol={Grid.GetColumn(element)} " +
+                $"vis={element.Visibility} bounds={FormatElementBounds(element)}");
+        }
+
+        sb.AppendLine(
+            $"Scroll activeActual={FormatSize(ActiveAgentsScrollViewer.ActualWidth, ActiveAgentsScrollViewer.ActualHeight)} " +
+            $"activeExtent={FormatSize(ActiveAgentsScrollViewer.ExtentWidth, ActiveAgentsScrollViewer.ExtentHeight)} " +
+            $"inactiveActual={FormatSize(InactiveAgentsScrollViewer.ActualWidth, InactiveAgentsScrollViewer.ActualHeight)} " +
+            $"inactiveExtent={FormatSize(InactiveAgentsScrollViewer.ExtentWidth, InactiveAgentsScrollViewer.ExtentHeight)}");
+    }
+
+    private string FormatElementBounds(FrameworkElement element)
+    {
+        var windowPart = TryTranslateToWindow(element, out var windowPt)
+            ? $"win=({FormatDouble(windowPt.X)},{FormatDouble(windowPt.Y)})"
+            : "win=(n/a)";
+        var topPart = TryTranslateToTopZone(element, out var topPt)
+            ? $"top=({FormatDouble(topPt.X)},{FormatDouble(topPt.Y)})"
+            : "top=(n/a)";
+
+        return $"{element.GetType().Name}#{element.Name} " +
+               $"{windowPart} {topPart} " +
+               $"actual={FormatSize(element.ActualWidth, element.ActualHeight)} " +
+               $"desired={FormatSize(element.DesiredSize.Width, element.DesiredSize.Height)} " +
+               $"min={FormatSize(element.MinWidth, element.MinHeight)} " +
+               $"max={FormatSize(element.MaxWidth, element.MaxHeight)} " +
+               $"margin={element.Margin.Left:F0},{element.Margin.Top:F0},{element.Margin.Right:F0},{element.Margin.Bottom:F0}";
+    }
+
+    private bool TryTranslateToWindow(FrameworkElement element, out System.Windows.Point point)
+    {
+        try
+        {
+            point = element.TranslatePoint(new System.Windows.Point(0, 0), this);
+            return true;
+        }
+        catch
+        {
+            point = default;
+            return false;
+        }
+    }
+
+    private bool TryTranslateToTopZone(FrameworkElement element, out System.Windows.Point point)
+    {
+        try
+        {
+            point = element.TranslatePoint(new System.Windows.Point(0, 0), TopZonePanelsGrid);
+            return true;
+        }
+        catch
+        {
+            point = default;
+            return false;
+        }
+    }
+
+    private static string FormatGridLength(GridLength value)
+    {
+        if (value.IsAuto)
+            return "Auto";
+        if (value.IsStar)
+            return $"{FormatDouble(value.Value)}*";
+        return $"{FormatDouble(value.Value)}px";
+    }
+
+    private static string FormatSize(double width, double height) =>
+        $"{FormatDouble(width)}x{FormatDouble(height)}";
+
+    private static string FormatDouble(double value)
+    {
+        if (double.IsPositiveInfinity(value))
+            return "inf";
+        if (double.IsNegativeInfinity(value))
+            return "-inf";
+        if (double.IsNaN(value))
+            return "nan";
+
+        return value.ToString("0.#");
     }
 
     private void ScheduleAgentPanelLayoutRefresh()
