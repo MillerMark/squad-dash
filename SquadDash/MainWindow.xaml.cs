@@ -1651,6 +1651,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             RefreshActiveTranscriptScrollViewer();
 
+            // Allow the agent card glow (DropShadowEffect) to render outside the scroll
+            // viewport on all four sides.  The ScrollContentPresenter inside the default
+            // ScrollViewer template sets its own Clip property (a RectangleGeometry equal
+            // to the viewport rect) during ArrangeOverride; ClipToBounds=False on the outer
+            // ScrollViewer does not affect that explicit Clip.  We subscribe to LayoutUpdated
+            // once and re-inflate the SCP clip after every layout pass so the glow is never
+            // cropped.  Modifying RectangleGeometry.Rect triggers only a render invalidation,
+            // not a layout pass, so there is no feedback loop.
+            ActiveAgentsScrollViewer.LayoutUpdated += (_, _) => InflateAgentScrollViewerClip();
+
             if (_startupInitialized)
                 return;
 
@@ -11131,6 +11141,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             HandleUiCallbackException(nameof(AgentCardBorder_MouseLeftButtonUp), ex);
         }
+    }
+
+    // The ScrollContentPresenter (SCP) inside the default ScrollViewer template sets
+    // this.Clip = new RectangleGeometry(viewport) in ArrangeOverride whenever scrolling
+    // is enabled.  That explicit Clip property clips the entire visual subtree — including
+    // DropShadowEffect glow on AgentCardBorder — regardless of ClipToBounds=False on the
+    // ScrollViewer element.  We inflate the SCP clip by the maximum glow BlurRadius (28 px)
+    // after each layout pass so the glow has room to render on all four sides.
+    private void InflateAgentScrollViewerClip()
+    {
+        const double glowBlurRadius = 28.0;
+
+        if (ActiveAgentsScrollViewer.Template?.FindName(
+                "PART_ScrollContentPresenter", ActiveAgentsScrollViewer)
+            is not System.Windows.Controls.ScrollContentPresenter scp)
+            return;
+
+        if (scp.Clip is not System.Windows.Media.RectangleGeometry clipRect)
+            return;
+
+        var r = clipRect.Rect;
+        r.Inflate(glowBlurRadius, glowBlurRadius);
+        clipRect.Rect = r;
     }
 
     private void AgentCardBorder_MouseEnter(object sender, MouseEventArgs e)
