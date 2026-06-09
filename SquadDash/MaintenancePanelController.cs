@@ -752,6 +752,33 @@ internal sealed class MaintenancePanelController {
         string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "1",    StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Builds a concise display string from a list of maintenance options, showing only
+    /// values that are "active": checked checkboxes (by label/key), selected radio values,
+    /// and non-empty free-text values.  Returns an empty string when there is nothing to show.
+    /// </summary>
+    internal static string BuildOptionsSummary(IReadOnlyList<MaintenanceOption>? options) {
+        if (options is null or { Count: 0 })
+            return string.Empty;
+
+        var parts = new List<string>();
+        foreach (var opt in options) {
+            if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+                if (IsStringTrueValue(opt.RawValue))
+                    parts.Add(opt.Label ?? opt.Key);
+            }
+            else if (opt.Choices is { Count: > 0 }) {
+                if (!string.IsNullOrEmpty(opt.RawValue))
+                    parts.Add(opt.RawValue);
+            }
+            else {
+                if (!string.IsNullOrEmpty(opt.RawValue))
+                    parts.Add(opt.RawValue);
+            }
+        }
+        return string.Join(", ", parts);
+    }
+
     // ── Status header ─────────────────────────────────────────────────────────
 
     internal void ShowTransientStatus(string message) {
