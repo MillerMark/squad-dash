@@ -614,6 +614,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _voiceStartedWithSendEnabled;
     private bool _dictationStartedForQuickReply; // set at PTT start when quick replies visible and box empty
     private bool _pttLostFocusDuringRecording;   // set when another window stole focus mid-PTT
+    private IInputElement? _lastFocusedTextElement;
     private DispatcherTimer? _pttCtrlPollTimer;   // polls GetAsyncKeyState while window is inactive
     private DateTime _ctrlFirstDownTime;
     private DateTime _ctrlFirstReleaseTime;
@@ -676,6 +677,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
+        this.AddHandler(UIElement.GotFocusEvent, new RoutedEventHandler(OnWindowElementGotFocus), true);
         _restartStatusPanelControl = (RestartStatusPanel?)FindName("RestartStatusPanelControl");
         _dockingService = new PanelDockingService(
             new Dictionary<string, FrameworkElement>
@@ -9271,11 +9273,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
 
-            // ── Ctrl+Shift+C: Append selection to clipboard ──────────────────────
+            // ── Ctrl+Alt+C: Append selection to clipboard ────────────────────────
             if (e.Key == Key.C
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-                && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0
-                && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   == 0)
             {
                 string? selected = null;
                 if (Keyboard.FocusedElement is System.Windows.Controls.RichTextBox rtb)
@@ -9495,11 +9497,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // ── Screenshot shortcut (Ctrl+Shift+C) ──────────────────────────────
+            // ── Ctrl+Shift+C: AI Cleanup with selection, screenshot overlay otherwise ──
             if (e.Key == Key.C &&
                 (Keyboard.Modifiers & ModifierKeys.Control) != 0 &&
-                (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+                (Keyboard.Modifiers & ModifierKeys.Shift) != 0 &&
+                (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
             {
+                if (TryDirectReviseForFocusedTextBox(_settingsSnapshot.CleanupPrompt))
+                {
+                    e.Handled = true;
+                    return;
+                }
                 ShowScreenshotOverlay();
                 e.Handled = true;
                 return;
@@ -9552,9 +9560,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 e.Handled = true;
                 return;
             }
-            if (e.Key == Key.PageDown && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            if (e.Key == Key.PageDown
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   == 0)
             {
                 PromptNavDownButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Shift+Page Down: jump to the latest (most recent) prompt ────
+            if (e.Key == Key.PageDown
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
+            {
+                NavigateToLatestTranscriptPrompt();
                 e.Handled = true;
                 return;
             }
@@ -34084,6 +34105,304 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Display a brief status notification. Using Trace for now as a simple feedback mechanism.
         // A more sophisticated implementation could use a status bar message or toast notification.
         SquadDashTrace.Write(TraceCategory.UI, message);
+    }
+
+    // ── Edit menu focus tracking ──────────────────────────────────────────
+
+    private void OnWindowElementGotFocus(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is TextBox or RichTextBox)
+            _lastFocusedTextElement = (IInputElement)e.OriginalSource;
+    }
+
+    private void OnWindowFocusedElementChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is TextBox or RichTextBox)
+            _lastFocusedTextElement = (IInputElement)e.NewValue;
+    }
+
+    private bool LastFocusedIsPrompt() =>
+        ReferenceEquals(_lastFocusedTextElement, PromptTextBox);
+
+    private bool LastFocusedIsMarkdownEditor() =>
+        _lastFocusedTextElement is RichTextBox;
+
+    private bool LastFocusedHasSelection()
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) return tb.SelectionLength > 0;
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) return !rtb.Selection.IsEmpty;
+        return false;
+    }
+
+    // ── Edit menu: submenu opened ─────────────────────────────────────────
+
+    private void EditMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        bool isPrompt   = LastFocusedIsPrompt();
+        bool isMdEditor = LastFocusedIsMarkdownEditor();
+        bool hasSel     = LastFocusedHasSelection();
+        bool isText     = _lastFocusedTextElement is not null;
+        bool hasQueuedTab = _activeTabId is not null;
+
+        EditPasteAsAttachmentMenuItem.IsEnabled = isPrompt;
+
+        EditBoldMenuItem.IsEnabled          = hasSel;
+        EditItalicMenuItem.IsEnabled        = hasSel;
+        EditInlineCodeMenuItem.IsEnabled    = hasSel;
+        EditQuotesMenuItem.IsEnabled        = hasSel;
+        EditCycleCaseMenuItem.IsEnabled     = hasSel;
+        EditSmoothDictationMenuItem.IsEnabled = hasSel;
+        EditReviseWithAiMenuItem.IsEnabled    = hasSel;
+        EditCleanUpMenuItem.IsEnabled         = hasSel;
+
+        EditInsertHorizontalRuleMenuItem.IsEnabled = isMdEditor;
+        EditInsertImageMenuItem.IsEnabled          = isMdEditor;
+        EditInsertLineBreakMenuItem.IsEnabled      = isPrompt;
+        EditInsertLinkMenuItem.IsEnabled           = isMdEditor;
+        EditInsertTableMenuItem.IsEnabled          = isMdEditor;
+
+        EditNewQueueToFrontMenuItem.IsEnabled    = isPrompt;
+        EditNewQueueToTailMenuItem.IsEnabled     = isPrompt;
+        EditMoveToFrontMenuItem.IsEnabled        = isPrompt;
+        EditDeleteQueuedPromptMenuItem.IsEnabled = isPrompt && hasQueuedTab;
+    }
+
+    // ── Edit menu: Find ───────────────────────────────────────────────────
+
+    private void EditFindMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocsPanel.Visibility == Visibility.Visible && DocSourceTextBox != null)
+        {
+            ShowDocSourceFindBar();
+            return;
+        }
+        SearchBox?.Focus();
+        SearchBox?.SelectAll();
+    }
+
+    // ── Edit menu: Transcript Navigation ─────────────────────────────────
+
+    private void EditTranscriptPrevPromptMenuItem_Click(object sender, RoutedEventArgs e) =>
+        PromptNavUpButton_Click(this, new RoutedEventArgs());
+
+    private void EditTranscriptNextPromptMenuItem_Click(object sender, RoutedEventArgs e) =>
+        PromptNavDownButton_Click(this, new RoutedEventArgs());
+
+    private void EditTranscriptLatestPromptMenuItem_Click(object sender, RoutedEventArgs e) =>
+        NavigateToLatestTranscriptPrompt();
+
+    private void NavigateToLatestTranscriptPrompt()
+    {
+        var thread = _selectedTranscriptThread ?? CoordinatorThread;
+        if (thread.PromptParagraphs.Count == 0) return;
+        var last = thread.PromptParagraphs.Count - 1;
+        thread.PromptNavIndex = last;
+        ScrollToPromptParagraph(thread.PromptParagraphs[last].Paragraph);
+    }
+
+    // ── Edit menu: Copy Append ────────────────────────────────────────────
+
+    private void EditCopyAppendMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        string? selected = null;
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+            selected = rtb.Selection.Text;
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb)
+            selected = tb.SelectedText;
+        if (!string.IsNullOrEmpty(selected))
+            ClipboardUtilities.AppendToClipboard(selected);
+    }
+
+    // ── Edit menu: Paste as Attachment ────────────────────────────────────
+
+    private void EditPasteAsAttachmentMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var clipText = Clipboard.GetText();
+        if (!string.IsNullOrEmpty(clipText))
+            AttachContextFollowUp(BuildClipboardAttachDescription(clipText), BuildTypedAttachmentBlock("clipboard", null, clipText));
+    }
+
+    // ── Edit menu: Selection formatting ──────────────────────────────────
+
+    private void EditBoldMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBold(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyBold(tb); tb.Focus(); }
+    }
+
+    private void EditItalicMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyItalic(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyItalic(tb); tb.Focus(); }
+    }
+
+    private void EditInlineCodeMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        {
+            if (!MarkdownEditorCommands.ApplyInlineCodeOrFence(rtb))
+                MarkdownEditorCommands.InsertInlineCode(rtb);
+            rtb.Focus();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb)
+        {
+            if (!MarkdownEditorCommands.ApplyInlineCodeOrFence(tb))
+                MarkdownEditorCommands.InsertInlineCode(tb);
+            tb.Focus();
+        }
+    }
+
+    private void EditQuotesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyInlineQuote(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyInlineQuote(tb); tb.Focus(); }
+    }
+
+    private void EditCycleCaseMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb && tb.SelectionLength > 0)
+        {
+            var selStart     = tb.SelectionStart;
+            var selectedText = tb.SelectedText;
+            bool continuing = _promptCycleVariants is not null
+                && selStart == _promptCycleSelStart
+                && selectedText == _promptCycleVariants[_promptCycleIndex];
+            if (!continuing)
+            {
+                _promptCycleOriginal = tb.Text;
+                _promptCycleVariants = TextCaseHelper.ComputeVariants(selectedText);
+                _promptCycleIndex    = TextCaseHelper.GetFirstVariantIndex(selectedText);
+                _promptCycleSelStart = selStart;
+                _promptCycleSelLen   = tb.SelectionLength;
+                tb.SelectedText    = _promptCycleVariants[_promptCycleIndex];
+                tb.SelectionStart  = _promptCycleSelStart;
+                tb.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+            }
+            else
+            {
+                _promptCycleIndex = (_promptCycleIndex + 1) % _promptCycleVariants!.Count;
+                var nextVariant = _promptCycleVariants[_promptCycleIndex];
+                tb.IsUndoEnabled   = false;
+                tb.Text            = _promptCycleOriginal!;
+                tb.IsUndoEnabled   = true;
+                tb.SelectionStart  = _promptCycleSelStart;
+                tb.SelectionLength = _promptCycleSelLen;
+                tb.SelectedText    = nextVariant;
+                tb.SelectionStart  = _promptCycleSelStart;
+                tb.SelectionLength = nextVariant.Length;
+            }
+            tb.Focus();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb && !rtb.Selection.IsEmpty)
+        {
+            var selText = rtb.GetSelectedText();
+            var variants = TextCaseHelper.ComputeVariants(selText);
+            var idx = TextCaseHelper.GetFirstVariantIndex(selText);
+            rtb.ReplaceSelection(variants[idx]);
+            rtb.Focus();
+        }
+    }
+
+    private void EditSmoothDictationMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { SmoothDictationHelper.ApplyToRichTextBox(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { SmoothDictationHelper.ApplyToTextBox(tb); tb.Focus(); }
+    }
+
+    private void EditReviseWithAiMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _lastFocusedTextElement?.Focus();
+        TryShowRevisePopupForFocusedTextBox();
+    }
+
+    private void EditCleanUpMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _lastFocusedTextElement?.Focus();
+        TryDirectReviseForFocusedTextBox(_settingsSnapshot.CleanupPrompt);
+    }
+
+    // ── Edit menu: Insert ─────────────────────────────────────────────────
+
+    private void EditInsertBulletListMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBulletList(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyBulletList(tb); tb.Focus(); }
+    }
+
+    private void EditInsertHorizontalRuleMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox?.IsKeyboardFocusWithin == true || ReferenceEquals(_lastFocusedTextElement, DocSourceTextBox))
+        {
+            MarkdownEditorCommands.InsertHorizontalRule(DocSourceTextBox!);
+            DocSourceTextBox!.Focus();
+        }
+    }
+
+    private void EditInsertImageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (DocSourceTextBox is not null && (DocSourceTextBox.IsKeyboardFocusWithin || ReferenceEquals(_lastFocusedTextElement, DocSourceTextBox)))
+            DocEditorToolbar_ImageInsertRequested(sender, e);
+    }
+
+    private void EditInsertLineBreakMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb)
+        {
+            MarkdownEditorCommands.ContinueListOnShiftEnter(tb);
+            tb.Focus();
+        }
+    }
+
+    private void EditInsertLinkMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertLink(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.InsertLink(tb); tb.Focus(); }
+    }
+
+    private void EditInsertNumberedListMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyNumberedList(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyNumberedList(tb); tb.Focus(); }
+    }
+
+    private void EditInsertTableMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertTable(rtb); rtb.Focus(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.InsertTable(tb); tb.Focus(); }
+    }
+
+    // ── Edit menu: Queue operations ───────────────────────────────────────
+
+    private void EditNewQueueToFrontMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        DismissHintPermanently(PromptHintFeature.CtrlQAddQueue);
+        AddEmptyQueueSlot();
+    }
+
+    private void EditNewQueueToTailMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        DismissHintPermanently(PromptHintFeature.CtrlQAddQueue);
+        AddEmptyQueueSlotAtEnd();
+    }
+
+    private void EditMoveToFrontMenuItem_Click(object sender, RoutedEventArgs e) =>
+        PrioritizeActiveTabToFront();
+
+    private void EditDeleteQueuedPromptMenuItem_Click(object sender, RoutedEventArgs e) =>
+        DeleteActiveQueueTabWithKeyboard();
+
+    // ── Edit menu: Prompt History ─────────────────────────────────────────
+
+    private void EditPromptHistoryPrevMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        RecordHintFeatureUsed(PromptHintFeature.CtrlArrowHistory);
+        _conversationManager.NavigateHistory(-1);
+    }
+
+    private void EditPromptHistoryNextMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        RecordHintFeatureUsed(PromptHintFeature.CtrlArrowHistory);
+        _conversationManager.NavigateHistory(1);
     }
 }
 
