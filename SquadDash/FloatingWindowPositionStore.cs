@@ -103,33 +103,32 @@ internal sealed class FloatingWindowPositionStore
 
     /// <summary>
     /// Attempts to restore the saved position for <paramref name="window"/>.
-    /// Sets Left/Top/Width/Height and returns <c>true</c> if the saved position
-    /// is still valid for the current monitor configuration; returns <c>false</c>
-    /// and does NOT modify the window if validation fails.
+    /// Sets Left/Top/Width/Height and returns <c>true</c> if the saved monitor
+    /// still exists in the current configuration; returns <c>false</c> and does
+    /// NOT modify the window if no matching monitor is found.
     /// </summary>
     public bool TryRestore(string key, Window window)
+        => TryRestoreCore(key, window, FindMatchingMonitor);
+
+    /// <summary>
+    /// Testable core of <see cref="TryRestore"/>; accepts an injected monitor-finder
+    /// so unit tests can supply a synthetic monitor without live Win32 calls.
+    /// </summary>
+    internal bool TryRestoreCore(string key, Window window, Func<Entry, Rect> monitorFinder)
     {
         if (!_entries.TryGetValue(key, out var e)) return false;
 
-        // Find a monitor whose physical bounds match exactly.
-        var matchingMonitor = FindMatchingMonitor(e);
-        if (matchingMonitor.IsEmpty) return false;
-
-        // Get current DPI transform for this window (or identity if not yet shown).
-        var (dpiX, dpiY) = GetDpi(window);
-
-        // Convert the saved global Left/Top to physical pixels and compute the offset
-        // from the matching monitor's upper-left corner.
-        double physLeft = e.Left * dpiX;
-        double physTop  = e.Top  * dpiY;
-        double actualOffsetX = (physLeft - matchingMonitor.Left) / dpiX;
-        double actualOffsetY = (physTop  - matchingMonitor.Top)  / dpiY;
-
-        // Validate: offset must match stored offset within 1 logical pixel.
-        const double tolerance = 1.0;
-        if (Math.Abs(actualOffsetX - e.OffsetX) > tolerance ||
-            Math.Abs(actualOffsetY - e.OffsetY) > tolerance)
-            return false;
+        // FindMatchingMonitor verifies the monitor still exists with the same physical
+        // dimensions it had when the position was saved.  That is the sole validation
+        // gate: if the same physical monitor is present we trust the saved Left/Top.
+        //
+        // A previously present DPI-based offset check was removed because it was
+        // evaluated before the window is shown, at which point PresentationSource is
+        // null and GetDpi falls back to (1.0, 1.0).  When the actual monitor DPI is
+        // not 1.0 the mixed-unit arithmetic produced incorrect results, causing
+        // TryRestore to return false for windows on monitors above the primary (negative
+        // Y coordinates) and leaving WindowStartupLocation as CenterOwner.
+        if (monitorFinder(e).IsEmpty) return false;
 
         // Apply saved position.
         window.Left   = e.Left;
@@ -164,14 +163,6 @@ internal sealed class FloatingWindowPositionStore
         return NativeMethods.FindMonitorByBounds(
             (int)e.MonitorLeft, (int)e.MonitorTop,
             (int)e.MonitorWidth, (int)e.MonitorHeight);
-    }
-
-    private static (double dpiX, double dpiY) GetDpi(Window window)
-    {
-        var src = PresentationSource.FromVisual(window);
-        if (src?.CompositionTarget is { } ct)
-            return (ct.TransformToDevice.M11, ct.TransformToDevice.M22);
-        return (1.0, 1.0);
     }
 
     private void Load()
