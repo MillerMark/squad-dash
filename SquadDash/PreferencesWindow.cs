@@ -375,9 +375,7 @@ internal sealed class PreferencesWindow : Window {
             IsEditable = true,
             IsTextSearchEnabled = true
         };
-        _copilotModelComboBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
-        _copilotModelComboBox.SetResourceReference(Control.BackgroundProperty, "TextBoxBackground");
-        _copilotModelComboBox.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        _copilotModelComboBox.SetResourceReference(StyleProperty, "ThemedEditableComboBoxStyle");
         foreach (var model in KnownCopilotModelOptions)
             _copilotModelComboBox.Items.Add(model);
         var savedCopilotModel = ApplicationSettingsSnapshot.NormalizeCopilotDefaultModel(currentSettings.CopilotDefaultModel);
