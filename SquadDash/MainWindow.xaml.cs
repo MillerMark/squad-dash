@@ -12329,6 +12329,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void DockingTestPlaybackMenuItem_Click(object sender, RoutedEventArgs e)
         => ShowDockingTestPlaybackWindow();
 
+    private void CaptureDockingSnapshotMenuItem_Click(object sender, RoutedEventArgs e)
+        => CaptureDockingLayoutSnapshot("menu Capture Docking Snapshot");
+
     private void ShowDockingTestPlaybackWindow()
     {
         // If already open, just bring it to front.

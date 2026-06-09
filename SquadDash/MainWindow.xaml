@@ -724,6 +724,10 @@
                     <MenuItem x:Name="DockingTestPlaybackMenuItem"
                               Header="Docking Test Playback"
                               Click="DockingTestPlaybackMenuItem_Click" />
+                    <MenuItem x:Name="CaptureDockingSnapshotMenuItem"
+                              Header="Capture Docking Snapshot"
+                              InputGestureText="Ctrl+Alt+Shift+D"
+                              Click="CaptureDockingSnapshotMenuItem_Click" />
                     <MenuItem Header="_Folders"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
                         <MenuItem Header="Docking Test Cases"
