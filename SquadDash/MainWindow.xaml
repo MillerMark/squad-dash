@@ -1018,16 +1018,18 @@
         <Border x:Name="StatusPanelBorder"
                 Grid.Row="2"
                 Grid.Column="0"
-                Margin="0,-8,0,0"
+                Margin="0,-16,0,0"
                 Padding="0"
                 Background="Transparent"
                 BorderThickness="0">
-            <Grid x:Name="StatusAgentPanelsGrid">
+            <Grid x:Name="StatusAgentPanelsGrid"
+                  ClipToBounds="False">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid x:Name="TopZonePanelsGrid" Grid.Row="0">
+                <Grid x:Name="TopZonePanelsGrid" Grid.Row="0"
+                      ClipToBounds="False">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -1078,7 +1080,7 @@
                     <Border x:Name="ActiveAgentsPanelBorder"
                             Grid.Column="0"
                             MinWidth="210"
-                            Margin="-4,0,0,0"
+                            Margin="-4,8,0,0"
                             VerticalAlignment="Top"
                             Padding="12"
                             ClipToBounds="False"
