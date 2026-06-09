@@ -11178,6 +11178,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     _selectionController.HandleCardClick(agentCard, shiftHeld: true);
                     SyncImmediatePanelToggleVisuals(agentCard, "card-shift-click", visualSw);
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ApplyGlowIfMouseOver(agentCard));
                 }
             }
             else
@@ -11354,6 +11355,49 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
         agentCardBorder.Effect = null;
+    }
+
+    /// <summary>
+    /// Applies hover glow immediately to the agent's card and transcript border when
+    /// the mouse is already within one of those regions at the moment the transcript is
+    /// shown or switched.  No MouseEnter fires in that case, so this method bridges the
+    /// gap.  Call via <c>Dispatcher.BeginInvoke(DispatcherPriority.Background, …)</c>
+    /// so it runs after all Loaded-priority panel-open/show operations have completed.
+    /// </summary>
+    private void ApplyGlowIfMouseOver(AgentStatusCard agent)
+    {
+        var accentColor = (System.Windows.Media.Color)ColorConverter.ConvertFromString(agent.AccentColorHex);
+        bool isDark = AgentStatusCard.IsDarkTheme;
+        if (isDark)
+        {
+            accentColor = System.Windows.Media.Color.FromRgb(
+                (byte)(accentColor.R + (255 - accentColor.R) * 0.55),
+                (byte)(accentColor.G + (255 - accentColor.G) * 0.55),
+                (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
+        }
+
+        var cardBorder = FindAgentCardBorderForCard(agent);
+
+        Border? transcriptBorder = null;
+        if (_ownershipMap.IsMainPanelOwner(agent) && _mainTranscriptVisible)
+            transcriptBorder = MainTranscriptBorder;
+        else if (_ownershipMap.GetSecondaryPanelForAgent(agent) is Border secondaryBorder)
+            transcriptBorder = secondaryBorder;
+
+        // Only apply glow when this agent's transcript is actually showing.
+        if (transcriptBorder is null)
+            return;
+
+        bool cardHovered       = cardBorder?.IsMouseOver == true;
+        bool transcriptHovered = transcriptBorder.IsMouseOver;
+
+        if (!cardHovered && !transcriptHovered)
+            return;
+
+        if (cardBorder is not null)
+            ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
+
+        ApplyAgentCardBorderGlow(transcriptBorder, accentColor, isDark);
     }
 
     private void AgentCardBorder_MouseEnter(object sender, MouseEventArgs e)
@@ -11661,6 +11705,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     _selectionController.HandleChipClick(card, thread, shiftHeld: true);
                     SyncImmediatePanelToggleVisuals(card, "chip-shift-click", visualSw);
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ApplyGlowIfMouseOver(card));
                 }
             }
             else
@@ -18523,6 +18568,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var thread = GetTranscriptThreadForAgent(agent);
         var previousThread = ApplyImmediatePrimaryTranscriptSelectionVisuals(agent, thread);
         QueueDeferredPrimaryTranscriptSelection(agent, thread, previousThread);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ApplyGlowIfMouseOver(agent));
     }
 
     /// <summary>
@@ -18534,6 +18580,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var previousThread = ApplyImmediatePrimaryTranscriptSelectionVisuals(card, thread);
         QueueDeferredPrimaryTranscriptSelection(card, thread, previousThread);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ApplyGlowIfMouseOver(card));
     }
 
     private void ToggleAgentTranscriptVisibility(AgentStatusCard agent)
