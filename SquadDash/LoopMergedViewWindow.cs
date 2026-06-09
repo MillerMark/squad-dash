@@ -52,6 +52,8 @@ internal sealed class LoopMergedViewWindow : ChromedWindow
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
+        scrollViewer.SetResourceReference(ScrollViewer.StyleProperty, "RosterScrollViewerStyle");
+        scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
         Grid.SetRow(scrollViewer, 1);
         root.Children.Add(scrollViewer);
 

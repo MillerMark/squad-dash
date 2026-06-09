@@ -202,6 +202,7 @@ internal sealed class DockingTestPlaybackWindow : ChromedWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             BorderThickness = new Thickness(1),
         };
+        mapScroll.SetResourceReference(ScrollViewer.StyleProperty, "RosterScrollViewerStyle");
         mapScroll.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
         mapScroll.SetResourceReference(ScrollViewer.BorderBrushProperty, "PanelBorder");
 

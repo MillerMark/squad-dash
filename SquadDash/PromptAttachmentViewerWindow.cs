@@ -205,6 +205,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
                             Content                       = img,
                             MaxHeight                     = 340,
                         };
+                        fileImgScroll.SetResourceReference(ScrollViewer.StyleProperty, "RosterScrollViewerStyle");
+                        fileImgScroll.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
                         fileImgScroll.PreviewMouseWheel += (_, e) =>
                         {
                             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
@@ -298,6 +300,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
                     VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
                     Content = img
                 };
+                scroll.SetResourceReference(ScrollViewer.StyleProperty, "RosterScrollViewerStyle");
+                scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
 
                 // Ctrl+scroll: zoom in / out.
                 scroll.PreviewMouseWheel += (_, e) =>

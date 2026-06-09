@@ -109,6 +109,8 @@ internal sealed class DiffHoverPopup : Popup {
             MaxHeight = MaxPopupHeight,
             Padding = new Thickness(8)
         };
+        scrollViewer.SetResourceReference(ScrollViewer.StyleProperty, "RosterScrollViewerStyle");
+        scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
 
         var border = new Border {
             Child = scrollViewer,
