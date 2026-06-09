@@ -650,7 +650,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _instanceRegistry = serviceProvider?.GetRequiredService<RunningInstanceRegistry>() ?? new RunningInstanceRegistry();
         _restartCoordinatorStateStore = serviceProvider?.GetRequiredService<RestartCoordinatorStateStore>() ?? new RestartCoordinatorStateStore();
         _pastedImageStore = serviceProvider?.GetRequiredService<PastedImageStore>() ?? new PastedImageStore();
-        _clipboardEditorStateStore = serviceProvider?.GetRequiredService<ClipboardEditorStateStore>() ?? new ClipboardEditorStateStore();
+        _clipboardEditorStateStore = serviceProvider?.GetRequiredService<ClipboardEditorStateStore>() ??
+            new ClipboardEditorStateStore(Path.Combine(
+                SquadDashPaths.WorkspaceStateDirectory((workspacePaths ?? WorkspacePathsProvider.Discover()).ApplicationRoot),
+                "clipboard-editors"));
         _promptQueue = serviceProvider?.GetRequiredService<PromptQueue>() ?? new PromptQueue();
         _hostCommandRegistry = serviceProvider?.GetRequiredService<HostCommandRegistry>() ?? new HostCommandRegistry();
         _postedUiActionTracker = serviceProvider?.GetRequiredService<PostedUiActionTracker>() ?? new PostedUiActionTracker();
@@ -749,6 +752,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         WireRight4ZoneSplitterDrag();
         WireRight5ZoneSplitterDrag();
         WireRight6ZoneSplitterDrag();
+        _dockingService.InitializeTopZoneSplitters(
+            TopZoneSplitter01, TopZoneSplitter12, TopZoneSplitter23,
+            TopZoneSplitter34, TopZoneSplitter45, TopZoneSplitter56,
+            WatchPanelBorder,
+            new[]
+            {
+                TopZonePanelsGrid.ColumnDefinitions[5],
+                TopZonePanelsGrid.ColumnDefinitions[7],
+                TopZonePanelsGrid.ColumnDefinitions[11],
+                TopZonePanelsGrid.ColumnDefinitions[13],
+                TopZonePanelsGrid.ColumnDefinitions[15],
+                TopZonePanelsGrid.ColumnDefinitions[17],
+            },
+            TopZonePanelsGrid.ColumnDefinitions[3],
+            TopZonePanelsGrid.ColumnDefinitions[1]);
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,
@@ -1319,7 +1337,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             showHireAgentWindow: () => ShowHireAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) => EnqueuePrompt(text, isSystemInjected),
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
-            triggerMaintenanceCycle: () => _ = StartMaintenanceCycleAsync(isManual: true),
+            triggerMaintenanceCycle: async () => {
+                try { await StartMaintenanceCycleAsync(isManual: true); }
+                catch (Exception ex) { HandleUiCallbackException("triggerMaintenanceCycle", ex); }
+            },
             showRuntimeIssue: msg => ShowRuntimeIssue(msg),
             clearRuntimeIssue: () => ClearRuntimeIssue(),
             waitForRoutingRepairSettleAsync: () => WaitForRoutingRepairStateToSettleAsync(),
@@ -1532,11 +1553,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 $"ContentRendered post-refresh: ActiveH={ActiveAgentItemsControl.ActualHeight:F0} ActiveViewport={ActiveAgentsScrollViewer.ActualHeight:F0} " +
                 $"InactiveH={InactiveAgentItemsControl.ActualHeight:F0} InactiveViewport={InactiveAgentsScrollViewer.ActualHeight:F0} RootH={StatusAgentPanelsGrid.ActualHeight:F0}");
             PromptTextBox.Focus();
+            LogMainLayoutPositions();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(MainWindow_ContentRendered), ex);
         }
+    }
+
+    private void LogMainLayoutPositions()
+    {
+        static string Pos(FrameworkElement el, UIElement root)
+        {
+            var pt = el.TranslatePoint(new System.Windows.Point(0, 0), root);
+            return $"x={pt.X:F0} y={pt.Y:F0} w={el.ActualWidth:F0} h={el.ActualHeight:F0} bottom={pt.Y + el.ActualHeight:F0}";
+        }
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] StatusPanelBorder:    {Pos(StatusPanelBorder,    this)}");
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] TranscriptPanelsGrid: {Pos(TranscriptPanelsGrid, this)}");
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] PromptBorder:         {Pos(PromptBorder,         this)}");
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[LayoutPositions] Gap StatusPanel→Transcript: {TranslatePoint(new System.Windows.Point(0,0), this).Y:F0}" +
+            $" | gap={TranscriptPanelsGrid.TranslatePoint(new System.Windows.Point(0,0), this).Y - (StatusPanelBorder.TranslatePoint(new System.Windows.Point(0,0), this).Y + StatusPanelBorder.ActualHeight):F0}px" +
+            $" | gap2={PromptBorder.TranslatePoint(new System.Windows.Point(0,0), this).Y - (TranscriptPanelsGrid.TranslatePoint(new System.Windows.Point(0,0), this).Y + TranscriptPanelsGrid.ActualHeight):F0}px");
     }
 
     private void MainWindow_Activated(object? sender, EventArgs e)
@@ -6245,7 +6286,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Content   = choice,
                     GroupName = opt.Key,
                     IsChecked = string.Equals(choice, opt.RawValue, StringComparison.Ordinal),
-                    Margin    = new Thickness(12, 0, 0, 0),
+                    Margin    = new Thickness(12, 0, 0, 1),
                 };
                 rb.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
                 rb.SetResourceReference(Control.ForegroundProperty, "LabelText");
@@ -6333,6 +6374,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             getRoster: () => _currentWorkspace is null
                                  ? []
                                  : _teamRosterLoader.Load(_currentWorkspace.FolderPath));
+
+        // Wire dynamic max-width hint so splitter snap targets content width
+        if (TasksPanelBorder is { } tpb && tpb.MaximumUsefulSizeProvider is null)
+            tpb.MaximumUsefulSizeProvider = orientation =>
+                orientation == DockResizeOrientation.Horizontal
+                    ? _tasksPanelController.GetMaximumUsefulWidth()
+                    : null;
 
         var workspace = _currentWorkspace;
         if (workspace is null) { _tasksPanelController.ShowEmpty("No workspace open"); return; }
@@ -11104,6 +11152,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
             }
 
+            // Apply glow to the agent card border itself
+            if (sender is System.Windows.Controls.Border agentCardBorder)
+            {
+                double cardStartOpacity = isDark ? 0.6 : 0.4;
+                var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = accentColor,
+                    BlurRadius = isDark ? 28 : 20,
+                    ShadowDepth = 0,
+                    Opacity = cardStartOpacity
+                };
+                agentCardBorder.Effect = cardGlow;
+
+                var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(cardStartOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
+                cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
+            }
+
             // If this is the lead/coordinator agent, apply glow to main transcript border
             if (agentCard.IsLeadAgent)
             {
@@ -11158,6 +11223,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (sender is not FrameworkElement { DataContext: AgentStatusCard agentCard })
                 return;
+
+            // Remove glow effect from the agent card border itself
+            if (sender is System.Windows.Controls.Border agentCardBorder
+                && agentCardBorder.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
+            {
+                cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+                agentCardBorder.Effect = null;
+            }
 
             // If this is the lead/coordinator agent, remove glow from main transcript border
             if (agentCard.IsLeadAgent)
@@ -11587,7 +11660,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (documents.Count == 0)
                 return;
 
-            OpenMarkdownFiles(documents, $"{agent.Name} Charter & History");
+            OpenMarkdownFiles(documents, "Agent Charter & History");
         }
         catch (Exception ex)
         {
@@ -12819,7 +12892,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             transcriptRow.Height = new GridLength(1, GridUnitType.Auto);
             promptRow.Height     = new GridLength(1, GridUnitType.Star);
             PromptBorder.Margin        = new Thickness(0, 0, 0, 14);
-            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 14);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 0, 0, 6);
         }
         else
         {
@@ -12828,7 +12901,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             transcriptRow.Height = new GridLength(1, GridUnitType.Star);
             promptRow.Height     = new GridLength(1, GridUnitType.Auto);
             PromptBorder.Margin        = new Thickness(0);
-            TranscriptPanelsGrid.Margin = new Thickness(0, 14, 0, 14);
+            TranscriptPanelsGrid.Margin = new Thickness(0, 6, 0, 6);
         }
 
         // Persist per workspace.
@@ -16005,8 +16078,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             TranscriptPanelsGrid.Margin = _transcriptFullScreenEnabled
                 ? new Thickness(0)
                 : _agentsPanelFocusModeEnabled
-                    ? new Thickness(0, 0, 0, 14)
-                    : new Thickness(0, 14, 0, 14);
+                    ? new Thickness(0, 0, 0, 6)
+                    : new Thickness(0, 6, 0, 6);
 
         // Documentation mode: show docs panel whenever documentation mode is active
         var docsVisible = _documentationModeEnabled;
@@ -24402,6 +24475,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashTrace.Write("Shutdown", $"Close requested while {_clipboardEditorCount} ClipboardImageEditorWindow(s) open. State saved async; proceeding with close.");
             }
 
+            // Safety-net: save positions for any inbox windows still open.
+            foreach (var inboxWin in _openInboxWindows)
+                FloatingWindowPositionStore.Shared.Save($"InboxMessage:{inboxWin.MessageId}", inboxWin);
+
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
                 e.Cancel = true;
@@ -25964,8 +26041,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _clipboardEditorCount++;
         _clipboardEditorOpen = true;
         editor.Owner = this;
+        FloatingWindowPositionStore.Shared.TryRestore("ClipboardImageEditor", editor);
         editor.Closed += (_, _) =>
         {
+            FloatingWindowPositionStore.Shared.Save("ClipboardImageEditor", editor);
             _clipboardEditorCount--;
             if (_clipboardEditorCount == 0)
             {
@@ -28108,6 +28187,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         win.Owner = this;
                         _openInboxWindows.Add(win);
                         win.Closed += (_, _) => _openInboxWindows.Remove(win);
+                        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+                        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{msg.Id}", win);
                         win.Show();
                     }
                 }
@@ -29223,6 +29304,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 initialShowRejected: _settingsStore.Load().ApprovalShowRejected,
                 onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show));
             _approvalPanel.ReplaceAllItems(_approvalItems);
+
+            // Wire dynamic max-width hint so splitter double-click snaps to content width
+            if (ApprovalPanelBorder is { } apb)
+                apb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _approvalPanel.GetMaximumUsefulWidth()
+                        : null;
         }
     }
 
@@ -29609,6 +29697,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         win.Show();
     }
 
@@ -29643,6 +29733,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: hooking win.Loaded to defer SelectAndScrollToText via Dispatcher.BeginInvoke(Loaded priority) — excerptLen={excerptText.Length}");
         win.Loaded += (_, _) =>
@@ -30169,6 +30261,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
                 });
             _notesPanel.Refresh(_noteItems);
+
+            // Wire dynamic max-width hint so splitter snap targets content width
+            if (NotesPanelBorder is { } npb)
+                npb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _notesPanel.GetMaximumUsefulWidth()
+                        : null;
         }
     }
 
@@ -30210,6 +30309,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 simulateIdle:           () => _ = StartMaintenanceCycleAsync(),
                 onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
                 onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
+
+            // Wire dynamic max-width hint so splitter snap targets content width
+            if (MaintenancePanelBorder is { } mpb)
+                mpb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _maintenancePanel.GetMaximumUsefulWidth()
+                        : null;
         }
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
@@ -30284,6 +30390,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
                 lookupTask:             LookupTaskById,
                 addToChat:              msg => AttachInboxMessageFollowUp(msg));
+
+            // Wire dynamic max-width hint so splitter snap targets content width
+            if (InboxPanelBorder is { } ipb)
+                ipb.MaximumUsefulSizeProvider = orientation =>
+                    orientation == DockResizeOrientation.Horizontal
+                        ? _inboxPanel.GetMaximumUsefulWidth()
+                        : null;
 
             var messages = _inboxStore?.LoadAll() ?? [];
             _inboxPanel.Refresh(messages);

@@ -43,7 +43,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private readonly TextBox     _optionsYamlBox;
     private readonly StackPanel  _optionsPreviewPanel;
     private readonly FlowDocumentScrollViewer _markdownPreview;
-    private readonly RichTextBox _instructionsBox;
+    private readonly MarkdownEditorPanel _instructionsPanel;
     private StackPanel? _weeklyDayPickerPanel;  // Day picker UI for weekly frequency
 
     // ── Voice ─────────────────────────────────────────────────────────────────
@@ -55,7 +55,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Debounce timers ───────────────────────────────────────────────────────
 
     private DispatcherTimer? _optionsDebounce;
-    private DispatcherTimer? _instructionsDebounce;
 
     // ── Preview→source hover highlight ────────────────────────────────────────
 
@@ -69,8 +68,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
     // ── Re-entrance guard ─────────────────────────────────────────────────────
 
-    private bool _updatingHighlight;
-
     // Tracks current option values for conditional preview resolution
     private readonly Dictionary<string, string> _optionValues = new();
 
@@ -78,11 +75,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     private TextBlock _yamlErrorText = null!;
 
     // ── Highlight colours ─────────────────────────────────────────────────────
-
-    private static readonly Brush BlockTagBrush    = new SolidColorBrush(Color.FromRgb(0xB8, 0x86, 0x0B)); // amber (light)
-    private static readonly Brush BlockTagBrushDk  = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)); // gold (dark)
-    private static readonly Brush VarBrush         = new SolidColorBrush(Color.FromRgb(0x2A, 0x8A, 0x8A)); // teal
-    private static readonly Brush VarBrushDk       = new SolidColorBrush(Color.FromRgb(0x4D, 0xC4, 0xC4)); // lighter teal
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -120,7 +112,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _optionsYamlBox      = BuildOptionsYamlBox();
         _optionsPreviewPanel = new StackPanel { Margin = new Thickness(4) };
         _markdownPreview     = BuildMarkdownPreview();
-        _instructionsBox     = BuildInstructionsBox();
+        _instructionsPanel   = BuildInstructionsPanel();
 
         // Initialize the weekly day selection based on the task's current frequency
         if (_task.Frequency.StartsWith("weekly-", StringComparison.OrdinalIgnoreCase)) {
@@ -149,6 +141,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp   += OnPreviewKeyUp;
         Closed         += OnClosed;
+        Closing        += OnClosing;
 
         // Track changes to the title
         _titleBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
@@ -159,8 +152,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _frequencyCombo.SelectionChanged += OnFrequencyComboChanged;
         // Track changes to options YAML
         _optionsYamlBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
-        // Track changes to instructions
-        _instructionsBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
+        // Track changes to instructions (TextChanged + PreviewUpdateRequested wired in BuildInstructionsPanel)
 
         // Use PreviewMouseMove on the viewer instead of Block.MouseEnter — FlowDocumentScrollViewer
         // does not route ContentElement mouse events to individual Block instances.
@@ -172,7 +164,6 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         // Initial renders
         Loaded += (_, _) => {
-            UpdateInstructionsHighlight();
             UpdateMarkdownPreview();
             UpdateOptionsPreview();
         };
@@ -185,54 +176,41 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             if (_pttTitle.HandlePreviewKeyDown(e, _titleBox)) e.Handled = true;
         if (_optionsYamlBox.IsKeyboardFocusWithin)
             if (_pttOptions.HandlePreviewKeyDown(e, _optionsYamlBox)) e.Handled = true;
-        if (_instructionsBox.IsKeyboardFocusWithin)
-            if (_pttInstructions.HandlePreviewKeyDown(e, _instructionsBox)) e.Handled = true;
+        if (_instructionsPanel.IsKeyboardFocusWithin)
+            if (_pttInstructions.HandlePreviewKeyDown(e, _instructionsPanel.EditorBox)) e.Handled = true;
 
         // Escape: close with unsaved changes confirmation
         if (e.Key == Key.Escape && !e.Handled) {
-            if (_hasUnsavedChanges) {
-                var result = MessageBox.Show(
-                    "Are you sure you want to close without saving your changes?",
-                    "Unsaved Changes",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.No);
-                if (result == MessageBoxResult.Yes) {
-                    Close();
-                }
-            }
-            else {
-                Close();
-            }
+            if (HandleCloseRequest()) Close();
             e.Handled = true;
             return;
         }
 
         // Ctrl+Shift+A: Revise with AI
-        if (_instructionsBox.IsKeyboardFocusWithin
+        if (_instructionsPanel.IsKeyboardFocusWithin
             && e.Key == Key.A
             && (Keyboard.Modifiers & ModifierKeys.Control) != 0
             && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
             && _onReviseWithAi is not null
-            && _instructionsBox.GetSelectionLength() > 0)
+            && _instructionsPanel.EditorBox.GetSelectionLength() > 0)
         {
-            _onReviseWithAi(_instructionsBox, "");
+            _onReviseWithAi(_instructionsPanel.EditorBox, "");
             e.Handled = true;
             return;
         }
 
         // Ctrl+Shift+C: Quick Cleanup
-        if (_instructionsBox.IsKeyboardFocusWithin
+        if (_instructionsPanel.IsKeyboardFocusWithin
             && e.Key == Key.C
             && (Keyboard.Modifiers & ModifierKeys.Control) != 0
             && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
             && _onDirectRevise is not null
-            && _instructionsBox.GetSelectionLength() > 0)
+            && _instructionsPanel.EditorBox.GetSelectionLength() > 0)
         {
             var cleanupPrompt = _settingsProvider().CleanupPrompt;
             if (!string.IsNullOrWhiteSpace(cleanupPrompt))
             {
-                _onDirectRevise(_instructionsBox, "", cleanupPrompt);
+                _onDirectRevise(_instructionsPanel.EditorBox, "", cleanupPrompt);
                 e.Handled = true;
                 return;
             }
@@ -252,6 +230,39 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         _pttTitle.Dispose();
         _pttOptions.Dispose();
         _pttInstructions.Dispose();
+    }
+
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (!HandleCloseRequest())
+            e.Cancel = true;
+    }
+
+    /// <summary>Returns <c>true</c> when the close should proceed, <c>false</c> to cancel it.</summary>
+    private bool HandleCloseRequest()
+    {
+        if (!_hasUnsavedChanges) return true;
+
+        var result = MessageBox.Show(
+            "Save changes before closing?",
+            "Save Changes?",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Yes);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            OnSave(this, new RoutedEventArgs());
+            return true;
+        }
+        if (result == MessageBoxResult.No)
+        {
+            _hasUnsavedChanges = false;
+            return true;
+        }
+
+        // Cancel or dialog dismissed — stay open
+        return false;
     }
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -311,7 +322,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         var cancelBtn = new Button { Content = "Cancel", Margin = new Thickness(0, 0, 8, 0),
             Padding = new Thickness(16, 4, 16, 4) };
         cancelBtn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
-        cancelBtn.Click += (_, _) => Close();
+        cancelBtn.Click += (_, _) => { if (HandleCloseRequest()) Close(); };
 
         var saveBtn = new Button { Content = "Save", Padding = new Thickness(16, 4, 16, 4) };
         saveBtn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
@@ -447,9 +458,9 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         Grid.SetColumn(leftStack, 0);
         leftStack.Children.Add(_markdownPreview);
 
-        // Right: editable RichTextBox (Row 1, Col 2)
+        // Right: editable MarkdownEditorPanel (Row 1, Col 2)
         _instructionsHost = new Grid();
-        _instructionsHost.Children.Add(_instructionsBox);
+        _instructionsHost.Children.Add(_instructionsPanel);
 
         var rightStack = new DockPanel { Margin = new Thickness(4, 0, 0, 0), LastChildFill = true };
         Grid.SetRow(rightStack, 1);
@@ -620,31 +631,16 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             HorizontalAlignment  = HorizontalAlignment.Stretch,
             VerticalAlignment    = VerticalAlignment.Stretch,
         };
-        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "InputSurface");
+        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "RosterPanelSurface");
         return viewer;
     }
 
-    private RichTextBox BuildInstructionsBox() {
-        var rtb = new RichTextBox {
-            AcceptsReturn       = true,
-            AcceptsTab          = true,
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            FontFamily          = new FontFamily("Consolas, Courier New"),
-        };
-        rtb.SetResourceReference(RichTextBox.FontSizeProperty,   "FontSizeBody");
-        rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
-        rtb.SetResourceReference(RichTextBox.BackgroundProperty, "RosterPanelSurface");
-        rtb.SetResourceReference(RichTextBox.BorderBrushProperty,"SubtleBorder");
-
-        // Populate with initial text (plain)
-        rtb.Document.Blocks.Clear();
-        rtb.AppendText(_task.Instructions ?? "");
-
-        rtb.TextChanged     += OnInstructionsTextChanged;
-        rtb.MouseMove       += OnInstructionsMouseMove;
-
-        return rtb;
+    private MarkdownEditorPanel BuildInstructionsPanel() {
+        var panel = new MarkdownEditorPanel(showImageButton: false, showHrButton: false);
+        panel.SetText(_task.Instructions ?? "");
+        panel.TextChanged            += (_, _)    => _hasUnsavedChanges = true;
+        panel.PreviewUpdateRequested += (_, _)    => UpdateMarkdownPreview();
+        return panel;
     }
 
     private static TextBlock BuildLabel(string text) {
@@ -661,9 +657,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Save ──────────────────────────────────────────────────────────────────
 
     private void OnSave(object sender, RoutedEventArgs e) {
-        var instructionsText = new TextRange(
-            _instructionsBox.Document.ContentStart,
-            _instructionsBox.Document.ContentEnd).Text.TrimEnd('\r', '\n');
+        var instructionsText = _instructionsPanel.GetText().TrimEnd('\r', '\n');
 
         // Build the frequency value: if "weekly" is selected, append the day of week
         var baseFrequency = (_frequencyCombo.SelectedItem as string) ?? _task.Frequency;
@@ -697,123 +691,22 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         Close();
     }
 
-    // ── Instructions syntax highlighting ─────────────────────────────────────
-
-    private void OnInstructionsTextChanged(object sender, TextChangedEventArgs e) {
-        if (_updatingHighlight) return;
-        ScheduleInstructionsDebounce();
-    }
-
-    private void ScheduleInstructionsDebounce() {
-        _instructionsDebounce?.Stop();
-        _instructionsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-        _instructionsDebounce.Tick += (_, _) => {
-            _instructionsDebounce?.Stop();
-            _instructionsDebounce = null;
-            UpdateInstructionsHighlight();
-            UpdateMarkdownPreview();
-        };
-        _instructionsDebounce.Start();
-    }
-
-    private void UpdateInstructionsHighlight() {
-        if (_updatingHighlight) return;
-        _updatingHighlight = true;
-        try {
-            var doc      = _instructionsBox.Document;
-            var fullText = new TextRange(doc.ContentStart, doc.ContentEnd).Text;
-
-            // Preserve caret
-            var caretOffset = GetCaretOffset(_instructionsBox);
-
-            // Clear and rebuild with highlighted runs
-            doc.Blocks.Clear();
-            var para = new Paragraph { Margin = new Thickness(0) };
-            AppendHighlightedRuns(para.Inlines, fullText);
-            doc.Blocks.Add(para);
-
-            // Restore caret
-            RestoreCaretOffset(_instructionsBox, caretOffset);
-        }
-        finally {
-            _updatingHighlight = false;
-        }
-    }
-
-    private bool IsDark() {
-        // InputSurface is the actual preview background — reliably present in both theme files.
-        if (TryFindResource("InputSurface") is SolidColorBrush b) {
-            var lum = b.Color.R * 0.299 + b.Color.G * 0.587 + b.Color.B * 0.114;
-            return lum < 128;
-        }
-        // Fallback: light label text implies dark theme.
-        if (TryFindResource("LabelText") is SolidColorBrush lt)
-            return lt.Color.R > 128;
-        return false;
-    }
-
-    private void AppendHighlightedRuns(InlineCollection inlines, string text) {
-        var blockTagBrush = IsDark() ? BlockTagBrushDk : BlockTagBrush;
-        var varBrush      = IsDark() ? VarBrushDk      : VarBrush;
-
-        // Pattern for {{ ... }}
-        var pattern = @"\{\{[^}]*\}\}";
-        int pos = 0;
-        foreach (Match m in Regex.Matches(text, pattern)) {
-            if (m.Index > pos) {
-                inlines.Add(new Run(text[pos..m.Index]));
-            }
-
-            var tag        = m.Value;
-            bool isBlock   = tag.StartsWith("{{#", StringComparison.Ordinal)
-                          || tag.StartsWith("{{/", StringComparison.Ordinal);
-            var run = new Run(tag) { Foreground = isBlock ? blockTagBrush : varBrush };
-
-            if (!isBlock) {
-                var tip = MakeToolTip("System variable — will be replaced when the task runs.");
-                run.ToolTip = tip;
-            }
-
-            inlines.Add(run);
-            pos = m.Index + m.Length;
-        }
-
-        if (pos < text.Length)
-            inlines.Add(new Run(text[pos..]));
-    }
-
-    private static ToolTip MakeToolTip(string text) {
-        var tb = new TextBlock { Text = text };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        var tip = new ToolTip {
-            Content         = tb,
-            Padding         = new Thickness(6, 4, 6, 4),
-            BorderThickness = new Thickness(1),
-        };
-        tip.SetResourceReference(Control.BackgroundProperty,    "InputSurface");
-        tip.SetResourceReference(Control.BorderBrushProperty,  "InputBorder");
-        return tip;
-    }
-
-    private void OnInstructionsMouseMove(object sender, MouseEventArgs e) {
-        // Tooltip is on the Run inlines themselves — no extra hit-test needed.
-    }
-
     // ── Markdown preview ──────────────────────────────────────────────────────
 
     private void UpdateMarkdownPreview() {
-        var rawText = _instructionsBox.GetPlainText();
+        var rawText = _instructionsPanel.GetText();
 
-        var segments         = ResolveConditionalSegments(rawText);
-        var conditionalBrush = GetConditionalTextBrush();
+        var segments             = ResolveConditionalSegments(rawText);
+        var conditionalBrush     = GetConditionalTextBrush();
+        var conditionalBgBrush   = GetConditionalBackgroundBrush();
 
         var combined = new FlowDocument {
             FontFamily    = new FontFamily("Segoe UI, Segoe UI Emoji"),
             FontSize      = Application.Current.Resources["FontSizeMedium"] is double sz ? sz : 13.0,
-            Background    = Brushes.Transparent,
             PagePadding   = new Thickness(18),
             TextAlignment = TextAlignment.Left,
         };
+        combined.SetResourceReference(FlowDocument.BackgroundProperty, "RosterPanelSurface");
         combined.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
 
         _previewBlockSrcRanges.Clear();
@@ -840,7 +733,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                     var srcRange = ComputeBlockCharRange(segLines, segStart, range);
 
                     segDoc.Blocks.Remove(block);
-                    if (isConditional) ApplyForeground(block, conditionalBrush);
+                    if (isConditional) {
+                        ApplyForeground(block, conditionalBrush);
+                        ApplyBackground(block, conditionalBgBrush);
+                    }
 
                     _previewBlockSrcRanges.Add(srcRange);
                     _previewBlocks.Add(block);
@@ -850,7 +746,10 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             }
             catch {
                 var para = new Paragraph(new Run(resolved));
-                if (isConditional) para.Foreground = conditionalBrush;
+                if (isConditional) {
+                    para.Foreground = conditionalBrush;
+                    para.Background = conditionalBgBrush;
+                }
                 _previewBlockSrcRanges.Add((segStart, segText.Length));
                 _previewBlocks.Add(para);
                 combined.Blocks.Add(para);
@@ -972,22 +871,23 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         ClearInstructionsHoverHighlight();
         if (length <= 0) return;
 
-        var rect = _instructionsBox.GetRectFromOffset(start);
+        var editorBox = _instructionsPanel.EditorBox;
+        var rect = editorBox.GetRectFromOffset(start);
         if (rect == Rect.Empty) return;
 
         var overlay    = EnsureInstructionsOverlay();
-        var origin     = _instructionsBox.TranslatePoint(new Point(0, 0), overlay);
-        var charTopLeft = _instructionsBox.TranslatePoint(rect.TopLeft, overlay);
+        var origin     = editorBox.TranslatePoint(new Point(0, 0), overlay);
+        var charTopLeft = editorBox.TranslatePoint(rect.TopLeft, overlay);
 
         // Don't draw if the target line is scrolled outside the visible area.
-        if (charTopLeft.Y < origin.Y || charTopLeft.Y >= origin.Y + _instructionsBox.ActualHeight) return;
+        if (charTopLeft.Y < origin.Y || charTopLeft.Y >= origin.Y + editorBox.ActualHeight) return;
 
         var isDark = IsDark();
         var highlightColor = isDark
             ? Color.FromArgb(60, 255, 220, 80)
             : Color.FromArgb(50, 100, 180, 255);
 
-        double highlightWidth = Math.Max(_instructionsBox.ActualWidth - (charTopLeft.X - origin.X), 0);
+        double highlightWidth = Math.Max(editorBox.ActualWidth - (charTopLeft.X - origin.X), 0);
 
         _instructionsHighlight = new System.Windows.Shapes.Rectangle {
             Width             = highlightWidth,
@@ -1277,11 +1177,30 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             return _optionValues.TryGetValue(key, out var val) ? val : m.Value;
         });
 
+    private bool IsDark() {
+        // InputSurface is the actual preview background — reliably present in both theme files.
+        if (TryFindResource("InputSurface") is SolidColorBrush b) {
+            var lum = b.Color.R * 0.299 + b.Color.G * 0.587 + b.Color.B * 0.114;
+            return lum < 128;
+        }
+        // Fallback: light label text implies dark theme.
+        if (TryFindResource("LabelText") is SolidColorBrush lt)
+            return lt.Color.R > 128;
+        return false;
+    }
+
     /// <summary>
     /// Returns a brush that is halfway between the current body text colour
     /// and the maximum contrast endpoint (white in dark theme, black in light).
     /// Conditional preview text is rendered with this brush to make it stand out.
     /// </summary>
+    private Brush GetConditionalBackgroundBrush() {
+        if (TryFindResource("ActivePanelSurface") is Brush b) return b;
+        return IsDark()
+            ? new SolidColorBrush(Color.FromArgb(0x50, 0x60, 0x80, 0xFF))
+            : new SolidColorBrush(Color.FromArgb(0x30, 0x20, 0x60, 0xC0));
+    }
+
     private Brush GetConditionalTextBrush() {
         var baseColor = IsDark()
             ? Color.FromRgb(0xCC, 0xCC, 0xCC)   // fallback dark-theme body
@@ -1295,6 +1214,42 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
             (byte)((baseColor.G * 1 + target.G * 3) / 4),
             (byte)((baseColor.B * 1 + target.B * 3) / 4)));
     }
+
+    private static void ApplyBackground(Block block, Brush brush) {
+        switch (block) {
+            case Paragraph p:
+                p.Background = brush;
+                ApplyBackgroundToInlines(p.Inlines, brush);
+                break;
+            case Section s:
+                s.Background = brush;
+                foreach (var b in s.Blocks) ApplyBackground(b, brush);
+                break;
+            case List l:
+                l.Background = brush;
+                foreach (var li in l.ListItems)
+                    foreach (var b in li.Blocks) ApplyBackground(b, brush);
+                break;
+            case BlockUIContainer buc:
+                buc.SetValue(TextElement.BackgroundProperty, brush);
+                break;
+        }
+    }
+
+    // Override the CodeSurface background on inline-code Runs inside a conditional block
+    // so they blend with the ActivePanelSurface rather than standing out as a different shade.
+    private static void ApplyBackgroundToInlines(InlineCollection inlines, Brush brush) {
+        foreach (var inline in inlines) {
+            if (inline is Run run && IsInlineCodeRun(run))
+                run.Background = brush;
+            else if (inline is Span span)
+                ApplyBackgroundToInlines(span.Inlines, brush);
+        }
+    }
+
+    // Inline code runs from MarkdownFlowDocumentBuilder are identifiable by their Consolas font.
+    private static bool IsInlineCodeRun(Run run)
+        => run.FontFamily?.Source?.Contains("Consolas", StringComparison.OrdinalIgnoreCase) == true;
 
     private static void ApplyForeground(Block block, Brush brush) {
         switch (block) {
@@ -1322,23 +1277,5 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     }
 
     // ── Caret helpers ─────────────────────────────────────────────────────────
-
-    private static int GetCaretOffset(RichTextBox rtb) {
-        try {
-            var start = rtb.Document.ContentStart;
-            var caret = rtb.CaretPosition;
-            return start.GetOffsetToPosition(caret);
-        }
-        catch { return 0; }
-    }
-
-    private static void RestoreCaretOffset(RichTextBox rtb, int offset) {
-        try {
-            var start    = rtb.Document.ContentStart;
-            var restored = start.GetPositionAtOffset(Math.Max(0, offset));
-            if (restored is not null)
-                rtb.CaretPosition = restored;
-        }
-        catch { /* ignore */ }
-    }
+    // (Plain-text caret API provided by RichTextBoxExtensions)
 }

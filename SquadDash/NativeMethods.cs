@@ -53,6 +53,13 @@ internal static class NativeMethods {
     private static extern bool GetMonitorInfo(nint hMonitor, ref MONITORINFO lpmi);
 
     [DllImport("user32.dll")]
+    private static extern bool EnumDisplayMonitors(nint hdc, nint lprcClip,
+        MonitorEnumProc lpfnEnum, nint dwData);
+
+    private delegate bool MonitorEnumProc(nint hMonitor, nint hdcMonitor,
+        ref RECT lprcMonitor, nint dwData);
+
+    [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(nint hWnd);
 
     [DllImport("user32.dll")]
@@ -137,6 +144,50 @@ internal static class NativeMethods {
         // Fallback: primary monitor work area (already in physical pixels at 96 dpi baseline)
         var primary = SystemParameters.WorkArea;
         return new Rect(primary.Left, primary.Top, primary.Width, primary.Height);
+    }
+
+    /// <summary>
+    /// Returns the full monitor rect (not work area) in physical pixels for the monitor
+    /// containing the given physical-pixel point. Returns <c>Rect.Empty</c> on failure.
+    /// </summary>
+    public static Rect GetMonitorBoundsForPhysicalPoint(int x, int y)
+    {
+        var pt   = new POINT { x = x, y = y };
+        var hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        if (hMon != nint.Zero && GetMonitorInfo(hMon, ref info))
+        {
+            var r = info.rcMonitor;
+            return new Rect(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+        }
+        return Rect.Empty;
+    }
+
+    /// <summary>
+    /// Enumerates monitors and returns the full monitor rect of the one whose physical-pixel
+    /// bounds match the given values exactly. Returns <c>Rect.Empty</c> if none match.
+    /// </summary>
+    public static Rect FindMonitorByBounds(int left, int top, int width, int height)
+    {
+        Rect result = Rect.Empty;
+        // Use a local variable to prevent the delegate from being GC'd during P/Invoke.
+        MonitorEnumProc callback = (nint hMon, nint _, ref RECT _2, nint _3) =>
+        {
+            var info = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+            if (GetMonitorInfo(hMon, ref info))
+            {
+                var r = info.rcMonitor;
+                if (r.Left == left && r.Top == top &&
+                    r.Right - r.Left == width && r.Bottom - r.Top == height)
+                {
+                    result = new Rect(r.Left, r.Top, width, height);
+                    return false; // stop enumeration
+                }
+            }
+            return true; // continue
+        };
+        EnumDisplayMonitors(nint.Zero, nint.Zero, callback, nint.Zero);
+        return result;
     }
 
     /// <summary>

@@ -716,6 +716,28 @@ internal sealed class UiRevealOverlay
                 sb.AppendLine($"Type: {element.GetType().Name}");
                 sb.AppendLine($"Name: {GetElementLabel(element)}");
 
+                if (element.ActualWidth > 0 || element.ActualHeight > 0)
+                {
+                    var desiredW = double.IsNaN(element.Width)  ? "Auto" : element.Width.ToString("G");
+                    var desiredH = double.IsNaN(element.Height) ? "Auto" : element.Height.ToString("G");
+                    sb.AppendLine($"Width: {element.ActualWidth:G} (desired: {desiredW})");
+                    sb.AppendLine($"Height: {element.ActualHeight:G} (desired: {desiredH})");
+
+                    string xStr = "?", yStr = "?";
+                    var win = Window.GetWindow(element);
+                    if (win != null)
+                    {
+                        try
+                        {
+                            var pt = element.TranslatePoint(new Point(0, 0), win);
+                            xStr = pt.X.ToString("G");
+                            yStr = pt.Y.ToString("G");
+                        }
+                        catch { }
+                    }
+                    sb.AppendLine($"X: {xStr}  Y: {yStr}   (position relative to root Window)");
+                }
+
                 var ownEntries = CollectResourceKeyEntries(element);
                 if (ownEntries.Count > 0)
                 {
@@ -769,6 +791,7 @@ internal sealed class UiRevealOverlay
     /// - The x:Name (if any, via FrameworkElement.Name or FrameworkContentElement.Name)
     /// - Whether it implements ILiveElementLocator / IFixtureLoader / IReplayableUiAction
     ///   (proxy for the "IHaveDisplayName" concept — any named interface on the DataContext)
+    /// - Inline geometry: pos=(x,y), size=[w,h], and grid row/col if non-zero
     /// </summary>
     private static string DescribeNode(DependencyObject node)
     {
@@ -793,6 +816,37 @@ internal sealed class UiRevealOverlay
             if (dc is IReplayableUiAction)   ifaces.Add(nameof(IReplayableUiAction));
             if (ifaces.Count > 0)
                 label += $" [dc:{dc.GetType().Name}({string.Join(",", ifaces)})]";
+        }
+
+        // Append inline geometry for rendered FrameworkElements
+        if (node is FrameworkElement feGeo && (feGeo.ActualWidth > 0 || feGeo.ActualHeight > 0))
+        {
+            try
+            {
+                var segments = new List<string>();
+
+                var window = Window.GetWindow(feGeo);
+                if (window is not null)
+                {
+                    var pt = feGeo.TranslatePoint(new System.Windows.Point(0, 0), window);
+                    segments.Add($"pos = ({(int)Math.Round(pt.X)}, {(int)Math.Round(pt.Y)})");
+                }
+
+                segments.Add($"size = [{(int)Math.Round(feGeo.ActualWidth)}, {(int)Math.Round(feGeo.ActualHeight)}]");
+
+                var parentGrid = VisualTreeHelper.GetParent(feGeo) as Grid;
+                if (parentGrid is not null)
+                {
+                    int row = Grid.GetRow(feGeo);
+                    int col = Grid.GetColumn(feGeo);
+                    if (row > 0 || col > 0)
+                        segments.Add($"row {row}, col {col}");
+                }
+
+                if (segments.Count > 0)
+                    label += "   --   " + string.Join("   ·   ", segments);
+            }
+            catch { /* visual tree not ready — return plain label */ }
         }
 
         return label;

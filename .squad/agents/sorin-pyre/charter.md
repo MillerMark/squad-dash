@@ -9,7 +9,7 @@ Performance Engineer responsible for hot-path optimization, throughput bottlenec
 ## Responsibilities
 
 - Own performance analysis across the full stack: WPF rendering, C# service throughput, SDK event processing, and build pipeline speed
-- Profile and benchmark hot paths — `TranscriptScrollController`, `RichTextBox` layout, `FlowDocument` rendering, and background agent dispatch
+- Profile and benchmark hot paths — `TranscriptScrollController`, and background agent dispatch
 - Identify and eliminate throughput bottlenecks with measurement-backed fixes, not guesses
 - Work with the UI specialist on rendering performance and scroll/layout responsiveness
 - Work with the backend specialist on service composition performance and thread contention

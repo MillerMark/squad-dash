@@ -2,6 +2,7 @@ namespace SquadDash;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -314,6 +315,51 @@ internal sealed class NotesPanelController {
         recentItem.IsChecked   = order == NotesSortOrder.MostRecentOnTop;
         RebuildList();
         _onSortOrderChanged?.Invoke(order);
+    }
+
+    // ── Width measurement ─────────────────────────────────────────────────────
+
+    private double MeasureTextWidth(string text, FontWeight weight)
+    {
+        var fontSize = _listPanel.TryFindResource("FontSizeBody") is double fs ? fs : 13.0;
+        var typeface = new Typeface(SystemFonts.MessageFontFamily, FontStyles.Normal, weight, FontStretches.Normal);
+        var pixelsPerDip = VisualTreeHelper.GetDpi(_listPanel).PixelsPerDip;
+        var ft = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            Brushes.Black,
+            pixelsPerDip);
+        return ft.Width;
+    }
+
+    public double? GetMaximumUsefulWidth(int maxRows = 50)
+    {
+        double maxRowWidth = 0;
+        int count = 0;
+
+        const double titleLabelMaxWidth = 240.0; // matches titleLabel.MaxWidth in BuildRow — text wraps at this width
+        const double perRowChrome      = 8;      // title label left+right margin (4+4)
+        const double panelChrome       = 43;     // padding(24) + border(2) + scrollbar(17)
+
+        if (_listPanel.IsLoaded)
+        {
+            foreach (var child in _listPanel.Children)
+            {
+                if (count >= maxRows) break;
+                if (child is not Border { Tag: NoteItem note }) continue;
+                var textWidth = Math.Min(MeasureTextWidth(note.Title, FontWeights.Normal), titleLabelMaxWidth);
+                maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+                count++;
+            }
+        }
+
+        if (maxRowWidth <= 0)
+            return titleLabelMaxWidth + perRowChrome + panelChrome; // 291px
+
+        return maxRowWidth + panelChrome;
     }
 
     // ── Menu helpers ──────────────────────────────────────────────────────────

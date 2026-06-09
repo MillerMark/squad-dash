@@ -49,6 +49,9 @@ public sealed class DockLayout
     /// <summary>Saved width of the outermost-right (Right6) dock zone column; null means use default.</summary>
     public double? Right6ZoneWidth { get; set; }
 
+    /// <summary>Saved absolute pixel widths for each top-zone panel column (index = rank 0..5). Null means equal/auto distribution.</summary>
+    public List<double>? TopZonePanelWidths { get; set; }
+
     /// <summary>
     /// Returns the canonical default layout: every dockable panel in the Top zone,
     /// ordered to match their current left-to-right position in the status strip.

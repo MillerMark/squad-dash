@@ -112,14 +112,6 @@ internal sealed class PanelViewModelTests
         Assert.That(vm.RunnerActive, Is.True);
     }
 
-    [Test]
-    public void MaintenancePanelViewModel_TaskOptionsPanels_IsInitializedEmpty()
-    {
-        var vm = new MaintenancePanelViewModel();
-        Assert.That(vm.TaskOptionsPanels, Is.Not.Null);
-        Assert.That(vm.TaskOptionsPanels.Count, Is.EqualTo(0));
-    }
-
     // ── PromptExecutionController.BuildQueuedQuestionInboxHint ───────────────
 
     [Test]

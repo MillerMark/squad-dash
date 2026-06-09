@@ -11,6 +11,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Globalization;
 using System.Windows.Shapes;
 
 /// <summary>Manages content in the inline Inbox panel.</summary>
@@ -228,10 +229,10 @@ internal sealed class InboxPanelController
 
         var subjectLabel = new TextBlock
         {
-            Text             = msg.Subject,
-            FontWeight       = msg.Read ? FontWeights.Normal : FontWeights.SemiBold,
-            TextTrimming     = TextTrimming.CharacterEllipsis,
-            MaxWidth         = 220,
+            Text              = msg.Subject,
+            FontWeight        = msg.Read ? FontWeights.Normal : FontWeights.SemiBold,
+            TextTrimming      = TextTrimming.CharacterEllipsis,
+            // MaxWidth removed — panel width now controls truncation via column/splitter
             VerticalAlignment = VerticalAlignment.Center,
         };
         subjectLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
@@ -311,6 +312,50 @@ internal sealed class InboxPanelController
         dot.Visibility         = Visibility.Visible;
         subjectLabel.FontWeight = FontWeights.SemiBold;
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+    }
+
+    private double MeasureTextWidth(string text, FontWeight weight)
+    {
+        var fontSize = _listPanel.TryFindResource("FontSizeBody") is double fs ? fs : 13.0;
+        var typeface = new Typeface(SystemFonts.MessageFontFamily, FontStyles.Normal, weight, FontStretches.Normal);
+        var pixelsPerDip = VisualTreeHelper.GetDpi(_listPanel).PixelsPerDip;
+        var ft = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            Brushes.Black,
+            pixelsPerDip);
+        return ft.Width;
+    }
+
+    public double? GetMaximumUsefulWidth(int maxRows = 50)
+    {
+        double maxRowWidth = 0;
+        int count = 0;
+
+        if (_listPanel.IsLoaded)
+        {
+            foreach (var child in _listPanel.Children)
+            {
+                if (count >= maxRows) break;
+                if (child is not Border { Tag: InboxMessage msg }) continue;
+                var weight = msg.Read ? FontWeights.Normal : FontWeights.SemiBold;
+                var textWidth = MeasureTextWidth(msg.Subject, weight);
+                const double perRowChrome = 20; // row padding + dot
+                maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
+                count++;
+            }
+        }
+
+        const double panelChrome = 43; // padding + border + scrollbar
+        // If panel not yet loaded or has no measurable rows, return a reasonable cap
+        // rather than null so the drag engine doesn't treat it as uncapped.
+        if (maxRowWidth <= 0)
+            return 420 + panelChrome;
+
+        return maxRowWidth + panelChrome;
     }
 
     // ── Message viewer ────────────────────────────────────────────────────────

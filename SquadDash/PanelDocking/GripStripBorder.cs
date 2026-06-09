@@ -11,14 +11,122 @@ namespace SquadDash.PanelDocking;
 /// raises GripStripClicked when the user clicks within the strip area.
 /// The strip height equals the border's CornerRadius.TopLeft value.
 /// </summary>
-public sealed class GripStripBorder : Border
+public sealed class GripStripBorder : Border, IDockResizeSizeHint
 {
+    public static readonly DependencyProperty DockMinimumWidthProperty =
+        DependencyProperty.Register(
+            nameof(DockMinimumWidth),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
+    public static readonly DependencyProperty DockMaximumUsefulWidthProperty =
+        DependencyProperty.Register(
+            nameof(DockMaximumUsefulWidth),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
+    public static readonly DependencyProperty DockMinimumHeightProperty =
+        DependencyProperty.Register(
+            nameof(DockMinimumHeight),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
+    public static readonly DependencyProperty DockMaximumUsefulHeightProperty =
+        DependencyProperty.Register(
+            nameof(DockMaximumUsefulHeight),
+            typeof(double),
+            typeof(GripStripBorder),
+            new FrameworkPropertyMetadata(double.NaN));
+
     public GripStripBorder()
     {
-        ToolTipService.SetToolTip(this, "Docking map\u2026");
+        ToolTipService.SetToolTip(this, "Click for docking map");
+        ToolTipService.SetIsEnabled(this, false);
+    }
+
+    public double DockMinimumWidth
+    {
+        get => (double)GetValue(DockMinimumWidthProperty);
+        set => SetValue(DockMinimumWidthProperty, value);
+    }
+
+    public double DockMaximumUsefulWidth
+    {
+        get => (double)GetValue(DockMaximumUsefulWidthProperty);
+        set => SetValue(DockMaximumUsefulWidthProperty, value);
+    }
+
+    public double DockMinimumHeight
+    {
+        get => (double)GetValue(DockMinimumHeightProperty);
+        set => SetValue(DockMinimumHeightProperty, value);
+    }
+
+    public double DockMaximumUsefulHeight
+    {
+        get => (double)GetValue(DockMaximumUsefulHeightProperty);
+        set => SetValue(DockMaximumUsefulHeightProperty, value);
     }
 
     public event EventHandler? GripStripClicked;
+
+    /// <summary>
+    /// When set, this delegate is called first in <see cref="GetMaximumUsefulDockSize"/>.
+    /// A non-null return value takes priority over <see cref="DockMaximumUsefulWidth"/>.
+    /// </summary>
+    public Func<DockResizeOrientation, double?>? MaximumUsefulSizeProvider { get; set; }
+
+    public double GetMinimumDockSize(DockResizeOrientation orientation)
+    {
+        var explicitValue = orientation == DockResizeOrientation.Horizontal
+            ? DockMinimumWidth
+            : DockMinimumHeight;
+        if (IsUsefulSize(explicitValue))
+            return explicitValue;
+
+        var frameworkValue = orientation == DockResizeOrientation.Horizontal
+            ? MinWidth
+            : MinHeight;
+        if (IsUsefulSize(frameworkValue))
+            return frameworkValue;
+
+        return orientation == DockResizeOrientation.Horizontal ? 80 : 100;
+    }
+
+    public double? GetMaximumUsefulDockSize(DockResizeOrientation orientation)
+    {
+        var explicitValue = orientation == DockResizeOrientation.Horizontal
+            ? DockMaximumUsefulWidth
+            : DockMaximumUsefulHeight;
+        double? explicitUsefulSize = IsUsefulSize(explicitValue)
+            ? Math.Max(GetMinimumDockSize(orientation), explicitValue)
+            : null;
+
+        if (MaximumUsefulSizeProvider?.Invoke(orientation) is { } computed)
+        {
+            var computedUsefulSize = Math.Max(GetMinimumDockSize(orientation), computed);
+            return explicitUsefulSize is { } floor
+                ? Math.Max(floor, computedUsefulSize)
+                : computedUsefulSize;
+        }
+
+        if (explicitUsefulSize is not null)
+            return explicitUsefulSize;
+
+        var frameworkValue = orientation == DockResizeOrientation.Horizontal
+            ? MaxWidth
+            : MaxHeight;
+        if (IsUsefulSize(frameworkValue))
+            return Math.Max(GetMinimumDockSize(orientation), frameworkValue);
+
+        return null;
+    }
+
+    private static bool IsUsefulSize(double value) =>
+        value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -102,17 +210,20 @@ public sealed class GripStripBorder : Border
         }
     }
 
-    // Set cursor to Hand when over the grip strip area
+    // Set cursor to Hand when over the grip strip area; show tooltip only over grip strip
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
         var pos = e.GetPosition(this);
-        Cursor = pos.Y <= GripHeight ? Cursors.Hand : Cursors.Arrow;
+        var overGrip = pos.Y <= GripHeight;
+        Cursor = overGrip ? Cursors.Hand : Cursors.Arrow;
+        ToolTipService.SetIsEnabled(this, overGrip);
     }
 
     protected override void OnMouseLeave(MouseEventArgs e)
     {
         base.OnMouseLeave(e);
         Cursor = Cursors.Arrow;
+        ToolTipService.SetIsEnabled(this, false);
     }
 }
