@@ -35,12 +35,13 @@ internal static class MarkdownHoverPopup {
     ///   up to 50% of the primary screen height automatically.
     /// </param>
     public static void Attach(
-        FrameworkElement  row,
-        Func<UIElement?>? buildHeader,
-        Func<string?>     getMarkdown,
-        PlacementMode     placement = PlacementMode.Left,
-        double            maxWidth  = 680,
-        double            maxHeight = 0) {
+        FrameworkElement                row,
+        Func<UIElement?>?               buildHeader,
+        Func<string?>                   getMarkdown,
+        PlacementMode                   placement         = PlacementMode.Left,
+        double                          maxWidth          = 680,
+        double                          maxHeight         = 0,
+        CustomPopupPlacementCallback?   placementCallback = null) {
 
         // Resolve effective max height: caller-supplied value, or 50% of screen height.
         double EffectiveMaxHeight() =>
@@ -60,10 +61,12 @@ internal static class MarkdownHoverPopup {
         var popup = new Popup {
             Child              = popupBorder,
             PlacementTarget    = row,
-            Placement          = placement,
+            Placement          = placementCallback is not null ? PlacementMode.Custom : placement,
             StaysOpen          = true,
             AllowsTransparency = true,
         };
+        if (placementCallback is not null)
+            popup.CustomPopupPlacementCallback = placementCallback;
 
         bool brushesResolved = false;
         void ResolveBrushes() {

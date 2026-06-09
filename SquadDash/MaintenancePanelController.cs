@@ -485,7 +485,13 @@ internal sealed class MaintenancePanelController {
                     return header;
                 },
                 getMarkdown: () => task.Instructions,
-                maxWidth:    800);
+                maxWidth:    800,
+                placementCallback: (popupSize, targetSize, _) => {
+                    var screenPos = row.PointToScreen(new Point(0, 0));
+                    if (screenPos.X - popupSize.Width < 0)
+                        return new[] { new CustomPopupPlacement(new Point(targetSize.Width, 0), PopupPrimaryAxis.None) };
+                    return new[] { new CustomPopupPlacement(new Point(-popupSize.Width, 0), PopupPrimaryAxis.None) };
+                });
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
