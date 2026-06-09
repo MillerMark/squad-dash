@@ -1321,6 +1321,10 @@ internal sealed class PanelDockingService
             .OrderBy(s => s.Order)
             .ToList();
 
+        // Trim stale ghost widths so the persisted list never has more entries than occupied ranks.
+        if (CurrentLayout.TopZonePanelWidths is { } widthList && widthList.Count > topSlots.Count)
+            CurrentLayout.TopZonePanelWidths = widthList.Take(topSlots.Count).ToList();
+
         var occupiedRanks = new bool[TopZonePhysicalColumns.Length];
         var assignments = new System.Text.StringBuilder();
 
@@ -1362,7 +1366,6 @@ internal sealed class PanelDockingService
             absorber.Width = new GridLength(1, GridUnitType.Star);
 
         UpdateTopZoneSplitterVisibility(occupiedRanks);
-        ApplyTopZonePanelWidths();
         ResetTopZoneLayoutColumnKinds();
 
         // Log actual column widths after WPF layout settles (ActualWidth is stale until then).
