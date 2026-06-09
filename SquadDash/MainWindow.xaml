@@ -365,7 +365,7 @@
     <Border x:Name="WindowFrameBorder"
             BorderBrush="{DynamicResource WindowBorder}"
             BorderThickness="1">
-    <Grid x:Name="ContentZoneGrid">
+    <Grid x:Name="ContentZoneGrid" ClipToBounds="False">
         <Grid.ColumnDefinitions>
             <ColumnDefinition x:Name="Left6ZoneColumn"    Width="0" MinWidth="0" />
             <ColumnDefinition x:Name="Left6SplitterColumn" Width="0" MinWidth="0" />
@@ -890,7 +890,7 @@
 
         </Grid>  <!-- end TitlebarGrid -->
 
-        <Grid x:Name="MainGrid" Grid.Column="12" Margin="12,52,6,14">
+        <Grid x:Name="MainGrid" Grid.Column="12" Margin="12,52,6,14" ClipToBounds="False">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
