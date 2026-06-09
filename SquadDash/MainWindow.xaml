@@ -1019,7 +1019,8 @@
                 Grid.Row="2"
                 Grid.Column="0"
                 Margin="0,-16,0,0"
-                Padding="0"
+                Padding="0,0,0,12"
+                ClipToBounds="False"
                 Background="Transparent"
                 BorderThickness="0">
             <Grid x:Name="StatusAgentPanelsGrid"
