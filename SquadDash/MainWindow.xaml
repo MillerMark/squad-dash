@@ -1151,24 +1151,37 @@
                             Margin="4,0,0,0"
                             VerticalAlignment="Top"
                             Padding="12"
+                            ClipToBounds="False"
                             Background="{DynamicResource RosterPanelSurface}"
                             BorderBrush="{DynamicResource RosterPanelBorder}"
                             BorderThickness="1"
                             CornerRadius="16">
-                        <Grid>
+                        <Grid x:Name="InactiveAgentsPanelGrid"
+                              ClipToBounds="False">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
+                            <Border x:Name="InactiveAgentCardGlowOverlay"
+                                    Grid.RowSpan="3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    IsHitTestVisible="False"
+                                    Visibility="Collapsed"
+                                    ClipToBounds="False"
+                                    Panel.ZIndex="0" />
+
                             <TextBlock x:Name="RosterPanelTitleTextBlock"
+                                       Panel.ZIndex="1"
                                        Text="Roster &amp; History"
                                        FontSize="{DynamicResource FontSizeLarge}"
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource RosterPanelTitle}" />
                             <TextBlock x:Name="RosterPanelSubtitleTextBlock"
                                        Grid.Row="1"
+                                       Panel.ZIndex="1"
                                        Text="Inactive teammates and completed threads"
                                        Margin="0,4,0,10"
                                        FontSize="{DynamicResource FontSizeBody}"
@@ -1177,9 +1190,11 @@
                                        TextWrapping="NoWrap" />
                             <ScrollViewer x:Name="InactiveAgentsScrollViewer"
                                           Grid.Row="2"
+                                          Panel.ZIndex="1"
                                           HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Auto"
-                                          CanContentScroll="False">
+                                          CanContentScroll="False"
+                                          ClipToBounds="False">
                                 <ItemsControl x:Name="InactiveAgentItemsControl"
                                               VerticalAlignment="Top"
                                               ItemTemplate="{StaticResource AgentCardTemplate}">

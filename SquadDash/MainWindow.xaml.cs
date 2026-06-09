@@ -1662,7 +1662,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // other parts of the window are changing.
             ActiveAgentsScrollViewer.LayoutUpdated += (_, _) =>
             {
-                InflateAgentScrollViewerClip();
+                InflateAgentScrollViewerClip(ActiveAgentsScrollViewer);
+                UpdateAgentCardGlowOverlayPosition();
+            };
+            InactiveAgentsScrollViewer.LayoutUpdated += (_, _) =>
+            {
+                InflateAgentScrollViewerClip(InactiveAgentsScrollViewer);
                 UpdateAgentCardGlowOverlayPosition();
             };
 
@@ -11154,12 +11159,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // DropShadowEffect glow on AgentCardBorder — regardless of ClipToBounds=False on the
     // ScrollViewer element.  We inflate the SCP clip by the maximum glow BlurRadius (28 px)
     // after each layout pass so the glow has room to render on all four sides.
-    private void InflateAgentScrollViewerClip()
+    private static void InflateAgentScrollViewerClip(ScrollViewer scrollViewer)
     {
         const double glowBlurRadius = 28.0;
 
-        if (ActiveAgentsScrollViewer.Template?.FindName(
-                "PART_ScrollContentPresenter", ActiveAgentsScrollViewer)
+        if (scrollViewer.Template?.FindName(
+                "PART_ScrollContentPresenter", scrollViewer)
             is not System.Windows.Controls.ScrollContentPresenter scp)
             return;
 
@@ -11179,19 +11184,62 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             clipRect.Rect = inflatedViewport;
     }
 
+    private bool TryGetAgentCardGlowOverlayContext(
+        Border agentCardBorder,
+        out Border overlay,
+        out FrameworkElement overlayCoordinateRoot)
+    {
+        var owningScrollViewer = FindVisualAncestor<ScrollViewer>(agentCardBorder);
+        if (ReferenceEquals(owningScrollViewer, ActiveAgentsScrollViewer))
+        {
+            overlay = AgentCardGlowOverlay;
+            overlayCoordinateRoot = ActiveAgentsPanelGrid;
+            return true;
+        }
+
+        if (ReferenceEquals(owningScrollViewer, InactiveAgentsScrollViewer))
+        {
+            overlay = InactiveAgentCardGlowOverlay;
+            overlayCoordinateRoot = InactiveAgentsPanelGrid;
+            return true;
+        }
+
+        overlay = null!;
+        overlayCoordinateRoot = null!;
+        return false;
+    }
+
+    private void HideAgentCardGlowOverlayElement(Border overlay)
+    {
+        if (overlay.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
+            cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+
+        overlay.Effect = null;
+        overlay.Visibility = Visibility.Collapsed;
+    }
+
     private void ShowAgentCardGlowOverlay(Border agentCardBorder, System.Windows.Media.Color accentColor, bool isDark)
     {
+        if (!TryGetAgentCardGlowOverlayContext(agentCardBorder, out var overlay, out _))
+        {
+            ApplyAgentCardBorderGlow(agentCardBorder, accentColor, isDark);
+            return;
+        }
+
+        if (!ReferenceEquals(agentCardBorder, _agentCardGlowOverlayTarget))
+            HideAgentCardGlowOverlay();
+
         _agentCardGlowOverlayTarget = agentCardBorder;
 
-        AgentCardGlowOverlay.BeginAnimation(UIElement.OpacityProperty, null);
-        AgentCardGlowOverlay.Opacity = 1;
-        AgentCardGlowOverlay.Visibility = Visibility.Visible;
-        AgentCardGlowOverlay.CornerRadius = agentCardBorder.CornerRadius;
-        AgentCardGlowOverlay.BorderThickness = agentCardBorder.BorderThickness;
-        AgentCardGlowOverlay.Background = agentCardBorder.Background;
-        AgentCardGlowOverlay.BorderBrush = agentCardBorder.BorderBrush;
-        AgentCardGlowOverlay.Width = agentCardBorder.ActualWidth;
-        AgentCardGlowOverlay.Height = agentCardBorder.ActualHeight;
+        overlay.BeginAnimation(UIElement.OpacityProperty, null);
+        overlay.Opacity = 1;
+        overlay.Visibility = Visibility.Visible;
+        overlay.CornerRadius = agentCardBorder.CornerRadius;
+        overlay.BorderThickness = agentCardBorder.BorderThickness;
+        overlay.Background = agentCardBorder.Background;
+        overlay.BorderBrush = agentCardBorder.BorderBrush;
+        overlay.Width = agentCardBorder.ActualWidth;
+        overlay.Height = agentCardBorder.ActualHeight;
         UpdateAgentCardGlowOverlayPosition();
 
         double cardStartOpacity = isDark ? 0.6 : 0.4;
@@ -11202,7 +11250,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ShadowDepth = 0,
             Opacity = cardStartOpacity
         };
-        AgentCardGlowOverlay.Effect = cardGlow;
+        overlay.Effect = cardGlow;
 
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             cardStartOpacity,
@@ -11214,8 +11262,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void UpdateAgentCardGlowOverlayPosition()
     {
         if (_agentCardGlowOverlayTarget is null
-            || AgentCardGlowOverlay.Visibility != Visibility.Visible
-            || !AgentCardGlowOverlay.IsLoaded)
+            || !TryGetAgentCardGlowOverlayContext(_agentCardGlowOverlayTarget, out var overlay, out var overlayCoordinateRoot)
+            || overlay.Visibility != Visibility.Visible
+            || !overlay.IsLoaded)
             return;
 
         if (!_agentCardGlowOverlayTarget.IsVisible)
@@ -11224,10 +11273,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        var topLeft = _agentCardGlowOverlayTarget.TranslatePoint(new System.Windows.Point(0, 0), ActiveAgentsPanelGrid);
-        AgentCardGlowOverlay.Margin = new Thickness(topLeft.X, topLeft.Y, 0, 0);
-        AgentCardGlowOverlay.Width = _agentCardGlowOverlayTarget.ActualWidth;
-        AgentCardGlowOverlay.Height = _agentCardGlowOverlayTarget.ActualHeight;
+        var topLeft = _agentCardGlowOverlayTarget.TranslatePoint(new System.Windows.Point(0, 0), overlayCoordinateRoot);
+        overlay.Margin = new Thickness(topLeft.X, topLeft.Y, 0, 0);
+        overlay.Width = _agentCardGlowOverlayTarget.ActualWidth;
+        overlay.Height = _agentCardGlowOverlayTarget.ActualHeight;
     }
 
     private void HideAgentCardGlowOverlay(Border? agentCardBorder = null)
@@ -11235,11 +11284,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (agentCardBorder is not null && !ReferenceEquals(agentCardBorder, _agentCardGlowOverlayTarget))
             return;
 
-        if (AgentCardGlowOverlay.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
-            cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-
-        AgentCardGlowOverlay.Effect = null;
-        AgentCardGlowOverlay.Visibility = Visibility.Collapsed;
+        HideAgentCardGlowOverlayElement(AgentCardGlowOverlay);
+        HideAgentCardGlowOverlayElement(InactiveAgentCardGlowOverlay);
         _agentCardGlowOverlayTarget = null;
     }
 
@@ -11294,12 +11340,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // inside ScrollViewer/item-presenter layout bounds, so applying the effect
             // directly to the card can still crop pixels on tight top/left edges.
             if (sender is System.Windows.Controls.Border agentCardBorder)
-            {
-                if (ReferenceEquals(FindVisualAncestor<ScrollViewer>(agentCardBorder), ActiveAgentsScrollViewer))
-                    ShowAgentCardGlowOverlay(agentCardBorder, accentColor, isDark);
-                else
-                    ApplyAgentCardBorderGlow(agentCardBorder, accentColor, isDark);
-            }
+                ShowAgentCardGlowOverlay(agentCardBorder, accentColor, isDark);
 
             // If this is the lead/coordinator agent, apply glow to main transcript border
             if (agentCard.IsLeadAgent)
