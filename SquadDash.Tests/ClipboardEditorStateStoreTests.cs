@@ -243,20 +243,21 @@ internal sealed class ClipboardEditorStateStoreTests {
     }
 
     [Test]
-    public async Task CleanupStaleFilesAsync_ActiveFiles_AreNotDeleted() {
+    public async Task CleanupStaleFilesAsync_StaleActiveFiles_AreDeleted() {
         using var workspace = new TestWorkspace();
         var store    = new ClipboardEditorStateStore(workspace.RootPath);
         var editorId = "stale-active-editor";
 
-        // Create a .active file that is 8 days old — cleanup only targets .pending
+        // Create a .active file that is 8 days old — stale active files (e.g. from crashed
+        // sessions) should be cleaned up just like stale pending files.
         var activePath = store.GetStateFilePath(editorId, isPending: false);
         File.WriteAllText(activePath, "{}");
         File.SetLastWriteTimeUtc(activePath, DateTime.UtcNow.AddDays(-8));
 
         await store.CleanupStaleFilesAsync(maxAgeHours: 168);
 
-        Assert.That(File.Exists(activePath), Is.True,
-            ".active files should NOT be cleaned up by stale cleanup");
+        Assert.That(File.Exists(activePath), Is.False,
+            "stale .active files should be cleaned up (orphaned from crashed sessions)");
     }
 
     // ------------------------------------------------------------------

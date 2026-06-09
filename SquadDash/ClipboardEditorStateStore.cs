@@ -156,7 +156,9 @@ internal sealed class ClipboardEditorStateStore {
             return;
 
         var cutoff = DateTime.UtcNow.AddHours(-maxAgeHours);
-        var staleFiles = Directory.GetFiles(_stateDirectory, "clipboard-editor-*-pending.json");
+        var pendingStale = Directory.GetFiles(_stateDirectory, "clipboard-editor-*-pending.json");
+        var activeStale  = Directory.GetFiles(_stateDirectory, "clipboard-editor-*-active.json");
+        var staleFiles   = pendingStale.Concat(activeStale);
         int count = 0;
 
         foreach (var file in staleFiles) {

@@ -26045,7 +26045,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 try
                 {
-                    await Dispatcher.InvokeAsync(async () =>
+                    bool shouldDelete = false;
+                    await Dispatcher.InvokeAsync(() =>
                     {
                         try
                         {
@@ -26081,7 +26082,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                 // No image to restore; skip this editor rather than open a blank one.
                                 SquadDashTrace.Write("ClipboardPersist",
                                     $"RestoreClipboardEditorsAsync: skipping editor {editorId} (no source image).");
-                                await _clipboardEditorStateStore.DeleteAsync(editorId, isPending: false).ConfigureAwait(false);
+                                shouldDelete = true;
                                 return;
                             }
 
@@ -26106,7 +26107,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             }
 
                             OpenEditorModeless(editor);
-                            await _clipboardEditorStateStore.DeleteAsync(editorId, isPending: false).ConfigureAwait(false);
+                            shouldDelete = true;
                             SquadDashTrace.Write("ClipboardPersist", $"Restored editor {editorId}.");
                         }
                         catch (Exception ex)
@@ -26115,6 +26116,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                 $"RestoreClipboardEditorsAsync: failed to restore editor {editorId}: {ex.Message}");
                         }
                     });
+                    if (shouldDelete)
+                        await _clipboardEditorStateStore.DeleteAsync(editorId, isPending: false).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
