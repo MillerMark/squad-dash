@@ -27051,8 +27051,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             .OrderBy(static s => s.Order)
             .Select(static s => $"{s.PanelId}@{s.Order}")
             .ToArray() ?? [];
+        var visibleTopSlots = _dockingService?.CurrentLayout.Slots
+            .Where(static s => s.Zone == DockZone.Top)
+            .OrderBy(static s => s.Order)
+            .Where(s => TryGetDockedPanel(s.PanelId, out var element) &&
+                        element.Visibility != Visibility.Collapsed)
+            .Select(static s => $"{s.PanelId}@{s.Order}")
+            .ToArray() ?? [];
 
-        sb.AppendLine($"TopSlots count={topSlots.Length} [{string.Join(", ", topSlots)}]");
+        sb.AppendLine(
+            $"TopSlots modelCount={topSlots.Length} visibleCount={visibleTopSlots.Length} " +
+            $"model=[{string.Join(", ", topSlots)}] visible=[{string.Join(", ", visibleTopSlots)}]");
 
         var cols = TopZonePanelsGrid.ColumnDefinitions;
         var interestingColumns = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
@@ -27096,6 +27105,34 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             $"activeExtent={FormatSize(ActiveAgentsScrollViewer.ExtentWidth, ActiveAgentsScrollViewer.ExtentHeight)} " +
             $"inactiveActual={FormatSize(InactiveAgentsScrollViewer.ActualWidth, InactiveAgentsScrollViewer.ActualHeight)} " +
             $"inactiveExtent={FormatSize(InactiveAgentsScrollViewer.ExtentWidth, InactiveAgentsScrollViewer.ExtentHeight)}");
+    }
+
+    private bool TryGetDockedPanel(string panelId, out FrameworkElement element)
+    {
+        switch (panelId)
+        {
+            case "loop":
+                element = LoopPanelBorder;
+                return true;
+            case "tasks":
+                element = TasksPanelBorder;
+                return true;
+            case "approvals":
+                element = ApprovalPanelBorder;
+                return true;
+            case "notes":
+                element = NotesPanelBorder;
+                return true;
+            case "maintenance":
+                element = MaintenancePanelBorder;
+                return true;
+            case "inbox":
+                element = InboxPanelBorder;
+                return true;
+            default:
+                element = null!;
+                return false;
+        }
     }
 
     private string FormatElementBounds(FrameworkElement element)

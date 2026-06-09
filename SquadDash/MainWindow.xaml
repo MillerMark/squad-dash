@@ -1045,10 +1045,8 @@
                                           MinWidth="260" />
                         <!-- col 2: spacer -->
                         <ColumnDefinition Width="2" />
-                        <!-- col 3: flex absorber — permanently 1* so it soaks up unused space
-                             between the roster panels and the rightmost docked panel.  Prevents
-                             overflow when all docked-panel columns become fixed-pixel or Auto
-                             after a splitter drag.  PanelDockingService keeps this at 1*. -->
+                        <!-- col 3: legacy absorber. Kept collapsed so Roster & History
+                             expands up to the first visible top-zone panel. -->
                         <ColumnDefinition Width="0" MinWidth="0" />
                         <!-- col 4: TopZoneSplitter01 (left of rank-0 panel) -->
                         <ColumnDefinition Width="4" />

@@ -1327,6 +1327,10 @@ internal sealed class PanelDockingService
             .Where(s => s.Zone == DockZone.Top)
             .OrderBy(s => s.Order)
             .ToList();
+        var visibleTopSlots = topSlots
+            .Where(s => _panelRegistry.TryGetValue(s.PanelId, out var element) &&
+                        element.Visibility != Visibility.Collapsed)
+            .ToList();
 
         // Trim stale ghost widths so the persisted list never has more entries than occupied ranks.
         if (CurrentLayout.TopZonePanelWidths is { } widthList && widthList.Count > topSlots.Count)
@@ -1345,41 +1349,29 @@ internal sealed class PanelDockingService
             }
         }
 
-        for (int rank = 0; rank < topSlots.Count && rank < TopZonePhysicalColumns.Length; rank++)
+        for (int rank = 0; rank < visibleTopSlots.Count && rank < TopZonePhysicalColumns.Length; rank++)
         {
             var col = TopZonePhysicalColumns[rank];
-            assignments.Append($" {topSlots[rank].PanelId}→col{col}");
-            if (_panelRegistry.TryGetValue(topSlots[rank].PanelId, out var element))
+            assignments.Append($" {visibleTopSlots[rank].PanelId}→col{col}");
+            if (_panelRegistry.TryGetValue(visibleTopSlots[rank].PanelId, out var element))
             {
                 Grid.SetColumn(element, col);
 
-                if (element.Visibility == Visibility.Collapsed)
+                occupiedRanks[rank] = true;
+                if (_topZonePanelColumns[rank] is { } colDef)
                 {
-                    // Hidden panel — keep slot in layout but collapse its column.
-                    if (_topZonePanelColumns[rank] is { } hiddenColDef)
-                    {
-                        hiddenColDef.Width    = new GridLength(0);
-                        hiddenColDef.MinWidth = 0;
-                    }
-                }
-                else
-                {
-                    occupiedRanks[rank] = true;
-                    if (_topZonePanelColumns[rank] is { } colDef)
-                    {
-                        double minW = element.MinWidth > 0 ? element.MinWidth : 80;
-                        colDef.MinWidth = minW;
-                        double defaultW = Math.Max(minW, 280);
-                        // Prefer the panel's own current ActualWidth (rank-independent) so that
-                        // reordering panels within the top zone preserves each panel's width.
-                        // Fall back to the rank-indexed persisted value only on first load (when
-                        // ActualWidth is 0 because the element hasn't been rendered yet).
-                        double actualW = element.ActualWidth is >= 80 and <= 1200 ? element.ActualWidth : 0;
-                        double persistedW = actualW > 0 ? 0
-                            : CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
-                                ? pw[rank] : 0;
-                        colDef.Width = new GridLength(actualW > 0 ? actualW : persistedW > 0 ? persistedW : defaultW);
-                    }
+                    double minW = element.MinWidth > 0 ? element.MinWidth : 80;
+                    colDef.MinWidth = minW;
+                    double defaultW = Math.Max(minW, 280);
+                    // Prefer the panel's own current ActualWidth (rank-independent) so that
+                    // reordering panels within the top zone preserves each panel's width.
+                    // Fall back to the rank-indexed persisted value only on first load (when
+                    // ActualWidth is 0 because the element hasn't been rendered yet).
+                    double actualW = element.ActualWidth is >= 80 and <= 1200 ? element.ActualWidth : 0;
+                    double persistedW = actualW > 0 ? 0
+                        : CurrentLayout?.TopZonePanelWidths is { } pw && rank < pw.Count && pw[rank] is >= 80 and <= 1200
+                            ? pw[rank] : 0;
+                    colDef.Width = new GridLength(actualW > 0 ? actualW : persistedW > 0 ? persistedW : defaultW);
                 }
             }
         }
@@ -1449,6 +1441,8 @@ internal sealed class PanelDockingService
         var topSlots = CurrentLayout.Slots
             .Where(s => s.Zone == DockZone.Top)
             .OrderBy(s => s.Order)
+            .Where(s => _panelRegistry.TryGetValue(s.PanelId, out var element) &&
+                        element.Visibility != Visibility.Collapsed)
             .ToList();
 
         for (int rank = 0; rank < topSlots.Count && rank < _topZonePanelColumns.Length; rank++)
@@ -1545,13 +1539,13 @@ internal sealed class PanelDockingService
 
     private void ResetTopZoneLayoutColumnKinds(bool[]? occupiedRanks = null)
     {
-        // The flex absorber (col 3) is permanently 1* — it soaks up unused space between the
-        // roster panels and the rightmost docked panel, preventing overflow when all panel
-        // columns are fixed-pixel or Auto after a drag.
+        // Keep the legacy absorber collapsed. Roster & History (col 1) owns the flexible
+        // space up to the first visible top-zone panel; otherwise col 3 appears as a blank
+        // gap between the roster and docked panels.
         if (_topZoneFlexAbsorberColumn is { } absorber)
         {
             absorber.MinWidth = 0;
-            absorber.Width = new GridLength(1, GridUnitType.Star);
+            absorber.Width = new GridLength(0);
         }
 
         if (_topZoneGrid?.ColumnDefinitions is not { } cols)
@@ -1580,13 +1574,12 @@ internal sealed class PanelDockingService
         var topSlots = CurrentLayout.Slots
             .Where(s => s.Zone == DockZone.Top)
             .OrderBy(s => s.Order)
+            .Where(s => _panelRegistry is not null &&
+                        _panelRegistry.TryGetValue(s.PanelId, out var element) &&
+                        element.Visibility != Visibility.Collapsed)
             .ToList();
         for (int rank = 0; rank < topSlots.Count && rank < result.Length; rank++)
-        {
-            if (_panelRegistry.TryGetValue(topSlots[rank].PanelId, out var element) &&
-                element is not null && element.Visibility != Visibility.Collapsed)
-                result[rank] = true;
-        }
+            result[rank] = true;
         return result;
     }
 
