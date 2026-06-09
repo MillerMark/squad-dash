@@ -529,6 +529,10 @@
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem Header="_Preferences..."
                               Click="PreferencesMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem Header="E_xit"
+                              InputGestureText="Alt+F4"
+                              Click="ExitMenuItem_Click" />
                 </MenuItem>
                 <MenuItem Header="_Edit"
                           x:Name="EditMenuItem"

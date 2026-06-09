@@ -24629,6 +24629,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _userCloseRequested = true;
+            SquadDashTrace.Write("Shutdown", "Exit menu item clicked.");
+            SystemCommands.CloseWindow(this);
+        }
+        catch (Exception ex)
+        {
+            _userCloseRequested = false;
+            HandleUiCallbackException(nameof(ExitMenuItem_Click), ex);
+        }
+    }
+
     private void TitlebarGrid_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         try
