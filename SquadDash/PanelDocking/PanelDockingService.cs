@@ -1385,13 +1385,14 @@ internal sealed class PanelDockingService
         }
         SquadDashTrace.Write(TraceCategory.Docking, $"RebuildTopZoneLayout:{assignments}");
 
-        // Flex absorber (col 3) is always 1* so it fills space to the left of the panels,
-        // creating a natural "panels anchored to the right" layout.
-        if (_topZoneFlexAbsorberColumn is { } absorber)
-            absorber.Width = new GridLength(1, GridUnitType.Star);
-
         UpdateTopZoneSplitterVisibility(occupiedRanks);
         ResetTopZoneLayoutColumnKinds(occupiedRanks);
+
+        // Bug 3: when all top-zone panels are removed, restore the left-boundary column (col 1,
+        // InactiveAgents) back to 1* so the roster/history panels expand to fill the top zone
+        // instead of leaving dead space to their right.
+        if (!occupiedRanks.Any(r => r) && _topZoneLeftBoundaryColumn is not null)
+            _topZoneLeftBoundaryColumn.Width = new GridLength(1, GridUnitType.Star);
 
         // Log actual column widths after WPF layout settles (ActualWidth is stale until then).
         _topZoneGrid.Dispatcher.BeginInvoke(
@@ -1544,10 +1545,13 @@ internal sealed class PanelDockingService
 
     private void ResetTopZoneLayoutColumnKinds(bool[]? occupiedRanks = null)
     {
+        // The flex absorber (col 3) is permanently 1* — it soaks up unused space between the
+        // roster panels and the rightmost docked panel, preventing overflow when all panel
+        // columns are fixed-pixel or Auto after a drag.
         if (_topZoneFlexAbsorberColumn is { } absorber)
         {
             absorber.MinWidth = 0;
-            absorber.Width = new GridLength(0);
+            absorber.Width = new GridLength(1, GridUnitType.Star);
         }
 
         if (_topZoneGrid?.ColumnDefinitions is not { } cols)
