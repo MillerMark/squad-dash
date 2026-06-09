@@ -401,6 +401,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly Dictionary<TranscriptThreadState, PrimaryTranscriptHostEntry> _primaryAgentTranscriptHosts =
         new(ReferenceEqualityComparer.Instance);
     private readonly List<TranscriptThreadState> _primaryAgentHostMru = [];
+    private Border? _agentCardGlowOverlayTarget;
     private readonly Dictionary<TranscriptThreadState, RichTextBox> _bulkChangeTranscriptBoxes =
         new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<TranscriptThreadState, TranscriptSnapshot> _transcriptSnapshots =
@@ -1657,9 +1658,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // to the viewport rect) during ArrangeOverride; ClipToBounds=False on the outer
             // ScrollViewer does not affect that explicit Clip.  We subscribe to LayoutUpdated
             // once and re-inflate the SCP clip after every layout pass so the glow is never
-            // cropped.  Modifying RectangleGeometry.Rect triggers only a render invalidation,
-            // not a layout pass, so there is no feedback loop.
-            ActiveAgentsScrollViewer.LayoutUpdated += (_, _) => InflateAgentScrollViewerClip();
+            // cropped.  Keep this idempotent because LayoutUpdated can run many times while
+            // other parts of the window are changing.
+            ActiveAgentsScrollViewer.LayoutUpdated += (_, _) =>
+            {
+                InflateAgentScrollViewerClip();
+                UpdateAgentCardGlowOverlayPosition();
+            };
 
             if (_startupInitialized)
                 return;
@@ -11161,9 +11166,109 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (scp.Clip is not System.Windows.Media.RectangleGeometry clipRect)
             return;
 
-        var r = clipRect.Rect;
-        r.Inflate(glowBlurRadius, glowBlurRadius);
-        clipRect.Rect = r;
+        if (scp.ActualWidth <= 0 || scp.ActualHeight <= 0)
+            return;
+
+        var inflatedViewport = new Rect(
+            -glowBlurRadius,
+            -glowBlurRadius,
+            scp.ActualWidth + glowBlurRadius * 2,
+            scp.ActualHeight + glowBlurRadius * 2);
+
+        if (clipRect.Rect != inflatedViewport)
+            clipRect.Rect = inflatedViewport;
+    }
+
+    private void ShowAgentCardGlowOverlay(Border agentCardBorder, System.Windows.Media.Color accentColor, bool isDark)
+    {
+        _agentCardGlowOverlayTarget = agentCardBorder;
+
+        AgentCardGlowOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+        AgentCardGlowOverlay.Opacity = 1;
+        AgentCardGlowOverlay.Visibility = Visibility.Visible;
+        AgentCardGlowOverlay.CornerRadius = agentCardBorder.CornerRadius;
+        AgentCardGlowOverlay.BorderThickness = agentCardBorder.BorderThickness;
+        AgentCardGlowOverlay.Background = agentCardBorder.Background;
+        AgentCardGlowOverlay.BorderBrush = agentCardBorder.BorderBrush;
+        AgentCardGlowOverlay.Width = agentCardBorder.ActualWidth;
+        AgentCardGlowOverlay.Height = agentCardBorder.ActualHeight;
+        UpdateAgentCardGlowOverlayPosition();
+
+        double cardStartOpacity = isDark ? 0.6 : 0.4;
+        var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = accentColor,
+            BlurRadius = isDark ? 28 : 20,
+            ShadowDepth = 0,
+            Opacity = cardStartOpacity
+        };
+        AgentCardGlowOverlay.Effect = cardGlow;
+
+        var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
+            cardStartOpacity,
+            1.0,
+            TimeSpan.FromMilliseconds(2000));
+        cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
+    }
+
+    private void UpdateAgentCardGlowOverlayPosition()
+    {
+        if (_agentCardGlowOverlayTarget is null
+            || AgentCardGlowOverlay.Visibility != Visibility.Visible
+            || !AgentCardGlowOverlay.IsLoaded)
+            return;
+
+        if (!_agentCardGlowOverlayTarget.IsVisible)
+        {
+            HideAgentCardGlowOverlay(_agentCardGlowOverlayTarget);
+            return;
+        }
+
+        var topLeft = _agentCardGlowOverlayTarget.TranslatePoint(new System.Windows.Point(0, 0), ActiveAgentsPanelGrid);
+        AgentCardGlowOverlay.Margin = new Thickness(topLeft.X, topLeft.Y, 0, 0);
+        AgentCardGlowOverlay.Width = _agentCardGlowOverlayTarget.ActualWidth;
+        AgentCardGlowOverlay.Height = _agentCardGlowOverlayTarget.ActualHeight;
+    }
+
+    private void HideAgentCardGlowOverlay(Border? agentCardBorder = null)
+    {
+        if (agentCardBorder is not null && !ReferenceEquals(agentCardBorder, _agentCardGlowOverlayTarget))
+            return;
+
+        if (AgentCardGlowOverlay.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
+            cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+
+        AgentCardGlowOverlay.Effect = null;
+        AgentCardGlowOverlay.Visibility = Visibility.Collapsed;
+        _agentCardGlowOverlayTarget = null;
+    }
+
+    private static void ApplyAgentCardBorderGlow(Border agentCardBorder, System.Windows.Media.Color accentColor, bool isDark)
+    {
+        double cardStartOpacity = isDark ? 0.6 : 0.4;
+        var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = accentColor,
+            BlurRadius = isDark ? 28 : 20,
+            ShadowDepth = 0,
+            Opacity = cardStartOpacity
+        };
+        agentCardBorder.Effect = cardGlow;
+
+        var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
+            cardStartOpacity,
+            1.0,
+            TimeSpan.FromMilliseconds(2000));
+        cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
+    }
+
+    private static void ClearAgentCardBorderGlow(Border agentCardBorder)
+    {
+        if (agentCardBorder.Effect is not System.Windows.Media.Effects.DropShadowEffect cardGlow)
+            return;
+
+        cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+        agentCardBorder.Effect = null;
     }
 
     private void AgentCardBorder_MouseEnter(object sender, MouseEventArgs e)
@@ -11185,21 +11290,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
             }
 
-            // Apply glow to the agent card border itself
+            // Render card hover glow from an unclipped sibling overlay.  The card lives
+            // inside ScrollViewer/item-presenter layout bounds, so applying the effect
+            // directly to the card can still crop pixels on tight top/left edges.
             if (sender is System.Windows.Controls.Border agentCardBorder)
             {
-                double cardStartOpacity = isDark ? 0.6 : 0.4;
-                var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = accentColor,
-                    BlurRadius = isDark ? 28 : 20,
-                    ShadowDepth = 0,
-                    Opacity = cardStartOpacity
-                };
-                agentCardBorder.Effect = cardGlow;
-
-                var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(cardStartOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
-                cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
+                if (ReferenceEquals(FindVisualAncestor<ScrollViewer>(agentCardBorder), ActiveAgentsScrollViewer))
+                    ShowAgentCardGlowOverlay(agentCardBorder, accentColor, isDark);
+                else
+                    ApplyAgentCardBorderGlow(agentCardBorder, accentColor, isDark);
             }
 
             // If this is the lead/coordinator agent, apply glow to main transcript border
@@ -11257,12 +11356,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (sender is not FrameworkElement { DataContext: AgentStatusCard agentCard })
                 return;
 
-            // Remove glow effect from the agent card border itself
-            if (sender is System.Windows.Controls.Border agentCardBorder
-                && agentCardBorder.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
+            if (sender is System.Windows.Controls.Border agentCardBorder)
             {
-                cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                agentCardBorder.Effect = null;
+                HideAgentCardGlowOverlay(agentCardBorder);
+                ClearAgentCardBorderGlow(agentCardBorder);
             }
 
             // If this is the lead/coordinator agent, remove glow from main transcript border

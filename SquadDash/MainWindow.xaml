@@ -1090,14 +1090,24 @@
                             BorderThickness="1"
                             CornerRadius="16"
                             MouseRightButtonUp="ActiveAgentsPanelBorder_MouseRightButtonUp">
-                        <Grid>
+                        <Grid x:Name="ActiveAgentsPanelGrid"
+                              ClipToBounds="False">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <Grid>
+                            <Border x:Name="AgentCardGlowOverlay"
+                                    Grid.RowSpan="3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    IsHitTestVisible="False"
+                                    Visibility="Collapsed"
+                                    ClipToBounds="False"
+                                    Panel.ZIndex="0" />
+
+                            <Grid Panel.ZIndex="1">
                                 <TextBlock x:Name="ActivePanelTitleTextBlock"
                                            Text="Active"
                                            FontSize="{DynamicResource FontSizeLarge}"
@@ -1109,6 +1119,7 @@
                             </Grid>
                             <TextBlock x:Name="ActivePanelSubtitleTextBlock"
                                        Grid.Row="1"
+                                       Panel.ZIndex="1"
                                        Text="Coordinator + any active agents."
                                        Margin="0,4,0,10"
                                        FontSize="{DynamicResource FontSizeBody}"
@@ -1116,6 +1127,7 @@
                                        TextWrapping="Wrap" />
                             <ScrollViewer x:Name="ActiveAgentsScrollViewer"
                                           Grid.Row="2"
+                                          Panel.ZIndex="1"
                                           HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Disabled"
                                           CanContentScroll="False"
