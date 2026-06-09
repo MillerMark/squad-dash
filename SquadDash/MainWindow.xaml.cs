@@ -11520,8 +11520,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            if (_leadAgent is null) return;
-            TranscriptPanelBorder_MouseEnter(_leadAgent);
+            // Use the agent whose transcript is currently displayed in the main panel,
+            // not always _leadAgent — the user may have clicked a different agent card.
+            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
+            if (displayedAgent is null) return;
+            TranscriptPanelBorder_MouseEnter(displayedAgent);
         }
         catch (Exception ex)
         {
@@ -11533,8 +11536,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            if (_leadAgent is null) return;
-            TranscriptPanelBorder_MouseLeave(_leadAgent);
+            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
+            if (displayedAgent is null) return;
+            TranscriptPanelBorder_MouseLeave(displayedAgent);
         }
         catch (Exception ex)
         {
