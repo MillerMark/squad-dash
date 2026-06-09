@@ -1019,7 +1019,7 @@
                 Grid.Row="2"
                 Grid.Column="0"
                 Margin="0,-8,0,0"
-                Padding="0,8,0,12"
+                Padding="0"
                 ClipToBounds="False"
                 Background="Transparent"
                 BorderThickness="0">
