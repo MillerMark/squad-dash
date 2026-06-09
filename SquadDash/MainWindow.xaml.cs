@@ -34145,8 +34145,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         bool hasQueuedTab = _activeTabId is not null;
 
         EditPasteAsAttachmentMenuItem.IsEnabled = isPrompt;
+        EditCopyAppendMenuItem.IsEnabled        = hasSel;
 
-        EditBoldMenuItem.IsEnabled          = hasSel;
+        EditBoldMenuItem.IsEnabled= hasSel;
         EditItalicMenuItem.IsEnabled        = hasSel;
         EditInlineCodeMenuItem.IsEnabled    = hasSel;
         EditQuotesMenuItem.IsEnabled        = hasSel;
