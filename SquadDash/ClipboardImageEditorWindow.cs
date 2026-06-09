@@ -3872,7 +3872,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         const double StandardHeadHalf = 6.0;
         
         double fullArrowLength = arrow.ArrowLength + arrow.TailLength;
-        double maxArrowheadDepth = fullArrowLength / 3.0;
+        double maxArrowheadDepth = fullArrowLength * 0.45;
         
         double HeadLen = StandardHeadLen;
         if (HeadLen > maxArrowheadDepth)
