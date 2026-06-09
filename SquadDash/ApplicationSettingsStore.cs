@@ -440,12 +440,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
-    public ApplicationSettingsSnapshot SaveUtilityWindowState(bool tasksWindowOpen, bool traceWindowOpen, bool approvalWindowOpen = false, bool dockingTestPlaybackWindowOpen = false) {
+    public ApplicationSettingsSnapshot SaveUtilityWindowState(bool tasksWindowOpen, bool traceWindowOpen, bool approvalWindowOpen = false, bool dockingTestPlaybackWindowOpen = false, double? traceWindowOffsetX = null, double? traceWindowOffsetY = null) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
         var updated = current with {
             TasksWindowOpen                  = tasksWindowOpen,
             TraceWindowOpen                  = traceWindowOpen,
+            TraceWindowOffsetX               = traceWindowOffsetX,
+            TraceWindowOffsetY               = traceWindowOffsetY,
             ApprovalWindowOpen               = approvalWindowOpen,
             DockingTestPlaybackWindowOpen    = dockingTestPlaybackWindowOpen,
         };
@@ -1039,6 +1041,8 @@ internal sealed record ApplicationSettingsSnapshot(
     public string? CopilotDefaultModel { get; init; } = DefaultCopilotModel;
     public bool TasksWindowOpen { get; init; }
     public bool TraceWindowOpen { get; init; }
+    public double? TraceWindowOffsetX { get; init; }
+    public double? TraceWindowOffsetY { get; init; }
     public bool ApprovalWindowOpen { get; init; }
     public bool DockingTestPlaybackWindowOpen { get; init; }
 
@@ -1506,6 +1510,8 @@ internal sealed record ApplicationSettingsSnapshot(
             CopilotDefaultModel = NormalizeCopilotDefaultModel(CopilotDefaultModel),
             TasksWindowOpen = TasksWindowOpen,
             TraceWindowOpen = TraceWindowOpen,
+            TraceWindowOffsetX = TraceWindowOffsetX,
+            TraceWindowOffsetY = TraceWindowOffsetY,
             ApprovalWindowOpen = ApprovalWindowOpen,
             DockingTestPlaybackWindowOpen = DockingTestPlaybackWindowOpen,
             DisabledTraceCategories = (DisabledTraceCategories ?? Enum.GetNames<TraceCategory>())

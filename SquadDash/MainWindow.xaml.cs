@@ -518,7 +518,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private WorkspaceOwnershipLease? _workspaceOwnershipLease;
     private bool _startupInitialized;
     private (string FolderPath, WorkspaceWindowPlacement Placement)? _pendingWindowPlacement;
-    private (bool TasksOpen, bool TraceOpen, bool PlaybackWindowOpen)? _pendingUtilityWindowState;
+    private (bool TasksOpen, bool TraceOpen, bool PlaybackWindowOpen, double? TraceOffsetX, double? TraceOffsetY)? _pendingUtilityWindowState;
     private SquadDash.PanelDocking.DockingTestPlaybackWindow? _dockingTestPlaybackWindow;
     private (bool Open, List<string>? ExpandedNodes, string? SelectedTopic, double? DocsPanelWidth, double? DocsTopicsWidth, double? DocsPanelWidthFraction, double? DocsTopicsWidthFraction, bool? DocsSourceOpen, double? DocsSourceWidth)? _pendingDocsPanelState;
     private WorkspaceDocsPanelState? _docsPanelState; // loaded at startup, updated on save
@@ -24749,7 +24749,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (pendingPlacement is { } p)
                         _settingsStore.SaveWindowPlacement(p.FolderPath, p.Placement);
                     if (pendingUtilityWindowState is { } u)
-                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen, dockingTestPlaybackWindowOpen: u.PlaybackWindowOpen);
+                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen, dockingTestPlaybackWindowOpen: u.PlaybackWindowOpen, traceWindowOffsetX: u.TraceOffsetX, traceWindowOffsetY: u.TraceOffsetY);
                     if (pendingDocsPanelState is { } docs)
                         _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, new WorkspaceDocsPanelState
                         {
@@ -24953,7 +24953,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _pendingUtilityWindowState = (
                 _tasksStatusWindow is { IsVisible: true },
                 _traceWindow is { IsVisible: true },
-                _dockingTestPlaybackWindow is { IsVisible: true });
+                _dockingTestPlaybackWindow is { IsVisible: true },
+                _traceWindowOffset?.X,
+                _traceWindowOffset?.Y);
 
             // Persist open inbox viewer IDs.
             if (_inboxStore is not null)
@@ -28622,6 +28624,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_settingsSnapshot.TraceWindowOpen)
         {
             SquadDashTrace.Write("Startup", "Restoring live trace window from previous session.");
+            if (_settingsSnapshot.TraceWindowOffsetX is { } ox && _settingsSnapshot.TraceWindowOffsetY is { } oy)
+                _traceWindowOffset = new Vector(ox, oy);
             ShowTraceWindow();
         }
 
