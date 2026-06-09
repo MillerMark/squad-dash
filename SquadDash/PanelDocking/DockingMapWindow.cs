@@ -341,9 +341,31 @@ internal sealed class DockingMapWindow : Window
     /// </summary>
     public void ShowAtScreenPoint(Point clickScreenPoint)
     {
-        // Position so source slot center aligns with click point
-        Left = clickScreenPoint.X - _viewModel.SourceSlotCenterX;
-        Top  = clickScreenPoint.Y - _viewModel.SourceSlotCenterY;
+        // clickScreenPoint is in physical device pixels (from PointToScreen on the owner window).
+        // Window.Left/Top are in WPF logical units (DIPs). Convert physical → logical using the
+        // owner window's DPI transform so positioning is correct on high-DPI monitors.
+        double sx = 1, sy = 1;
+        if (Owner is { } owner)
+        {
+            var src = PresentationSource.FromVisual(owner);
+            if (src?.CompositionTarget is { } ct)
+            {
+                var m = ct.TransformToDevice;
+                sx = m.M11 > 0 ? m.M11 : 1;
+                sy = m.M22 > 0 ? m.M22 : 1;
+            }
+        }
+        double logicalX = clickScreenPoint.X / sx;
+        double logicalY = clickScreenPoint.Y / sy;
+
+        Left = logicalX - _viewModel.SourceSlotCenterX;
+        Top  = logicalY - _viewModel.SourceSlotCenterY;
+
+        SquadDashTrace.Write(TraceCategory.Docking,
+            $"ShowAtScreenPoint: clickPhys=({clickScreenPoint.X:F0},{clickScreenPoint.Y:F0}) " +
+            $"dpiScale=({sx:F3},{sy:F3}) clickLogical=({logicalX:F0},{logicalY:F0}) " +
+            $"srcCenter=({_viewModel.SourceSlotCenterX:F0},{_viewModel.SourceSlotCenterY:F0}) " +
+            $"→ Left={Left:F0} Top={Top:F0}");
 
         Show();
 

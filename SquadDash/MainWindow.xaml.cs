@@ -13071,6 +13071,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     var mousePos    = System.Windows.Input.Mouse.GetPosition(this);
                     var screenPoint = PointToScreen(mousePos);
+                    SquadDashTrace.Write(TraceCategory.Docking,
+                        $"GripStrip.OpenDockingMap: panel={id} " +
+                        $"mouseLogical=({mousePos.X:F0},{mousePos.Y:F0}) " +
+                        $"screenPhys=({screenPoint.X:F0},{screenPoint.Y:F0}) " +
+                        $"windowState={WindowState} Left={Left:F0} Top={Top:F0} " +
+                        $"ActualW={ActualWidth:F0} ActualH={ActualHeight:F0}");
                     var visibleIds  = dockable
                         .Where(d => d.Border.Visibility == Visibility.Visible)
                         .Select(d => d.PanelId)
