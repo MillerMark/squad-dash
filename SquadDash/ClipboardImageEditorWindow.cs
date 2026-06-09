@@ -2021,7 +2021,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             var dx = headPt.X - tailPt.X;
             var dy = headPt.Y - tailPt.Y;
             var dist2 = Math.Sqrt(dx * dx + dy * dy);
-            if (dist2 > 4) {
+            if (dist2 > 0) {
                 var ux2 = dx / dist2; var uy2 = dy / dist2;
                 // Cap arrowhead to half the drag distance so it never swallows the shaft.
                 double HeadLen = Math.Min(16.0, dist2 * 0.5);
@@ -2396,11 +2396,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             var dy = headPt.Y - tailPt.Y;
             var dist = Math.Sqrt(dx * dx + dy * dy);
 
-            if (dist >= 40.0) {
+            if (dist >= 1.0) {
+                // Any meaningful drag produces an arrow exactly matching the drag vector.
                 _preDragSnapshot = null; // let CreateArrow handle its own undo push
                 PlaceArrowFromDrag(tailPt, headPt, dist);
             }
-            else if (dist < 5.0) {
+            else {
                 // Click without drag: drop an arrow at the click point using the last-used angle/length.
                 _preDragSnapshot = null;
                 var rad = _lastDragArrowAngleDeg * Math.PI / 180.0;
@@ -2409,9 +2410,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 var synTailPt = new Point(headPt.X + ux * _lastDragArrowTailLength,
                                           headPt.Y + uy * _lastDragArrowTailLength);
                 PlaceArrowFromDrag(synTailPt, headPt, _lastDragArrowTailLength);
-            }
-            else {
-                _preDragSnapshot = null;
             }
             e.Handled = true;
             return;
@@ -3522,7 +3520,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var ux = (tailPt.X - headPt.X) / dist;
         var uy = (tailPt.Y - headPt.Y) / dist;
 
-        double tailLen  = Math.Max(20.0, dist);
+        double tailLen  = dist;
 
         // ux = sin(rad), uy = -cos(rad) => rad = atan2(ux, -uy)
         double angleDeg = Math.Atan2(ux, -uy) * 180.0 / Math.PI;
