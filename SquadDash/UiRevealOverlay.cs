@@ -801,6 +801,14 @@ internal sealed class UiRevealOverlay
 
     /// <summary>
     /// Returns a short descriptive label for a visual tree node, including:
+    private static string FormatThickness(Thickness t)
+    {
+        static int R(double v) => (int)Math.Round(v);
+        if (t.Left == t.Right && t.Top == t.Bottom)
+            return t.Left == t.Top ? $"{R(t.Left)}" : $"{R(t.Left)},{R(t.Top)}";
+        return $"{R(t.Left)},{R(t.Top)},{R(t.Right)},{R(t.Bottom)}";
+    }
+
     /// - The type name
     /// - The x:Name (if any, via FrameworkElement.Name or FrameworkContentElement.Name)
     /// - Whether it implements ILiveElementLocator / IFixtureLoader / IReplayableUiAction
@@ -852,12 +860,9 @@ internal sealed class UiRevealOverlay
                 if (hasLeft) segments.Add($"Left = {(int)Math.Round(leftVal)}");
                 if (hasTop)  segments.Add($"Top = {(int)Math.Round(topVal)}");
 
-                var window = Window.GetWindow(feGeo);
-                if (window is not null)
-                {
-                    var pt = feGeo.TranslatePoint(new System.Windows.Point(0, 0), window);
-                    segments.Add($"pos = ({(int)Math.Round(pt.X)}, {(int)Math.Round(pt.Y)})");
-                }
+                // Absolute screen coordinates via PointToScreen (physical pixels, DPI-aware)
+                var screenPt = feGeo.PointToScreen(new System.Windows.Point(0, 0));
+                segments.Add($"pos = ({(int)Math.Round(screenPt.X)}, {(int)Math.Round(screenPt.Y)})");
 
                 segments.Add($"size = [{(int)Math.Round(feGeo.ActualWidth)}, {(int)Math.Round(feGeo.ActualHeight)}]");
 
@@ -869,6 +874,16 @@ internal sealed class UiRevealOverlay
                     if (row > 0 || col > 0)
                         segments.Add($"row {row}, col {col}");
                 }
+
+                var margin = feGeo.Margin;
+                if (margin.Left != 0 || margin.Top != 0 || margin.Right != 0 || margin.Bottom != 0)
+                    segments.Add($"margin = {FormatThickness(margin)}");
+
+                Thickness padding = default;
+                if (feGeo is System.Windows.Controls.Control ctrl2)  padding = ctrl2.Padding;
+                else if (feGeo is Border bdr2)                        padding = bdr2.Padding;
+                if (padding.Left != 0 || padding.Top != 0 || padding.Right != 0 || padding.Bottom != 0)
+                    segments.Add($"padding = {FormatThickness(padding)}");
 
                 if (segments.Count > 0)
                     label += "   --   " + string.Join("   ·   ", segments);
