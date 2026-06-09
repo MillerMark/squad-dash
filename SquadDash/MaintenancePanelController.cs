@@ -662,7 +662,7 @@ internal sealed class MaintenancePanelController {
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin            = new Thickness(4, 0, 0, 0),
                 Cursor            = Cursors.Hand,
-                ToolTip           = "Settings",
+                ToolTip           = MakeThemedToolTip($"{task.Title} Settings"),
             };
             gearButton.SetResourceReference(Button.StyleProperty,      "FlatButtonStyle");
             gearButton.SetResourceReference(Button.FontSizeProperty,   "FontSizeSmall");
