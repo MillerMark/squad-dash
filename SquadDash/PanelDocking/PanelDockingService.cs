@@ -458,7 +458,7 @@ internal sealed class PanelDockingService
             StartMode = startMode,
         };
 
-        ResetTopZoneLayoutColumnKinds();
+        ResetTopZoneLayoutColumnKinds(GetTopZoneOccupiedRanks());
     }
 
     private void OnTopZoneSplitterDragDelta(object sender, DragDeltaEventArgs e)
@@ -504,7 +504,7 @@ internal sealed class PanelDockingService
             ApplyTopZoneDragWidths(state);
 
         _topZoneSplitterDragState = null;
-        ResetTopZoneLayoutColumnKinds();
+        ResetTopZoneLayoutColumnKinds(GetTopZoneOccupiedRanks());
 
         var widths = _topZonePanelColumns
             .Select(c => c is not null && c.ActualWidth > 0 ? c.ActualWidth : 0.0)
@@ -1523,7 +1523,7 @@ internal sealed class PanelDockingService
 
     private void ApplyTopZoneDragWidths(TopZoneSplitterDragState state)
     {
-        ResetTopZoneLayoutColumnKinds();
+        ResetTopZoneLayoutColumnKinds(GetTopZoneOccupiedRanks());
 
         if (_topZoneLeftBoundaryColumn is not null && state.Participants.Length > 0)
         {
@@ -1567,6 +1567,23 @@ internal sealed class PanelDockingService
             cols[8].Width = GridLength.Auto;
         if (cols.Count > 9)
             cols[9].Width = GridLength.Auto;
+    }
+
+    private bool[] GetTopZoneOccupiedRanks()
+    {
+        var result = new bool[TopZonePhysicalColumns.Length];
+        if (CurrentLayout is null) return result;
+        var topSlots = CurrentLayout.Slots
+            .Where(s => s.Zone == DockZone.Top)
+            .OrderBy(s => s.Order)
+            .ToList();
+        for (int rank = 0; rank < topSlots.Count && rank < result.Length; rank++)
+        {
+            if (_panelRegistry.TryGetValue(topSlots[rank].PanelId, out var element) &&
+                element is not null && element.Visibility != Visibility.Collapsed)
+                result[rank] = true;
+        }
+        return result;
     }
 
     private void UpdateTopZoneSplitterVisibility(bool[] occupiedRanks)
