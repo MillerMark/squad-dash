@@ -11467,8 +11467,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (cardBorder is not null)
                 ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
 
-            // Also glow the transcript border being hovered
-            if (agentCard.IsLeadAgent)
+            // Glow the transcript border that belongs to this agent.
+            // MainTranscriptBorder only glows if this agent's transcript is currently shown there.
+            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
+            if (ReferenceEquals(agentCard, displayedAgent))
             {
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                     ApplyAgentCardBorderGlow(MainTranscriptBorder, accentColor, isDark);
@@ -11497,8 +11499,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ClearAgentCardBorderGlow(cardBorder);
             }
 
-            // Also clear the glow from the transcript border
-            if (agentCard.IsLeadAgent)
+            // Clear the transcript border glow — only clear MainTranscriptBorder if this agent owns it.
+            var displayedAgent = _agents.FirstOrDefault(c => c.IsTranscriptTargetSelected) ?? _leadAgent;
+            if (ReferenceEquals(agentCard, displayedAgent))
             {
                 if (MainTranscriptBorder is not null)
                     ClearAgentCardBorderGlow(MainTranscriptBorder);
