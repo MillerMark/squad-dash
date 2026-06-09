@@ -439,7 +439,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         _textBoxPttAttachment = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
         Closed += (_, _) => _textBoxPttAttachment.Dispose();
-        Closing += (_, _) => { _ = SaveStateAsync("editor-closing"); };
+        Closing += (_, _) => { _ = DeleteStateAsync(); };
 
         LoadArrowDefaults();
         LoadTextDefaults();
@@ -6579,6 +6579,33 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         catch (Exception ex) {
             SquadDashTrace.Write("ClipboardPersist",
                 $"SaveStateAsync failed for {_editorId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Removes all persisted state files for this editor instance.
+    /// Called on every exit path (Attach Image, Update Image, window X button) so that
+    /// gracefully-closed editors are never re-opened on the next app startup.
+    /// </summary>
+    internal async Task DeleteStateAsync(ClipboardEditorStateStore? store = null) {
+        try {
+            var storeToUse = store ?? new ClipboardEditorStateStore();
+            await storeToUse.DeleteAsync(_editorId, isPending: false).ConfigureAwait(false);
+            await storeToUse.DeleteAsync(_editorId, isPending: true).ConfigureAwait(false);
+
+            var sourcePath = storeToUse.GetSourceImagePath(_editorId);
+            try {
+                if (File.Exists(sourcePath))
+                    File.Delete(sourcePath);
+            }
+            catch (IOException ex) {
+                SquadDashTrace.Write("ClipboardPersist", $"DeleteStateAsync: could not remove source image {sourcePath}: {ex.Message}");
+            }
+
+            SquadDashTrace.Write("ClipboardPersist", $"DeleteStateAsync: cleared state for editor {_editorId}");
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("ClipboardPersist", $"DeleteStateAsync failed for {_editorId}: {ex.Message}");
         }
     }
 
