@@ -11446,9 +11446,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            var cardBorder = FindAgentCardBorderForCard(agentCard);
-            if (cardBorder is null) return;
-
             var accentColor = (System.Windows.Media.Color)ColorConverter.ConvertFromString(agentCard.AccentColorHex);
             bool isDark = AgentStatusCard.IsDarkTheme;
             if (isDark)
@@ -11459,7 +11456,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
             }
 
-            ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
+            var cardBorder = FindAgentCardBorderForCard(agentCard);
+            if (cardBorder is not null)
+                ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
+
+            // Also glow the transcript border being hovered
+            if (agentCard.IsLeadAgent)
+            {
+                if (_mainTranscriptVisible && MainTranscriptBorder is not null)
+                    ApplyAgentCardBorderGlow(MainTranscriptBorder, accentColor, isDark);
+            }
+            else
+            {
+                var entry = _secondaryTranscripts.FirstOrDefault(t => ReferenceEquals(t.Agent, agentCard));
+                if (entry is not null)
+                    ApplyAgentCardBorderGlow(entry.PanelBorder, accentColor, isDark);
+            }
         }
         catch (Exception ex)
         {
@@ -11472,10 +11484,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var cardBorder = FindAgentCardBorderForCard(agentCard);
-            if (cardBorder is null) return;
+            if (cardBorder is not null)
+            {
+                HideAgentCardGlowOverlay(cardBorder);
+                ClearAgentCardBorderGlow(cardBorder);
+            }
 
-            HideAgentCardGlowOverlay(cardBorder);
-            ClearAgentCardBorderGlow(cardBorder);
+            // Also clear the glow from the transcript border
+            if (agentCard.IsLeadAgent)
+            {
+                if (MainTranscriptBorder is not null)
+                    ClearAgentCardBorderGlow(MainTranscriptBorder);
+            }
+            else
+            {
+                var entry = _secondaryTranscripts.FirstOrDefault(t => ReferenceEquals(t.Agent, agentCard));
+                if (entry is not null)
+                    ClearAgentCardBorderGlow(entry.PanelBorder);
+            }
         }
         catch (Exception ex)
         {
