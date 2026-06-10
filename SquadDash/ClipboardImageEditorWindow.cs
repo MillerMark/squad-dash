@@ -2512,7 +2512,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             bool isH2 = Math.Abs(dx2) >= Math.Abs(dy2);
             double span = isH2 ? Math.Abs(dx2) : Math.Abs(dy2);
 
-            if (span >= 8.0) {
+            if (span >= 2.0) {
                 Point p1, p2;
                 if (isH2) {
                     double y = _measureLineAnchor.Y;
@@ -2968,7 +2968,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         }
         for (int i = 0; i < 2; i++) {
             var cap = new Line {
-                Stroke = stroke, StrokeThickness = 2, Opacity = 0.7,
+                Stroke = stroke, StrokeThickness = 1.0, Opacity = 0.7,
                 IsHitTestVisible = false
             };
             Panel.SetZIndex(cap, 99);
@@ -3107,11 +3107,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Panel.SetZIndex(head2, 5);
         _canvas.Children.Add(head2);
 
-        var cap1 = new Line { Stroke = stroke, StrokeThickness = 2, Opacity = 0.5, IsHitTestVisible = false };
+        var cap1 = new Line { Stroke = stroke, StrokeThickness = 1.0, Opacity = 0.5, IsHitTestVisible = false };
         Panel.SetZIndex(cap1, 5);
         _canvas.Children.Add(cap1);
 
-        var cap2 = new Line { Stroke = stroke, StrokeThickness = 2, Opacity = 0.5, IsHitTestVisible = false };
+        var cap2 = new Line { Stroke = stroke, StrokeThickness = 1.0, Opacity = 0.5, IsHitTestVisible = false };
         Panel.SetZIndex(cap2, 5);
         _canvas.Children.Add(cap2);
 
