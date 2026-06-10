@@ -1215,7 +1215,85 @@ internal sealed class PanelDockingService
             zoneList.Add(element);
         else
             zoneList.Insert(insertAt, element);
-        RebuildZoneGrid(zone, zoneList, scrollViewer);
+        var idealWeights = ComputeIdealHeightWeights(zoneList, scrollViewer);
+        RebuildZoneGrid(zone, zoneList, scrollViewer, idealWeights);
+    }
+
+    /// <summary>
+    /// Computes ideal star-height weights for panels in a side zone based on each panel's
+    /// <see cref="IDockResizeSizeHint.GetMaximumUsefulDockSize"/> (Vertical).
+    /// Uses iterative proportional allocation: unconstrained panels share available space
+    /// equally; constrained panels are capped at their ideal max height and the freed
+    /// space redistributes proportionally to the remaining unconstrained panels.
+    /// Returns null when the available height is unknown or no panel reports a max height.
+    /// </summary>
+    private static Dictionary<FrameworkElement, double>? ComputeIdealHeightWeights(
+        List<FrameworkElement> panels, FrameworkElement? scrollViewer)
+    {
+        const double minHeight = 100.0;
+        const double splitterHeight = 5.0;
+
+        var visible = panels.Where(p => p.Visibility != Visibility.Collapsed).ToList();
+        if (visible.Count <= 1)
+            return null;
+
+        double totalHeight = scrollViewer?.ActualHeight ?? 0;
+        if (totalHeight <= 0)
+            return null;
+
+        totalHeight -= (visible.Count - 1) * splitterHeight;
+        if (totalHeight <= 0)
+            return null;
+
+        // Collect per-panel max heights; null means unconstrained.
+        var maxHeights = new Dictionary<FrameworkElement, double?>(visible.Count);
+        bool anyConstrained = false;
+        foreach (var panel in visible)
+        {
+            double? max = (panel as IDockResizeSizeHint)?.GetMaximumUsefulDockSize(DockResizeOrientation.Vertical);
+            if (max is { } m)
+            {
+                max = Math.Clamp(m, minHeight, totalHeight);
+                anyConstrained = true;
+            }
+            maxHeights[panel] = max;
+        }
+
+        if (!anyConstrained)
+            return null;
+
+        // Iterative proportional allocation.
+        var allocated = new Dictionary<FrameworkElement, double>(visible.Count);
+        var unconstrained = new List<FrameworkElement>(visible);
+        double remaining = totalHeight;
+
+        while (unconstrained.Count > 0)
+        {
+            double share = remaining / unconstrained.Count;
+            var capped = unconstrained
+                .Where(p => maxHeights[p] is { } max && max < share)
+                .ToList();
+
+            if (capped.Count == 0)
+            {
+                // No more panels to cap — distribute evenly among remaining.
+                foreach (var p in unconstrained)
+                    allocated[p] = share;
+                break;
+            }
+
+            foreach (var p in capped)
+            {
+                allocated[p] = maxHeights[p]!.Value;
+                remaining -= allocated[p];
+                unconstrained.Remove(p);
+            }
+        }
+
+        // Build result, ensuring all values are at least 1.0.
+        return visible.ToDictionary(
+            p => p,
+            p => Math.Max(1.0, allocated.TryGetValue(p, out double h) ? h : minHeight));
     }
 
     /// <summary>Returns the zone list, grid, and scroll viewer for a given side zone.</summary>
