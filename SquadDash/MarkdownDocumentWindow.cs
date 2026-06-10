@@ -643,7 +643,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
         // Remove any previously-injected items so they don't stack
         for (int i = tb.ContextMenu.Items.Count - 1; i >= 0; i--) {
-            if (tb.ContextMenu.Items[i] is MenuItem { Tag: "AddToChat" or "AddToNotes" } ||
+            if (tb.ContextMenu.Items[i] is MenuItem { Tag: "AddToChat" or "AddToNotes" or "AddToNewChat" } ||
                 tb.ContextMenu.Items[i] is Separator { Tag: "AddToNotesSep" })
                 tb.ContextMenu.Items.RemoveAt(i);
         }
@@ -672,6 +672,17 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
                         chatCallback(text);
                 };
                 tb.ContextMenu.Items.Insert(insertIdx++, chatItem);
+            }
+
+            if (_captureContext?.AddToNewChatCallback is { } newChatCallback) {
+                var newChatItem = new MenuItem { Header = "Add to New Chat", Tag = "AddToNewChat" };
+                newChatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                newChatItem.Click += (_, _) => {
+                    var text = tb.GetSelectedText();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        newChatCallback(text);
+                };
+                tb.ContextMenu.Items.Insert(insertIdx++, newChatItem);
             }
 
             if (_captureContext?.AddToNotesCallback is { } callback) {
@@ -2623,6 +2634,12 @@ internal sealed record MarkdownDocumentCaptureContext(
     /// editor context menu. Receives the selected markdown text.
     /// </summary>
     public Action<string>? AddToChatCallback { get; init; }
+
+    /// <summary>
+    /// Optional callback invoked when the user chooses "Add to New Chat" from the source
+    /// editor context menu. Creates a new queue slot and receives the selected markdown text.
+    /// </summary>
+    public Action<string>? AddToNewChatCallback { get; init; }
 
 
     /// <summary>

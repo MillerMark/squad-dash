@@ -32,6 +32,7 @@ internal sealed class InboxPanelController
     private readonly Action<InboxAction, InboxMessage> _onActionClicked;
     private readonly Action<InboxMessage, Action?> _openMessageWindow;
     private readonly Action<InboxMessage>?    _addToChat;
+    private readonly Action<InboxMessage>?    _addToNewChat;
     private Func<string, TaskItem?>?          _lookupTask;
 
     private readonly InboxPanelViewModel _viewModel = new();
@@ -55,7 +56,8 @@ internal sealed class InboxPanelController
         Action<InboxAction, InboxMessage> onActionClicked,
         Action<InboxMessage, Action?> openMessageWindow,
         Func<string, TaskItem?>? lookupTask = null,
-        Action<InboxMessage>?    addToChat  = null)
+        Action<InboxMessage>?    addToChat  = null,
+        Action<InboxMessage>?    addToNewChat = null)
     {
         _listPanel              = listPanel;
         _listScrollContainer    = listScrollContainer;
@@ -72,6 +74,7 @@ internal sealed class InboxPanelController
         _onActionClicked        = onActionClicked;
         _openMessageWindow      = openMessageWindow;
         _addToChat              = addToChat;
+        _addToNewChat           = addToNewChat;
         _lookupTask             = lookupTask;
     }
 
@@ -594,8 +597,17 @@ internal sealed class InboxPanelController
             var addToChatItem = MakeItem("Add to Chat");
             addToChatItem.Click += (_, _) => _addToChat(msg);
             menu.Items.Add(addToChatItem);
-            menu.Items.Add(MakeSep());
         }
+
+        if (_addToNewChat is not null)
+        {
+            var addToNewChatItem = MakeItem("Add to New Chat");
+            addToNewChatItem.Click += (_, _) => _addToNewChat(msg);
+            menu.Items.Add(addToNewChatItem);
+        }
+
+        if (_addToChat is not null || _addToNewChat is not null)
+            menu.Items.Add(MakeSep());
 
         if (msg.Read)
         {

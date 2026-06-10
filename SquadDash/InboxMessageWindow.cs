@@ -20,6 +20,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private readonly Func<string, TaskItem?>? _lookupTask;
     private readonly Action<string, InboxMessage>? _attachSelectedTextToChat;
+    private readonly Action<string, InboxMessage>? _attachSelectedTextToNewChat;
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
     private readonly Action? _onMarkedRead;
@@ -32,6 +33,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<InboxAction, InboxMessage> onActionClicked,
         Func<string, TaskItem?>? lookupTask = null,
         Action<string, InboxMessage>? attachSelectedTextToChat = null,
+        Action<string, InboxMessage>? attachSelectedTextToNewChat = null,
         Action? onMarkedRead = null,
         double initialFontSize = 14,
         Action<double>? onFontSizeChanged = null)
@@ -39,6 +41,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     {
         _lookupTask             = lookupTask;
         _attachSelectedTextToChat = attachSelectedTextToChat;
+        _attachSelectedTextToNewChat = attachSelectedTextToNewChat;
         _message                = message;
         _onMarkedRead           = onMarkedRead;
         _onFontSizeChanged      = onFontSizeChanged;
@@ -189,20 +192,36 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
             // Set up the context menu after OnApplyTemplate so our assignment wins
             // over any default ContextMenu the FlowDocumentScrollViewer installs.
-            if (_attachSelectedTextToChat is not null)
+            if (_attachSelectedTextToChat is not null || _attachSelectedTextToNewChat is not null)
             {
                 var contextMenu = new ContextMenu();
                 contextMenu.Style = (Style)Application.Current.Resources["ThemedContextMenuStyle"];
 
-                var attachMenuItem = new MenuItem { Header = "Add to Chat" };
-                attachMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                attachMenuItem.Click += (_, _) =>
+                if (_attachSelectedTextToChat is not null)
                 {
-                    var sel = _bodyViewer.Selection;
-                    if (!sel.IsEmpty)
-                        _attachSelectedTextToChat(sel.Text, _message);
-                };
-                contextMenu.Items.Add(attachMenuItem);
+                    var attachMenuItem = new MenuItem { Header = "Add to Chat" };
+                    attachMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    attachMenuItem.Click += (_, _) =>
+                    {
+                        var sel = _bodyViewer.Selection;
+                        if (!sel.IsEmpty)
+                            _attachSelectedTextToChat(sel.Text, _message);
+                    };
+                    contextMenu.Items.Add(attachMenuItem);
+                }
+
+                if (_attachSelectedTextToNewChat is not null)
+                {
+                    var addToNewChatMenuItem = new MenuItem { Header = "Add to New Chat" };
+                    addToNewChatMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    addToNewChatMenuItem.Click += (_, _) =>
+                    {
+                        var sel = _bodyViewer.Selection;
+                        if (!sel.IsEmpty)
+                            _attachSelectedTextToNewChat(sel.Text, _message);
+                    };
+                    contextMenu.Items.Add(addToNewChatMenuItem);
+                }
 
                 var copyMenuItem = new MenuItem { Header = "Copy" };
                 copyMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");

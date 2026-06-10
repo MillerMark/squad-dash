@@ -26,6 +26,7 @@ internal sealed class TasksPanelController {
     private readonly Action          _editTasksAction;
     private readonly Func<string, Brush> _priorityDotColor;
     private readonly Action<TaskItem>?  _attachFollowUp;
+    private readonly Action<TaskItem>?  _addToNewChat;
     private readonly Action<TaskItem>?  _addToNotes;
     private readonly Func<IReadOnlyList<SquadTeamMember>>? _getRoster;
 
@@ -48,6 +49,7 @@ internal sealed class TasksPanelController {
         Func<string, Brush>  priorityDotColor,
         Action               reloadPanel,
         Action<TaskItem>?    attachFollowUp = null,
+        Action<TaskItem>?    addToNewChat   = null,
         Action<TaskItem>?    addToNotes     = null,
         Func<IReadOnlyList<SquadTeamMember>>? getRoster = null) {
 
@@ -59,6 +61,7 @@ internal sealed class TasksPanelController {
         _priorityDotColor = priorityDotColor;
         _reloadPanel      = reloadPanel;
         _attachFollowUp   = attachFollowUp;
+        _addToNewChat     = addToNewChat;
         _addToNotes       = addToNotes;
         _getRoster        = getRoster;
 
@@ -190,13 +193,19 @@ internal sealed class TasksPanelController {
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
         var menu           = MakeMenu();
-        if (_attachFollowUp is not null || _addToNotes is not null)
+        if (_attachFollowUp is not null || _addToNewChat is not null || _addToNotes is not null)
         {
             if (_attachFollowUp is not null)
             {
                 var followUpItem = MakeItem("Add to Chat");
                 followUpItem.Click += (_, _) => _attachFollowUp(item);
                 menu.Items.Add(followUpItem);
+            }
+            if (_addToNewChat is not null)
+            {
+                var addToNewChatItem = MakeItem("Add to New Chat");
+                addToNewChatItem.Click += (_, _) => _addToNewChat(item);
+                menu.Items.Add(addToNewChatItem);
             }
             if (_addToNotes is not null)
             {
@@ -291,13 +300,19 @@ internal sealed class TasksPanelController {
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
         var menu             = MakeMenu();
-        if (_attachFollowUp is not null || _addToNotes is not null)
+        if (_attachFollowUp is not null || _addToNewChat is not null || _addToNotes is not null)
         {
             if (_attachFollowUp is not null)
             {
                 var followUpItem = MakeItem("Add to Chat");
                 followUpItem.Click += (_, _) => _attachFollowUp(item);
                 menu.Items.Add(followUpItem);
+            }
+            if (_addToNewChat is not null)
+            {
+                var addToNewChatItem = MakeItem("Add to New Chat");
+                addToNewChatItem.Click += (_, _) => _addToNewChat(item);
+                menu.Items.Add(addToNewChatItem);
             }
             if (_addToNotes is not null)
             {

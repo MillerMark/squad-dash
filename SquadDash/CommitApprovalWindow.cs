@@ -18,6 +18,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<CommitApprovalItem>                   _onItemChanged;
     private readonly Action<IReadOnlyList<CommitApprovalItem>>    _onItemsRemoved;
     private readonly Action<CommitApprovalItem>                   _onFollowUp;
+    private readonly Action<CommitApprovalItem>?                _addToNewChat;
     private readonly Action<CommitApprovalItem>?                _addToNotes;
 
     private readonly StackPanel _needsApprovalPanel;
@@ -50,6 +51,7 @@ internal sealed class CommitApprovalPanel {
         Action<CommitApprovalItem>                onItemChanged,
         Action<IReadOnlyList<CommitApprovalItem>> onItemsRemoved,
         Action<CommitApprovalItem>                onFollowUp,
+        Action<CommitApprovalItem>?               addToNewChat  = null,
         Action<CommitApprovalItem>?               addToNotes    = null,
         bool                                     initialShowApproved = true,
         Action<bool>?                            onShowApprovedChanged = null,
@@ -67,6 +69,7 @@ internal sealed class CommitApprovalPanel {
         _onItemChanged             = onItemChanged;
         _onItemsRemoved            = onItemsRemoved;
         _onFollowUp                = onFollowUp;
+        _addToNewChat              = addToNewChat;
         _addToNotes                = addToNotes;
         _showApproved              = initialShowApproved;
         _onShowApprovedChanged     = onShowApprovedChanged;
@@ -188,6 +191,12 @@ internal sealed class CommitApprovalPanel {
         var followUpItem = MakeItem("Add to Chat");
         followUpItem.Click += (_, _) => _onFollowUp(item);
         menu.Items.Add(followUpItem);
+        if (_addToNewChat is not null)
+        {
+            var addToNewChatItem = MakeItem("Add to New Chat");
+            addToNewChatItem.Click += (_, _) => _addToNewChat(item);
+            menu.Items.Add(addToNewChatItem);
+        }
         if (_addToNotes is not null)
         {
             var notesItem = MakeItem("Add to Notes");

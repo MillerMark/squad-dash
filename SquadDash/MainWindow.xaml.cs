@@ -6410,6 +6410,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             attachFollowUp: task => AttachContextFollowUp(
                 $"Task: {task.Text}",
                 BuildTypedAttachmentBlock("task", task.Text, BuildTaskContentBody(task))),
+            addToNewChat: task => { AddEmptyQueueSlot(); AttachContextFollowUp(
+                $"Task: {task.Text}",
+                BuildTypedAttachmentBlock("task", task.Text, BuildTaskContentBody(task))); },
             addToNotes: task => AddNoteFromTextWithTitle(
                 $"Task - {task.Text}",
                 BuildTaskContentBlock(task)),
@@ -8529,6 +8532,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 followUpItem.Click += (_, _) => AttachTranscriptFollowUp(activeRtb);
                 menu.Items.Add(followUpItem);
+
+                var addToNewChatItem = new MenuItem { Header = "Add to New Chat" };
+                addToNewChatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                addToNewChatItem.Click += (_, _) => { AddEmptyQueueSlot(); AttachTranscriptFollowUp(activeRtb); };
+                menu.Items.Add(addToNewChatItem);
 
                 var addToNotesItem = new MenuItem { Header = "Add to Notes" };
                 addToNotesItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -15460,6 +15468,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 };
                 menu.Items.Add(addToChatItem);
 
+                var addToNewChatDocItem = new MenuItem
+                {
+                    Header = "Add to New Chat",
+                    Style  = (Style)FindResource("ThemedMenuItemStyle")
+                };
+                addToNewChatDocItem.Click += (_, _) => {
+                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
+                    if (!string.IsNullOrWhiteSpace(text)) {
+                        var sb = new System.Text.StringBuilder();
+                        sb.AppendLine($"## Documentation: {docTitle}");
+                        if (_currentDocPath is not null) sb.AppendLine($"File: {_currentDocPath}");
+                        sb.AppendLine();
+                        sb.AppendLine(text.Trim());
+                        AddEmptyQueueSlot();
+                        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
+                    }
+                };
+                menu.Items.Add(addToNewChatDocItem);
+
                 var addToNotesItem = new MenuItem
                 {
                     Header = "Add to Notes",
@@ -19160,6 +19187,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     followUpItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     followUpItem.Click += (_, _) => AttachTranscriptFollowUp(rtb);
                     menu.Items.Add(followUpItem);
+
+                    var addToNewChatItem = new MenuItem { Header = "Add to New Chat" };
+                    addToNewChatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    addToNewChatItem.Click += (_, _) => { AddEmptyQueueSlot(); AttachTranscriptFollowUp(rtb); };
+                    menu.Items.Add(addToNewChatItem);
 
                     var addToNotesItem = new MenuItem { Header = "Add to Notes" };
                     addToNotesItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -28529,6 +28561,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (!string.IsNullOrWhiteSpace(text))
                     AttachContextFollowUp(NotesStore.DeriveTitle(text), text.TrimEnd());
             }),
+            AddToNewChatCallback = text => Dispatcher.Invoke(() => {
+                if (!string.IsNullOrWhiteSpace(text)) {
+                    AddEmptyQueueSlot();
+                    AttachContextFollowUp(NotesStore.DeriveTitle(text), text.TrimEnd());
+                }
+            }),
             AddToNotesCallback = text => Dispatcher.Invoke(() => AddNoteFromText(text)),
             ReviseWithAiCallback = (instructions, sel, doc, cwd, ct) =>
                 _bridge.RunDocRevisionAsync(instructions, sel, doc, cwd, ct),
@@ -28949,6 +28987,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                         var win = new InboxMessageWindow(msg, DispatchInboxAction, LookupTaskById,
                             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
+                            attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
                             initialFontSize:   _inboxFontSize,
                             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
                         win.Owner = this;
@@ -29125,6 +29164,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var followUpItem = MakeItem("Add to Chat");
             followUpItem.Click += (_, _) => AttachTopicFollowUp(item, filePath);
             menu.Items.Add(followUpItem);
+
+            var addToNewChatTopicItem = MakeItem("Add to New Chat");
+            addToNewChatTopicItem.Click += (_, _) => { AddEmptyQueueSlot(); AttachTopicFollowUp(item, filePath); };
+            menu.Items.Add(addToNewChatTopicItem);
 
             // Add to Notes second
             var addToNotesItem = MakeItem("Add to Notes");
@@ -30063,6 +30106,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onItemChanged: item => OnApprovalItemChanged(item),
                 onItemsRemoved: items => OnApprovalItemsRemoved(items),
                 onFollowUp: item => AttachFollowUpToActiveTab(item),
+                addToNewChat: item => { AddEmptyQueueSlot(); AttachFollowUpToActiveTab(item); },
                 addToNotes: item => AddNoteFromTextWithTitle(
                     $"Approval - {item.Description}",
                     BuildApprovalContentBlock(item)),
@@ -30458,6 +30502,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DispatchInboxAction, 
             LookupTaskById,
             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
+            attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
             onMarkedRead: onMarkedRead,
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
@@ -30495,6 +30540,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DispatchInboxAction, 
             LookupTaskById,
             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
+            attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -31022,6 +31068,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 deleteNote:          note => DeleteNote(note),
                 newNote:             () => CreateNewNote(),
                 attachFollowUp:      note => AttachNoteFollowUp(note),
+                addToNewChat:        note => { AddEmptyQueueSlot(); AttachNoteFollowUp(note); },
                 loadPreview:         note => _notesStore?.LoadContent(note.Id) ?? "",
                 initialSortOrder:    _docsPanelState?.NotesSortOrder ?? NotesSortOrder.MostRecentOnTop,
                 onSortOrderChanged:  order => {
@@ -31167,7 +31214,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onActionClicked:        DispatchInboxAction,
                 openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
                 lookupTask:             LookupTaskById,
-                addToChat:              msg => AttachInboxMessageFollowUp(msg));
+                addToChat:              msg => AttachInboxMessageFollowUp(msg),
+                addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); });
 
             // Wire dynamic max-width hint so splitter snap targets content width
             if (InboxPanelBorder is { } ipb)

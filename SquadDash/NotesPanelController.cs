@@ -21,6 +21,7 @@ internal sealed class NotesPanelController {
     private readonly Action<NoteItem>         _deleteNote;
     private readonly Action                   _newNote;
     private readonly Action<NoteItem>?        _attachFollowUp;
+    private readonly Action<NoteItem>?        _addToNewChat;
     private readonly Func<NoteItem, string>?  _loadPreview;
 
     private readonly NotesPanelViewModel _viewModel = new();
@@ -39,6 +40,7 @@ internal sealed class NotesPanelController {
         Action<NoteItem>         deleteNote,
         Action                   newNote,
         Action<NoteItem>?        attachFollowUp      = null,
+        Action<NoteItem>?        addToNewChat        = null,
         Func<NoteItem, string>?  loadPreview         = null,
         NotesSortOrder           initialSortOrder    = NotesSortOrder.MostRecentOnTop,
         Action<NotesSortOrder>?  onSortOrderChanged  = null) {
@@ -51,6 +53,7 @@ internal sealed class NotesPanelController {
         _deleteNote           = deleteNote;
         _newNote              = newNote;
         _attachFollowUp       = attachFollowUp;
+        _addToNewChat         = addToNewChat;
         _loadPreview          = loadPreview;
         _viewModel.SortOrder  = initialSortOrder;
         _onSortOrderChanged   = onSortOrderChanged;
@@ -188,6 +191,12 @@ internal sealed class NotesPanelController {
             var followUpItem = MakeItem("Add to Chat");
             followUpItem.Click += (_, _) => _attachFollowUp(note);
             menu.Items.Add(followUpItem);
+            if (_addToNewChat is not null)
+            {
+                var addToNewChatItem = MakeItem("Add to New Chat");
+                addToNewChatItem.Click += (_, _) => _addToNewChat(note);
+                menu.Items.Add(addToNewChatItem);
+            }
             menu.Items.Add(MakeSep());
         }
 
