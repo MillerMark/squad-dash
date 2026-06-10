@@ -1215,7 +1215,18 @@ internal sealed class PanelDockingService
             zoneList.Add(element);
         else
             zoneList.Insert(insertAt, element);
+
+        string panelLabel = !string.IsNullOrEmpty(element.Name) ? element.Name : element.GetType().Name;
+        SquadDashTrace.Write(TraceCategory.Docking,
+            $"AddToZone: adding '{panelLabel}' — zone now has {zoneList.Count} panel(s); computing ideal height weights");
+
         var idealWeights = ComputeIdealHeightWeights(zoneList, scrollViewer);
+        if (idealWeights is null)
+            SquadDashTrace.Write(TraceCategory.Docking, $"AddToZone: idealWeights=null (no redistribution)");
+        else
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"AddToZone: idealWeights=[{string.Join(", ", idealWeights.Select(kv => $"{(!string.IsNullOrEmpty(kv.Key.Name) ? kv.Key.Name : kv.Key.GetType().Name)}={kv.Value:F1}"))}]");
+
         RebuildZoneGrid(zone, zoneList, scrollViewer, idealWeights);
     }
 
@@ -1235,15 +1246,27 @@ internal sealed class PanelDockingService
 
         var visible = panels.Where(p => p.Visibility != Visibility.Collapsed).ToList();
         if (visible.Count <= 1)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"ComputeIdealHeightWeights: early exit — visible count={visible.Count} (need 2+)");
             return null;
+        }
 
         double totalHeight = scrollViewer?.ActualHeight ?? 0;
         if (totalHeight <= 0)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"ComputeIdealHeightWeights: early exit — totalHeight={totalHeight} (scroll viewer not yet measured)");
             return null;
+        }
 
         totalHeight -= (visible.Count - 1) * splitterHeight;
         if (totalHeight <= 0)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"ComputeIdealHeightWeights: early exit — totalHeight after splitters={totalHeight}");
             return null;
+        }
 
         // Collect per-panel max heights; null means unconstrained.
         var maxHeights = new Dictionary<FrameworkElement, double?>(visible.Count);
@@ -1257,10 +1280,17 @@ internal sealed class PanelDockingService
                 anyConstrained = true;
             }
             maxHeights[panel] = max;
+            string panelLabel = !string.IsNullOrEmpty(panel.Name) ? panel.Name : panel.GetType().Name;
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"ComputeIdealHeightWeights: {panelLabel} maxH={( max.HasValue ? max.Value.ToString("F1") : "unconstrained")}");
         }
 
         if (!anyConstrained)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking,
+                "ComputeIdealHeightWeights: early exit — no panel reports a max height (all unconstrained)");
             return null;
+        }
 
         // Iterative proportional allocation.
         var allocated = new Dictionary<FrameworkElement, double>(visible.Count);
@@ -1291,9 +1321,17 @@ internal sealed class PanelDockingService
         }
 
         // Build result, ensuring all values are at least 1.0.
-        return visible.ToDictionary(
+        var result = visible.ToDictionary(
             p => p,
             p => Math.Max(1.0, allocated.TryGetValue(p, out double h) ? h : minHeight));
+
+        foreach (var kv in result)
+        {
+            string panelLabel = !string.IsNullOrEmpty(kv.Key.Name) ? kv.Key.Name : kv.Key.GetType().Name;
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"ComputeIdealHeightWeights: allocated {panelLabel}={kv.Value:F1}px (star weight)");
+        }
+        return result;
     }
 
     /// <summary>Returns the zone list, grid, and scroll viewer for a given side zone.</summary>
@@ -1357,11 +1395,21 @@ internal sealed class PanelDockingService
             // MinHeight is only meaningful when a GridSplitter is present (2+ panels) so the user
             // cannot drag a panel to zero.  A solo panel has no splitter and must be allowed to
             // start at zero height (NaN zone) without creating a spurious visible stub.
-            zone.RowDefinitions.Add(new RowDefinition
+            var row = new RowDefinition
             {
                 Height    = new GridLength(starValue, GridUnitType.Star),
                 MinHeight = visible.Count > 1 ? 100 : 0,
-            });
+            };
+            if (visible[i] is IDockResizeSizeHint hint &&
+                hint.GetMaximumUsefulDockSize(DockResizeOrientation.Vertical) is { } maxH &&
+                maxH > 0 && !double.IsInfinity(maxH))
+            {
+                row.MaxHeight = maxH;
+                string panelLabel = !string.IsNullOrEmpty(visible[i].Name) ? visible[i].Name : visible[i].GetType().Name;
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"RebuildZoneGrid: set MaxHeight={maxH} on row for '{panelLabel}'");
+            }
+            zone.RowDefinitions.Add(row);
             Grid.SetRow(visible[i], zone.RowDefinitions.Count - 1);
             zone.Children.Add(visible[i]);
         }
