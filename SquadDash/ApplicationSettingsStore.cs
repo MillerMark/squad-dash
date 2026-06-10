@@ -431,6 +431,18 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveHomeBranch(string workspaceFolder, string branch) {
+        using var mutex = AcquireMutex();
+        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var current = LoadCore();
+        var dict = current.HomeBranchByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        dict[normalizedWorkspace] = string.IsNullOrWhiteSpace(branch) ? "main" : branch.Trim();
+        var updated = current with { HomeBranchByWorkspace = dict };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveLastUsedModel(string model) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1046,6 +1058,13 @@ internal sealed record ApplicationSettingsSnapshot(
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> AgentImagePathsByWorkspace,
     IReadOnlyDictionary<string, string> IgnoredRoutingIssueFingerprintsByWorkspace) {
 
+    /// <summary>
+    /// Per-workspace home branch name. Keyed by normalised workspace folder path.
+    /// Default is "main" when not set.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> HomeBranchByWorkspace { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     public string? UserName { get; init; }
     public string? SpeechRegion { get; init; }
     public SpeechProvider SpeechProvider { get; init; } = SpeechProvider.Azure;
@@ -1086,6 +1105,13 @@ internal sealed record ApplicationSettingsSnapshot(
         var key = Path.GetFullPath(workspaceFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return RuntimeIssueSimulationByWorkspace.TryGetValue(key, out var v) ? v : DeveloperRuntimeIssueSimulation.None;
     }
+
+    public string GetHomeBranch(string workspaceFolder) {
+        if (string.IsNullOrEmpty(workspaceFolder)) return "main";
+        var key = Path.GetFullPath(workspaceFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "main";
+    }
+
     public string? Theme { get; init; }
     public string? LastUsedModel { get; init; }
     public ModelProvider ModelProvider { get; init; } = ModelProvider.GitHubCopilot;
@@ -1540,6 +1566,17 @@ internal sealed record ApplicationSettingsSnapshot(
             }
         }
 
+        var normalizedHomeBranches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (HomeBranchByWorkspace is not null) {
+            foreach (var entry in HomeBranchByWorkspace) {
+                if (string.IsNullOrWhiteSpace(entry.Key) || string.IsNullOrWhiteSpace(entry.Value))
+                    continue;
+                var normalizedWorkspace = Path.GetFullPath(entry.Key)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedHomeBranches[normalizedWorkspace] = entry.Value.Trim();
+            }
+        }
+
         return new ApplicationSettingsSnapshot(
             lastOpenedFolder,
             normalizedFolders,
@@ -1640,6 +1677,7 @@ internal sealed record ApplicationSettingsSnapshot(
             AccentHueOffsetByWorkspace = normalizedAccentOffsets,
             StartupIssueSimulationByWorkspace = normalizedStartupSimulations,
             RuntimeIssueSimulationByWorkspace = normalizedRuntimeSimulations,
+            HomeBranchByWorkspace = normalizedHomeBranches,
             FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),
         };
     }

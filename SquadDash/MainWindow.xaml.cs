@@ -164,6 +164,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private FileSystemWatcher? _inboxWatcher;
     private FileSystemWatcher? _teamFileWatcher;
     private FileSystemWatcher? _restartRequestWatcher;
+    private FileSystemWatcher? _gitHeadWatcher;
+    private string _currentBranch = string.Empty;
     private readonly DispatcherTimer _teamRefreshDebounceTimer;
     private FileSystemWatcher? _docsWatcher;
     private FileSystemWatcher? _maintenanceMdWatcher;
@@ -16896,6 +16898,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RefreshDeveloperRuntimeIssuePreview();
         SquadInstallerService.EnsureSquadDashUniverseFiles(_currentWorkspace.FolderPath);
         ConfigureTeamFileWatcher();
+        ConfigureGitHeadWatcher();
 
         if (rememberFolder)
             RememberWorkspaceFolder(_currentWorkspace.FolderPath);
@@ -25051,7 +25054,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DisposeRestartRequestWatcher();
             DisposeDocsWatcher();
             DisposeMaintenanceMdWatcher();
-            _toolSpinnerTimer.Stop();
+            DisposeGitHeadWatcher();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
         }
         catch (Exception ex)
@@ -26040,6 +26043,110 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _teamFileWatcher.EnableRaisingEvents = true;
     }
 
+    private void ConfigureGitHeadWatcher()
+    {
+        _gitHeadWatcher?.Dispose();
+        _gitHeadWatcher = null;
+
+        if (_currentWorkspace is null)
+        {
+            UpdateBranchIndicator();
+            return;
+        }
+
+        var gitDir = Path.Combine(_currentWorkspace.FolderPath, ".git");
+        if (!Directory.Exists(gitDir))
+        {
+            UpdateBranchIndicator();
+            return;
+        }
+
+        try
+        {
+            _gitHeadWatcher = new FileSystemWatcher(gitDir, "HEAD")
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
+            };
+            _gitHeadWatcher.Changed += GitHeadWatcher_Changed;
+            _gitHeadWatcher.Created += GitHeadWatcher_Changed;
+            _gitHeadWatcher.EnableRaisingEvents = true;
+        }
+        catch
+        {
+            // Non-fatal: watcher may fail on some environments
+        }
+
+        UpdateBranchIndicator();
+    }
+
+    private void GitHeadWatcher_Changed(object sender, FileSystemEventArgs e)
+    {
+        try
+        {
+            TryPostToUi(UpdateBranchIndicator, "GitHeadWatcher.Changed");
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(GitHeadWatcher_Changed), ex, showDialog: false);
+        }
+    }
+
+    private static string ReadGitBranch(string workspaceFolder)
+    {
+        try
+        {
+            var headPath = Path.Combine(workspaceFolder, ".git", "HEAD");
+            if (!File.Exists(headPath)) return string.Empty;
+            var content = File.ReadAllText(headPath).Trim();
+            const string prefix = "ref: refs/heads/";
+            if (content.StartsWith(prefix, StringComparison.Ordinal))
+                return content[prefix.Length..].Trim();
+            return content.Length >= 7 ? $"(detached {content[..7]})" : "(detached)";
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private void UpdateBranchIndicator()
+    {
+        if (_currentWorkspace is null)
+        {
+            BranchIndicatorStrip.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var branch = ReadGitBranch(_currentWorkspace.FolderPath);
+        _currentBranch = branch;
+        BranchIndicatorStrip.Visibility = Visibility.Visible;
+
+        var homeBranch = _settingsSnapshot.GetHomeBranch(_currentWorkspace.FolderPath);
+
+        bool isMaintenance = branch.StartsWith("maintenance/", StringComparison.OrdinalIgnoreCase)
+                          || branch.StartsWith("hotfix/", StringComparison.OrdinalIgnoreCase);
+        bool isHomeBranch = string.Equals(branch, homeBranch, StringComparison.OrdinalIgnoreCase);
+
+        if (isMaintenance)
+        {
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
+            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            BranchNameText.Text = $"⚠ {branch}";
+        }
+        else if (isHomeBranch)
+        {
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "SubtleText");
+            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            BranchNameText.Text = branch;
+        }
+        else
+        {
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
+            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            BranchNameText.Text = branch;
+        }
+    }
+
     private void InboxWatcher_Changed(object sender, FileSystemEventArgs e)
     {
         try
@@ -26166,6 +26273,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _inboxWatcher.Changed -= InboxWatcher_Changed;
         _inboxWatcher.Dispose();
         _inboxWatcher = null;
+    }
+
+    private void DisposeGitHeadWatcher()
+    {
+        _gitHeadWatcher?.Dispose();
+        _gitHeadWatcher = null;
     }
 
     private void DisposeTeamFileWatcher()
@@ -31021,6 +31134,144 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             (commitAtt.CommitSha.Length >= 7 && i.CommitSha.StartsWith(commitAtt.CommitSha, StringComparison.OrdinalIgnoreCase)));
         if (item is not null)
             ScrollToApprovalTurn(item);
+    }
+
+    private void BranchIndicatorStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        ShowBranchContextMenu();
+        e.Handled = true;
+    }
+
+    private void BranchIndicatorStrip_MouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        ShowBranchContextMenu();
+        e.Handled = true;
+    }
+
+    private void ShowBranchContextMenu()
+    {
+        try
+        {
+            var branch = _currentBranch;
+            var workspaceFolder = _currentWorkspace?.FolderPath;
+            if (workspaceFolder is null) return;
+
+            var homeBranch = _settingsSnapshot.GetHomeBranch(workspaceFolder);
+            bool isOnMain = string.Equals(branch, homeBranch, StringComparison.OrdinalIgnoreCase);
+
+            var menu = new ContextMenu();
+            menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+            var headerItem = new MenuItem { Header = branch, IsEnabled = false };
+            headerItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            menu.Items.Add(headerItem);
+
+            var sep1 = new Separator();
+            sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+            menu.Items.Add(sep1);
+
+            var setHomeItem = new MenuItem { Header = "Set as home branch" };
+            setHomeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            setHomeItem.Click += (_, _) =>
+            {
+                _settingsSnapshot = _settingsStore.SaveHomeBranch(workspaceFolder, branch);
+                UpdateBranchIndicator();
+            };
+            menu.Items.Add(setHomeItem);
+
+            if (!isOnMain)
+            {
+                var sep2 = new Separator();
+                sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(sep2);
+
+                var switchItem = new MenuItem { Header = $"Switch to {homeBranch}" };
+                switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                switchItem.Click += async (_, _) =>
+                {
+                    try
+                    {
+                        await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
+                        UpdateBranchIndicator();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Could not switch branch:\n\n{ex.Message}",
+                            "Switch Branch", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                };
+                menu.Items.Add(switchItem);
+
+                var mergeItem = new MenuItem { Header = $"Merge this branch into {homeBranch} →" };
+                mergeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                mergeItem.Click += async (_, _) =>
+                {
+                    var result = MessageBox.Show(
+                        $"Merge '{branch}' into '{homeBranch}' with --ff-only, then push?\n\nThis cannot be undone.",
+                        "Confirm Merge",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+                    if (result != MessageBoxResult.Yes) return;
+
+                    try
+                    {
+                        await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
+                        await RunGitAsync(workspaceFolder, $"merge {branch} --ff-only");
+                        await RunGitAsync(workspaceFolder, $"push origin {homeBranch}");
+                        UpdateBranchIndicator();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(
+                            $"Merge failed.\n\nThis may be because the branches have diverged and a fast-forward merge is not possible.\n\nTo resolve, either rebase '{branch}' onto '{homeBranch}' first, or perform the merge manually.\n\nDetails: {ex.Message}",
+                            "Merge Failed",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        try { await RunGitAsync(workspaceFolder, $"checkout {branch}"); } catch { }
+                        UpdateBranchIndicator();
+                    }
+                };
+                menu.Items.Add(mergeItem);
+            }
+
+            var sep3 = new Separator();
+            sep3.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+            menu.Items.Add(sep3);
+
+            var copyItem = new MenuItem { Header = "Copy branch name" };
+            copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            copyItem.Click += (_, _) => SetClipboardTextWithRetry(branch);
+            menu.Items.Add(copyItem);
+
+            menu.PlacementTarget = BranchIndicatorStrip;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(ShowBranchContextMenu), ex);
+        }
+    }
+
+    private static async Task<string> RunGitAsync(string workingDirectory, string arguments)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("git", arguments)
+        {
+            WorkingDirectory       = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+        };
+        using var proc = System.Diagnostics.Process.Start(psi)
+            ?? throw new InvalidOperationException("Could not start git process.");
+        var stdout = await proc.StandardOutput.ReadToEndAsync();
+        var stderr = await proc.StandardError.ReadToEndAsync();
+        await proc.WaitForExitAsync();
+        if (proc.ExitCode != 0)
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim());
+        return stdout.Trim();
     }
 
     private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
