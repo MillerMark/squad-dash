@@ -11308,13 +11308,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(100))
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(50))
         {
             FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
         };
         var capturedOverlay = overlay;
+        var capturedGlow = cardGlow;
         fadeOut.Completed += (_, _) =>
         {
+            if (!ReferenceEquals(capturedOverlay.Effect, capturedGlow)) return; // overlay was reused for another card
             capturedOverlay.Effect = null;
             capturedOverlay.Visibility = Visibility.Collapsed;
         };
@@ -11357,7 +11359,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             0,
             1.0,
-            TimeSpan.FromMilliseconds(100));
+            TimeSpan.FromMilliseconds(50));
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
@@ -11406,7 +11408,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             0,
             cardTargetOpacity,
-            TimeSpan.FromMilliseconds(100));
+            TimeSpan.FromMilliseconds(50));
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
@@ -11415,12 +11417,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (agentCardBorder.Effect is not System.Windows.Media.Effects.DropShadowEffect cardGlow)
             return;
 
-        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(100))
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(50))
         {
             FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
         };
         var capturedBorder = agentCardBorder;
-        fadeOut.Completed += (_, _) => { capturedBorder.Effect = null; };
+        var capturedGlow = cardGlow;
+        fadeOut.Completed += (_, _) =>
+        {
+            if (ReferenceEquals(capturedBorder.Effect, capturedGlow))
+                capturedBorder.Effect = null;
+        };
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, fadeOut);
     }
 
@@ -11524,7 +11531,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     };
                     MainTranscriptBorder.Effect = glow;
 
-                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(100));
+                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(50));
                     glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, opacityAnim);
                 }
                 return;
@@ -11543,7 +11550,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Opacity = 0
                 };
                 secondaryPanelBorder.Effect = secondaryGlow;
-                var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(100));
+                var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(50));
                 secondaryGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, secondaryOpacityAnim);
             }
         }
