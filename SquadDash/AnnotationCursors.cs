@@ -152,33 +152,35 @@ internal static class AnnotationCursors {
     private static Drawing CreateOpenHandDrawing() {
         var dg = new DrawingGroup();
         using (var dc = dg.Open()) {
-            var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3) {
-                LineJoin = PenLineJoin.Round,
+            // Cartoon white-glove style: pure white fill, bold 2px outline.
+            var fill   = Brushes.White;
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 2.0) {
+                LineJoin  = PenLineJoin.Round,
                 StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round
+                EndLineCap   = PenLineCap.Round
             };
 
-            // Palm
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 16, 18, 13), 3, 3);
+            // Palm — wide, generously rounded cartoon-glove shape.
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(4.5, 17, 21.5, 12), 5.5, 5.5);
 
-            // Thumb (left side)
+            // Thumb — chubby, round stub protruding to the lower-left.
             var thumbGeo = new PathGeometry();
-            var thumbFig = new PathFigure { StartPoint = new Point(5, 20), IsClosed = true };
-            thumbFig.Segments.Add(new BezierSegment(new Point(2, 19), new Point(1, 15), new Point(3, 12), true));
-            thumbFig.Segments.Add(new BezierSegment(new Point(4, 9), new Point(6, 10), new Point(6, 13), true));
-            thumbFig.Segments.Add(new LineSegment(new Point(5, 16), true));
-            thumbGeo.Figures.Add(thumbFig);
+            var tf = new PathFigure { StartPoint = new Point(5.5, 21), IsClosed = true };
+            tf.Segments.Add(new BezierSegment(new Point(0.5, 20), new Point(0, 13.5), new Point(2.5, 10), true));
+            tf.Segments.Add(new BezierSegment(new Point(4,   7.5), new Point(8.5, 8.5), new Point(8.5, 13), true));
+            tf.Segments.Add(new LineSegment(new Point(7, 18), true));
+            thumbGeo.Figures.Add(tf);
             dc.DrawGeometry(fill, stroke, thumbGeo);
 
-            // Four fingers: index, middle, ring, pinky
-            double[] fingerX = { 7, 10, 13, 17 };
-            double[] fingerW = { 3, 3, 3, 2.5 };
-            double[] fingerTopY = { 5, 3, 4, 7 };
+            // Four fingers: index, middle (tallest), ring, pinky.
+            // Wider and rounder than realistic — exaggerated cartoon proportions.
+            double[] fx    = { 7,    12,   16.5, 21   };
+            double[] fw    = { 4.5,  4.5,  4.5,  3.5  };
+            double[] ftopY = { 5.5,  2.5,  4.0,  7.5  };
             for (int i = 0; i < 4; i++)
                 dc.DrawRoundedRectangle(fill, stroke,
-                    new Rect(fingerX[i], fingerTopY[i], fingerW[i], 16 - fingerTopY[i] + 1),
-                    1.5, 1.5);
+                    new Rect(fx[i], ftopY[i], fw[i], 15.5 - ftopY[i]),
+                    3.0, 3.0);
         }
         return dg;
     }
@@ -186,27 +188,32 @@ internal static class AnnotationCursors {
     private static Drawing CreateClosedHandDrawing() {
         var dg = new DrawingGroup();
         using (var dc = dg.Open()) {
-            var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 1.3) {
-                LineJoin = PenLineJoin.Round,
+            var fill   = Brushes.White;
+            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 2.0) {
+                LineJoin  = PenLineJoin.Round,
                 StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round
+                EndLineCap   = PenLineCap.Round
             };
 
-            // Knuckle row
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 11, 19, 8), 3, 3);
+            // Knuckle bumps drawn first so the main body covers their lower halves,
+            // making them appear to protrude from the top of the fist.
+            double[] kx = { 7.5, 12.0, 16.5, 21.0 };
+            double[] kr = { 3.0,  3.0,  2.8,  2.3 };
+            var bumpPen = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 1.7);
+            for (int i = 0; i < 4; i++)
+                dc.DrawEllipse(fill, bumpPen, new Point(kx[i], 14.5), kr[i], kr[i]);
 
-            // Palm
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(5, 17, 19, 11), 3, 3);
+            // Main fist body — white fill covers the lower halves of the knuckle bumps.
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(3.5, 14.5, 23, 13.5), 4.5, 4.5);
 
-            // Thumb tucked left
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(2, 14, 5, 7), 2, 2);
+            // Thumb — round stub on the left side.
+            dc.DrawRoundedRectangle(fill, stroke, new Rect(0.5, 16.5, 5.5, 7), 2.8, 2.8);
 
-            // Finger separation lines on knuckle row
-            var linePen = new Pen(new SolidColorBrush(Color.FromRgb(35, 35, 35)), 0.8);
-            dc.DrawLine(linePen, new Point(10, 11), new Point(10, 19));
-            dc.DrawLine(linePen, new Point(14, 11), new Point(14, 19));
-            dc.DrawLine(linePen, new Point(18, 11), new Point(18, 19));
+            // Finger separation lines running down the main body.
+            var sep = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 1.0);
+            dc.DrawLine(sep, new Point(11.5, 14.5), new Point(11.5, 28));
+            dc.DrawLine(sep, new Point(16,   14.5), new Point(16,   28));
+            dc.DrawLine(sep, new Point(20.5, 14.5), new Point(20.5, 28));
         }
         return dg;
     }
