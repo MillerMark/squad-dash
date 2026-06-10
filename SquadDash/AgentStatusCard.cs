@@ -56,6 +56,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     private string _detailText;
     private Brush _accentBrush;
     private Brush _darkAccentBrush;
+    private Brush _lightAccentBrush;
     private Brush _darkSpinnerAccentBrush;
     private Brush _lightSpinnerAccentBrush;
     private string _accentColorHex;
@@ -107,6 +108,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
         _accentColorHex = accentColorHex;
         _accentBrush = CreateAccentBrush(accentColorHex);
         _darkAccentBrush = CreateDarkAccentBrush(accentColorHex);
+        _lightAccentBrush = CreateLightAccentBrush(accentColorHex);
         _darkSpinnerAccentBrush = CreateSpinnerDarkAccentBrush(accentColorHex);
         _lightSpinnerAccentBrush = CreateSpinnerLightAccentBrush(accentColorHex);
         _cardVisibility = Visibility.Visible;
@@ -223,7 +225,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     public Brush EffectiveAccentBrush =>
         _isDarkTheme && IsDynamicAgent ? DarkDynamicAccentBrush
         : _isDarkTheme ? _darkAccentBrush
-        : _accentBrush;
+        : _lightAccentBrush;
 
     public Brush EffectiveSpinnerAccentBrush =>
         _isDarkTheme ? _darkSpinnerAccentBrush
@@ -238,6 +240,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
             _accentColorHex = value;
             AccentBrush = CreateAccentBrush(value);
             _darkAccentBrush = CreateDarkAccentBrush(value);
+            _lightAccentBrush = CreateLightAccentBrush(value);
             _darkSpinnerAccentBrush = CreateSpinnerDarkAccentBrush(value);
             _lightSpinnerAccentBrush = CreateSpinnerLightAccentBrush(value);
             OnPropertyChanged(nameof(EffectiveAccentBrush));
@@ -387,6 +390,9 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
 
     private static SolidColorBrush CreateDarkAccentBrush(string hex) =>
         ColorUtilities.CreateDarkAccentBrush(hex);
+
+    private static SolidColorBrush CreateLightAccentBrush(string hex) =>
+        ColorUtilities.CreateLightAccentBrush(hex);
 
     private static SolidColorBrush CreateSpinnerDarkAccentBrush(string hex) =>
         ColorUtilities.CreateSpinnerDarkAccentBrush(hex);

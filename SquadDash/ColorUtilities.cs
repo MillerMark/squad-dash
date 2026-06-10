@@ -21,6 +21,17 @@ internal static class ColorUtilities {
         return new SolidColorBrush(Color.FromRgb(r, g, b));
     }
 
+    // Lighter pastel variant used for agent card borders in light theme — keeps the hue
+    // but raises luminosity so the border is low-contrast against a pale background.
+    internal static SolidColorBrush CreateLightAccentBrush(string hex) {
+        var color = (Color)ColorConverter.ConvertFromString(hex);
+        RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
+        var liftedL = Math.Min(0.82, l + 0.26);
+        var softenedS = Math.Min(1.0, s * 0.80);
+        HslToRgb(h, softenedS, liftedL, out byte r, out byte g, out byte b);
+        return new SolidColorBrush(Color.FromRgb(r, g, b));
+    }
+
     // Minimum luminosity floor for the spinner in dark theme — ensures gray/dim
     // accents produce a spinner bright enough to see on a dark background.
     private const double SpinnerDarkMinLuminosity  = 192.0 / 255.0; // ≈ 0.753
