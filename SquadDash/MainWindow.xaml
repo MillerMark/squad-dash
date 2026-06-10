@@ -1027,7 +1027,7 @@
                                    Grid.Row="0"
                                    Grid.Column="0"
                                    Grid.ColumnSpan="27"
-                                   Margin="0,-8,0,0"
+                                   Margin="0,-10,0,0"
                                    Visibility="Collapsed" />
 
         <Border x:Name="WorkspaceIssuePanelBorder"

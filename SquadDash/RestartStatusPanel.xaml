@@ -35,7 +35,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Height="32">
+    <Grid Height="32" Margin="0,-2,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
