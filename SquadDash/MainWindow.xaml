@@ -2804,6 +2804,7 @@
                     <Border x:Name="BranchIndicatorStrip"
                             DockPanel.Dock="Top"
                             Visibility="Collapsed"
+                            Margin="-4,-4,0,0"
                             Padding="8,3"
                             BorderThickness="0,0,0,1"
                             BorderBrush="{DynamicResource LineColor}"
@@ -2817,7 +2818,7 @@
                                      Width="10" Height="10"
                                      Margin="0,0,6,0"
                                      VerticalAlignment="Center"
-                                     Fill="{DynamicResource SubtleText}" />
+                                     Fill="{DynamicResource ChromeSurface}" />
                             <TextBlock x:Name="BranchNameText"
                                        FontSize="{DynamicResource FontSizeSmall}"
                                        VerticalAlignment="Center"
