@@ -11412,26 +11412,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var cardBorder = FindAgentCardBorderForCard(agent);
 
-        Border? transcriptBorder = null;
+        bool cardHovered = cardBorder?.IsMouseOver == true;
+
         if (_ownershipMap.IsMainPanelOwner(agent) && _mainTranscriptVisible)
-            transcriptBorder = MainTranscriptBorder;
-        else if (_ownershipMap.GetSecondaryPanelForAgent(agent) is Border secondaryBorder)
-            transcriptBorder = secondaryBorder;
-
-        // Only apply glow when this agent's transcript is actually showing.
-        if (transcriptBorder is null)
+        {
+            bool transcriptHovered = MainTranscriptBorder?.IsMouseOver == true;
+            if (!cardHovered && !transcriptHovered) return;
+            if (cardBorder is not null) ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
+            if (MainTranscriptBorder is not null) ApplyAgentCardBorderGlow(MainTranscriptBorder, accentColor, isDark);
             return;
+        }
 
-        bool cardHovered       = cardBorder?.IsMouseOver == true;
-        bool transcriptHovered = transcriptBorder.IsMouseOver;
+        var allSecondaryPanels = _ownershipMap.GetAllSecondaryPanelsForAgent(agent);
+        if (allSecondaryPanels.Count == 0) return;
 
-        if (!cardHovered && !transcriptHovered)
-            return;
+        bool anyHovered = cardHovered || allSecondaryPanels.Any(p => p is Border b && b.IsMouseOver);
+        if (!anyHovered) return;
 
-        if (cardBorder is not null)
-            ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
-
-        ApplyAgentCardBorderGlow(transcriptBorder, accentColor, isDark);
+        if (cardBorder is not null) ShowAgentCardGlowOverlay(cardBorder, accentColor, isDark);
+        foreach (var panelToken in allSecondaryPanels)
+        {
+            if (panelToken is Border b)
+                ApplyAgentCardBorderGlow(b, accentColor, isDark);
+        }
     }
 
     private void AgentCardBorder_MouseEnter(object sender, MouseEventArgs e)
@@ -11481,12 +11484,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // Find open secondary transcript panel for this agent
-            if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is not Border secondaryPanelBorder)
-                return;
-
-            // Apply pulsing glow effect to secondary panel
+            // Glow ALL open secondary transcript panels for this agent
+            var allPanels = _ownershipMap.GetAllSecondaryPanelsForAgent(agentCard);
+            foreach (var panelToken in allPanels)
             {
+                if (panelToken is not Border secondaryPanelBorder) continue;
                 double startOpacity = isDark ? 0.6 : 0.4;
                 var secondaryGlow = new System.Windows.Media.Effects.DropShadowEffect
                 {
@@ -11496,7 +11498,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Opacity = startOpacity
                 };
                 secondaryPanelBorder.Effect = secondaryGlow;
-
                 var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(startOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
                 secondaryGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, secondaryOpacityAnim);
             }
@@ -11531,15 +11532,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // Find open secondary transcript panel for this agent
-            if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is not Border secondaryPanelBorder)
-                return;
-
-            // Remove glow effect from secondary panel
-            if (secondaryPanelBorder.Effect is System.Windows.Media.Effects.DropShadowEffect glow)
+            var allPanels = _ownershipMap.GetAllSecondaryPanelsForAgent(agentCard);
+            foreach (var panelToken in allPanels)
             {
-                glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                secondaryPanelBorder.Effect = null;
+                if (panelToken is not Border secondaryPanelBorder) continue;
+                if (secondaryPanelBorder.Effect is System.Windows.Media.Effects.DropShadowEffect glow)
+                {
+                    glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+                    secondaryPanelBorder.Effect = null;
+                }
             }
         }
         catch (Exception ex)
@@ -11575,9 +11576,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                     ApplyAgentCardBorderGlow(MainTranscriptBorder, accentColor, isDark);
             }
-            else if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is Border secondaryPanelBorder)
+            else
             {
-                ApplyAgentCardBorderGlow(secondaryPanelBorder, accentColor, isDark);
+                // Glow ALL secondary transcript panels for this agent (including the hovered one)
+                var allPanels = _ownershipMap.GetAllSecondaryPanelsForAgent(agentCard);
+                foreach (var panelToken in allPanels)
+                {
+                    if (panelToken is Border secondaryPanelBorder)
+                        ApplyAgentCardBorderGlow(secondaryPanelBorder, accentColor, isDark);
+                }
             }
         }
         catch (Exception ex)
@@ -11603,9 +11610,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (MainTranscriptBorder is not null)
                     ClearAgentCardBorderGlow(MainTranscriptBorder);
             }
-            else if (_ownershipMap.GetSecondaryPanelForAgent(agentCard) is Border secondaryPanelBorder)
+            else
             {
-                ClearAgentCardBorderGlow(secondaryPanelBorder);
+                var allPanels = _ownershipMap.GetAllSecondaryPanelsForAgent(agentCard);
+                foreach (var panelToken in allPanels)
+                {
+                    if (panelToken is Border secondaryPanelBorder)
+                        ClearAgentCardBorderGlow(secondaryPanelBorder);
+                }
             }
         }
         catch (Exception ex)

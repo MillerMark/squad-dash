@@ -71,6 +71,16 @@ internal sealed class TranscriptPanelOwnershipMap
         return null;
     }
 
+    /// <summary>Returns all panel tokens registered for <paramref name="agent"/>.</summary>
+    public IReadOnlyList<object> GetAllSecondaryPanelsForAgent(AgentStatusCard agent)
+    {
+        var result = new List<object>();
+        foreach (var kvp in _panelToAgent)
+            if (ReferenceEquals(kvp.Value, agent))
+                result.Add(kvp.Key);
+        return result;
+    }
+
     /// <summary>Returns <c>true</c> when at least one secondary panel is registered
     /// for <paramref name="agent"/>.</summary>
     public bool HasSecondaryPanel(AgentStatusCard agent)
