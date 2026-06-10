@@ -1104,7 +1104,8 @@ internal sealed class PanelDockingService
                         }
                     }
                     SquadDashTrace.Write(TraceCategory.Docking,
-                        $"OnPanelVisibilityChanged: redistributed hiddenWeight={hiddenWeight:F2} among {remaining.Count} survivor(s)");
+                        $"OnPanelVisibilityChanged: redistributed hiddenWeight={hiddenWeight:F2} among {remaining.Count} survivor(s)" +
+                        $" → weights=[{string.Join(", ", remaining.Select(p => $"{(!string.IsNullOrEmpty(p.Name) ? p.Name : p.GetType().Name)}={weights.GetValueOrDefault(p, 1.0):F2}"))}]");
                 }
                 RebuildZoneGrid(zoneGrid, remaining, scrollViewer as FrameworkElement, weights);
             }
@@ -1252,7 +1253,7 @@ internal sealed class PanelDockingService
 
                 SquadDashTrace.Write(TraceCategory.Docking,
                     $"ScheduleInitialZoneHeightAllocation: idealWeights=[{string.Join(", ", idealWeights.Select(kv => $"{(!string.IsNullOrEmpty(kv.Key.Name) ? kv.Key.Name : kv.Key.GetType().Name)}={kv.Value:F1}"))}]");
-                RebuildZoneGrid(zone, zoneList, scrollViewer, idealWeights);
+                RebuildZoneGrid(zone, zoneList, scrollViewer, idealWeights, weightsArePixels: true);
             }));
     }
 
@@ -1440,7 +1441,8 @@ internal sealed class PanelDockingService
     /// a finite space to divide.
     /// </summary>
     internal static void RebuildZoneGrid(Grid zone, List<FrameworkElement> panels, FrameworkElement? scrollViewer,
-        IReadOnlyDictionary<FrameworkElement, double>? weights = null)
+        IReadOnlyDictionary<FrameworkElement, double>? weights = null,
+        bool weightsArePixels = false)
     {
         zone.Children.Clear();
         zone.RowDefinitions.Clear();
@@ -1485,13 +1487,20 @@ internal sealed class PanelDockingService
         }
 
         // Bind the zone Grid height to the scroll viewer so star rows fill the column.
+        // The solo pixel-height branch only fires when the caller explicitly confirms that
+        // the weights dictionary contains pixel heights (weightsArePixels=true).  Star-ratio
+        // weights from CaptureStarWeights must NOT reach this branch — their redistributed
+        // value is typically 2.0 (star units), which would set zone.Height=2px and hide the panel.
         BindingOperations.ClearBinding(zone, FrameworkElement.HeightProperty);
         if (visible.Count == 1 &&
+            weightsArePixels &&
             weights is not null &&
             weights.TryGetValue(visible[0], out double soloHeight) &&
             soloHeight > 0)
         {
             zone.Height = soloHeight;
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"RebuildZoneGrid: solo panel height set to {soloHeight:F1}px (pixel-weight override)");
         }
         else if (scrollViewer is not null && visible.Count > 0)
             zone.SetBinding(FrameworkElement.HeightProperty,

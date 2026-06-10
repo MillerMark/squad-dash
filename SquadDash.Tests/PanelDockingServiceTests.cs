@@ -366,7 +366,8 @@ internal sealed class PanelDockingServiceTests
             zone,
             new List<FrameworkElement> { panel },
             scrollViewer,
-            weights);
+            weights,
+            weightsArePixels: true);
 
         Assert.That(zone.Height, Is.EqualTo(180).Within(0.001));
         Assert.That(BindingOperations.GetBindingExpression(zone, FrameworkElement.HeightProperty), Is.Null);
