@@ -528,21 +528,32 @@ internal sealed class MaintenancePanelController {
         // Build day options for weekly submenu
         var days = new[] { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday" };
         var currentFreq = task.Frequency;
-        var currentDay = currentFreq.StartsWith("weekly-") ? currentFreq.Substring(7) : "";
         
-        var frequencyOptions = new (string DisplayName, string Value, (string DisplayName, string Value)[]?)[] {
+        // Normalise legacy per-commit / after-commits → every-1-commits so the submenu check state works
+        var normalizedFreq = (string.Equals(currentFreq, "per-commit",    StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(currentFreq, "after-commits", StringComparison.OrdinalIgnoreCase))
+            ? "every-1-commits"
+            : currentFreq;
+
+        // Build "After Commits" submenu entries
+        var commitThresholds = new[] { 1, 2, 3, 4, 5, 10, 15, 20, 25, 50, 100 };
+        SubitemEntry[] commitSubitems = new[] { SubitemEntry.Header("After Commits:"), SubitemEntry.Separator }
+            .Concat(commitThresholds.Select(n => SubitemEntry.Item($"{n} or more", $"every-{n}-commits")))
+            .ToArray();
+
+        var frequencyOptions = new (string DisplayName, string Value, SubitemEntry[]?)[] {
             ("Always",         "always",         null),
             ("Daily",          "daily",          null),
-            ("Weekly",         "weekly",         days.Select(d => (d, $"weekly-{d}")).ToArray()),
+            ("Weekly",         "weekly",         days.Select(d => SubitemEntry.Item(d, $"weekly-{d}")).ToArray()),
             ("Monthly",        "monthly",        null),
-            ("After Commits",  "after-commits",  null),
+            ("After Commits",  "after-commits",  commitSubitems),
         };
 
         CompactPickerButton? frequencyPicker = null;
         frequencyPicker = new CompactPickerButton(
             headerText:     "Run Frequency:",
             optionsWithSubmenus: frequencyOptions,
-            selectedValue:  task.Frequency,
+            selectedValue:  normalizedFreq,
             onValueChanged: newFreq => ChangeTaskFrequency(taskIdForFreq, newFreq),
             getButtonLabel: freq => GetFrequencyDisplayText(freq));
         chipRow.Children.Add(frequencyPicker.Control);
@@ -742,6 +753,14 @@ internal sealed class MaintenancePanelController {
             var dayPart = frequency.Substring(7);
             return $"Runs at most once per calendar week on {dayPart}s.";
         }
+
+        if (freqLower.StartsWith("every-") && freqLower.EndsWith("-commits")) {
+            var nStr = freqLower["every-".Length..^"-commits".Length];
+            if (int.TryParse(nStr, out var n))
+                return n == 1
+                    ? "Runs once per new commit since the last run."
+                    : $"Runs after every {n} or more new commits since the last run.";
+        }
         
         return freqLower switch {
             "daily"          => "Runs at most once per calendar day.",
@@ -761,14 +780,20 @@ internal sealed class MaintenancePanelController {
             var dayPart = frequency.Substring(7);
             return $"every {dayPart}";
         }
+
+        if (freqLower.StartsWith("every-") && freqLower.EndsWith("-commits")) {
+            var nStr = freqLower["every-".Length..^"-commits".Length];
+            return int.TryParse(nStr, out var n) ? $"After {n}+ Commits" : "After Commits";
+        }
         
         return freqLower switch {
-            "daily"    => "Daily",
-            "weekly"   => "Weekly",
-            "monthly"  => "Monthly",
-            "always"   => "Always",
+            "daily"         => "Daily",
+            "weekly"        => "Weekly",
+            "monthly"       => "Monthly",
+            "always"        => "Always",
             "after-commits" => "After Commits",
-            _          => frequency,
+            "per-commit"    => "After 1+ Commits",
+            _               => frequency,
         };
     }
 

@@ -2,10 +2,21 @@ namespace SquadDash;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+
+/// <summary>Represents a single entry inside a <see cref="CompactPickerButton"/> submenu.</summary>
+internal readonly record struct SubitemEntry(string DisplayName, string Value, bool IsEnabled, bool IsSeparator) {
+    internal static SubitemEntry Item(string displayName, string value) =>
+        new(displayName, value, IsEnabled: true, IsSeparator: false);
+    internal static SubitemEntry Header(string text) =>
+        new(text, string.Empty, IsEnabled: false, IsSeparator: false);
+    internal static readonly SubitemEntry Separator =
+        new(string.Empty, string.Empty, IsEnabled: false, IsSeparator: true);
+}
 
 /// <summary>
 /// A compact inline value-picker: displays the selected value as a chip-like button and
@@ -16,7 +27,7 @@ internal sealed class CompactPickerButton {
 
     private readonly string                                                                _headerText;
     private readonly IReadOnlyList<(string DisplayName, string Value)>                     _options;
-    private readonly IReadOnlyList<(string DisplayName, string Value, (string, string)[]?)>? _optionsWithSubmenus;
+    private readonly IReadOnlyList<(string DisplayName, string Value, SubitemEntry[]?)>? _optionsWithSubmenus;
     private readonly Action<string>?                                                       _onValueChanged;
 
     private string _selectedValue;
@@ -93,7 +104,7 @@ internal sealed class CompactPickerButton {
     /// </summary>
     public CompactPickerButton(
         string                                                                        headerText,
-        IReadOnlyList<(string DisplayName, string Value, (string DisplayName, string Value)[]? Subitems)> optionsWithSubmenus,
+        IReadOnlyList<(string DisplayName, string Value, SubitemEntry[]? Subitems)> optionsWithSubmenus,
         string                                                                        selectedValue,
         Action<string>?                                                              onValueChanged = null,
         Func<string, string>?                                                        getButtonLabel = null) {
@@ -198,26 +209,40 @@ internal sealed class CompactPickerButton {
                     SquadDashTrace.Write(TraceCategory.UI,
                         $"[compact-picker] Added menu item: {displayName} ({value}), IsChecked={item.IsChecked}");
                 } else {
-                    // Item with submenu
-                    var parentItem = new MenuItem { Header = displayName };
+                    // Item with submenu — parent is checked when any enabled child matches
+                    bool anyChildSelected = subitems.Any(s =>
+                        !s.IsSeparator && s.IsEnabled &&
+                        string.Equals(s.Value, _selectedValue, StringComparison.OrdinalIgnoreCase));
+                    var parentItem = new MenuItem { Header = displayName, IsChecked = anyChildSelected };
                     parentItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
 
-                    foreach (var (subitemDisplayName, subitemValue) in subitems) {
-                        var capturedSubitemValue = subitemValue;
-                        var capturedSubitemDisplayName = subitemDisplayName;
-                        var subitem = new MenuItem {
-                            Header    = subitemDisplayName,
-                            IsChecked = string.Equals(subitemValue, _selectedValue, StringComparison.OrdinalIgnoreCase),
+                    foreach (var subitem in subitems) {
+                        if (subitem.IsSeparator) {
+                            var subSep = new Separator();
+                            subSep.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                            parentItem.Items.Add(subSep);
+                            continue;
+                        }
+
+                        var capturedSubitemValue = subitem.Value;
+                        var capturedSubitemDisplayName = subitem.DisplayName;
+                        var submi = new MenuItem {
+                            Header    = subitem.DisplayName,
+                            IsEnabled = subitem.IsEnabled,
+                            IsChecked = subitem.IsEnabled &&
+                                        string.Equals(subitem.Value, _selectedValue, StringComparison.OrdinalIgnoreCase),
                         };
-                        subitem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                        subitem.Click += (_, _) => {
-                            SquadDashTrace.Write(TraceCategory.UI,
-                                $"[compact-picker] Submenu item clicked: {capturedDisplayName} > {capturedSubitemDisplayName} ({capturedSubitemValue})");
-                            SelectValue(capturedSubitemValue);
-                        };
-                        parentItem.Items.Add(subitem);
+                        submi.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                        if (subitem.IsEnabled) {
+                            submi.Click += (_, _) => {
+                                SquadDashTrace.Write(TraceCategory.UI,
+                                    $"[compact-picker] Submenu item clicked: {capturedDisplayName} > {capturedSubitemDisplayName} ({capturedSubitemValue})");
+                                SelectValue(capturedSubitemValue);
+                            };
+                        }
+                        parentItem.Items.Add(submi);
                         SquadDashTrace.Write(TraceCategory.UI,
-                            $"[compact-picker] Added submenu item: {capturedDisplayName} > {subitemDisplayName} ({subitemValue}), IsChecked={subitem.IsChecked}");
+                            $"[compact-picker] Added submenu item: {capturedDisplayName} > {subitem.DisplayName} ({subitem.Value}), IsChecked={submi.IsChecked}");
                     }
 
                     menu.Items.Add(parentItem);
