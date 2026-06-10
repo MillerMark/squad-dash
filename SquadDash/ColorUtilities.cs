@@ -12,6 +12,16 @@ internal static class ColorUtilities {
         return (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
     }
 
+    // Returns a version of the hex color mixed ~20% toward white, for light-theme swatch display.
+    // Formula per channel: newChannel = oldChannel * 0.8 + 255 * 0.2
+    internal static SolidColorBrush LightenForLightTheme(string hex) {
+        var color = (Color)ColorConverter.ConvertFromString(hex);
+        byte r = (byte)(color.R * 0.8 + 255 * 0.2);
+        byte g = (byte)(color.G * 0.8 + 255 * 0.2);
+        byte b = (byte)(color.B * 0.8 + 255 * 0.2);
+        return new SolidColorBrush(Color.FromRgb(r, g, b));
+    }
+
     internal static SolidColorBrush CreateDarkAccentBrush(string hex) {
         var color = (Color)ColorConverter.ConvertFromString(hex);
         RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);

@@ -12056,7 +12056,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 accentSubmenu.Items.Add(MakeSep());
 
             var paletteOption = AgentAccentPalette[index];
-            var swatchBrush = ColorUtilities.AccentBrush(paletteOption.Hex);
+            bool lightenSwatch = !AgentStatusCard.IsDarkTheme
+                && !string.Equals(paletteOption.Hex, "#FF9A9A9A", StringComparison.OrdinalIgnoreCase);
+            var swatchBrush = lightenSwatch
+                ? ColorUtilities.LightenForLightTheme(paletteOption.Hex)
+                : ColorUtilities.AccentBrush(paletteOption.Hex);
             var swatch = new Border
             {
                 Width = 56,
