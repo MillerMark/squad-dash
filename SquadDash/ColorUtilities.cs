@@ -21,14 +21,13 @@ internal static class ColorUtilities {
         return new SolidColorBrush(Color.FromRgb(r, g, b));
     }
 
-    // Lighter pastel variant used for agent card borders in light theme — keeps the hue
-    // but raises luminosity so the border is low-contrast against a pale background.
+    // Lighter variant used for agent card borders in light theme — keeps the hue
+    // but raises luminosity so the border is lower-contrast against a pale background.
     internal static SolidColorBrush CreateLightAccentBrush(string hex) {
         var color = (Color)ColorConverter.ConvertFromString(hex);
         RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
-        var liftedL = Math.Min(0.82, l + 0.26);
-        var softenedS = Math.Min(1.0, s * 0.80);
-        HslToRgb(h, softenedS, liftedL, out byte r, out byte g, out byte b);
+        var liftedL = Math.Min(0.82, l + 0.13);
+        HslToRgb(h, s, liftedL, out byte r, out byte g, out byte b);
         return new SolidColorBrush(Color.FromRgb(r, g, b));
     }
 
