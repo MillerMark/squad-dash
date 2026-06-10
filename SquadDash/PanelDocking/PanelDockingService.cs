@@ -1117,6 +1117,19 @@ internal sealed class PanelDockingService
             SquadDashTrace.Write(TraceCategory.Docking,
                 $"OnPanelVisibilityChanged: showing {panelId} zone={slot.Zone} colWidth={col?.Width.Value:F0} wasCollapsed={wasCollapsed}");
 
+            // Guard: if the column is already expanded AND the panel element is already visible in the
+            // grid, this is a spurious no-op show event (e.g. triggered by UI notifications unrelated
+            // to actual visibility changes). Skip the RebuildZoneGrid call — calling it without weights
+            // would reset all RowDefinition heights to 1.0* and erase the user's splitter positions.
+            if (!wasCollapsed &&
+                _panelRegistry.TryGetValue(panelId, out var panelEl) &&
+                panelEl.Visibility != Visibility.Collapsed)
+            {
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"OnPanelVisibilityChanged: no-op — {panelId} already visible and column already expanded; skipping rebuild");
+                return;
+            }
+
             if (wasCollapsed)
             {
                 double width = _panelRegistry.TryGetValue(panelId, out var shownEl) && shownEl.ActualWidth > 0
