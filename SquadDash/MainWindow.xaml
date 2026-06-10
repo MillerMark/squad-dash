@@ -1134,7 +1134,7 @@
         <Border x:Name="StatusPanelBorder"
                 Grid.Row="2"
                 Grid.Column="0"
-                Margin="0,-8,0,0"
+                Margin="-4,-8,0,0"
                 Padding="0"
                 ClipToBounds="False"
                 Background="Transparent"
