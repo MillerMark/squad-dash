@@ -767,9 +767,18 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _scaleTransform.ScaleX = _zoom;
             _scaleTransform.ScaleY = _zoom;
             if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
-            UpdateWindowSizeForZoom();
+
+            // Pass 1: flush the LayoutTransform change so the ScrollViewer sees the
+            // correct content DesiredSize before we resize the window.  Without this
+            // the window-resize layout pass (triggered by UpdateWindowSizeForZoom)
+            // runs first and measures stale content, leaving extent stale.
             _scrollViewer.InvalidateMeasure();
-            _scrollViewer.InvalidateArrange();
+            _scrollViewer.UpdateLayout();
+
+            UpdateWindowSizeForZoom();
+
+            // Pass 2: flush the viewport-size change that UpdateWindowSizeForZoom produced.
+            _scrollViewer.InvalidateMeasure();
             _scrollViewer.UpdateLayout();
             LogScrollViewerState("ZoomApplied");
 
@@ -801,10 +810,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        var canvasGrid = new Grid {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var canvasGrid = new Grid();
         canvasGrid.Children.Add(canvasWrapper);
         canvasGrid.Children.Add(_overlayCanvas);
 
