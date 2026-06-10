@@ -2268,7 +2268,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_remoteAccessActive)
                 _ = _bridge.BroadcastRcPromptAsync(prompt);
             AutoActivateCoordinatorTranscriptOnPromptSubmit();
-            HandleOpenEditorsBeforeSend();
+            HandleOpenEditorsBeforeSend("");
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(prompt, ""), addToHistory: true, clearPromptBox: true);
 
             // In fullscreen mode the prompt was peeked temporarily — hide it again now.
@@ -2502,7 +2502,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             ResetQueuePausedState();
-            HandleOpenEditorsBeforeSend();
+            HandleOpenEditorsBeforeSend(id);
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
         }
         catch (Exception ex)
@@ -2639,7 +2639,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        HandleOpenEditorsBeforeSend();
+        HandleOpenEditorsBeforeSend(item.Id);
         SquadDashTrace.Write("Queue", $"DrainQueueAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         _promptQueue.Remove(item.Id);
         SyncQueuePanel();
@@ -2729,7 +2729,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 continue;
             }
 
-            HandleOpenEditorsBeforeSend();
+            HandleOpenEditorsBeforeSend(item.Id);
             SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
             SquadDashTrace.Write("UI", "Prompt sent: queue drain (item dispatched)");
             _promptQueue.Remove(item.Id);
@@ -2822,7 +2822,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             dispatched = true;
-            HandleOpenEditorsBeforeSend();
+            HandleOpenEditorsBeforeSend(item.Id);
             SquadDashTrace.Write("Queue", $"DrainQueueBeforeLoopIterationAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
@@ -26503,12 +26503,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// <summary>
     /// Called just before dispatching any prompt. If update-mode image editors are open,
     /// either closes them silently (no changes) or prompts the user to save first.
+    /// Only editors whose <see cref="ClipboardImageEditorWindow.PromptItemId"/> matches
+    /// <paramref name="promptItemId"/> are checked — editors belonging to a different
+    /// prompt item (e.g. the active draft while a queued item is being sent) are skipped.
     /// </summary>
-    private void HandleOpenEditorsBeforeSend()
+    private void HandleOpenEditorsBeforeSend(string promptItemId)
     {
         var updateModeEditors = Application.Current.Windows
             .OfType<ClipboardImageEditorWindow>()
-            .Where(w => w.IsUpdateMode)
+            .Where(w => w.IsUpdateMode && w.PromptItemId == promptItemId)
             .ToList();
 
         foreach (var editor in updateModeEditors)
@@ -30586,7 +30589,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedImg = capturedAtt;
+                    var capturedImg    = capturedAtt;
+                    var capturedItemId = _activeTabId ?? "";
                     label.MouseLeftButtonUp += (_, _) =>
                     {
                         var annotJsonPath = capturedImg.ImagePath + ".annotation.json";
@@ -30597,7 +30601,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         if (annotExists && sourceExists)
                         {
                             SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening editor (sidecar present)");
-                            ReopenImageForEditing(capturedImg);
+                            ReopenImageForEditing(capturedImg, capturedItemId);
                         }
                         else
                         {
@@ -30745,7 +30749,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// saved source image and annotation state from their companion sidecar files.
     /// On confirmation, overwrites the existing PNG and updates the sidecar.
     /// </summary>
-    private void ReopenImageForEditing(FollowUpAttachment att)
+    private void ReopenImageForEditing(FollowUpAttachment att, string promptItemId)
     {
         if (att.ImagePath == null || _currentWorkspace == null)
         {
@@ -30785,6 +30789,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening editor with restored state");
         var capturedAtt = att;
         var editor = new ClipboardImageEditorWindow(this, srcImage, isPromptMode: true, initialState: state, isUpdateMode: true);
+        editor.PromptItemId = promptItemId;
         editor.ImageAccepted += edited =>
         {
             _pastedImageStore.OverwriteImage(edited, capturedAtt.ImagePath!);

@@ -7316,6 +7316,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     internal bool IsUpdateMode => _isUpdateMode;
 
     /// <summary>
+    /// Identifies which prompt item's attachment is open in this editor.
+    /// Empty string means the active draft; any other value is a queued-item ID.
+    /// Used by the send-guard to skip editors that belong to a different item.
+    /// </summary>
+    internal string PromptItemId { get; set; } = "";
+
+    /// <summary>
     /// Returns true if the annotation state has changed from what was loaded when the editor opened.
     /// Used by the send-guard to decide whether to prompt the user before dispatching a prompt.
     /// </summary>
