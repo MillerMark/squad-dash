@@ -770,6 +770,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             UpdateWindowSizeForZoom();
 
             // Force a synchronous layout pass so scroll extents reflect the new zoom.
+            _scrollViewer.InvalidateMeasure();
+            _scrollViewer.InvalidateArrange();
             _scrollViewer.UpdateLayout();
             LogScrollViewerState("ZoomApplied");
 
@@ -5943,6 +5945,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _imageCtrl.Height = newH;
         _canvas.Width = newW;
         _canvas.Height = newH;
+        _scrollViewer.InvalidateMeasure();
+        _scrollViewer.InvalidateArrange();
+        _scrollViewer.UpdateLayout();
 
         // Shift/remove annotations so their coords are relative to the new origin.
         var dx = sel.Left;
@@ -6518,6 +6523,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     _canvas.Height       = bmp.PixelHeight;
                     _imageCtrl.Width     = bmp.PixelWidth;
                     _imageCtrl.Height    = bmp.PixelHeight;
+                    _scrollViewer.InvalidateMeasure();
+                    _scrollViewer.InvalidateArrange();
+                    _scrollViewer.UpdateLayout();
                     RefreshLayout();
                 }
                 catch (Exception ex) {
@@ -6778,6 +6786,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _imageCtrl.Source = snap.WorkingImage;
             _imageCtrl.Width = snap.CanvasW;
             _imageCtrl.Height = snap.CanvasH;
+            _scrollViewer.InvalidateMeasure();
+            _scrollViewer.InvalidateArrange();
+            _scrollViewer.UpdateLayout();
             _cachedPixels = null;
 
             if (snap.CursorEnabled) {
