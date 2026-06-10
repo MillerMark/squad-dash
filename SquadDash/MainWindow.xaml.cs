@@ -11300,11 +11300,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void HideAgentCardGlowOverlayElement(Border overlay)
     {
-        if (overlay.Effect is System.Windows.Media.Effects.DropShadowEffect cardGlow)
-            cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+        if (overlay.Effect is not System.Windows.Media.Effects.DropShadowEffect cardGlow)
+        {
+            overlay.Visibility = Visibility.Collapsed;
+            return;
+        }
 
-        overlay.Effect = null;
-        overlay.Visibility = Visibility.Collapsed;
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(100))
+        {
+            FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+        };
+        var capturedOverlay = overlay;
+        fadeOut.Completed += (_, _) =>
+        {
+            capturedOverlay.Effect = null;
+            capturedOverlay.Visibility = Visibility.Collapsed;
+        };
+        cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, fadeOut);
     }
 
     private void ShowAgentCardGlowOverlay(Border agentCardBorder, System.Windows.Media.Color accentColor, bool isDark)
@@ -11331,20 +11343,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         overlay.Height = agentCardBorder.ActualHeight;
         UpdateAgentCardGlowOverlayPosition();
 
-        double cardStartOpacity = isDark ? 0.6 : 0.4;
         var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
         {
             Color = accentColor,
             BlurRadius = isDark ? 28 : 20,
             ShadowDepth = 0,
-            Opacity = cardStartOpacity
+            Opacity = 0
         };
         overlay.Effect = cardGlow;
 
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
-            cardStartOpacity,
+            0,
             1.0,
-            TimeSpan.FromMilliseconds(2000));
+            TimeSpan.FromMilliseconds(100));
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
@@ -11393,7 +11404,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             0,
             cardTargetOpacity,
-            TimeSpan.FromMilliseconds(350));
+            TimeSpan.FromMilliseconds(100));
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
@@ -11402,8 +11413,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (agentCardBorder.Effect is not System.Windows.Media.Effects.DropShadowEffect cardGlow)
             return;
 
-        cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-        agentCardBorder.Effect = null;
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(100))
+        {
+            FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+        };
+        var capturedBorder = agentCardBorder;
+        fadeOut.Completed += (_, _) => { capturedBorder.Effect = null; };
+        cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, fadeOut);
     }
 
     private static System.Windows.Media.Color GetAgentAccentColor(AgentStatusCard agent)
@@ -11497,17 +11513,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                 {
-                    double startOpacity = isDark ? 0.6 : 0.4;
                     var glow = new System.Windows.Media.Effects.DropShadowEffect
                     {
                         Color = accentColor,
                         BlurRadius = isDark ? 28 : 20,
                         ShadowDepth = 0,
-                        Opacity = startOpacity
+                        Opacity = 0
                     };
                     MainTranscriptBorder.Effect = glow;
 
-                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(startOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
+                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(100));
                     glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, opacityAnim);
                 }
                 return;
@@ -11518,16 +11533,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             foreach (var panelToken in allPanels)
             {
                 if (panelToken is not Border secondaryPanelBorder) continue;
-                double startOpacity = isDark ? 0.6 : 0.4;
                 var secondaryGlow = new System.Windows.Media.Effects.DropShadowEffect
                 {
                     Color = accentColor,
                     BlurRadius = isDark ? 28 : 20,
                     ShadowDepth = 0,
-                    Opacity = startOpacity
+                    Opacity = 0
                 };
                 secondaryPanelBorder.Effect = secondaryGlow;
-                var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(startOpacity, 1.0, TimeSpan.FromMilliseconds(2000));
+                var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(100));
                 secondaryGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, secondaryOpacityAnim);
             }
         }
@@ -11553,11 +11567,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Remove glow from transcript border — only MainTranscriptBorder if this agent owns it.
             if (_ownershipMap.IsMainPanelOwner(agentCard))
             {
-                if (MainTranscriptBorder is not null && MainTranscriptBorder.Effect is System.Windows.Media.Effects.DropShadowEffect mainGlow)
-                {
-                    mainGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                    MainTranscriptBorder.Effect = null;
-                }
+                if (MainTranscriptBorder is not null)
+                    ClearAgentCardBorderGlow(MainTranscriptBorder);
                 return;
             }
 
@@ -11565,11 +11576,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             foreach (var panelToken in allPanels)
             {
                 if (panelToken is not Border secondaryPanelBorder) continue;
-                if (secondaryPanelBorder.Effect is System.Windows.Media.Effects.DropShadowEffect glow)
-                {
-                    glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
-                    secondaryPanelBorder.Effect = null;
-                }
+                ClearAgentCardBorderGlow(secondaryPanelBorder);
             }
         }
         catch (Exception ex)
