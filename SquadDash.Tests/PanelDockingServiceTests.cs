@@ -369,8 +369,12 @@ internal sealed class PanelDockingServiceTests
             weights,
             weightsArePixels: true);
 
-        Assert.That(zone.Height, Is.EqualTo(180).Within(0.001));
-        Assert.That(BindingOperations.GetBindingExpression(zone, FrameworkElement.HeightProperty), Is.Null);
+        // Solo panel must NOT cap zone.Height at maxH — it must bind to the scroll viewer
+        // so the panel fills the full available zone height instead of leaving dead space.
+        Assert.That(BindingOperations.GetBindingExpression(zone, FrameworkElement.HeightProperty), Is.Not.Null,
+            "Solo panel zone must be bound to scrollViewer, not capped at maxH.");
+        Assert.That(zone.RowDefinitions.Single().Height.IsStar, Is.True,
+            "Solo panel row must use star sizing to fill the zone.");
         Assert.That(zone.RowDefinitions.Single().MaxHeight, Is.EqualTo(double.PositiveInfinity));
     }
 

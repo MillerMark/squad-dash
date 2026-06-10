@@ -1613,23 +1613,11 @@ internal sealed class PanelDockingService
             }
         }
 
-        // Bind the zone Grid height to the scroll viewer so star rows fill the column.
-        // The solo pixel-height branch only fires when the caller explicitly confirms that
-        // the weights dictionary contains pixel heights (weightsArePixels=true).  Star-ratio
-        // weights from CaptureStarWeights must NOT reach this branch — their redistributed
-        // value is typically 2.0 (star units), which would set zone.Height=2px and hide the panel.
+        // Bind the zone Grid height to the scroll viewer so star rows fill the full column.
+        // A solo panel must also use this binding — capping zone.Height at the panel's maxH
+        // leaves dead space below it when the zone is taller than the panel's useful height.
         BindingOperations.ClearBinding(zone, FrameworkElement.HeightProperty);
-        if (visible.Count == 1 &&
-            weightsArePixels &&
-            weights is not null &&
-            weights.TryGetValue(visible[0], out double soloHeight) &&
-            soloHeight > 0)
-        {
-            zone.Height = soloHeight;
-            SquadDashTrace.Write(TraceCategory.Docking,
-                $"RebuildZoneGrid: solo panel height set to {soloHeight:F1}px (pixel-weight override)");
-        }
-        else if (scrollViewer is not null && visible.Count > 0)
+        if (scrollViewer is not null && visible.Count > 0)
             zone.SetBinding(FrameworkElement.HeightProperty,
                 new Binding(nameof(FrameworkElement.ActualHeight)) { Source = scrollViewer });
     }
