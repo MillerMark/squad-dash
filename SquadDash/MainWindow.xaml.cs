@@ -1568,6 +1568,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 "Startup",
                 $"ContentRendered post-refresh: ActiveH={ActiveAgentItemsControl.ActualHeight:F0} ActiveViewport={ActiveAgentsScrollViewer.ActualHeight:F0} " +
                 $"InactiveH={InactiveAgentItemsControl.ActualHeight:F0} InactiveViewport={InactiveAgentsScrollViewer.ActualHeight:F0} RootH={StatusAgentPanelsGrid.ActualHeight:F0}");
+
+            // When the window is restored to maximized state on startup, WPF's WindowChrome
+            // HWND hook can miss the initial WM_NCCALCSIZE/WM_NCPAINT messages — particularly
+            // on non-primary monitors with a different DPI — leaving the title bar chrome
+            // (caption buttons and background) transparent/unrendered. Re-applying the
+            // WindowChrome at ContentRendered forces the non-client area to repaint correctly.
+            if (WindowState == WindowState.Maximized)
+            {
+                var chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(this);
+                if (chrome is not null)
+                    System.Windows.Shell.WindowChrome.SetWindowChrome(this, chrome);
+                InvalidateVisual();
+            }
+
             PromptTextBox.Focus();
             LogMainLayoutPositions();
         }
