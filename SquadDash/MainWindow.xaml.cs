@@ -27665,11 +27665,41 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var mergedDicts = Application.Current.Resources.MergedDictionaries;
         var existing = mergedDicts.FirstOrDefault(d =>
             d.Source?.OriginalString?.Contains("/Themes/") == true);
-        if (existing is not null)
-            mergedDicts.Remove(existing);
 
+        // Add the incoming dictionary BEFORE removing the outgoing one so that
+        // DynamicResource bindings (including TitlebarGrid's ChromeSurface
+        // background) are never observed without a resolved value.  Removing
+        // first creates a transient gap where ChromeSurface is undefined; WPF's
+        // render thread can catch that gap and paint the title bar transparent.
         mergedDicts.Add(new ResourceDictionary { Source = themeUri });
         _themeDict = mergedDicts.Last();
+
+        if (existing is not null)
+        {
+            mergedDicts.Remove(existing);
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"ApplyTheme: swapped '{existing.Source?.OriginalString}' → '{themeUri}' (no-gap swap).");
+        }
+        else
+        {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"ApplyTheme: loaded '{themeUri}' (no previous theme dict found).");
+        }
+
+        // Safety net: if ChromeSurface still didn't resolve after the swap (should
+        // never happen, but guards against missing/corrupt resource files), reset
+        // TitlebarGrid's background to an opaque fallback and emit a trace warning.
+        if (TitlebarGrid is not null &&
+            Application.Current.TryFindResource("ChromeSurface") is not Brush)
+        {
+            var isDarkFallback = string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase);
+            var fallback = new SolidColorBrush(isDarkFallback
+                ? Color.FromRgb(0x21, 0x1E, 0x1B)
+                : Color.FromRgb(0xF4, 0xEA, 0xD8));
+            TitlebarGrid.Background = fallback;
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"ApplyTheme: ChromeSurface resource missing after theme load — applied hard-coded {themeName} fallback to TitlebarGrid.");
+        }
         CaptureTintBaseline();
         ApplyTintStop(_activeTintStop, notify: false);
         // Refresh tint menu swatches — baseline just changed due to theme swap.
