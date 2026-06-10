@@ -11637,7 +11637,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             CancelTranscriptGlowFadeTimer();
             _transcriptGlowFadeBorder = transcriptBorder;
 
-            _transcriptGlowHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _transcriptGlowHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _transcriptGlowHoldTimer.Tick += (_, _) =>
             {
                 _transcriptGlowHoldTimer?.Stop();
