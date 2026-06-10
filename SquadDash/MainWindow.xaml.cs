@@ -34485,6 +34485,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         EditBoldMenuItem.IsEnabled= hasSel;
         EditItalicMenuItem.IsEnabled        = hasSel;
         EditInlineCodeMenuItem.IsEnabled    = hasSel;
+        EditParenthesesMenuItem.IsEnabled   = isText;
         EditQuotesMenuItem.IsEnabled        = hasSel;
         EditCycleCaseMenuItem.IsEnabled     = hasSel;
         EditSmoothDictationMenuItem.IsEnabled = hasSel;
@@ -34584,6 +34585,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (!MarkdownEditorCommands.ApplyInlineCodeOrFence(tb))
                 MarkdownEditorCommands.InsertInlineCode(tb);
+            tb.Focus();
+        }
+    }
+
+    private void EditParenthesesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        {
+            if (!MarkdownEditorCommands.ApplyInlineParens(rtb, "("))
+            {
+                var pos = rtb.GetSelectionStart();
+                rtb.SelectRange(pos, 0);
+                rtb.ReplaceSelection("()");
+                rtb.SelectRange(pos + 1, 0);
+            }
+            rtb.Focus();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb)
+        {
+            if (!MarkdownEditorCommands.ApplyInlineParens(tb, "("))
+            {
+                var pos = tb.SelectionStart;
+                tb.SelectedText = "()";
+                tb.SelectionStart = pos + 1;
+            }
             tb.Focus();
         }
     }

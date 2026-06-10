@@ -569,6 +569,10 @@
                                   x:Name="EditInlineCodeMenuItem"
                                   InputGestureText="`"
                                   Click="EditInlineCodeMenuItem_Click" />
+                        <MenuItem Header="_Parentheses"
+                                  x:Name="EditParenthesesMenuItem"
+                                  InputGestureText="("
+                                  Click="EditParenthesesMenuItem_Click" />
                         <MenuItem Header="_Quotes"
                                   x:Name="EditQuotesMenuItem"
                                   InputGestureText="Shift+&quot;"
