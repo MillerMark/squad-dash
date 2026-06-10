@@ -33120,18 +33120,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 entry.ScrollController.TraceTarget = _traceWindow;
             SquadDashTrace.TraceTarget = _traceWindow;
 
-            // Restore saved absolute position, or center relative to main window on first open.
+            // Restore saved absolute position, or center over the main window on first open.
+            // NOTE: WindowStartupLocation has no effect after Show(), so we position manually.
             _traceWindow.Loaded += (_, _) =>
             {
                 if (_traceWindowOffset is { } saved)
                 {
                     _traceWindow.Left = saved.X;
                     _traceWindow.Top  = saved.Y;
-                    WindowPlacementHelper.EnsureOnScreen(_traceWindow, this);
+                    // Validate saved coords are on-screen (old sessions stored a relative offset,
+                    // not absolute coords; those would land off-screen).
+                    double cx = saved.X + (_traceWindow.ActualWidth  > 0 ? _traceWindow.ActualWidth  : _traceWindow.Width)  / 2;
+                    double cy = saved.Y + (_traceWindow.ActualHeight > 0 ? _traceWindow.ActualHeight : _traceWindow.Height) / 2;
+                    if (!IsLogicalPositionOnAnyMonitor(cx, cy))
+                    {
+                        _traceWindowOffset = null;
+                        CenterTraceWindowOnOwner();
+                    }
                 }
                 else
                 {
-                    _traceWindow.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                    CenterTraceWindowOnOwner();
                 }
             };
             _traceWindow.Show();
@@ -33140,6 +33149,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             _traceWindow.Activate();
         }
+    }
+
+    private void CenterTraceWindowOnOwner()
+    {
+        if (_traceWindow is null) return;
+        double w = _traceWindow.ActualWidth  > 0 ? _traceWindow.ActualWidth  : _traceWindow.Width;
+        double h = _traceWindow.ActualHeight > 0 ? _traceWindow.ActualHeight : _traceWindow.Height;
+        _traceWindow.Left = Left + (ActualWidth  - w) / 2;
+        _traceWindow.Top  = Top  + (ActualHeight - h) / 2;
+        WindowPlacementHelper.EnsureOnScreen(_traceWindow, this);
     }
 
     private void HideLiveTraceWindow()
