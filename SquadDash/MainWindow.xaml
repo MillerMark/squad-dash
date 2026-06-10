@@ -1197,7 +1197,7 @@
                     <Border x:Name="ActiveAgentsPanelBorder"
                             Grid.Column="0"
                             MinWidth="210"
-                            Margin="-4,0,0,0"
+                            Margin="0"
                             VerticalAlignment="Top"
                             Padding="12"
                             ClipToBounds="False"
