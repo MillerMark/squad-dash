@@ -239,6 +239,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
+    // Absolute screen position (Left, Top) of the trace window, saved/restored across sessions.
+    // Null means no saved position; window will open at its default CenterOwner location.
     private Vector? _traceWindowOffset;
     private Vector? _screenshotHealthWindowOffset;
     private CommitApprovalPanel? _approvalPanel;
@@ -32684,10 +32686,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void OnMainWindowMoved()
     {
         PositionTasksStatusWindow();
-        PositionTraceWindow();
         PositionScreenshotHealthWindow();
         ValidateFloatingWindowPosition(ref _tasksWindowOffset, _tasksStatusWindow);
-        ValidateFloatingWindowPosition(ref _traceWindowOffset, _traceWindow);
         ValidateFloatingWindowPosition(ref _screenshotHealthWindowOffset, _screenshotHealthWindow);
     }
 
@@ -32794,18 +32794,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ApplyFloatingWindowPosition(_tasksStatusWindow, _tasksWindowOffset);
     }
 
-    private void PositionTraceWindow()
-    {
-        if (_traceWindow is not { IsLoaded: true } || WindowState == WindowState.Minimized)
-            return;
-
-        // If tasks window is at default position, stack trace below it.
-        double defaultTopOffset = _tasksWindowOffset is null && _tasksStatusWindow is { IsLoaded: true }
-            ? _tasksStatusWindow.Height + 18
-            : 0;
-        ApplyFloatingWindowPosition(_traceWindow, _traceWindowOffset, defaultTopOffset);
-    }
-
     /// <summary>
     /// Records the floating window's position as an offset from the main window's top-right
     /// corner whenever the user moves it (i.e. not a programmatic move).
@@ -32828,7 +32816,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void OnTraceWindowMoved()
     {
         if (_traceWindow is not null)
-            OnFloatingWindowMoved(_traceWindow, ref _traceWindowOffset);
+            _traceWindowOffset = new Vector(_traceWindow.Left, _traceWindow.Top);
     }
 
     private void PositionScreenshotHealthWindow()
@@ -33132,17 +33120,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 entry.ScrollController.TraceTarget = _traceWindow;
             SquadDashTrace.TraceTarget = _traceWindow;
 
-            // Position after the first layout pass — IsLoaded is false until then,
-            // so calling PositionTraceWindow() before Loaded would be a no-op.
-            _traceWindow.Loaded += (_, _) => PositionTraceWindow();
+            // Restore saved absolute position, or center relative to main window on first open.
+            _traceWindow.Loaded += (_, _) =>
+            {
+                if (_traceWindowOffset is { } saved)
+                {
+                    _traceWindow.Left = saved.X;
+                    _traceWindow.Top  = saved.Y;
+                    WindowPlacementHelper.EnsureOnScreen(_traceWindow, this);
+                }
+                else
+                {
+                    _traceWindow.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                }
+            };
             _traceWindow.Show();
         }
         else
         {
             _traceWindow.Activate();
         }
-
-        PositionTraceWindow();
     }
 
     private void HideLiveTraceWindow()

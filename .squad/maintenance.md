@@ -129,7 +129,7 @@ tasks:
 
   - id: commit-review
     enabled: true
-    frequency: every-5-commits
+    frequency: every-10-commits
     safety: report-only
     title: Commit Quality Review
     instructions: |
@@ -452,7 +452,7 @@ tasks:
             tooltip: List each inconsistency — do not change any code
 
   - id: speed-improvements
-    enabled: false
+    enabled: true
     frequency: daily
     safety: report-only
     title: Performance Improvements
@@ -489,8 +489,8 @@ tasks:
             tooltip: Describe each opportunity — do not change any code
 
   - id: prune-tasks
-    enabled: false
-    frequency: monthly
+    enabled: true
+    frequency: daily
     safety: direct
     title: Prune Completed Tasks
     instructions: |
