@@ -1117,16 +1117,20 @@ internal sealed class PanelDockingService
             SquadDashTrace.Write(TraceCategory.Docking,
                 $"OnPanelVisibilityChanged: showing {panelId} zone={slot.Zone} colWidth={col?.Width.Value:F0} wasCollapsed={wasCollapsed}");
 
-            // Guard: if the column is already expanded AND the panel element is already visible in the
-            // grid, this is a spurious no-op show event (e.g. triggered by UI notifications unrelated
-            // to actual visibility changes). Skip the RebuildZoneGrid call — calling it without weights
-            // would reset all RowDefinition heights to 1.0* and erase the user's splitter positions.
-            if (!wasCollapsed &&
-                _panelRegistry.TryGetValue(panelId, out var panelEl) &&
-                panelEl.Visibility != Visibility.Collapsed)
+            // Guard: skip only if the panel is genuinely already rendered in the zone grid AND the
+            // column is already expanded.  Checking panelEl.Visibility alone is insufficient because
+            // the caller (SyncLoopPanel etc.) sets Visibility=Visible BEFORE calling this method in
+            // both spurious and legitimate cases.  After a hide+rebuild the panel is removed from
+            // zoneGrid.Children even though its Visibility is Visible; that is the legitimate show
+            // path and must not be short-circuited.
+            bool wasAlreadyVisible = _panelRegistry.TryGetValue(panelId, out var panelEl) &&
+                panelEl.Visibility == Visibility.Visible &&
+                zoneGrid.Children.Contains(panelEl);
+            if (!wasCollapsed && wasAlreadyVisible)
             {
                 SquadDashTrace.Write(TraceCategory.Docking,
-                    $"OnPanelVisibilityChanged: no-op — {panelId} already visible and column already expanded; skipping rebuild");
+                    $"OnPanelVisibilityChanged: no-op — {panelId} was already rendered in the zone grid " +
+                    $"with column expanded (wasAlreadyVisible={wasAlreadyVisible} wasCollapsed={wasCollapsed}); skipping rebuild");
                 return;
             }
 
