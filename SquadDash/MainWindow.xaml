@@ -2810,7 +2810,7 @@
                             BorderBrush="{DynamicResource LineColor}"
                             Background="{DynamicResource InputSurface}"
                             Cursor="Hand"
-                            ToolTip="Click for options"
+                            ToolTip="Click for Branch options"
                             MouseLeftButtonUp="BranchIndicatorStrip_MouseLeftButtonUp"
                             MouseRightButtonUp="BranchIndicatorStrip_MouseRightButtonUp">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
