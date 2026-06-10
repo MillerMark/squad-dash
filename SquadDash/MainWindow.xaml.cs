@@ -26144,19 +26144,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (isMaintenance)
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ChromeSurface");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
             BranchNameText.Text = $"⚠ {branch}";
         }
         else if (isHomeBranch)
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "SubtleText");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ChromeSurface");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             BranchNameText.Text = branch;
         }
         else
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ChromeSurface");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
             BranchNameText.Text = branch;
         }
