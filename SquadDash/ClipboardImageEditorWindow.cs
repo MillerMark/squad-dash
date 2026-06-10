@@ -767,11 +767,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _scaleTransform.ScaleX = _zoom;
             _scaleTransform.ScaleY = _zoom;
             if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
-            // Do NOT resize the window here — the window is locked at its fitted size
-            // after the initial layout pass so that the ScrollViewer receives a finite
-            // available width and can show scrollbars when the zoomed content overflows.
-
-            // Force a synchronous layout pass so scroll extents reflect the new zoom.
+            UpdateWindowSizeForZoom();
             _scrollViewer.InvalidateMeasure();
             _scrollViewer.InvalidateArrange();
             _scrollViewer.UpdateLayout();
@@ -1184,13 +1180,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         var resetZoomBtn = new Button { Content = "1:1", Width = 36, Height = 28, Margin = new Thickness(0, 0, 4, 0), ToolTip = "Reset zoom to 100% (Ctrl+0)" };
         resetZoomBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        resetZoomBtn.Click += (_, _) => { _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0; _zoomLabel.Text = "100%"; _scrollViewer.UpdateLayout(); };
+        resetZoomBtn.Click += (_, _) => { _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0; _zoomLabel.Text = "100%"; UpdateWindowSizeForZoom(); _scrollViewer.InvalidateMeasure(); _scrollViewer.InvalidateArrange(); _scrollViewer.UpdateLayout(); };
 
         // Update label whenever zoom changes via keyboard shortcut
         KeyDown += (_, e) => {
             if (e.Key == Key.D0 && (Keyboard.Modifiers & ModifierKeys.Control) != 0) {
                 _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0;
                 _zoomLabel.Text = "100%";
+                UpdateWindowSizeForZoom();
+                _scrollViewer.InvalidateMeasure();
+                _scrollViewer.InvalidateArrange();
                 _scrollViewer.UpdateLayout();
                 e.Handled = true;
             }
