@@ -801,7 +801,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        var canvasGrid = new Grid();
+        var canvasGrid = new Grid {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         canvasGrid.Children.Add(canvasWrapper);
         canvasGrid.Children.Add(_overlayCanvas);
 
