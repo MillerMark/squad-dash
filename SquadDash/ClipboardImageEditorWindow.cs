@@ -771,6 +771,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
             // Force a synchronous layout pass so scroll extents reflect the new zoom.
             _scrollViewer.UpdateLayout();
+            LogScrollViewerState("ZoomApplied");
 
             // Pin the image pixel under the cursor when scrollbars are active.
             // Skip if any drag is in progress (mouse is captured by a canvas element).
@@ -878,6 +879,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             else
                 EnterCropMode();
+        };
+
+        SizeChanged += (_, _) => {
+            _scrollViewer.UpdateLayout();
+            LogScrollViewerState("SizeChanged");
         };
     }
 
@@ -1460,7 +1466,25 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     }
 
     /// <summary>
-    /// Resizes the window to fit the scaled image within the current monitor's work area.
+    /// Writes a single <see cref="TraceCategory.ImageEditor"/> entry capturing the current
+    /// scroll viewer layout state (zoom, canvas size, viewport, extent, scrollbar visibility).
+    /// <paramref name="context"/> is a short label that identifies the call site
+    /// (e.g. "ZoomApplied", "SizeChanged").
+    /// </summary>
+    private void LogScrollViewerState(string context) {
+        var hVis  = _scrollViewer.HorizontalScrollBarVisibility;
+        var vVis  = _scrollViewer.VerticalScrollBarVisibility;
+        var hComp = _scrollViewer.ComputedHorizontalScrollBarVisibility;
+        var vComp = _scrollViewer.ComputedVerticalScrollBarVisibility;
+        SquadDashTrace.Write(TraceCategory.ImageEditor,
+            $"[ImageEditor] {context}: zoom={_zoom:F2}, " +
+            $"canvas={_canvas.ActualWidth:F0}x{_canvas.ActualHeight:F0}, " +
+            $"viewport={_scrollViewer.ViewportWidth:F0}x{_scrollViewer.ViewportHeight:F0}, " +
+            $"extent={_scrollViewer.ExtentWidth:F0}x{_scrollViewer.ExtentHeight:F0}, " +
+            $"H-vis={hVis}({hComp}), V-vis={vVis}({vComp})");
+    }
+
+    /// <summary>
     /// Preserves the current window center so zooming never jumps the window to a different
     /// monitor (important for monitors with negative screen coordinates).
     /// </summary>

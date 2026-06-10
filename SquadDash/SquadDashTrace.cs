@@ -98,6 +98,7 @@ internal static class SquadDashTrace {
         "Unhandled"         => TraceCategory.Unhandled,
         "Sound"             => TraceCategory.Sound,
         "Docking"           => TraceCategory.Docking,
+        "ImageEditor"       => TraceCategory.ImageEditor,
         _              => TraceCategory.General,
     };
 
