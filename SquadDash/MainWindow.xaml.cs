@@ -30963,8 +30963,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     showSource: true,
                     BuildMarkdownCaptureContext()),
                 showInboxPanel:         () => ShowInboxPanel(),
-                runTask:                taskId => _ = StartMaintenanceCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId }),
-                simulateIdle:           () => _ = StartMaintenanceCycleAsync(),
+                runTask:                taskId => StartMaintenanceCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId })
+                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncMaintenancePanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
+                simulateIdle:           () => StartMaintenanceCycleAsync()
+                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncMaintenancePanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
                 onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
                 onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
 
@@ -31654,7 +31656,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// <see cref="StartMaintenanceCycleAsync"/> with <c>isManual: true</c> to bypass the
     /// manual-mode gate — that is the whole point of the /maintenance override.
     /// </summary>
-    private void TryFireDeferredMaintenance()
+    private async void TryFireDeferredMaintenance()
     {
         if (!_maintenancePendingOnIdle)
             return;
@@ -31664,7 +31666,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _maintenancePendingOnIdle = false;
         SquadDashTrace.Write("UI", "TryFireDeferredMaintenance: firing deferred maintenance cycle");
-        _ = StartMaintenanceCycleAsync(isManual: true);
+        try
+        {
+            await StartMaintenanceCycleAsync(isManual: true);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(TryFireDeferredMaintenance), ex); }
     }
 
     private void EnsureArgusWeldRegistered(string workspacePath) {
@@ -31820,11 +31826,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 button.Style = qrStyle;
             else if (Application.Current.TryFindResource("ThemedButtonStyle") is Style themedStyle)
                 button.Style = themedStyle;
-            button.Click += (_, _) =>
+            button.Click += async (_, _) =>
             {
-                _ = StartMaintenanceCycleAsync(
-                    isManual: true,
-                    forceTaskIds: new HashSet<string> { taskId });
+                try
+                {
+                    await StartMaintenanceCycleAsync(
+                        isManual: true,
+                        forceTaskIds: new HashSet<string> { taskId });
+                }
+                catch (Exception ex) { HandleUiCallbackException(nameof(AppendManualRunSkippedFeedback), ex); }
             };
             panel.Children.Add(button);
         }
@@ -31933,7 +31943,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _idleDetectionService = new IdleDetectionService();
         _idleDetectionService.IdleThresholdReached += () =>
-            Dispatcher.InvokeAsync(() => _ = StartMaintenanceCycleAsync());
+            Dispatcher.InvokeAsync(() => StartMaintenanceCycleAsync()
+                .ContinueWith(t => HandleUiCallbackException("IdleThresholdReached", t.Exception!),
+                    TaskContinuationOptions.OnlyOnFaulted));
         _idleDetectionService.Start(thresholdMinutes);
     }
 
