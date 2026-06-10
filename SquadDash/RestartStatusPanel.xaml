@@ -35,7 +35,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Height="32" Margin="0,-2,0,0">
+    <Grid Height="32" Margin="0,-5,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
@@ -53,8 +53,8 @@
         <!-- Close Button (X) -->
         <Button Grid.Column="1"
                 Content="✕"
-                Width="32"
-                Height="32"
+                Width="29"
+                Height="29"
                 Background="{DynamicResource AlertSurface}"
                 Foreground="{DynamicResource AlertBodyText}"
                 BorderThickness="0"
