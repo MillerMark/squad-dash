@@ -768,17 +768,17 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _scaleTransform.ScaleY = _zoom;
             if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
 
-            // Pass 1: flush the LayoutTransform change so the ScrollViewer sees the
-            // correct content DesiredSize before we resize the window.  Without this
-            // the window-resize layout pass (triggered by UpdateWindowSizeForZoom)
-            // runs first and measures stale content, leaving extent stale.
+            // Mark the scroll viewer dirty BEFORE resizing the window so that the
+            // layout pass triggered by UpdateWindowSizeForZoom (via SizeChanged →
+            // _scrollViewer.UpdateLayout) picks up the new scale in the same pass.
+            // Calling UpdateLayout() here first would cause a visible flicker because
+            // the intermediate state (new scale, old window size) would be rendered.
             _scrollViewer.InvalidateMeasure();
-            _scrollViewer.UpdateLayout();
 
             UpdateWindowSizeForZoom();
 
-            // Pass 2: flush the viewport-size change that UpdateWindowSizeForZoom produced.
-            _scrollViewer.InvalidateMeasure();
+            // One final flush in case the viewport-size change from the window resize
+            // left any pending layout work (e.g. scrollbar re-computation).
             _scrollViewer.UpdateLayout();
             LogScrollViewerState("ZoomApplied");
 
