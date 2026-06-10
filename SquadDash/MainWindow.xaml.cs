@@ -632,6 +632,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _promptNavHintTimer;
+    private DispatcherTimer? _transcriptGlowHoldTimer;
+    private Border?          _transcriptGlowFadeBorder;
     private InteractiveControlState? _lastInteractiveControlState;
     private bool _lastCanAbortBackgroundTask;
     private string? _workspaceGitHubUrl;
@@ -11597,6 +11599,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var mainOwner = _ownershipMap.MainPanelOwner ?? _leadAgent;
             if (mainOwner is null) return;
             TranscriptPanelBorder_MouseEnter(mainOwner);
+            if (MainTranscriptBorder is not null)
+                StartTranscriptGlowFadeTimer(MainTranscriptBorder);
         }
         catch (Exception ex)
         {
@@ -11608,6 +11612,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            CancelTranscriptGlowFadeTimer();
             var mainOwner = _ownershipMap.MainPanelOwner ?? _leadAgent;
             if (mainOwner is null) return;
             TranscriptPanelBorder_MouseLeave(mainOwner);
@@ -11616,6 +11621,72 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             HandleUiCallbackException(nameof(MainTranscriptBorder_MouseLeave), ex);
         }
+    }
+
+    /// <summary>
+    /// Starts a 3-second hold timer for <paramref name="transcriptBorder"/>. When the timer fires
+    /// and the mouse is still inside the border, animates the glow opacity from its current value
+    /// to 0 over 3 seconds and then removes the effect.  Any previously running timer or animation
+    /// is cancelled first.  Call <see cref="CancelTranscriptGlowFadeTimer"/> on MouseLeave so the
+    /// existing immediate-clear behavior is preserved.
+    /// </summary>
+    private void StartTranscriptGlowFadeTimer(Border transcriptBorder)
+    {
+        try
+        {
+            CancelTranscriptGlowFadeTimer();
+            _transcriptGlowFadeBorder = transcriptBorder;
+
+            _transcriptGlowHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _transcriptGlowHoldTimer.Tick += (_, _) =>
+            {
+                _transcriptGlowHoldTimer?.Stop();
+                _transcriptGlowHoldTimer = null;
+
+                if (_transcriptGlowFadeBorder is not Border border || !border.IsMouseOver)
+                {
+                    _transcriptGlowFadeBorder = null;
+                    return;
+                }
+
+                if (border.Effect is not System.Windows.Media.Effects.DropShadowEffect glow)
+                {
+                    _transcriptGlowFadeBorder = null;
+                    return;
+                }
+
+                var fadeAnim = new System.Windows.Media.Animation.DoubleAnimation(
+                    glow.Opacity, 0.0, TimeSpan.FromSeconds(3))
+                {
+                    FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+                };
+                var capturedBorder = border;
+                fadeAnim.Completed += (_, _) =>
+                {
+                    if (!ReferenceEquals(_transcriptGlowFadeBorder, capturedBorder))
+                        return;
+                    if (capturedBorder.Effect is System.Windows.Media.Effects.DropShadowEffect g)
+                    {
+                        g.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, null);
+                        capturedBorder.Effect = null;
+                    }
+                    _transcriptGlowFadeBorder = null;
+                };
+                glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, fadeAnim);
+            };
+            _transcriptGlowHoldTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(StartTranscriptGlowFadeTimer), ex);
+        }
+    }
+
+    private void CancelTranscriptGlowFadeTimer()
+    {
+        _transcriptGlowHoldTimer?.Stop();
+        _transcriptGlowHoldTimer = null;
+        _transcriptGlowFadeBorder = null;
     }
 
     private Border? FindAgentCardBorderForCard(AgentStatusCard card)
@@ -19216,8 +19287,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         outerBorder.PreviewMouseWheel += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };
 
         // Reverse hover glow: hovering the transcript panel glows its agent card
-        outerBorder.MouseEnter += (_, _) => TranscriptPanelBorder_MouseEnter(entry.Agent);
-        outerBorder.MouseLeave += (_, _) => TranscriptPanelBorder_MouseLeave(entry.Agent);
+        outerBorder.MouseEnter += (_, _) => { TranscriptPanelBorder_MouseEnter(entry.Agent); StartTranscriptGlowFadeTimer(outerBorder); };
+        outerBorder.MouseLeave += (_, _) => { CancelTranscriptGlowFadeTimer(); TranscriptPanelBorder_MouseLeave(entry.Agent); };
 
         headerDock.SizeChanged += (_, _) =>
         {
