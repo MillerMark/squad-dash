@@ -13128,6 +13128,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private void CleanupClearTranscriptMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _pec.TryHandleLocalCommand("/clear", addToHistory: false, clearPromptBox: false);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(CleanupClearTranscriptMenuItem_Click), ex);
+        }
+    }
+
     private void RemoveTemporaryAgentsMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try

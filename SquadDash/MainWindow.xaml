@@ -774,6 +774,10 @@
                 <MenuItem Header="_Cleanup"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                    <MenuItem Header="Clear Transcript..."
+                              x:Name="CleanupClearTranscriptMenuItem"
+                              Click="CleanupClearTranscriptMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem Header="Remove temporary agents"
                               Click="RemoveTemporaryAgentsMenuItem_Click" />
                     <MenuItem x:Name="RunDoctorMenuItem"
