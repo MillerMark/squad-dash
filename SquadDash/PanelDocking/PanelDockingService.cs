@@ -1218,40 +1218,47 @@ internal sealed class PanelDockingService
 
         string panelLabel = !string.IsNullOrEmpty(element.Name) ? element.Name : element.GetType().Name;
         SquadDashTrace.Write(TraceCategory.Docking,
-            $"AddToZone: adding '{panelLabel}' — zone now has {zoneList.Count} panel(s); computing ideal height weights");
+            $"AddToZone: adding '{panelLabel}' — zone now has {zoneList.Count} panel(s); scheduling ideal height allocation");
 
-        var idealWeights = ComputeIdealHeightWeights(zoneList, scrollViewer);
-        if (idealWeights is null)
-            SquadDashTrace.Write(TraceCategory.Docking, $"AddToZone: idealWeights=null (no redistribution)");
-        else
-            SquadDashTrace.Write(TraceCategory.Docking,
-                $"AddToZone: idealWeights=[{string.Join(", ", idealWeights.Select(kv => $"{(!string.IsNullOrEmpty(kv.Key.Name) ? kv.Key.Name : kv.Key.GetType().Name)}={kv.Value:F1}"))}]");
-
-        RebuildZoneGrid(zone, zoneList, scrollViewer, idealWeights);
+        RebuildZoneGrid(zone, zoneList, scrollViewer);
+        ScheduleInitialZoneHeightAllocation(zone, zoneList, scrollViewer);
     }
 
     /// <summary>
     /// Computes ideal star-height weights for panels in a side zone based on each panel's
     /// <see cref="IDockResizeSizeHint.GetMaximumUsefulDockSize"/> (Vertical).
-    /// Uses iterative proportional allocation: unconstrained panels share available space
-    /// equally; constrained panels are capped at their ideal max height and the freed
-    /// space redistributes proportionally to the remaining unconstrained panels.
+    /// Uses iterative allocation: short constrained panels are capped from smallest to
+    /// largest, one remaining panel absorbs any leftover space, and groups where every
+    /// remaining constrained panel wants more than the equal share divide space
+    /// proportionally with a bounded 5:1 ratio.
     /// Returns null when the available height is unknown or no panel reports a max height.
     /// </summary>
+    private static void ScheduleInitialZoneHeightAllocation(
+        Grid zone, List<FrameworkElement> zoneList, FrameworkElement? scrollViewer)
+    {
+        if (scrollViewer is null) return;
+
+        zone.Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Loaded,
+            new Action(() =>
+            {
+                var idealWeights = ComputeIdealHeightWeights(zoneList, scrollViewer);
+                if (idealWeights is null)
+                {
+                    SquadDashTrace.Write(TraceCategory.Docking,
+                        "ScheduleInitialZoneHeightAllocation: idealWeights=null (no redistribution)");
+                    return;
+                }
+
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"ScheduleInitialZoneHeightAllocation: idealWeights=[{string.Join(", ", idealWeights.Select(kv => $"{(!string.IsNullOrEmpty(kv.Key.Name) ? kv.Key.Name : kv.Key.GetType().Name)}={kv.Value:F1}"))}]");
+                RebuildZoneGrid(zone, zoneList, scrollViewer, idealWeights);
+            }));
+    }
+
     private static Dictionary<FrameworkElement, double>? ComputeIdealHeightWeights(
         List<FrameworkElement> panels, FrameworkElement? scrollViewer)
     {
-        const double minHeight = 100.0;
-        const double splitterHeight = 5.0;
-
-        var visible = panels.Where(p => p.Visibility != Visibility.Collapsed).ToList();
-        if (visible.Count <= 1)
-        {
-            SquadDashTrace.Write(TraceCategory.Docking,
-                $"ComputeIdealHeightWeights: early exit — visible count={visible.Count} (need 2+)");
-            return null;
-        }
-
         double totalHeight = scrollViewer?.ActualHeight ?? 0;
         if (totalHeight <= 0)
         {
@@ -1260,7 +1267,25 @@ internal sealed class PanelDockingService
             return null;
         }
 
-        totalHeight -= (visible.Count - 1) * splitterHeight;
+        return ComputeIdealHeightWeights(panels, totalHeight);
+    }
+
+    internal static Dictionary<FrameworkElement, double>? ComputeIdealHeightWeights(
+        List<FrameworkElement> panels, double availableHeight)
+    {
+        const double minHeight = 100.0;
+        const double splitterHeight = 5.0;
+        const double maxRelativeHeightRatio = 5.0;
+
+        var visible = panels.Where(p => p.Visibility != Visibility.Collapsed).ToList();
+        if (visible.Count == 0)
+        {
+            SquadDashTrace.Write(TraceCategory.Docking,
+                "ComputeIdealHeightWeights: early exit — visible count=0");
+            return null;
+        }
+
+        double totalHeight = availableHeight - Math.Max(0, visible.Count - 1) * splitterHeight;
         if (totalHeight <= 0)
         {
             SquadDashTrace.Write(TraceCategory.Docking,
@@ -1276,13 +1301,27 @@ internal sealed class PanelDockingService
             double? max = (panel as IDockResizeSizeHint)?.GetMaximumUsefulDockSize(DockResizeOrientation.Vertical);
             if (max is { } m)
             {
-                max = Math.Clamp(m, minHeight, totalHeight);
+                max = Math.Clamp(m, minHeight, Math.Max(minHeight, totalHeight));
                 anyConstrained = true;
             }
             maxHeights[panel] = max;
             string panelLabel = !string.IsNullOrEmpty(panel.Name) ? panel.Name : panel.GetType().Name;
             SquadDashTrace.Write(TraceCategory.Docking,
                 $"ComputeIdealHeightWeights: {panelLabel} maxH={( max.HasValue ? max.Value.ToString("F1") : "unconstrained")}");
+        }
+
+        if (visible.Count == 1)
+        {
+            if (maxHeights[visible[0]] is not { } soloMax)
+            {
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    "ComputeIdealHeightWeights: solo panel is unconstrained");
+                return null;
+            }
+
+            SquadDashTrace.Write(TraceCategory.Docking,
+                $"ComputeIdealHeightWeights: solo panel allocated {soloMax:F1}px");
+            return new Dictionary<FrameworkElement, double> { [visible[0]] = soloMax };
         }
 
         if (!anyConstrained)
@@ -1299,25 +1338,36 @@ internal sealed class PanelDockingService
 
         while (unconstrained.Count > 0)
         {
+            if (unconstrained.Count == 1)
+            {
+                allocated[unconstrained[0]] = remaining;
+                break;
+            }
+
             double share = remaining / unconstrained.Count;
             var capped = unconstrained
                 .Where(p => maxHeights[p] is { } max && max < share)
+                .OrderBy(p => maxHeights[p]!.Value)
                 .ToList();
 
             if (capped.Count == 0)
             {
-                // No more panels to cap — distribute evenly among remaining.
-                foreach (var p in unconstrained)
-                    allocated[p] = share;
+                if (unconstrained.All(p => maxHeights[p].HasValue))
+                    AllocateProportionallyWithBound(unconstrained, maxHeights, allocated, remaining, maxRelativeHeightRatio);
+                else
+                {
+                    // Unconstrained panels have no relative demand signal, so equal shares are
+                    // the least surprising initial placement.
+                    foreach (var p in unconstrained)
+                        allocated[p] = share;
+                }
                 break;
             }
 
-            foreach (var p in capped)
-            {
-                allocated[p] = maxHeights[p]!.Value;
-                remaining -= allocated[p];
-                unconstrained.Remove(p);
-            }
+            var smallest = capped[0];
+            allocated[smallest] = maxHeights[smallest]!.Value;
+            remaining -= allocated[smallest];
+            unconstrained.Remove(smallest);
         }
 
         // Build result, ensuring all values are at least 1.0.
@@ -1332,6 +1382,36 @@ internal sealed class PanelDockingService
                 $"ComputeIdealHeightWeights: allocated {panelLabel}={kv.Value:F1}px (star weight)");
         }
         return result;
+    }
+
+    private static void AllocateProportionallyWithBound(
+        List<FrameworkElement> panels,
+        IReadOnlyDictionary<FrameworkElement, double?> maxHeights,
+        Dictionary<FrameworkElement, double> allocated,
+        double availableHeight,
+        double maxRelativeHeightRatio)
+    {
+        double smallestUsefulMax = panels
+            .Select(p => maxHeights[p]!.Value)
+            .Where(h => h > 0)
+            .DefaultIfEmpty(1.0)
+            .Min();
+        double largestAllowedMax = smallestUsefulMax * maxRelativeHeightRatio;
+
+        var demand = panels.ToDictionary(
+            p => p,
+            p => Math.Min(maxHeights[p]!.Value, largestAllowedMax));
+        double totalDemand = demand.Values.Sum();
+        if (totalDemand <= 0)
+        {
+            double share = availableHeight / panels.Count;
+            foreach (var p in panels)
+                allocated[p] = share;
+            return;
+        }
+
+        foreach (var p in panels)
+            allocated[p] = availableHeight * demand[p] / totalDemand;
     }
 
     /// <summary>Returns the zone list, grid, and scroll viewer for a given side zone.</summary>
@@ -1359,7 +1439,7 @@ internal sealed class PanelDockingService
     /// The Grid height is bound to <paramref name="scrollViewer"/> so star rows have
     /// a finite space to divide.
     /// </summary>
-    private static void RebuildZoneGrid(Grid zone, List<FrameworkElement> panels, FrameworkElement? scrollViewer,
+    internal static void RebuildZoneGrid(Grid zone, List<FrameworkElement> panels, FrameworkElement? scrollViewer,
         IReadOnlyDictionary<FrameworkElement, double>? weights = null)
     {
         zone.Children.Clear();
@@ -1406,7 +1486,14 @@ internal sealed class PanelDockingService
 
         // Bind the zone Grid height to the scroll viewer so star rows fill the column.
         BindingOperations.ClearBinding(zone, FrameworkElement.HeightProperty);
-        if (scrollViewer is not null && visible.Count > 0)
+        if (visible.Count == 1 &&
+            weights is not null &&
+            weights.TryGetValue(visible[0], out double soloHeight) &&
+            soloHeight > 0)
+        {
+            zone.Height = soloHeight;
+        }
+        else if (scrollViewer is not null && visible.Count > 0)
             zone.SetBinding(FrameworkElement.HeightProperty,
                 new Binding(nameof(FrameworkElement.ActualHeight)) { Source = scrollViewer });
     }

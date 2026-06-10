@@ -2,6 +2,7 @@
 
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using SquadDash.PanelDocking;
 
 namespace SquadDash.Tests;
@@ -294,6 +295,82 @@ internal sealed class PanelDockingServiceTests
         Assert.That(leftZone.Children.Contains(approvals),   Is.True);
         Assert.That(leftZone.Children.Contains(tasks),       Is.False,
             "Collapsed panel must not be added to the grid.");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ComputeIdealHeightWeights_SoloConstrainedPanel_UsesUsefulHeight()
+    {
+        var panel = new HintPanel(maximumUsefulHeight: 180);
+
+        var weights = PanelDockingService.ComputeIdealHeightWeights(new List<FrameworkElement> { panel }, availableHeight: 500);
+
+        Assert.That(weights, Is.Not.Null);
+        Assert.That(weights![panel], Is.EqualTo(180).Within(0.001));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ComputeIdealHeightWeights_CapsSmallestPanelsAndRedistributesRemainder()
+    {
+        var shortPanel = new HintPanel(maximumUsefulHeight: 100);
+        var tallPanel = new HintPanel(maximumUsefulHeight: 200);
+
+        var weights = PanelDockingService.ComputeIdealHeightWeights(
+            new List<FrameworkElement> { shortPanel, tallPanel },
+            availableHeight: 305);
+
+        Assert.That(weights, Is.Not.Null);
+        Assert.That(weights![shortPanel], Is.EqualTo(100).Within(0.001));
+        Assert.That(weights[tallPanel], Is.EqualTo(200).Within(0.001));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ComputeIdealHeightWeights_WhenAllRemainingPanelsAreBelowShare_LeavesLargestToAbsorbRemainder()
+    {
+        var shortPanel = new HintPanel(maximumUsefulHeight: 100);
+        var tallPanel = new HintPanel(maximumUsefulHeight: 200);
+
+        var weights = PanelDockingService.ComputeIdealHeightWeights(
+            new List<FrameworkElement> { shortPanel, tallPanel },
+            availableHeight: 505);
+
+        Assert.That(weights, Is.Not.Null);
+        Assert.That(weights![shortPanel], Is.EqualTo(100).Within(0.001));
+        Assert.That(weights[tallPanel], Is.EqualTo(400).Within(0.001));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ComputeIdealHeightWeights_WhenAllPanelsNeedMore_AllocatesProportionallyWithFiveToOneBound()
+    {
+        var smallDemand = new HintPanel(maximumUsefulHeight: 100);
+        var hugeDemand = new HintPanel(maximumUsefulHeight: 1000);
+
+        var weights = PanelDockingService.ComputeIdealHeightWeights(
+            new List<FrameworkElement> { smallDemand, hugeDemand },
+            availableHeight: 605);
+
+        Assert.That(weights, Is.Not.Null);
+        Assert.That(weights![smallDemand], Is.EqualTo(100).Within(0.001));
+        Assert.That(weights[hugeDemand], Is.EqualTo(500).Within(0.001));
+        Assert.That(weights[hugeDemand] / weights[smallDemand], Is.LessThanOrEqualTo(5.0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RebuildZoneGrid_SoloConstrainedPanel_UsesGridHeightWithoutRowMaxHeight()
+    {
+        var zone = new Grid();
+        var scrollViewer = new ScrollViewer();
+        var panel = new HintPanel(maximumUsefulHeight: 180);
+        var weights = new Dictionary<FrameworkElement, double> { [panel] = 180 };
+
+        PanelDockingService.RebuildZoneGrid(
+            zone,
+            new List<FrameworkElement> { panel },
+            scrollViewer,
+            weights);
+
+        Assert.That(zone.Height, Is.EqualTo(180).Within(0.001));
+        Assert.That(BindingOperations.GetBindingExpression(zone, FrameworkElement.HeightProperty), Is.Null);
+        Assert.That(zone.RowDefinitions.Single().MaxHeight, Is.EqualTo(double.PositiveInfinity));
     }
 
     // ── InsertBefore column-shift tests ─────────────────────────────────────
@@ -595,5 +672,14 @@ internal sealed class PanelDockingServiceTests
             new GridSplitter(),      // right5ZoneSplitter
             new GridSplitter(),      // left6ZoneSplitter
             new GridSplitter());     // right6ZoneSplitter
+    }
+
+    private sealed class HintPanel(double maximumUsefulHeight) : FrameworkElement, IDockResizeSizeHint
+    {
+        public double GetMinimumDockSize(DockResizeOrientation orientation) =>
+            orientation == DockResizeOrientation.Vertical ? 100 : 80;
+
+        public double? GetMaximumUsefulDockSize(DockResizeOrientation orientation) =>
+            orientation == DockResizeOrientation.Vertical ? maximumUsefulHeight : null;
     }
 }
