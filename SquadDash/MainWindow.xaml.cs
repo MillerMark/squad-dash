@@ -11343,20 +11343,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private static void ApplyAgentCardBorderGlow(Border agentCardBorder, System.Windows.Media.Color accentColor, bool isDark)
     {
-        double cardStartOpacity = isDark ? 0.6 : 0.4;
+        double cardTargetOpacity = isDark ? 1.0 : 1.0;
         var cardGlow = new System.Windows.Media.Effects.DropShadowEffect
         {
             Color = accentColor,
             BlurRadius = isDark ? 28 : 20,
             ShadowDepth = 0,
-            Opacity = cardStartOpacity
+            Opacity = 0
         };
         agentCardBorder.Effect = cardGlow;
 
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
-            cardStartOpacity,
-            1.0,
-            TimeSpan.FromMilliseconds(2000));
+            0,
+            cardTargetOpacity,
+            TimeSpan.FromMilliseconds(800));
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
