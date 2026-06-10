@@ -19,13 +19,6 @@
   The N+1 thin rule and adjacent-thin check should fall out naturally from the loop without special cases.
   Prerequisite: All 1/2/0-zone docking test cases recorded and passing.
 
-- [x] **[Docking] Fix: Left3/Right3 empty-zone preview strips at wrong screen position** *(Owner: Lyra Morn)* — commit e227bbd
-- [x] **[Docking] Fix: Left3/Right3 over-eagerly shown in docking map when Left2/Right2 are empty** *(Owner: Lyra Morn)* — commit e227bbd
-
-- [x] **[Docking] Feature: "insert at column position" model for left/right zones** *(Owner: Lyra Morn)* — commit 62b1aaa
-
-- [x] **[Docking] Panel docking UI spec** *(Owner: mira-quill)* — commit fc205b2
-
 - [ ] **[Architecture] Extract shared MarkdownEditorPanel base class** *(Owner: Lyra Morn)*
   MaintenanceTaskEditorWindow and MarkdownDocumentWindow both implement markdown editing with preview
   but diverge on undo strategy (manual stack vs. WPF built-in), preview renderer (FlowDoc only vs.
@@ -67,16 +60,9 @@
   has silent failure suppression that may hide real errors. Review and replace with at minimum a
   `SquadDashTrace.Write` call so failures surface in the trace log.
 
-
 ---
 
 ## 🔴 High Priority
-
-- [x] **[Bug] Voice dictation focus: auto-route to prompt input when transcript has focus** *(Owner: Lyra Morn)*
-  When voice dictation is activated (Ctrl double-tap) while the coordinator transcript panel has focus,
-  the dictated text is added to the transcript instead of the active prompt input box. Expected behavior:
-  immediately shift focus to the current prompt input box so dictation lands there. Affects usability
-  when reviewing transcripts while dictating new prompts.
 
 - [ ] **[Bug] Prompt history cycling (Ctrl+Up/Down) doesn't copy attachments to queued item** *(Owner: Lyra Morn)*
   When a queued prompt item is selected and the user cycles through prompt history with Ctrl+Up/Down,
@@ -97,12 +83,10 @@
 > Feature: SquadDash enters "Maintenance Mode" after configurable idle time and executes tasks from `.squad/maintenance.md`.
 > Phase 1 delivers the full backend pipeline end-to-end. Panel UI is Phase 2.
 
-
 ---
 
 ## 🟡 Mid Priority
 
-- [x] **Maintenance — custom task editor** *(Owner: Arjun Sen + Lyra Morn)*
 - [ ] Test and evaluate the Decompose feature
   Manually walk through decompose in a range of circumstances to verify reliability.
   Define a test plan covering: typical prompts, edge cases (empty input, very long input,
@@ -117,15 +101,6 @@
   Requires adding `SourceFilePath` to `MaintenanceTask` record. Requires round-trip tests.
   **Prerequisite for:** Maintenance — multi-file support.
 
-- [x] **Maintenance — multi-file support** *(Owner: Arjun Sen + Lyra Morn)*
-  Load all `maintenance*.md` files from the `.squad/` folder (e.g. `maintenance.md`,
-  `maintenance-docs.md`, `maintenance-screenshots.md`). The base `maintenance.md` tasks are
-  treated as "system" tasks. Additional files contribute supplemental tasks.
-  Each task row in the panel must store its source file path so that toggle/frequency changes
-  are written back to the correct file. Panel UI groups or labels tasks by source file.
-  **Prerequisite for:** Inbox integration, per-repo custom maintenance tasks.
-
-
 - [ ] **WinGet — create GitHub Release v1.0.0** *(Owner: you — manual step)*
   After smoke-test passes: create GitHub Release `v1.0.0`, attach the installer `.exe` and its
   SHA256 hash. The public download URL is required for `wingetcreate`.
@@ -136,7 +111,6 @@
   in the installer manifest YAML, open PR to `microsoft/winget-pkgs`.
   **Blocked by:** GitHub Release v1.0.0 existing with a stable download URL.
 
-
 - [ ] **WinGet — Phase 2: release automation** *(Owner: Jae Min)*
   Create `.github/workflows/release.yml`: on `v*` tag push, run `dotnet publish`, bundle
   installer, upload to GitHub Release, run `wingetcreate update`, open PR to winget-pkgs
@@ -146,7 +120,6 @@
 - [ ] **WinGet — write RELEASING.md runbook** *(Owner: Jae Min)*
   Document the full release checklist: bump version, tag, let automation run, verify winget PR.
   Include manual fallback steps. Useful for the first few releases before automation is trusted.
-
 
 ---
 
@@ -262,7 +235,6 @@
 
 ## 🟡 Mid Priority — Maintenance Mode (Phase 2 Enrichment)
 
-
 ---
 
 ## 🟡 Mid Priority — Maintenance Mode (Phase 3 Polish)
@@ -283,7 +255,6 @@
   and inject an explicit `git checkout <base-branch>` step into each `branch`-safety task's preamble
   before the `git checkout -b` instruction, so every task always branches from the same known base.
 
-
 ---
 
 ## 🟢 Low Priority — maintenance.md File Quality (Malik's Suggestions)
@@ -292,7 +263,6 @@
 > Run one at a time via the loop. S1, S3b, S4 require parser/UI changes; the rest are file-only edits.
 > These tasks have a dependency order: do S1 first (new format), then S2/S3b/S4 against the new format,
 > then S5/S6/S7/S8 as independent cleanup passes.
-
 
 ---
 
@@ -310,7 +280,6 @@
   6. `RemoteSpeechSession.cs` — use the interface (for RC phone PTT)
   Note: Whisper doesn't support phrase-list grammar hints — team name boosting silently becomes no-op for Whisper users.
   Note: Whisper is batch-oriented; streaming requires audio buffering — may have higher latency than Azure.
-
 
 - [ ] **SubSquads — investigate and expose in UI** *(Owner: Orion Vale → Lyra Morn)*
 
@@ -336,9 +305,4 @@
 ## ✅ Recently Completed
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
-
-- [x] **[Docking] Wire PanelDockingService into MainWindow layout** *(Owner: orion-vale)* — commit d3acb2d
-- [x] **[Docking] Ctrl+click popup menu for panel relocation** *(Owner: orion-vale)* — commit e597d29
-- [x] **[Docking] Named layout persistence per workspace** *(Owner: orion-vale)* — commit 2cff1b2
-- [x] **[Docking] Panel docking UI spec** *(Owner: mira-quill)* — commit fc205b2
 

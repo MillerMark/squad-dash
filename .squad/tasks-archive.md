@@ -434,3 +434,38 @@
 
 - [x] **[Maintenance] Auto-add `maintenance-state.json` to `.gitignore` on first run** — ✅ Implemented (EnsureMaintenanceStateInGitIgnore in SquadInstallerService; called from WriteSquadDashUniverseFiles and MaintenanceRunner.StartAsync; trace entry on write; 4 new tests)
 
+
+## Archived 2026-06-10T15:59:07Z — prune-tasks maintenance pass
+
+- [x] **[Docking] Fix: Left3/Right3 empty-zone preview strips at wrong screen position** *(Owner: Lyra Morn)* — commit e227bbd
+
+- [x] **[Docking] Fix: Left3/Right3 over-eagerly shown in docking map when Left2/Right2 are empty** *(Owner: Lyra Morn)* — commit e227bbd
+
+- [x] **[Docking] Feature: "insert at column position" model for left/right zones** *(Owner: Lyra Morn)* — commit 62b1aaa
+
+- [x] **[Docking] Panel docking UI spec** *(Owner: mira-quill)* — commit fc205b2
+
+- [x] **[Bug] Voice dictation focus: auto-route to prompt input when transcript has focus** *(Owner: Lyra Morn)*
+  When voice dictation is activated (Ctrl double-tap) while the coordinator transcript panel has focus,
+  the dictated text is added to the transcript instead of the active prompt input box. Expected behavior:
+  immediately shift focus to the current prompt input box so dictation lands there. Affects usability
+  when reviewing transcripts while dictating new prompts.
+
+- [x] **Maintenance — custom task editor** *(Owner: Arjun Sen + Lyra Morn)*
+
+- [x] **Maintenance — multi-file support** *(Owner: Arjun Sen + Lyra Morn)*
+  Load all `maintenance*.md` files from the `.squad/` folder (e.g. `maintenance.md`,
+  `maintenance-docs.md`, `maintenance-screenshots.md`). The base `maintenance.md` tasks are
+  treated as "system" tasks. Additional files contribute supplemental tasks.
+  Each task row in the panel must store its source file path so that toggle/frequency changes
+  are written back to the correct file. Panel UI groups or labels tasks by source file.
+  **Prerequisite for:** Inbox integration, per-repo custom maintenance tasks.
+
+- [x] **[Docking] Wire PanelDockingService into MainWindow layout** *(Owner: orion-vale)* — commit d3acb2d
+
+- [x] **[Docking] Ctrl+click popup menu for panel relocation** *(Owner: orion-vale)* — commit e597d29
+
+- [x] **[Docking] Named layout persistence per workspace** *(Owner: orion-vale)* — commit 2cff1b2
+
+- [x] **[Docking] Panel docking UI spec** *(Owner: mira-quill)* — commit fc205b2
+
