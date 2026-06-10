@@ -1056,6 +1056,22 @@ internal sealed class MaintenancePanelController {
         return maxRowWidth + panelChrome;
     }
 
+    public double GetMaximumUsefulHeight()
+    {
+        const double titleRow      = 40;
+        const double statusRow     = 28;
+        const double taskRowHeight = 36;
+        const double cap           = 480;
+        const double floor         = 120;
+
+        int count = 0;
+        foreach (var child in _listPanel.Children)
+            if (child is Border { Tag: MaintenanceTask }) count++;
+
+        double h = titleRow + statusRow + count * taskRowHeight + 24;
+        return Math.Clamp(h, floor, cap);
+    }
+
     // ── Countdown timer ───────────────────────────────────────────────────────
 
     private void StartCountdown() {

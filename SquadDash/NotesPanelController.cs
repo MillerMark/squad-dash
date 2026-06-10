@@ -371,6 +371,22 @@ internal sealed class NotesPanelController {
         return maxRowWidth + panelChrome;
     }
 
+    public double GetMaximumUsefulHeight()
+    {
+        const double titleRow     = 40;
+        const double filterRow    = 32;
+        const double noteRowHeight = 32;
+        const double cap           = 400;
+        const double floor         = 120;
+
+        int count = 0;
+        foreach (var child in _listPanel.Children)
+            if (child is Border { Tag: NoteItem }) count++;
+
+        double h = titleRow + filterRow + count * noteRowHeight + 24;
+        return Math.Clamp(h, floor, cap);
+    }
+
     // ── Menu helpers ──────────────────────────────────────────────────────────
 
     private static ContextMenu MakeMenu() {

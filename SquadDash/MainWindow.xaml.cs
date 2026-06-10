@@ -6012,6 +6012,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private bool _lastSyncedLoopRunning;
 
+    private double ComputeLoopPanelUsefulHeight()
+    {
+        const double padding      = 20; // GripStripBorder Padding: top=8 + bottom=12
+        const double titleRow     = 28;
+        const double checkboxRow  = 28;
+        const double buttonHeight = 28;
+        const double buttonMargin = 4;
+
+        double h = padding + titleRow;
+        if (LoopStatusLabel?.Visibility == Visibility.Visible)
+            h += 20 + 6;
+        h += checkboxRow + 6;
+        h += buttonHeight;                    // Start button
+        h += buttonMargin + buttonHeight;     // Stop button
+        if (AbortLoopButton?.Visibility == Visibility.Visible)
+            h += buttonMargin + buttonHeight;
+        if (LoopOptionsPanel?.Visibility == Visibility.Visible)
+            h += 8 + Math.Min(LoopOptionsPanel.ActualHeight > 0 ? LoopOptionsPanel.ActualHeight : 200, 300);
+        h += 16; // extra cushion for margins
+        return Math.Clamp(h, 120, 520);
+    }
+
     private void SyncLoopPanel()
     {
         if (LoopPanelBorder is null) return;
@@ -6019,6 +6041,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("loop", _loopPanelVisible);
         UpdateMainGridSideMargins();
+
+        if (LoopPanelBorder.MaximumUsefulSizeProvider is null)
+            LoopPanelBorder.MaximumUsefulSizeProvider = orientation =>
+                orientation == DockResizeOrientation.Vertical ? ComputeLoopPanelUsefulHeight() : null;
+
         bool running = IsLoopRunning;
 
         if (running != _lastSyncedLoopRunning) {
@@ -6422,10 +6449,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         // Wire dynamic max-width hint so splitter snap targets content width
         if (TasksPanelBorder is { } tpb && tpb.MaximumUsefulSizeProvider is null)
-            tpb.MaximumUsefulSizeProvider = orientation =>
-                orientation == DockResizeOrientation.Horizontal
-                    ? _tasksPanelController.GetMaximumUsefulWidth()
-                    : null;
+            tpb.MaximumUsefulSizeProvider = orientation => orientation switch
+            {
+                DockResizeOrientation.Horizontal => _tasksPanelController.GetMaximumUsefulWidth(),
+                DockResizeOrientation.Vertical   => _tasksPanelController.GetMaximumUsefulHeight(),
+                _                                => null
+            };
 
         var workspace = _currentWorkspace;
         if (workspace is null) { _tasksPanelController.ShowEmpty("No workspace open"); return; }
@@ -30130,10 +30159,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width
             if (ApprovalPanelBorder is { } apb)
-                apb.MaximumUsefulSizeProvider = orientation =>
-                    orientation == DockResizeOrientation.Horizontal
-                        ? _approvalPanel.GetMaximumUsefulWidth()
-                        : null;
+                apb.MaximumUsefulSizeProvider = orientation => orientation switch
+                {
+                    DockResizeOrientation.Horizontal => _approvalPanel.GetMaximumUsefulWidth(),
+                    DockResizeOrientation.Vertical   => _approvalPanel.GetMaximumUsefulHeight(),
+                    _                                => null
+                };
         }
     }
 
@@ -31092,10 +31123,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Wire dynamic max-width hint so splitter snap targets content width
             if (NotesPanelBorder is { } npb)
-                npb.MaximumUsefulSizeProvider = orientation =>
-                    orientation == DockResizeOrientation.Horizontal
-                        ? _notesPanel.GetMaximumUsefulWidth()
-                        : null;
+                npb.MaximumUsefulSizeProvider = orientation => orientation switch
+                {
+                    DockResizeOrientation.Horizontal => _notesPanel.GetMaximumUsefulWidth(),
+                    DockResizeOrientation.Vertical   => _notesPanel.GetMaximumUsefulHeight(),
+                    _                                => null
+                };
         }
     }
 
@@ -31149,10 +31182,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Wire dynamic max-width hint so splitter snap targets content width
             if (MaintenancePanelBorder is { } mpb)
-                mpb.MaximumUsefulSizeProvider = orientation =>
-                    orientation == DockResizeOrientation.Horizontal
-                        ? _maintenancePanel.GetMaximumUsefulWidth()
-                        : null;
+                mpb.MaximumUsefulSizeProvider = orientation => orientation switch
+                {
+                    DockResizeOrientation.Horizontal => _maintenancePanel.GetMaximumUsefulWidth(),
+                    DockResizeOrientation.Vertical   => _maintenancePanel.GetMaximumUsefulHeight(),
+                    _                                => null
+                };
         }
 
         var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
@@ -31231,10 +31266,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Wire dynamic max-width hint so splitter snap targets content width
             if (InboxPanelBorder is { } ipb)
-                ipb.MaximumUsefulSizeProvider = orientation =>
-                    orientation == DockResizeOrientation.Horizontal
-                        ? _inboxPanel.GetMaximumUsefulWidth()
-                        : null;
+                ipb.MaximumUsefulSizeProvider = orientation => orientation switch
+                {
+                    DockResizeOrientation.Horizontal => _inboxPanel.GetMaximumUsefulWidth(),
+                    DockResizeOrientation.Vertical   => _inboxPanel.GetMaximumUsefulHeight(),
+                    _                                => null
+                };
 
             var messages = _inboxStore?.LoadAll() ?? [];
             _inboxPanel.Refresh(messages);

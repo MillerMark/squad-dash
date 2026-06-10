@@ -561,6 +561,22 @@ internal sealed class CommitApprovalPanel {
         return maxRowContentWidth + panelChrome;
     }
 
+    public double GetMaximumUsefulHeight()
+    {
+        const double titleRow      = 40;
+        const double approvalRowH  = 40;
+        const double cap           = 320;
+        const double floor         = 120;
+
+        int count = 0;
+        foreach (var panel in new[] { _needsApprovalPanel, _approvedPanel, _rejectedPanel })
+            foreach (var child in panel.Children)
+                if (child is Border { Tag: CommitApprovalItem }) count++;
+
+        double h = titleRow + count * approvalRowH + 24;
+        return Math.Clamp(h, floor, cap);
+    }
+
     private static double MeasureTextWidth(string text, FrameworkElement referenceElement, bool isBold)
     {
         var fontFamily = SystemFonts.MessageFontFamily;

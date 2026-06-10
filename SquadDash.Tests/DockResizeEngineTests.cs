@@ -36,6 +36,33 @@ internal sealed class DockResizeEngineTests
     }
 
     [Test]
+    public void MainWindow_LoopPanelHasNoDynamicMaxUsefulHeightInXaml()
+    {
+        var xaml = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml"));
+        var loopPanel = System.Text.RegularExpressions.Regex.Match(
+            xaml,
+            @"<panelDocking:GripStripBorder\s+x:Name=""LoopPanelBorder""(?<attrs>[\s\S]*?)>");
+
+        Assert.That(loopPanel.Success, Is.True, "LoopPanelBorder element not found in XAML");
+        Assert.That(loopPanel.Groups["attrs"].Value, Does.Not.Contain("DockMaximumUsefulHeight"),
+            "Loop panel should not declare a static DockMaximumUsefulHeight; use dynamic provider instead");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GripStripBorder_VerticalProviderOverridesNullFallback()
+    {
+        var panel = new GripStripBorder
+        {
+            DockMinimumHeight = 100,
+            MaximumUsefulSizeProvider = orientation =>
+                orientation == DockResizeOrientation.Vertical ? 280 : null
+        };
+
+        Assert.That(panel.GetMaximumUsefulDockSize(DockResizeOrientation.Vertical), Is.EqualTo(280));
+        Assert.That(panel.GetMaximumUsefulDockSize(DockResizeOrientation.Horizontal), Is.Null);
+    }
+
+    [Test]
     public void NormalDrag_ResizesOnlyAdjacentParticipants()
     {
         var sizes = DockResizeEngine.Resize(
@@ -261,4 +288,19 @@ internal sealed class DockResizeEngineTests
 
     private static DockResizeParticipant[] Participants(params (double Size, double Min, double? Max)[] values) =>
         values.Select(v => new DockResizeParticipant(v.Size, v.Min, v.Max)).ToArray();
+
+    private static string FindRepoFile(params string[] pathParts)
+    {
+        var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(new[] { dir.FullName }.Concat(pathParts).ToArray());
+            if (File.Exists(candidate))
+                return candidate;
+            dir = dir.Parent;
+        }
+
+        Assert.Fail($"Could not find {Path.Combine(pathParts)} from {TestContext.CurrentContext.TestDirectory}.");
+        return string.Empty;
+    }
 }

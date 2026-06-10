@@ -361,6 +361,25 @@ internal sealed class InboxPanelController
         return maxRowWidth + panelChrome;
     }
 
+    public double GetMaximumUsefulHeight()
+    {
+        const double titleRow      = 40;
+        const double filterRow     = 32;
+        const double msgRowHeight  = 44;
+        const double cap           = 600;
+        const double floor         = 150;
+
+        int count = 0;
+        foreach (var child in _listPanel.Children)
+            if (child is Border { Tag: InboxMessage }) count++;
+
+        double h = titleRow + filterRow + count * msgRowHeight;
+        if (_viewerBorder.Visibility == Visibility.Visible)
+            h += 120; // minimum viewer height when open
+        h += 24; // bottom padding
+        return Math.Clamp(h, floor, cap);
+    }
+
     // ── Message viewer ────────────────────────────────────────────────────────
 
     private void ShowViewer(InboxMessage msg)

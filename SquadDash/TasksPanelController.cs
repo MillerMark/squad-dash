@@ -478,6 +478,28 @@ internal sealed class TasksPanelController {
         return maxRowWidth + panelChrome;
     }
 
+    public double GetMaximumUsefulHeight()
+    {
+        const double titleRow      = 40;
+        const double sectionHeader = 28;
+        const double taskRowHeight = 32;
+        const double cap           = 520;
+        const double floor         = 120;
+
+        int activeCount = 0;
+        int completedCount = 0;
+        foreach (var child in _activePanel.Children)
+            if (child is Border { Tag: TaskItem }) activeCount++;
+        foreach (var child in _completedPanel.Children)
+            if (child is Border { Tag: TaskItem }) completedCount++;
+
+        double h = titleRow + sectionHeader + activeCount * taskRowHeight;
+        if (completedCount > 0)
+            h += sectionHeader + Math.Min(completedCount, 5) * taskRowHeight;
+        h += 24; // bottom padding
+        return Math.Clamp(h, floor, cap);
+    }
+
     // ── Write-back ────────────────────────────────────────────────────────────
 
     private async Task HandleMarkCompleteAsync(TaskItem item, bool isDone) {
