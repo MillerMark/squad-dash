@@ -1230,7 +1230,8 @@
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource ActivePanelTitle}"
                                            HorizontalAlignment="Left"
-                                           VerticalAlignment="Center" />
+                                           VerticalAlignment="Center"
+                                           Margin="0,-2,0,0" />
 
                             </Grid>
                             <TextBlock x:Name="ActivePanelSubtitleTextBlock"
@@ -1294,6 +1295,7 @@
                                        Text="Roster &amp; History"
                                        FontSize="{DynamicResource FontSizeLarge}"
                                        FontWeight="SemiBold"
+                                       Margin="0,-3,0,0"
                                        Foreground="{DynamicResource RosterPanelTitle}" />
                             <TextBlock x:Name="RosterPanelSubtitleTextBlock"
                                        Grid.Row="1"
@@ -1386,6 +1388,7 @@
                                                FontSize="{DynamicResource FontSizeLarge}"
                                                FontWeight="SemiBold"
                                                VerticalAlignment="Center"
+                                               Margin="0,-1,0,0"
                                                Foreground="{DynamicResource RosterPanelTitle}" />
                                     <ComboBox x:Name="LoopFilePicker"
                                               Grid.Column="1"
