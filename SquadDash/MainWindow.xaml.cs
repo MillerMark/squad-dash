@@ -11369,6 +11369,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         agentCardBorder.Effect = null;
     }
 
+    private static System.Windows.Media.Color GetAgentAccentColor(AgentStatusCard agent)
+    {
+        var accentColor = (System.Windows.Media.Color)ColorConverter.ConvertFromString(agent.AccentColorHex);
+        bool isDark = AgentStatusCard.IsDarkTheme;
+        if (isDark)
+        {
+            accentColor = System.Windows.Media.Color.FromRgb(
+                (byte)(accentColor.R + (255 - accentColor.R) * 0.55),
+                (byte)(accentColor.G + (255 - accentColor.G) * 0.55),
+                (byte)(accentColor.B + (255 - accentColor.B) * 0.55));
+        }
+        return accentColor;
+    }
+
     /// <summary>
     /// Applies hover glow immediately to the agent's card and transcript border when
     /// the mouse is already within one of those regions at the moment the transcript is
@@ -19286,9 +19300,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         outerBorder.PreviewMouseDown += (_, _) => { try { CancelAutoCloseCountdown(entry); } catch { } };
         outerBorder.PreviewMouseWheel += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };
 
-        // Reverse hover glow: hovering the transcript panel glows its agent card
-        outerBorder.MouseEnter += (_, _) => { TranscriptPanelBorder_MouseEnter(entry.Agent); StartTranscriptGlowFadeTimer(outerBorder); };
-        outerBorder.MouseLeave += (_, _) => { CancelTranscriptGlowFadeTimer(); TranscriptPanelBorder_MouseLeave(entry.Agent); };
+        // Reverse hover glow: hovering the transcript panel glows its agent card and THIS border directly.
+        // We always glow outerBorder directly (not via ownership map) so the correct border always glows,
+        // even when the agent is also the main-panel owner or has been removed from the ownership map.
+        outerBorder.MouseEnter += (_, _) =>
+        {
+            try
+            {
+                TranscriptPanelBorder_MouseEnter(entry.Agent);
+                var color = GetAgentAccentColor(entry.Agent);
+                ApplyAgentCardBorderGlow(outerBorder, color, AgentStatusCard.IsDarkTheme);
+                StartTranscriptGlowFadeTimer(outerBorder);
+            }
+            catch (Exception ex) { HandleUiCallbackException("SecondaryTranscript.MouseEnter", ex); }
+        };
+        outerBorder.MouseLeave += (_, _) =>
+        {
+            try
+            {
+                CancelTranscriptGlowFadeTimer();
+                ClearAgentCardBorderGlow(outerBorder);
+                TranscriptPanelBorder_MouseLeave(entry.Agent);
+            }
+            catch (Exception ex) { HandleUiCallbackException("SecondaryTranscript.MouseLeave", ex); }
+        };
 
         headerDock.SizeChanged += (_, _) =>
         {
