@@ -572,6 +572,141 @@ internal sealed class PanelDockingServiceTests
             "Left3 should be empty");
     }
 
+    // ── Hide-snapshot height restore tests ──────────────────────────────────
+
+    /// <summary>
+    /// When a panel is hidden and then shown with the same zone height and the same
+    /// visible-panel set, its star weight must be restored to the pre-hide value.
+    /// </summary>
+    [Test, Apartment(ApartmentState.STA)]
+    public void OnPanelVisibilityChanged_HideShow_RestoresSavedStarWeight_WhenContextMatches()
+    {
+        var leftZone  = new Grid();
+        var loopEl    = new Border();
+        var tasksEl   = new Border();
+        var topZone   = new Grid();
+
+        var svc = new PanelDockingService(
+            new Dictionary<string, FrameworkElement>
+            {
+                ["loop"]  = loopEl,
+                ["tasks"] = tasksEl,
+            },
+            leftZone, new Grid(), new Grid(), new Grid(), new Grid(), new Grid(),
+            new Grid(), new Grid(), new Grid(), new Grid(), new Grid(), new Grid(),
+            topZone,
+            new ColumnDefinition { Width = new GridLength(280) },
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition { Width = new GridLength(5) },
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter());
+
+        svc.MovePanel("loop",  DockZone.Left);
+        svc.MovePanel("tasks", DockZone.Left);
+
+        // Simulate a user resize: loop=0.5*, tasks=1.5* (loop is small).
+        leftZone.RowDefinitions[0].Height = new GridLength(0.5, GridUnitType.Star);
+        leftZone.RowDefinitions[2].Height = new GridLength(1.5, GridUnitType.Star);
+
+        // Hide loop.
+        loopEl.Visibility = Visibility.Collapsed;
+        svc.OnPanelVisibilityChanged("loop", visible: false);
+
+        // Show loop — zone height and panel set are unchanged, context matches.
+        loopEl.Visibility = Visibility.Visible;
+        svc.OnPanelVisibilityChanged("loop", visible: true);
+
+        // loop must occupy row 0 and get its saved star weight back.
+        Assert.That(leftZone.RowDefinitions.Count, Is.EqualTo(3),
+            "Expected 2 star rows + 1 splitter row");
+        double loopStarRestored = leftZone.RowDefinitions[0].Height.Value;
+        Assert.That(loopStarRestored, Is.EqualTo(0.5).Within(0.01),
+            "loop star weight should be restored to the pre-hide value");
+    }
+
+    /// <summary>
+    /// When the visible-panel set changes between hide and show (a third panel is hidden),
+    /// the snapshot context does not match and equal star distribution is used instead.
+    /// </summary>
+    [Test, Apartment(ApartmentState.STA)]
+    public void OnPanelVisibilityChanged_HideShow_FallsBackToEqualWeights_WhenPanelSetChanged()
+    {
+        var leftZone     = new Grid();
+        var loopEl       = new Border();
+        var tasksEl      = new Border();
+        var approvalsEl  = new Border();
+        var topZone      = new Grid();
+
+        var svc = new PanelDockingService(
+            new Dictionary<string, FrameworkElement>
+            {
+                ["loop"]      = loopEl,
+                ["tasks"]     = tasksEl,
+                ["approvals"] = approvalsEl,
+            },
+            leftZone, new Grid(), new Grid(), new Grid(), new Grid(), new Grid(),
+            new Grid(), new Grid(), new Grid(), new Grid(), new Grid(), new Grid(),
+            topZone,
+            new ColumnDefinition { Width = new GridLength(280) },
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition { Width = new GridLength(5) },
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter());
+
+        svc.MovePanel("loop",      DockZone.Left);
+        svc.MovePanel("tasks",     DockZone.Left);
+        svc.MovePanel("approvals", DockZone.Left);
+
+        // Simulate a user resize: loop is small.
+        leftZone.RowDefinitions[0].Height = new GridLength(0.25, GridUnitType.Star);
+        leftZone.RowDefinitions[2].Height = new GridLength(1.0,  GridUnitType.Star);
+        leftZone.RowDefinitions[4].Height = new GridLength(1.0,  GridUnitType.Star);
+
+        // Hide loop (snapshot saved with loop+tasks+approvals visible).
+        loopEl.Visibility = Visibility.Collapsed;
+        svc.OnPanelVisibilityChanged("loop", visible: false);
+
+        // Also hide tasks — panel set changes relative to the snapshot.
+        tasksEl.Visibility = Visibility.Collapsed;
+        svc.OnPanelVisibilityChanged("tasks", visible: false);
+
+        // Show loop — only approvals+loop would be visible, but snapshot expected all three.
+        // Context does not match → fallback to equal star distribution.
+        loopEl.Visibility = Visibility.Visible;
+        svc.OnPanelVisibilityChanged("loop", visible: true);
+
+        // Only loop and approvals are visible; they should each get 1* (equal weights).
+        var starRows = leftZone.RowDefinitions.Where(r => r.Height.IsStar).ToList();
+        Assert.That(starRows.Count, Is.EqualTo(2),
+            "Expected exactly 2 star rows for the 2 visible panels");
+        Assert.That(starRows[0].Height.Value, Is.EqualTo(1.0).Within(0.01),
+            "loop should fall back to equal weight (1*)");
+        Assert.That(starRows[1].Height.Value, Is.EqualTo(1.0).Within(0.01),
+            "approvals should have equal weight (1*)");
+    }
+
     private static void AssertN1RuleCompliance(PanelDockingService svc, string testContext)
     {
         // Get the current layout data

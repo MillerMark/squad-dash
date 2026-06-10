@@ -112,6 +112,10 @@ internal sealed class PanelDockingService
     private readonly Dictionary<string, MultiBinding?> _savedHeightBindings =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Snapshots saved at hide time; consumed (or discarded) on the next show.
+    private readonly Dictionary<string, PanelHideSnapshot> _hideSnapshots =
+        new(StringComparer.OrdinalIgnoreCase);
+
     // Ordered lists of panels currently in each side zone (used to rebuild row layout).
     private readonly List<FrameworkElement> _leftZonePanels   = new();
     private readonly List<FrameworkElement> _rightZonePanels  = new();
@@ -161,6 +165,16 @@ internal sealed class PanelDockingService
         string PanelId,
         FrameworkElement Element,
         ColumnDefinition Column);
+
+    /// <summary>
+    /// Captures the row height context at the moment a side-zone panel is hidden so the
+    /// height can be accurately restored when the panel is shown again without going through
+    /// the full ideal-weight computation.
+    /// </summary>
+    private record PanelHideSnapshot(
+        double SavedStarWeight,
+        double ZoneActualHeight,
+        IReadOnlyList<string> VisiblePanelIds);
 
     /// <summary>Data-model-only constructor for unit tests.</summary>
     public PanelDockingService() { }
@@ -1094,6 +1108,21 @@ internal sealed class PanelDockingService
                     weights.TryGetValue(hiddenEl, out double hiddenWeight) &&
                     hiddenWeight > 0)
                 {
+                    // Capture snapshot BEFORE redistributing so we have the pre-hide star weight.
+                    double zoneActualHeight = (scrollViewer as FrameworkElement)?.ActualHeight ?? 0;
+                    var visibleIds = remaining
+                        .Select(el => _panelRegistry.FirstOrDefault(kv => kv.Value == el).Key)
+                        .Where(id => id is not null)
+                        .Select(id => id!)
+                        .Append(panelId)
+                        .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    _hideSnapshots[panelId] = new PanelHideSnapshot(hiddenWeight, zoneActualHeight, visibleIds);
+                    SquadDashTrace.Write(TraceCategory.Docking,
+                        $"OnPanelVisibilityChanged: saved hide snapshot for {panelId} — " +
+                        $"star={hiddenWeight:F2} zoneH={zoneActualHeight:F0} " +
+                        $"visIds=[{string.Join(",", visibleIds)}]");
+
                     double remainingTotal = remaining.Sum(p => weights.GetValueOrDefault(p, 1.0));
                     if (remainingTotal > 0)
                     {
@@ -1148,9 +1177,78 @@ internal sealed class PanelDockingService
             // Pass the full zone list — RebuildZoneGrid filters to non-Collapsed internally.
             // This prevents ghost-panel state where a panel is Visible but missing from the
             // panels list passed to the rebuild.
-            RebuildZoneGrid(zoneGrid, zoneList, scrollViewer as FrameworkElement);
+
+            // Attempt to restore the star height the user had when they last hid this panel.
+            // Context must still match: same zone height (±10px) and same set of visible panels.
+            Dictionary<FrameworkElement, double>? restoredWeights = null;
+            bool usedSnapshot = false;
+            if (panelEl is not null && _hideSnapshots.TryGetValue(panelId, out var snap))
+            {
+                double currentZoneH = (scrollViewer as FrameworkElement)?.ActualHeight ?? 0;
+                var currentVisibleIds = zoneList
+                    .Where(p => p.Visibility != Visibility.Collapsed)
+                    .Select(el => _panelRegistry.FirstOrDefault(kv => kv.Value == el).Key)
+                    .Where(id => id is not null)
+                    .Select(id => id!)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var snapshotIds = new HashSet<string>(snap.VisiblePanelIds, StringComparer.OrdinalIgnoreCase);
+                bool heightOk = Math.Abs(currentZoneH - snap.ZoneActualHeight) <= 10;
+                bool panelsOk = currentVisibleIds.SetEquals(snapshotIds);
+
+                if (heightOk && panelsOk)
+                {
+                    // Build weights from the current grid state.  The panels currently rendered
+                    // are those that were visible while this panel was hidden (excludes panelEl).
+                    var inGridPanels = zoneList
+                        .Where(p => p.Visibility != Visibility.Collapsed && p != panelEl)
+                        .ToList();
+                    var otherWeights = CaptureStarWeights(zoneGrid, inGridPanels);
+                    double otherSum = otherWeights.Values.Sum();
+
+                    restoredWeights = new Dictionary<FrameworkElement, double> { [panelEl] = snap.SavedStarWeight };
+
+                    // Scale survivors: when the panel was hidden its star weight was distributed
+                    // to the survivors (their sum == original total).  Applying the inverse scale
+                    // (targetOtherSum = otherSum - savedStar) restores the original proportions.
+                    double targetOtherSum = otherSum - snap.SavedStarWeight;
+                    if (targetOtherSum > 0 && otherSum > 0)
+                    {
+                        double scaleFactor = targetOtherSum / otherSum;
+                        foreach (var (el, w) in otherWeights)
+                            restoredWeights[el] = w * scaleFactor;
+                    }
+                    else
+                    {
+                        foreach (var (el, w) in otherWeights)
+                            restoredWeights[el] = w;
+                    }
+
+                    usedSnapshot = true;
+                    SquadDashTrace.Write(TraceCategory.Docking,
+                        $"OnPanelVisibilityChanged: restoring {panelId} from snapshot — " +
+                        $"star={snap.SavedStarWeight:F2} zoneH={currentZoneH:F0} (snap={snap.ZoneActualHeight:F0})");
+                }
+                else
+                {
+                    SquadDashTrace.Write(TraceCategory.Docking,
+                        $"OnPanelVisibilityChanged: snapshot for {panelId} stale — " +
+                        $"heightOk={heightOk} (cur={currentZoneH:F0} snap={snap.ZoneActualHeight:F0}) " +
+                        $"panelsOk={panelsOk}; falling back to ideal weights");
+                }
+
+                _hideSnapshots.Remove(panelId); // consume whether matched or stale
+            }
+            else
+            {
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"OnPanelVisibilityChanged: no snapshot for {panelId}; using ideal weights");
+            }
+
+            RebuildZoneGrid(zoneGrid, zoneList, scrollViewer as FrameworkElement, restoredWeights);
             if (wasCollapsed)
                 ScheduleZoneHeightRefresh(zoneGrid, scrollViewer as FrameworkElement);
+            if (!usedSnapshot)
+                ScheduleInitialZoneHeightAllocation(zoneGrid, zoneList, scrollViewer as FrameworkElement);
         }
     }
 
