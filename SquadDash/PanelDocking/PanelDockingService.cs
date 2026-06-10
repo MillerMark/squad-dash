@@ -1395,21 +1395,11 @@ internal sealed class PanelDockingService
             // MinHeight is only meaningful when a GridSplitter is present (2+ panels) so the user
             // cannot drag a panel to zero.  A solo panel has no splitter and must be allowed to
             // start at zero height (NaN zone) without creating a spurious visible stub.
-            var row = new RowDefinition
+            zone.RowDefinitions.Add(new RowDefinition
             {
                 Height    = new GridLength(starValue, GridUnitType.Star),
                 MinHeight = visible.Count > 1 ? 100 : 0,
-            };
-            if (visible[i] is IDockResizeSizeHint hint &&
-                hint.GetMaximumUsefulDockSize(DockResizeOrientation.Vertical) is { } maxH &&
-                maxH > 0 && !double.IsInfinity(maxH))
-            {
-                row.MaxHeight = maxH;
-                string panelLabel = !string.IsNullOrEmpty(visible[i].Name) ? visible[i].Name : visible[i].GetType().Name;
-                SquadDashTrace.Write(TraceCategory.Docking,
-                    $"RebuildZoneGrid: set MaxHeight={maxH} on row for '{panelLabel}'");
-            }
-            zone.RowDefinitions.Add(row);
+            });
             Grid.SetRow(visible[i], zone.RowDefinitions.Count - 1);
             zone.Children.Add(visible[i]);
         }

@@ -1332,7 +1332,6 @@
                             MinWidth="136"
                             DockMinimumWidth="136"
                             DockMaximumUsefulWidth="260"
-                            DockMaximumUsefulHeight="320"
                                 VerticalAlignment="Top"
                                 Padding="12,8,12,12"
                                 Background="{DynamicResource RosterPanelSurface}"
