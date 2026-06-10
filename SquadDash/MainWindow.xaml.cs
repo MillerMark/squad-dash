@@ -11517,7 +11517,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Glow the transcript border that belongs to this agent.
             // MainTranscriptBorder only glows if this agent's transcript is currently displayed there.
-            if (_ownershipMap.IsMainPanelOwner(agentCard))
+            bool isMainOwner = _ownershipMap.IsMainPanelOwner(agentCard);
+            SquadDashTrace.Write(TraceCategory.TranscriptPanels,
+                $"[glow-link] card-hover agent={agentCard.Name} isMainOwner={isMainOwner}");
+            if (isMainOwner)
             {
                 if (_mainTranscriptVisible && MainTranscriptBorder is not null)
                 {
@@ -11538,6 +11541,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Glow ALL open secondary transcript panels for this agent
             var allPanels = _ownershipMap.GetAllSecondaryPanelsForAgent(agentCard);
+            SquadDashTrace.Write(TraceCategory.TranscriptPanels,
+                $"[glow-link] card-hover-secondary agent={agentCard.Name} panelsFound={allPanels.Count}");
             foreach (var panelToken in allPanels)
             {
                 if (panelToken is not Border secondaryPanelBorder) continue;
@@ -18838,6 +18843,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         entry.IsAutoOpenedInMultiMode = isAutoOpenedInMultiMode;
         _secondaryTranscripts.Add(entry);
         _ownershipMap.RegisterSecondaryPanel(entry.PanelBorder, entry.Agent);
+        SquadDashTrace.Write(TraceCategory.TranscriptPanels,
+            $"[glow-link] ownership-map registered panel={entry.PanelBorder.GetHashCode():x} agent={entry.Agent.Name} thread={thread.ThreadId}");
         EnsureTranscriptTitleRefreshTimerRunning();
         thread.IsSecondaryPanelOpen = true;
         UpdateCompletedTimeFooters();
@@ -19129,6 +19136,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashTrace.Write(TraceCategory.TranscriptPanels,
                     $"RefreshSecondaryTranscriptEntries remapped panel thread={entry.Thread.ThreadId} oldAgent={entry.Agent.Name} newAgent={currentCard.Name}");
                 entry.Agent = currentCard;
+                // Keep the ownership map in sync — the panel border key is stable but the
+                // AgentStatusCard instance just changed (dynamic agents are torn down and
+                // recreated by EnsureDynamicAgentCards).  Without this update,
+                // GetAllSecondaryPanelsForAgent uses ReferenceEquals and finds nothing,
+                // breaking the card-hover → transcript-glow direction.
+                _ownershipMap.RegisterSecondaryPanel(entry.PanelBorder, currentCard);
+                SquadDashTrace.Write(TraceCategory.TranscriptPanels,
+                    $"[glow-link] ownership-map re-registered panel={entry.PanelBorder.GetHashCode():x} agent={currentCard.Name}");
             }
 
             var (newBaseText, _) = BuildSecondaryTranscriptTitleParts(currentCard, entry.Thread);
