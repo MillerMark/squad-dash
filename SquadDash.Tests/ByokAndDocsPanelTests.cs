@@ -85,6 +85,10 @@ internal sealed class ByokAndDocsPanelTests {
         });
     }
 
+    // NOTE: Tests that call DecryptSettingValue exercise Windows DPAPI, which encrypts data
+    // using a key tied to the current Windows user account on the current machine. These tests
+    // will fail if run under a different user identity (e.g., a CI service account) because
+    // DPAPI-encrypted blobs cannot be decrypted by a different user or on a different machine.
     [Test]
     public void SaveByokSettings_PersistsAllFields() {
         using var workspace = new TestWorkspace();
