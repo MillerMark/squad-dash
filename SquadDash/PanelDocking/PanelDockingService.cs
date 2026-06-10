@@ -1141,10 +1141,10 @@ internal sealed class PanelDockingService
             }
 
             // Rebuild including the now-visible panel, preserving zone order.
-            var orderedVisible = zoneList
-                .Where(el => el.Visibility != Visibility.Collapsed)
-                .ToList();
-            RebuildZoneGrid(zoneGrid, orderedVisible, scrollViewer as FrameworkElement);
+            // Pass the full zone list — RebuildZoneGrid filters to non-Collapsed internally.
+            // This prevents ghost-panel state where a panel is Visible but missing from the
+            // panels list passed to the rebuild.
+            RebuildZoneGrid(zoneGrid, zoneList, scrollViewer as FrameworkElement);
             if (wasCollapsed)
                 ScheduleZoneHeightRefresh(zoneGrid, scrollViewer as FrameworkElement);
         }
@@ -1497,6 +1497,18 @@ internal sealed class PanelDockingService
             });
             Grid.SetRow(visible[i], zone.RowDefinitions.Count - 1);
             zone.Children.Add(visible[i]);
+        }
+
+        // Post-build: verify every non-Collapsed panel in the list got a row.
+        // This should never fire — it's a diagnostic guard for ghost-panel detection.
+        foreach (var p in panels)
+        {
+            if (p.Visibility != Visibility.Collapsed && !zone.Children.Contains(p))
+            {
+                SquadDashTrace.Write(TraceCategory.Docking,
+                    $"RebuildZoneGrid: WARNING — panel '{(!string.IsNullOrEmpty(p.Name) ? p.Name : p.GetType().Name)}' " +
+                    $"is Visible but was not added to the zone grid (ghost state). Visibility={p.Visibility}");
+            }
         }
 
         // Bind the zone Grid height to the scroll viewer so star rows fill the column.
