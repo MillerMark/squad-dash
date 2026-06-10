@@ -7176,12 +7176,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
 
     private static readonly string[] SlashCommands = [
-        "/activate", "/add-dir", "/agents", "/allow-all", "/approval", "/changelog", "/clear",
-        "/context", "/copy", "/delegate", "/deactivate", "/diff", "/doctor", "/experimental", "/feedback",
-        "/fleet", "/dropTasks", "/health", "/help", "/hire", "/ide", "/init", "/instructions", "/login", "/logout",
-        "/lsp", "/maintenance", "/mcp", "/model", "/new", "/plan", "/pr", "/queue-sim", "/research", "/restart",
-        "/resume", "/review", "/rewind", "/rename", "/retire", "/session", "/sessions", "/share", "/skills",
-        "/status", "/tasks", "/test-queue", "/trace", "/update", "/usage", "/version"
+        "/activate", "/agents", "/approval", "/clear", "/deactivate", "/doctor", "/dropTasks",
+        "/health", "/help", "/hire", "/maintenance", "/model", "/queue-sim", "/resume", "/retire",
+        "/session", "/sessions", "/status", "/tasks", "/test-queue", "/trace", "/version"
     ];
 
     private void SyncAgentCardsWithThreads()
