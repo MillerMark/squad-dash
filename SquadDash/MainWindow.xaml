@@ -2804,7 +2804,7 @@
                     <Border x:Name="BranchIndicatorStrip"
                             DockPanel.Dock="Top"
                             Visibility="Collapsed"
-                            Margin="-4,-4,0,0"
+                            Margin="-7,-7,0,3"
                             Padding="8,3"
                             BorderThickness="0,0,0,1"
                             BorderBrush="{DynamicResource LineColor}"
