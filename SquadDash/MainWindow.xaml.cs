@@ -11356,7 +11356,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             0,
             cardTargetOpacity,
-            TimeSpan.FromMilliseconds(800));
+            TimeSpan.FromMilliseconds(350));
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
