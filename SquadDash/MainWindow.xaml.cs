@@ -92,6 +92,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static readonly TimeSpan ResponseRenderInputPollCadence = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan NonEssentialUiWorkInputQuietPeriod = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan NonEssentialUiWorkInputPollCadence = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan AgentGlowFade = TimeSpan.FromMilliseconds(100);
     private const int BridgeEventUiBatchLimit = 64;
     private const int BridgeEventUiBatchMaxMs = 8;
     private const int DelegationOutcomeRollupWindow = 8;
@@ -11302,7 +11303,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(50))
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, AgentGlowFade)
         {
             FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
         };
@@ -11353,7 +11354,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             0,
             1.0,
-            TimeSpan.FromMilliseconds(50));
+            AgentGlowFade);
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
@@ -11402,7 +11403,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var cardOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(
             0,
             cardTargetOpacity,
-            TimeSpan.FromMilliseconds(50));
+            AgentGlowFade);
         cardGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, cardOpacityAnim);
     }
 
@@ -11411,7 +11412,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (agentCardBorder.Effect is not System.Windows.Media.Effects.DropShadowEffect cardGlow)
             return;
 
-        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(50))
+        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(0, AgentGlowFade)
         {
             FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
         };
@@ -11528,7 +11529,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     };
                     MainTranscriptBorder.Effect = glow;
 
-                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(50));
+                    var opacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, AgentGlowFade);
                     glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, opacityAnim);
                 }
                 return;
@@ -11549,7 +11550,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Opacity = 0
                 };
                 secondaryPanelBorder.Effect = secondaryGlow;
-                var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, TimeSpan.FromMilliseconds(50));
+                var secondaryOpacityAnim = new System.Windows.Media.Animation.DoubleAnimation(0, 1.0, AgentGlowFade);
                 secondaryGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, secondaryOpacityAnim);
             }
         }
