@@ -4,6 +4,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -41,7 +42,8 @@ internal static class MarkdownHoverPopup {
         PlacementMode                   placement         = PlacementMode.Left,
         double                          maxWidth          = 680,
         double                          maxHeight         = 0,
-        CustomPopupPlacementCallback?   placementCallback = null) {
+        CustomPopupPlacementCallback?   placementCallback = null,
+        Action<FlowDocument>?           postProcessDocument = null) {
 
         // Resolve effective max height: caller-supplied value, or 50% of screen height.
         double EffectiveMaxHeight() =>
@@ -92,6 +94,7 @@ internal static class MarkdownHoverPopup {
             var markdown = getMarkdown();
             if (!string.IsNullOrWhiteSpace(markdown)) {
                 var doc = MarkdownFlowDocumentBuilder.Build(markdown);
+                postProcessDocument?.Invoke(doc);
                 doc.TextAlignment = TextAlignment.Left;
                 var bg = Application.Current.Resources["PopupSurface"] as Brush
                       ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));

@@ -153,6 +153,8 @@
     <SolidColorBrush x:Key="IntelliSenseHoverSurface" Color="#353028"/>
     <!-- Effect Token -->
     <DropShadowEffect x:Key="PopupShadow" BlurRadius="10" Opacity="0.55" ShadowDepth="2" Color="#000000"/>
+    <!-- Template Variable Highlight Token (resolved {{variable}} values in instruction preview) -->
+    <SolidColorBrush x:Key="TemplateVariableHighlight"  Color="#1A3A5C"/>
     <!-- Search Highlight Tokens -->
     <SolidColorBrush x:Key="SearchHighlight"            Color="#8E7735"/>
     <SolidColorBrush x:Key="SearchHighlightCurrent"     Color="#FFE57A"/>

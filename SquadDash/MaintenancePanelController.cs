@@ -5,9 +5,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -468,13 +470,19 @@ internal sealed class MaintenancePanelController {
                     header.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                     return header;
                 },
-                getMarkdown: () => task.Instructions,
+                getMarkdown: () => ResolveAndMarkTemplateVariables(
+                    task.Instructions, task.Id, _viewModel.StateStore, _getWorkspacePath()),
                 maxWidth:    800,
                 placementCallback: (popupSize, targetSize, _) => {
                     var screenPos = row.PointToScreen(new Point(0, 0));
                     if (screenPos.X - popupSize.Width < 0)
                         return new[] { new CustomPopupPlacement(new Point(targetSize.Width, 0), PopupPrimaryAxis.None) };
                     return new[] { new CustomPopupPlacement(new Point(-popupSize.Width, 0), PopupPrimaryAxis.None) };
+                },
+                postProcessDocument: doc => {
+                    var highlightBrush = row.TryFindResource("TemplateVariableHighlight") as Brush
+                                      ?? new SolidColorBrush(Color.FromRgb(0xD6, 0xE8, 0xFF));
+                    HighlightSentinelRuns(doc, highlightBrush);
                 });
 
         var grid = new Grid();
@@ -839,6 +847,110 @@ internal sealed class MaintenancePanelController {
             }
         }
         return string.Join(", ", parts);
+    }
+
+    // ── Template variable resolution ─────────────────────────────────────────
+
+    /// <summary>The sentinel character that brackets a resolved variable value in pre-processed instructions.</summary>
+    internal const char HighlightSentinel = '\x01';
+
+    private static readonly Regex TemplateVarRegex =
+        new(@"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Replaces known <c>{{identifier}}</c> tokens in <paramref name="instructions"/> with their
+    /// current resolved values, wrapping each substitution in <see cref="HighlightSentinel"/>
+    /// characters so callers can highlight those spans in the rendered FlowDocument.
+    /// Conditional tokens such as <c>{{#if …}}</c> and <c>{{/if}}</c> are left untouched.
+    /// </summary>
+    internal static string ResolveAndMarkTemplateVariables(
+        string?                instructions,
+        string                 taskId,
+        MaintenanceStateStore? stateStore,
+        string?                workspacePath) {
+        if (string.IsNullOrEmpty(instructions))
+            return instructions ?? string.Empty;
+
+        return TemplateVarRegex.Replace(instructions, m => {
+            var varName  = m.Groups[1].Value;
+            string? resolved = varName switch {
+                "last_reviewed_sha" =>
+                    stateStore?.GetLastCommitSha(taskId) is { Length: > 0 } sha ? sha : "(none)",
+                "new_commit_count" =>
+                    workspacePath is { Length: > 0 }
+                        ? stateStore?.GetCommitCountSince(taskId, workspacePath).ToString() ?? "(unknown)"
+                        : "(pending)",
+                _ => null,
+            };
+            return resolved is not null
+                ? $"{HighlightSentinel}{resolved}{HighlightSentinel}"
+                : m.Value;
+        });
+    }
+
+    /// <summary>
+    /// Walks all <see cref="Run"/> elements in <paramref name="doc"/> and splits any that
+    /// contain <see cref="HighlightSentinel"/> characters into plain and highlighted runs.
+    /// </summary>
+    internal static void HighlightSentinelRuns(FlowDocument doc, Brush highlightBrush) =>
+        ProcessBlocks(doc.Blocks, highlightBrush);
+
+    private static void ProcessBlocks(BlockCollection blocks, Brush highlightBrush) {
+        foreach (var block in blocks.ToList()) {
+            switch (block) {
+                case Paragraph para:
+                    ProcessInlineCollection(para.Inlines, highlightBrush);
+                    break;
+                case System.Windows.Documents.List list:
+                    foreach (ListItem item in list.ListItems)
+                        ProcessBlocks(item.Blocks, highlightBrush);
+                    break;
+                case Section section:
+                    ProcessBlocks(section.Blocks, highlightBrush);
+                    break;
+            }
+        }
+    }
+
+    private static void ProcessInlineCollection(InlineCollection inlines, Brush highlightBrush) {
+        foreach (var span in inlines.OfType<Span>().ToList())
+            ProcessInlineCollection(span.Inlines, highlightBrush);
+        foreach (var run in inlines.OfType<Run>()
+                                   .Where(r => r.Text.Contains(HighlightSentinel))
+                                   .ToList())
+            SplitAndHighlightRun(run, inlines, highlightBrush);
+    }
+
+    private static void SplitAndHighlightRun(Run original, InlineCollection parent, Brush highlightBrush) {
+        var parts = original.Text.Split(HighlightSentinel);
+        var newInlines = new List<Inline>();
+        for (int i = 0; i < parts.Length; i++) {
+            if (parts[i].Length == 0) continue;
+            var run = new Run(parts[i]);
+            CopyRunFormatting(original, run);
+            if (i % 2 == 1)  // odd index = between sentinel markers = resolved value
+                run.Background = highlightBrush;
+            newInlines.Add(run);
+        }
+        if (newInlines.Count == 0) {
+            parent.Remove(original);
+            return;
+        }
+        foreach (var inline in newInlines)
+            parent.InsertBefore(original, inline);
+        parent.Remove(original);
+    }
+
+    private static void CopyRunFormatting(Run source, Run target) {
+        var fw = source.ReadLocalValue(TextElement.FontWeightProperty);
+        if (fw != DependencyProperty.UnsetValue)
+            target.FontWeight = (FontWeight)fw;
+        var fs = source.ReadLocalValue(TextElement.FontStyleProperty);
+        if (fs != DependencyProperty.UnsetValue)
+            target.FontStyle = (FontStyle)fs;
+        var ff = source.ReadLocalValue(TextElement.FontFamilyProperty);
+        if (ff != DependencyProperty.UnsetValue && ff is FontFamily fontFamily)
+            target.FontFamily = fontFamily;
     }
 
     // ── Status header ─────────────────────────────────────────────────────────
