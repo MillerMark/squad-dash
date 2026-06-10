@@ -495,7 +495,8 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
     public static void Show(Window? owner, string title, string filePath, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
-        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null) {
+        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null,
+        bool isReadOnly = false) {
         // If a window already has this file open, bring it to the front instead of opening a duplicate.
         var existing = _openWindows.FirstOrDefault(w =>
             w._documents.Any(d => string.Equals(d.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
@@ -505,12 +506,13 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             existing.Activate();
             return;
         }
-        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave, noteContext, loopEditContext);
+        Show(owner, title, [new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], showSource, captureContext, autoSave, noteContext, loopEditContext, isReadOnly);
     }
 
     public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
-        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null) {
+        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null,
+        bool isReadOnly = false) {
         var window = new MarkdownDocumentWindow(title, documents, noteContext, loopEditContext);
         window._captureContext = captureContext;
         window._autoSave       = autoSave;
@@ -523,7 +525,12 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             window._saveButton.Visibility  = Visibility.Collapsed;
         }
 
-        if (showSource) {
+        // In read-only mode, editing controls are hidden and the rendered view is shown.
+        if (isReadOnly) {
+            window._backButton!.Visibility      = Visibility.Collapsed;
+            window._saveButton.Visibility       = Visibility.Collapsed;
+            window._showSourceButton.Visibility = Visibility.Collapsed;
+        } else if (showSource) {
             window._showSource = true;
             window.UpdateSourcePaneVisibility();
             window.UpdateEditorFromActiveDocument();

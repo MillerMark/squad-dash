@@ -24,6 +24,7 @@ internal sealed class MaintenancePanelController {
     private readonly Action<string, bool> _toggleTaskEnabled;
     private readonly Action               _reloadPanel;
     private readonly Action<string>       _openInMarkdownEditor;
+    private readonly Action<string>       _openReportViewer;
     private readonly Action               _showInboxPanel;
     private readonly Action<string>       _runTask;
     private readonly Action               _simulateIdle;
@@ -45,6 +46,7 @@ internal sealed class MaintenancePanelController {
         Action<string, bool> toggleTaskEnabled,
         Action               reloadPanel,
         Action<string>       openInMarkdownEditor,
+        Action<string>       openReportViewer,
         Action               showInboxPanel,
         Action<string>       runTask,
         Action               simulateIdle,
@@ -57,6 +59,7 @@ internal sealed class MaintenancePanelController {
         _toggleTaskEnabled      = toggleTaskEnabled;
         _reloadPanel            = reloadPanel;
         _openInMarkdownEditor   = openInMarkdownEditor;
+        _openReportViewer       = openReportViewer;
         _showInboxPanel         = showInboxPanel;
         _runTask                = runTask;
         _simulateIdle           = simulateIdle;
@@ -400,7 +403,7 @@ internal sealed class MaintenancePanelController {
             btn.SetResourceReference(Button.FontSizeProperty,   "FontSizeSmall");
             btn.SetResourceReference(Button.ForegroundProperty, "SubtleText");
             var capturedPath = representative;
-            btn.Click += (_, _) => _openInMarkdownEditor(capturedPath);
+            btn.Click += (_, _) => _openReportViewer(capturedPath);
             content.Children.Add(btn);
         }
 

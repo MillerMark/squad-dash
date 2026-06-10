@@ -41,6 +41,7 @@ internal sealed class MaintenancePanelControllerTests {
             toggleTaskEnabled: (_, _) => { },
             reloadPanel:       () => { },
             openInMarkdownEditor: _ => { },
+            openReportViewer:     _ => { },
             showInboxPanel:    () => { },
             runTask:           _ => { },
             simulateIdle:      () => { });
@@ -291,6 +292,7 @@ internal sealed class MaintenancePanelControllerTests {
             toggleTaskEnabled: (_, _) => { },
             reloadPanel:       () => { },
             openInMarkdownEditor: _ => { },
+            openReportViewer:     _ => { },
             showInboxPanel:    () => { },
             runTask:           _ => { },
             simulateIdle:      () => { });
@@ -494,6 +496,7 @@ internal sealed class MaintenancePanelControllerTests {
             toggleTaskEnabled: (id, en) => toggleCalls.Add((id, en)),
             reloadPanel:       () => { },
             openInMarkdownEditor: _ => { },
+            openReportViewer:     _ => { },
             showInboxPanel:    () => { },
             runTask:           _ => { },
             simulateIdle:      () => { });

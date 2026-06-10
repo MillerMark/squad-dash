@@ -30962,6 +30962,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     path,
                     showSource: true,
                     BuildMarkdownCaptureContext()),
+                openReportViewer:       path => MarkdownDocumentWindow.Show(
+                    CanShowOwnedWindow() ? this : null,
+                    "Maintenance Report",
+                    path,
+                    showSource: false,
+                    BuildMarkdownCaptureContext(),
+                    isReadOnly: true),
                 showInboxPanel:         () => ShowInboxPanel(),
                 runTask:                taskId => StartMaintenanceCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId })
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncMaintenancePanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
