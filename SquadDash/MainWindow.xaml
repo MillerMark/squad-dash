@@ -2641,7 +2641,7 @@
             <!-- Source editor panel (right side, shown when View Source is active) -->
             <Border x:Name="DocSourcePanel"
                     Grid.Column="3"
-                    Background="{DynamicResource InputSurface}"
+                    Background="{DynamicResource RosterPanelSurface}"
                     BorderBrush="{DynamicResource PanelBorder}"
                     BorderThickness="1"
                     CornerRadius="18"
@@ -2733,7 +2733,7 @@
                              FontSize="{DynamicResource FontSizeBody}"
                              Padding="10"
                              BorderThickness="0"
-                             Background="{DynamicResource InputSurface}"
+                             Background="{DynamicResource RosterPanelSurface}"
                              Foreground="{DynamicResource LabelText}"
                              ContextMenu="{x:Null}"
                              SpellCheck.IsEnabled="False"
