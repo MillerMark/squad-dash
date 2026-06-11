@@ -54,6 +54,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\Cursors\HandOpen.png" />
+    <EmbeddedResource Include="Assets\Cursors\HandClosed.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Assets\squaddash.md" />
     <EmbeddedResource Include="Assets\squaddash-profiles.md" />
     <EmbeddedResource Include="Assets\casting-reference.md" />

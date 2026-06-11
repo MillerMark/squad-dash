@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -34,11 +35,11 @@ internal static class AnnotationCursors {
 
     /// <summary>Open hand — shown while Space is held (pan-ready mode).</summary>
     public static Cursor OpenHand
-        => _openHand ??= CreateCursorFromDrawing(CreateOpenHandDrawing(), 32, 32, hotX: 10, hotY: 3);
+        => _openHand ??= CreateCursorFromPngResource("SquadDash.Assets.Cursors.HandOpen.png", hotX: 16, hotY: 20);
 
     /// <summary>Closed hand — shown while actively panning (Space + drag).</summary>
     public static Cursor ClosedHand
-        => _closedHand ??= CreateCursorFromDrawing(CreateClosedHandDrawing(), 32, 32, hotX: 14, hotY: 14);
+        => _closedHand ??= CreateCursorFromPngResource("SquadDash.Assets.Cursors.HandClosed.png", hotX: 16, hotY: 20);
 
     /// <summary>
     /// Arrow-tool cursor: a small orange annotation-arrow icon at the upper-left
@@ -147,75 +148,37 @@ internal static class AnnotationCursors {
         return new Cursor(cur);
     }
 
-    // ── Hand cursor drawings ──────────────────────────────────────────────────
+    /// <summary>
+    /// Loads a PNG embedded resource and wraps it in a <see cref="Cursor"/> with the
+    /// specified hot-spot.  Uses the .CUR file format with an embedded PNG image.
+    /// </summary>
+    private static Cursor CreateCursorFromPngResource(string resourceName, int hotX, int hotY) {
+        var asm = typeof(AnnotationCursors).Assembly;
+        using var src = asm.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Cursor resource not found: {resourceName}");
+        var png = new byte[src.Length];
+        _ = src.Read(png, 0, png.Length);
 
-    private static Drawing CreateOpenHandDrawing() {
-        var dg = new DrawingGroup();
-        using (var dc = dg.Open()) {
-            // Cartoon white-glove style: pure white fill, bold 2px outline.
-            var fill   = Brushes.White;
-            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 2.0) {
-                LineJoin  = PenLineJoin.Round,
-                StartLineCap = PenLineCap.Round,
-                EndLineCap   = PenLineCap.Round
-            };
+        // Probe the PNG header for width/height (bytes 16–23).
+        int widthPx  = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+        int heightPx = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
 
-            // Palm — wide, generously rounded cartoon-glove shape.
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(4.5, 17, 21.5, 12), 5.5, 5.5);
-
-            // Thumb — chubby, round stub protruding to the lower-left.
-            var thumbGeo = new PathGeometry();
-            var tf = new PathFigure { StartPoint = new Point(5.5, 21), IsClosed = true };
-            tf.Segments.Add(new BezierSegment(new Point(0.5, 20), new Point(0, 13.5), new Point(2.5, 10), true));
-            tf.Segments.Add(new BezierSegment(new Point(4,   7.5), new Point(8.5, 8.5), new Point(8.5, 13), true));
-            tf.Segments.Add(new LineSegment(new Point(7, 18), true));
-            thumbGeo.Figures.Add(tf);
-            dc.DrawGeometry(fill, stroke, thumbGeo);
-
-            // Four fingers: index, middle (tallest), ring, pinky.
-            // Wider and rounder than realistic — exaggerated cartoon proportions.
-            double[] fx    = { 7,    12,   16.5, 21   };
-            double[] fw    = { 4.5,  4.5,  4.5,  3.5  };
-            double[] ftopY = { 5.5,  2.5,  4.0,  7.5  };
-            for (int i = 0; i < 4; i++)
-                dc.DrawRoundedRectangle(fill, stroke,
-                    new Rect(fx[i], ftopY[i], fw[i], 15.5 - ftopY[i]),
-                    3.0, 3.0);
-        }
-        return dg;
-    }
-
-    private static Drawing CreateClosedHandDrawing() {
-        var dg = new DrawingGroup();
-        using (var dc = dg.Open()) {
-            var fill   = Brushes.White;
-            var stroke = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 2.0) {
-                LineJoin  = PenLineJoin.Round,
-                StartLineCap = PenLineCap.Round,
-                EndLineCap   = PenLineCap.Round
-            };
-
-            // Knuckle bumps drawn first so the main body covers their lower halves,
-            // making them appear to protrude from the top of the fist.
-            double[] kx = { 7.5, 12.0, 16.5, 21.0 };
-            double[] kr = { 3.0,  3.0,  2.8,  2.3 };
-            var bumpPen = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 1.7);
-            for (int i = 0; i < 4; i++)
-                dc.DrawEllipse(fill, bumpPen, new Point(kx[i], 14.5), kr[i], kr[i]);
-
-            // Main fist body — white fill covers the lower halves of the knuckle bumps.
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(3.5, 14.5, 23, 13.5), 4.5, 4.5);
-
-            // Thumb — round stub on the left side.
-            dc.DrawRoundedRectangle(fill, stroke, new Rect(0.5, 16.5, 5.5, 7), 2.8, 2.8);
-
-            // Finger separation lines running down the main body.
-            var sep = new Pen(new SolidColorBrush(Color.FromRgb(25, 25, 25)), 1.0);
-            dc.DrawLine(sep, new Point(11.5, 14.5), new Point(11.5, 28));
-            dc.DrawLine(sep, new Point(16,   14.5), new Point(16,   28));
-            dc.DrawLine(sep, new Point(20.5, 14.5), new Point(20.5, 28));
-        }
-        return dg;
+        using var cur = new MemoryStream();
+        using var bw  = new BinaryWriter(cur);
+        bw.Write((short)0);              // reserved
+        bw.Write((short)2);              // type: cursor
+        bw.Write((short)1);              // image count
+        bw.Write((byte)(widthPx  & 0xFF));
+        bw.Write((byte)(heightPx & 0xFF));
+        bw.Write((byte)0);               // colour count
+        bw.Write((byte)0);               // reserved
+        bw.Write((short)hotX);
+        bw.Write((short)hotY);
+        bw.Write(png.Length);
+        bw.Write(22);                    // byte offset to PNG data (= header size)
+        bw.Write(png);
+        cur.Position = 0;
+        return new Cursor(cur);
     }
 
     // ── Tool cursor drawings ──────────────────────────────────────────────────
