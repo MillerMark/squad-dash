@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Threading.Tasks;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Threading;
 using System.Collections.Generic;
@@ -173,7 +174,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Line? _crosshairRedV;
 
     // Color picker
-    private StackPanel? _colorPickerPanel;
+    private FrameworkElement? _colorPickerPanel;
     private AnnotationArrow? _colorPickerArrow;
     private AnnotationRect? _colorPickerRect;
 
@@ -3492,23 +3493,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void ShowColorPickerForMeasureLine(AnnotationMeasureLine ml) {
         HideColorPicker();
         _colorPickerMeasureLine = ml;
-        var palette = GetArrowPalette();
 
-        _colorPickerPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        _colorPickerPanel = MakeColorPickerGrid(GetAnnotationPalette(), ml.LineColor, picked => {
+            ml.LineColor = picked;
+            _defaultMeasureLineColor = picked;
+            UpdateMeasureLineGeometry(ml);
+            ShowColorPickerForMeasureLine(ml);
+        });
         Panel.SetZIndex(_colorPickerPanel, 300);
-
-        foreach (var color in palette) {
-            var c = color;
-            bool isSelected = c == ml.LineColor;
-            var swatch = MakeColorSwatch(c, isSelected, picked => {
-                ml.LineColor = picked;
-                _defaultMeasureLineColor = picked;
-                UpdateMeasureLineGeometry(ml);
-                ShowColorPickerForMeasureLine(ml);
-            });
-            _colorPickerPanel.Children.Add(swatch);
-        }
-
         _canvas.Children.Add(_colorPickerPanel);
 
         double midX = (ml.StartPt.X + ml.EndPt.X) / 2;
@@ -4075,81 +4067,43 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     // ── Color picker ──────────────────────────────────────────────────────────
 
-    private static Color[] GetArrowPalette() => new[]
+    private static Color[] GetAnnotationPalette() => new[]
     {
-        Color.FromRgb(220,  50,  50),
-        Color.FromRgb(255, 140,   0),
-        Color.FromRgb(240, 210,  40),
-        Color.FromRgb( 50, 185,  50),
-        Color.FromRgb( 50, 130, 230),
-        Color.FromRgb(255, 255, 255),
-        Color.FromRgb(  0,   0,   0),
+        // Row 0 — Light
+        Color.FromRgb(255, 160, 160), Color.FromRgb(255, 210, 150), Color.FromRgb(255, 245, 150),
+        Color.FromRgb(150, 230, 150), Color.FromRgb(160, 210, 255), Color.FromRgb(210, 160, 255),
+        Color.FromRgb(255, 255, 255), Color.FromRgb(204, 204, 204),
+        // Row 1 — Base
+        Color.FromRgb(220,  50,  50), Color.FromRgb(255, 140,   0), Color.FromRgb(240, 210,  40),
+        Color.FromRgb( 50, 185,  50), Color.FromRgb( 50, 130, 230), Color.FromRgb(160,  50, 220),
+        Color.FromRgb(153, 153, 153), Color.FromRgb(102, 102, 102),
+        // Row 2 — Dark
+        Color.FromRgb(140,  20,  20), Color.FromRgb(180,  80,   0), Color.FromRgb(160, 130,   0),
+        Color.FromRgb( 20, 110,  20), Color.FromRgb( 20,  70, 160), Color.FromRgb( 90,  20, 140),
+        Color.FromRgb( 51,  51,  51), Color.FromRgb(  0,   0,   0),
     };
 
-    /// <summary>
-    /// Returns the foreground color palette for text annotations, adapted to the background color.
-    /// White bg → dark colors (white hidden); black bg → bright colors (black hidden);
-    /// transparent bg → medium-brightness set with both white and black.
-    /// </summary>
-    private static Color[] GetTextFgPalette(Color bgColor) {
-        if (bgColor.A == 0) {
-            // Transparent background: medium-brightness set (current arrow palette).
-            return GetArrowPalette();
-        }
-        if (bgColor.R > 200 && bgColor.G > 200 && bgColor.B > 200) {
-            // White (or near-white) background: dark/saturated colors only, no white.
-            return new[]
-            {
-                Color.FromRgb(0xCC, 0x00, 0x00), // dark red
-                Color.FromRgb(0xCC, 0x66, 0x00), // dark orange
-                Color.FromRgb(0x00, 0x66, 0x00), // dark green
-                Color.FromRgb(0x00, 0x00, 0xCC), // dark blue
-                Color.FromRgb(0x66, 0x00, 0xCC), // dark purple
-                Color.FromRgb(0x66, 0x66, 0x66), // gray
-                Color.FromRgb(0x00, 0x00, 0x00), // black
-            };
-        }
-        // Black (or near-black) background: bright/light colors only, no black.
-        return new[]
-        {
-            Color.FromRgb(0xFF, 0x44, 0x44), // bright red
-            Color.FromRgb(0x44, 0x88, 0xFF), // bright blue
-            Color.FromRgb(0x44, 0xFF, 0x44), // bright green
-            Color.FromRgb(0xFF, 0xFF, 0x44), // bright yellow
-            Color.FromRgb(0x44, 0xFF, 0xFF), // bright cyan
-            Color.FromRgb(0xFF, 0x44, 0xFF), // bright magenta
-            Color.FromRgb(0xFF, 0xFF, 0xFF), // white
-        };
-    }
+    /// <summary>Returns the full 24-color annotation palette for text foreground color picking.</summary>
+    private static Color[] GetTextFgPalette(Color bgColor) => GetAnnotationPalette();
 
     /// <summary>
-    /// Returns true if <paramref name="color"/> is in the text foreground palette for
-    /// <paramref name="bgColor"/> (by exact RGB match).
+    /// Returns true if <paramref name="color"/> is in the annotation palette (by exact RGB match).
     /// </summary>
     private static bool IsColorInTextFgPalette(Color color, Color bgColor)
-        => GetTextFgPalette(bgColor).Any(c => c.R == color.R && c.G == color.G && c.B == color.B);
+        => GetAnnotationPalette().Any(c => c.R == color.R && c.G == color.G && c.B == color.B);
 
     private void ShowColorPicker(AnnotationArrow arrow) {
         HideColorPicker();
         _colorPickerArrow = arrow;
-        var palette = GetArrowPalette();
 
-        _colorPickerPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        _colorPickerPanel = MakeColorPickerGrid(GetAnnotationPalette(), arrow.ArrowColor, picked => {
+            arrow.ArrowColor = picked;
+            _defaultArrowColor = picked;
+            SaveArrowDefaults();
+            UpdateArrowGeometry(arrow);
+            ShowColorPicker(arrow);
+        });
         Panel.SetZIndex(_colorPickerPanel, 300);
-
-        foreach (var color in palette) {
-            var c = color;
-            bool isSelected = c == arrow.ArrowColor;
-            var swatch = MakeColorSwatch(c, isSelected, picked => {
-                arrow.ArrowColor = picked;
-                _defaultArrowColor = picked;
-                SaveArrowDefaults();
-                UpdateArrowGeometry(arrow);
-                ShowColorPicker(arrow);
-            });
-            _colorPickerPanel.Children.Add(swatch);
-        }
-
         _canvas.Children.Add(_colorPickerPanel);
 
         double tipX  = Canvas.GetLeft(arrow.TipHandle)  + 4;
@@ -4176,8 +4130,75 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         { R: 255, G: 255, B: 0 } => "Yellow", { R: 255, G: 165, B: 0 } or { R: 255, G: 120, B: 20 } => "Orange",
         { R: 255, G: 255, B: 255 } => "White",
         { R: 0, G: 0, B: 0 } => "Black",
+        // Annotation palette — Row 0 (Light)
+        { R: 255, G: 160, B: 160 } => "Light Red",
+        { R: 255, G: 210, B: 150 } => "Light Orange",
+        { R: 255, G: 245, B: 150 } => "Light Yellow",
+        { R: 150, G: 230, B: 150 } => "Light Green",
+        { R: 160, G: 210, B: 255 } => "Light Blue",
+        { R: 210, G: 160, B: 255 } => "Light Purple",
+        { R: 204, G: 204, B: 204 } => "Light Gray",
+        // Row 1 (Base)
+        { R: 220, G:  50, B:  50 } => "Red",
+        { R: 255, G: 140, B:   0 } => "Orange",
+        { R: 240, G: 210, B:  40 } => "Yellow",
+        { R:  50, G: 185, B:  50 } => "Green",
+        { R:  50, G: 130, B: 230 } => "Blue",
+        { R: 160, G:  50, B: 220 } => "Purple",
+        { R: 153, G: 153, B: 153 } => "Med-Light Gray",
+        { R: 102, G: 102, B: 102 } => "Med-Dark Gray",
+        // Row 2 (Dark)
+        { R: 140, G:  20, B:  20 } => "Dark Red",
+        { R: 180, G:  80, B:   0 } => "Dark Orange",
+        { R: 160, G: 130, B:   0 } => "Dark Yellow",
+        { R:  20, G: 110, B:  20 } => "Dark Green",
+        { R:  20, G:  70, B: 160 } => "Dark Blue",
+        { R:  90, G:  20, B: 140 } => "Dark Purple",
+        { R:  51, G:  51, B:  51 } => "Dark Gray",
         _ => $"#{c.R:X2}{c.G:X2}{c.B:X2}"
     };
+
+    private static FrameworkElement MakeColorPickerGrid(Color[] palette, Color selectedColor, Action<Color> onPick) {
+        var uniformGrid = new UniformGrid {
+            Rows = 3,
+            Columns = 8,
+            Background = new SolidColorBrush(Color.FromRgb(0xBB, 0xBB, 0xBB)),
+        };
+        foreach (var color in palette) {
+            var c = color;
+            bool isSelected = c.R == selectedColor.R && c.G == selectedColor.G && c.B == selectedColor.B;
+            FrameworkElement cell;
+            if (isSelected) {
+                var cellGrid = new Grid {
+                    Width = 18, Height = 18,
+                    Margin = new Thickness(0, 0, 1, 1),
+                    Cursor = Cursors.Hand,
+                    ToolTip = ColorName(c),
+                };
+                cellGrid.Children.Add(new Rectangle { Fill = new SolidColorBrush(c) });
+                cellGrid.Children.Add(new Rectangle { Stroke = Brushes.White, StrokeThickness = 2, Fill = Brushes.Transparent });
+                cellGrid.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
+                cell = cellGrid;
+            } else {
+                var rect = new Rectangle {
+                    Width = 18, Height = 18,
+                    Fill = new SolidColorBrush(c),
+                    Margin = new Thickness(0, 0, 1, 1),
+                    Cursor = Cursors.Hand,
+                    ToolTip = ColorName(c),
+                };
+                rect.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
+                cell = rect;
+            }
+            uniformGrid.Children.Add(cell);
+        }
+        return new Border {
+            Background = new SolidColorBrush(Color.FromRgb(0xBB, 0xBB, 0xBB)),
+            Padding = new Thickness(1),
+            CornerRadius = new CornerRadius(2),
+            Child = uniformGrid,
+        };
+    }
 
     private static FrameworkElement MakeColorSwatch(Color c, bool isSelected, Action<Color> onPick) {
         var tip = $"Set text color to {ColorName(c)}";
@@ -4554,22 +4575,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void ShowColorPickerForX(AnnotationX x) {
         HideColorPicker();
         _colorPickerX = x;
-        var palette = GetArrowPalette();
-        _colorPickerPanel = new StackPanel { Orientation = Orientation.Horizontal };
+
+        _colorPickerPanel = MakeColorPickerGrid(GetAnnotationPalette(), x.XColor, picked => {
+            x.XColor = picked;
+            _defaultXColor = picked;
+            UpdateXGeometry(x);
+            ShowColorPickerForX(x);
+        });
         Panel.SetZIndex(_colorPickerPanel, 300);
-
-        foreach (var color in palette) {
-            var c = color;
-            bool isSelected = c == x.XColor;
-            var swatch = MakeColorSwatch(c, isSelected, picked => {
-                x.XColor = picked;
-                _defaultXColor = picked;
-                UpdateXGeometry(x);
-                ShowColorPickerForX(x);
-            });
-            _colorPickerPanel.Children.Add(swatch);
-        }
-
         _canvas.Children.Add(_colorPickerPanel);
 
         double cx = x.Bounds.Left + x.Bounds.Width / 2;
@@ -5096,23 +5109,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void ShowColorPickerForRect(AnnotationRect rect) {
         HideColorPicker();
         _colorPickerRect = rect;
-        var palette = GetArrowPalette();
 
-        _colorPickerPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        _colorPickerPanel = MakeColorPickerGrid(GetAnnotationPalette(), rect.RectColor, picked => {
+            rect.RectColor = picked;
+            _defaultRectColor = picked;
+            UpdateRectGeometry(rect);
+            ShowColorPickerForRect(rect);
+        });
         Panel.SetZIndex(_colorPickerPanel, 300);
-
-        foreach (var color in palette) {
-            var c = color;
-            bool isSelected = c == rect.RectColor;
-            var swatch = MakeColorSwatch(c, isSelected, picked => {
-                rect.RectColor = picked;
-                _defaultRectColor = picked;
-                UpdateRectGeometry(rect);
-                ShowColorPickerForRect(rect);
-            });
-            _colorPickerPanel.Children.Add(swatch);
-        }
-
         _canvas.Children.Add(_colorPickerPanel);
 
         double cx = rect.Bounds.Left + rect.Bounds.Width / 2;
@@ -7179,24 +7183,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             bgRow.Children.Add(swatch);
         }
 
-        var fgRow = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var color in GetTextFgPalette(annotation.BackgroundColor)) {
-            var c = color;
-            bool isSelected = c.R == annotation.TextColor.R
-                           && c.G == annotation.TextColor.G
-                           && c.B == annotation.TextColor.B;
-            var swatch = MakeColorSwatch(c, isSelected, picked => {
-                annotation.TextColor = picked;
-                _defaultTextFgColor = picked;
-                SaveTextDefaults();
-                UpdateTextDisplay(annotation);
-                ShowColorPickerForText(annotation);
-            });
-            fgRow.Children.Add(swatch);
-        }
+        var fgGrid = MakeColorPickerGrid(GetAnnotationPalette(), annotation.TextColor, picked => {
+            annotation.TextColor = picked;
+            _defaultTextFgColor = picked;
+            SaveTextDefaults();
+            UpdateTextDisplay(annotation);
+            ShowColorPickerForText(annotation);
+        });
 
         outerPanel.Children.Add(bgRow);
-        outerPanel.Children.Add(fgRow);
+        outerPanel.Children.Add(fgGrid);
         _colorPickerPanel = outerPanel;
         _canvas.Children.Add(outerPanel);
 
