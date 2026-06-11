@@ -1930,7 +1930,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         }
 
         SquadDashTrace.Write("AnnotatorDrag", $"Canvas_MouseDown: OriginalSource={e.OriginalSource?.GetType().Name ?? "null"} isArrowHitLine={_arrows.Any(a => a.HitLine == e.OriginalSource)} Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
-        SelectArrow(null);
+        // Skip deselect if the click landed on an arrow hitLine — hitLine.MouseLeftButtonDown
+        // handles selection.  Without this guard, SelectArrow(null) would fire before the
+        // hitLine handler runs (MouseDown fires before MouseLeftButtonDown).
+        if (!(e.OriginalSource is Line arrowSrcLine && _arrows.Any(a => a.HitLine == arrowSrcLine)))
+            SelectArrow(null);
         SelectAnnotationRect(null);
         // Skip deselect if the click landed on a measure line's transparent hit zone —
         // hitLine.MouseLeftButtonDown already selected it, but Canvas_MouseDown can still
@@ -2063,7 +2067,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         // Draw a new crop region from scratch — works whether or not a selection already exists.
         // Clicking outside the current selection (zone == None) replaces it; undo restores the old one.
-        if (!_inArrowMode && !_inCursorPlacementMode && !_inRectMode && !_inTextMode && !_inMoveMode) {
+        // Skip if the click landed on an arrow hitLine — hitLine.MouseLeftButtonDown handles it.
+        // (Same pattern as the measure-line guard above.)
+        bool clickedArrowHitLine = e.OriginalSource is Line hl && _arrows.Any(a => a.HitLine == hl);
+        if (!_inArrowMode && !_inCursorPlacementMode && !_inRectMode && !_inTextMode && !_inMoveMode
+            && !clickedArrowHitLine) {
             _creatingNewSel = true;
             _newSelAnchor = pt;
             _preDragSnapshot = CaptureSnapshot();
@@ -3845,8 +3853,18 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     clone.TargetCenterOnCanvas.X + clone.OffsetX,
                     clone.TargetCenterOnCanvas.Y + clone.OffsetY);
                 SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: about to CaptureMouse on clone.HitLine, current Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
-                clone.HitLine.CaptureMouse();
-                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: after CaptureMouse, Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
+                bool captured = clone.HitLine.CaptureMouse();
+                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: CaptureMouse returned {captured}, Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
+                if (!captured) {
+                    // CaptureMouse failed — mouse events won't reach the clone, so _draggingArrow
+                    // would be stuck non-null and block all future Ctrl+drag attempts. Roll back.
+                    SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: CaptureMouse failed — rolling back clone");
+                    RemoveArrow(clone);
+                    _draggingArrow = null;
+                    _bodyDragging = false;
+                    _arrowCloneDragInProgress = false;
+                    return;
+                }
                 e.Handled = true;
                 return;
             }
