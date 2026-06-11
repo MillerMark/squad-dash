@@ -135,6 +135,7 @@
     <Compile Include="..\SquadDash\NativeMethods.cs" Link="Source\NativeMethods.cs" />
     <Compile Include="..\SquadDash\FloatingWindowPositionStore.cs" Link="Source\FloatingWindowPositionStore.cs" />
     <Compile Include="..\SquadDash\DpiHelper.cs" Link="Source\DpiHelper.cs" />
+    <Compile Include="..\SquadDash\ToolTipHelper.cs" Link="Source\ToolTipHelper.cs" />
     <Compile Include="..\SquadDash\StartupWorkspaceResolver.cs" Link="Source\StartupWorkspaceResolver.cs" />
     <Compile Include="..\SquadDash\StartupBlockedDialogPolicy.cs" Link="Source\StartupBlockedDialogPolicy.cs" />
     <Compile Include="..\SquadDash\StartupFolderParser.cs" Link="Source\StartupFolderParser.cs" />

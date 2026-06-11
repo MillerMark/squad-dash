@@ -12516,12 +12516,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // Ctrl+C while Theme Reveal is active → copy visible tokens to clipboard.
+            // Ctrl+C while Theme Reveal is active → copy visible tokens to clipboard and exit.
             if (_themeRevealOverlay?.IsActive == true
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
                 && key == Key.C)
             {
                 _themeRevealOverlay.CopyToClipboard();
+                _themeRevealOverlay.Deactivate();
                 keyArgs.Handled = true;
                 return;
             }
@@ -31369,11 +31370,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Synchronously reads HEAD SHA from git. Used at inbox-message save time so the
+    /// Asynchronously reads HEAD SHA from git. Used at inbox-message save time so the
     /// SHA can be stored with the message for later staleness calculation.
     /// Returns null on any error (non-git repo, git not on PATH, etc.).
+    /// A missed SHA is always acceptable — this task is never awaited on the UI thread.
     /// </summary>
-    private static string? TryGetGitShaSync(string workingDirectory)
+    private static async Task<string?> TryGetGitShaAsync(string workingDirectory)
     {
         try
         {
@@ -31387,9 +31389,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             using var proc = System.Diagnostics.Process.Start(psi);
             if (proc is null) return null;
-            var sha = proc.StandardOutput.ReadToEnd().Trim();
-            proc.WaitForExit(3000);
+            var sha = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+            await proc.WaitForExitAsync().ConfigureAwait(false);
             if (proc.ExitCode != 0) return null;
+            sha = sha.Trim();
             return string.IsNullOrEmpty(sha) ? null : sha;
         }
         catch { return null; }
@@ -32032,7 +32035,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             From        = dto.From,
             Body        = dto.Body,
             Timestamp   = DateTimeOffset.Now,
-            GitSha      = TryGetGitShaSync(_workspacePaths.ApplicationRoot),
+            GitSha      = null,   // populated asynchronously after save (see below)
             Attachments = dto.Attachments,
             Actions     = dto.Actions,
         };
@@ -32045,6 +32048,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         _inboxStore.Save(message);
+
+        // Fetch the git SHA off the UI thread and patch the saved message once available.
+        // Null is always acceptable — the SHA is informational only (inbox staleness display).
+        var capturedStore = _inboxStore;
+        var capturedRoot  = _workspacePaths.ApplicationRoot;
+        var capturedMsg   = message;
+        _ = TryGetGitShaAsync(capturedRoot).ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully && t.Result is string sha)
+                capturedStore.Save(capturedMsg with { GitSha = sha });
+        }, TaskScheduler.Default);
+
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"INBOX_SAVE: saved id={message.Id} subject=\"{message.Subject}\" panelVisible={_inboxPanel is not null}");
 
