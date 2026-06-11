@@ -423,7 +423,8 @@ internal sealed class MaintenanceRunner {
         catch (OperationCanceledException) {
             return null;
         }
-        catch {
+        catch (Exception ex) {
+            SquadDashTrace.Write("Maintenance", $"GetCurrentSha failed: {ex.Message}");
             return null;
         }
     }

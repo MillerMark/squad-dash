@@ -1517,8 +1517,8 @@ export class SquadBridgeService {
                 state.backgroundTasks,
                 normalizedTaskId,
                 state.backgroundTaskIdsByToolCallId)) {
-                const cancelled = await backgroundTaskSession.cancelBackgroundTask(cancelId).catch(() => false);
-                await this.refreshBackgroundTasks(state).catch(() => undefined);
+                const cancelled = await backgroundTaskSession.cancelBackgroundTask(cancelId).catch(err => { console.error("cancelBackgroundTask failed:", err); return false; });
+                await this.refreshBackgroundTasks(state).catch(err => { console.error("refreshBackgroundTasks failed:", err); return undefined; });
                 if (cancelled)
                     return true;
             }
@@ -1694,7 +1694,7 @@ export class SquadBridgeService {
         const progressResults = await Promise.all(
             tasks.map(task =>
                 backgroundTaskSession.getBackgroundTaskProgress
-                    ? backgroundTaskSession.getBackgroundTaskProgress(task).catch(() => undefined)
+                    ? backgroundTaskSession.getBackgroundTaskProgress(task).catch(err => { console.error("getBackgroundTaskProgress failed:", err); return undefined; })
                     : Promise.resolve(undefined)
             )
         );

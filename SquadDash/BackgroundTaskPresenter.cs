@@ -767,24 +767,24 @@ internal sealed class BackgroundTaskPresenter {
         _ = Task.Run(async () => {
             try {
                 await Task.Delay(_agentActiveDisplayLinger).ConfigureAwait(false);
+                _tryPostToUi(() => {
+                    if (_isClosing())
+                        return;
+
+                    if (thread.LastObservedActivityAt != observedAt)
+                        return;
+
+                    if (IsThreadBackedByLiveBackgroundTask(thread) || AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
+                        return;
+
+                    _agentThreadRegistry.NormalizeInactiveThreadState(thread);
+                    _syncAgentCards();
+                }, "ThreadFade");
             }
-            catch {
-                return;
+            catch (OperationCanceledException) { }
+            catch (Exception ex) {
+                SquadDashTrace.Write("Agents", $"ScheduleAgentThreadFadeIfNeeded post failed: {ex.Message}");
             }
-
-            _tryPostToUi(() => {
-                if (_isClosing())
-                    return;
-
-                if (thread.LastObservedActivityAt != observedAt)
-                    return;
-
-                if (IsThreadBackedByLiveBackgroundTask(thread) || AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
-                    return;
-
-                _agentThreadRegistry.NormalizeInactiveThreadState(thread);
-                _syncAgentCards();
-            }, "ThreadFade");
         });
     }
 
@@ -803,14 +803,14 @@ internal sealed class BackgroundTaskPresenter {
         _ = Task.Run(async () => {
             try {
                 await Task.Delay(BackgroundReportPromotionDelay).ConfigureAwait(false);
+                _tryPostToUi(
+                    () => TryPromoteScheduledBackgroundAgentReport(thread.ThreadId, nextGeneration, normalizedReason),
+                    "BackgroundAgentReportPromotion");
             }
-            catch {
-                return;
+            catch (OperationCanceledException) { }
+            catch (Exception ex) {
+                SquadDashTrace.Write("Agents", $"ScheduleBackgroundAgentReportPromotion post failed: {ex.Message}");
             }
-
-            _tryPostToUi(
-                () => TryPromoteScheduledBackgroundAgentReport(thread.ThreadId, nextGeneration, normalizedReason),
-                "BackgroundAgentReportPromotion");
         });
     }
 
