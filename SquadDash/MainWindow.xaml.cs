@@ -25092,6 +25092,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DisposeDocsWatcher();
             DisposeMaintenanceMdWatcher();
             DisposeGitHeadWatcher();
+            _searchAdorner?.Dispose();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
         }
         catch (Exception ex)
