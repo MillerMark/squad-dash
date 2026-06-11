@@ -2302,7 +2302,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     // ── Prompt Queue ──────────────────────────────────────────────────────────
 
-    private PromptQueueItem? EnqueuePrompt(string text, bool isSystemInjected)
+    private PromptQueueItem? EnqueuePrompt(string text, bool isSystemInjected, bool forceAtTail = false)
     {
         if (string.IsNullOrWhiteSpace(text))
             return null;
@@ -2313,7 +2313,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             QueueNumber      = NextQueueNumber(),
             IsSystemInjected = isSystemInjected,
         };
-        if (isSystemInjected && _activeTabId is null && !_queueManuallyPaused) {
+        if (isSystemInjected && !forceAtTail && _activeTabId is null && !_queueManuallyPaused) {
             _promptQueue.EnqueueItemAtFront(item);
             _promptQueue.RenumberSequentially();
         }
@@ -31700,14 +31700,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 var context = BuildInboxActionHandoffContext(action, message, filePath);
                 var deferredPrompt = $"[Deferred inbox action — route to @{action.TargetAgent}]\n\n{context}";
-                var item = EnqueuePrompt(deferredPrompt, isSystemInjected: true);
+                var item = EnqueuePrompt(deferredPrompt, isSystemInjected: true, forceAtTail: true);
                 if (item is not null)
                     AttachInboxMessageFollowUp(message, item.Id);
                 return;
             }
 
             var coordContext = BuildInboxActionHandoffContext(action, message, filePath);
-            var coordItem = EnqueuePrompt(coordContext, isSystemInjected: true);
+            var coordItem = EnqueuePrompt(coordContext, isSystemInjected: true, forceAtTail: true);
             if (coordItem is not null)
                 AttachInboxMessageFollowUp(message, coordItem.Id);
         }
