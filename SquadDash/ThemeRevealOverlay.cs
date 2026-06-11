@@ -82,7 +82,6 @@ internal sealed class ThemeRevealOverlay
         _lastElement = null;
 
         InputManager.Current.PostProcessInput += OnPostProcessInput;
-        InputManager.Current.PreProcessInput  += OnPreProcessInputForKeys;
     }
 
     public void Deactivate()
@@ -90,7 +89,6 @@ internal sealed class ThemeRevealOverlay
         if (_owner is not null)
         {
             InputManager.Current.PostProcessInput -= OnPostProcessInput;
-            InputManager.Current.PreProcessInput  -= OnPreProcessInputForKeys;
 
             try { _owner.Cursor = _savedCursor; } catch { }
             _owner       = null;
@@ -103,36 +101,28 @@ internal sealed class ThemeRevealOverlay
         _lastElement = null;
     }
 
-    private void OnPreProcessInputForKeys(object sender, PreProcessInputEventArgs e)
+    internal void CopyToClipboard()
     {
+        if (_lastTokens.Count == 0) return;
         try
         {
-            if (_owner is null || e.StagingItem.Input is not KeyEventArgs keyArgs) return;
-            if (keyArgs.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
-
-            var mods = Keyboard.Modifiers;
-            bool isCopy = keyArgs.Key == Key.C
-                && mods.HasFlag(ModifierKeys.Control)
-                && !mods.HasFlag(ModifierKeys.Shift)
-                && !mods.HasFlag(ModifierKeys.Alt);
-
-            if (!isCopy) return;
-
-            if (_lastTokens.Count > 0)
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("[Theme Reveal]");
+            foreach (var (prop, key, color, sourceLabel) in _lastTokens)
             {
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine("[Theme Reveal]");
-                foreach (var (prop, key, color, sourceLabel) in _lastTokens)
-                {
-                    var hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
-                    var src = string.IsNullOrEmpty(sourceLabel) ? string.Empty : $"  ({sourceLabel})";
-                    sb.AppendLine($"{prop} → {key}  {hex}{src}");
-                }
-                try { System.Windows.Clipboard.SetText(sb.ToString().TrimEnd()); } catch { }
+                var hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+                var src = string.IsNullOrEmpty(sourceLabel) ? string.Empty : $"  ({sourceLabel})";
+                sb.AppendLine($"{prop} → {key}  {hex}{src}");
             }
-            keyArgs.Handled = true;
+            System.Windows.Clipboard.SetText(sb.ToString().TrimEnd());
         }
         catch { }
+    }
+
+    private void OnPreProcessInputForKeys(object sender, PreProcessInputEventArgs e)
+    {
+        // Key handling is delegated to MainWindow.OnGlobalPreProcessInput which
+        // fires first (registered at app startup). This method is kept as a stub.
     }
 
     // -------------------------------------------------------------------------

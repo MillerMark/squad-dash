@@ -12516,6 +12516,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
+            // Ctrl+C while Theme Reveal is active → copy visible tokens to clipboard.
+            if (_themeRevealOverlay?.IsActive == true
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && key == Key.C)
+            {
+                _themeRevealOverlay.CopyToClipboard();
+                keyArgs.Handled = true;
+                return;
+            }
+
             // Escape while UI Reveal is active → cancel reveal.
             if (_uiRevealOverlay?.IsActive == true
                 && key == Key.Escape
