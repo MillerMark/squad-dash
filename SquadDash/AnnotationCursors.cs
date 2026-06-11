@@ -17,6 +17,9 @@ namespace SquadDash;
 /// that builds the <see cref="Drawing"/>.
 /// </summary>
 internal static class AnnotationCursors {
+    private const double CursorStrokeWidth = 2.0;
+    private const double CursorFingerRounding = 3.0;
+
     // ── Backing stores ────────────────────────────────────────────────────────
 
     private static Cursor? _openHand;
@@ -544,21 +547,20 @@ internal static class AnnotationCursors {
 
     private static void DrawCrosshair(DrawingContext dc, double cx, double cy) {
         const double Arm = 7.0;   // arm length from centre tip to end
-        const double Gap = 3.0;   // half-gap distance from centre
 
-        var whitePen = new Pen(Brushes.White, 2.0);
+        var whitePen = new Pen(Brushes.White, CursorStrokeWidth);
         var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2);
 
         // White outline first (slightly thicker — creates legibility border)
-        dc.DrawLine(whitePen, new Point(cx - Arm, cy), new Point(cx - Gap, cy));
-        dc.DrawLine(whitePen, new Point(cx + Gap, cy), new Point(cx + Arm, cy));
-        dc.DrawLine(whitePen, new Point(cx, cy - Arm), new Point(cx, cy - Gap));
-        dc.DrawLine(whitePen, new Point(cx, cy + Gap), new Point(cx, cy + Arm));
+        dc.DrawLine(whitePen, new Point(cx - Arm, cy), new Point(cx - CursorFingerRounding, cy));
+        dc.DrawLine(whitePen, new Point(cx + CursorFingerRounding, cy), new Point(cx + Arm, cy));
+        dc.DrawLine(whitePen, new Point(cx, cy - Arm), new Point(cx, cy - CursorFingerRounding));
+        dc.DrawLine(whitePen, new Point(cx, cy + CursorFingerRounding), new Point(cx, cy + Arm));
 
         // Dark lines on top
-        dc.DrawLine(darkPen, new Point(cx - Arm, cy), new Point(cx - Gap, cy));
-        dc.DrawLine(darkPen, new Point(cx + Gap, cy), new Point(cx + Arm, cy));
-        dc.DrawLine(darkPen, new Point(cx, cy - Arm), new Point(cx, cy - Gap));
-        dc.DrawLine(darkPen, new Point(cx, cy + Gap), new Point(cx, cy + Arm));
+        dc.DrawLine(darkPen, new Point(cx - Arm, cy), new Point(cx - CursorFingerRounding, cy));
+        dc.DrawLine(darkPen, new Point(cx + CursorFingerRounding, cy), new Point(cx + Arm, cy));
+        dc.DrawLine(darkPen, new Point(cx, cy - Arm), new Point(cx, cy - CursorFingerRounding));
+        dc.DrawLine(darkPen, new Point(cx, cy + CursorFingerRounding), new Point(cx, cy + Arm));
     }
 }

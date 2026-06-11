@@ -106,6 +106,7 @@ internal sealed class PanelDockingService
     // docking previews, keeping the visual language consistent across all drop targets.
     private const double InsertionIndicatorWidth = 8;
     private const double InsertionIndicatorWindowInset = 4;
+    private const double ZoneHeightTolerance = 10;
 
     // Saves each panel's original XAML Height binding so it can be restored when the
     // panel moves back to the Top zone after having been in a Left/Right zone.
@@ -1192,7 +1193,7 @@ internal sealed class PanelDockingService
                     .Select(id => id!)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var snapshotIds = new HashSet<string>(snap.VisiblePanelIds, StringComparer.OrdinalIgnoreCase);
-                bool heightOk = Math.Abs(currentZoneH - snap.ZoneActualHeight) <= 10;
+                bool heightOk = Math.Abs(currentZoneH - snap.ZoneActualHeight) <= ZoneHeightTolerance;
                 bool panelsOk = currentVisibleIds.SetEquals(snapshotIds);
 
                 if (heightOk && panelsOk)

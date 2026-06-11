@@ -26,10 +26,13 @@ internal static class ColorUtilities {
     internal static SolidColorBrush CreateLightAccentBrush(string hex) {
         var color = (Color)ColorConverter.ConvertFromString(hex);
         RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
-        var liftedL = Math.Min(0.82, l + 0.13);
+        var liftedL = Math.Min(LightAccentMaxLuminosity, l + LightAccentLift);
         HslToRgb(h, s, liftedL, out byte r, out byte g, out byte b);
         return new SolidColorBrush(Color.FromRgb(r, g, b));
     }
+
+    private const double LightAccentMaxLuminosity = 0.82;
+    private const double LightAccentLift = 0.13;
 
     // Minimum luminosity floor for the spinner in dark theme — ensures gray/dim
     // accents produce a spinner bright enough to see on a dark background.
