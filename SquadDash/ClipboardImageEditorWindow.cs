@@ -4182,15 +4182,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Color.FromRgb(157, 157, 157), Color.FromRgb(  0,   0,   0),
     };
 
-    /// <summary>Returns the full 24-color annotation palette for text foreground color picking.</summary>
-    private static Color[] GetTextFgPalette(Color bgColor) => GetAnnotationPalette();
-
-    /// <summary>
-    /// Returns true if <paramref name="color"/> is in the annotation palette (by exact RGB match).
-    /// </summary>
-    private static bool IsColorInTextFgPalette(Color color, Color bgColor)
-        => GetAnnotationPalette().Any(c => c.R == color.R && c.G == color.G && c.B == color.B);
-
     private void ShowColorPicker(AnnotationArrow arrow) {
         HideColorPicker();
         _colorPickerArrow = arrow;
@@ -4300,38 +4291,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         };
     }
 
-    private static FrameworkElement MakeColorSwatch(Color c, bool isSelected, Action<Color> onPick) {
-        var tip = $"Set text color to {ColorName(c)}";
-        if (isSelected) {
-            var grid = new Grid { Width = 20, Height = 20, Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand, ToolTip = tip };
-            grid.Children.Add(new Ellipse { Fill = Brushes.Black });
-            grid.Children.Add(new Ellipse {
-                Width = 16,
-                Height = 16,
-                Fill = new SolidColorBrush(c),
-                Stroke = Brushes.White,
-                StrokeThickness = 1.5,
-            });
-            grid.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
-            return grid;
-        }
-        else {
-            var dot = new Ellipse {
-                Width = 16,
-                Height = 16,
-                Fill = new SolidColorBrush(c),
-                Stroke = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
-                StrokeThickness = 1,
-                Margin = new Thickness(3, 0, 3, 0),
-                Cursor = Cursors.Hand,
-                ToolTip = tip,
-            };
-            dot.MouseLeftButtonDown += (_, e) => { onPick(c); e.Handled = true; };
-            return dot;
-        }
-    }
-
-    private void HideColorPicker() {
+    private void HideColorPicker(){
         if (_colorPickerPanel != null) {
             _canvas.Children.Remove(_colorPickerPanel);
             _colorPickerPanel = null;
@@ -7363,7 +7323,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _defaultTextBgColor = picked;
 
                 // Auto-adjust text color if it is invisible on the new background.
-                if (!IsColorInTextFgPalette(annotation.TextColor, picked)) {
+                if (!GetAnnotationPalette().Any(c => c.R == annotation.TextColor.R && c.G == annotation.TextColor.G && c.B == annotation.TextColor.B)) {
                     // White bg → default to black text; black bg → default to white text.
                     annotation.TextColor = (picked.A > 0 && picked.R > 200 && picked.G > 200 && picked.B > 200)
                         ? Colors.Black
