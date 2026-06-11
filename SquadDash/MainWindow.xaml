@@ -2485,11 +2485,12 @@
         <!-- Documentation mode splitter — hidden when docs mode is off -->
         <GridSplitter x:Name="DocsSplitter"
                       Grid.Row="1"
-                      Grid.RowSpan="4"
+                      Grid.RowSpan="5"
                       Grid.Column="1"
                       Width="6"
                       HorizontalAlignment="Stretch"
                       VerticalAlignment="Stretch"
+                      Margin="0,-8,0,0"
                       Visibility="Collapsed"
                       ShowsPreview="False"
                       Cursor="SizeWE"
@@ -2498,10 +2499,10 @@
         <!-- Documentation panel — hidden when docs mode is off -->
         <Grid x:Name="DocsPanel"
               Grid.Row="1"
-              Grid.RowSpan="4"
+              Grid.RowSpan="5"
               Grid.Column="2"
               Visibility="Collapsed"
-              Margin="0,0,0,0">
+              Margin="0,-8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="DocsTopicsColumn" Width="Auto" MinWidth="140" />
                 <ColumnDefinition x:Name="DocsPreviewColumn" Width="*" />

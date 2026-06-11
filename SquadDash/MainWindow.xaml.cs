@@ -16696,6 +16696,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 // Restore saved width or default to 600
                 var width = _docsPanelState?.PanelWidth ?? _settingsSnapshot.DocsPanelWidth ?? 600;
                 DocsPanelColumn.Width = new GridLength(width);
+                // Force layout pass so the grid reflows before other panels paint,
+                // preventing the one-time overlap with the top docking zone on first show.
+                MainGrid?.UpdateLayout();
             }
             else
             {
