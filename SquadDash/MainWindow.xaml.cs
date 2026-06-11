@@ -26166,19 +26166,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (isMaintenance)
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ChromeSurface");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ScrollBarThumbBrush");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
             BranchNameText.Text = $"⚠ {branch}";
         }
         else if (isHomeBranch)
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ChromeSurface");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ScrollBarThumbBrush");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             BranchNameText.Text = branch;
         }
         else
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ChromeSurface");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ScrollBarThumbBrush");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
             BranchNameText.Text = branch;
         }

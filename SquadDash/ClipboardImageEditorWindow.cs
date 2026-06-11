@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Threading.Tasks;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Threading;
 using System.Collections.Generic;
 using System.Windows.Media.Effects;
@@ -113,6 +114,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     // ScrollViewer wrapping the canvas (field so the wheel handler can adjust offsets)
     private ScrollViewer _scrollViewer = null!;
+    private Grid _scrollExtentSurface = null!;
 
     // ── Round corners ─────────────────────────────────────────────────────────
 
@@ -127,6 +129,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private double _zoom = 1.0;
     private readonly ScaleTransform _scaleTransform = new(1.0, 1.0);
     private Canvas _overlayCanvas = null!;
+    private const double CanvasViewportPadding = 4.0;
 
     // Scale factor: canvas logical units per image pixel (< 1 when image DPI > 96).
     private double _canvasScaleX = 1.0;
@@ -763,10 +766,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             double oldZoom = _zoom;
 
             var factor = e.Delta > 0 ? 1.1 : 1.0 / 1.1;
-            _zoom = Math.Max(0.1, Math.Min(8.0, _zoom * factor));
-            _scaleTransform.ScaleX = _zoom;
-            _scaleTransform.ScaleY = _zoom;
-            if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
+            ApplyZoom(_zoom * factor);
 
             // Mark the scroll viewer dirty BEFORE resizing the window so that the
             // layout pass triggered by UpdateWindowSizeForZoom (via SizeChanged →
@@ -800,8 +800,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Child = _canvas,
             LayoutTransform = _scaleTransform,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4)
+            VerticalAlignment = VerticalAlignment.Center
         };
 
         _overlayCanvas = new Canvas {
@@ -810,15 +809,26 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             VerticalAlignment = VerticalAlignment.Stretch
         };
 
-        var canvasGrid = new Grid();
-        canvasGrid.Children.Add(canvasWrapper);
-        canvasGrid.Children.Add(_overlayCanvas);
+        _scrollExtentSurface = new Grid {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            ClipToBounds = false
+        };
+        _scrollExtentSurface.Children.Add(canvasWrapper);
+        _scrollExtentSurface.Children.Add(_overlayCanvas);
 
         _scrollViewer = new ScrollViewer {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Content = canvasGrid
+            Content = _scrollExtentSurface
         };
+        _scrollExtentSurface.SetBinding(
+            FrameworkElement.MinWidthProperty,
+            new Binding(nameof(ScrollViewer.ViewportWidth)) { Source = _scrollViewer });
+        _scrollExtentSurface.SetBinding(
+            FrameworkElement.MinHeightProperty,
+            new Binding(nameof(ScrollViewer.ViewportHeight)) { Source = _scrollViewer });
+        UpdateScrollExtentSurfaceSize();
         _scrollViewer.SetResourceReference(StyleProperty, "RosterScrollViewerStyle");
         _scrollViewer.SetResourceReference(BackgroundProperty, "ImageEditorSurround");
 
@@ -1189,13 +1199,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         var resetZoomBtn = new Button { Content = "1:1", Width = 36, Height = 28, Margin = new Thickness(0, 0, 4, 0), ToolTip = "Reset zoom to 100% (Ctrl+0)" };
         resetZoomBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        resetZoomBtn.Click += (_, _) => { _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0; _zoomLabel.Text = "100%"; UpdateWindowSizeForZoom(); _scrollViewer.InvalidateMeasure(); _scrollViewer.InvalidateArrange(); _scrollViewer.UpdateLayout(); };
+        resetZoomBtn.Click += (_, _) => { ApplyZoom(1.0); UpdateWindowSizeForZoom(); _scrollViewer.InvalidateMeasure(); _scrollViewer.InvalidateArrange(); _scrollViewer.UpdateLayout(); };
 
         // Update label whenever zoom changes via keyboard shortcut
         KeyDown += (_, e) => {
             if (e.Key == Key.D0 && (Keyboard.Modifiers & ModifierKeys.Control) != 0) {
-                _zoom = 1.0; _scaleTransform.ScaleX = 1.0; _scaleTransform.ScaleY = 1.0;
-                _zoomLabel.Text = "100%";
+                ApplyZoom(1.0);
                 UpdateWindowSizeForZoom();
                 _scrollViewer.InvalidateMeasure();
                 _scrollViewer.InvalidateArrange();
@@ -1475,6 +1484,25 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             PixelFormats.Pbgra32, null, dstPixels, dstStride);
         result.Freeze();
         return result;
+    }
+
+    private void ApplyZoom(double zoom) {
+        _zoom = Math.Max(0.1, Math.Min(8.0, zoom));
+        _scaleTransform.ScaleX = _zoom;
+        _scaleTransform.ScaleY = _zoom;
+        if (_zoomLabel != null)
+            _zoomLabel.Text = $"{_zoom * 100:F0}%";
+        UpdateScrollExtentSurfaceSize();
+    }
+
+    private void UpdateScrollExtentSurfaceSize() {
+        if (_scrollExtentSurface is null || _canvas is null)
+            return;
+
+        _scrollExtentSurface.Width = Math.Ceiling(_canvas.Width * _zoom + CanvasViewportPadding * 2.0);
+        _scrollExtentSurface.Height = Math.Ceiling(_canvas.Height * _zoom + CanvasViewportPadding * 2.0);
+        _scrollExtentSurface.InvalidateMeasure();
+        _scrollExtentSurface.InvalidateArrange();
     }
 
     /// <summary>
@@ -5955,6 +5983,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _imageCtrl.Height = newH;
         _canvas.Width = newW;
         _canvas.Height = newH;
+        UpdateScrollExtentSurfaceSize();
         _scrollViewer.InvalidateMeasure();
         _scrollViewer.InvalidateArrange();
         _scrollViewer.UpdateLayout();
@@ -6062,10 +6091,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         const double CropToolbarH = 110.0;
         double fitW = (cropWork.Width * 0.95 - 24) / _canvas.Width;
         double fitH = (cropWork.Height * 0.95 - CropToolbarH) / _canvas.Height;
-        _zoom = Math.Min(1.0, Math.Min(fitW, fitH));
-        _scaleTransform.ScaleX = _zoom;
-        _scaleTransform.ScaleY = _zoom;
-        if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
+        ApplyZoom(Math.Min(1.0, Math.Min(fitW, fitH)));
         UpdateWindowSizeForZoom();
 
         // Center the scroll view so the freshly-cropped image is visible and not clipped.
@@ -6533,6 +6559,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     _canvas.Height       = bmp.PixelHeight;
                     _imageCtrl.Width     = bmp.PixelWidth;
                     _imageCtrl.Height    = bmp.PixelHeight;
+                    UpdateScrollExtentSurfaceSize();
                     _scrollViewer.InvalidateMeasure();
                     _scrollViewer.InvalidateArrange();
                     _scrollViewer.UpdateLayout();
@@ -6553,11 +6580,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             // Restore tool selection and zoom level.
             if (state.ToolState != null) {
                 RestoreToolMode(state.ToolState.SelectedTool ?? "move");
-                double zoomLevel = Math.Max(0.1, Math.Min(8.0, state.ToolState.ZoomLevel));
-                _zoom                   = zoomLevel;
-                _scaleTransform.ScaleX  = _zoom;
-                _scaleTransform.ScaleY  = _zoom;
-                if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
+                ApplyZoom(state.ToolState.ZoomLevel);
                 UpdateWindowSizeForZoom();
             }
 
@@ -6796,6 +6819,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _imageCtrl.Source = snap.WorkingImage;
             _imageCtrl.Width = snap.CanvasW;
             _imageCtrl.Height = snap.CanvasH;
+            UpdateScrollExtentSurfaceSize();
             _scrollViewer.InvalidateMeasure();
             _scrollViewer.InvalidateArrange();
             _scrollViewer.UpdateLayout();
@@ -6839,10 +6863,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 const double UndoCropToolbarH = 110.0;
                 double undoFitW = (undoWork.Width * 0.95 - 24) / snap.CanvasW;
                 double undoFitH = (undoWork.Height * 0.95 - UndoCropToolbarH) / snap.CanvasH;
-                _zoom = Math.Min(1.0, Math.Min(undoFitW, undoFitH));
-                _scaleTransform.ScaleX = _zoom;
-                _scaleTransform.ScaleY = _zoom;
-                if (_zoomLabel != null) _zoomLabel.Text = $"{_zoom * 100:F0}%";
+                ApplyZoom(Math.Min(1.0, Math.Min(undoFitW, undoFitH)));
                 UpdateWindowSizeForZoom();
                 SquadDashTrace.Write("UI",
                     $"[ClipboardImageEditor] RestoreSnapshot resize: zoom={_zoom:F3} " +

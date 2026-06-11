@@ -2808,7 +2808,7 @@
                     <Border x:Name="BranchIndicatorStrip"
                             DockPanel.Dock="Top"
                             Visibility="Collapsed"
-                            Margin="-7,-7,0,3"
+                            Margin="-9,-9,0,3"
                             Padding="8,3"
                             BorderThickness="0,0,0,1"
                             BorderBrush="{DynamicResource LineColor}"
@@ -2820,9 +2820,9 @@
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Ellipse x:Name="BranchDot"
                                      Width="10" Height="10"
-                                     Margin="0,0,6,0"
+                                     Margin="0,2,6,0"
                                      VerticalAlignment="Center"
-                                     Fill="{DynamicResource ChromeSurface}" />
+                                     Fill="{DynamicResource ScrollBarThumbBrush}" />
                             <TextBlock x:Name="BranchNameText"
                                        FontSize="{DynamicResource FontSizeSmall}"
                                        VerticalAlignment="Center"
