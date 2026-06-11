@@ -156,8 +156,9 @@ internal static class AnnotationCursors {
         var asm = typeof(AnnotationCursors).Assembly;
         using var src = asm.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException($"Cursor resource not found: {resourceName}");
-        var png = new byte[src.Length];
-        _ = src.Read(png, 0, png.Length);
+        using var ms = new MemoryStream();
+        src.CopyTo(ms);
+        var png = ms.ToArray();
 
         // Probe the PNG header for width/height (bytes 16–23).
         int widthPx  = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
