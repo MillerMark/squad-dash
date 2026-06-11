@@ -5103,12 +5103,38 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Panel.SetZIndex(_colorPickerPanel, 300);
         _canvas.Children.Add(_colorPickerPanel);
 
-        double cx = rect.Bounds.Left + rect.Bounds.Width / 2;
-        double cy = rect.Bounds.Top;
         _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
-        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, cx - pw / 2));
-        Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy - 30));
+        double ph = _colorPickerPanel.DesiredSize.Height;
+        var b = rect.Bounds;
+        const double Gap = 8;
+
+        // Try above, below, right, left — pick the first that fits fully on canvas.
+        // Fall back to the position with the most clearance if nothing fits cleanly.
+        double cx, cy;
+        if (b.Top - ph - Gap >= 0) {
+            // Above
+            cx = Math.Max(0, Math.Min(_canvas.Width - pw, b.Left + b.Width / 2 - pw / 2));
+            cy = b.Top - ph - Gap;
+        } else if (b.Bottom + ph + Gap <= _canvas.Height) {
+            // Below
+            cx = Math.Max(0, Math.Min(_canvas.Width - pw, b.Left + b.Width / 2 - pw / 2));
+            cy = b.Bottom + Gap;
+        } else if (b.Right + pw + Gap <= _canvas.Width) {
+            // Right
+            cx = b.Right + Gap;
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, b.Top + b.Height / 2 - ph / 2));
+        } else if (b.Left - pw - Gap >= 0) {
+            // Left
+            cx = b.Left - pw - Gap;
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, b.Top + b.Height / 2 - ph / 2));
+        } else {
+            // Nothing fits cleanly — place above, clamped to canvas
+            cx = Math.Max(0, Math.Min(_canvas.Width - pw, b.Left + b.Width / 2 - pw / 2));
+            cy = Math.Max(0, b.Top - ph - Gap);
+        }
+        Canvas.SetLeft(_colorPickerPanel, cx);
+        Canvas.SetTop(_colorPickerPanel, cy);
     }
 
     // ── Cursor overlay ────────────────────────────────────────────────────────
