@@ -4094,11 +4094,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         // Row 0 — Light
         Color.FromRgb(255, 160, 160), Color.FromRgb(255, 210, 150), Color.FromRgb(255, 245, 150),
         Color.FromRgb(150, 230, 150), Color.FromRgb(160, 210, 255), Color.FromRgb(210, 160, 255),
-        Color.FromRgb(255, 255, 255), Color.FromRgb(153, 153, 153),
+        Color.FromRgb(255, 255, 255), Color.FromRgb(204, 204, 204),
         // Row 1 — Base
         Color.FromRgb(220,  50,  50), Color.FromRgb(255, 140,   0), Color.FromRgb(240, 210,  40),
         Color.FromRgb( 50, 185,  50), Color.FromRgb( 50, 130, 230), Color.FromRgb(160,  50, 220),
-        Color.FromRgb(204, 204, 204), Color.FromRgb( 51,  51,  51),
+        Color.FromRgb(153, 153, 153), Color.FromRgb( 51,  51,  51),
         // Row 2 — Dark
         Color.FromRgb(140,  20,  20), Color.FromRgb(180,  80,   0), Color.FromRgb(160, 130,   0),
         Color.FromRgb( 20, 110,  20), Color.FromRgb( 20,  70, 160), Color.FromRgb( 90,  20, 140),
