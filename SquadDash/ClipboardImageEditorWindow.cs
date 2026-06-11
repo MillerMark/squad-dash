@@ -466,13 +466,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             physOwnerCenter = new Point(
                 (ownerWr.Left + ownerWr.Right) / 2,
                 (ownerWr.Top + ownerWr.Bottom) / 2);
-            SquadDashTrace.Write("UI",
+            SquadDashTrace.Write("ImageEditor",
                 $"[ClipboardImageEditor] ownerHwnd={ownerHwnd:X} ownerWr=({ownerWr.Left},{ownerWr.Top},{ownerWr.Right},{ownerWr.Bottom}) " +
                 $"physCenter=({(int)physOwnerCenter.X},{(int)physOwnerCenter.Y}) " +
                 $"ptsOwnerTopLeft=({(int)ownerTopLeft.X},{(int)ownerTopLeft.Y})");
         }
         else {
-            SquadDashTrace.Write("UI",
+            SquadDashTrace.Write("ImageEditor",
                 $"[ClipboardImageEditor] GetWindowRect failed hwnd={ownerHwnd:X}, using PointToScreen coords");
         }
 
@@ -530,7 +530,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _canvasScaleX = 1.0;
         _canvasScaleY = 1.0;
 
-        SquadDashTrace.Write("UI",
+        SquadDashTrace.Write("ImageEditor",
             $"[ClipboardImageEditor] DPI: hMonOwner={hMonOwner:X} bitmap={clipboardImage.DpiX:F1}x{clipboardImage.DpiY:F1} " +
             $"rawMonitor={rawMonitorScale:F3} bitmapDpiScale={bitmapDpiScaleX:F3}x{bitmapDpiScaleY:F3} " +
             $"effective={effectiveScaleX:F3}x{effectiveScaleY:F3} " +
@@ -563,7 +563,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Top  = Math.Max(monitorArea.Top,  Math.Min(Top,  monitorArea.Bottom - Height));
 
         // Write to SquadDash trace log (visible in the Trace panel) for diagnostics
-        SquadDashTrace.Write("UI",
+        SquadDashTrace.Write("ImageEditor",
             $"[ClipboardImageEditor] owner.WindowState={owner.WindowState} " +
             $"owner.ActualWidth={owner.ActualWidth:F0} owner.ActualHeight={owner.ActualHeight:F0} " +
             $"ownerTopLeft={ownerTopLeft.X:F0},{ownerTopLeft.Y:F0} " +
@@ -1362,7 +1362,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                         if (tfm.HasValue) {
                             var tl = tfm.Value.Transform(new Point(mi.rcWork.Left, mi.rcWork.Top));
                             var br = tfm.Value.Transform(new Point(mi.rcWork.Right, mi.rcWork.Bottom));
-                            SquadDashTrace.Write("UI",
+                            SquadDashTrace.Write("ImageEditor",
                                 $"[GetMonitorWorkAreaRect] PresentationSource path hMon={hMon:X} " +
                                 $"phys=({mi.rcWork.Left},{mi.rcWork.Top},{mi.rcWork.Right},{mi.rcWork.Bottom}) " +
                                 $"wpf=({tl.X:F1},{tl.Y:F1},{br.X:F1},{br.Y:F1}) " +
@@ -1372,7 +1372,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                         // Fallback: use GetRawMonitorScale (per-monitor DPI) — may be wrong for
                         // System-DPI-aware processes on non-primary monitors, but better than nothing.
                         double s = GetRawMonitorScale(hMon);
-                        SquadDashTrace.Write("UI",
+                        SquadDashTrace.Write("ImageEditor",
                             $"[GetMonitorWorkAreaRect] rawScale fallback hMon={hMon:X} scale={s:F3} " +
                             $"phys=({mi.rcWork.Left},{mi.rcWork.Top},{mi.rcWork.Right},{mi.rcWork.Bottom}) " +
                             $"wpf=({mi.rcWork.Left/s:F1},{mi.rcWork.Top/s:F1},{mi.rcWork.Right/s:F1},{mi.rcWork.Bottom/s:F1})");
@@ -1386,7 +1386,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("UI", $"[GetMonitorWorkAreaRect] exception: {ex.GetType().Name}: {ex.Message}");
+            SquadDashTrace.Write("ImageEditor", $"[GetMonitorWorkAreaRect] exception: {ex.GetType().Name}: {ex.Message}");
         }
         return SystemParameters.WorkArea; // last resort: primary monitor
     }
@@ -1427,12 +1427,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var prevCtx = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         try {
             int hr = GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, out uint dpiX, out _);
-            SquadDashTrace.Write("UI", $"[GetRawMonitorScale] hMon={hMon:X} hr={hr:X} dpiX={dpiX}");
+            SquadDashTrace.Write("ImageEditor", $"[GetRawMonitorScale] hMon={hMon:X} hr={hr:X} dpiX={dpiX}");
             if (hr == 0)
                 return dpiX / 96.0;
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("UI", $"[GetRawMonitorScale] exception: {ex.GetType().Name}: {ex.Message}");
+            SquadDashTrace.Write("ImageEditor", $"[GetRawMonitorScale] exception: {ex.GetType().Name}: {ex.Message}");
         }
         finally {
             if (prevCtx != IntPtr.Zero)
@@ -1556,7 +1556,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (newLeft + newW > work.Right) newLeft = work.Right - newW;
         if (newTop + newH > work.Bottom) newTop = work.Bottom - newH;
 
-        SquadDashTrace.Write("UI",
+        SquadDashTrace.Write("ImageEditor",
             $"[UpdateWindowSizeForZoom] zoom={_zoom:F2} " +
             $"canvas={_canvas.Width:F0}x{_canvas.Height:F0} " +
             $"work=({work.Left:F0},{work.Top:F0},{work.Right:F0},{work.Bottom:F0}) " +
@@ -1795,7 +1795,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             return;
 
         var pt = e.GetPosition(_canvas);
-        SquadDashTrace.Write("AnnotatorDrag", $"Canvas_PreviewMLBD: pt=({pt.X:F0},{pt.Y:F0}) selectedText={_selectedText != null} texts={_texts.Count}");
+        SquadDashTrace.Write("ImageEditor", $"Canvas_PreviewMLBD: pt=({pt.X:F0},{pt.Y:F0}) selectedText={_selectedText != null} texts={_texts.Count}");
 
         // Search ALL text annotations (selected or not) for a hit in the extended bounds zone.
         // This allows a single click to both select and drag — the same UX as clicking on the TextBlock.
@@ -1828,7 +1828,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
             // Hit zone = displayed area + 4px L/R + 2px T/B (matches the dashed selection rect)
             var hitBounds = new Rect(left - 4, top - 2, dispW + 8, dispH + 4);
-            SquadDashTrace.Write("AnnotatorDrag", $"Canvas_PreviewMLBD: ann=({left:F0},{top:F0} {dispW:F0}×{dispH:F0}) hitBounds=({hitBounds.Left:F0},{hitBounds.Top:F0} {hitBounds.Width:F0}×{hitBounds.Height:F0}) inBounds={hitBounds.Contains(pt)}");
+            SquadDashTrace.Write("ImageEditor", $"Canvas_PreviewMLBD: ann=({left:F0},{top:F0} {dispW:F0}×{dispH:F0}) hitBounds=({hitBounds.Left:F0},{hitBounds.Top:F0} {hitBounds.Width:F0}×{hitBounds.Height:F0}) inBounds={hitBounds.Contains(pt)}");
 
             if (!hitBounds.Contains(pt)) continue;
 
@@ -1869,7 +1869,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             // Capture current canvas position as drag origin (Bounds may have stale/zero W/H)
             _canvasTextDragOrigBounds = new Rect(left, top, dispW, dispH);
             _canvas.CaptureMouse();
-            SquadDashTrace.Write("AnnotatorDrag", $"Canvas text-body drag start at ({pt.X:F0},{pt.Y:F0}) orig=({left:F0},{top:F0} {dispW:F0}×{dispH:F0})");
+            SquadDashTrace.Write("ImageEditor", $"Canvas text-body drag start at ({pt.X:F0},{pt.Y:F0}) orig=({left:F0},{top:F0} {dispW:F0}×{dispH:F0})");
             e.Handled = true;
             return;
         }
@@ -1889,7 +1889,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         // that element manage the drag.  Without this guard, Canvas_MouseDown would deselect the
         // annotation and steal mouse capture, silently breaking text annotation dragging.
         if (Mouse.Captured is not null && !ReferenceEquals(Mouse.Captured, _canvas)) {
-            SquadDashTrace.Write("AnnotatorDrag", $"Canvas_MouseDown: skip — mouse already captured by {Mouse.Captured.GetType().Name}");
+            SquadDashTrace.Write("ImageEditor", $"Canvas_MouseDown: skip — mouse already captured by {Mouse.Captured.GetType().Name}");
             return;
         }
 
@@ -1929,7 +1929,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 SelectText(null);
         }
 
-        SquadDashTrace.Write("AnnotatorDrag", $"Canvas_MouseDown: OriginalSource={e.OriginalSource?.GetType().Name ?? "null"} isArrowHitLine={_arrows.Any(a => a.HitLine == e.OriginalSource)} Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
+        SquadDashTrace.Write("ImageEditor", $"Canvas_MouseDown: OriginalSource={e.OriginalSource?.GetType().Name ?? "null"} isArrowHitLine={_arrows.Any(a => a.HitLine == e.OriginalSource)} Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
         // Skip deselect if the click landed on an arrow hitLine — hitLine.MouseLeftButtonDown
         // handles selection.  Without this guard, SelectArrow(null) would fire before the
         // hitLine handler runs (MouseDown fires before MouseLeftButtonDown).
@@ -2430,7 +2430,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void Canvas_MouseUp(object sender, MouseButtonEventArgs e) {
         if (_canvasTextDragActive) {
-            SquadDashTrace.Write("AnnotatorDrag", $"Canvas text-body drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0})");
+            SquadDashTrace.Write("ImageEditor", $"Canvas text-body drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0})");
             CommitDragUndo();
             _canvasTextDragActive = false;
             _canvasTextDragAnnotation = null;
@@ -3820,9 +3820,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void AttachBodyDrag(Shape shape, AnnotationArrow arrow) {
         shape.MouseLeftButtonDown += (_, e) => {
-            SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.MouseLeftButtonDown: shape={shape.GetType().Name} ctrl={(Keyboard.Modifiers & ModifierKeys.Control) != 0} _draggingArrow={_draggingArrow != null}");
+            SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.MouseLeftButtonDown: shape={shape.GetType().Name} ctrl={(Keyboard.Modifiers & ModifierKeys.Control) != 0} _draggingArrow={_draggingArrow != null}");
             if (_draggingArrow != null) {
-                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag: early return — _draggingArrow already set");
+                SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag: early return — _draggingArrow already set");
                 return;
             }
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) {
@@ -3831,7 +3831,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _suppressUndo = true;
                 var clone = CreateArrow(arrow.TargetElementBounds);
                 _suppressUndo = false;
-                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: clone created, clone.TargetCenterOnCanvas=({clone.TargetCenterOnCanvas.X:F1},{clone.TargetCenterOnCanvas.Y:F1}) original.TargetCenterOnCanvas=({arrow.TargetCenterOnCanvas.X:F1},{arrow.TargetCenterOnCanvas.Y:F1}) original.OffsetX={arrow.OffsetX:F1}");
+                SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.Ctrl: clone created, clone.TargetCenterOnCanvas=({clone.TargetCenterOnCanvas.X:F1},{clone.TargetCenterOnCanvas.Y:F1}) original.TargetCenterOnCanvas=({arrow.TargetCenterOnCanvas.X:F1},{arrow.TargetCenterOnCanvas.Y:F1}) original.OffsetX={arrow.OffsetX:F1}");
+                clone.TargetCenterOnCanvas = arrow.TargetCenterOnCanvas;
                 clone.ArrowheadAngleDeg = arrow.ArrowheadAngleDeg;
                 clone.ArrowLength = arrow.ArrowLength;
                 clone.TailLength = arrow.TailLength;
@@ -3852,13 +3853,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _arrowCloneDragOriginalCenter = new Point(
                     clone.TargetCenterOnCanvas.X + clone.OffsetX,
                     clone.TargetCenterOnCanvas.Y + clone.OffsetY);
-                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: about to CaptureMouse on clone.HitLine, current Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
+                SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.Ctrl: about to CaptureMouse on clone.HitLine, current Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
                 bool captured = clone.HitLine.CaptureMouse();
-                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: CaptureMouse returned {captured}, Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
+                SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.Ctrl: CaptureMouse returned {captured}, Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
                 if (!captured) {
                     // CaptureMouse failed — mouse events won't reach the clone, so _draggingArrow
                     // would be stuck non-null and block all future Ctrl+drag attempts. Roll back.
-                    SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: CaptureMouse failed — rolling back clone");
+                    SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.Ctrl: CaptureMouse failed — rolling back clone");
                     RemoveArrow(clone);
                     _draggingArrow = null;
                     _bodyDragging = false;
@@ -3880,7 +3881,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             e.Handled = true;
         };
         shape.MouseMove += (_, e) => {
-            SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.MouseMove: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
+            SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.MouseMove: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
             if (_draggingArrow != arrow || !_bodyDragging) return;
             var pt = e.GetPosition(_canvas);
             
@@ -3904,7 +3905,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             e.Handled = true;
         };
         shape.MouseLeftButtonUp += (_, e) => {
-            SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.MouseLeftButtonUp: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
+            SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.MouseLeftButtonUp: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
             if (_draggingArrow != arrow || !_bodyDragging) return;
             HideCrosshair();
             CommitDragUndo();
@@ -5781,7 +5782,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 dragStart = e.GetPosition(_canvas);
                 dragOrigBounds = annotation.Bounds;
                 display.CaptureMouse();
-                SquadDashTrace.Write("AnnotatorDrag", $"TextAnnotation drag start at ({dragStart.X:F0},{dragStart.Y:F0}) captured={Mouse.Captured?.GetType().Name ?? "null"}");
+                SquadDashTrace.Write("ImageEditor", $"TextAnnotation drag start at ({dragStart.X:F0},{dragStart.Y:F0}) captured={Mouse.Captured?.GetType().Name ?? "null"}");
                 e.Handled = true;
             };
             display.MouseMove += (_, e) => {
@@ -5800,7 +5801,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             };
             display.MouseLeftButtonUp += (_, e) => {
                 if (!isDragging) return;
-                SquadDashTrace.Write("AnnotatorDrag", $"TextAnnotation drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0}) → bounds=({annotation.Bounds.X:F0},{annotation.Bounds.Y:F0})");
+                SquadDashTrace.Write("ImageEditor", $"TextAnnotation drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0}) → bounds=({annotation.Bounds.X:F0},{annotation.Bounds.Y:F0})");
                 CommitDragUndo();
                 isDragging = false;
                 display.ReleaseMouseCapture();
@@ -5919,7 +5920,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         var cropped = new CroppedBitmap(_workingImage, new Int32Rect(cropX, cropY, cropW, cropH));
         cropped.Freeze();
-        SquadDashTrace.Write("UI",
+        SquadDashTrace.Write("ImageEditor",
             $"[ClipboardImageEditor] CropInPlace: before={pxW}x{pxH}px sel={sel.Left:F1},{sel.Top:F1},{sel.Width:F1}x{sel.Height:F1} " +
             $"cropPx={cropX},{cropY},{cropW}x{cropH} canvasScale={_canvasScaleX:F3}x{_canvasScaleY:F3}");
         _workingImage = cropped;
@@ -6177,7 +6178,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (_roundCorners)
             bmp = ApplyRoundedCorners(bmp, CornerRadiusPx);
 
-        SquadDashTrace.Write("UI",
+        SquadDashTrace.Write("ImageEditor",
             $"[ClipboardImageEditor] RenderFinal: workingImage={pxW}x{pxH}px " +
             $"canvas={_canvas.ActualWidth:F1}x{_canvas.ActualHeight:F1} sel={(_sel.IsEmpty ? "none" : $"{cropSel.Width:F1}x{cropSel.Height:F1}@{cropSel.Left:F1},{cropSel.Top:F1}")} " +
             $"cropPx={cropX},{cropY},{cropW}x{cropH} " +
@@ -6483,7 +6484,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// </summary>
     private async Task RestoreFromSessionStateAsync(ClipboardEditorSessionState state) {
         try {
-            SquadDashTrace.Write("ClipboardPersist", $"Restoring editor {state.EditorId}");
+            SquadDashTrace.Write("ImageEditor", $"Restoring editor {state.EditorId}");
 
             // Restore window geometry (UI-thread, synchronous).
             if (state.WindowGeometry is { } geo)
@@ -6519,7 +6520,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     RefreshLayout();
                 }
                 catch (Exception ex) {
-                    SquadDashTrace.Write("ClipboardPersist",
+                    SquadDashTrace.Write("ImageEditor",
                         $"Image load failed from {imagePath}: {ex.Message} — keeping existing image");
                 }
             }
@@ -6537,10 +6538,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 UpdateWindowSizeForZoom();
             }
 
-            SquadDashTrace.Write("ClipboardPersist", $"Editor {state.EditorId} restored");
+            SquadDashTrace.Write("ImageEditor", $"Editor {state.EditorId} restored");
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("ClipboardPersist",
+            SquadDashTrace.Write("ImageEditor",
                 $"RestoreFromSessionStateAsync failed: {ex.Message}");
         }
     }
@@ -6570,7 +6571,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     /// </summary>
     internal async Task SaveStateAsync(string reason, ClipboardEditorStateStore? store = null) {
         try {
-            SquadDashTrace.Write("ClipboardPersist",
+            SquadDashTrace.Write("ImageEditor",
                 $"SaveStateAsync start: editor={_editorId} reason={reason}");
 
             // Capture all UI-thread state synchronously before any await.
@@ -6589,7 +6590,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 imageBytes = ms.ToArray();
             }
             catch (Exception ex) {
-                SquadDashTrace.Write("ClipboardPersist",
+                SquadDashTrace.Write("ImageEditor",
                     $"Image encode failed for {_editorId}: {ex.Message}");
             }
 
@@ -6608,7 +6609,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     };
                 }
                 catch (Exception ex) {
-                    SquadDashTrace.Write("ClipboardPersist",
+                    SquadDashTrace.Write("ImageEditor",
                         $"Image write failed for {editorId}: {ex.Message}");
                 }
             }
@@ -6616,7 +6617,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             await storeToUse.SaveAsync(state, reason).ConfigureAwait(false);
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("ClipboardPersist",
+            SquadDashTrace.Write("ImageEditor",
                 $"SaveStateAsync failed for {_editorId}: {ex.Message}");
         }
     }
@@ -6638,13 +6639,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     File.Delete(sourcePath);
             }
             catch (IOException ex) {
-                SquadDashTrace.Write("ClipboardPersist", $"DeleteStateAsync: could not remove source image {sourcePath}: {ex.Message}");
+                SquadDashTrace.Write("ImageEditor", $"DeleteStateAsync: could not remove source image {sourcePath}: {ex.Message}");
             }
 
-            SquadDashTrace.Write("ClipboardPersist", $"DeleteStateAsync: cleared state for editor {_editorId}");
+            SquadDashTrace.Write("ImageEditor", $"DeleteStateAsync: cleared state for editor {_editorId}");
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("ClipboardPersist", $"DeleteStateAsync failed for {_editorId}: {ex.Message}");
+            SquadDashTrace.Write("ImageEditor", $"DeleteStateAsync failed for {_editorId}: {ex.Message}");
         }
     }
 
@@ -6807,7 +6808,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             // to fit the new image — mirrors the resize that DoCropInPlace performs.
             // Use snap.CanvasW/H directly (not _canvas.Width which was just set from snap)
             // to make the comparison explicit and unambiguous.
-            SquadDashTrace.Write("UI",
+            SquadDashTrace.Write("ImageEditor",
                 $"[ClipboardImageEditor] RestoreSnapshot: preW={preRestoreW:F1} preH={preRestoreH:F1} " +
                 $"snapW={snap.CanvasW:F1} snapH={snap.CanvasH:F1} " +
                 $"canvasW={_canvas.Width:F1} canvasH={_canvas.Height:F1}");
@@ -6818,7 +6819,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 double undoFitH = (undoWork.Height * 0.95 - UndoCropToolbarH) / snap.CanvasH;
                 ApplyZoom(Math.Min(1.0, Math.Min(undoFitW, undoFitH)));
                 UpdateWindowSizeForZoom();
-                SquadDashTrace.Write("UI",
+                SquadDashTrace.Write("ImageEditor",
                     $"[ClipboardImageEditor] RestoreSnapshot resize: zoom={_zoom:F3} " +
                     $"winW={Width:F1} winH={Height:F1}");
                 Dispatcher.BeginInvoke(DispatcherPriority.Render, () => {
