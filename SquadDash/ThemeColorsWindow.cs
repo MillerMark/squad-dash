@@ -557,7 +557,17 @@ internal sealed class ThemeColorsWindow : Window
                 var hex = $"#{newColor.R:X2}{newColor.G:X2}{newColor.B:X2}";
                 lines[i] = Regex.Replace(line, @"Color=""#[0-9A-Fa-f]{6,8}""", $"Color=\"{hex}\"");
             }
-            File.WriteAllLines(xamlPath, lines);
+            try
+            {
+                File.WriteAllLines(xamlPath, lines);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("ThemeColors", $"Failed to write theme file '{xamlPath}': {ex.Message}");
+                MessageBox.Show(
+                    $"Could not write changes to '{xamlPath}':\n{ex.Message}",
+                    "Theme Colors", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 
