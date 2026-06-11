@@ -26953,7 +26953,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             var editor = new ClipboardImageEditorWindow(
                                 this,
                                 srcImage,
-                                isPromptMode: false,
+                                isPromptMode: state.IsPromptMode,
                                 initialState: state.AnnotationState);
 
                             // Restore window geometry if available.

@@ -25,6 +25,9 @@ internal sealed class ClipboardEditorSessionState {
     [JsonPropertyName("toolState")]
     public ToolStateInfo? ToolState { get; set; }
 
+    [JsonPropertyName("isPromptMode")]
+    public bool IsPromptMode { get; set; }
+
     [JsonPropertyName("annotationState")]
     public ClipboardAnnotationState? AnnotationState { get; set; }
 

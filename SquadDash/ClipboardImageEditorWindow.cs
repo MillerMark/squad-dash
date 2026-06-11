@@ -6680,6 +6680,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var (tool, zoom)        = CaptureToolState();
         return new ClipboardEditorSessionState {
             EditorId       = _editorId,
+            IsPromptMode   = _isPromptMode,
             WindowGeometry = new WindowGeometryState { X = x, Y = y, Width = w, Height = h, IsMaximized = isMax },
             ToolState      = new ToolStateInfo { SelectedTool = tool, ZoomLevel = zoom },
             AnnotationState = CaptureAnnotationState(),
