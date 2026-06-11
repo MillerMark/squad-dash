@@ -2630,7 +2630,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     p2 = new Point(x, Math.Max(_measureLineAnchor.Y, upPt.Y));
                 }
                 _preDragSnapshot = null; // let CreateMeasureLine push its own undo entry
-                CreateMeasureLine(p1, p2, isH2);
+                var newLine = CreateMeasureLine(p1, p2, isH2);
+                SelectMeasureLine(newLine);
             }
             else {
                 _preDragSnapshot = null;
@@ -4687,12 +4688,33 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Panel.SetZIndex(_colorPickerPanel, 300);
         _canvas.Children.Add(_colorPickerPanel);
 
-        double cx = x.Bounds.Left + x.Bounds.Width / 2;
-        double cy = x.Bounds.Top;
         _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
-        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, cx - pw / 2));
-        Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy - 30));
+        double ph = _colorPickerPanel.DesiredSize.Height;
+        var b = x.Bounds;
+        double centerX = b.Left + b.Width  / 2;
+        double centerY = b.Top  + b.Height / 2;
+        const double pad = 12;
+        double spaceAbove = b.Top;
+        double spaceBelow = _canvas.Height - b.Bottom;
+        double spaceLeft  = b.Left;
+        double spaceRight = _canvas.Width  - b.Right;
+        double cx, cy;
+        if (spaceAbove >= spaceBelow && spaceAbove >= spaceLeft && spaceAbove >= spaceRight) {
+            cx = Math.Max(0, Math.Min(_canvas.Width - pw, centerX - pw / 2));
+            cy = Math.Max(0, b.Top - ph - pad);
+        } else if (spaceBelow >= spaceLeft && spaceBelow >= spaceRight) {
+            cx = Math.Max(0, Math.Min(_canvas.Width - pw, centerX - pw / 2));
+            cy = Math.Min(_canvas.Height - ph, b.Bottom + pad);
+        } else if (spaceRight >= spaceLeft) {
+            cx = Math.Min(_canvas.Width  - pw, b.Right + pad);
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, centerY - ph / 2));
+        } else {
+            cx = Math.Max(0, b.Left - pw - pad);
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, centerY - ph / 2));
+        }
+        Canvas.SetLeft(_colorPickerPanel, cx);
+        Canvas.SetTop(_colorPickerPanel, cy);
     }
 
     // ── Rect mode ─────────────────────────────────────────────────────────────
