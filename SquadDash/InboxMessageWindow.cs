@@ -402,7 +402,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     chip.MouseLeftButtonUp += (_, _) =>
                     {
                         try { Process.Start(new ProcessStartInfo(att.Href) { UseShellExecute = true }); }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                     };
                 break;
 
@@ -418,7 +422,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
                         else
                             Process.Start(new ProcessStartInfo(resolved) { UseShellExecute = true });
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+                        MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
                 };
                 break;
             }
@@ -495,7 +503,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
                                 MessageBoxButton.OK,
                                 MessageBoxImage.None);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                     };
                 }
                 break;
@@ -516,7 +528,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     {
                         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.AttachmentChip.Click: fallback — owner is not InboxMessageWindow (type={owner?.GetType().Name ?? "null"}) or excerptText is empty — opening MarkdownDocumentWindow");
                         try { MarkdownDocumentWindow.ShowContent(owner, att.Label, excerptText ?? ""); }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                     }
                 };
                 break;

@@ -14847,7 +14847,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             Process.Start(new ProcessStartInfo(pagesUrl) { UseShellExecute = true });
         }
-        catch { }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     /// <summary>
@@ -29409,7 +29413,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             addToNotesItem.Click += (_, _) => {
                 var topicTitle = GetTopicItemTitle(item) ?? System.IO.Path.GetFileNameWithoutExtension(filePath);
                 string content = "";
-                try { content = System.IO.File.ReadAllText(filePath); } catch { }
+                try { content = System.IO.File.ReadAllText(filePath); }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("Attach", $"Read failed for {filePath}: {ex.Message}");
+                    MessageBox.Show($"Could not read file:\n{ex.Message}", "Read Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
                 AddNoteFromTextWithTitle($"Topic - {topicTitle}", content);
             };
             menu.Items.Add(addToNotesItem);
@@ -30442,7 +30451,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var path = _notesStore?.GetNotePath(note.Id) ?? "";
         string content = "";
-        try { if (!string.IsNullOrEmpty(path)) content = File.ReadAllText(path); } catch { }
+        try { if (!string.IsNullOrEmpty(path)) content = File.ReadAllText(path); }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Attach", $"Read failed for {path}: {ex.Message}");
+            MessageBox.Show($"Could not read file:\n{ex.Message}", "Read Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
 
         var body = new System.Text.StringBuilder();
         if (!string.IsNullOrEmpty(path))
@@ -30470,7 +30484,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             title = Path.GetFileNameWithoutExtension(filePath);
 
         string content = "";
-        try { content = File.ReadAllText(filePath); } catch { }
+        try { content = File.ReadAllText(filePath); }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Attach", $"Read failed for {filePath}: {ex.Message}");
+            MessageBox.Show($"Could not read file:\n{ex.Message}", "Read Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
 
         var body = new System.Text.StringBuilder();
         body.AppendLine($"File: {filePath}");

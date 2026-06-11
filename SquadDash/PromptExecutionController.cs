@@ -71,7 +71,8 @@ internal sealed class PromptExecutionController {
         try {
             lines = File.ReadAllLines(TasksFilePath);
         }
-        catch {
+        catch (Exception ex) {
+            SquadDashTrace.Write("Tasks", $"BuildTasksContextInstruction: failed to read {TasksFilePath}: {ex.Message}");
             return null;
         }
         return TasksContextBuilder.Build(lines);

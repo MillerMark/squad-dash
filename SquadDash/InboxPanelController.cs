@@ -493,7 +493,11 @@ internal sealed class InboxPanelController
                     chip.MouseLeftButtonUp += (_, _) =>
                     {
                         try { Process.Start(new ProcessStartInfo(att.Href) { UseShellExecute = true }); }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                     };
                 break;
 
@@ -509,7 +513,11 @@ internal sealed class InboxPanelController
                         else
                             Process.Start(new ProcessStartInfo(resolved) { UseShellExecute = true });
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
+                        MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
                 };
                 break;
             }
