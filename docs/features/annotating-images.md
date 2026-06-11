@@ -1,7 +1,7 @@
 ---
 title: Annotating Images
-nav_order: 7
-parent: Features
+nav_order: 6
+parent: Prompts
 ---
 
 # Annotating Images

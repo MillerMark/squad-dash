@@ -21,6 +21,7 @@
   * [Entering Prompts](features/entering-prompts.md)
   * [Attaching Clipboard Text](features/attach-clipboard-text.md)
   * [Paste Image](features/paste-image.md)
+  * [Annotating Images](features/annotating-images.md)
   * [Voice Input](features/voice-input.md)
   * [Prompt Queue](features/prompt-queue.md)
 
