@@ -268,6 +268,11 @@
 
 ## 🔵 Low Priority
 
+- [ ] [Diagnostics] Trace FileSystemWatcher failure in ConfigureGitHeadWatcher
+  In `MainWindow.xaml.cs`, `ConfigureGitHeadWatcher()` silently swallows `FileSystemWatcher`
+  initialization failures with only a comment. Add `SquadDashTrace.Write(...)` in the catch block
+  so failures are diagnosable when the branch indicator is blank in unusual environments.
+
 - [ ] **OpenAI Whisper speech provider — customer request***(Owner: Orion Vale → Lyra Morn)*
   Customer request: support OpenAI speech API as an alternative to Azure Cognitive Speech, for users
   without an Azure subscription. Impact: ~5 modified files + 2 new files.

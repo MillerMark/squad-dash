@@ -75,6 +75,44 @@
       ],
       "RightZoneWidth": 276.35333333333335,
       "Right2ZoneWidth": 317.43
+    },
+    {
+      "Name": "Preset 3",
+      "Slots": [
+        {
+          "PanelId": "approvals",
+          "Zone": "Left",
+          "Order": 1
+        },
+        {
+          "PanelId": "maintenance",
+          "Zone": "Top",
+          "Order": 0
+        },
+        {
+          "PanelId": "notes",
+          "Zone": "Top",
+          "Order": 1
+        },
+        {
+          "PanelId": "loop",
+          "Zone": "Left2",
+          "Order": 0
+        },
+        {
+          "PanelId": "tasks",
+          "Zone": "Left2",
+          "Order": 1
+        },
+        {
+          "PanelId": "inbox",
+          "Zone": "Right",
+          "Order": 0
+        }
+      ],
+      "LeftZoneWidth": 280,
+      "Left2ZoneWidth": 280,
+      "Left3ZoneWidth": 280
     }
   ]
 }

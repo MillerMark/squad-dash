@@ -159,6 +159,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private double _bodyDragStartOffsetX;
     private double _bodyDragStartOffsetY;
     private Point _arrowCloneDragOriginalCenter; // drag-start center for Shift axis constraint
+    private AnnotationArrow? _arrowMoveStandbyClone; // hidden clone kept during move drag for late-Ctrl copy
 
     // Arrow drag-to-draw state
     private bool _creatingArrowByDrag;
@@ -197,6 +198,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Rect _annotRectDragOriginal;
     private bool _annotRectBodyDragging;
     private Point _rectCloneDragOriginalCenter; // drag-start center for Shift axis constraint
+    private AnnotationRect? _rectMoveStandbyClone; // hidden clone kept during move drag for late-Ctrl copy
 
     // Rubber-band state for drawing a new annotation rect
     private bool _creatingAnnotRect;
@@ -221,6 +223,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Point _measureLineDragOrigStart;
     private Point _measureLineDragOrigEnd;
     private Point _mlCloneDragOriginalCenter; // drag-start center for Shift axis constraint
+    private AnnotationMeasureLine? _mlMoveStandbyClone; // hidden clone kept during move drag for late-Ctrl copy
 
     // Measure-line handle-drag sub-state
     private bool _mlDraggingHandle;   // true when an endpoint handle is being dragged
@@ -253,6 +256,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private bool _annotXBodyDragging;
     private int _draggingAnnotXHandleIdx = -1;
     private Point _xCloneDragOriginalCenter; // drag-start center for Shift axis constraint
+    private AnnotationX? _xMoveStandbyClone; // hidden clone kept during move drag for late-Ctrl copy
 
     // Rubber-band state for drawing a new X
     private bool _creatingAnnotX;
@@ -386,6 +390,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Point _canvasTextDragStart;
     private Rect _canvasTextDragOrigBounds;
     private Point _textCloneDragOriginalCenter; // drag-start center for Shift axis constraint
+    private AnnotationText? _textMoveStandbyClone; // hidden clone kept during canvas-drag for late-Ctrl copy
     private Color _defaultTextFgColor = Colors.White;
     private Color _defaultTextBgColor = Colors.Black;
     private bool _textDragCreating;
@@ -1857,6 +1862,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
 
             _preDragSnapshot = CaptureSnapshot();
+            _suppressUndo = true;
+            var textStandby = new AnnotationText {
+                Bounds = ann.Bounds, Text = ann.Text, FontSize = ann.FontSize,
+                TextColor = ann.TextColor, BackgroundColor = ann.BackgroundColor
+            };
+            _texts.Add(textStandby);
+            UpdateTextDisplay(textStandby);
+            _suppressUndo = false;
+            SetAnnotationVisible(textStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            _textMoveStandbyClone = textStandby;
             _canvasTextDragActive = true;
             _canvasTextDragAnnotation = ann;
             _canvasTextDragStart = pt;
@@ -2274,6 +2289,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 Canvas.SetLeft(_activeTextBox, newX);
                 Canvas.SetTop(_activeTextBox, newY);
             }
+            if (_textMoveStandbyClone != null)
+                SetAnnotationVisible(_textMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             UpdateTextSelectionBorder();
             e.Handled = true;
             return;
@@ -2425,6 +2442,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void Canvas_MouseUp(object sender, MouseButtonEventArgs e) {
         if (_canvasTextDragActive) {
             SquadDashTrace.Write("ImageEditor", $"Canvas text-body drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0})");
+            if (_textMoveStandbyClone != null) {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                    SetAnnotationVisible(_textMoveStandbyClone, true);
+                else {
+                    _suppressUndo = true;
+                    RemoveTextAnnotation(_textMoveStandbyClone);
+                    _suppressUndo = false;
+                }
+                _textMoveStandbyClone = null;
+            }
             CommitDragUndo();
             _canvasTextDragActive = false;
             _canvasTextDragAnnotation = null;
@@ -3244,6 +3271,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             SelectMeasureLine(ml);
             _preDragSnapshot = CaptureSnapshot();
+            _suppressUndo = true;
+            var mlStandby = CreateMeasureLine(ml.StartPt, ml.EndPt, ml.IsHorizontal, ml.LineColor);
+            _suppressUndo = false;
+            SetAnnotationVisible(mlStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            _mlMoveStandbyClone = mlStandby;
             _draggingMeasureLine = ml;
             _measureLineDragStart = e2.GetPosition(_canvas);
             _measureLineDragOrigStart = ml.StartPt;
@@ -3273,10 +3305,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             UpdateMeasureLineGeometry(ml);
             RepositionMeasureLineColorPicker(ml);
+            if (_mlMoveStandbyClone != null)
+                SetAnnotationVisible(_mlMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             e2.Handled = true;
         };
         hitLine.MouseLeftButtonUp+= (_, e2) => {
             if (_draggingMeasureLine != ml || _mlDraggingHandle) return;
+            if (_mlMoveStandbyClone != null) {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                    SetAnnotationVisible(_mlMoveStandbyClone, true);
+                else {
+                    _suppressUndo = true;
+                    RemoveMeasureLine(_mlMoveStandbyClone);
+                    _suppressUndo = false;
+                }
+                _mlMoveStandbyClone = null;
+            }
             CommitDragUndo();
             _draggingMeasureLine = null;
             hitLine.ReleaseMouseCapture();
@@ -3863,6 +3907,20 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             SelectArrow(arrow);
             HideColorPicker();
             _preDragSnapshot = CaptureSnapshot();
+            _suppressUndo = true;
+            var arrowStandby = CreateArrow(arrow.TargetElementBounds);
+            _suppressUndo = false;
+            arrowStandby.TargetCenterOnCanvas = arrow.TargetCenterOnCanvas;
+            arrowStandby.ArrowheadAngleDeg = arrow.ArrowheadAngleDeg;
+            arrowStandby.ArrowLength = arrow.ArrowLength;
+            arrowStandby.TailLength = arrow.TailLength;
+            arrowStandby.UserTailLength = arrow.UserTailLength;
+            arrowStandby.ArrowColor = arrow.ArrowColor;
+            arrowStandby.OffsetX = arrow.OffsetX;
+            arrowStandby.OffsetY = arrow.OffsetY;
+            UpdateArrowGeometry(arrowStandby);
+            _arrowMoveStandbyClone = arrowStandby;
+            SetAnnotationVisible(_arrowMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             _draggingArrow = arrow;
             _bodyDragging = true;
             _bodyDragStartMouse = e.GetPosition(_canvas);
@@ -3893,6 +3951,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             
             UpdateArrowGeometry(arrow);
+            if (_arrowMoveStandbyClone != null)
+                SetAnnotationVisible(_arrowMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             ShowCrosshair(
                 arrow.TargetCenterOnCanvas.X + arrow.OffsetX,
                 arrow.TargetCenterOnCanvas.Y + arrow.OffsetY);
@@ -3902,6 +3962,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             SquadDashTrace.Write("ImageEditor", $"AttachBodyDrag.MouseLeftButtonUp: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
             if (_draggingArrow != arrow || !_bodyDragging) return;
             HideCrosshair();
+            if (_arrowMoveStandbyClone != null) {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                    SetAnnotationVisible(_arrowMoveStandbyClone, true);
+                else {
+                    _suppressUndo = true;
+                    RemoveArrow(_arrowMoveStandbyClone);
+                    _suppressUndo = false;
+                }
+                _arrowMoveStandbyClone = null;
+            }
             CommitDragUndo();
             _draggingArrow = null;
             _bodyDragging = false;
@@ -4279,7 +4349,31 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _arrows.Remove(arrow);
     }
 
-    // ── X mode ───────────────────────────────────────────────────────────────
+    // ── Standby-clone visibility helpers ─────────────────────────────────────
+    // Used by move-drag to show/hide the hidden original during late-Ctrl copy.
+    private static void SetAnnotationVisible(AnnotationArrow a, bool visible) {
+        var v = visible ? Visibility.Visible : Visibility.Collapsed;
+        a.Line.Visibility = v; a.Head.Visibility = v; a.HitLine.Visibility = v;
+    }
+    private static void SetAnnotationVisible(AnnotationMeasureLine ml, bool visible) {
+        var v = visible ? Visibility.Visible : Visibility.Collapsed;
+        ml.MainLine.Visibility = v; ml.Head1.Visibility = v; ml.Head2.Visibility = v;
+        ml.Cap1.Visibility = v; ml.Cap2.Visibility = v;
+        ml.LabelBadge.Visibility = v; ml.HitLine.Visibility = v;
+    }
+    private static void SetAnnotationVisible(AnnotationX x, bool visible) {
+        var v = visible ? Visibility.Visible : Visibility.Collapsed;
+        x.Line1.Visibility = v; x.Line2.Visibility = v; x.HitZoneRect.Visibility = v;
+    }
+    private static void SetAnnotationVisible(AnnotationRect r, bool visible) {
+        var v = visible ? Visibility.Visible : Visibility.Collapsed;
+        r.Border.Visibility = v; r.HitZoneRect.Visibility = v;
+    }
+    private static void SetAnnotationVisible(AnnotationText t, bool visible) {
+        if (t.Display != null) t.Display.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+
 
     private void EnterXMode() {
         SelectArrow(null);
@@ -4413,6 +4507,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             SelectAnnotationX(annotX);
             _preDragSnapshot = CaptureSnapshot();
+            _suppressUndo = true;
+            var xStandby = CreateAnnotationX(annotX.Bounds, annotX.XColor);
+            _suppressUndo = false;
+            SetAnnotationVisible(xStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            _xMoveStandbyClone = xStandby;
             _draggingAnnotX = annotX;
             _annotXBodyDragging = true;
             _draggingAnnotXHandleIdx = -1;
@@ -4445,12 +4544,24 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _annotXDragOriginal.Width, _annotXDragOriginal.Height);
             annotX.Bounds = nb;
             UpdateXGeometry(annotX);
+            if (_xMoveStandbyClone != null)
+                SetAnnotationVisible(_xMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             e.Handled = true;
         };
         hitZone.MouseLeftButtonUp += (_, e) => {
             if (_draggingAnnotX != annotX || !_annotXBodyDragging) return;
             _annotXBodyDragging = false;
             _draggingAnnotX = null;
+            if (_xMoveStandbyClone != null) {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                    SetAnnotationVisible(_xMoveStandbyClone, true);
+                else {
+                    _suppressUndo = true;
+                    RemoveAnnotationX(_xMoveStandbyClone);
+                    _suppressUndo = false;
+                }
+                _xMoveStandbyClone = null;
+            }
             hitZone.ReleaseMouseCapture();
             CommitDragUndo();
             e.Handled = true;
@@ -4714,6 +4825,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             SelectAnnotationRect(annotRect);
             _preDragSnapshot = CaptureSnapshot();
+            _suppressUndo = true;
+            var rectStandby = CreateAnnotationRect(annotRect.Bounds, annotRect.RectColor);
+            _suppressUndo = false;
+            SetAnnotationVisible(rectStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            _rectMoveStandbyClone = rectStandby;
             _draggingAnnotRect = annotRect;
             _annotRectBodyDragging = true;
             _draggingAnnotRectHandleIdx = -1;
@@ -4749,10 +4865,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             annotRect.Bounds = nb;
             UpdateRectGeometry(annotRect);
             if (_colorPickerRect == annotRect) ShowColorPickerForRect(annotRect);
+            if (_rectMoveStandbyClone != null)
+                SetAnnotationVisible(_rectMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             e.Handled = true;
         };
         border.MouseLeftButtonUp += (_, e) => {
             if (_draggingAnnotRect != annotRect || !_annotRectBodyDragging) return;
+            if (_rectMoveStandbyClone != null) {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                    SetAnnotationVisible(_rectMoveStandbyClone, true);
+                else {
+                    _suppressUndo = true;
+                    RemoveAnnotationRect(_rectMoveStandbyClone);
+                    _suppressUndo = false;
+                }
+                _rectMoveStandbyClone = null;
+            }
             CommitDragUndo();
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
@@ -4792,6 +4920,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             SelectAnnotationRect(annotRect);
             _preDragSnapshot = CaptureSnapshot();
+            if (_rectMoveStandbyClone == null) {
+                _suppressUndo = true;
+                var rectStandby2 = CreateAnnotationRect(annotRect.Bounds, annotRect.RectColor);
+                _suppressUndo = false;
+                SetAnnotationVisible(rectStandby2, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+                _rectMoveStandbyClone = rectStandby2;
+            }
             _draggingAnnotRect = annotRect;
             _annotRectBodyDragging = true;
             _draggingAnnotRectHandleIdx = -1;
@@ -4827,10 +4962,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             annotRect.Bounds = nb;
             UpdateRectGeometry(annotRect);
             if (_colorPickerRect == annotRect) ShowColorPickerForRect(annotRect);
+            if (_rectMoveStandbyClone != null)
+                SetAnnotationVisible(_rectMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             e.Handled = true;
         };
         hitZone.MouseLeftButtonUp += (_, e) => {
             if (_draggingAnnotRect != annotRect || !_annotRectBodyDragging) return;
+            if (_rectMoveStandbyClone != null) {
+                if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                    SetAnnotationVisible(_rectMoveStandbyClone, true);
+                else {
+                    _suppressUndo = true;
+                    RemoveAnnotationRect(_rectMoveStandbyClone);
+                    _suppressUndo = false;
+                }
+                _rectMoveStandbyClone = null;
+            }
             CommitDragUndo();
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
@@ -5761,6 +5908,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Point dragStart = default;
             Rect dragOrigBounds = default;
             bool isDragging = false;
+            AnnotationText? standbyText = null;
 
             display.MouseLeftButtonDown += (_, e) => {
                 // In tool placement/eyedropper modes, let event bubble to canvas
@@ -5800,6 +5948,15 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 if (!_inTextMode && _selectedText != annotation)
                     SelectText(annotation);
                 _preDragSnapshot = CaptureSnapshot();
+                _suppressUndo = true;
+                standbyText = new AnnotationText {
+                    Bounds = annotation.Bounds, Text = annotation.Text, FontSize = annotation.FontSize,
+                    TextColor = annotation.TextColor, BackgroundColor = annotation.BackgroundColor
+                };
+                _texts.Add(standbyText);
+                UpdateTextDisplay(standbyText);
+                _suppressUndo = false;
+                SetAnnotationVisible(standbyText, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
                 isDragging = true;
                 dragStart = e.GetPosition(_canvas);
                 dragOrigBounds = annotation.Bounds;
@@ -5820,6 +5977,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     annotation.Bounds = new Rect(newX, newY, annotation.Bounds.Width, annotation.Bounds.Height);
                     Canvas.SetLeft(display, newX);
                     Canvas.SetTop(display, newY);
+                    if (standbyText != null)
+                        SetAnnotationVisible(standbyText, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
                     UpdateTextSelectionBorder();
                     e.Handled = true;
                     return;
@@ -5829,6 +5988,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             display.MouseLeftButtonUp += (_, e) => {
                 if (!isDragging) return;
                 SquadDashTrace.Write("ImageEditor", $"TextAnnotation drag end at ({e.GetPosition(_canvas).X:F0},{e.GetPosition(_canvas).Y:F0}) → bounds=({annotation.Bounds.X:F0},{annotation.Bounds.Y:F0})");
+                if (standbyText != null) {
+                    if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+                        SetAnnotationVisible(standbyText, true);
+                    else {
+                        _suppressUndo = true;
+                        RemoveTextAnnotation(standbyText);
+                        _suppressUndo = false;
+                    }
+                    standbyText = null;
+                }
                 CommitDragUndo();
                 isDragging = false;
                 display.ReleaseMouseCapture();
