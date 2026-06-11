@@ -33418,6 +33418,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private void ShowTraceWindowMenuItem_Click(object sender, RoutedEventArgs e) => ShowTraceWindow();
+
     private void ShowTraceWindow()
     {
         if (_traceWindow is null)

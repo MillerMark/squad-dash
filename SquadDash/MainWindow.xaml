@@ -795,6 +795,8 @@
                     <MenuItem Header="_UI Reveal"
                               InputGestureText="F12"
                               Click="UiRevealMenuItem_Click" />
+                    <MenuItem Header="Show _Trace Window"
+                              Click="ShowTraceWindowMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Simulation"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
