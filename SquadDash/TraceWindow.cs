@@ -130,20 +130,42 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         Grid.SetRow(checkboxPanel, 2);
         root.Children.Add(checkboxPanel);
 
+        // Shared right-click context menu for all checkboxes — Select All / Clear All.
+        var cbContextMenu = new ContextMenu();
+        cbContextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+        var miSelectAll = new MenuItem { Header = "Select All" };
+        miSelectAll.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        miSelectAll.Click += (_, _) => {
+            foreach (var cb2 in _checkboxPanel.Children.OfType<CheckBox>())
+                cb2.IsChecked = true;
+        };
+
+        var miClearAll = new MenuItem { Header = "Clear All" };
+        miClearAll.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        miClearAll.Click += (_, _) => {
+            foreach (var cb2 in _checkboxPanel.Children.OfType<CheckBox>())
+                cb2.IsChecked = false;
+        };
+
+        cbContextMenu.Items.Add(miSelectAll);
+        cbContextMenu.Items.Add(miClearAll);
+
         foreach (var cat in Enum.GetValues<TraceCategory>().OrderBy(c => c.ToString()))
         {
             var cb = new CheckBox
             {
-                Content    = cat.ToString(),
-                IsChecked  = !_disabledCategories.Contains(cat),
-                Margin     = new Thickness(0, 0, 18, 4),
-                Tag        = cat,
-                ToolTip    = MakeThemedToolTip(GetCategoryDescription(cat)),
+                Content      = cat.ToString(),
+                IsChecked    = !_disabledCategories.Contains(cat),
+                Margin       = new Thickness(0, 0, 18, 4),
+                Tag          = cat,
+                ToolTip      = MakeThemedToolTip(GetCategoryDescription(cat)),
                 // Transparent background makes the gap between the box glyph and the
                 // text label hit-testable — without it that strip has null background
                 // and ignores mouse events entirely.
-                Background = Brushes.Transparent,
-                Cursor     = Cursors.Hand,
+                Background   = Brushes.Transparent,
+                Cursor       = Cursors.Hand,
+                ContextMenu  = cbContextMenu,
             };
             cb.Checked   += (_, _) => OnCategoryCheckboxChanged();
             cb.Unchecked += (_, _) => OnCategoryCheckboxChanged();
