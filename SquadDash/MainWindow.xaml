@@ -2810,13 +2810,12 @@
                     <Border x:Name="BranchIndicatorStrip"
                             DockPanel.Dock="Top"
                             Visibility="Collapsed"
-                            Margin="-9,-9,0,3"
+                            Margin="-12,-11,0,3"
                             Padding="8,3"
                             BorderThickness="0,0,0,1"
                             BorderBrush="{DynamicResource LineColor}"
                             Background="{DynamicResource InputSurface}"
                             Cursor="Hand"
-                            ToolTip="Click for Branch options"
                             MouseLeftButtonUp="BranchIndicatorStrip_MouseLeftButtonUp"
                             MouseRightButtonUp="BranchIndicatorStrip_MouseRightButtonUp">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

@@ -685,6 +685,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
+        BranchIndicatorStrip.ToolTip = MakeThemedToolTip("Click for Branch options");
         this.AddHandler(UIElement.GotFocusEvent, new RoutedEventHandler(OnWindowElementGotFocus), true);
         _restartStatusPanelControl = (RestartStatusPanel?)FindName("RestartStatusPanelControl");
         _dockingService = new PanelDockingService(
