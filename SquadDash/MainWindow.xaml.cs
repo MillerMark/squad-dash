@@ -26166,7 +26166,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (isMaintenance)
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ScrollBarThumbBrush");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
             BranchNameText.Text = $"⚠ {branch}";
         }
@@ -26178,7 +26178,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         else
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "ScrollBarThumbBrush");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
             BranchNameText.Text = branch;
         }
