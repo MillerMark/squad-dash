@@ -719,6 +719,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 }
             }
 
+            if (e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl)
+                RefreshDragCtrlState();
+
             if (e.Key == Key.Enter && Keyboard.FocusedElement is not TextBox) {
                 e.Handled = true;
                 if (!_sel.IsEmpty)
@@ -744,6 +747,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     return;
                 }
             }
+
+            if (e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl)
+                RefreshDragCtrlState();
 
             if (e.Key == Key.Space && _isPanMode) {
                 _isPanMode = false;
@@ -2457,6 +2463,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _canvasTextDragActive = false;
             _canvasTextDragAnnotation = null;
             _canvas.ReleaseMouseCapture();
+            _canvas.Cursor = Cursors.Arrow;
             if (_selectedText != null) SelectText(_selectedText);  // refresh handles position
             e.Handled = true;
             return;
@@ -3327,6 +3334,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             CommitDragUndo();
             _draggingMeasureLine = null;
             hitLine.ReleaseMouseCapture();
+            _canvas.Cursor = Cursors.Arrow;
             ShowColorPickerForMeasureLine(ml);
             e2.Handled = true;
         };
@@ -3979,6 +3987,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 }
                 _arrowMoveStandbyClone = null;
             }
+            _canvas.Cursor = Cursors.Arrow;
             CommitDragUndo();
             _draggingArrow = null;
             _bodyDragging = false;
@@ -4380,6 +4389,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (t.Display != null) t.Display.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Called whenever Ctrl key state may have changed during an active body drag.
+    /// Updates standby-clone visibility and cursor for all annotation types.
+    /// </summary>
+    private void RefreshDragCtrlState() {
+        bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        bool anyDrag = false;
+        if (_arrowMoveStandbyClone != null)    { SetAnnotationVisible(_arrowMoveStandbyClone, ctrl);  anyDrag = true; }
+        if (_mlMoveStandbyClone != null)       { SetAnnotationVisible(_mlMoveStandbyClone, ctrl);     anyDrag = true; }
+        if (_xMoveStandbyClone != null)        { SetAnnotationVisible(_xMoveStandbyClone, ctrl);      anyDrag = true; }
+        if (_rectMoveStandbyClone != null)     { SetAnnotationVisible(_rectMoveStandbyClone, ctrl);   anyDrag = true; }
+        if (_textMoveStandbyClone != null)     { SetAnnotationVisible(_textMoveStandbyClone, ctrl);   anyDrag = true; }
+        if (anyDrag)
+            _canvas.Cursor = ctrl ? Cursors.Cross : Cursors.SizeAll;
+    }
+
 
 
     private void EnterXMode() {
@@ -4574,6 +4599,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             hitZone.ReleaseMouseCapture();
             CommitDragUndo();
+            _canvas.Cursor = Cursors.Arrow;
             ShowColorPickerForX(annotX);
             e.Handled = true;
         };
@@ -4899,6 +4925,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
             border.ReleaseMouseCapture();
+            _canvas.Cursor = Cursors.Arrow;
             ShowColorPickerForRect(annotRect);
             e.Handled = true;
         };
@@ -5000,6 +5027,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
             hitZone.ReleaseMouseCapture();
+            _canvas.Cursor = Cursors.Arrow;
             ShowColorPickerForRect(annotRect);
             e.Handled = true;
         };
@@ -6023,6 +6051,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 CommitDragUndo();
                 isDragging = false;
                 display.ReleaseMouseCapture();
+                _canvas.Cursor = Cursors.Arrow;
                 // Explicitly re-select so resize handles remain visible after drag.
                 SelectText(annotation);
                 e.Handled = true;
