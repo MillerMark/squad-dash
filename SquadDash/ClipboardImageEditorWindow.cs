@@ -4087,15 +4087,15 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         // Row 0 — Light
         Color.FromRgb(255, 160, 160), Color.FromRgb(255, 210, 150), Color.FromRgb(255, 245, 150),
         Color.FromRgb(150, 230, 150), Color.FromRgb(160, 210, 255), Color.FromRgb(210, 160, 255),
-        Color.FromRgb(255, 255, 255), Color.FromRgb(204, 204, 204),
+        Color.FromRgb(255, 255, 255), Color.FromRgb( 97,  97,  97),
         // Row 1 — Base
         Color.FromRgb(220,  50,  50), Color.FromRgb(255, 140,   0), Color.FromRgb(240, 210,  40),
         Color.FromRgb( 50, 185,  50), Color.FromRgb( 50, 130, 230), Color.FromRgb(160,  50, 220),
-        Color.FromRgb(153, 153, 153), Color.FromRgb( 51,  51,  51),
+        Color.FromRgb(209, 209, 209), Color.FromRgb( 51,  51,  51),
         // Row 2 — Dark
         Color.FromRgb(140,  20,  20), Color.FromRgb(180,  80,   0), Color.FromRgb(160, 130,   0),
         Color.FromRgb( 20, 110,  20), Color.FromRgb( 20,  70, 160), Color.FromRgb( 90,  20, 140),
-        Color.FromRgb(102, 102, 102), Color.FromRgb(  0,   0,   0),
+        Color.FromRgb(157, 157, 157), Color.FromRgb(  0,   0,   0),
     };
 
     /// <summary>Returns the full 24-color annotation palette for text foreground color picking.</summary>
@@ -4160,8 +4160,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         { R:  50, G: 185, B:  50 } => "Green",
         { R:  50, G: 130, B: 230 } => "Blue",
         { R: 160, G:  50, B: 220 } => "Purple",
-        { R: 153, G: 153, B: 153 } => "Med-Light Gray",
-        { R: 102, G: 102, B: 102 } => "Med-Dark Gray",
+        { R: 209, G: 209, B: 209 } => "Light Gray",
+        { R:  97, G:  97, B:  97 } => "Dark Gray",
         // Row 2 (Dark)
         { R: 140, G:  20, B:  20 } => "Dark Red",
         { R: 180, G:  80, B:   0 } => "Dark Orange",
@@ -4169,6 +4169,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         { R:  20, G: 110, B:  20 } => "Dark Green",
         { R:  20, G:  70, B: 160 } => "Dark Blue",
         { R:  90, G:  20, B: 140 } => "Dark Purple",
+        { R: 157, G: 157, B: 157 } => "Med Gray",
         { R:  51, G:  51, B:  51 } => "Dark Gray",
         _ => $"#{c.R:X2}{c.G:X2}{c.B:X2}"
     };
