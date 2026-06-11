@@ -3503,8 +3503,20 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
-        double cx = Math.Max(0, Math.Min(_canvas.Width - pw, midX - pw / 2));
-        double cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20));
+        double cx, cy;
+        if (ml.IsHorizontal) {
+            // Horizontal line: place picker above the midpoint (original behaviour).
+            cx = Math.Max(0, Math.Min(_canvas.Width  - pw, midX - pw / 2));
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20));
+        } else {
+            // Vertical line: place picker to the left or right, whichever has more space.
+            double spaceRight = _canvas.Width - midX;
+            double spaceLeft  = midX;
+            cx = spaceRight >= spaceLeft
+                ? Math.Min(_canvas.Width  - pw, midX + 20)
+                : Math.Max(0, midX - pw - 20);
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph / 2));
+        }
         Canvas.SetLeft(_colorPickerPanel, cx);
         Canvas.SetTop(_colorPickerPanel, cy);
     }
@@ -3516,8 +3528,20 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         double midY = (ml.StartPt.Y + ml.EndPt.Y) / 2;
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
-        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, Math.Min(_canvas.Width  - pw, midX - pw / 2)));
-        Canvas.SetTop(_colorPickerPanel,  Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20)));
+        double cx, cy;
+        if (ml.IsHorizontal) {
+            cx = Math.Max(0, Math.Min(_canvas.Width  - pw, midX - pw / 2));
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20));
+        } else {
+            double spaceRight = _canvas.Width - midX;
+            double spaceLeft  = midX;
+            cx = spaceRight >= spaceLeft
+                ? Math.Min(_canvas.Width  - pw, midX + 20)
+                : Math.Max(0, midX - pw - 20);
+            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph / 2));
+        }
+        Canvas.SetLeft(_colorPickerPanel, cx);
+        Canvas.SetTop(_colorPickerPanel, cy);
     }
     /// <summary>Snaps <paramref name="head"/> to the closest horizontal or vertical line through <paramref name="tail"/>.</summary>
     private static Point SnapArrowToAxis(Point tail, Point head)
