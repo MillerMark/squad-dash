@@ -2519,8 +2519,8 @@
 
             <!-- Topic tree (left side of docs panel) — auto-sized to content, no splitter -->
             <Border Grid.Column="0" Grid.RowSpan="3"
-                    Background="{DynamicResource PanelSurface}"
-                    BorderBrush="{DynamicResource PanelBorder}"
+                    Background="{DynamicResource RosterPanelSurface}"
+                    BorderBrush="{DynamicResource RosterPanelBorder}"
                     BorderThickness="1"
                     CornerRadius="18"
                     Padding="10">
