@@ -3158,18 +3158,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var lineColor = color ?? _defaultMeasureLineColor;
         var stroke = new SolidColorBrush(lineColor);
 
-        var shadow = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0, IsHitTestVisible = false };
-        Panel.SetZIndex(shadow, 2);
-        _canvas.Children.Add(shadow);
-
-        var shadowH1 = new Polygon { Fill = Brushes.Black, Opacity = 0, IsHitTestVisible = false };
-        Panel.SetZIndex(shadowH1, 2);
-        _canvas.Children.Add(shadowH1);
-
-        var shadowH2 = new Polygon { Fill = Brushes.Black, Opacity = 0, IsHitTestVisible = false };
-        Panel.SetZIndex(shadowH2, 2);
-        _canvas.Children.Add(shadowH2);
-
         var main = new Line { Stroke = stroke, StrokeThickness = 2, IsHitTestVisible = false };
         Panel.SetZIndex(main, 5);
         _canvas.Children.Add(main);
@@ -3189,14 +3177,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var cap2 = new Line { Stroke = stroke, StrokeThickness = 1.0, Opacity = 0.5, IsHitTestVisible = false };
         Panel.SetZIndex(cap2, 5);
         _canvas.Children.Add(cap2);
-
-        var shadowCap1 = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0, IsHitTestVisible = false };
-        Panel.SetZIndex(shadowCap1, 2);
-        _canvas.Children.Add(shadowCap1);
-
-        var shadowCap2 = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0, IsHitTestVisible = false };
-        Panel.SetZIndex(shadowCap2, 2);
-        _canvas.Children.Add(shadowCap2);
 
         // Badge
         var labelText = new TextBlock {
@@ -3237,8 +3217,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         var ml = new AnnotationMeasureLine {
             StartPt = p1, EndPt = p2, IsHorizontal = isH, LineColor = lineColor,
-            ShadowLine = shadow, ShadowHead1 = shadowH1, ShadowHead2 = shadowH2,
-            ShadowCap1 = shadowCap1, ShadowCap2 = shadowCap2,
             MainLine = main, Head1 = head1, Head2 = head2, Cap1 = cap1, Cap2 = cap2,
             LabelBadge = badge, LabelText = labelText, HitLine = hitLine,
             Handle1 = handle1, Handle2 = handle2
@@ -3375,7 +3353,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     }
 
     private void UpdateMeasureLineGeometry(AnnotationMeasureLine ml) {
-        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, shadowOff = 1.5, arrowGap = 1.0;
+        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, arrowGap = 1.0;
 
         var p1 = ml.StartPt;
         var p2 = ml.EndPt;
@@ -3400,16 +3378,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             ml.MainLine.X2 = tip2X - lineInset; ml.MainLine.Y2 = p2.Y;
             ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
             ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
-            ml.ShadowLine.X1 = tip1X + shadowOff; ml.ShadowLine.Y1 = p1.Y + shadowOff;
-            ml.ShadowLine.X2 = tip2X + shadowOff; ml.ShadowLine.Y2 = p2.Y + shadowOff;
             SetArrowHeadPoints(ml.Head1,        tip1X,             p1.Y,             scaledLen, scaledHalf, goingLeft: true);
             SetArrowHeadPoints(ml.Head2,        tip2X,             p2.Y,             scaledLen, scaledHalf, goingLeft: false);
-            SetArrowHeadPoints(ml.ShadowHead1,  tip1X + shadowOff, p1.Y + shadowOff, scaledLen, scaledHalf, goingLeft: true);
-            SetArrowHeadPoints(ml.ShadowHead2,  tip2X + shadowOff, p2.Y + shadowOff, scaledLen, scaledHalf, goingLeft: false);
             ml.Cap1.X1 = p1.X; ml.Cap1.Y1 = p1.Y - capHalf; ml.Cap1.X2 = p1.X; ml.Cap1.Y2 = p1.Y + capHalf;
             ml.Cap2.X1 = p2.X; ml.Cap2.Y1 = p2.Y - capHalf; ml.Cap2.X2 = p2.X; ml.Cap2.Y2 = p2.Y + capHalf;
-            ml.ShadowCap1.X1 = p1.X + shadowOff; ml.ShadowCap1.Y1 = p1.Y - capHalf + shadowOff; ml.ShadowCap1.X2 = p1.X + shadowOff; ml.ShadowCap1.Y2 = p1.Y + capHalf + shadowOff;
-            ml.ShadowCap2.X1 = p2.X + shadowOff; ml.ShadowCap2.Y1 = p2.Y - capHalf + shadowOff; ml.ShadowCap2.X2 = p2.X + shadowOff; ml.ShadowCap2.Y2 = p2.Y + capHalf + shadowOff;
         }
         else {
             double tip1Y = p1.Y + arrowGap;
@@ -3419,16 +3391,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             ml.MainLine.X2 = p2.X; ml.MainLine.Y2 = tip2Y - lineInset;
             ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
             ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
-            ml.ShadowLine.X1 = p1.X + shadowOff; ml.ShadowLine.Y1 = tip1Y + shadowOff;
-            ml.ShadowLine.X2 = p2.X + shadowOff; ml.ShadowLine.Y2 = tip2Y + shadowOff;
             SetArrowHeadPoints(ml.Head1,        p1.X,             tip1Y,             scaledLen, scaledHalf, goingLeft: true,  vertical: true);
             SetArrowHeadPoints(ml.Head2,        p2.X,             tip2Y,             scaledLen, scaledHalf, goingLeft: false, vertical: true);
-            SetArrowHeadPoints(ml.ShadowHead1,  p1.X + shadowOff, tip1Y + shadowOff, scaledLen, scaledHalf, goingLeft: true,  vertical: true);
-            SetArrowHeadPoints(ml.ShadowHead2,  p2.X + shadowOff, tip2Y + shadowOff, scaledLen, scaledHalf, goingLeft: false, vertical: true);
             ml.Cap1.X1 = p1.X - capHalf; ml.Cap1.Y1 = p1.Y; ml.Cap1.X2 = p1.X + capHalf; ml.Cap1.Y2 = p1.Y;
             ml.Cap2.X1 = p2.X - capHalf; ml.Cap2.Y1 = p2.Y; ml.Cap2.X2 = p2.X + capHalf; ml.Cap2.Y2 = p2.Y;
-            ml.ShadowCap1.X1 = p1.X - capHalf + shadowOff; ml.ShadowCap1.Y1 = p1.Y + shadowOff; ml.ShadowCap1.X2 = p1.X + capHalf + shadowOff; ml.ShadowCap1.Y2 = p1.Y + shadowOff;
-            ml.ShadowCap2.X1 = p2.X - capHalf + shadowOff; ml.ShadowCap2.Y1 = p2.Y + shadowOff; ml.ShadowCap2.X2 = p2.X + capHalf + shadowOff; ml.ShadowCap2.Y2 = p2.Y + shadowOff;
         }
 
         // Label text
@@ -3490,11 +3456,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void RemoveMeasureLine(AnnotationMeasureLine ml) {
         if (!_suppressUndo) PushUndo();
         if (ml == _colorPickerMeasureLine) HideColorPicker();
-        _canvas.Children.Remove(ml.ShadowLine);
-        _canvas.Children.Remove(ml.ShadowHead1);
-        _canvas.Children.Remove(ml.ShadowHead2);
-        _canvas.Children.Remove(ml.ShadowCap1);
-        _canvas.Children.Remove(ml.ShadowCap2);
         _canvas.Children.Remove(ml.MainLine);
         _canvas.Children.Remove(ml.Head1);
         _canvas.Children.Remove(ml.Head2);

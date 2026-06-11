@@ -9,7 +9,7 @@ namespace SquadDash;
 /// <summary>
 /// Data model for a dimension/measurement-line annotation.
 /// Stores the two snapped endpoints plus references to all WPF visual elements
-/// that make up the rendered annotation (shadow layer + main layer + label badge).
+/// that make up the rendered annotation (main layer + label badge).
 /// </summary>
 internal sealed class AnnotationMeasureLine {
     /// <summary>Lower-coordinate endpoint (left for horizontal, top for vertical).</summary>
@@ -21,13 +21,6 @@ internal sealed class AnnotationMeasureLine {
     public bool IsHorizontal { get; set; }
 
     public Color LineColor { get; set; }
-
-    // ── Shadow elements (drawn behind the main elements, offset by +1.5 px) ──
-    public Line    ShadowLine  { get; set; } = null!;
-    public Polygon ShadowHead1 { get; set; } = null!;  // shadow of arrowhead at StartPt
-    public Polygon ShadowHead2 { get; set; } = null!;  // shadow of arrowhead at EndPt
-    public Line    ShadowCap1  { get; set; } = null!;
-    public Line    ShadowCap2  { get; set; } = null!;
 
     // ── Main visual elements ──────────────────────────────────────────────────
     public Line    MainLine { get; set; } = null!;
