@@ -510,12 +510,16 @@ internal sealed class ThemeColorsWindow : Window
 
     private void RevertAllThemes()
     {
-        // Restore the current active theme's resources to originals
-        var currentTheme = _mainWindow.ActiveThemeName;
-        if (_originalColors.TryGetValue(currentTheme, out var snap))
+        // Remove every app-level resource entry that ApplyAdjustment wrote across
+        // all themes.  App-level entries override merged-dictionary values, so
+        // leaving them in place after Cancel would keep polluted colors visible
+        // even after SwitchTheme reloads the correct XAML.  Removing them lets
+        // the subsequent SwitchTheme(_snapshotThemeName) call in CancelButton_Click
+        // restore every key to its original XAML value cleanly.
+        foreach (var (_, pending) in _pendingByTheme)
         {
-            foreach (var (key, color) in snap)
-                Application.Current.Resources[key] = new SolidColorBrush(color);
+            foreach (var key in pending.Keys)
+                Application.Current.Resources.Remove(key);
         }
     }
 
