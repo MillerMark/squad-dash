@@ -20,19 +20,26 @@ namespace SquadDash;
 /// </summary>
 internal sealed class UiRevealOverlay
 {
-    private static readonly DependencyProperty[] _dpsToCheck = new[]
+    private static readonly DependencyProperty[] _dpsToCheck = BuildDpsToCheck();
+
+    private static DependencyProperty[] BuildDpsToCheck()
     {
-        TextBlock.ForegroundProperty,   // == Control.ForegroundProperty (same DP via AddOwner)
-        Control.BackgroundProperty,
-        Border.BackgroundProperty,
-        Border.BorderBrushProperty,
-        Control.BorderBrushProperty,
-        Panel.BackgroundProperty,
-        Shape.FillProperty,
-        Shape.StrokeProperty,
-        TextBlock.FontSizeProperty,     // == Control.FontSizeProperty (same DP via AddOwner)
-        FrameworkElement.StyleProperty,
-    };
+        // Deduplicate — some DPs are shared across types via AddOwner in WPF.
+        var seen = new HashSet<DependencyProperty>(ReferenceEqualityComparer.Instance);
+        var list = new List<DependencyProperty>();
+        void Add(DependencyProperty dp) { if (seen.Add(dp)) list.Add(dp); }
+        Add(TextBlock.ForegroundProperty);   // == Control.ForegroundProperty in many WPF versions
+        Add(Control.BackgroundProperty);
+        Add(Border.BackgroundProperty);
+        Add(Border.BorderBrushProperty);
+        Add(Control.BorderBrushProperty);
+        Add(Panel.BackgroundProperty);
+        Add(Shape.FillProperty);
+        Add(Shape.StrokeProperty);
+        Add(TextBlock.FontSizeProperty);     // == Control.FontSizeProperty in many WPF versions
+        Add(FrameworkElement.StyleProperty);
+        return list.ToArray();
+    }
 
     private Window? _owner;
     private Popup? _popup;
@@ -675,19 +682,25 @@ internal sealed class UiRevealOverlay
         _copyFeedbackTimer.Start();
     }
 
-    private static readonly Dictionary<DependencyProperty, string> _dpDisplayNames = new()
+    private static readonly Dictionary<DependencyProperty, string> _dpDisplayNames = BuildDpDisplayNames();
+
+    private static Dictionary<DependencyProperty, string> BuildDpDisplayNames()
     {
-        { TextBlock.ForegroundProperty,    "Foreground"   },  // Control.ForegroundProperty is the same DP
-        { Control.BackgroundProperty,      "Background"   },
-        { Border.BackgroundProperty,       "Background"   },
-        { Border.BorderBrushProperty,      "BorderBrush"  },
-        { Control.BorderBrushProperty,     "BorderBrush"  },
-        { Panel.BackgroundProperty,        "Background"   },
-        { Shape.FillProperty,              "Fill"         },
-        { Shape.StrokeProperty,            "Stroke"       },
-        { TextBlock.FontSizeProperty,      "FontSize"     },  // Control.FontSizeProperty is the same DP
-        { FrameworkElement.StyleProperty,  "Style"        },
-    };
+        // Use TryAdd so duplicate DP instances (via WPF AddOwner sharing) never throw.
+        var d = new Dictionary<DependencyProperty, string>(ReferenceEqualityComparer.Instance);
+        void Add(DependencyProperty dp, string name) => d.TryAdd(dp, name);
+        Add(TextBlock.ForegroundProperty,    "Foreground");
+        Add(Control.BackgroundProperty,      "Background");
+        Add(Border.BackgroundProperty,       "Background");
+        Add(Border.BorderBrushProperty,      "BorderBrush");
+        Add(Control.BorderBrushProperty,     "BorderBrush");
+        Add(Panel.BackgroundProperty,        "Background");
+        Add(Shape.FillProperty,              "Fill");
+        Add(Shape.StrokeProperty,            "Stroke");
+        Add(TextBlock.FontSizeProperty,      "FontSize");
+        Add(FrameworkElement.StyleProperty,  "Style");
+        return d;
+    }
 
     private static string BuildClipboardText(FrameworkElement element)
     {
@@ -874,12 +887,16 @@ internal sealed class UiRevealOverlay
         // Append theme resource key annotations (Background, Foreground, BorderBrush, etc.)
         if (node is FrameworkElement feTheme)
         {
-            var themeEntries = CollectResourceKeyEntries(feTheme);
-            if (themeEntries.Count > 0)
+            try
             {
-                var themeTokens = themeEntries.Select(static e => $"{e.Prop}={e.Key}");
-                label += "   [" + string.Join(", ", themeTokens) + "]";
+                var themeEntries = CollectResourceKeyEntries(feTheme);
+                if (themeEntries.Count > 0)
+                {
+                    var themeTokens = themeEntries.Select(static e => $"{e.Prop}={e.Key}");
+                    label += "   [" + string.Join(", ", themeTokens) + "]";
+                }
             }
+            catch { /* defensive: don't let annotation failure break the ancestor chain */ }
         }
 
         return label;
