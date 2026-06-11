@@ -998,7 +998,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                 cb.SetResourceReference(CheckBox.ForegroundProperty, "ImportantText");
                 cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeSmall");
                 if (!string.IsNullOrEmpty(opt.Tooltip))
-                    cb.ToolTip = opt.Tooltip;
+                    cb.ToolTip = ToolTipHelper.MakeThemedToolTip(opt.Tooltip);
                 cb.Checked += (_, _) => {
                     _optionValues[optKey] = "true";
                     UpdateMarkdownPreview();

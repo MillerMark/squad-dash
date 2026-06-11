@@ -3078,7 +3078,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Case 2: Pause requested while a turn is in progress → pending.
             _queuePausePending = true;
             QueueStatusLabel.Text = "Pausing after turn completes\u2026";
-            QueuePlayPauseButton.ToolTip = "Click to cancel pause and resume automatic prompt queue processing.";
+            QueuePlayPauseButton.ToolTip = MakeThemedToolTip("Click to cancel pause and resume automatic prompt queue processing.");
             // Show play icon ▶ — clicking again will cancel the pending pause.
             QueuePlayIcon.Visibility  = Visibility.Visible;
             QueuePauseIcon.Visibility = Visibility.Collapsed;
@@ -3091,7 +3091,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _queuePausePending = false;
             var qrbSuffix = _queuePausedNotificationFired ? " (AI waiting for your response)" : string.Empty;
 
-            QueuePlayPauseButton.ToolTip = paused ? "Click to resume automatic prompt queue processing." : "Click to pause automatic prompt queue processing.";
+            QueuePlayPauseButton.ToolTip = MakeThemedToolTip(paused ? "Click to resume automatic prompt queue processing." : "Click to pause automatic prompt queue processing.");
             // Icon shows what clicking will DO (inverted from current state):
             //   Running → pause icon ⏸ (click will pause)
             //   Paused  → play icon  ▶ (click will resume)
@@ -3159,7 +3159,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             QueueStatusLabel.Text = "Queue is paused";
             // Turn has completed so the pending pause is now fully in effect.
             // Icon is already showing play ▶ (set during Case 2); update tooltip only.
-            QueuePlayPauseButton.ToolTip = "Click to resume automatic prompt queue processing.";
+            QueuePlayPauseButton.ToolTip = MakeThemedToolTip("Click to resume automatic prompt queue processing.");
             // Apply high-contrast styling now that pause is fully active.
             QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
             QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
@@ -6163,7 +6163,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             LoopFilePicker.ItemsSource = _loopFileEntries.Select(e => {
                 var item = new System.Windows.Controls.ComboBoxItem { Content = e.DisplayName };
                 if (!string.IsNullOrEmpty(e.TooltipText))
-                    item.ToolTip = e.TooltipText;
+                    item.ToolTip = MakeThemedToolTip(e.TooltipText);
                 return item;
             }).ToList();
             LoopFilePicker.Visibility = _loopFileEntries.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -7776,7 +7776,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             if (i == 0) tb.FontWeight = FontWeights.SemiBold;
             else         tb.Margin = new Thickness(0, 2, 0, 0);
-            tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "ToolTipForeground");
             tb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             stack.Children.Add(tb);
         }
@@ -12087,7 +12087,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             menuItem.Header = swatch;
             menuItem.Tag = new AgentAccentSelection(agentCard, paletteOption.Hex);
             menuItem.StaysOpenOnClick = false;
-            menuItem.ToolTip = paletteOption.Hex;
+            menuItem.ToolTip = MakeThemedToolTip(paletteOption.Hex);
             menuItem.Click += AgentAccentColorMenuItem_Click;
             accentSubmenu.Items.Add(menuItem);
         }
@@ -19367,7 +19367,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         };
         Panel.SetZIndex(scrollToBottomOverlay, 10);
         scrollToBottomOverlay.SetResourceReference(Control.StyleProperty, "ScrollToBottomButtonStyle");
-        scrollToBottomOverlay.ToolTip = "Scroll to bottom (Ctrl+End)";
+        scrollToBottomOverlay.ToolTip = MakeThemedToolTip("Scroll to bottom (Ctrl+End)");
 
         var scrollController = new TranscriptScrollController(rtb, Dispatcher);
         scrollController.SetScrollToBottomButton(scrollToBottomOverlay);
@@ -19518,7 +19518,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             IsEnabled = false
         };
         btn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        btn.ToolTip = up ? "Previous prompt" : "Next prompt";
+        btn.ToolTip = MakeThemedToolTip(up ? "Previous prompt" : "Next prompt");
         var pathData = up ? "M 1,8 L 5,2 L 9,8" : "M 1,2 L 5,8 L 9,2";
         var vb = new Viewbox { Width = 12, Height = 10, Stretch = Stretch.Uniform, Opacity = 0.8 };
         var path = new System.Windows.Shapes.Path
@@ -19698,20 +19698,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             $"ApplySecondaryTranscriptTitleFit thread={entry.Thread.ThreadId} text=\"{entry.TitleBlock.Text}\" fontSize={entry.TitleBlock.FontSize:F1}");
     }
 
-    private ToolTip MakeThemedToolTip(string text)
-    {
-        var tb = new TextBlock { Text = text };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        var tip = new ToolTip
-        {
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(6, 4, 6, 4),
-            Content = tb,
-        };
-        tip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
-        tip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
-        return tip;
-    }
+    private static ToolTip MakeThemedToolTip(string text) => ToolTipHelper.MakeThemedToolTip(text);
 
     private void ScanAndUpdateCoordinatorIntent()
     {
@@ -20431,7 +20418,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         Cursor          = System.Windows.Input.Cursors.Hand,
                     };
                     link.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "SubtleText");
-                    link.ToolTip = "This prompt includes attachments. Click to view.";
+                    link.ToolTip = MakeThemedToolTip("This prompt includes attachments. Click to view.");
                     link.Click  += (_, _) =>
                     {
                         if (capturedAttachments.Count > 0)
@@ -23412,7 +23399,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var isVisible = !string.IsNullOrWhiteSpace(entry.TranscriptThreadId);
         entry.TranscriptButton.Visibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
-        entry.TranscriptButton.ToolTip = isVisible ? "Open transcript" : null;
+        entry.TranscriptButton.ToolTip = isVisible ? MakeThemedToolTip("Open transcript") : null;
     }
 
     private ToolTranscriptEntry CreateToolEntry(
@@ -24780,7 +24767,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var hasUpdate = !string.IsNullOrWhiteSpace(latestVersion) && IsNewerSquadVersion(latestVersion, installedVersion);
         SquadUpdateBadge.Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
         if (hasUpdate)
-            SquadUpdateBadge.ToolTip = $"Squad CLI v{latestVersion} available — click to update";
+            SquadUpdateBadge.ToolTip = MakeThemedToolTip($"Squad CLI v{latestVersion} available — click to update");
         UpdateTitleBarResponsiveLayout();
     }
 
@@ -24974,13 +24961,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             MaximizeIconCanvas.Visibility = Visibility.Collapsed;
             RestoreIconCanvas.Visibility = Visibility.Visible;
-            MaximizeRestoreButton.ToolTip = "Restore";
+            MaximizeRestoreButton.ToolTip = MakeThemedToolTip("Restore");
         }
         else
         {
             MaximizeIconCanvas.Visibility = Visibility.Visible;
             RestoreIconCanvas.Visibility = Visibility.Collapsed;
-            MaximizeRestoreButton.ToolTip = "Maximize";
+            MaximizeRestoreButton.ToolTip = MakeThemedToolTip("Maximize");
         }
     }
 
@@ -30988,7 +30975,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
-                    label.ToolTip = att.FileReferencePath;
+                    label.ToolTip = MakeThemedToolTip(att.FileReferencePath);
                     label.Cursor  = System.Windows.Input.Cursors.Hand;
                     var capturedPath = att.FileReferencePath;
                     label.MouseLeftButtonUp += (_, _) =>
@@ -32948,7 +32935,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var item = new MenuItem { Header = entry.DisplayName };
             item.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             if (!string.IsNullOrEmpty(entry.TooltipText))
-                item.ToolTip = entry.TooltipText;
+                item.ToolTip = MakeThemedToolTip(entry.TooltipText);
             item.Click += async (_, _) =>
             {
                 try

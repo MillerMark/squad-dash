@@ -808,18 +808,7 @@ internal sealed class MaintenancePanelController {
         };
     }
 
-    private static ToolTip MakeThemedToolTip(string text) {
-        var tb = new TextBlock { Text = text };
-        tb.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        var tip = new ToolTip {
-            BorderThickness = new Thickness(1),
-            Padding         = new Thickness(6, 4, 6, 4),
-            Content         = tb,
-        };
-        tip.SetResourceReference(ToolTip.BackgroundProperty, "InputSurface");
-        tip.SetResourceReference(ToolTip.BorderBrushProperty, "InputBorder");
-        return tip;
-    }
+    private static ToolTip MakeThemedToolTip(string text) => ToolTipHelper.MakeThemedToolTip(text);
 
     private static bool IsStringTrueValue(string? value) =>
         string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||

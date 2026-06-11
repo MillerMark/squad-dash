@@ -309,14 +309,14 @@ internal sealed class PreferencesWindow : Window {
         (_soundQuickRepliesShownCheckBox,     _soundQuickRepliesShownPathBox)     = MakeSoundRow(currentSettings.Sound_QuickRepliesShown_Enabled,     currentSettings.Sound_QuickRepliesShown_CustomPath);
 
         // CheckBox tooltips — explain when each sound event fires
-        _soundPromptCompleteCheckBox.ToolTip        = "Plays when a prompt finishes successfully.";
-        _soundPromptErrorCheckBox.ToolTip           = "Plays when a prompt fails with an error.";
-        _soundApprovalNeededCheckBox.ToolTip        = "Plays when an item is added to the Approvals panel.";
-        _soundQueueEmptyCheckBox.ToolTip            = "Plays when the prompt queue drains to empty.";
-        _soundLoopIterationCompleteCheckBox.ToolTip = "Plays at the end of each loop iteration.";
-        _soundLoopStoppedCheckBox.ToolTip           = "Plays when the loop stops entirely.";
-        _soundCommitMadeCheckBox.ToolTip            = "Plays when a git commit is made by an agent.";
-        _soundQuickRepliesShownCheckBox.ToolTip     = "Plays when quick reply buttons appear in the transcript.";
+        _soundPromptCompleteCheckBox.ToolTip        = ToolTipHelper.MakeThemedToolTip("Plays when a prompt finishes successfully.");
+        _soundPromptErrorCheckBox.ToolTip           = ToolTipHelper.MakeThemedToolTip("Plays when a prompt fails with an error.");
+        _soundApprovalNeededCheckBox.ToolTip        = ToolTipHelper.MakeThemedToolTip("Plays when an item is added to the Approvals panel.");
+        _soundQueueEmptyCheckBox.ToolTip            = ToolTipHelper.MakeThemedToolTip("Plays when the prompt queue drains to empty.");
+        _soundLoopIterationCompleteCheckBox.ToolTip = ToolTipHelper.MakeThemedToolTip("Plays at the end of each loop iteration.");
+        _soundLoopStoppedCheckBox.ToolTip           = ToolTipHelper.MakeThemedToolTip("Plays when the loop stops entirely.");
+        _soundCommitMadeCheckBox.ToolTip            = ToolTipHelper.MakeThemedToolTip("Plays when a git commit is made by an agent.");
+        _soundQuickRepliesShownCheckBox.ToolTip     = ToolTipHelper.MakeThemedToolTip("Plays when quick reply buttons appear in the transcript.");
 
         _voiceReplacementRules = new ObservableCollection<VoiceReplacementRuleViewModel>(
             currentSettings.VoiceReplacementRules.Select(r =>
@@ -1461,14 +1461,14 @@ internal sealed class PreferencesWindow : Window {
 
         // ── Update path-box tooltips to mention TTS ───────────────────────────────
         const string ttsPathTip = "Enter a file path, or a quoted phrase like \"Hello!\" to speak it aloud using TTS.";
-        _soundPromptCompletePathBox.ToolTip        = ttsPathTip;
-        _soundPromptErrorPathBox.ToolTip           = ttsPathTip;
-        _soundApprovalNeededPathBox.ToolTip        = ttsPathTip;
-        _soundQueueEmptyPathBox.ToolTip            = ttsPathTip;
-        _soundLoopIterationCompletePathBox.ToolTip = ttsPathTip;
-        _soundLoopStoppedPathBox.ToolTip           = ttsPathTip;
-        _soundCommitMadePathBox.ToolTip            = ttsPathTip;
-        _soundQuickRepliesShownPathBox.ToolTip     = ttsPathTip;
+        _soundPromptCompletePathBox.ToolTip        = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundPromptErrorPathBox.ToolTip           = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundApprovalNeededPathBox.ToolTip        = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundQueueEmptyPathBox.ToolTip            = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundLoopIterationCompletePathBox.ToolTip = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundLoopStoppedPathBox.ToolTip           = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundCommitMadePathBox.ToolTip            = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
+        _soundQuickRepliesShownPathBox.ToolTip     = ToolTipHelper.MakeThemedToolTip(ttsPathTip);
 
         return WrapInScrollViewer(form);
     }
@@ -1621,7 +1621,7 @@ internal sealed class PreferencesWindow : Window {
         {
             azureVoiceCombo.Items.Add(currentSettings.Tts_Azure_Voice);
             azureVoiceCombo.SelectedIndex = 0;
-            azureVoiceCombo.ToolTip = "Configure Azure Speech key and region to load the full voice list.";
+            azureVoiceCombo.ToolTip = ToolTipHelper.MakeThemedToolTip("Configure Azure Speech key and region to load the full voice list.");
         }
 
         // ── Test TTS Button ───────────────────────────────────────────────────────
@@ -1740,7 +1740,7 @@ internal sealed class PreferencesWindow : Window {
 
         // Col 1: TextBox — star width, tooltip replaces inline hint
         pathBox.Margin = new Thickness(0, 3, 6, 3);
-        pathBox.ToolTip = "Leave blank to use the default Windows sound. Right-click to test.";
+        pathBox.ToolTip = ToolTipHelper.MakeThemedToolTip("Leave blank to use the default Windows sound. Right-click to test.");
         Grid.SetRow(pathBox, rowIndex);
         Grid.SetColumn(pathBox, 1);
 

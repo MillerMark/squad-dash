@@ -568,7 +568,7 @@ internal sealed class InboxPanelController
 
             case "task-ref":
             {
-                chip.ToolTip = $"Task: {att.TaskId}";
+                chip.ToolTip = ToolTipHelper.MakeThemedToolTip($"Task: {att.TaskId}");
                 chip.Cursor  = Cursors.Hand;
                 if (lookupTask is not null && att.TaskId is not null)
                 {

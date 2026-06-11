@@ -190,7 +190,7 @@ internal sealed class DockingMapWindow : Window
             HidePreview();
         };
         if (isPlaybackTarget)
-            border.ToolTip = $"Playback target: {DockingLayoutEngine.GetZoneDisplayName(slot.TargetZone)} @ {slot.TargetOrder}";
+            border.ToolTip = ToolTipHelper.MakeThemedToolTip($"Playback target: {DockingLayoutEngine.GetZoneDisplayName(slot.TargetZone)} @ {slot.TargetOrder}");
         border.MouseLeftButtonUp += (_, _) =>
         {
             try

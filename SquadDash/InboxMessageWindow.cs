@@ -340,7 +340,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             string.Equals(action.RouteMode, "done", StringComparison.OrdinalIgnoreCase))
             hint = "Acknowledge — no action will be taken";
         if (!string.IsNullOrWhiteSpace(hint))
-            btn.ToolTip = hint;
+            btn.ToolTip = ToolTipHelper.MakeThemedToolTip(hint);
 
         bool alreadyUsed = msg.UsedActions.Contains(action.Label);
         if (alreadyUsed)
@@ -477,7 +477,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
             case "task-ref":
             {
-                chip.ToolTip = $"Task: {att.TaskId}";
+                chip.ToolTip = ToolTipHelper.MakeThemedToolTip($"Task: {att.TaskId}");
                 chip.Cursor  = Cursors.Hand;
                 if (lookupTask is not null && att.TaskId is not null)
                 {

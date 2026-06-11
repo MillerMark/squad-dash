@@ -1468,6 +1468,17 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Implicit ToolTip style — applies to ALL tooltips app-wide (plain strings set in XAML or C#)
+                 so every tooltip inherits the active theme's background, foreground, and border. -->
+            <Style TargetType="ToolTip">
+                <Setter Property="Background"       Value="{DynamicResource InputSurface}"/>
+                <Setter Property="Foreground"       Value="{DynamicResource ToolTipForeground}"/>
+                <Setter Property="BorderBrush"      Value="{DynamicResource InputBorder}"/>
+                <Setter Property="BorderThickness"  Value="1"/>
+                <Setter Property="Padding"          Value="6,4,6,4"/>
+            </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>
