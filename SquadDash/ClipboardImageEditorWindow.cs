@@ -3660,7 +3660,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Stroke = Brushes.Black,
             StrokeThickness = 1,
             Cursor = AnnotationCursors.RotateEndpoint,
-            Visibility = Visibility.Hidden
+            Visibility = Visibility.Collapsed
         };
         var tailHandle = new Ellipse {
             Width = 8,
@@ -3669,7 +3669,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Stroke = Brushes.Black,
             StrokeThickness = 1,
             Cursor = AnnotationCursors.RotateEndpoint,
-            Visibility = Visibility.Hidden
+            Visibility = Visibility.Collapsed
         };
 
         _canvas.Children.Add(shadowLine);
@@ -4050,8 +4050,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void SelectArrow(AnnotationArrow? arrow) {
         if (_selectedArrow != null && _selectedArrow != arrow) {
-            _selectedArrow.TipHandle.Visibility = Visibility.Hidden;
-            _selectedArrow.TailHandle.Visibility = Visibility.Hidden;
+            _selectedArrow.TipHandle.Visibility = Visibility.Collapsed;
+            _selectedArrow.TailHandle.Visibility = Visibility.Collapsed;
         }
         _selectedArrow = arrow;
         if (arrow != null) {
