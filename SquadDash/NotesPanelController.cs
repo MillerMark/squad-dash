@@ -27,6 +27,9 @@ internal sealed class NotesPanelController {
     private readonly NotesPanelViewModel _viewModel = new();
     internal NotesPanelViewModel ViewModel => _viewModel;
 
+    // Mirrors _listPanel.Children in sorted order (no empty-state placeholder).
+    private readonly List<NoteItem> _sortedNotes = new();
+
     private Action<NotesSortOrder>? _onSortOrderChanged;
 
     // ── Construction ─────────────────────────────────────────────────────────
@@ -70,7 +73,18 @@ internal sealed class NotesPanelController {
 
     public void AddNote(NoteItem note) {
         _viewModel.Notes.Insert(0, note);
-        RebuildList();
+
+        if (_sortedNotes.Count == 0) {
+            // Remove the "No notes yet" placeholder before adding the first row.
+            _listPanel.Children.Clear();
+        }
+
+        int idx = FindSortedInsertIndex(note);
+        _sortedNotes.Insert(idx, note);
+        var row = BuildRow(note);
+        row.Visibility = PanelFilterHelper.Matches(note.Title, _viewModel.FilterText)
+            ? Visibility.Visible : Visibility.Collapsed;
+        _listPanel.Children.Insert(idx, row);
     }
 
     public void SetFilter(string text) {
@@ -78,10 +92,28 @@ internal sealed class NotesPanelController {
         ApplyFilterToList();
     }
 
+    /// <summary>Returns the index at which <paramref name="note"/> should be inserted
+    /// into <see cref="_sortedNotes"/> to preserve the current sort order.</summary>
+    private int FindSortedInsertIndex(NoteItem note) {
+        if (_viewModel.SortOrder == NotesSortOrder.Alphabetical) {
+            for (int i = 0; i < _sortedNotes.Count; i++) {
+                if (StringComparer.OrdinalIgnoreCase.Compare(note.Title, _sortedNotes[i].Title) <= 0)
+                    return i;
+            }
+        } else {
+            for (int i = 0; i < _sortedNotes.Count; i++) {
+                if (note.CreatedAt >= _sortedNotes[i].CreatedAt)
+                    return i;
+            }
+        }
+        return _sortedNotes.Count;
+    }
+
     // ── List construction─────────────────────────────────────────────────────
 
     private void RebuildList() {
         _listPanel.Children.Clear();
+        _sortedNotes.Clear();
 
         if (_viewModel.Notes.Count == 0) {
             var empty = new TextBlock {
@@ -96,11 +128,11 @@ internal sealed class NotesPanelController {
             return;
         }
 
-        var sorted = _viewModel.SortOrder == NotesSortOrder.Alphabetical
-            ? _viewModel.Notes.OrderBy(n => n.Title, StringComparer.OrdinalIgnoreCase).ToList()
-            : _viewModel.Notes.OrderByDescending(n => n.CreatedAt).ToList();
+        _sortedNotes.AddRange(_viewModel.SortOrder == NotesSortOrder.Alphabetical
+            ? _viewModel.Notes.OrderBy(n => n.Title, StringComparer.OrdinalIgnoreCase)
+            : _viewModel.Notes.OrderByDescending(n => n.CreatedAt));
 
-        foreach (var note in sorted)
+        foreach (var note in _sortedNotes)
             _listPanel.Children.Add(BuildRow(note));
 
         ApplyFilterToList();
