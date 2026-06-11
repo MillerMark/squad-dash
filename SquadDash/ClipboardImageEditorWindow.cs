@@ -158,8 +158,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Point _bodyDragStartMouse;
     private double _bodyDragStartOffsetX;
     private double _bodyDragStartOffsetY;
-    private bool _arrowCloneDragInProgress;  // true when dragging a cloned arrow
-    private Point _arrowCloneDragOriginalCenter; // center of original arrow for constraint
+    private Point _arrowCloneDragOriginalCenter; // drag-start center for Shift axis constraint
 
     // Arrow drag-to-draw state
     private bool _creatingArrowByDrag;
@@ -197,8 +196,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Point _annotRectDragStart;
     private Rect _annotRectDragOriginal;
     private bool _annotRectBodyDragging;
-    private bool _rectCloneDragInProgress;   // true when dragging a cloned rect
-    private Point _rectCloneDragOriginalCenter; // center of original rect for constraint
+    private Point _rectCloneDragOriginalCenter; // drag-start center for Shift axis constraint
 
     // Rubber-band state for drawing a new annotation rect
     private bool _creatingAnnotRect;
@@ -222,8 +220,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Point _measureLineDragStart;
     private Point _measureLineDragOrigStart;
     private Point _measureLineDragOrigEnd;
-    private bool _mlCloneDragInProgress;   // true when dragging a cloned measure line
-    private Point _mlCloneDragOriginalCenter; // center of original measure line for constraint
+    private Point _mlCloneDragOriginalCenter; // drag-start center for Shift axis constraint
 
     // Measure-line handle-drag sub-state
     private bool _mlDraggingHandle;   // true when an endpoint handle is being dragged
@@ -255,8 +252,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Rect _annotXDragOriginal;
     private bool _annotXBodyDragging;
     private int _draggingAnnotXHandleIdx = -1;
-    private bool _xCloneDragInProgress;    // true when dragging a cloned X
-    private Point _xCloneDragOriginalCenter; // center of original X for constraint
+    private Point _xCloneDragOriginalCenter; // drag-start center for Shift axis constraint
 
     // Rubber-band state for drawing a new X
     private bool _creatingAnnotX;
@@ -389,8 +385,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private AnnotationText? _canvasTextDragAnnotation;
     private Point _canvasTextDragStart;
     private Rect _canvasTextDragOrigBounds;
-    private bool _textCloneDragInProgress;   // true when dragging a cloned text annotation
-    private Point _textCloneDragOriginalCenter; // center of original text bounds for constraint
+    private Point _textCloneDragOriginalCenter; // drag-start center for Shift axis constraint
     private Color _defaultTextFgColor = Colors.White;
     private Color _defaultTextBgColor = Colors.Black;
     private bool _textDragCreating;
@@ -1855,7 +1850,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _canvasTextDragStart = pt;
                 _canvasTextDragOrigBounds = clone.Bounds;
                 // Track clone drag for Shift-constraint
-                _textCloneDragInProgress = true;
                 _textCloneDragOriginalCenter = new Point(clone.Bounds.X + clone.Bounds.Width / 2, clone.Bounds.Y + clone.Bounds.Height / 2);
                 _canvas.CaptureMouse();
                 e.Handled = true;
@@ -2434,7 +2428,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             CommitDragUndo();
             _canvasTextDragActive = false;
             _canvasTextDragAnnotation = null;
-            _textCloneDragInProgress = false;
             _canvas.ReleaseMouseCapture();
             if (_selectedText != null) SelectText(_selectedText);  // refresh handles position
             e.Handled = true;
@@ -3243,7 +3236,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _measureLineDragOrigEnd = clone.EndPt;
                 _preDragSnapshot = null;
                 // Track clone drag for Shift-constraint
-                _mlCloneDragInProgress = true;
                 _mlCloneDragOriginalCenter = new Point(
                     (clone.StartPt.X + clone.EndPt.X) / 2,
                     (clone.StartPt.Y + clone.EndPt.Y) / 2);
@@ -3287,7 +3279,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             if (_draggingMeasureLine != ml || _mlDraggingHandle) return;
             CommitDragUndo();
             _draggingMeasureLine = null;
-            _mlCloneDragInProgress = false;
             hitLine.ReleaseMouseCapture();
             e2.Handled = true;
         };
@@ -3851,8 +3842,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _bodyDragStartOffsetX = clone.OffsetX;
                 _bodyDragStartOffsetY = clone.OffsetY;
                 _preDragSnapshot = null;
-                // Track clone drag for Shift-constraint
-                _arrowCloneDragInProgress = true;
                 _arrowCloneDragOriginalCenter = new Point(
                     clone.TargetCenterOnCanvas.X + clone.OffsetX,
                     clone.TargetCenterOnCanvas.Y + clone.OffsetY);
@@ -3866,7 +3855,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     RemoveArrow(clone);
                     _draggingArrow = null;
                     _bodyDragging = false;
-                    _arrowCloneDragInProgress = false;
                     return;
                 }
                 e.Handled = true;
@@ -3917,7 +3905,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             CommitDragUndo();
             _draggingArrow = null;
             _bodyDragging = false;
-            _arrowCloneDragInProgress = false;
             ShowColorPicker(arrow);
             shape.ReleaseMouseCapture();
             e.Handled = true;
@@ -4416,7 +4403,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _annotXDragOriginal = clone.Bounds;
                 _preDragSnapshot = null;
                 // Track clone drag for Shift-constraint
-                _xCloneDragInProgress = true;
                 _xCloneDragOriginalCenter = new Point(
                     clone.Bounds.X + clone.Bounds.Width / 2,
                     clone.Bounds.Y + clone.Bounds.Height / 2);
@@ -4464,7 +4450,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             if (_draggingAnnotX != annotX || !_annotXBodyDragging) return;
             _annotXBodyDragging = false;
             _draggingAnnotX = null;
-            _xCloneDragInProgress = false;
             hitZone.ReleaseMouseCapture();
             CommitDragUndo();
             e.Handled = true;
@@ -4719,7 +4704,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _annotRectDragOriginal = clone.Bounds;
                 _preDragSnapshot = null;
                 // Track clone drag for Shift-constraint
-                _rectCloneDragInProgress = true;
                 _rectCloneDragOriginalCenter = new Point(
                     clone.Bounds.X + clone.Bounds.Width / 2,
                     clone.Bounds.Y + clone.Bounds.Height / 2);
@@ -4771,7 +4755,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             CommitDragUndo();
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
-            _rectCloneDragInProgress = false;
             border.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -4799,7 +4782,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _annotRectDragOriginal = clone.Bounds;
                 _preDragSnapshot = null;
                 // Track clone drag for Shift-constraint
-                _rectCloneDragInProgress = true;
                 _rectCloneDragOriginalCenter = new Point(
                     clone.Bounds.X + clone.Bounds.Width / 2,
                     clone.Bounds.Y + clone.Bounds.Height / 2);
@@ -4851,7 +4833,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             CommitDragUndo();
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
-            _rectCloneDragInProgress = false;
             hitZone.ReleaseMouseCapture();
             e.Handled = true;
         };
@@ -5809,7 +5790,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     _canvasTextDragStart = e.GetPosition(_canvas);
                     _canvasTextDragOrigBounds = clone.Bounds;
                     // Track clone drag for Shift-constraint
-                    _textCloneDragInProgress = true;
                     _textCloneDragOriginalCenter = new Point(clone.Bounds.X + clone.Bounds.Width / 2, clone.Bounds.Y + clone.Bounds.Height / 2);
                     _canvas.CaptureMouse();
                     e.Handled = true;
