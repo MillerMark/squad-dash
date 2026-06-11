@@ -3276,6 +3276,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _suppressUndo = false;
             SetAnnotationVisible(mlStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             _mlMoveStandbyClone = mlStandby;
+            // CreateMeasureLine called SelectMeasureLine(standby), hiding ml's handles. Restore them.
+            mlStandby.Handle1.Visibility = Visibility.Collapsed;
+            mlStandby.Handle2.Visibility = Visibility.Collapsed;
+            ml.Handle1.Visibility = Visibility.Visible;
+            ml.Handle2.Visibility = Visibility.Visible;
+            _selectedMeasureLine = ml;
+            HideColorPicker();
             _draggingMeasureLine = ml;
             _measureLineDragStart = e2.GetPosition(_canvas);
             _measureLineDragOrigStart = ml.StartPt;
@@ -3324,6 +3331,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             CommitDragUndo();
             _draggingMeasureLine = null;
             hitLine.ReleaseMouseCapture();
+            ShowColorPickerForMeasureLine(ml);
             e2.Handled = true;
         };
         hitLine.MouseRightButtonDown += (_, e2) => {
@@ -3921,6 +3929,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             UpdateArrowGeometry(arrowStandby);
             _arrowMoveStandbyClone = arrowStandby;
             SetAnnotationVisible(_arrowMoveStandbyClone, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+            // CreateArrow called SelectArrow(standby), hiding arrow's handles. Restore them.
+            arrowStandby.TipHandle.Visibility = Visibility.Collapsed;
+            arrowStandby.TailHandle.Visibility = Visibility.Collapsed;
+            arrow.TipHandle.Visibility = Visibility.Visible;
+            arrow.TailHandle.Visibility = Visibility.Visible;
+            _selectedArrow = arrow;
+            HideColorPicker();
             _draggingArrow = arrow;
             _bodyDragging = true;
             _bodyDragStartMouse = e.GetPosition(_canvas);
@@ -4512,6 +4527,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _suppressUndo = false;
             SetAnnotationVisible(xStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             _xMoveStandbyClone = xStandby;
+            // CreateAnnotationX called SelectAnnotationX(standby), hiding annotX's handles. Restore them.
+            foreach (var h in xStandby.Handles) h.Visibility = Visibility.Collapsed;
+            foreach (var h in annotX.Handles) h.Visibility = Visibility.Visible;
+            _selectedAnnotX = annotX;
+            HideColorPicker();
             _draggingAnnotX = annotX;
             _annotXBodyDragging = true;
             _draggingAnnotXHandleIdx = -1;
@@ -4564,6 +4584,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             }
             hitZone.ReleaseMouseCapture();
             CommitDragUndo();
+            ShowColorPickerForX(annotX);
             e.Handled = true;
         };
         hitZone.MouseRightButtonDown += (_, e) => {
@@ -4830,6 +4851,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _suppressUndo = false;
             SetAnnotationVisible(rectStandby, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
             _rectMoveStandbyClone = rectStandby;
+            // CreateAnnotationRect called SelectAnnotationRect(standby), hiding annotRect's handles. Restore them.
+            foreach (var h in rectStandby.Handles) h.Visibility = Visibility.Collapsed;
+            foreach (var h in annotRect.Handles) h.Visibility = Visibility.Visible;
+            _selectedAnnotRect = annotRect;
+            HideColorPicker();
             _draggingAnnotRect = annotRect;
             _annotRectBodyDragging = true;
             _draggingAnnotRectHandleIdx = -1;
@@ -4885,6 +4911,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
             border.ReleaseMouseCapture();
+            ShowColorPickerForRect(annotRect);
             e.Handled = true;
         };
         border.MouseRightButtonDown += (_, e) => {
@@ -4926,6 +4953,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _suppressUndo = false;
                 SetAnnotationVisible(rectStandby2, (Keyboard.Modifiers & ModifierKeys.Control) != 0);
                 _rectMoveStandbyClone = rectStandby2;
+                // CreateAnnotationRect called SelectAnnotationRect(standby), hiding annotRect's handles. Restore them.
+                foreach (var h in rectStandby2.Handles) h.Visibility = Visibility.Collapsed;
+                foreach (var h in annotRect.Handles) h.Visibility = Visibility.Visible;
+                _selectedAnnotRect = annotRect;
+                HideColorPicker();
             }
             _draggingAnnotRect = annotRect;
             _annotRectBodyDragging = true;
@@ -4982,6 +5014,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _draggingAnnotRect = null;
             _annotRectBodyDragging = false;
             hitZone.ReleaseMouseCapture();
+            ShowColorPickerForRect(annotRect);
             e.Handled = true;
         };
         hitZone.MouseRightButtonDown += (_, e) => {
