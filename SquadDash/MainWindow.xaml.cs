@@ -12544,7 +12544,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            if (key != Key.F12) return;
+            if (key != Key.F12 && key != Key.F11) return;
             if (Keyboard.Modifiers != ModifierKeys.None) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
@@ -12553,7 +12553,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                              .FirstOrDefault(w => w.IsActive)
                          ?? this;
 
-            ToggleUiReveal(target);
+            if (key == Key.F11)
+            {
+                _themeRevealOverlay ??= new ThemeRevealOverlay();
+                if (_themeRevealOverlay.IsActive)
+                    _themeRevealOverlay.Deactivate();
+                else
+                    _themeRevealOverlay.Activate(target);
+            }
+            else
+            {
+                ToggleUiReveal(target);
+            }
             keyArgs.Handled = true;
         }
         catch (Exception ex)

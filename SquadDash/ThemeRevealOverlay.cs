@@ -60,6 +60,9 @@ internal sealed class ThemeRevealOverlay
     private StackPanel? _rowsPanel;
     private FrameworkElement? _lastElement;
 
+    // Last-computed token list so Ctrl+C can copy it.
+    private List<(string Prop, string Key, Color Color, string SourceLabel)> _lastTokens = new();
+
     /// <summary>True while the overlay is active on a window.</summary>
     public bool IsActive => _owner is not null;
 
@@ -79,6 +82,7 @@ internal sealed class ThemeRevealOverlay
         _lastElement = null;
 
         InputManager.Current.PostProcessInput += OnPostProcessInput;
+        InputManager.Current.PreProcessInput  += OnPreProcessInputForKeys;
     }
 
     public void Deactivate()
@@ -86,6 +90,7 @@ internal sealed class ThemeRevealOverlay
         if (_owner is not null)
         {
             InputManager.Current.PostProcessInput -= OnPostProcessInput;
+            InputManager.Current.PreProcessInput  -= OnPreProcessInputForKeys;
 
             try { _owner.Cursor = _savedCursor; } catch { }
             _owner       = null;
@@ -96,6 +101,38 @@ internal sealed class ThemeRevealOverlay
             _popup.IsOpen = false;
 
         _lastElement = null;
+    }
+
+    private void OnPreProcessInputForKeys(object sender, PreProcessInputEventArgs e)
+    {
+        try
+        {
+            if (_owner is null || e.StagingItem.Input is not KeyEventArgs keyArgs) return;
+            if (keyArgs.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
+
+            var mods = Keyboard.Modifiers;
+            bool isCopy = keyArgs.Key == Key.C
+                && mods.HasFlag(ModifierKeys.Control)
+                && !mods.HasFlag(ModifierKeys.Shift)
+                && !mods.HasFlag(ModifierKeys.Alt);
+
+            if (!isCopy) return;
+
+            if (_lastTokens.Count > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("[Theme Reveal]");
+                foreach (var (prop, key, color, sourceLabel) in _lastTokens)
+                {
+                    var hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+                    var src = string.IsNullOrEmpty(sourceLabel) ? string.Empty : $"  ({sourceLabel})";
+                    sb.AppendLine($"{prop} → {key}  {hex}{src}");
+                }
+                try { System.Windows.Clipboard.SetText(sb.ToString().TrimEnd()); } catch { }
+            }
+            keyArgs.Handled = true;
+        }
+        catch { }
     }
 
     // -------------------------------------------------------------------------
@@ -185,6 +222,7 @@ internal sealed class ThemeRevealOverlay
         _rowsPanel.Children.Clear();
 
         var allTokens = CollectAllLevelTokens(element);
+        _lastTokens = allTokens;
 
         if (allTokens.Count == 0)
         {
@@ -252,8 +290,9 @@ internal sealed class ThemeRevealOverlay
                     var sourceLabel = levels == 0 ? string.Empty : DescribeElement(fe);
                     foreach (var t in tokens)
                     {
-                        var dedupKey = $"{t.Prop}:{t.Key}";
-                        if (seenKeys.Add(dedupKey))
+                        // Deduplicate by property name only — the innermost (first-found)
+                        // assignment wins; a parent's Background cannot override a child's.
+                        if (seenKeys.Add(t.Prop))
                             allTokens.Add((t.Prop, t.Key, t.Color, sourceLabel));
                     }
 
