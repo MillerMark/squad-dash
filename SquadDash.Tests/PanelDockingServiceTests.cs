@@ -711,6 +711,77 @@ internal sealed class PanelDockingServiceTests
             "approvals should have equal weight (1*)");
     }
 
+    /// <summary>
+    /// When the zone height changes by more than the ±10 px tolerance between a panel's hide
+    /// and show operations, the PanelHideSnapshot must be discarded and equal star weights
+    /// used as a fallback instead of restoring the saved weight.
+    /// </summary>
+    [Test, Apartment(ApartmentState.STA)]
+    public void OnPanelVisibilityChanged_HideShow_FallsBackToEqualWeights_WhenZoneHeightChanged()
+    {
+        var leftZone   = new Grid();
+        var loopEl     = new Border();
+        var tasksEl    = new Border();
+        var topZone    = new Grid();
+        var leftZoneSv = new ScrollViewer();
+
+        var svc = new PanelDockingService(
+            new Dictionary<string, FrameworkElement>
+            {
+                ["loop"]  = loopEl,
+                ["tasks"] = tasksEl,
+            },
+            leftZone, new Grid(), new Grid(), new Grid(), new Grid(), new Grid(),
+            new Grid(), new Grid(), new Grid(), new Grid(), new Grid(), new Grid(),
+            topZone,
+            new ColumnDefinition { Width = new GridLength(280) },
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition { Width = new GridLength(5) },
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(), new ColumnDefinition(),
+            new ColumnDefinition(), new ColumnDefinition(),
+            leftZoneSv, new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new ScrollViewer(), new ScrollViewer(), new ScrollViewer(), new ScrollViewer(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter(),
+            new GridSplitter(), new GridSplitter(), new GridSplitter(), new GridSplitter());
+
+        svc.MovePanel("loop",  DockZone.Left);
+        svc.MovePanel("tasks", DockZone.Left);
+
+        // Simulate a user resize: loop=0.5*, tasks=1.5* (loop is small).
+        leftZone.RowDefinitions[0].Height = new GridLength(0.5, GridUnitType.Star);
+        leftZone.RowDefinitions[2].Height = new GridLength(1.5, GridUnitType.Star);
+
+        // Hide loop — snapshot is saved with ZoneActualHeight=0 (scroll viewer not yet laid out).
+        loopEl.Visibility = Visibility.Collapsed;
+        svc.OnPanelVisibilityChanged("loop", visible: false);
+
+        // Simulate a window resize: measure and arrange the scroll viewer so its ActualHeight
+        // becomes 600, which exceeds the ±10 px tolerance relative to the snapshotted height of 0.
+        leftZoneSv.Height = 600;
+        leftZoneSv.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        leftZoneSv.Arrange(new System.Windows.Rect(0, 0, 200, 600));
+
+        // Show loop — zone height changed by >10 px → snapshot is stale → fallback to equal weights.
+        loopEl.Visibility = Visibility.Visible;
+        svc.OnPanelVisibilityChanged("loop", visible: true);
+
+        // Both visible panels should receive equal star weights (snapshot was discarded).
+        var starRows = leftZone.RowDefinitions.Where(r => r.Height.IsStar).ToList();
+        Assert.That(starRows.Count, Is.EqualTo(2),
+            "Expected exactly 2 star rows for the 2 visible panels");
+        Assert.That(starRows[0].Height.Value, Is.EqualTo(1.0).Within(0.01),
+            "loop should fall back to equal weight (1*)");
+        Assert.That(starRows[1].Height.Value, Is.EqualTo(1.0).Within(0.01),
+            "tasks should have equal weight (1*)");
+    }
+
     private static void AssertN1RuleCompliance(PanelDockingService svc, string testContext)
     {
         // Get the current layout data
