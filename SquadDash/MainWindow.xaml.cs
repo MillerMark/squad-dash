@@ -35164,6 +35164,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RecordHintFeatureUsed(PromptHintFeature.CtrlArrowHistory);
         _conversationManager.NavigateHistory(1);
     }
+
+    internal void SwitchTheme(string name) => ApplyTheme(name);
+    internal string ActiveThemeName => _activeThemeName;
+
+    private ThemeColorsWindow? _themeColorsWindow;
+
+    private void ThemeColorsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_themeColorsWindow is not null)
+            {
+                _themeColorsWindow.Activate();
+                return;
+            }
+            _themeColorsWindow = new ThemeColorsWindow(this);
+            if (CanShowOwnedWindow())
+                _themeColorsWindow.Owner = this;
+            _themeColorsWindow.Closed += (_, _) => _themeColorsWindow = null;
+            _themeColorsWindow.Show();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ThemeColorsMenuItem_Click), ex); }
+    }
 }
 
 /// <summary>

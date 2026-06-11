@@ -855,6 +855,9 @@
                         <MenuItem Header="Docking Test Cases"
                                   Click="DockingTestCasesFolderMenuItem_Click" />
                     </MenuItem>
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="Theme _Colors..."
+                              Click="ThemeColorsMenuItem_Click" />
                 </MenuItem>
             </Menu>
 
