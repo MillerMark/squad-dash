@@ -61,29 +61,21 @@ internal sealed class ApplicationSettingsStore {
 
         var normalizedWorkspace = NormalizeFolder(workspaceFolder);
         var current = LoadCore();
-        var workspaceColors = current.AgentAccentColorsByWorkspace
-            .ToDictionary(
-                entry => entry.Key,
-                entry => new Dictionary<string, string>(entry.Value, StringComparer.OrdinalIgnoreCase),
-                StringComparer.OrdinalIgnoreCase);
 
-        if (!workspaceColors.TryGetValue(normalizedWorkspace, out var agentColors)) {
-            agentColors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            workspaceColors[normalizedWorkspace] = agentColors;
-        }
-        else {
-            agentColors = new Dictionary<string, string>(agentColors, StringComparer.OrdinalIgnoreCase);
-            workspaceColors[normalizedWorkspace] = agentColors;
-        }
+        // Shallow-copy the outer dictionary; unaffected workspaces keep their existing sub-dict references.
+        var workspaceColors = new Dictionary<string, IReadOnlyDictionary<string, string>>(
+            current.AgentAccentColorsByWorkspace, StringComparer.OrdinalIgnoreCase);
+
+        // Copy only the affected workspace's sub-dictionary.
+        var agentColors = current.AgentAccentColorsByWorkspace.TryGetValue(normalizedWorkspace, out var existingColors)
+            ? new Dictionary<string, string>(existingColors, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         agentColors[agentName] = NormalizeColorHex(accentColorHex);
-        var readOnlyWorkspaceColors = workspaceColors.ToDictionary(
-            entry => entry.Key,
-            entry => (IReadOnlyDictionary<string, string>)entry.Value,
-            StringComparer.OrdinalIgnoreCase);
+        workspaceColors[normalizedWorkspace] = agentColors;
 
         var updated = current with {
-            AgentAccentColorsByWorkspace = readOnlyWorkspaceColors
+            AgentAccentColorsByWorkspace = workspaceColors
         };
 
         SaveCore(updated);
@@ -159,32 +151,24 @@ internal sealed class ApplicationSettingsStore {
 
         var normalizedWorkspace = NormalizeFolder(workspaceFolder);
         var current = LoadCore();
-        var workspaceImages = current.AgentImagePathsByWorkspace
-            .ToDictionary(
-                entry => entry.Key,
-                entry => new Dictionary<string, string>(entry.Value, StringComparer.OrdinalIgnoreCase),
-                StringComparer.OrdinalIgnoreCase);
 
-        if (!workspaceImages.TryGetValue(normalizedWorkspace, out var agentImages)) {
-            agentImages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            workspaceImages[normalizedWorkspace] = agentImages;
-        }
-        else {
-            agentImages = new Dictionary<string, string>(agentImages, StringComparer.OrdinalIgnoreCase);
-            workspaceImages[normalizedWorkspace] = agentImages;
-        }
+        // Shallow-copy the outer dictionary; unaffected workspaces keep their existing sub-dict references.
+        var workspaceImages = new Dictionary<string, IReadOnlyDictionary<string, string>>(
+            current.AgentImagePathsByWorkspace, StringComparer.OrdinalIgnoreCase);
+
+        // Copy only the affected workspace's sub-dictionary.
+        var agentImages = current.AgentImagePathsByWorkspace.TryGetValue(normalizedWorkspace, out var existingImages)
+            ? new Dictionary<string, string>(existingImages, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         if (string.IsNullOrWhiteSpace(imagePath))
             agentImages.Remove(agentKey);
         else
             agentImages[agentKey] = imagePath.Trim();
 
-        var readOnlyWorkspaceImages = workspaceImages.ToDictionary(
-            entry => entry.Key,
-            entry => (IReadOnlyDictionary<string, string>)entry.Value,
-            StringComparer.OrdinalIgnoreCase);
+        workspaceImages[normalizedWorkspace] = agentImages;
 
-        var updated = current with { AgentImagePathsByWorkspace = readOnlyWorkspaceImages };
+        var updated = current with { AgentImagePathsByWorkspace = workspaceImages };
         SaveCore(updated);
         return updated;
     }
@@ -433,7 +417,7 @@ internal sealed class ApplicationSettingsStore {
 
     public ApplicationSettingsSnapshot SaveHomeBranch(string workspaceFolder, string branch) {
         using var mutex = AcquireMutex();
-        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var normalizedWorkspace = NormalizeWorkspaceFolder(workspaceFolder);
         var current = LoadCore();
         var dict = current.HomeBranchByWorkspace
             .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
@@ -841,6 +825,12 @@ internal sealed class ApplicationSettingsStore {
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
+    private static string NormalizeWorkspaceFolder(string? folder) {
+        if (string.IsNullOrEmpty(folder)) return string.Empty;
+        return Path.GetFullPath(folder.Trim())
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
     private static string NormalizeColorHex(string accentColorHex) {
         return accentColorHex.Trim().ToUpperInvariant();
     }
@@ -1107,9 +1097,15 @@ internal sealed record ApplicationSettingsSnapshot(
     }
 
     public string GetHomeBranch(string workspaceFolder) {
-        if (string.IsNullOrEmpty(workspaceFolder)) return "main";
-        var key = Path.GetFullPath(workspaceFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var key = NormalizeWorkspaceFolder(workspaceFolder);
+        if (key == string.Empty) return "main";
         return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "main";
+    }
+
+    private static string NormalizeWorkspaceFolder(string? folder) {
+        if (string.IsNullOrEmpty(folder)) return string.Empty;
+        return Path.GetFullPath(folder.Trim())
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     public string? Theme { get; init; }
