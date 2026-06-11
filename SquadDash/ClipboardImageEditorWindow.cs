@@ -3078,9 +3078,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (isH) {
             double tip1X = p1.X + arrowGap;
             double tip2X = p2.X - arrowGap;
+            double lineInset = scaledLen / 3.0;
             if (_mlPreviewLine != null) {
-                _mlPreviewLine.X1 = tip1X; _mlPreviewLine.Y1 = p1.Y;
-                _mlPreviewLine.X2 = tip2X; _mlPreviewLine.Y2 = p2.Y;
+                _mlPreviewLine.X1 = tip1X + lineInset; _mlPreviewLine.Y1 = p1.Y;
+                _mlPreviewLine.X2 = tip2X - lineInset; _mlPreviewLine.Y2 = p2.Y;
             }
             _mlPreviewHead1?.Points.Clear();
             _mlPreviewHead1?.Points.Add(new Point(tip1X, p1.Y));
@@ -3096,9 +3097,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         else {
             double tip1Y = p1.Y + arrowGap;
             double tip2Y = p2.Y - arrowGap;
+            double lineInset = scaledLen / 3.0;
             if (_mlPreviewLine != null) {
-                _mlPreviewLine.X1 = p1.X; _mlPreviewLine.Y1 = tip1Y;
-                _mlPreviewLine.X2 = p2.X; _mlPreviewLine.Y2 = tip2Y;
+                _mlPreviewLine.X1 = p1.X; _mlPreviewLine.Y1 = tip1Y + lineInset;
+                _mlPreviewLine.X2 = p2.X; _mlPreviewLine.Y2 = tip2Y - lineInset;
             }
             _mlPreviewHead1?.Points.Clear();
             _mlPreviewHead1?.Points.Add(new Point(p1.X, tip1Y));
@@ -3147,15 +3149,15 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var lineColor = color ?? _defaultMeasureLineColor;
         var stroke = new SolidColorBrush(lineColor);
 
-        var shadow = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0.35, IsHitTestVisible = false };
+        var shadow = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0, IsHitTestVisible = false };
         Panel.SetZIndex(shadow, 2);
         _canvas.Children.Add(shadow);
 
-        var shadowH1 = new Polygon { Fill = Brushes.Black, Opacity = 0.35, IsHitTestVisible = false };
+        var shadowH1 = new Polygon { Fill = Brushes.Black, Opacity = 0, IsHitTestVisible = false };
         Panel.SetZIndex(shadowH1, 2);
         _canvas.Children.Add(shadowH1);
 
-        var shadowH2 = new Polygon { Fill = Brushes.Black, Opacity = 0.35, IsHitTestVisible = false };
+        var shadowH2 = new Polygon { Fill = Brushes.Black, Opacity = 0, IsHitTestVisible = false };
         Panel.SetZIndex(shadowH2, 2);
         _canvas.Children.Add(shadowH2);
 
@@ -3179,11 +3181,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Panel.SetZIndex(cap2, 5);
         _canvas.Children.Add(cap2);
 
-        var shadowCap1 = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0.35, IsHitTestVisible = false };
+        var shadowCap1 = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0, IsHitTestVisible = false };
         Panel.SetZIndex(shadowCap1, 2);
         _canvas.Children.Add(shadowCap1);
 
-        var shadowCap2 = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0.35, IsHitTestVisible = false };
+        var shadowCap2 = new Line { Stroke = Brushes.Black, StrokeThickness = 3.5, Opacity = 0, IsHitTestVisible = false };
         Panel.SetZIndex(shadowCap2, 2);
         _canvas.Children.Add(shadowCap2);
 
@@ -3382,8 +3384,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (ml.IsHorizontal) {
             double tip1X = p1.X + arrowGap;
             double tip2X = p2.X - arrowGap;
-            ml.MainLine.X1 = tip1X; ml.MainLine.Y1 = p1.Y;
-            ml.MainLine.X2 = tip2X; ml.MainLine.Y2 = p2.Y;
+            double lineInset = scaledLen / 3.0;
+            ml.MainLine.X1 = tip1X + lineInset; ml.MainLine.Y1 = p1.Y;
+            ml.MainLine.X2 = tip2X - lineInset; ml.MainLine.Y2 = p2.Y;
             ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
             ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
             ml.ShadowLine.X1 = tip1X + shadowOff; ml.ShadowLine.Y1 = p1.Y + shadowOff;
@@ -3400,8 +3403,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         else {
             double tip1Y = p1.Y + arrowGap;
             double tip2Y = p2.Y - arrowGap;
-            ml.MainLine.X1 = p1.X; ml.MainLine.Y1 = tip1Y;
-            ml.MainLine.X2 = p2.X; ml.MainLine.Y2 = tip2Y;
+            double lineInset = scaledLen / 3.0;
+            ml.MainLine.X1 = p1.X; ml.MainLine.Y1 = tip1Y + lineInset;
+            ml.MainLine.X2 = p2.X; ml.MainLine.Y2 = tip2Y - lineInset;
             ml.HitLine.X1 = p1.X; ml.HitLine.Y1 = p1.Y;
             ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
             ml.ShadowLine.X1 = p1.X + shadowOff; ml.ShadowLine.Y1 = tip1Y + shadowOff;
