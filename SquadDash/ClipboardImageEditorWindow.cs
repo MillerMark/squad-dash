@@ -1930,7 +1930,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         SelectArrow(null);
         SelectAnnotationRect(null);
-        SelectMeasureLine(null);
+        // Skip deselect if the click landed on a measure line's transparent hit zone —
+        // hitLine.MouseLeftButtonDown already selected it, but Canvas_MouseDown can still
+        // fire before the Handled flag propagates across the MouseDown/MouseLeftButtonDown alias boundary.
+        if (!(e.OriginalSource is Line srcLine && _measureLines.Any(m => m.HitLine == srcLine)))
+            SelectMeasureLine(null);
         SelectAnnotationX(null);
         _selectedCursor = false;
 
@@ -3238,6 +3242,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         // Body drag — select + translate the whole line
         hitLine.MouseLeftButtonDown += (_, e2) => {
+            e2.Handled = true;  // mark immediately so Canvas_MouseDown doesn't deselect
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) {
                 // Ctrl+drag: duplicate the measure line; original stays, clone is dragged.
                 PushUndo();
@@ -3256,7 +3261,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     (clone.StartPt.X + clone.EndPt.X) / 2,
                     (clone.StartPt.Y + clone.EndPt.Y) / 2);
                 clone.HitLine.CaptureMouse();
-                e2.Handled = true;
                 return;
             }
             SelectMeasureLine(ml);
@@ -3266,7 +3270,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _measureLineDragOrigStart = ml.StartPt;
             _measureLineDragOrigEnd = ml.EndPt;
             hitLine.CaptureMouse();
-            e2.Handled = true;
         };
         hitLine.MouseMove += (_, e2) => {
             if (_draggingMeasureLine != ml || _mlDraggingHandle) return;
