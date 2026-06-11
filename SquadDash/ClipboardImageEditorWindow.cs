@@ -2272,11 +2272,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             
             // Apply Shift-key alignment constraint (move or clone drag)
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                var currentPos = new Point(newX, newY);
-                var originalPos = new Point(_canvasTextDragOrigBounds.X, _canvasTextDragOrigBounds.Y);
-                var constrainedPos = ConstrainPositionToAxis(_canvasTextDragStart, originalPos, currentPos);
-                newX = constrainedPos.X;
-                newY = constrainedPos.Y;
+                var mouseDX = movePt.X - _canvasTextDragStart.X;
+                var mouseDY = movePt.Y - _canvasTextDragStart.Y;
+                if (Math.Abs(mouseDX) >= Math.Abs(mouseDY))
+                    newY = _canvasTextDragOrigBounds.Y;
+                else
+                    newX = _canvasTextDragOrigBounds.X;
             }
             
             ann.Bounds = new Rect(newX, newY, ann.Bounds.Width, ann.Bounds.Height);
@@ -3300,16 +3301,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             
             // Apply Shift-key alignment constraint (move or clone drag)
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                var newStartPt = new Point(_measureLineDragOrigStart.X + dx, _measureLineDragOrigStart.Y + dy);
-                var constrainedStart = ConstrainPositionToAxis(_measureLineDragStart, _measureLineDragOrigStart, newStartPt);
-                var deltaX = constrainedStart.X - _measureLineDragOrigStart.X;
-                var deltaY = constrainedStart.Y - _measureLineDragOrigStart.Y;
-                ml.StartPt = new Point(_measureLineDragOrigStart.X + deltaX, _measureLineDragOrigStart.Y + deltaY);
-                ml.EndPt   = new Point(_measureLineDragOrigEnd.X   + deltaX, _measureLineDragOrigEnd.Y   + deltaY);
-            } else {
-                ml.StartPt = new Point(_measureLineDragOrigStart.X + dx, _measureLineDragOrigStart.Y + dy);
-                ml.EndPt   = new Point(_measureLineDragOrigEnd.X   + dx, _measureLineDragOrigEnd.Y   + dy);
+                if (Math.Abs(dx) >= Math.Abs(dy)) dy = 0;
+                else dx = 0;
             }
+            ml.StartPt = new Point(_measureLineDragOrigStart.X + dx, _measureLineDragOrigStart.Y + dy);
+            ml.EndPt   = new Point(_measureLineDragOrigEnd.X   + dx, _measureLineDragOrigEnd.Y   + dy);
             UpdateMeasureLineGeometry(ml);
             RepositionMeasureLineColorPicker(ml);
             if (_mlMoveStandbyClone != null)
@@ -3952,18 +3948,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             if (_draggingArrow != arrow || !_bodyDragging) return;
             var pt = e.GetPosition(_canvas);
             
-            // Apply Shift-key alignment constraint (move or clone drag)
+            var mouseDX = pt.X - _bodyDragStartMouse.X;
+            var mouseDY = pt.Y - _bodyDragStartMouse.Y;
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                var currentCenter = new Point(
-                    arrow.TargetCenterOnCanvas.X + _bodyDragStartOffsetX + (pt.X - _bodyDragStartMouse.X),
-                    arrow.TargetCenterOnCanvas.Y + _bodyDragStartOffsetY + (pt.Y - _bodyDragStartMouse.Y));
-                var constrainedCenter = ConstrainPositionToAxis(_bodyDragStartMouse, _arrowCloneDragOriginalCenter, currentCenter);
-                arrow.OffsetX = constrainedCenter.X - arrow.TargetCenterOnCanvas.X;
-                arrow.OffsetY = constrainedCenter.Y - arrow.TargetCenterOnCanvas.Y;
-            } else {
-                arrow.OffsetX = _bodyDragStartOffsetX + (pt.X - _bodyDragStartMouse.X);
-                arrow.OffsetY = _bodyDragStartOffsetY + (pt.Y - _bodyDragStartMouse.Y);
+                if (Math.Abs(mouseDX) >= Math.Abs(mouseDY)) mouseDY = 0;
+                else mouseDX = 0;
             }
+            arrow.OffsetX = _bodyDragStartOffsetX + mouseDX;
+            arrow.OffsetY = _bodyDragStartOffsetY + mouseDY;
             
             UpdateArrowGeometry(arrow);
             if (_arrowMoveStandbyClone != null)
@@ -4552,10 +4544,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             
             // Apply Shift-key alignment constraint (move or clone drag)
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                var currentPos = new Point(_annotXDragOriginal.X + dx, _annotXDragOriginal.Y + dy);
-                var constrainedPos = ConstrainPositionToAxis(_annotXDragStart, new Point(_annotXDragOriginal.X, _annotXDragOriginal.Y), currentPos);
-                dx = constrainedPos.X - _annotXDragOriginal.X;
-                dy = constrainedPos.Y - _annotXDragOriginal.Y;
+                if (Math.Abs(dx) >= Math.Abs(dy)) dy = 0;
+                else dx = 0;
             }
             
             var nb = new Rect(
@@ -4877,10 +4867,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             
             // Apply Shift-key alignment constraint (move or clone drag)
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                var currentPos = new Point(_annotRectDragOriginal.X + dx, _annotRectDragOriginal.Y + dy);
-                var constrainedPos = ConstrainPositionToAxis(_annotRectDragStart, new Point(_annotRectDragOriginal.X, _annotRectDragOriginal.Y), currentPos);
-                dx = constrainedPos.X - _annotRectDragOriginal.X;
-                dy = constrainedPos.Y - _annotRectDragOriginal.Y;
+                if (Math.Abs(dx) >= Math.Abs(dy)) dy = 0;
+                else dx = 0;
             }
             
             var nb = new Rect(
@@ -4980,10 +4968,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             
             // Apply Shift-key alignment constraint (move or clone drag)
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                var currentPos = new Point(_annotRectDragOriginal.X + dx, _annotRectDragOriginal.Y + dy);
-                var constrainedPos = ConstrainPositionToAxis(_annotRectDragStart, new Point(_annotRectDragOriginal.X, _annotRectDragOriginal.Y), currentPos);
-                dx = constrainedPos.X - _annotRectDragOriginal.X;
-                dy = constrainedPos.Y - _annotRectDragOriginal.Y;
+                if (Math.Abs(dx) >= Math.Abs(dy)) dy = 0;
+                else dx = 0;
             }
             
             var nb = new Rect(
@@ -6003,9 +5989,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     var newX = Math.Max(0, Math.Min(dragOrigBounds.X + (pt.X - dragStart.X), _canvas.Width - 20));
                     var newY = Math.Max(0, Math.Min(dragOrigBounds.Y + (pt.Y - dragStart.Y), _canvas.Height - 16));
                     if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) {
-                        var constrainedPos = ConstrainPositionToAxis(dragStart, new Point(dragOrigBounds.X, dragOrigBounds.Y), new Point(newX, newY));
-                        newX = Math.Max(0, Math.Min(constrainedPos.X, _canvas.Width - 20));
-                        newY = Math.Max(0, Math.Min(constrainedPos.Y, _canvas.Height - 16));
+                        var mouseDX = pt.X - dragStart.X;
+                        var mouseDY = pt.Y - dragStart.Y;
+                        if (Math.Abs(mouseDX) >= Math.Abs(mouseDY))
+                            newY = Math.Max(0, Math.Min(dragOrigBounds.Y, _canvas.Height - 16));
+                        else
+                            newX = Math.Max(0, Math.Min(dragOrigBounds.X, _canvas.Width - 20));
                     }
                     annotation.Bounds = new Rect(newX, newY, annotation.Bounds.Width, annotation.Bounds.Height);
                     Canvas.SetLeft(display, newX);
