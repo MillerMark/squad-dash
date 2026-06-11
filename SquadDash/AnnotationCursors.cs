@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
@@ -18,7 +18,7 @@ namespace SquadDash;
 /// </summary>
 internal static class AnnotationCursors {
     private const double CursorStrokeWidth = 2.0;
-    private const double CursorFingerRounding = 3.0;
+    private const double HalfGapDistanceFromCenter = 3.0;
 
     // ── Backing stores ────────────────────────────────────────────────────────
 
@@ -552,15 +552,15 @@ internal static class AnnotationCursors {
         var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.2);
 
         // White outline first (slightly thicker — creates legibility border)
-        dc.DrawLine(whitePen, new Point(cx - Arm, cy), new Point(cx - CursorFingerRounding, cy));
-        dc.DrawLine(whitePen, new Point(cx + CursorFingerRounding, cy), new Point(cx + Arm, cy));
-        dc.DrawLine(whitePen, new Point(cx, cy - Arm), new Point(cx, cy - CursorFingerRounding));
-        dc.DrawLine(whitePen, new Point(cx, cy + CursorFingerRounding), new Point(cx, cy + Arm));
+        dc.DrawLine(whitePen, new Point(cx - Arm, cy), new Point(cx - HalfGapDistanceFromCenter, cy));
+        dc.DrawLine(whitePen, new Point(cx + HalfGapDistanceFromCenter, cy), new Point(cx + Arm, cy));
+        dc.DrawLine(whitePen, new Point(cx, cy - Arm), new Point(cx, cy - HalfGapDistanceFromCenter));
+        dc.DrawLine(whitePen, new Point(cx, cy + HalfGapDistanceFromCenter), new Point(cx, cy + Arm));
 
         // Dark lines on top
-        dc.DrawLine(darkPen, new Point(cx - Arm, cy), new Point(cx - CursorFingerRounding, cy));
-        dc.DrawLine(darkPen, new Point(cx + CursorFingerRounding, cy), new Point(cx + Arm, cy));
-        dc.DrawLine(darkPen, new Point(cx, cy - Arm), new Point(cx, cy - CursorFingerRounding));
-        dc.DrawLine(darkPen, new Point(cx, cy + CursorFingerRounding), new Point(cx, cy + Arm));
+        dc.DrawLine(darkPen, new Point(cx - Arm, cy), new Point(cx - HalfGapDistanceFromCenter, cy));
+        dc.DrawLine(darkPen, new Point(cx + HalfGapDistanceFromCenter, cy), new Point(cx + Arm, cy));
+        dc.DrawLine(darkPen, new Point(cx, cy - Arm), new Point(cx, cy - HalfGapDistanceFromCenter));
+        dc.DrawLine(darkPen, new Point(cx, cy + HalfGapDistanceFromCenter), new Point(cx, cy + Arm));
     }
 }
