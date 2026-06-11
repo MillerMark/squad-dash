@@ -1929,6 +1929,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 SelectText(null);
         }
 
+        SquadDashTrace.Write("AnnotatorDrag", $"Canvas_MouseDown: OriginalSource={e.OriginalSource?.GetType().Name ?? "null"} isArrowHitLine={_arrows.Any(a => a.HitLine == e.OriginalSource)} Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
         SelectArrow(null);
         SelectAnnotationRect(null);
         // Skip deselect if the click landed on a measure line's transparent hit zone —
@@ -2266,10 +2267,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 Canvas.SetLeft(ann.Display, newX);
                 Canvas.SetTop(ann.Display, newY);
             }
-            if (ann.Shadow != null) {
-                Canvas.SetLeft(ann.Shadow, newX + 1.5);
-                Canvas.SetTop(ann.Shadow, newY + 1.5);
-            }
             // Keep the live TextBox in sync when dragging while in edit mode.
             if (_activeTextBox != null && ann == _editingText) {
                 Canvas.SetLeft(_activeTextBox, newX);
@@ -2308,7 +2305,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                                  Math.Min(_textHandleDragOrigFontSize * scale, 150.0));
             ann.FontSize = newFontSize;
             if (ann.Display != null) ann.Display.FontSize = newFontSize;
-            if (ann.Shadow != null) ann.Shadow.FontSize = newFontSize;
             if (_activeTextBox != null && ann == _editingText) _activeTextBox.FontSize = newFontSize;
 
             // Compute expected pixel size from the font scale for live handle positioning
@@ -2321,7 +2317,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             if (isFixedWidth) {
                 double newW = Math.Max(20, origW * Math.Max(0.2, sx));
                 if (ann.Display != null) ann.Display.Width = newW;
-                if (ann.Shadow != null) ann.Shadow.Width = newW;
                 // Also resize the live TextBox if this annotation is being edited.
                 if (_activeTextBox != null && ann == _editingText) _activeTextBox.Width = newW;
 
@@ -3615,17 +3610,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             ? _defaultTailLength
             : ComputeInitialTailLength(center, _defaultArrowAngleDeg, _defaultArrowLength);
 
-        // Shadow shapes (drawn first so they are below main arrow visuals).
-        var shadowLine = new Polyline {
-            Stroke = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0)),
-            StrokeThickness = 2.5,
-            IsHitTestVisible = false
-        };
-        var shadowHead = new Polygon {
-            Fill = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0)),
-            IsHitTestVisible = false
-        };
-
         var colorBrush = new SolidColorBrush(_defaultArrowColor);
 
         var line = new Line {
@@ -3664,8 +3648,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Visibility = Visibility.Collapsed
         };
 
-        _canvas.Children.Add(shadowLine);
-        _canvas.Children.Add(shadowHead);
         _canvas.Children.Add(line);
         _canvas.Children.Add(head);
         _canvas.Children.Add(tailHandle);
@@ -3674,8 +3656,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Panel.SetZIndex(tailHandle, 10);
         Panel.SetZIndex(line, 5);
         Panel.SetZIndex(head, 5);
-        Panel.SetZIndex(shadowLine, 2);
-        Panel.SetZIndex(shadowHead, 2);
         _canvas.Children.Add(hitLine);
         Panel.SetZIndex(hitLine, 6);  // just above line (5) so it intercepts first
 
@@ -3692,8 +3672,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             TipHandle = tipHandle,
             TailHandle = tailHandle,
             TargetCenterOnCanvas = center,
-            ShadowLine = shadowLine,
-            ShadowHead = shadowHead,
             HitLine = hitLine
         };
 
@@ -3810,13 +3788,18 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void AttachBodyDrag(Shape shape, AnnotationArrow arrow) {
         shape.MouseLeftButtonDown += (_, e) => {
-            if (_draggingArrow != null) return;
+            SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.MouseLeftButtonDown: shape={shape.GetType().Name} ctrl={(Keyboard.Modifiers & ModifierKeys.Control) != 0} _draggingArrow={_draggingArrow != null}");
+            if (_draggingArrow != null) {
+                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag: early return — _draggingArrow already set");
+                return;
+            }
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) {
                 // Ctrl+drag: duplicate the arrow; original stays, clone is dragged.
                 PushUndo();
                 _suppressUndo = true;
                 var clone = CreateArrow(arrow.TargetElementBounds);
                 _suppressUndo = false;
+                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: clone created, clone.TargetCenterOnCanvas=({clone.TargetCenterOnCanvas.X:F1},{clone.TargetCenterOnCanvas.Y:F1}) original.TargetCenterOnCanvas=({arrow.TargetCenterOnCanvas.X:F1},{arrow.TargetCenterOnCanvas.Y:F1}) original.OffsetX={arrow.OffsetX:F1}");
                 clone.ArrowheadAngleDeg = arrow.ArrowheadAngleDeg;
                 clone.ArrowLength = arrow.ArrowLength;
                 clone.TailLength = arrow.TailLength;
@@ -3837,7 +3820,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 _arrowCloneDragOriginalCenter = new Point(
                     clone.TargetCenterOnCanvas.X + clone.OffsetX,
                     clone.TargetCenterOnCanvas.Y + clone.OffsetY);
+                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: about to CaptureMouse on clone.HitLine, current Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
                 clone.HitLine.CaptureMouse();
+                SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.Ctrl: after CaptureMouse, Mouse.Captured={(Mouse.Captured?.GetType().Name ?? "null")}");
                 e.Handled = true;
                 return;
             }
@@ -3853,6 +3838,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             e.Handled = true;
         };
         shape.MouseMove += (_, e) => {
+            SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.MouseMove: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
             if (_draggingArrow != arrow || !_bodyDragging) return;
             var pt = e.GetPosition(_canvas);
             
@@ -3876,6 +3862,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             e.Handled = true;
         };
         shape.MouseLeftButtonUp += (_, e) => {
+            SquadDashTrace.Write("AnnotatorDrag", $"AttachBodyDrag.MouseLeftButtonUp: _draggingArrow==arrow={_draggingArrow == arrow} _bodyDragging={_bodyDragging}");
             if (_draggingArrow != arrow || !_bodyDragging) return;
             HideCrosshair();
             CommitDragUndo();
@@ -3952,14 +3939,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Canvas.SetTop(arrow.TipHandle, ahY - 4);
         Canvas.SetLeft(arrow.TailHandle, tailX - 4);
         Canvas.SetTop(arrow.TailHandle, tailY - 4);
-
-        arrow.ShadowLine.Points = new PointCollection(new[]
-        {
-            new Point(tailX + 2, tailY + 2),
-            new Point(baseX + 2, baseY + 2)
-        });
-        arrow.ShadowHead.Points = new PointCollection(
-            arrow.Head.Points.Select(p => p + new Vector(2, 2)));
     }
 
     // ── Crosshair overlay (shown while dragging arrow tip/tail) ──────────────
@@ -4255,8 +4234,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void RemoveArrow(AnnotationArrow arrow) {
         if (!_suppressUndo) PushUndo();
         if (arrow == _colorPickerArrow) HideColorPicker();
-        _canvas.Children.Remove(arrow.ShadowLine);
-        _canvas.Children.Remove(arrow.ShadowHead);
         _canvas.Children.Remove(arrow.Line);
         _canvas.Children.Remove(arrow.Head);
         _canvas.Children.Remove(arrow.TipHandle);
@@ -4333,10 +4310,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         var xColor = color ?? _defaultXColor;
         var brush = new SolidColorBrush(xColor) { Opacity = 0.8 };
-        var shadowBrush = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0));
 
-        var shadow1 = new Line { Stroke = shadowBrush, StrokeThickness = 7.0, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, IsHitTestVisible = false };
-        var shadow2 = new Line { Stroke = shadowBrush, StrokeThickness = 7.0, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, IsHitTestVisible = false };
         var line1 = new Line { Stroke = brush, StrokeThickness = 6.0, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, IsHitTestVisible = false };
         var line2 = new Line { Stroke = brush, StrokeThickness = 6.0, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, IsHitTestVisible = false };
 
@@ -4365,12 +4339,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Panel.SetZIndex(handles[i], 10);
         }
 
-        _canvas.Children.Add(shadow1);
-        _canvas.Children.Add(shadow2);
         _canvas.Children.Add(line1);
         _canvas.Children.Add(line2);
-        Panel.SetZIndex(shadow1, 2);
-        Panel.SetZIndex(shadow2, 2);
         Panel.SetZIndex(line1, 5);
         Panel.SetZIndex(line2, 5);
         _canvas.Children.Add(hitZone);
@@ -4379,7 +4349,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var annotX = new AnnotationX {
             Bounds = bounds, XColor = xColor,
             Line1 = line1, Line2 = line2,
-            Shadow1 = shadow1, Shadow2 = shadow2,
             Handles = handles, HitZoneRect = hitZone
         };
 
@@ -4503,23 +4472,15 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void UpdateXGeometry(AnnotationX x) {
         var b = x.Bounds;
         var brush = new SolidColorBrush(x.XColor) { Opacity = 0.8 };
-        var shadowBrush = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0));
-        double so = 2.0;
 
-        x.Shadow1.X1 = b.Left + so;  x.Shadow1.Y1 = b.Top + so;
-        x.Shadow1.X2 = b.Right + so; x.Shadow1.Y2 = b.Bottom + so;
         x.Line1.X1   = b.Left;       x.Line1.Y1   = b.Top;
         x.Line1.X2   = b.Right;      x.Line1.Y2   = b.Bottom;
 
-        x.Shadow2.X1 = b.Right + so; x.Shadow2.Y1 = b.Top + so;
-        x.Shadow2.X2 = b.Left + so;  x.Shadow2.Y2 = b.Bottom + so;
         x.Line2.X1   = b.Right;      x.Line2.Y1   = b.Top;
         x.Line2.X2   = b.Left;       x.Line2.Y2   = b.Bottom;
 
         x.Line1.Stroke   = brush;
         x.Line2.Stroke   = brush;
-        x.Shadow1.Stroke = shadowBrush;
-        x.Shadow2.Stroke = shadowBrush;
 
         Canvas.SetLeft(x.HitZoneRect, b.X - 3);
         Canvas.SetTop(x.HitZoneRect, b.Y - 3);
@@ -4541,8 +4502,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void RemoveAnnotationX(AnnotationX x) {
         if (!_suppressUndo) PushUndo();
         if (x == _colorPickerX) HideColorPicker();
-        _canvas.Children.Remove(x.Shadow1);
-        _canvas.Children.Remove(x.Shadow2);
         _canvas.Children.Remove(x.Line1);
         _canvas.Children.Remove(x.Line2);
         _canvas.Children.Remove(x.HitZoneRect);
@@ -4639,15 +4598,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var rectColor = color ?? _defaultRectColor;
         var brush = new SolidColorBrush(rectColor) { Opacity = 0.8 };
 
-        var shadow = new Rectangle {
-            Fill = Brushes.Transparent,
-            Stroke = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0)),
-            StrokeThickness = 2.5,
-            RadiusX = 4,
-            RadiusY = 4,
-            IsHitTestVisible = false
-        };
-
         var border = new Rectangle {
             Fill = Brushes.Transparent,
             Stroke = brush,
@@ -4687,9 +4637,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Panel.SetZIndex(handles[i], 10);
         }
 
-        _canvas.Children.Add(shadow);
         _canvas.Children.Add(border);
-        Panel.SetZIndex(shadow, 2);
         Panel.SetZIndex(border, 5);
         _canvas.Children.Add(hitZone);
         Panel.SetZIndex(hitZone, 4);  // just below border (5) — still catches clicks outside border
@@ -4698,7 +4646,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             Bounds = bounds,
             RectColor = rectColor,
             Border = border,
-            Shadow = shadow,
             Handles = handles,
             HitZoneRect = hitZone
         };
@@ -4923,11 +4870,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var brush = new SolidColorBrush(rect.RectColor) { Opacity = 0.8 };
         rect.Border.Stroke = brush;
 
-        Canvas.SetLeft(rect.Shadow, b.Left + 2);
-        Canvas.SetTop(rect.Shadow, b.Top + 2);
-        rect.Shadow.Width = b.Width;
-        rect.Shadow.Height = b.Height;
-
         Canvas.SetLeft(rect.Border, b.Left);
         Canvas.SetTop(rect.Border, b.Top);
         rect.Border.Width = b.Width;
@@ -5076,7 +5018,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void RemoveAnnotationRect(AnnotationRect rect) {
         if (!_suppressUndo) PushUndo();
         if (rect == _colorPickerRect) HideColorPicker();
-        _canvas.Children.Remove(rect.Shadow);
         _canvas.Children.Remove(rect.Border);
         _canvas.Children.Remove(rect.HitZoneRect);
         foreach (var h in rect.Handles) _canvas.Children.Remove(h);
@@ -5522,7 +5463,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     _texts.Remove(editingCopy);
                 else if (editingCopy?.Display != null) {
                     editingCopy.Display.Visibility = Visibility.Visible;
-                    if (editingCopy.Shadow != null) editingCopy.Shadow.Visibility = Visibility.Visible;
                 }
                 if (_undoStack.Count > 0) _undoStack.Pop();
                 e.Handled = true;
@@ -5567,7 +5507,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         PushUndo(); // save state in case the user actually changes the text
         _editingText = existing;
         if (existing.Display != null) existing.Display.Visibility = Visibility.Collapsed;
-        if (existing.Shadow != null) existing.Shadow.Visibility = Visibility.Collapsed;
         if (!_inTextMode) {
             ExitAllToolModes();
             _inTextMode = true;
@@ -5631,7 +5570,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 }
                 else if (editingCopy?.Display != null) {
                     editingCopy.Display.Visibility = Visibility.Visible;
-                    if (editingCopy.Shadow != null) editingCopy.Shadow.Visibility = Visibility.Visible;
                 }
 
                 // Discard the BeginEditText undo push — nothing actually changed.
@@ -5739,14 +5677,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         }
 
         if (annotation.Display == null) {
-            var shadow = new TextBlock {
-                FontFamily = new FontFamily("Calibri"),
-                FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromArgb(160, 0, 0, 0)),
-                IsHitTestVisible = false,
-                Visibility = annotation.BackgroundColor.A == 0 ? Visibility.Visible : Visibility.Collapsed,
-            };
-
             var display = new TextBlock {
                 FontFamily = new FontFamily("Calibri"),
                 FontWeight = FontWeights.Bold,
@@ -5820,8 +5750,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     annotation.Bounds = new Rect(newX, newY, annotation.Bounds.Width, annotation.Bounds.Height);
                     Canvas.SetLeft(display, newX);
                     Canvas.SetTop(display, newY);
-                    Canvas.SetLeft(shadow, newX + 1.5);
-                    Canvas.SetTop(shadow, newY + 1.5);
                     UpdateTextSelectionBorder();
                     e.Handled = true;
                     return;
@@ -5845,18 +5773,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 e.Handled = true;
             };
 
-            annotation.Shadow = shadow;
             annotation.Display = display;
-            Panel.SetZIndex(shadow, 19);
             Panel.SetZIndex(display, 20);
-            _canvas.Children.Add(shadow);
             _canvas.Children.Add(display);
         }
 
         annotation.Display.Text = annotation.Text;
         annotation.Display.FontSize = annotation.FontSize;
-        annotation.Shadow!.Text = annotation.Text;
-        annotation.Shadow.FontSize = annotation.FontSize;
 
         // Update colors (handles re-render after color change)
         annotation.Display.Foreground = new SolidColorBrush(annotation.TextColor);
@@ -5866,23 +5789,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         annotation.Display.Padding = annotation.BackgroundColor.A > 0
             ? new Thickness(4, 1, 4, 2)
             : new Thickness(0);
-        annotation.Shadow.Visibility = annotation.BackgroundColor.A == 0
-            ? Visibility.Visible
-            : Visibility.Collapsed;
 
         // Apply fixed-width wrapping when annotation was drag-drawn with an explicit width.
         bool hasFixedWidth = annotation.Bounds.Width > 0;
         if (hasFixedWidth) {
             annotation.Display.Width = annotation.Bounds.Width;
             annotation.Display.TextWrapping = TextWrapping.Wrap;
-            annotation.Shadow!.Width = annotation.Bounds.Width;
-            annotation.Shadow.TextWrapping = TextWrapping.Wrap;
         }
         else {
             annotation.Display.Width = double.NaN;
             annotation.Display.TextWrapping = TextWrapping.NoWrap;
-            annotation.Shadow!.Width = double.NaN;
-            annotation.Shadow.TextWrapping = TextWrapping.NoWrap;
         }
 
         // Measure so Bounds.Width/Height reflect the rendered size (needed for crop-in-place).
@@ -5896,12 +5812,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         Canvas.SetLeft(annotation.Display, annotation.Bounds.Left);
         Canvas.SetTop(annotation.Display, annotation.Bounds.Top);
-        Canvas.SetLeft(annotation.Shadow, annotation.Bounds.Left + 1.5);
-        Canvas.SetTop(annotation.Shadow, annotation.Bounds.Top + 1.5);
         annotation.Display.Visibility = Visibility.Visible;
-        annotation.Shadow.Visibility = annotation.BackgroundColor.A == 0
-            ? Visibility.Visible
-            : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -5932,7 +5843,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (_selectedText == annotation) { _selectedText = null; HideColorPicker(); }
         if (!_suppressUndo) PushUndo();
         if (annotation.Display != null) _canvas.Children.Remove(annotation.Display);
-        if (annotation.Shadow != null) _canvas.Children.Remove(annotation.Shadow);
         _texts.Remove(annotation);
     }
 
@@ -7045,7 +6955,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void RefreshTextAnnotation(AnnotationText annotation) {
         if (annotation.Display != null) annotation.Display.FontSize = annotation.FontSize;
-        if (annotation.Shadow != null) annotation.Shadow.FontSize = annotation.FontSize;
         UpdateTextSelectionBorder();
     }
 

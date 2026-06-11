@@ -65,12 +65,6 @@ internal sealed class AnnotationArrow
     /// <summary>Vertical translation of the arrow's effective pivot from <see cref="TargetCenterOnCanvas"/>.</summary>
     public double  OffsetY              { get; set; } = 0.0;
 
-    /// <summary>Drop-shadow polyline drawn 2 px below and to the right of <see cref="Line"/>.</summary>
-    public Polyline ShadowLine          { get; set; } = null!;
-
-    /// <summary>Drop-shadow polygon drawn 2 px below and to the right of <see cref="Head"/>.</summary>
-    public Polygon  ShadowHead          { get; set; } = null!;
-
     /// <summary>Transparent 9 px line used as a wider hit-test proxy for click-to-select.</summary>
     public Line HitLine { get; set; } = null!;
 }

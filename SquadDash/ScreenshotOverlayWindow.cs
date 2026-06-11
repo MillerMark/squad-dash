@@ -2349,19 +2349,6 @@ internal sealed class ScreenshotOverlayWindow : Window
         else
             initialTailLength = ComputeInitialTailLength(center, DefaultAngleDeg, DefaultArrowheadOffset);
 
-        // Shadow shapes — drawn first so they appear behind the main arrow visuals.
-        var shadowLine = new Polyline
-        {
-            Stroke           = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0)),
-            StrokeThickness  = 2.5,
-            IsHitTestVisible = false
-        };
-        var shadowHead = new Polygon
-        {
-            Fill             = new SolidColorBrush(Color.FromArgb(102, 0, 0, 0)),
-            IsHitTestVisible = false
-        };
-
         // Main arrow visuals — colour comes from the persisted default (initially orange).
         var orange = new SolidColorBrush(_defaultArrowColor);   // Fix 4: use persisted default
 
@@ -2403,8 +2390,6 @@ internal sealed class ScreenshotOverlayWindow : Window
             Visibility      = Visibility.Hidden
         };
 
-        _canvas.Children.Add(shadowLine);
-        _canvas.Children.Add(shadowHead);
         _canvas.Children.Add(line);
         _canvas.Children.Add(head);
         _canvas.Children.Add(tailHandle);
@@ -2413,8 +2398,6 @@ internal sealed class ScreenshotOverlayWindow : Window
         Panel.SetZIndex(tailHandle, 10);
         Panel.SetZIndex(line, 5);          // above _selHitRect (1), below handles (10)
         Panel.SetZIndex(head, 5);
-        Panel.SetZIndex(shadowLine, 2);    // below main arrow shapes
-        Panel.SetZIndex(shadowHead, 2);
 
         var arrow = new AnnotationArrow
         {
@@ -2429,9 +2412,7 @@ internal sealed class ScreenshotOverlayWindow : Window
             Head                 = head,
             TipHandle            = tipHandle,
             TailHandle           = tailHandle,
-            TargetCenterOnCanvas = center,
-            ShadowLine           = shadowLine,
-            ShadowHead           = shadowHead
+            TargetCenterOnCanvas = center
         };
 
         // ── Tip-handle drag — changes angle; auto-fills length to sel edge ────
@@ -2700,15 +2681,6 @@ internal sealed class ScreenshotOverlayWindow : Window
         // TailHandle — centred on tail end
         Canvas.SetLeft(arrow.TailHandle, tailX - 4);
         Canvas.SetTop (arrow.TailHandle, tailY - 4);
-
-        // Shadow — same geometry offset by (+2, +2)
-        arrow.ShadowLine.Points = new PointCollection(new[]
-        {
-            new Point(tailX + 2, tailY + 2),
-            new Point(ahX  + 2, ahY  + 2)
-        });
-        arrow.ShadowHead.Points = new PointCollection(
-            arrow.Head.Points.Select(p => p + new Vector(2, 2)));
     }
 
     /// <summary>
@@ -2871,8 +2843,6 @@ internal sealed class ScreenshotOverlayWindow : Window
     {
         if (!_suppressUndo) PushUndo();
         if (arrow == _colorPickerArrow) HideColorPicker();
-        _canvas.Children.Remove(arrow.ShadowLine);
-        _canvas.Children.Remove(arrow.ShadowHead);
         _canvas.Children.Remove(arrow.Line);
         _canvas.Children.Remove(arrow.Head);
         _canvas.Children.Remove(arrow.TipHandle);

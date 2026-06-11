@@ -19,9 +19,6 @@ internal sealed class AnnotationRect
     /// <summary>The visible rounded-rectangle stroke shape.</summary>
     public Rectangle Border { get; set; } = null!;
 
-    /// <summary>Drop-shadow copy of <see cref="Border"/> rendered 2 px below-right.</summary>
-    public Rectangle Shadow { get; set; } = null!;
-
     /// <summary>
     /// Resize handles: [0]=NW, [1]=NE, [2]=SW, [3]=SE, [4]=N, [5]=S, [6]=W, [7]=E.
     /// Hidden unless the rect is selected.

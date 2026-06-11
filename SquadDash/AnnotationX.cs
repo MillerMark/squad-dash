@@ -23,12 +23,6 @@ internal sealed class AnnotationX
     /// <summary>NE→SW diagonal (secondary line).</summary>
     public Line Line2 { get; set; } = null!;
 
-    /// <summary>Drop-shadow copy of Line1 (2 px offset).</summary>
-    public Line Shadow1 { get; set; } = null!;
-
-    /// <summary>Drop-shadow copy of Line2 (2 px offset).</summary>
-    public Line Shadow2 { get; set; } = null!;
-
     /// <summary>Transparent rectangle inflated 3 px on each side — widens the clickable area.</summary>
     public Rectangle HitZoneRect { get; set; } = null!;
 
