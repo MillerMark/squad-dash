@@ -2965,7 +2965,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _inMoveMode = false;
         _inCropMode = false;
         _inArrowMode = true;
-        Cursor = AnnotationCursors.ArrowTool;
         _canvas.Cursor = AnnotationCursors.ArrowTool;
         ShowModeHint("Drag to draw an arrow");
     }
@@ -3032,7 +3031,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _inCropMode = false;
         _inMeasureLineMode = true;
         _canvas.Cursor = AnnotationCursors.MeasureLineTool;
-        Cursor = AnnotationCursors.MeasureLineTool;
         ShowModeHint("Drag to draw a dimension line · ESC to exit");
         if (_addMeasureLineBtn != null) _addMeasureLineBtn.Content = MakeToolIcon("ImageEditorMeasureLineIcon", active: true);
     }
@@ -4413,7 +4411,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _inMoveMode = false;
         _inCropMode = false;
         _inXMode = true;
-        Cursor = AnnotationCursors.XTool;
         _canvas.Cursor = AnnotationCursors.XTool;
         ShowModeHint("Drag to draw an X");
     }
@@ -4746,7 +4743,6 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         _inMoveMode = false;
         _inCropMode = false;
         _inRectMode = true;
-        Cursor = AnnotationCursors.RectTool;
         _canvas.Cursor = AnnotationCursors.RectTool;
         ShowModeHint("Drag to draw a rectangle");
     }
