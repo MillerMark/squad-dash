@@ -2409,12 +2409,17 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 && IsHoveringOverAnnotation(e.GetPosition(_canvas)))
                 _canvas.Cursor = Cursors.Arrow;
 
-            // Override with directional cursor when hovering over a selected annotation rect's edge/corner
+            // Override with directional cursor when hovering over a selected annotation rect's corner handle.
+            // Edge midpoints (N/S/E/W) show SizeAll — dragging those moves the whole rect, not resizes it.
+            // The resize-handle Rectangle elements themselves still override with their own directional cursor
+            // when the mouse is directly over one (WPF element Cursor takes priority over Canvas.Cursor).
             // — but not while a tool mode is active (clicking would draw a new shape, not resize).
             if (_selectedAnnotRect != null && !_inArrowMode && !_inRectMode) {
                 var az = HitTestAnnotRect(_selectedAnnotRect, e.GetPosition(_canvas));
                 if (az != HitZone.None)
-                    _canvas.Cursor = ZoneCursor(az);
+                    _canvas.Cursor = (az is HitZone.N or HitZone.S or HitZone.E or HitZone.W)
+                        ? Cursors.SizeAll
+                        : ZoneCursor(az);
             }
         }
     }
@@ -3290,9 +3295,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 ml.EndPt   = new Point(_measureLineDragOrigEnd.X   + dx, _measureLineDragOrigEnd.Y   + dy);
             }
             UpdateMeasureLineGeometry(ml);
+            RepositionMeasureLineColorPicker(ml);
             e2.Handled = true;
         };
-        hitLine.MouseLeftButtonUp += (_, e2) => {
+        hitLine.MouseLeftButtonUp+= (_, e2) => {
             if (_draggingMeasureLine != ml || _mlDraggingHandle) return;
             CommitDragUndo();
             _draggingMeasureLine = null;
@@ -3323,6 +3329,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 ? new Point(Math.Min(pt.X, ml.EndPt.X - 8), ml.StartPt.Y)
                 : new Point(ml.StartPt.X, Math.Min(pt.Y, ml.EndPt.Y - 8));
             UpdateMeasureLineGeometry(ml);
+            RepositionMeasureLineColorPicker(ml);
             e2.Handled = true;
         };
         handle1.MouseLeftButtonUp += (_, e2) => {
@@ -3351,6 +3358,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 ? new Point(Math.Max(pt.X, ml.StartPt.X + 8), ml.EndPt.Y)
                 : new Point(ml.EndPt.X, Math.Max(pt.Y, ml.StartPt.Y + 8));
             UpdateMeasureLineGeometry(ml);
+            RepositionMeasureLineColorPicker(ml);
             e2.Handled = true;
         };
         handle2.MouseLeftButtonUp += (_, e2) => {
@@ -3551,6 +3559,17 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         double cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20));
         Canvas.SetLeft(_colorPickerPanel, cx);
         Canvas.SetTop(_colorPickerPanel, cy);
+    }
+
+    /// <summary>Moves the color picker panel to track the current midpoint of <paramref name="ml"/> without rebuilding it.</summary>
+    private void RepositionMeasureLineColorPicker(AnnotationMeasureLine ml) {
+        if (_colorPickerMeasureLine != ml || _colorPickerPanel == null) return;
+        double midX = (ml.StartPt.X + ml.EndPt.X) / 2;
+        double midY = (ml.StartPt.Y + ml.EndPt.Y) / 2;
+        double pw = _colorPickerPanel.DesiredSize.Width;
+        double ph = _colorPickerPanel.DesiredSize.Height;
+        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, Math.Min(_canvas.Width  - pw, midX - pw / 2)));
+        Canvas.SetTop(_colorPickerPanel,  Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20)));
     }
     /// <summary>Snaps <paramref name="head"/> to the closest horizontal or vertical line through <paramref name="tail"/>.</summary>
     private static Point SnapArrowToAxis(Point tail, Point head)
@@ -4172,12 +4191,22 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         _canvas.Children.Add(_colorPickerPanel);
 
-        double cx = Canvas.GetLeft(arrow.TipHandle) + 4;
-        double cy = Canvas.GetTop(arrow.TipHandle) + 4;
+        double tipX  = Canvas.GetLeft(arrow.TipHandle)  + 4;
+        double tipY  = Canvas.GetTop(arrow.TipHandle)   + 4;
+        double tailX = Canvas.GetLeft(arrow.TailHandle) + 4;
+        double tailY = Canvas.GetTop(arrow.TailHandle)  + 4;
+        double midX  = (tipX + tailX) / 2;
+        double arrowMinY = Math.Min(tipY, tailY);
+        double arrowMaxY = Math.Max(tipY, tailY);
         _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
-        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, cx - pw / 2));
-        Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy - 30));
+        double ph = _colorPickerPanel.DesiredSize.Height;
+        // Prefer above the arrow's topmost point; fall back to below if too close to canvas top.
+        double cy = arrowMinY - ph - 8;
+        if (cy < 0)
+            cy = Math.Min(_canvas.Height - ph, arrowMaxY + 8);
+        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, Math.Min(_canvas.Width - pw, midX - pw / 2)));
+        Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy));
     }
 
     private static string ColorName(Color c) => c switch {
