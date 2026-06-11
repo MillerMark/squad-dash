@@ -32509,7 +32509,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var liveNote = note;
         MarkdownDocumentWindow.Show(
             CanShowOwnedWindow() ? this : null,
-            liveNote.Title,
+            "Edit Note",
             path,
             showSource: true,
             BuildMarkdownCaptureContext(),
