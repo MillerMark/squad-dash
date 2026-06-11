@@ -134,11 +134,11 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         MinHeight = 560;
 
         _rootPanel = new DockPanel();
-        var outerBorder = ApplyOuterBorder();
+        var outerBorder = ApplyOuterBorder(titleText: _baseTitle);
         outerBorder.Child = _rootPanel;
 
         var toolBar = new DockPanel {
-            Margin = new Thickness(12, CloseButtonHeight, 12, 8),
+            Margin = new Thickness(12, 4, 12, 8),
             LastChildFill = true
         };
         DockPanel.SetDock(toolBar, Dock.Top);

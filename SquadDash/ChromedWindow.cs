@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
@@ -103,12 +104,12 @@ internal class ChromedWindow : Window {
             // content by a 1px bottom border.  The title row is the drag zone — do NOT
             // mark it hit-test-visible in chrome.
             var titleLabel = new TextBlock {
-                Text              = titleText,
                 VerticalAlignment = VerticalAlignment.Center,
                 Padding           = new Thickness(10, 0, 8, 0),
                 FontWeight        = FontWeights.SemiBold,
                 TextTrimming      = TextTrimming.CharacterEllipsis,
             };
+            titleLabel.SetBinding(TextBlock.TextProperty, new Binding(nameof(Title)) { Source = this });
             titleLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             titleLabel.SetResourceReference(TextBlock.ForegroundProperty,  "LabelText");
 
