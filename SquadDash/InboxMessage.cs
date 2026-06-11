@@ -33,6 +33,15 @@ public sealed record InboxMessage
     /// <summary>Labels of actions the user has already clicked (persisted).</summary>
     [JsonPropertyName("usedActions")]
     public IReadOnlyList<string> UsedActions { get; init; } = [];
+
+    /// <summary>
+    /// HEAD git SHA at the time this message was saved. Used to compute how many commits
+    /// have occurred since the message was written, so dispatched actions can include a
+    /// staleness note when the codebase has moved on.
+    /// Null for messages saved before this field was introduced.
+    /// </summary>
+    [JsonPropertyName("gitSha")]
+    public string? GitSha { get; init; }
 }
 
 public sealed record InboxAttachment

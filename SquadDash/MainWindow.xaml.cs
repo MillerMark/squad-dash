@@ -31327,6 +31327,49 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return stdout.Trim();
     }
 
+    /// <summary>
+    /// Synchronously reads HEAD SHA from git. Used at inbox-message save time so the
+    /// SHA can be stored with the message for later staleness calculation.
+    /// Returns null on any error (non-git repo, git not on PATH, etc.).
+    /// </summary>
+    private static string? TryGetGitShaSync(string workingDirectory)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("git", "rev-parse HEAD")
+            {
+                WorkingDirectory       = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null) return null;
+            var sha = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit(3000);
+            if (proc.ExitCode != 0) return null;
+            return string.IsNullOrEmpty(sha) ? null : sha;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Returns the number of commits between <paramref name="savedSha"/> and HEAD.
+    /// Returns 0 when <paramref name="savedSha"/> is null, HEAD equals savedSha, or any error occurs.
+    /// </summary>
+    private async Task<int> TryGetCommitCountSinceAsync(string? savedSha)
+    {
+        if (string.IsNullOrWhiteSpace(savedSha))
+            return 0;
+        try
+        {
+            var output = await RunGitAsync(_workspacePaths.ApplicationRoot, $"rev-list --count {savedSha}..HEAD");
+            return int.TryParse(output.Trim(), out var count) ? count : 0;
+        }
+        catch { return 0; }
+    }
+
     private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
     {
         _followUpAttachments.Remove(_activeTabId ?? "");
@@ -31671,7 +31714,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            var filePath = _inboxStore?.GetMessageFilePath(message.Id);
+            var filePath    = _inboxStore?.GetMessageFilePath(message.Id);
+            var commitCount = await TryGetCommitCountSinceAsync(message.GitSha);
 
             if (action.RouteMode == "start_named_agent" && !string.IsNullOrWhiteSpace(action.TargetAgent))
             {
@@ -31688,13 +31732,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     await _pec.ExecuteNamedAgentDirectAsync(
                         targetAgent,
                         selectedOption,
-                        BuildInboxActionHandoffContext(action, message, filePath),
+                        BuildInboxActionHandoffContext(action, message, filePath, commitCount),
                         addToHistory: true,
                         clearPromptBox: false);
                     return;
                 }
 
-                var context = BuildInboxActionHandoffContext(action, message, filePath);
+                var context = BuildInboxActionHandoffContext(action, message, filePath, commitCount);
                 var deferredPrompt = $"[Deferred inbox action — route to @{action.TargetAgent}]\n\n{context}";
                 var item = EnqueuePrompt(deferredPrompt, isSystemInjected: true, forceAtTail: true);
                 if (item is not null)
@@ -31702,7 +31746,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            var coordContext = BuildInboxActionHandoffContext(action, message, filePath);
+            var coordContext = BuildInboxActionHandoffContext(action, message, filePath, commitCount);
             var coordItem = EnqueuePrompt(coordContext, isSystemInjected: true, forceAtTail: true);
             if (coordItem is not null)
                 AttachInboxMessageFollowUp(message, coordItem.Id);
@@ -31713,7 +31757,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private static string BuildInboxActionHandoffContext(InboxAction action, InboxMessage message, string? messageFilePath = null)
+    private static string BuildInboxActionHandoffContext(InboxAction action, InboxMessage message, string? messageFilePath = null, int commitCount = 0)
     {
         var builder = new StringBuilder();
         builder.AppendLine("SquadDash deferred inbox action context.");
@@ -31726,6 +31770,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         builder.AppendLine($"Clicked action: {action.Label}");
         if (!string.IsNullOrWhiteSpace(action.TargetAgent))
             builder.AppendLine($"Target handle: @{action.TargetAgent.Trim().TrimStart('@')}");
+
+        if (commitCount > 0)
+        {
+            builder.AppendLine();
+            var urgency = commitCount switch
+            {
+                1        => "1 commit",
+                <= 5     => $"a few commits ({commitCount})",
+                <= 20    => $"several commits ({commitCount})",
+                _        => $"many commits ({commitCount})",
+            };
+            builder.AppendLine(
+                $"> ⚠️ Note: This action was dispatched from an inbox message sent {urgency} ago " +
+                $"({message.Timestamp:yyyy-MM-dd}). File paths, line numbers, or conditions it " +
+                $"references may have changed.");
+        }
+
         builder.AppendLine();
         builder.AppendLine("Action prompt:");
         builder.AppendLine(action.Prompt?.Trim() ?? string.Empty);
@@ -31930,6 +31991,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             From        = dto.From,
             Body        = dto.Body,
             Timestamp   = DateTimeOffset.Now,
+            GitSha      = TryGetGitShaSync(_workspacePaths.ApplicationRoot),
             Attachments = dto.Attachments,
             Actions     = dto.Actions,
         };
