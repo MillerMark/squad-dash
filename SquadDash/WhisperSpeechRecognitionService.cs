@@ -61,13 +61,12 @@ internal sealed class WhisperSpeechRecognitionService : ISpeechRecognitionServic
         return Task.CompletedTask;
     }
 
-    public Task StopAsync()
+    public async Task StopAsync()
     {
         _stopping = true;
         _cts?.Cancel();
         try { _waveIn?.StopRecording(); } catch { }
-        FlushBufferAsync().GetAwaiter().GetResult();
-        return Task.CompletedTask;
+        await FlushBufferAsync().ConfigureAwait(false);
     }
 
     public void WriteAudioData(byte[] buffer, int count)
