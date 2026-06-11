@@ -75,11 +75,12 @@ internal static class AnnotationCursors {
         => _cropTool ??= CreateCursorFromDrawing(CreateCropToolDrawing(), 32, 32, hotX: 16, hotY: 16);
 
     /// <summary>
-    /// Eyedropper-tool cursor: a classic pipette icon oriented diagonally with the
-    /// sampling tip at lower-left.  The tip of the nozzle is the hotspot (2, 28).
+    /// Eyedropper-tool cursor: loaded from the EyedropperCursor.png embedded resource.
+    /// The sampling tip is the hotspot (7, 36).
     /// </summary>
     public static Cursor EyedropperTool
-        => _eyedropperTool ??= CreateCursorFromDrawing(CreateEyedropperToolDrawing(), 32, 32, hotX: 2, hotY: 28);
+        => _eyedropperTool ??= CreateCursorFromPngResource(
+            "SquadDash.Assets.Cursors.EyedropperCursor.png", hotX: 7, hotY: 36);
 
     /// <summary>
     /// Text-tool cursor: an I-beam with horizontal crosshair arms at centre.
@@ -282,51 +283,6 @@ internal static class AnnotationCursors {
             pointer.Figures.Add(fig);
             dc.DrawGeometry(fill, outlinePen, pointer);
             DrawCrosshair(dc, cx: 16, cy: 16);
-        }
-        return dg;
-    }
-
-    /// <summary>
-    /// Eyedropper cursor (32×32).
-    /// Body: diagonal tube from upper-right (~cap at 22–28, 5–9) to lower-left
-    /// (~nozzle end at 5–9, 22–27), with a cubic-bezier rounded cap at the top.
-    /// Nozzle: narrow parallelogram continuing to tip at lower-left.
-    /// Tip dot: filled ellipse centred at (4, 28); hotspot aligns with its left edge (2, 28).
-    /// </summary>
-    private static Drawing CreateEyedropperToolDrawing() {
-        var dg = new DrawingGroup();
-        using (var dc = dg.Open()) {
-            var fill = new SolidColorBrush(Color.FromRgb(255, 252, 242));
-            var outline = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.3) {
-                LineJoin = PenLineJoin.Round,
-                StartLineCap = PenLineCap.Round,
-                EndLineCap = PenLineCap.Round,
-            };
-
-            // Body: elongated parallelogram with a bezier-rounded cap at upper-right.
-            // Clockwise: start at upper-left cap corner → arc around cap → right edge
-            // down to nozzle end → across nozzle end → left edge back up (auto-close).
-            var bodyGeo = new PathGeometry();
-            var bodyFig = new PathFigure { StartPoint = new Point(22, 5), IsClosed = true };
-            // Rounded cap arc from (22,5) around upper-right to (28,9)
-            bodyFig.Segments.Add(new BezierSegment(new Point(24, 1), new Point(30, 5), new Point(28, 9), true));
-            bodyFig.Segments.Add(new LineSegment(new Point(9, 27), true));   // right edge →lower-left
-            bodyFig.Segments.Add(new LineSegment(new Point(5, 22), true));   // across nozzle end
-            bodyGeo.Figures.Add(bodyFig);
-            dc.DrawGeometry(fill, outline, bodyGeo);
-
-            // Nozzle: narrow parallelogram continuing from body end toward the tip.
-            // Width ≈ 3 px (half-width 1.5 along the 45° normal).
-            var nozzleGeo = new PathGeometry();
-            var nozzleFig = new PathFigure { StartPoint = new Point(6, 24), IsClosed = true };
-            nozzleFig.Segments.Add(new LineSegment(new Point(8, 26), true));
-            nozzleFig.Segments.Add(new LineSegment(new Point(5, 29), true));
-            nozzleFig.Segments.Add(new LineSegment(new Point(3, 27), true));
-            nozzleGeo.Figures.Add(nozzleFig);
-            dc.DrawGeometry(fill, outline, nozzleGeo);
-
-            // Tip sampling dot — hotspot (2,28) aligns with its left edge.
-            dc.DrawEllipse(fill, outline, new Point(4, 28), 2.5, 2.5);
         }
         return dg;
     }

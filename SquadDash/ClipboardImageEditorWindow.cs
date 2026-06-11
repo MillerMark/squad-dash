@@ -295,6 +295,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private Border? _eyedropperTooltipSwatch;
     private TextBlock? _eyedropperTooltipRgbText;
     private TextBlock? _eyedropperTooltipHslText;
+    private TextBlock? _eyedropperTooltipHexText;
     private byte[]? _cachedPixels;
     private int _cachedStride;
 
@@ -2381,7 +2382,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         // Eyedropper mode: show live color tooltip.
         if (_inEyedropperMode) {
-            _canvas.Cursor = Cursors.Cross;
+            _canvas.Cursor = AnnotationCursors.EyedropperTool;
             var ept = e.GetPosition(_canvas);
             var ec = SamplePixelAtCanvasPoint(ept);
             ShowEyedropperTooltip(ept, ec);
@@ -5541,6 +5542,13 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 IsHitTestVisible = false,
                 Margin = new Thickness(0, 5, 0, 0)
             };
+            _eyedropperTooltipHexText = new TextBlock {
+                FontSize = (double)Application.Current.Resources["FontSizeNormal"],
+                FontFamily = new FontFamily("Consolas"),
+                Foreground = Brushes.White,
+                IsHitTestVisible = false,
+                Margin = new Thickness(0, 5, 0, 0)
+            };
             var textStack = new StackPanel {
                 Orientation = Orientation.Vertical,
                 IsHitTestVisible = false,
@@ -5548,6 +5556,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             };
             textStack.Children.Add(_eyedropperTooltipRgbText);
             textStack.Children.Add(_eyedropperTooltipHslText);
+            textStack.Children.Add(_eyedropperTooltipHexText);
             var row = new StackPanel {
                 Orientation = Orientation.Horizontal,
                 IsHitTestVisible = false
@@ -5569,6 +5578,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         var (h, s, l) = RgbToHsl(color);
         _eyedropperTooltipRgbText!.Text = $"R:{color.R}  G:{color.G}  B:{color.B}";
         _eyedropperTooltipHslText!.Text = $"H:{h:F0}°  S:{s:F0}%  L:{l:F0}%";
+        _eyedropperTooltipHexText!.Text = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
         _eyedropperTooltipBorder.Visibility = Visibility.Visible;
         _eyedropperTooltipBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var tw = _eyedropperTooltipBorder.DesiredSize.Width;

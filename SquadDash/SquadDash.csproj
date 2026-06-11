@@ -56,6 +56,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\Cursors\HandOpen.png" />
     <EmbeddedResource Include="Assets\Cursors\HandClosed.png" />
+    <EmbeddedResource Include="Assets\Cursors\EyedropperCursor.png" />
   </ItemGroup>
 
   <ItemGroup>
