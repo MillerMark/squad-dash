@@ -341,18 +341,22 @@ internal sealed class ThemeColorsWindow : Window
         _swatchBorder.Background = new SolidColorBrush(color);
         _keyLabel.Text = key;
 
-        // Restore sliders to the pending adjustment for this key (if any)
+        // Restore sliders to the pending adjustment for this key (if any).
+        // Reverse-engineer approximate slider values from the HSL delta between
+        // the original and pending colors. 8-bit quantization means this is not
+        // exact, but it's close enough for UX feedback.
         _suppressSliderEvents = true;
         if (_pendingByTheme.TryGetValue(currentTheme, out var pending) &&
             pending.TryGetValue(key, out var pendingColor) &&
             _originalColors.TryGetValue(currentTheme, out var snap) &&
             snap.TryGetValue(key, out var origColor))
         {
-            // Compute back the slider offsets from the stored pending color
-            // (approximate; stored as-is since we can't reverse HSL perfectly)
-            // Just reset to 0 — user can re-adjust if they return to the entry
-            _brightnessSlider.Value = 0;
-            _saturationSlider.Value = 0;
+            ColorUtilities.RgbToHsl(origColor.R, origColor.G, origColor.B, out _, out double sOrig, out double lOrig);
+            ColorUtilities.RgbToHsl(pendingColor.R, pendingColor.G, pendingColor.B, out _, out double sPend, out double lPend);
+            double approxBrightness = Math.Round((lPend - lOrig) * 200.0);
+            double approxSaturation = Math.Round((sPend - sOrig) * 200.0);
+            _brightnessSlider.Value = Math.Clamp(approxBrightness, _brightnessSlider.Minimum, _brightnessSlider.Maximum);
+            _saturationSlider.Value = Math.Clamp(approxSaturation, _saturationSlider.Minimum, _saturationSlider.Maximum);
         }
         else
         {
