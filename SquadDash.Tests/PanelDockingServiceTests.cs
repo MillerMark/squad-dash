@@ -782,6 +782,85 @@ internal sealed class PanelDockingServiceTests
             "tasks should have equal weight (1*)");
     }
 
+    // ── Regression tests: RowDefinition.MaxHeight must never be set on zone rows ─────────────────
+    // Regression for commit 03a1357 (reverted in f023931), which set MaxHeight on docked-panel
+    // RowDefinitions, preventing the GridSplitter from resizing panels beyond the capped height.
+
+    /// <summary>
+    /// A single panel docked into a side zone must produce a star RowDefinition with
+    /// MaxHeight == PositiveInfinity (unconstrained), so the splitter is free to resize it.
+    /// </summary>
+    [Test, Apartment(ApartmentState.STA)]
+    public void RebuildZoneGrid_SinglePanel_RowDefinitionMaxHeightIsUnconstrained()
+    {
+        var zone   = new Grid();
+        var sv     = new ScrollViewer();
+        var panel  = new Border();
+
+        PanelDockingService.RebuildZoneGrid(
+            zone,
+            new List<FrameworkElement> { panel },
+            sv);
+
+        var row = zone.RowDefinitions.Single();
+        Assert.That(row.Height.IsStar, Is.True,
+            "The panel row must use star sizing.");
+        Assert.That(row.MaxHeight, Is.EqualTo(double.PositiveInfinity),
+            "RowDefinition.MaxHeight must not be constrained — a capped row breaks splitter resize.");
+    }
+
+    /// <summary>
+    /// Multiple panels docked into a side zone must each produce a star RowDefinition with
+    /// MaxHeight == PositiveInfinity, so the GridSplitter between them can move freely.
+    /// </summary>
+    [Test, Apartment(ApartmentState.STA)]
+    public void RebuildZoneGrid_MultiplePanels_NoRowDefinitionHasConstrainedMaxHeight()
+    {
+        var zone   = new Grid();
+        var sv     = new ScrollViewer();
+        var panelA = new Border();
+        var panelB = new Border();
+
+        PanelDockingService.RebuildZoneGrid(
+            zone,
+            new List<FrameworkElement> { panelA, panelB },
+            sv);
+
+        var starRows = zone.RowDefinitions.Where(r => r.Height.IsStar).ToList();
+        Assert.That(starRows.Count, Is.EqualTo(2),
+            "Expected one star row per visible panel.");
+        foreach (var row in starRows)
+        {
+            Assert.That(row.MaxHeight, Is.EqualTo(double.PositiveInfinity),
+                "Each panel RowDefinition.MaxHeight must be unconstrained — capping breaks splitter resize.");
+        }
+    }
+
+    /// <summary>
+    /// After docking a panel, the GridSplitter must be able to assign an arbitrary height to the
+    /// panel's RowDefinition.  Verifies that Height can be freely mutated after RebuildZoneGrid.
+    /// </summary>
+    [Test, Apartment(ApartmentState.STA)]
+    public void RebuildZoneGrid_AfterDocking_RowDefinitionHeightIsFreelySettable()
+    {
+        var zone   = new Grid();
+        var sv     = new ScrollViewer();
+        var panelA = new Border();
+        var panelB = new Border();
+
+        PanelDockingService.RebuildZoneGrid(
+            zone,
+            new List<FrameworkElement> { panelA, panelB },
+            sv);
+
+        // Simulate a splitter drag: re-assign the star height to an arbitrary value.
+        var panelRow = zone.RowDefinitions[0];  // first panel occupies row 0
+        Assert.DoesNotThrow(() => panelRow.Height = new GridLength(350, GridUnitType.Star),
+            "Assigning a new Height to a panel row must succeed (splitter resize must not be blocked).");
+        Assert.That(panelRow.Height.Value, Is.EqualTo(350).Within(0.001),
+            "The assigned star height must be preserved on the RowDefinition.");
+    }
+
     private static void AssertN1RuleCompliance(PanelDockingService svc, string testContext)
     {
         // Get the current layout data
