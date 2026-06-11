@@ -27876,6 +27876,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         foreach (var inboxWin in _openInboxWindows)
             inboxWin.NotifyThemeChanged();
 
+        // Refresh the scrollbar corner rectangle in floating log/tool windows.
+        _traceWindow?.NotifyThemeChanged();
+        _loopOutputWindow?.NotifyThemeChanged();
+        _screenshotHealthWindow?.NotifyThemeChanged();
+
         RefreshDocumentationViewer();
 
         // Rebuild queue tabs after the current dispatcher frame so WPF's deferred

@@ -204,12 +204,21 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         // Remove the white dead-corner square where the two scrollbars meet by overriding
         // the SystemColors.ControlBrushKey that the default ScrollViewer template uses
         // for the corner rectangle fill.
-        _logTextBox.Loaded += (_, _) =>
-        {
-            if (_logTextBox.TryFindResource("CardSurface") is Brush cardBrush)
-                _logTextBox.Resources[SystemColors.ControlBrushKey] = cardBrush;
-        };
+        _logTextBox.Loaded += (_, _) => RefreshCornerBrush();
         contentBorder.Child = _logTextBox;
+    }
+
+    /// <summary>Re-applies the scrollbar corner brush after a theme switch.</summary>
+    public void NotifyThemeChanged()
+    {
+        if (_logTextBox.IsLoaded)
+            RefreshCornerBrush();
+    }
+
+    private void RefreshCornerBrush()
+    {
+        if (_logTextBox.TryFindResource("CardSurface") is Brush cardBrush)
+            _logTextBox.Resources[SystemColors.ControlBrushKey] = cardBrush;
     }
 
     // ────────────────────────────────────────────────────────────────────────────────────────

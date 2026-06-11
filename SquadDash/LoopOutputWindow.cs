@@ -94,12 +94,21 @@ internal sealed class LoopOutputWindow : ChromedWindow
         };
         _logTextBox.SetResourceReference(TextBox.BackgroundProperty, "CardSurface");
         _logTextBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
-        _logTextBox.Loaded += (_, _) =>
-        {
-            if (_logTextBox.TryFindResource("CardSurface") is Brush cardBrush)
-                _logTextBox.Resources[SystemColors.ControlBrushKey] = cardBrush;
-        };
+        _logTextBox.Loaded += (_, _) => RefreshCornerBrush();
         contentBorder.Child = _logTextBox;
+    }
+
+    /// <summary>Re-applies the scrollbar corner brush after a theme switch.</summary>
+    public void NotifyThemeChanged()
+    {
+        if (_logTextBox.IsLoaded)
+            RefreshCornerBrush();
+    }
+
+    private void RefreshCornerBrush()
+    {
+        if (_logTextBox.TryFindResource("CardSurface") is Brush cardBrush)
+            _logTextBox.Resources[SystemColors.ControlBrushKey] = cardBrush;
     }
 
     /// <summary>Appends a line of text to the log. Thread-safe.</summary>

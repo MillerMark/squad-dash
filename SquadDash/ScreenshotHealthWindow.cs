@@ -125,15 +125,26 @@ internal sealed class ScreenshotHealthWindow : ChromedWindow
         };
         _scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
         // Remove the white dead-corner square where the two scrollbars meet.
-        _scrollViewer.Loaded += (_, _) =>
-        {
-            if (_scrollViewer.TryFindResource("CardSurface") is Brush cardBrush)
-                _scrollViewer.Resources[SystemColors.ControlBrushKey] = cardBrush;
-        };
+        _scrollViewer.Loaded += (_, _) => RefreshCornerBrush();
         contentBorder.Child = _scrollViewer;
 
         // Show a placeholder row so the content area is not blank on first open.
         AddPlaceholderRow("Press  Run Check  to scan screenshot definitions.");
+    }
+
+    // ── Theme ────────────────────────────────────────────────────────────────────
+
+    /// <summary>Re-applies the scrollbar corner brush after a theme switch.</summary>
+    public void NotifyThemeChanged()
+    {
+        if (_scrollViewer.IsLoaded)
+            RefreshCornerBrush();
+    }
+
+    private void RefreshCornerBrush()
+    {
+        if (_scrollViewer.TryFindResource("CardSurface") is Brush cardBrush)
+            _scrollViewer.Resources[SystemColors.ControlBrushKey] = cardBrush;
     }
 
     // ── Button handler ──────────────────────────────────────────────────────────
