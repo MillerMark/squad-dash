@@ -12465,10 +12465,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private UiRevealOverlay? _uiRevealOverlay;
+    private UiRevealOverlay?    _uiRevealOverlay;
+    private ThemeRevealOverlay? _themeRevealOverlay;
 
     private void UiRevealMenuItem_Click(object sender, RoutedEventArgs e) =>
         ToggleUiReveal(this);
+
+    private void ThemeRevealMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _themeRevealOverlay ??= new ThemeRevealOverlay();
+        if (_themeRevealOverlay.IsActive)
+            _themeRevealOverlay.Deactivate();
+        else
+            _themeRevealOverlay.Activate(this);
+    }
 
     /// <summary>
     /// Activates or deactivates UI Reveal on the given window.
@@ -12512,6 +12522,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 && Keyboard.Modifiers == ModifierKeys.None)
             {
                 _uiRevealOverlay.Deactivate();
+                keyArgs.Handled = true;
+                return;
+            }
+
+            // Escape while Theme Reveal is active → cancel reveal.
+            if (_themeRevealOverlay?.IsActive == true
+                && key == Key.Escape
+                && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                _themeRevealOverlay.Deactivate();
                 keyArgs.Handled = true;
                 return;
             }
