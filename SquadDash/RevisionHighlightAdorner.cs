@@ -17,7 +17,7 @@ internal sealed class RevisionHighlightAdorner : Adorner
     private readonly RichTextBox _rtb;
     private TextPointer? _start;
     private TextPointer? _end;
-    private EventHandler? _layoutUpdatedHandler;
+    private SizeChangedEventHandler? _sizeChangedHandler;
     private ScrollChangedEventHandler? _scrollChangedHandler;
     private ScrollViewer? _subscribedSv;
     private MouseWheelEventHandler? _mouseWheelHandler;
@@ -27,12 +27,8 @@ internal sealed class RevisionHighlightAdorner : Adorner
         _rtb = rtb;
         IsHitTestVisible = false;
 
-        rtb.SizeChanged += (_, _) => InvalidateVisual();
-        // LayoutUpdated fires after any document-content change causes a layout pass
-        // (e.g. coordinator appending text while a revision is pending). Neither
-        // SizeChanged nor ScrollChanged fires in that case, leaving the adorner stale.
-        _layoutUpdatedHandler = (_, _) => InvalidateVisual();
-        rtb.LayoutUpdated += _layoutUpdatedHandler;
+        _sizeChangedHandler = (_, _) => InvalidateVisual();
+        rtb.SizeChanged += _sizeChangedHandler;
         rtb.Loaded += (_, _) => SubscribeToScrollViewer();
         if (rtb.IsLoaded)
             SubscribeToScrollViewer();
@@ -96,10 +92,10 @@ internal sealed class RevisionHighlightAdorner : Adorner
         {
             _start = null;
             _end   = null;
-            if (_layoutUpdatedHandler is not null)
+            if (_sizeChangedHandler is not null)
             {
-                _rtb.LayoutUpdated -= _layoutUpdatedHandler;
-                _layoutUpdatedHandler = null;
+                _rtb.SizeChanged -= _sizeChangedHandler;
+                _sizeChangedHandler = null;
             }
             if (_scrollChangedHandler is not null && _subscribedSv is not null)
             {

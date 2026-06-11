@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -14,25 +15,46 @@ namespace SquadDash;
 /// <see cref="RichTextBox"/> without touching its <see cref="FlowDocument"/>.
 /// Handles multi-line matches and scroll-offset tracking automatically.
 /// </summary>
-internal sealed class SearchHighlightAdorner : Adorner
+internal sealed class SearchHighlightAdorner : Adorner, IDisposable
 {
     private readonly RichTextBox _rtb;
     private List<(TextPointer Start, TextPointer End, string Text)> _matches = [];
     private int _currentIndex = -1;
+    private SizeChangedEventHandler? _sizeChangedHandler;
     private MouseWheelEventHandler? _mouseWheelHandler;
     private ScrollViewer? _subscribedScrollViewer;
+    private DispatcherTimer? _debounceTimer;
 
     public SearchHighlightAdorner(RichTextBox richTextBox) : base(richTextBox)
     {
         _rtb = richTextBox;
         IsHitTestVisible = false;
 
-        richTextBox.SizeChanged += (_, _) => InvalidateVisual();
+        _sizeChangedHandler = (_, _) => ScheduleInvalidate();
+        richTextBox.SizeChanged += _sizeChangedHandler;
 
         // Subscribe to the internal ScrollViewer so highlights reposition on scroll.
         richTextBox.Loaded += (_, _) => SubscribeToScrollViewer();
         if (richTextBox.IsLoaded)
             SubscribeToScrollViewer();
+    }
+
+    private void ScheduleInvalidate()
+    {
+        if (_debounceTimer is null)
+        {
+            _debounceTimer = new DispatcherTimer(DispatcherPriority.Render)
+            {
+                Interval = TimeSpan.FromMilliseconds(50)
+            };
+            _debounceTimer.Tick += (_, _) =>
+            {
+                _debounceTimer.Stop();
+                InvalidateVisual();
+            };
+        }
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
     private void SubscribeToScrollViewer()
@@ -59,11 +81,11 @@ internal sealed class SearchHighlightAdorner : Adorner
         // double-invalidation after repeated Loaded events.
         if (_mouseWheelHandler is not null)
             _rtb.RemoveHandler(UIElement.MouseWheelEvent, _mouseWheelHandler);
-        _mouseWheelHandler = (_, _) => InvalidateVisual();
+        _mouseWheelHandler = (_, _) => ScheduleInvalidate();
         _rtb.AddHandler(UIElement.MouseWheelEvent, _mouseWheelHandler, true);
     }
 
-    private void OnScrollChanged(object sender, ScrollChangedEventArgs e) => InvalidateVisual();
+    private void OnScrollChanged(object sender, ScrollChangedEventArgs e) => ScheduleInvalidate();
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
     {
@@ -100,6 +122,29 @@ internal sealed class SearchHighlightAdorner : Adorner
         _matches = [];
         _currentIndex = -1;
         InvalidateVisual();
+    }
+
+    /// <summary>Unsubscribes all event handlers and stops the debounce timer.</summary>
+    public void Dispose()
+    {
+        _debounceTimer?.Stop();
+        _debounceTimer = null;
+
+        if (_sizeChangedHandler is not null)
+        {
+            _rtb.SizeChanged -= _sizeChangedHandler;
+            _sizeChangedHandler = null;
+        }
+        if (_subscribedScrollViewer is not null)
+        {
+            _subscribedScrollViewer.ScrollChanged -= OnScrollChanged;
+            _subscribedScrollViewer = null;
+        }
+        if (_mouseWheelHandler is not null)
+        {
+            _rtb.RemoveHandler(UIElement.MouseWheelEvent, _mouseWheelHandler);
+            _mouseWheelHandler = null;
+        }
     }
 
     /// <summary>Triggers a re-render pass — call after new document content is appended.</summary>
