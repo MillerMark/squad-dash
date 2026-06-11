@@ -201,14 +201,9 @@ internal sealed class PastedImageStore
         return freed;
     }
 
-    // Mirrors WorkspaceConversationStore.NormalizeWorkspaceFolder — must stay in sync.
-    private static string NormalizeWorkspaceFolder(string workspaceFolder)
-    {
-        if (string.IsNullOrWhiteSpace(workspaceFolder))
-            return "workspace";
-
-        return Path.GetFullPath(workspaceFolder)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    private static string NormalizeWorkspaceFolder(string workspaceFolder) {
+        var result = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        return result == string.Empty ? "workspace" : result;
     }
 
     // Mirrors WorkspaceConversationStore.BuildWorkspaceDirectoryName — must stay in sync.

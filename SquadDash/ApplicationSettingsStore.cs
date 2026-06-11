@@ -417,7 +417,7 @@ internal sealed class ApplicationSettingsStore {
 
     public ApplicationSettingsSnapshot SaveHomeBranch(string workspaceFolder, string branch) {
         using var mutex = AcquireMutex();
-        var normalizedWorkspace = NormalizeWorkspaceFolder(workspaceFolder);
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
         var current = LoadCore();
         var dict = current.HomeBranchByWorkspace
             .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
@@ -825,12 +825,6 @@ internal sealed class ApplicationSettingsStore {
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
-    private static string NormalizeWorkspaceFolder(string? folder) {
-        if (string.IsNullOrEmpty(folder)) return string.Empty;
-        return Path.GetFullPath(folder.Trim())
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    }
-
     private static string NormalizeColorHex(string accentColorHex) {
         return accentColorHex.Trim().ToUpperInvariant();
     }
@@ -1097,15 +1091,9 @@ internal sealed record ApplicationSettingsSnapshot(
     }
 
     public string GetHomeBranch(string workspaceFolder) {
-        var key = NormalizeWorkspaceFolder(workspaceFolder);
+        var key = WorkspacePaths.NormalizeFolder(workspaceFolder);
         if (key == string.Empty) return "main";
         return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "main";
-    }
-
-    private static string NormalizeWorkspaceFolder(string? folder) {
-        if (string.IsNullOrEmpty(folder)) return string.Empty;
-        return Path.GetFullPath(folder.Trim())
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     public string? Theme { get; init; }

@@ -149,6 +149,7 @@
     <Compile Include="..\SquadDash\FollowUpAttachment.cs" Link="Source\FollowUpAttachment.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
     <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Source\IWorkspacePaths.cs" />
+    <Compile Include="..\SquadDash\WorkspacePaths.cs" Link="Source\WorkspacePaths.cs" />
     <Compile Include="..\SquadDash\WorkspacePathsProvider.cs" Link="Source\WorkspacePathsProvider.cs" />
     <Compile Include="..\SquadDash\WorkspaceStartupRoutingPolicy.cs" Link="Source\WorkspaceStartupRoutingPolicy.cs" />
     <Compile Include="..\SquadDash\PromptHistoryStore.cs" Link="Source\PromptHistoryStore.cs" />

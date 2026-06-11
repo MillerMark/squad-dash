@@ -609,11 +609,10 @@ internal sealed class WorkspaceConversationStore {
     }
 
     private static string NormalizeWorkspaceFolder(string workspaceFolder) {
-        if (string.IsNullOrWhiteSpace(workspaceFolder))
+        var result = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        if (result == string.Empty)
             throw new ArgumentException("Workspace folder cannot be empty.", nameof(workspaceFolder));
-
-        return Path.GetFullPath(workspaceFolder)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return result;
     }
 
     private static MutexLease AcquireMutex(string normalizedWorkspace) {
