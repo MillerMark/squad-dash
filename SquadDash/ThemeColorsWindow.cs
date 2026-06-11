@@ -30,6 +30,7 @@ internal sealed class ThemeColorsWindow : Window
     private readonly Dictionary<string, Dictionary<string, Color>> _pendingByTheme = new(StringComparer.OrdinalIgnoreCase);
 
     // ── UI controls ───────────────────────────────────────────────────────
+    private readonly TextBox _filterBox;
     private readonly ListBox _listBox;
     private readonly Border _swatchBorder;
     private readonly TextBlock _keyLabel;
@@ -130,6 +131,28 @@ internal sealed class ThemeColorsWindow : Window
         var themeBarSep = new Separator();
         DockPanel.SetDock(themeBarSep, Dock.Top);
         root.Children.Add(themeBarSep);
+
+        // ── Filter row ────────────────────────────────────────────────────
+        var filterRow = new DockPanel { Margin = new Thickness(8, 4, 8, 4), LastChildFill = true };
+        DockPanel.SetDock(filterRow, Dock.Top);
+        root.Children.Add(filterRow);
+
+        var filterLabel = new TextBlock
+        {
+            Text = "Filter:",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        filterLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        DockPanel.SetDock(filterLabel, Dock.Left);
+        filterRow.Children.Add(filterLabel);
+
+        _filterBox = new TextBox { Height = 24 };
+        _filterBox.SetResourceReference(BackgroundProperty, "InputSurface");
+        _filterBox.SetResourceReference(ForegroundProperty, "LabelText");
+        _filterBox.SetResourceReference(BorderBrushProperty, "InputBorder");
+        _filterBox.TextChanged += (_, _) => RebuildList();
+        filterRow.Children.Add(_filterBox);
 
         // ── Body: list + detail ───────────────────────────────────────────
         var body = new Grid();
@@ -239,9 +262,14 @@ internal sealed class ThemeColorsWindow : Window
                 Application.Current.Resources[key] = new SolidColorBrush(color);
         }
 
+        var filter = _filterBox?.Text?.Trim() ?? string.Empty;
+
         foreach (var kvp in snapshot.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
         {
             var key = kvp.Key;
+            if (filter.Length > 0 && key.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+
             var color = GetEffectiveColor(currentTheme, key);
 
             var row = BuildListRow(key, color);
