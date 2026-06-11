@@ -153,10 +153,22 @@ internal sealed class NotificationRateLimiter {
     }
 }
 
-internal sealed class PushNotificationService {
+internal sealed partial class PushNotificationService {
     private readonly ApplicationSettingsStore _settingsStore;
     private readonly NotificationRateLimiter _rateLimiter = new();
     private IPushNotificationProvider? _provider;
+
+    // Git native format with commit message: "[branch sha] message"
+    [GeneratedRegex(@"\[[\w/.-]+\s+([0-9a-f]{7,40})\]\s+(.+)", RegexOptions.IgnoreCase)]
+    private static partial Regex GitNativeWithMessageRegex();
+
+    // Git native format SHA-only fallback: "[anything sha7+]"
+    [GeneratedRegex(@"\[\S+\s+([0-9a-f]{7,})\]", RegexOptions.IgnoreCase)]
+    private static partial Regex GitNativeRegex();
+
+    // Agent-reported formats like "Committed as `abc1234`" or "**Commit `abc1234`**"
+    [GeneratedRegex(@"(?:commit(?:ted)?)\s*(?:as|:)?\s*[*]*\s*`([0-9a-f]{7,40})`", RegexOptions.IgnoreCase)]
+    private static partial Regex AgentCommitRegex();
 
     private static readonly IReadOnlyDictionary<string, bool> DefaultEventToggles = new Dictionary<string, bool> {
         ["assistant_turn_complete"] = true,
@@ -340,20 +352,10 @@ internal sealed class PushNotificationService {
     // Returns CommitSha and CommitMessage when found, prioritizing git's native output
     // which contains both SHA and the meaningful commit message.
     internal static GitCommitInfo? ExtractGitCommitInfo(IEnumerable<string?> toolOutputs, string? agentResponse = null) {
-        // Pattern 1: Git native format with commit message "[branch sha] message"
-        // Captures both SHA and commit message — this is the richest source
-        var gitNativeWithMessagePattern = new Regex(@"\[[\w/.-]+\s+([0-9a-f]{7,40})\]\s+(.+)", RegexOptions.IgnoreCase);
-        
-        // Pattern 2: Git native format SHA-only fallback "[anything sha7+]"
-        var gitNativePattern = new Regex(@"\[\S+\s+([0-9a-f]{7,})\]", RegexOptions.IgnoreCase);
-        
-        // Pattern 3: Agent-reported formats like "Committed as `abc1234`" or "**Commit `abc1234`**"
-        var agentPattern = new Regex(@"(?:commit(?:ted)?)\s*(?:as|:)?\s*[*]*\s*`([0-9a-f]{7,40})`", RegexOptions.IgnoreCase);
-        
         // Priority 1: Scan tool outputs for git native format with commit message
         foreach (var output in toolOutputs) {
             if (string.IsNullOrWhiteSpace(output)) continue;
-            var match = gitNativeWithMessagePattern.Match(output);
+            var match = GitNativeWithMessageRegex().Match(output);
             if (match.Success) {
                 var sha = match.Groups[1].Value;
                 var message = match.Groups[2].Value.Trim();
@@ -363,7 +365,7 @@ internal sealed class PushNotificationService {
         
         // Priority 2: Try agent-reported pattern in the response text (SHA only)
         if (!string.IsNullOrWhiteSpace(agentResponse)) {
-            var match = agentPattern.Match(agentResponse);
+            var match = AgentCommitRegex().Match(agentResponse);
             if (match.Success)
                 return new GitCommitInfo(match.Groups[1].Value, null);
         }
@@ -371,7 +373,7 @@ internal sealed class PushNotificationService {
         // Priority 3: Try git native pattern in tool outputs (SHA only)
         foreach (var output in toolOutputs) {
             if (string.IsNullOrWhiteSpace(output)) continue;
-            var match = gitNativePattern.Match(output);
+            var match = GitNativeRegex().Match(output);
             if (match.Success)
                 return new GitCommitInfo(match.Groups[1].Value, null);
         }
@@ -379,7 +381,7 @@ internal sealed class PushNotificationService {
         // Priority 4: Try agent pattern in tool outputs as final fallback (SHA only)
         foreach (var output in toolOutputs) {
             if (string.IsNullOrWhiteSpace(output)) continue;
-            var match = agentPattern.Match(output);
+            var match = AgentCommitRegex().Match(output);
             if (match.Success)
                 return new GitCommitInfo(match.Groups[1].Value, null);
         }
