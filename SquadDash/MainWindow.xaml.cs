@@ -31307,14 +31307,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
                 menu.Items.Add(sep2);
 
-                var switchItem = new MenuItem { Header = $"Switch to {homeBranch}" };
+                bool alreadyQueued = BranchNameText.Text.Contains(" — queued, waiting for active turn to finish");
+
+                var switchItem = new MenuItem { Header = $"Switch to {homeBranch}", IsEnabled = !alreadyQueued };
                 switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 switchItem.Click += async (_, _) =>
                 {
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
                         BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        EnqueuePrompt($"Switch git branch to {homeBranch}", isSystemInjected: false);
+                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", ++_promptQueueSeq);
+                        _promptQueue.RenumberSequentially();
+                        SyncQueuePanel();
+                        _ = DrainQueueIfNeededAsync();
                         return;
                     }
                     try
@@ -31330,14 +31335,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 };
                 menu.Items.Add(switchItem);
 
-                var mergeItem = new MenuItem { Header = $"Merge this branch into {homeBranch} →" };
+                var mergeItem = new MenuItem { Header = $"Merge this branch into {homeBranch} →", IsEnabled = !alreadyQueued };
                 mergeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 mergeItem.Click += async (_, _) =>
                 {
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
                         BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        EnqueuePrompt($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", isSystemInjected: false);
+                        _promptQueue.EnqueueAtFront($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", ++_promptQueueSeq);
+                        _promptQueue.RenumberSequentially();
+                        SyncQueuePanel();
+                        _ = DrainQueueIfNeededAsync();
                         return;
                     }
 
