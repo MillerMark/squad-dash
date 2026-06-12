@@ -1096,6 +1096,25 @@ internal sealed record ApplicationSettingsSnapshot(
         return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "main";
     }
 
+    /// <summary>
+    /// Returns true when <paramref name="branch"/> should be treated as the home branch —
+    /// either it matches the explicitly configured home branch, or no home branch has been
+    /// set and the branch is the conventional default (<c>main</c> or <c>master</c>).
+    /// </summary>
+    public bool IsHomeBranch(string workspaceFolder, string branch) {
+        var key = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        bool hasExplicit = key != string.Empty
+            && HomeBranchByWorkspace.TryGetValue(key, out var v)
+            && !string.IsNullOrWhiteSpace(v);
+
+        if (hasExplicit)
+            return string.Equals(branch, HomeBranchByWorkspace[key], StringComparison.OrdinalIgnoreCase);
+
+        // No explicit home branch — treat main/master as home.
+        return string.Equals(branch, "main", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(branch, "master", StringComparison.OrdinalIgnoreCase);
+    }
+
     public string? Theme { get; init; }
     public string? LastUsedModel { get; init; }
     public ModelProvider ModelProvider { get; init; } = ModelProvider.GitHubCopilot;

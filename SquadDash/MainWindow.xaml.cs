@@ -26200,7 +26200,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         bool isMaintenance = branch.StartsWith("maintenance/", StringComparison.OrdinalIgnoreCase)
                           || branch.StartsWith("hotfix/", StringComparison.OrdinalIgnoreCase);
-        bool isHomeBranch = string.Equals(branch, homeBranch, StringComparison.OrdinalIgnoreCase);
+        bool isHomeBranch = _settingsSnapshot.IsHomeBranch(_currentWorkspace.FolderPath, branch);
 
         if (isMaintenance)
         {
@@ -31252,7 +31252,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (workspaceFolder is null) return;
 
             var homeBranch = _settingsSnapshot.GetHomeBranch(workspaceFolder);
-            bool isOnMain = string.Equals(branch, homeBranch, StringComparison.OrdinalIgnoreCase);
+            bool isOnMain = _settingsSnapshot.IsHomeBranch(workspaceFolder, branch);
 
             var menu = new ContextMenu();
             menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
