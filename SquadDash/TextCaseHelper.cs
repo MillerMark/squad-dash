@@ -198,41 +198,55 @@ internal static class TextCaseHelper
     }
 
     /// <summary>
-    /// Returns the six case variants in cycle order:
-    /// [0] Title Case, [1] PascalCase, [2] Sentence case, [3] UPPERCASE, [4] kebab-case, [5] preserve_underscores.
-    /// If the original text doesn't appear in those six variants, it is appended as a 7th item
-    /// so cycling always returns to the original form.
+    /// Returns the case variants in dynamic cycle order starting from the next case to apply.
+    /// The canonical order is: Title Case, PascalCase, Sentence case, UPPERCASE, kebab-case, underscore_case.
+    /// If the input matches one of these, that case is moved to the end so the user cycles through
+    /// all 5 other cases before returning to the original. Always returns exactly 6 items.
     /// </summary>
-    internal static List<string> ComputeVariants(string text)
+    internal static List<string> ComputeOrderedVariants(string text)
     {
-        var variants = new List<string>
+        var canonical = new List<string>
         {
-            ToTitleCase(text), ToPascalCase(text), ToSentenceCase(text),
-            ToUpperCase(text), ToKebabCase(text), ToUnderscorePreserveCase(text)
+            ToTitleCase(text),
+            ToPascalCase(text),
+            ToSentenceCase(text),
+            ToUpperCase(text),
+            ToKebabCase(text),
+            ToUnderscorePreserveCase(text)
         };
-        // If the original text doesn't appear in the six computed variants,
-        // append it so cycling always returns to the original form.
-        if (!variants.Contains(text, StringComparer.Ordinal))
-            variants.Add(text);
-        return variants;
+
+        int detectedIndex = DetectCase(text) switch
+        {
+            TextCase.TitleCase      => 0,
+            TextCase.PascalCase     => 1,
+            TextCase.SentenceCase   => 2,
+            TextCase.UpperCase      => 3,
+            TextCase.KebabCase      => 4,
+            TextCase.UnderscoreCase => 5,
+            _                       => -1,
+        };
+
+        if (detectedIndex >= 0)
+        {
+            var moved = canonical[detectedIndex];
+            canonical.RemoveAt(detectedIndex);
+            canonical.Add(moved);
+        }
+
+        return canonical;
     }
 
     /// <summary>
-    /// Returns the index into <see cref="ComputeVariants"/> of the variant to apply on the
-    /// first Shift+F3 press — i.e. the case that follows the currently-detected case.
-    /// Cycle positions: TitleCase=0, PascalCase=1, SentenceCase=2, UpperCase=3, KebabCase=4, UnderscoreCase=5.
+    /// Deprecated alias for <see cref="ComputeOrderedVariants"/>. Use that method directly.
     /// </summary>
-    internal static int GetFirstVariantIndex(string text) =>
-        DetectCase(text) switch
-        {
-            TextCase.TitleCase      => 1,
-            TextCase.PascalCase     => 2,
-            TextCase.SentenceCase   => 3,
-            TextCase.UpperCase      => 4,
-            TextCase.KebabCase      => 5,
-            TextCase.UnderscoreCase => 0,
-            _                       => 0,
-        };
+    internal static List<string> ComputeVariants(string text) => ComputeOrderedVariants(text);
+
+    /// <summary>
+    /// Always returns 0. <see cref="ComputeOrderedVariants"/> already places the correct
+    /// first-press variant at index 0, so callers should use <c>_cycleIndex = 0</c> directly.
+    /// Kept for source compatibility.
+    /// </summary>
+    internal static int GetFirstVariantIndex(string text) => 0;
 
     /// <summary>
     /// Detects the current case and returns the text transformed to the next case in the cycle:

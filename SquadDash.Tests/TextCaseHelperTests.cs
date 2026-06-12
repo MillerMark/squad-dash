@@ -24,45 +24,56 @@ internal class TextCaseHelperTests
     }
 
     // ──────────────────────────────────────────────────────────────
-    // 2. ComputeVariants — known-case input stays at 6 items
+    // 2. ComputeOrderedVariants — always returns exactly 6 items
     // ──────────────────────────────────────────────────────────────
+
+    [Test]
+    public void ComputeOrderedVariants_TitleCaseInput_Returns6Items()
+    {
+        // Input has no minor interior words so ToTitleCase is idempotent → still 6 items with TitleCase at the end.
+        var variants = ComputeOrderedVariants("The Quick Brown Fox");
+        Assert.That(variants, Has.Count.EqualTo(6));
+    }
 
     [Test]
     public void ComputeVariants_TitleCaseInput_Returns6Items()
     {
-        // Input has no minor interior words so ToTitleCase is idempotent → stays at 6 items.
+        // ComputeVariants is a deprecated alias — same 6-item result.
         var variants = ComputeVariants("The Quick Brown Fox");
         Assert.That(variants, Has.Count.EqualTo(6));
     }
 
     // ──────────────────────────────────────────────────────────────
-    // 3. ComputeVariants — unrecognised input gets 7 items
+    // 3. ComputeOrderedVariants — None input returns canonical 6-item order
     // ──────────────────────────────────────────────────────────────
 
     [Test]
-    public void ComputeVariants_NoneInput_Returns7ItemsWithOriginalLast()
+    public void ComputeOrderedVariants_NoneInput_Returns6ItemsInCanonicalOrder()
     {
         const string original = "to a tag and a tag filter";
-        var variants = ComputeVariants(original);
-        Assert.That(variants, Has.Count.EqualTo(7));
-        Assert.That(variants[6], Is.EqualTo(original));
+        var variants = ComputeOrderedVariants(original);
+        Assert.That(variants, Has.Count.EqualTo(6));
+        // Canonical order preserved (no detected case to move): Title, Pascal, Sentence, Upper, Kebab, Underscore.
+        Assert.That(variants[0], Is.EqualTo(ToTitleCase(original)));
+        Assert.That(variants[5], Is.EqualTo(ToUnderscorePreserveCase(original)));
     }
 
     // ──────────────────────────────────────────────────────────────
-    // 4. Full cycle — None input returns to original after 6 presses
+    // 4. Full cycle — None input cycles through 6 canonical variants
     // ──────────────────────────────────────────────────────────────
 
     [Test]
-    public void FullCycle_NoneInput_ReturnsToOriginalAfter6Presses()
+    public void FullCycle_NoneInput_CyclesThroughAllCanonicalVariants()
     {
         const string original = "to a tag and a tag filter";
-        var variants = ComputeVariants(original);
+        var variants = ComputeOrderedVariants(original);
         int startIndex = GetFirstVariantIndex(original);
 
         Assert.That(startIndex, Is.EqualTo(0), "TextCase.None should start at index 0 (TitleCase)");
+        Assert.That(variants, Has.Count.EqualTo(6));
 
         var results = new List<string>();
-        for (int i = 0; i < 7; i++)
+        for (int i = 0; i < 6; i++)
             results.Add(variants[(startIndex + i) % variants.Count]);
 
         string[] expected =
@@ -72,12 +83,10 @@ internal class TextCaseHelperTests
             "To a tag and a tag filter",
             "TO A TAG AND A TAG FILTER",
             "to-a-tag-and-a-tag-filter",
-            "to_a_tag_and_a_tag_filter",
-            "to a tag and a tag filter"
+            "to_a_tag_and_a_tag_filter"
         ];
 
         Assert.That(results, Is.EqualTo(expected));
-        Assert.That(results[6], Is.EqualTo(original));
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -88,17 +97,17 @@ internal class TextCaseHelperTests
     public void FullCycle_TitleCaseInput_WrapsBackToTitleCase()
     {
         const string text = "To A Tag And A Tag Filter";
-        var variants = ComputeVariants(text);
+        var variants = ComputeOrderedVariants(text);
         int startIndex = GetFirstVariantIndex(text);
 
-        Assert.That(startIndex, Is.EqualTo(1), "TitleCase should start at index 1 (PascalCase)");
+        Assert.That(startIndex, Is.EqualTo(0), "Dynamic order already starts at index 0");
 
         var results = new List<string>();
         for (int i = 0; i < 6; i++)
             results.Add(variants[(startIndex + i) % variants.Count]);
 
-        Assert.That(results[5], Is.EqualTo(text),
-            "After 6 presses the cycle should wrap back to TitleCase");
+        Assert.That(results[5], Is.EqualTo(ToTitleCase(text)),
+            "After 6 presses the cycle should land on the TitleCase form (moved to end)");
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -170,7 +179,7 @@ internal class TextCaseHelperTests
     public void ComputeVariants_QuotedInput_FirstVariantIsTitleCase()
     {
         const string input = "\"hello world\"";
-        var variants = ComputeVariants(input);
+        var variants = ComputeOrderedVariants(input);
         int startIndex = GetFirstVariantIndex(input);
         // First press should give title case
         Assert.That(variants[startIndex], Is.EqualTo("\"Hello World\""));
@@ -180,7 +189,7 @@ internal class TextCaseHelperTests
     public void ComputeVariants_ParenInput_FirstVariantIsTitleCase()
     {
         const string input = "(this is a test)";
-        var variants = ComputeVariants(input);
+        var variants = ComputeOrderedVariants(input);
         int startIndex = GetFirstVariantIndex(input);
         Assert.That(variants[startIndex], Is.EqualTo("(This Is a Test)"));
     }

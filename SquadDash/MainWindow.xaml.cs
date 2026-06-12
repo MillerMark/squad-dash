@@ -8880,8 +8880,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (!continuing)
             {
                 _docCycleOriginal = selectedText;
-                _docCycleVariants = TextCaseHelper.ComputeVariants(selectedText);
-                _docCycleIndex    = TextCaseHelper.GetFirstVariantIndex(selectedText);
+                _docCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
+                _docCycleIndex    = 0;
                 _docCycleSelStart = selStart;
 
                 var firstVariant = _docCycleVariants[_docCycleIndex];
@@ -9078,8 +9078,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     // New selection — initialize cycle state.
                     _promptCycleOriginal  = PromptTextBox.Text;
-                    _promptCycleVariants  = TextCaseHelper.ComputeVariants(selectedText);
-                    _promptCycleIndex     = TextCaseHelper.GetFirstVariantIndex(selectedText);
+                    _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
+                    _promptCycleIndex     = 0;
                     _promptCycleSelStart  = selStart;
                     _promptCycleSelLen    = PromptTextBox.SelectionLength;
 
@@ -35125,8 +35125,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (!continuing)
             {
                 _promptCycleOriginal = tb.Text;
-                _promptCycleVariants = TextCaseHelper.ComputeVariants(selectedText);
-                _promptCycleIndex    = TextCaseHelper.GetFirstVariantIndex(selectedText);
+                _promptCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
+                _promptCycleIndex    = 0;
                 _promptCycleSelStart = selStart;
                 _promptCycleSelLen   = tb.SelectionLength;
                 tb.SelectedText    = _promptCycleVariants[_promptCycleIndex];
@@ -35151,8 +35151,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb && !rtb.Selection.IsEmpty)
         {
             var selText = rtb.GetSelectedText();
-            var variants = TextCaseHelper.ComputeVariants(selText);
-            var idx = TextCaseHelper.GetFirstVariantIndex(selText);
+            var variants = TextCaseHelper.ComputeOrderedVariants(selText);
+            var idx = 0;
             rtb.ReplaceSelection(variants[idx]);
             rtb.Focus();
         }
