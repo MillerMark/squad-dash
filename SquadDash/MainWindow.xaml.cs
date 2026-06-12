@@ -26231,7 +26231,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (isMaintenance)
         {
             BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
-            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
             BranchNameText.Text = $"⚠ {branch}";
         }
         else if (isHomeBranch)
