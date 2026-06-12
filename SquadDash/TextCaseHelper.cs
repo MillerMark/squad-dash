@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 namespace SquadDash;
 
 /// <summary>
-/// Detects and cycles text through Title Case → Sentence case → UPPERCASE → PascalCase → kebab-case → preserve_underscores.
+/// Detects and cycles text through Title Case → PascalCase → Sentence case → UPPERCASE → kebab-case → preserve_underscores.
 /// </summary>
 internal static class TextCaseHelper
 {
@@ -64,27 +64,67 @@ internal static class TextCaseHelper
         return TextCase.None;
     }
 
-    /// <summary>Every word's first letter uppercased, remaining letters lowercased (split on spaces).</summary>
+    private static readonly HashSet<string> _minorWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
+        "as", "at", "by", "in", "of", "on", "to", "up", "via", "vs"
+    };
+
+    /// <summary>
+    /// AP/Chicago-style title case: first and last words always capitalised; interior minor words
+    /// (a, an, the, and, but, or, nor, for, so, yet, as, at, by, in, of, on, to, up, via, vs)
+    /// are left lowercase.  Inter-word separators (spaces, hyphens, underscores) are preserved.
+    /// </summary>
     internal static string ToTitleCase(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
+
+        // Split on word-separator runs, capturing the separators so we can reconstruct them.
+        var tokens = Regex.Split(text, @"([\s\-_]+)");
+
+        bool IsSep(string t) => t.Length == 0 || Regex.IsMatch(t, @"^[\s\-_]+$");
+
+        var wordIndices = Enumerable.Range(0, tokens.Length)
+            .Where(i => !IsSep(tokens[i]))
+            .ToList();
+
+        if (wordIndices.Count == 0) return text;
+
+        int firstIdx = wordIndices[0];
+        int lastIdx  = wordIndices[^1];
+
         var sb = new StringBuilder(text.Length);
-        bool capitalizeNext = true;
-        foreach (char c in text)
+        for (int i = 0; i < tokens.Length; i++)
         {
-            if (c == ' ')
-            {
-                capitalizeNext = true;
-                sb.Append(c);
-            }
-            else if (char.IsLetter(c))
+            string token = tokens[i];
+            if (IsSep(token)) { sb.Append(token); continue; }
+
+            bool isFirst = i == firstIdx;
+            bool isLast  = i == lastIdx;
+            string letters = new string(token.Where(char.IsLetter).ToArray()).ToLower();
+
+            if (isFirst || isLast || !_minorWords.Contains(letters))
+                sb.Append(CapitalizeWord(token));
+            else
+                sb.Append(token.ToLower());
+        }
+        return sb.ToString();
+    }
+
+    private static string CapitalizeWord(string word)
+    {
+        if (string.IsNullOrEmpty(word)) return word;
+        var sb = new StringBuilder(word.Length);
+        bool capitalizeNext = true;
+        foreach (char c in word)
+        {
+            if (char.IsLetter(c))
             {
                 sb.Append(capitalizeNext ? char.ToUpper(c) : char.ToLower(c));
                 capitalizeNext = false;
             }
             else
             {
-                // Non-letter, non-space: preserve capitalizeNext state unchanged
                 sb.Append(c);
             }
         }
@@ -159,7 +199,7 @@ internal static class TextCaseHelper
 
     /// <summary>
     /// Returns the six case variants in cycle order:
-    /// [0] Title Case, [1] Sentence case, [2] UPPERCASE, [3] PascalCase, [4] kebab-case, [5] preserve_underscores.
+    /// [0] Title Case, [1] PascalCase, [2] Sentence case, [3] UPPERCASE, [4] kebab-case, [5] preserve_underscores.
     /// If the original text doesn't appear in those six variants, it is appended as a 7th item
     /// so cycling always returns to the original form.
     /// </summary>
@@ -167,8 +207,8 @@ internal static class TextCaseHelper
     {
         var variants = new List<string>
         {
-            ToTitleCase(text), ToSentenceCase(text), ToUpperCase(text),
-            ToPascalCase(text), ToKebabCase(text), ToUnderscorePreserveCase(text)
+            ToTitleCase(text), ToPascalCase(text), ToSentenceCase(text),
+            ToUpperCase(text), ToKebabCase(text), ToUnderscorePreserveCase(text)
         };
         // If the original text doesn't appear in the six computed variants,
         // append it so cycling always returns to the original form.
@@ -180,22 +220,23 @@ internal static class TextCaseHelper
     /// <summary>
     /// Returns the index into <see cref="ComputeVariants"/> of the variant to apply on the
     /// first Shift+F3 press — i.e. the case that follows the currently-detected case.
+    /// Cycle positions: TitleCase=0, PascalCase=1, SentenceCase=2, UpperCase=3, KebabCase=4, UnderscoreCase=5.
     /// </summary>
     internal static int GetFirstVariantIndex(string text) =>
         DetectCase(text) switch
         {
-            TextCase.TitleCase     => 1,
-            TextCase.SentenceCase  => 2,
-            TextCase.UpperCase     => 3,
-            TextCase.PascalCase    => 4,
-            TextCase.KebabCase     => 5,
+            TextCase.TitleCase      => 1,
+            TextCase.PascalCase     => 2,
+            TextCase.SentenceCase   => 3,
+            TextCase.UpperCase      => 4,
+            TextCase.KebabCase      => 5,
             TextCase.UnderscoreCase => 0,
-            _                      => 0,
+            _                       => 0,
         };
 
     /// <summary>
     /// Detects the current case and returns the text transformed to the next case in the cycle:
-    /// Title Case → Sentence case → UPPERCASE → PascalCase → kebab-case → preserve_underscores → (back to) Title Case.
+    /// Title Case → PascalCase → Sentence case → UPPERCASE → kebab-case → preserve_underscores → (back to) Title Case.
     /// If the text matches no known case, starts from Title Case.
     /// </summary>
     internal static string CycleCase(string text)
@@ -203,10 +244,10 @@ internal static class TextCaseHelper
         if (string.IsNullOrEmpty(text)) return text;
         return DetectCase(text) switch
         {
-            TextCase.TitleCase      => ToSentenceCase(text),
+            TextCase.TitleCase      => ToPascalCase(text),
+            TextCase.PascalCase     => ToSentenceCase(text),
             TextCase.SentenceCase   => ToUpperCase(text),
-            TextCase.UpperCase      => ToPascalCase(text),
-            TextCase.PascalCase     => ToKebabCase(text),
+            TextCase.UpperCase      => ToKebabCase(text),
             TextCase.KebabCase      => ToUnderscorePreserveCase(text),
             TextCase.UnderscoreCase => ToTitleCase(text),
             _                       => ToTitleCase(text),

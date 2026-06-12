@@ -30,7 +30,8 @@ internal class TextCaseHelperTests
     [Test]
     public void ComputeVariants_TitleCaseInput_Returns6Items()
     {
-        var variants = ComputeVariants("To A Tag And A Tag Filter");
+        // Input has no minor interior words so ToTitleCase is idempotent → stays at 6 items.
+        var variants = ComputeVariants("The Quick Brown Fox");
         Assert.That(variants, Has.Count.EqualTo(6));
     }
 
@@ -66,10 +67,10 @@ internal class TextCaseHelperTests
 
         string[] expected =
         [
-            "To A Tag And A Tag Filter",
+            "To a Tag and a Tag Filter",
+            "ToATagAndATagFilter",
             "To a tag and a tag filter",
             "TO A TAG AND A TAG FILTER",
-            "ToATagAndATagFilter",
             "to-a-tag-and-a-tag-filter",
             "to_a_tag_and_a_tag_filter",
             "to a tag and a tag filter"
@@ -90,7 +91,7 @@ internal class TextCaseHelperTests
         var variants = ComputeVariants(text);
         int startIndex = GetFirstVariantIndex(text);
 
-        Assert.That(startIndex, Is.EqualTo(1), "TitleCase should start at index 1 (SentenceCase)");
+        Assert.That(startIndex, Is.EqualTo(1), "TitleCase should start at index 1 (PascalCase)");
 
         var results = new List<string>();
         for (int i = 0; i < 6; i++)
@@ -106,7 +107,7 @@ internal class TextCaseHelperTests
 
     [Test]
     public void ToTitleCase_SpotCheck()
-        => Assert.That(ToTitleCase("to a tag and a tag filter"), Is.EqualTo("To A Tag And A Tag Filter"));
+        => Assert.That(ToTitleCase("to a tag and a tag filter"), Is.EqualTo("To a Tag and a Tag Filter"));
 
     [Test]
     public void ToSentenceCase_SpotCheck()
@@ -133,7 +134,7 @@ internal class TextCaseHelperTests
     // ──────────────────────────────────────────────────────────────
 
     [TestCase("\"hello world\"",   "\"Hello World\"")]
-    [TestCase("(this is a test)",  "(This Is A Test)")]
+    [TestCase("(this is a test)",  "(This Is a Test)")]
     [TestCase("[my variable]",     "[My Variable]")]
     [TestCase("'single quoted'",   "'Single Quoted'")]
     [TestCase("...ellipsis text",  "...Ellipsis Text")]
@@ -181,6 +182,26 @@ internal class TextCaseHelperTests
         const string input = "(this is a test)";
         var variants = ComputeVariants(input);
         int startIndex = GetFirstVariantIndex(input);
-        Assert.That(variants[startIndex], Is.EqualTo("(This Is A Test)"));
+        Assert.That(variants[startIndex], Is.EqualTo("(This Is a Test)"));
     }
+
+    // ──────────────────────────────────────────────────────────────
+    // 11. Smart Title Case — minor-word handling
+    // ──────────────────────────────────────────────────────────────
+
+    [Test]
+    public void ToTitleCase_MinorWordInMiddle_NotCapitalized()
+        => Assert.That(ToTitleCase("the cat in the hat"), Is.EqualTo("The Cat in the Hat"));
+
+    [Test]
+    public void ToTitleCase_MinorWordAtStart_Capitalized()
+        => Assert.That(ToTitleCase("a tale of two cities"), Is.EqualTo("A Tale of Two Cities"));
+
+    [Test]
+    public void ToTitleCase_MinorWordAtEnd_Capitalized()
+        => Assert.That(ToTitleCase("what is it for"), Is.EqualTo("What Is It For"));
+
+    [Test]
+    public void ToTitleCase_AllMinorWords_FirstAndLastCapitalized()
+        => Assert.That(ToTitleCase("a or the"), Is.EqualTo("A or The"));
 }
