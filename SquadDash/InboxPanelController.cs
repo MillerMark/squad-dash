@@ -35,6 +35,11 @@ internal sealed class InboxPanelController
     private readonly Action<InboxMessage>?    _addToNewChat;
     private Func<string, TaskItem?>?          _lookupTask;
 
+    private readonly HashSet<string> _selectedIds = new();
+    private string? _anchorId;
+    private string? _lastSingleClickId;
+    private bool _listHasFocus;
+
     private readonly InboxPanelViewModel _viewModel = new();
     internal InboxPanelViewModel ViewModel => _viewModel;
 
@@ -76,6 +81,12 @@ internal sealed class InboxPanelController
         _addToChat              = addToChat;
         _addToNewChat           = addToNewChat;
         _lookupTask             = lookupTask;
+
+        _listScrollContainer.IsKeyboardFocusWithinChanged += (_, _) =>
+        {
+            _listHasFocus = _listScrollContainer.IsKeyboardFocusWithin;
+            RefreshRowHighlights();
+        };
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -84,6 +95,8 @@ internal sealed class InboxPanelController
     {
         _viewModel.Messages = [.. messages];
         _viewModel.SelectedMessage = null;
+        _selectedIds.Clear();
+        _anchorId = null;
         _viewerBorder.Visibility = Visibility.Collapsed;
         RebuildList();
     }
@@ -209,7 +222,7 @@ internal sealed class InboxPanelController
         };
 
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+        row.MouseLeave += (_, _) => RefreshRowHighlight(row, msg.Id);
 
         var rowStack = new StackPanel { Orientation = Orientation.Vertical };
 
@@ -264,10 +277,20 @@ internal sealed class InboxPanelController
                 placement:   System.Windows.Controls.Primitives.PlacementMode.Left,
                 maxWidth:    560);
 
-        row.MouseLeftButtonUp  += (_, _) => SelectMessage(msg, row, dot, subjectLabel);
+        row.MouseLeftButtonUp += (_, _) => {
+            var modifiers = Keyboard.Modifiers;
+            if ((modifiers & ModifierKeys.Control) != 0)
+                ToggleSelectMessage(msg);
+            else if ((modifiers & ModifierKeys.Shift) != 0)
+                RangeSelectMessage(msg);
+            else
+                SelectMessage(msg, row, dot, subjectLabel);
+        };
         row.ContextMenu         = BuildRowContextMenu(msg, row, dot, subjectLabel);
         // Rebuild the context menu each time it opens so the read/unread item reflects current state.
-        row.ContextMenuOpening += (_, _) => row.ContextMenu = BuildRowContextMenu(msg, row, dot, subjectLabel);
+        row.ContextMenuOpening += (_, _) => row.ContextMenu = _selectedIds.Count >= 2
+            ? BuildMultiSelectContextMenu()
+            : BuildRowContextMenu(msg, row, dot, subjectLabel);
 
         return row;
     }
@@ -286,6 +309,12 @@ internal sealed class InboxPanelController
 
     private void SelectMessage(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
     {
+        _selectedIds.Clear();
+        _selectedIds.Add(msg.Id);
+        _anchorId = msg.Id;
+        _lastSingleClickId = msg.Id;
+        RefreshRowHighlights();
+
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: msgId={msg.Id} subject='{msg.Subject}' read={msg.Read}");
         _viewModel.SelectedMessage = msg;
 
@@ -295,6 +324,74 @@ internal sealed class InboxPanelController
 
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: calling _openMessageWindow (wired to OpenOrFocusInboxMessage) for msgId={msg.Id}");
         _openMessageWindow(msg, markReadCallback);
+    }
+
+    private void ToggleSelectMessage(InboxMessage msg)
+    {
+        if (!_selectedIds.Remove(msg.Id))
+            _selectedIds.Add(msg.Id);
+        _anchorId = msg.Id;
+        RefreshRowHighlights();
+    }
+
+    private void RangeSelectMessage(InboxMessage msg)
+    {
+        if (_anchorId is null)
+        {
+            _selectedIds.Add(msg.Id);
+            RefreshRowHighlights();
+            return;
+        }
+
+        var orderedIds = _listPanel.Children
+            .OfType<Border>()
+            .Where(b => b.Tag is InboxMessage && b.Visibility == Visibility.Visible)
+            .Select(b => ((InboxMessage)b.Tag!).Id)
+            .ToList();
+
+        int anchorIdx = orderedIds.IndexOf(_anchorId);
+        int clickIdx  = orderedIds.IndexOf(msg.Id);
+
+        if (anchorIdx < 0 || clickIdx < 0)
+        {
+            _selectedIds.Add(msg.Id);
+            RefreshRowHighlights();
+            return;
+        }
+
+        int from = Math.Min(anchorIdx, clickIdx);
+        int to   = Math.Max(anchorIdx, clickIdx);
+        for (int i = from; i <= to; i++)
+            _selectedIds.Add(orderedIds[i]);
+
+        RefreshRowHighlights();
+    }
+
+    /// <summary>Selects a single message by ID (used for back-selection when an InboxMessageWindow gains focus).</summary>
+    public void SelectMessageById(string id)
+    {
+        _selectedIds.Clear();
+        _selectedIds.Add(id);
+        _anchorId = id;
+        RefreshRowHighlights();
+    }
+
+    private void RefreshRowHighlights()
+    {
+        foreach (UIElement child in _listPanel.Children)
+        {
+            if (child is Border { Tag: InboxMessage rowMsg } rowBorder)
+                RefreshRowHighlight(rowBorder, rowMsg.Id);
+        }
+    }
+
+    private void RefreshRowHighlight(Border row, string msgId)
+    {
+        if (_selectedIds.Contains(msgId))
+            row.SetResourceReference(Border.BackgroundProperty,
+                _listHasFocus ? "FocusedSelectedItem" : "UnfocusedSelectedItem");
+        else
+            row.Background = Brushes.Transparent;
     }
 
     private void MarkRowRead(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
@@ -676,14 +773,108 @@ internal sealed class InboxPanelController
         return menu;
     }
 
+    private ContextMenu BuildMultiSelectContextMenu()
+    {
+        var menu  = MakeMenu();
+        var count = _selectedIds.Count;
+
+        var header = MakeItem($"{count} messages selected");
+        header.IsEnabled = false;
+        menu.Items.Add(header);
+        menu.Items.Add(MakeSep());
+
+        var markUnreadItem = MakeItem("Mark all as unread");
+        markUnreadItem.Click += (_, _) =>
+        {
+            foreach (UIElement child in _listPanel.Children)
+            {
+                if (child is Border { Tag: InboxMessage rowMsg } rowBorder
+                    && _selectedIds.Contains(rowMsg.Id))
+                {
+                    var dot   = FindDotInRow(rowBorder);
+                    var label = FindSubjectLabelInRow(rowBorder);
+                    if (dot is not null && label is not null)
+                        MarkRowUnread(rowMsg, rowBorder, dot, label);
+                }
+            }
+        };
+        menu.Items.Add(markUnreadItem);
+
+        var deleteItem = MakeItem("Delete all");
+        deleteItem.Click += (_, _) =>
+        {
+            var result = MessageBox.Show(
+                $"Delete {count} selected messages?",
+                "Delete Messages",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes) return;
+
+            var toRemove = _listPanel.Children
+                .OfType<Border>()
+                .Where(b => b.Tag is InboxMessage rowMsg && _selectedIds.Contains(rowMsg.Id))
+                .ToList();
+
+            foreach (var rowBorder in toRemove)
+            {
+                if (rowBorder.Tag is InboxMessage rowMsg)
+                    _delete(rowMsg.Id);
+                _listPanel.Children.Remove(rowBorder);
+            }
+
+            _selectedIds.Clear();
+
+            bool anyVisible = _listPanel.Children
+                .OfType<Border>()
+                .Any(b => b.Visibility == Visibility.Visible && b.Tag is InboxMessage);
+
+            if (!anyVisible)
+            {
+                bool hasEmpty = _listPanel.Children
+                    .OfType<TextBlock>()
+                    .Any(tb => tb.Tag is string t && t == "empty");
+                if (!hasEmpty)
+                    _listPanel.Children.Add(BuildEmptyLabel("No messages"));
+            }
+        };
+        menu.Items.Add(deleteItem);
+
+        return menu;
+    }
+
+    private static Ellipse? FindDotInRow(Border row)
+    {
+        if (row.Child is StackPanel outer
+            && outer.Children.Count > 0
+            && outer.Children[0] is StackPanel header
+            && header.Children.Count > 0
+            && header.Children[0] is Ellipse dot)
+            return dot;
+        return null;
+    }
+
+    private static TextBlock? FindSubjectLabelInRow(Border row)
+    {
+        if (row.Child is StackPanel outer
+            && outer.Children.Count > 0
+            && outer.Children[0] is StackPanel header
+            && header.Children.Count > 1
+            && header.Children[1] is TextBlock label)
+            return label;
+        return null;
+    }
+
     private void RemoveRow(Border row)
     {
-        if (row.Tag is InboxMessage removed
-            && _viewModel.SelectedMessage is not null
-            && _viewModel.SelectedMessage.Id == removed.Id)
+        if (row.Tag is InboxMessage removed)
         {
-            _viewerBorder.Visibility = Visibility.Collapsed;
-            _viewModel.SelectedMessage = null;
+            _selectedIds.Remove(removed.Id);
+            if (_viewModel.SelectedMessage is not null
+                && _viewModel.SelectedMessage.Id == removed.Id)
+            {
+                _viewerBorder.Visibility = Visibility.Collapsed;
+                _viewModel.SelectedMessage = null;
+            }
         }
 
         _listPanel.Children.Remove(row);

@@ -30828,8 +30828,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
-        win.Closed += (_, _) => _openInboxWindows.Remove(win);
-        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        win.Closed    += (_, _) => _openInboxWindows.Remove(win);
+        win.Closed    += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        win.Activated += (_, _) => _inboxPanel?.SelectMessageById(messageId);
         FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         win.Show();
     }
