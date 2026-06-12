@@ -22,7 +22,7 @@ internal sealed class MaintenanceStateStoreTests {
     }
 
     private MaintenanceStateStore CreateStore(ITimeProvider? clock = null,
-        Func<string, string, int>? commitCounter = null) =>
+        Func<string, string, Task<int>>? commitCounter = null) =>
         new MaintenanceStateStore(_workspace.RootPath, clock, commitCounter);
 
     [TearDown]
@@ -33,7 +33,7 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void IsEligible_UnknownTask_ReturnsTrue() {
         // A task that has never run should always be eligible.
-        var eligible = _store.IsEligible("never-run-task", "daily", commitSha: "abc123");
+        var eligible = _store.IsEligibleAsync("never-run-task", "daily", commitSha: "abc123").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A task with no prior run record must be eligible");
     }
 
@@ -42,7 +42,7 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void IsEligible_DailyFrequency_NotEligibleAfterRunToday() {
         _store.RecordRun("daily-task", commitSha: "sha1");
-        var eligible = _store.IsEligible("daily-task", "daily", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("daily-task", "daily", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "daily task must not be eligible again on the same calendar day");
     }
 
@@ -52,7 +52,7 @@ internal sealed class MaintenanceStateStoreTests {
         WriteStateWithLastRunAt("daily-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "sha1");
         _store.Reload();
 
-        var eligible = _store.IsEligible("daily-task", "daily", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("daily-task", "daily", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "daily task must be eligible the day after it last ran");
     }
 
@@ -62,14 +62,14 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_PerCommitFrequency_NotEligibleForSameCommitSha() {
         const string sha = "deadbeef";
         _store.RecordRun("per-commit-task", commitSha: sha);
-        var eligible = _store.IsEligible("per-commit-task", "per-commit", commitSha: sha);
+        var eligible = _store.IsEligibleAsync("per-commit-task", "per-commit", commitSha: sha).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "per-commit task must not re-run for the same commit SHA");
     }
 
     [Test]
     public void IsEligible_PerCommitFrequency_EligibleForNewCommitSha() {
         _store.RecordRun("per-commit-task", commitSha: "old-sha");
-        var eligible = _store.IsEligible("per-commit-task", "per-commit", commitSha: "new-sha");
+        var eligible = _store.IsEligibleAsync("per-commit-task", "per-commit", commitSha: "new-sha").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "per-commit task must be eligible when the commit SHA changes");
     }
 
@@ -79,7 +79,7 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_PerCommitFrequency_NullCommitSha_FallsBackToDaily_NotEligibleAfterRunToday() {
         // git unavailable → commitSha is null → must behave like daily (same day = not eligible).
         _store.RecordRun("per-commit-task", commitSha: null);
-        var eligible = _store.IsEligible("per-commit-task", "per-commit", commitSha: null);
+        var eligible = _store.IsEligibleAsync("per-commit-task", "per-commit", commitSha: null).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False,
             "per-commit task with null SHA must fall back to daily — not eligible again on the same day");
     }
@@ -90,7 +90,7 @@ internal sealed class MaintenanceStateStoreTests {
         WriteStateWithLastRunAt("per-commit-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "sha1");
         _store.Reload();
 
-        var eligible = _store.IsEligible("per-commit-task", "per-commit", commitSha: null);
+        var eligible = _store.IsEligibleAsync("per-commit-task", "per-commit", commitSha: null).GetAwaiter().GetResult();
         Assert.That(eligible, Is.True,
             "per-commit task with null SHA must fall back to daily — eligible after a full-day gap");
     }
@@ -103,7 +103,7 @@ internal sealed class MaintenanceStateStoreTests {
         SquadDashTrace.TraceTarget = target;
 
         try {
-            _store.IsEligible("trace-task", "per-commit", commitSha: null);
+            _store.IsEligibleAsync("trace-task", "per-commit", commitSha: null).GetAwaiter().GetResult();
         }
         finally {
             SquadDashTrace.TraceTarget = null;
@@ -122,21 +122,21 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_AfterCommitsFrequency_NotEligibleForSameCommitSha() {
         const string sha = "deadbeef";
         _store.RecordRun("after-commits-task", commitSha: sha);
-        var eligible = _store.IsEligible("after-commits-task", "after-commits", commitSha: sha);
+        var eligible = _store.IsEligibleAsync("after-commits-task", "after-commits", commitSha: sha).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "after-commits task must not re-run for the same commit SHA");
     }
 
     [Test]
     public void IsEligible_AfterCommitsFrequency_EligibleForNewCommitSha() {
         _store.RecordRun("after-commits-task", commitSha: "old-sha");
-        var eligible = _store.IsEligible("after-commits-task", "after-commits", commitSha: "new-sha");
+        var eligible = _store.IsEligibleAsync("after-commits-task", "after-commits", commitSha: "new-sha").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "after-commits task must be eligible when the commit SHA changes");
     }
 
     [Test]
     public void IsEligible_AfterCommitsFrequency_NullCommitSha_FallsBackToDaily_NotEligibleAfterRunToday() {
         _store.RecordRun("after-commits-task", commitSha: null);
-        var eligible = _store.IsEligible("after-commits-task", "after-commits", commitSha: null);
+        var eligible = _store.IsEligibleAsync("after-commits-task", "after-commits", commitSha: null).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False,
             "after-commits task with null SHA must fall back to daily — not eligible again on the same day");
     }
@@ -145,7 +145,7 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_AfterCommitsFrequency_NullCommitSha_FallsBackToDaily_EligibleAfterRunYesterday() {
         WriteStateWithLastRunAt("after-commits-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("after-commits-task", "after-commits", commitSha: null);
+        var eligible = _store.IsEligibleAsync("after-commits-task", "after-commits", commitSha: null).GetAwaiter().GetResult();
         Assert.That(eligible, Is.True,
             "after-commits task with null SHA must fall back to daily — eligible after a full-day gap");
     }
@@ -157,7 +157,7 @@ internal sealed class MaintenanceStateStoreTests {
         SquadDashTrace.TraceTarget = target;
 
         try {
-            _store.IsEligible("trace-task", "after-commits", commitSha: null);
+            _store.IsEligibleAsync("trace-task", "after-commits", commitSha: null).GetAwaiter().GetResult();
         }
         finally {
             SquadDashTrace.TraceTarget = null;
@@ -175,7 +175,7 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void IsEligible_AlwaysFrequency_EligibleEvenAfterRecentRun() {
         _store.RecordRun("always-task", commitSha: "sha1");
-        var eligible = _store.IsEligible("always-task", "always", commitSha: "sha1");
+        var eligible = _store.IsEligibleAsync("always-task", "always", commitSha: "sha1").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "always task must be eligible regardless of prior run history");
     }
 
@@ -183,7 +183,7 @@ internal sealed class MaintenanceStateStoreTests {
 
     [Test]
     public void IsEligible_Weekly_NeverRun_ReturnsTrue() {
-        var eligible = _store.IsEligible("weekly-never-run", "weekly", commitSha: "sha1");
+        var eligible = _store.IsEligibleAsync("weekly-never-run", "weekly", commitSha: "sha1").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A weekly task with no prior run record must be eligible");
     }
 
@@ -191,7 +191,7 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_Weekly_LastRunAtNull_ReturnsTrue() {
         WriteStateWithNullLastRunAt("weekly-task", lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("weekly-task", "weekly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A weekly task with null LastRunAt must be eligible");
     }
 
@@ -202,7 +202,7 @@ internal sealed class MaintenanceStateStoreTests {
         // Last Sunday is definitively in the prior calendar week.
         WriteStateWithLastRunAt("weekly-task", lastRunAt: thisMonday.AddDays(-1), lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("weekly-task", "weekly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A weekly task run in the prior calendar week (last Sunday) must be eligible");
     }
 
@@ -212,7 +212,7 @@ internal sealed class MaintenanceStateStoreTests {
         var thisMonday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
         WriteStateWithLastRunAt("weekly-task", lastRunAt: thisMonday, lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("weekly-task", "weekly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "A weekly task run this Monday must not be eligible again this week");
     }
 
@@ -223,7 +223,7 @@ internal sealed class MaintenanceStateStoreTests {
         _store = CreateStore(new FakeTimeProvider(wednesday));
         WriteStateWithLastRunAt("weekly-task", lastRunAt: wednesday, lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("weekly-task", "weekly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "A weekly task run this Wednesday must not be eligible again this week");
     }
 
@@ -234,7 +234,7 @@ internal sealed class MaintenanceStateStoreTests {
         _store = CreateStore(new FakeTimeProvider(monday));
         WriteStateWithLastRunAt("weekly-task", lastRunAt: monday, lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("weekly-task", "weekly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "A weekly task run today when today is Monday must not be eligible");
     }
 
@@ -245,7 +245,7 @@ internal sealed class MaintenanceStateStoreTests {
         // thisMonday - 3 days = last week's Friday.
         WriteStateWithLastRunAt("weekly-task", lastRunAt: thisMonday.AddDays(-3), lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("weekly-task", "weekly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("weekly-task", "weekly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A weekly task run last week's Friday must be eligible (prior calendar week)");
     }
 
@@ -253,7 +253,7 @@ internal sealed class MaintenanceStateStoreTests {
 
     [Test]
     public void IsEligible_Monthly_NeverRun_ReturnsTrue() {
-        var eligible = _store.IsEligible("monthly-never-run", "monthly", commitSha: "sha1");
+        var eligible = _store.IsEligibleAsync("monthly-never-run", "monthly", commitSha: "sha1").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A monthly task with no prior run record must be eligible");
     }
 
@@ -261,7 +261,7 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_Monthly_LastRunAtNull_ReturnsTrue() {
         WriteStateWithNullLastRunAt("monthly-task", lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("monthly-task", "monthly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A monthly task with null LastRunAt must be eligible");
     }
 
@@ -273,7 +273,7 @@ internal sealed class MaintenanceStateStoreTests {
             : new DateTime(now.Year, now.Month - 1, 1, 0, 0, 0, DateTimeKind.Utc);
         WriteStateWithLastRunAt("monthly-task", lastRunAt: priorMonth, lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("monthly-task", "monthly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A monthly task run in a prior calendar month must be eligible");
     }
 
@@ -281,7 +281,7 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_Monthly_RunPriorYear_ReturnsTrue() {
         WriteStateWithLastRunAt("monthly-task", lastRunAt: DateTime.UtcNow.AddYears(-1), lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("monthly-task", "monthly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A monthly task run in a prior year must be eligible");
     }
 
@@ -292,7 +292,7 @@ internal sealed class MaintenanceStateStoreTests {
         _store = CreateStore(new FakeTimeProvider(today));
         WriteStateWithLastRunAt("monthly-task", lastRunAt: today.AddDays(-3), lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("monthly-task", "monthly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "A monthly task run 3 days ago (same month) must not be eligible");
     }
 
@@ -302,7 +302,7 @@ internal sealed class MaintenanceStateStoreTests {
         var firstOfMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         WriteStateWithLastRunAt("monthly-task", lastRunAt: firstOfMonth, lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("monthly-task", "monthly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "A monthly task run on the first of this month must not be eligible");
     }
 
@@ -311,7 +311,7 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void IsEligible_UnknownFrequency_FallsBackToDaily_NotEligibleAfterRunToday() {
         _store.RecordRun("unk-task", commitSha: "sha1");
-        var eligible = _store.IsEligible("unk-task", "unknown-frequency-xyz", commitSha: "sha1");
+        var eligible = _store.IsEligibleAsync("unk-task", "unknown-frequency-xyz", commitSha: "sha1").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False,
             "An unrecognized frequency must fall back to daily — task must not be eligible on the same day");
     }
@@ -320,7 +320,7 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_UnknownFrequency_FallsBackToDaily_EligibleAfterRunYesterday() {
         WriteStateWithLastRunAt("unk-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("unk-task", "unknown-frequency-xyz", commitSha: "sha1");
+        var eligible = _store.IsEligibleAsync("unk-task", "unknown-frequency-xyz", commitSha: "sha1").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True,
             "An unrecognized frequency must fall back to daily — task must be eligible after a full-day gap");
     }
@@ -334,7 +334,7 @@ internal sealed class MaintenanceStateStoreTests {
         var lastDecember = new DateTime(now.Year - 1, 12, 1, 0, 0, 0, DateTimeKind.Utc);
         WriteStateWithLastRunAt("monthly-task", lastRunAt: lastDecember, lastSha: "sha1");
         _store.Reload();
-        var eligible = _store.IsEligible("monthly-task", "monthly", commitSha: "sha2");
+        var eligible = _store.IsEligibleAsync("monthly-task", "monthly", commitSha: "sha2").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True,
             "A monthly task run in December of last year must be eligible this year (year-boundary check)");
     }
@@ -360,7 +360,7 @@ internal sealed class MaintenanceStateStoreTests {
         var freshStore = new MaintenanceStateStore(_workspace.RootPath);
         freshStore.Reload();
 
-        var eligible = freshStore.IsEligible("reload-task", "daily", commitSha: "sha-other");
+        var eligible = freshStore.IsEligibleAsync("reload-task", "daily", commitSha: "sha-other").GetAwaiter().GetResult();
         Assert.That(eligible, Is.False,
             "After reload, a task run today must still be ineligible (state must survive across instances)");
     }
@@ -396,7 +396,7 @@ internal sealed class MaintenanceStateStoreTests {
         store.Reload();
 
         // All tasks should appear as never-run (no crash, empty state).
-        var eligible = store.IsEligible("any-task", "daily", commitSha: "sha");
+        var eligible = store.IsEligibleAsync("any-task", "daily", commitSha: "sha").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True,
             "A corrupt state file must not crash the store; all tasks should be eligible (empty state)");
     }
@@ -412,7 +412,7 @@ internal sealed class MaintenanceStateStoreTests {
         var store = new MaintenanceStateStore(emptyDir);
         store.Reload();
 
-        var eligible = store.IsEligible("any-task", "per-commit", commitSha: "sha");
+        var eligible = store.IsEligibleAsync("any-task", "per-commit", commitSha: "sha").GetAwaiter().GetResult();
         Assert.That(eligible, Is.True,
             "A missing state file must not crash the store; all tasks should be eligible");
     }
@@ -422,9 +422,9 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void IsEligible_EveryNCommits_NeverRun_ReturnsTrue() {
         // A task that has never run has no baseline — always eligible.
-        var store = CreateStore(commitCounter: (_, _) => 3);
-        var eligible = store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        var store = CreateStore(commitCounter: (_, _) => Task.FromResult(3));
+        var eligible = store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A task with no prior run must be eligible regardless of commit count");
     }
 
@@ -432,10 +432,10 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_EveryNCommits_NoBaselineSha_ReturnsTrue() {
         // Task exists in state but LastCommitSha is null → no baseline → eligible.
         WriteStateWithNullLastRunAt("every-n-task", lastSha: "");
-        var store = CreateStore(commitCounter: (_, _) => 0);
+        var store = CreateStore(commitCounter: (_, _) => Task.FromResult(0));
         store.Reload();
-        var eligible = store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        var eligible = store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "A task with no recorded baseline SHA must be eligible");
     }
 
@@ -443,10 +443,10 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_EveryNCommits_BelowThreshold_ReturnsFalse() {
         // 4 new commits, threshold is 5 → not eligible.
         WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "base-sha");
-        var store = CreateStore(commitCounter: (_, _) => 4);
+        var store = CreateStore(commitCounter: (_, _) => Task.FromResult(4));
         store.Reload();
-        var eligible = store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        var eligible = store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "4 new commits against a threshold of 5 must not be eligible");
     }
 
@@ -454,10 +454,10 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_EveryNCommits_AtThreshold_ReturnsTrue() {
         // Exactly 5 new commits, threshold is 5 → eligible.
         WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "base-sha");
-        var store = CreateStore(commitCounter: (_, _) => 5);
+        var store = CreateStore(commitCounter: (_, _) => Task.FromResult(5));
         store.Reload();
-        var eligible = store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        var eligible = store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "Exactly 5 new commits against a threshold of 5 must be eligible");
     }
 
@@ -465,10 +465,10 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_EveryNCommits_AboveThreshold_ReturnsTrue() {
         // 9 new commits, threshold is 5 → eligible.
         WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: "base-sha");
-        var store = CreateStore(commitCounter: (_, _) => 9);
+        var store = CreateStore(commitCounter: (_, _) => Task.FromResult(9));
         store.Reload();
-        var eligible = store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: "new-sha", workspacePath: _workspace.RootPath);
+        var eligible = store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.True, "9 new commits against a threshold of 5 must be eligible");
     }
 
@@ -477,10 +477,10 @@ internal sealed class MaintenanceStateStoreTests {
         // HEAD hasn't moved since the last run — not eligible regardless of threshold.
         const string sha = "same-sha";
         WriteStateWithLastRunAt("every-n-task", lastRunAt: DateTime.UtcNow.AddDays(-1), lastSha: sha);
-        var store = CreateStore(commitCounter: (_, _) => 99);
+        var store = CreateStore(commitCounter: (_, _) => Task.FromResult(99));
         store.Reload();
-        var eligible = store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: sha, workspacePath: _workspace.RootPath);
+        var eligible = store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: sha, workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False, "If HEAD SHA matches the last-run SHA, task must not be eligible");
     }
 
@@ -488,8 +488,8 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_EveryNCommits_NullWorkspacePath_FallsBackToDaily_NotEligibleAfterRunToday() {
         // workspacePath is null → cannot count commits → fall back to daily.
         _store.RecordRun("every-n-task", commitSha: "base-sha");
-        var eligible = _store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: "new-sha", workspacePath: null);
+        var eligible = _store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: "new-sha", workspacePath: null).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False,
             "Null workspacePath must fall back to daily — not eligible again on the same day");
     }
@@ -498,8 +498,8 @@ internal sealed class MaintenanceStateStoreTests {
     public void IsEligible_EveryNCommits_NullCommitSha_FallsBackToDaily_NotEligibleAfterRunToday() {
         // commitSha is null (git unavailable) → fall back to daily.
         _store.RecordRun("every-n-task", commitSha: "base-sha");
-        var eligible = _store.IsEligible("every-n-task", "every-5-commits",
-            commitSha: null, workspacePath: _workspace.RootPath);
+        var eligible = _store.IsEligibleAsync("every-n-task", "every-5-commits",
+            commitSha: null, workspacePath: _workspace.RootPath).GetAwaiter().GetResult();
         Assert.That(eligible, Is.False,
             "Null commitSha must fall back to daily — not eligible again on the same day");
     }

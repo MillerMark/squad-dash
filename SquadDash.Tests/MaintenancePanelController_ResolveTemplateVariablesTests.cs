@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -21,7 +22,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
 
     private const char S = MaintenancePanelController.HighlightSentinel;
 
-    private MaintenanceStateStore MakeStore(Func<string, string, int>? commitCounter = null) =>
+    private MaintenanceStateStore MakeStore(Func<string, string, Task<int>>? commitCounter = null) =>
         new(_workspace.RootPath, commitCounter: commitCounter);
 
     // ── Null / empty inputs ───────────────────────────────────────────────────
@@ -114,7 +115,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
 
     [Test]
     public void NewCommitCount_WithWorkspaceAndStore_SubstitutesCount() {
-        var store = MakeStore(commitCounter: (_, _) => 7);
+        var store = MakeStore(commitCounter: (_, _) => Task.FromResult(7));
         store.RecordRun("t1", "abc123");
         var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
             "{{new_commit_count}} new commits", "t1", store, workspacePath: @"C:\repo");
@@ -125,7 +126,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
 
     [Test]
     public void MultipleVariables_BothResolved() {
-        var store = MakeStore(commitCounter: (_, _) => 3);
+        var store = MakeStore(commitCounter: (_, _) => Task.FromResult(3));
         store.RecordRun("t1", "feedcafe");
         var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
             "Since {{last_reviewed_sha}} ({{new_commit_count}} commits)",

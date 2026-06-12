@@ -870,7 +870,8 @@ internal sealed class MaintenancePanelController {
                     stateStore?.GetLastCommitSha(taskId) is { Length: > 0 } sha ? sha : "(none)",
                 "new_commit_count" =>
                     workspacePath is { Length: > 0 }
-                        ? stateStore?.GetCommitCountSince(taskId, workspacePath).ToString() ?? "(unknown)"
+                        // TODO: migrate ResolveAndMarkTemplateVariables to async so this bridge can be removed.
+                        ? stateStore?.GetCommitCountSinceAsync(taskId, workspacePath).GetAwaiter().GetResult().ToString() ?? "(unknown)"
                         : "(pending)",
                 _ => null,
             };

@@ -89,7 +89,7 @@ internal sealed class MaintenanceRunner {
                 }
 
                 var isForced = forceTaskIds?.Contains(task.Id) == true;
-                if (!isForced && !_stateStore.IsEligible(task.Id, task.Frequency, commitSha, workspacePath)) {
+                if (!isForced && !await _stateStore.IsEligibleAsync(task.Id, task.Frequency, commitSha, workspacePath).ConfigureAwait(false)) {
                     skippedIds.Add(task.Id);
                     continue;
                 }
@@ -114,7 +114,7 @@ internal sealed class MaintenanceRunner {
                 try {
                     var lastReviewedSha = _stateStore.GetLastCommitSha(task.Id);
                     var newCommitCount  = NeedsCommitCount(task.Frequency) && commitSha is not null
-                        ? _stateStore.GetCommitCountSince(task.Id, workspacePath)
+                        ? await _stateStore.GetCommitCountSinceAsync(task.Id, workspacePath).ConfigureAwait(false)
                         : 0;
                     var prompt = BuildPrompt(task, config.Safety, startedAt, lastReviewedSha, newCommitCount);
                     int anchorIndex;

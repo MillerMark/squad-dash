@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace SquadDash;
 
@@ -13,14 +15,14 @@ internal sealed class MaintenanceStateStore {
 
     private readonly string _statePath;
     private readonly ITimeProvider _clock;
-    private readonly Func<string, string, int> _commitCounter;
+    private readonly Func<string, string, Task<int>> _commitCounter;
     private Dictionary<string, TaskState> _tasks = new(StringComparer.Ordinal);
 
     internal MaintenanceStateStore(string stateDir, ITimeProvider? clock = null,
-        Func<string, string, int>? commitCounter = null) {
+        Func<string, string, Task<int>>? commitCounter = null) {
         _statePath = Path.Combine(stateDir, "maintenance-state.json");
         _clock = clock ?? SystemTimeProvider.Instance;
-        _commitCounter = commitCounter ?? CountCommitsSince;
+        _commitCounter = commitCounter ?? CountCommitsSinceAsync;
     }
 
     /// <summary>Reloads state from disk. On any failure, starts with empty state.</summary>
@@ -50,7 +52,7 @@ internal sealed class MaintenanceStateStore {
     }
 
     /// <summary>Returns true if this task is eligible to run based on its frequency.</summary>
-    public bool IsEligible(string taskId, string frequency, string? commitSha, string? workspacePath = null) {
+    public async Task<bool> IsEligibleAsync(string taskId, string frequency, string? commitSha, string? workspacePath = null) {
         var freqLower = frequency.ToLowerInvariant();
         
         // Handle "always"
@@ -68,7 +70,7 @@ internal sealed class MaintenanceStateStore {
             if (string.Equals(everyNState.LastCommitSha, commitSha, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            int count = _commitCounter(everyNState.LastCommitSha, workspacePath);
+            int count = await _commitCounter(everyNState.LastCommitSha, workspacePath).ConfigureAwait(false);
             return count >= n;
         }
 
@@ -165,9 +167,9 @@ internal sealed class MaintenanceStateStore {
     /// Returns the number of commits between the task's last-run SHA and HEAD,
     /// using the injected commit counter. Returns 0 if the task has no recorded baseline.
     /// </summary>
-    public int GetCommitCountSince(string taskId, string workspacePath) {
+    public Task<int> GetCommitCountSinceAsync(string taskId, string workspacePath) {
         if (!_tasks.TryGetValue(taskId, out var state) || string.IsNullOrEmpty(state.LastCommitSha))
-            return 0;
+            return Task.FromResult(0);
         return _commitCounter(state.LastCommitSha, workspacePath);
     }
 
@@ -233,7 +235,7 @@ internal sealed class MaintenanceStateStore {
         return today.AddDays(-daysSinceMonday);
     }
 
-    private static int CountCommitsSince(string baseSha, string workspacePath) {
+    private static async Task<int> CountCommitsSinceAsync(string baseSha, string workspacePath) {
         try {
             var psi = new System.Diagnostics.ProcessStartInfo(
                 "git", $"rev-list HEAD ^{baseSha} --count") {
@@ -245,9 +247,10 @@ internal sealed class MaintenanceStateStore {
             };
             using var proc = System.Diagnostics.Process.Start(psi);
             if (proc is null) return 0;
-            var output = proc.StandardOutput.ReadToEnd().Trim();
-            proc.WaitForExit(3000);
-            return int.TryParse(output, out var n) ? n : 0;
+            var output = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await proc.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+            return int.TryParse(output.Trim(), out var n) ? n : 0;
         }
         catch {
             return 0;

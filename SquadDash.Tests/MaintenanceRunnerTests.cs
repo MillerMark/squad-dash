@@ -230,9 +230,9 @@ internal sealed class MaintenanceRunnerTests {
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
         // After running both daily tasks they must now be ineligible.
-        Assert.That(stateStore.IsEligible("rec-task-1", "daily", null), Is.False,
+        Assert.That(await stateStore.IsEligibleAsync("rec-task-1", "daily", null), Is.False,
             "rec-task-1 must be marked as run");
-        Assert.That(stateStore.IsEligible("rec-task-2", "daily", null), Is.False,
+        Assert.That(await stateStore.IsEligibleAsync("rec-task-2", "daily", null), Is.False,
             "rec-task-2 must be marked as run");
     }
 
