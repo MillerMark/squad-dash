@@ -405,7 +405,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                         catch (Exception ex)
                         {
                             SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
-                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            UIErrorHelper.ShowWarning("Open Failed", $"Could not open:\n{ex.Message}");
                         }
                     };
                 break;
@@ -425,7 +425,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     catch (Exception ex)
                     {
                         SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
-                        MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        UIErrorHelper.ShowWarning("Open Failed", $"Could not open:\n{ex.Message}");
                     }
                 };
                 break;
@@ -445,7 +445,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
                         if (imagePath is not null && !File.Exists(imagePath))
                         {
-                            MessageBox.Show($"Image not found:\n{imagePath}", att.Label, MessageBoxButton.OK, MessageBoxImage.Warning);
+                            UIErrorHelper.ShowWarning(att.Label, $"Image not found:\n{imagePath}");
                             return;
                         }
 
@@ -469,7 +469,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show(ex.Message, att.Label, MessageBoxButton.OK, MessageBoxImage.Error);
+                        UIErrorHelper.ShowError(att.Label, ex.Message);
                     }
                 };
                 break;
@@ -506,7 +506,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                         catch (Exception ex)
                         {
                             SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
-                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            UIErrorHelper.ShowWarning("Open Failed", $"Could not open:\n{ex.Message}");
                         }
                     };
                 }
@@ -531,7 +531,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                         catch (Exception ex)
                         {
                             SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
-                            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            UIErrorHelper.ShowWarning("Open Failed", $"Could not open:\n{ex.Message}");
                         }
                     }
                 };

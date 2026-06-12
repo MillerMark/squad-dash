@@ -14732,7 +14732,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var docsRoot = DocTopicsLoader.FindDocsFolderPath(_currentWorkspace?.FolderPath);
             if (string.IsNullOrEmpty(docsRoot))
             {
-                System.Windows.MessageBox.Show("No docs/ folder found in the current workspace.", "Add Document", MessageBoxButton.OK, MessageBoxImage.Warning);
+                UIErrorHelper.ShowWarning("Add Document", "No docs/ folder found in the current workspace.");
                 return;
             }
 
@@ -14920,7 +14920,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex)
         {
             SquadDashTrace.Write("Shell", $"Open failed: {ex.Message}");
-            MessageBox.Show($"Could not open:\n{ex.Message}", "Open Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UIErrorHelper.ShowWarning("Open Failed", $"Could not open:\n{ex.Message}");
         }
     }
 
@@ -16245,8 +16245,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 SquadDashTrace.Write("Revision", $"Revision failed: {ex}");
                 Dispatcher.Invoke(() =>
-                    MessageBox.Show($"Revision failed: {ex.Message}", "Revision Error",
-                        MessageBoxButton.OK, MessageBoxImage.Error));
+                    UIErrorHelper.ShowError("Revision Error", $"Revision failed: {ex.Message}"));
             }
             finally
             {
@@ -16840,11 +16839,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (!Directory.Exists(folderPath))
         {
-            MessageBox.Show(
-                $"The folder does not exist:\n{folderPath}",
-                "Folder Not Found",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            UIErrorHelper.ShowWarning("Folder Not Found", $"The folder does not exist:\n{folderPath}");
             return;
         }
 
@@ -25664,12 +25659,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             try
             {
-                MessageBox.Show(
-                    this,
-                    $"{operation} failed.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
-                    operation,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                UIErrorHelper.ShowError(operation, $"{operation} failed.{Environment.NewLine}{Environment.NewLine}{ex.Message}");
             }
             catch
             {
@@ -28334,19 +28324,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (string.IsNullOrWhiteSpace(imagePath))
         {
-            MessageBox.Show(
+            UIErrorHelper.ShowWarning("Screenshot",
                 "Could not determine the image file path for this placeholder.\n\n" +
-                "Make sure the markdown has an ![alt](path/to/image.png) line immediately before the 📸 blockquote.",
-                "Screenshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+                "Make sure the markdown has an ![alt](path/to/image.png) line immediately before the 📸 blockquote.");
             return;
         }
 
         // Ensure the target has a file extension — protect against accidentally writing to a directory.
         if (string.IsNullOrEmpty(Path.GetExtension(imagePath)))
         {
-            MessageBox.Show(
-                $"The image path \"{imagePath}\" has no file extension. Expected a path like images/screenshot.png.",
-                "Screenshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UIErrorHelper.ShowWarning("Screenshot",
+                $"The image path \"{imagePath}\" has no file extension. Expected a path like images/screenshot.png.");
             return;
         }
 
@@ -28480,8 +28468,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (string.IsNullOrEmpty(_currentDocPath)) return;
         if (string.IsNullOrWhiteSpace(imagePath) || string.IsNullOrEmpty(Path.GetExtension(imagePath)))
         {
-            MessageBox.Show($"Cannot determine image file path from \"{imagePath}\".",
-                "Replace Screenshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UIErrorHelper.ShowWarning("Replace Screenshot", $"Cannot determine image file path from \"{imagePath}\".");
             return;
         }
 
@@ -28852,11 +28839,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
-                $"Unable to open the markdown file.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
-                title,
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            UIErrorHelper.ShowError(title, $"Unable to open the markdown file.{Environment.NewLine}{Environment.NewLine}{ex.Message}");
         }
     }
 
@@ -29488,7 +29471,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 catch (Exception ex)
                 {
                     SquadDashTrace.Write("Attach", $"Read failed for {filePath}: {ex.Message}");
-                    MessageBox.Show($"Could not read file:\n{ex.Message}", "Read Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    UIErrorHelper.ShowWarning("Read Failed", $"Could not read file:\n{ex.Message}");
                 }
                 AddNoteFromTextWithTitle($"Topic - {topicTitle}", content);
             };
@@ -29760,7 +29743,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             if (File.Exists(newFilePath) && !string.Equals(filePath, newFilePath, StringComparison.OrdinalIgnoreCase))
             {
-                System.Windows.MessageBox.Show($"A file named '{newFileName}' already exists.", "Rename", MessageBoxButton.OK, MessageBoxImage.Warning);
+                UIErrorHelper.ShowWarning("Rename", $"A file named '{newFileName}' already exists.");
                 return;
             }
 
@@ -30526,7 +30509,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex)
         {
             SquadDashTrace.Write("Attach", $"Read failed for {path}: {ex.Message}");
-            MessageBox.Show($"Could not read file:\n{ex.Message}", "Read Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UIErrorHelper.ShowWarning("Read Failed", $"Could not read file:\n{ex.Message}");
         }
 
         var body = new System.Text.StringBuilder();
@@ -30559,7 +30542,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex)
         {
             SquadDashTrace.Write("Attach", $"Read failed for {filePath}: {ex.Message}");
-            MessageBox.Show($"Could not read file:\n{ex.Message}", "Read Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            UIErrorHelper.ShowWarning("Read Failed", $"Could not read file:\n{ex.Message}");
         }
 
         var body = new System.Text.StringBuilder();
@@ -31336,8 +31319,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show($"Could not switch branch:\n\n{ex.Message}",
-                            "Switch Branch", MessageBoxButton.OK, MessageBoxImage.Error);
+                        UIErrorHelper.ShowError("Switch Branch", $"Could not switch branch:\n\n{ex.Message}");
                     }
                 };
                 menu.Items.Add(switchItem);
@@ -31372,11 +31354,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show(
-                            $"Merge failed.\n\nThis may be because the branches have diverged and a fast-forward merge is not possible.\n\nTo resolve, either rebase '{branch}' onto '{homeBranch}' first, or perform the merge manually.\n\nDetails: {ex.Message}",
-                            "Merge Failed",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Error);
+                        UIErrorHelper.ShowError("Merge Failed",
+                            $"Merge failed.\n\nThis may be because the branches have diverged and a fast-forward merge is not possible.\n\nTo resolve, either rebase '{branch}' onto '{homeBranch}' first, or perform the merge manually.\n\nDetails: {ex.Message}");
                         try { await RunGitAsync(workspaceFolder, $"checkout {branch}"); } catch { }
                         UpdateBranchIndicator();
                     }
