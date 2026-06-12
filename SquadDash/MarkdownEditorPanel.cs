@@ -51,6 +51,7 @@ internal sealed class MarkdownEditorPanel : DockPanel
     private bool _settingText;
     private bool _suppressNextTextInput;
     private DispatcherTimer? _debounce;
+    private readonly CamelCaseRichTextBoxAttachment _camelCaseNav = new();
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -117,6 +118,8 @@ internal sealed class MarkdownEditorPanel : DockPanel
 
     private void OnEditorPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (_camelCaseNav.HandlePreviewKeyDown(e, EditorBox)) return;
+
         var modifiers = Keyboard.Modifiers;
 
         if (e.Key == Key.Enter && modifiers == ModifierKeys.None)

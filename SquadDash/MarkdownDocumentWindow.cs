@@ -98,6 +98,10 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
     private MarkdownDocumentCaptureContext? _captureContext;
 
+    // ── CamelCase navigation ────────────────────────────────────────────────
+    private readonly CamelCaseRichTextBoxAttachment _camelCaseNav      = new();
+    private readonly CamelCaseTextBoxAttachment     _camelCaseNavTitle = new();
+
     // ── Editor find-in-source bar state ────────────────────────────────────────
     private Border? _editorFindBar;
     private TextBox? _editorFindTextBox;
@@ -1132,6 +1136,11 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         bool focusInEditor = _showSource && editorTb is not null && editorTb.IsKeyboardFocusWithin;
         bool focusInTitle  = _noteTitleBox is not null && _noteTitleBox.IsKeyboardFocusWithin;
         if (!focusInEditor && !focusInTitle) return;
+
+        if (focusInEditor && editorTb is not null && _camelCaseNav.HandlePreviewKeyDown(e, editorTb))
+            return;
+        if (focusInTitle && _camelCaseNavTitle.HandlePreviewKeyDown(e, _noteTitleBox))
+            return;
 
         var action = _editorPttGesture.HandleKeyDown(e.Key, e.IsRepeat, DateTime.UtcNow);
         if (action != CtrlDoubleTapGestureAction.Triggered) return;
