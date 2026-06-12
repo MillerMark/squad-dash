@@ -26243,7 +26243,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         else
         {
             BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
-            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
             BranchNameText.Text = branch;
         }
     }
@@ -31310,6 +31310,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 switchItem.Click += async (_, _) =>
                 {
+                    if (_isPromptRunning || IsNativeLoopRunning)
+                    {
+                        BranchNameText.Text += " — queued, waiting for active turn to finish";
+                        EnqueuePrompt($"Switch git branch to {homeBranch}", isSystemInjected: false);
+                        return;
+                    }
                     try
                     {
                         await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
@@ -31327,6 +31333,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 mergeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 mergeItem.Click += async (_, _) =>
                 {
+                    if (_isPromptRunning || IsNativeLoopRunning)
+                    {
+                        BranchNameText.Text += " — queued, waiting for active turn to finish";
+                        EnqueuePrompt($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", isSystemInjected: false);
+                        return;
+                    }
+
                     var result = MessageBox.Show(
                         $"Merge '{branch}' into '{homeBranch}' with --ff-only, then push?\n\nThis cannot be undone.",
                         "Confirm Merge",
