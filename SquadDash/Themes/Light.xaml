@@ -181,6 +181,9 @@
     <SolidColorBrush x:Key="DockSlotHover"       Color="#22A08060"/>
     <SolidColorBrush x:Key="DockSlotActiveBg"    Color="#80FFFFFF"/>
     <SolidColorBrush x:Key="DockSlotActiveBorder" Color="#808080"/>
+    <!-- TreeView selection tokens -->
+    <SolidColorBrush x:Key="FocusedSelectedItem"   Color="#C8DAEF"/><!-- active selection: clear blue accent -->
+    <SolidColorBrush x:Key="UnfocusedSelectedItem" Color="#DDE9F5"/><!-- inactive selection: muted soft blue -->
     <!-- TreeView unfocused-selection override (keeps selection visible in light theme) -->
     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#DDE9F5"/>
     <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#1E3A5F"/>
