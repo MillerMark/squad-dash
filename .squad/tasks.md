@@ -273,6 +273,13 @@
   initialization failures with only a comment. Add `SquadDashTrace.Write(...)` in the catch block
   so failures are diagnosable when the branch indicator is blank in unusual environments.
 
+- [ ] [UX] Flash/highlight PromptAttachmentViewerWindow on re-activation
+  When the user clicks the 📎 attachment link a second time, the viewer is brought to front
+  (no duplicate spawning) but there's no visual cue that it appeared. Add a brief flash or
+  highlight animation (e.g. brief border color pulse or window-level opacity fade-in) so the
+  user notices the window even when it was hidden behind the main window.
+  Related: `PromptAttachmentViewerWindow.Show()` — the singleton re-activation path.
+
 - [ ] **OpenAI Whisper speech provider — customer request***(Owner: Orion Vale → Lyra Morn)*
   Customer request: support OpenAI speech API as an alternative to Azure Cognitive Speech, for users
   without an Azure subscription. Impact: ~5 modified files + 2 new files.

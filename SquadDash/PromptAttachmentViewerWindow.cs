@@ -17,12 +17,27 @@ namespace SquadDash;
 /// </summary>
 internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 {
+    // Tracks the last-opened viewer so repeated clicks bring it to front rather than
+    // stacking duplicate windows.
+    private static WeakReference<PromptAttachmentViewerWindow>? s_lastViewer;
+
     internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null)
     {
         if (attachments.Count == 0) return;
+
+        // If a viewer is already open, activate it instead of opening a duplicate.
+        if (s_lastViewer is not null && s_lastViewer.TryGetTarget(out var existing) && existing.IsVisible)
+        {
+            if (existing.WindowState == WindowState.Minimized)
+                existing.WindowState = WindowState.Normal;
+            existing.Activate();
+            return;
+        }
+
         var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage);
         if (owner is not null)
             win.Owner = owner;
+        s_lastViewer = new WeakReference<PromptAttachmentViewerWindow>(win);
         win.Show();
     }
 
