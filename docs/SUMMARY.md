@@ -32,6 +32,9 @@
   * [Fullscreen Transcript](features/fullscreen-transcript.md)
   * [Text Formatting Shortcuts](features/text-formatting.md)
   * [Maintenance Mode](features/maintenance-mode.md)
+  * [Layout Presets](features/layout-presets.md)
+  * [Inbox Panel](features/inbox.md)
+  * [Attach Inbox Selection to Chat](features/inbox-selection-attach.md)
 
 ## Panels
 

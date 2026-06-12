@@ -8,6 +8,8 @@ parent: Panels
 
 The Inbox Panel shows messages sent to you by agents during maintenance runs or other automated workflows. Messages are delivered by embedding an `INBOX_MESSAGE_JSON` block in an agent response; SquadDash parses the block and stores the message in `.squad/inbox/`. The panel lets you read, filter, act on, archive, and delete those messages without leaving the main window.
 
+> **See also:** [Inbox Panel (agent-developer guide)](../features/inbox.md) — how agents send `INBOX_MESSAGE_JSON` blocks.
+
 ---
 
 ## Opening the Panel

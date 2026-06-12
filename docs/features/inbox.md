@@ -8,6 +8,8 @@ parent: Features
 
 The Inbox panel is an AI-to-user messaging system. Agents send you structured messages — with rich body text, attachments, and optional action buttons — that accumulate in the panel while you work. You can read them at any time, even hours after they were sent.
 
+> **See also:** [Inbox Panel (user guide)](../panels/Inbox.md) — how to read, filter, and manage messages as a user.
+
 ---
 
 ## How Agents Send Messages
