@@ -48,9 +48,14 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
     // ── Voice ─────────────────────────────────────────────────────────────────
 
-    private readonly PttTextBoxAttachment    _pttTitle;
-    private readonly PttTextBoxAttachment    _pttOptions;
+    private readonly PttTextBoxAttachment     _pttTitle;
+    private readonly PttTextBoxAttachment     _pttOptions;
     private readonly PttRichTextBoxAttachment _pttInstructions;
+
+    // ── CamelCase navigation ──────────────────────────────────────────────────
+
+    private readonly CamelCaseTextBoxAttachment     _camelCaseNav    = new();
+    private readonly CamelCaseRichTextBoxAttachment _camelCaseNavRtb = new();
 
     // ── Debounce timers ───────────────────────────────────────────────────────
 
@@ -172,6 +177,20 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Key / lifecycle wiring ────────────────────────────────────────────────
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e) {
+        // Alt+Left / Alt+Right: camelCase segment navigation (checked before PTT)
+        {
+            var focusedTb  = Keyboard.FocusedElement as TextBox;
+            var focusedRtb = Keyboard.FocusedElement as RichTextBox;
+            if (focusedTb is not null && _camelCaseNav.HandlePreviewKeyDown(e, focusedTb)) {
+                e.Handled = true;
+                return;
+            }
+            if (focusedRtb is not null && _camelCaseNavRtb.HandlePreviewKeyDown(e, focusedRtb)) {
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (_titleBox.IsKeyboardFocusWithin)
             if (_pttTitle.HandlePreviewKeyDown(e, _titleBox)) e.Handled = true;
         if (_optionsYamlBox.IsKeyboardFocusWithin)

@@ -401,6 +401,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     // ── Annotation text-box voice / PTT ───────────────────────────────────────
     private readonly PttTextBoxAttachment _textBoxPttAttachment;
 
+    // ── CamelCase navigation ──────────────────────────────────────────────────
+    private readonly CamelCaseTextBoxAttachment _camelCaseNav = new();
+
     // ── Re-edit initial state ─────────────────────────────────────────────────
 
     /// <summary>
@@ -712,6 +715,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         KeyDown += Window_KeyDown;
 
         PreviewKeyDown += (_, e) => {
+            // Alt+Left / Alt+Right: camelCase segment navigation
+            if (_activeTextBox is not null && _activeTextBox.IsKeyboardFocusWithin) {
+                if (_camelCaseNav.HandlePreviewKeyDown(e, _activeTextBox)) {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             // Double-Ctrl voice dictation when an annotation text box has focus.
             if (_activeTextBox is not null && _activeTextBox.IsKeyboardFocusWithin) {
                 if (_textBoxPttAttachment.HandlePreviewKeyDown(e, _activeTextBox)) {

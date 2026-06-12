@@ -602,6 +602,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _gridRebuildPending;
     private TranscriptViewportAnchor? _pendingGridRebuildViewportAnchor;
 
+    // CamelCase navigation (Alt+Left / Alt+Right)
+    private readonly CamelCaseTextBoxAttachment    _camelCaseNav    = new();
+    private readonly CamelCaseRichTextBoxAttachment _camelCaseNavRtb = new();
+
     // Push-to-talk state
     private enum PttState { Idle, TapDown, TapReleased, Active }
     private PttState _pttState = PttState.Idle;
@@ -9696,6 +9700,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 RestoreLayoutPreset(slotIndex);
                 e.Handled = true;
                 return;
+            }
+
+            // ── Alt+Left / Alt+Right: camelCase segment navigation ────────────────
+            {
+                var focusedTb  = Keyboard.FocusedElement as TextBox;
+                var focusedRtb = Keyboard.FocusedElement as RichTextBox;
+                if (focusedTb is not null && _camelCaseNav.HandlePreviewKeyDown(e, focusedTb)) {
+                    e.Handled = true;
+                    return;
+                }
+                if (focusedRtb is not null && _camelCaseNavRtb.HandlePreviewKeyDown(e, focusedRtb)) {
+                    e.Handled = true;
+                    return;
+                }
             }
 
             switch (_pttState)

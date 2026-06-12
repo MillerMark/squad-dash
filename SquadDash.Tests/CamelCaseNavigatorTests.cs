@@ -117,8 +117,8 @@ internal sealed class CamelCaseNavigatorTests {
 
     [Test]
     public void MoveRight_WhitespaceBetweenCamelWords_SkipsAndFindsBoundary() {
-        // "foo helloWorld" caret=4 (space) — skip space, scan "helloWorld", 'o'→'W' at 10
-        Assert.That(CamelCaseNavigator.MoveRight("foo helloWorld", 4), Is.EqualTo(10));
+        // "foo helloWorld" caret=4 (between space and 'h') — scan "helloWorld", 'o'→'W' at 9
+        Assert.That(CamelCaseNavigator.MoveRight("foo helloWorld", 4), Is.EqualTo(9));
     }
 
     // ── MoveLeft ─────────────────────────────────────────────────────────────

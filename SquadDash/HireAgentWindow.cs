@@ -63,6 +63,9 @@ internal sealed class HireAgentWindow : Window {
     private readonly PttTextBoxAttachment _pttAttachment;
     private TextBox? _roleEditableTextBox;
 
+    // ── CamelCase navigation ──────────────────────────────────────────────────
+    private readonly CamelCaseTextBoxAttachment _camelCaseNav = new();
+
     internal sealed record HireAgentSubmission(
         string UniverseName,
         string AgentName,
@@ -420,6 +423,12 @@ internal sealed class HireAgentWindow : Window {
         Closed += (_, _) => _pttAttachment.Dispose();
 
         PreviewKeyDown += (_, e) => {
+            // Alt+Left / Alt+Right: camelCase segment navigation
+            var focusedTb = Keyboard.FocusedElement as TextBox;
+            if (focusedTb is not null && _camelCaseNav.HandlePreviewKeyDown(e, focusedTb)) {
+                e.Handled = true;
+                return;
+            }
             var focused = GetFocusedPttTextBox();
             if (focused is not null && _pttAttachment.HandlePreviewKeyDown(e, focused))
                 e.Handled = true;

@@ -106,6 +106,9 @@
     <Compile Include="..\SquadDash\PushToTalkWindow.cs" Link="Source\PushToTalkWindow.cs" />
     <Compile Include="..\SquadDash\PttTextBoxAttachment.cs" Link="Source\PttTextBoxAttachment.cs" />
     <Compile Include="..\SquadDash\PttRichTextBoxAttachment.cs" Link="Source\PttRichTextBoxAttachment.cs" />
+    <Compile Include="..\SquadDash\CamelCaseNavigator.cs" Link="Source\CamelCaseNavigator.cs" />
+    <Compile Include="..\SquadDash\CamelCaseTextBoxAttachment.cs" Link="Source\CamelCaseTextBoxAttachment.cs" />
+    <Compile Include="..\SquadDash\CamelCaseRichTextBoxAttachment.cs" Link="Source\CamelCaseRichTextBoxAttachment.cs" />
     <Compile Include="..\SquadDash\PromptExecutionController.cs" Link="Source\PromptExecutionController.cs" />
     <Compile Include="..\SquadDash\IWorkspaceContext.cs" Link="Source\IWorkspaceContext.cs" />
     <Compile Include="..\SquadDash\IPromptBoxState.cs" Link="Source\IPromptBoxState.cs" />
