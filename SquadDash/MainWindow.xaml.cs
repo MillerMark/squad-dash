@@ -9463,9 +9463,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     e.Handled = true;
                     return;
                 }
+                // Let Alt+Arrow through for camelCase navigation.
+                var effectiveKeyDoc = e.Key == Key.System ? e.SystemKey : e.Key;
+                if ((effectiveKeyDoc == Key.Left || effectiveKeyDoc == Key.Right)
+                    && (Keyboard.Modifiers & ModifierKeys.Alt) != 0
+                    && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+                {
+                    // Fall through to the camelCase nav block below.
+                }
                 // Let bare Ctrl key events fall through so the double-tap PTT state machine
                 // can track them. All other keys are eaten here.
-                if (!IsCtrlKey(e.Key))
+                else if (!IsCtrlKey(e.Key))
                     return;
             }
 
