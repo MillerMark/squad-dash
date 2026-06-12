@@ -1154,7 +1154,7 @@ internal sealed class TranscriptConversationManager {
                         })
                         .ToList();
                 }
-                return new QueuedPromptEntry(i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse, i.SimDelaySeconds, i.QueueNumber);
+                return new QueuedPromptEntry(i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse, i.SimDelaySeconds, i.QueueNumber, i.SourceTag);
             }).ToArray();
         }
         var previousState = _conversationState;

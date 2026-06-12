@@ -680,7 +680,8 @@ internal sealed record QueuedPromptEntry(
     bool IsSimEntry = false,
     string? SimResponse = null,
     int SimDelaySeconds = 0,
-    int QueueNumber = 0);
+    int QueueNumber = 0,
+    string? SourceTag = null);
 
 internal enum TranscriptThoughtPlacement {
     BeforeTools,

@@ -670,6 +670,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashPaths.WorkspaceStateDirectory((workspacePaths ?? WorkspacePathsProvider.Discover()).ApplicationRoot),
                 "clipboard-editors"));
         _promptQueue = serviceProvider?.GetRequiredService<PromptQueue>() ?? new PromptQueue();
+        _promptQueue.ItemRemoved += OnQueueItemRemoved;
         _hostCommandRegistry = serviceProvider?.GetRequiredService<HostCommandRegistry>() ?? new HostCommandRegistry();
         _postedUiActionTracker = serviceProvider?.GetRequiredService<PostedUiActionTracker>() ?? new PostedUiActionTracker();
         _uiActionReplayRegistry = serviceProvider?.GetRequiredService<UiActionReplayRegistry>() ?? new UiActionReplayRegistry();
@@ -17090,7 +17091,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var savedActiveTabIndex = _conversationManager.ConversationState.QueueActiveTabIndex;
             foreach (var entry in savedEntries)
             {
-                _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated, isSystemInjected: entry.IsSystemInjected);
+                _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated, isSystemInjected: entry.IsSystemInjected, sourceTag: entry.SourceTag);
                 var restoredItem = _promptQueue.Items[^1];
                 restoredItem.QueueNumber = entry.QueueNumber > 0 ? entry.QueueNumber : NextQueueNumber();
                 if (entry.IsSimEntry)
@@ -26210,6 +26211,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private void OnQueueItemRemoved(PromptQueueItem item)
+    {
+        if (item.SourceTag == "branch-indicator")
+            Dispatcher.InvokeAsync(() => UpdateBranchIndicator(), System.Windows.Threading.DispatcherPriority.Normal);
+    }
+
     private void UpdateBranchIndicator()
     {
         if (_currentWorkspace is null)
@@ -31307,7 +31314,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
                 menu.Items.Add(sep2);
 
-                bool alreadyQueued = BranchNameText.Text.Contains(" — queued, waiting for active turn to finish");
+                bool alreadyQueued = _promptQueue.Items.Any(i => i.SourceTag == "branch-indicator");
 
                 var switchItem = new MenuItem { Header = $"Switch to {homeBranch}", IsEnabled = !alreadyQueued };
                 switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -31316,7 +31323,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
                         BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", ++_promptQueueSeq);
+                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", ++_promptQueueSeq, sourceTag: "branch-indicator");
                         _promptQueue.RenumberSequentially();
                         SyncQueuePanel();
                         _ = DrainQueueIfNeededAsync();
@@ -31342,7 +31349,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
                         BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", ++_promptQueueSeq);
+                        _promptQueue.EnqueueAtFront($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", ++_promptQueueSeq, sourceTag: "branch-indicator");
                         _promptQueue.RenumberSequentially();
                         SyncQueuePanel();
                         _ = DrainQueueIfNeededAsync();

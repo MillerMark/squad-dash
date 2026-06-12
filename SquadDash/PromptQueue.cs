@@ -21,6 +21,8 @@ internal sealed class PromptQueueItem {
     public bool    IsSimEntry       { get; set; }
     public string? SimResponse      { get; set; }
     public int     SimDelaySeconds  { get; set; }
+    /// <summary>Optional tag identifying the feature that queued this item (e.g. "branch-indicator").</summary>
+    public string? SourceTag        { get; set; }
 }
 
 internal sealed class PromptQueue {
@@ -28,8 +30,11 @@ internal sealed class PromptQueue {
 
     public IReadOnlyList<PromptQueueItem> Items => _items;
 
-    public void Enqueue(string text, int seqNum, bool isDictated = false, bool isFromRemote = false, bool isSystemInjected = false) =>
-        _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum, IsDictated = isDictated, IsFromRemote = isFromRemote, IsSystemInjected = isSystemInjected });
+    /// <summary>Fired when an item is removed for any reason (user delete, dispatch, clear).</summary>
+    public event Action<PromptQueueItem>? ItemRemoved;
+
+    public void Enqueue(string text, int seqNum, bool isDictated = false, bool isFromRemote = false, bool isSystemInjected = false, string? sourceTag = null) =>
+        _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum, IsDictated = isDictated, IsFromRemote = isFromRemote, IsSystemInjected = isSystemInjected, SourceTag = sourceTag });
 
     /// <summary>Adds a fully-constructed item (e.g. a sim item) to the back of the queue.</summary>
     public void EnqueueItem(PromptQueueItem item) => _items.Add(item);
@@ -41,19 +46,25 @@ internal sealed class PromptQueue {
     public PromptQueueItem? DequeueFirstReady() {
         var item = _items.FirstOrDefault(i => !i.IsEditing);
         if (item is not null)
+        {
             _items.Remove(item);
+            ItemRemoved?.Invoke(item);
+        }
         return item;
     }
 
     public void Remove(string id) {
         var item = _items.FirstOrDefault(i => i.Id == id);
         if (item is not null)
+        {
             _items.Remove(item);
+            ItemRemoved?.Invoke(item);
+        }
     }
 
     /// <summary>Inserts a new item at index 0, making it the next item to dispatch.</summary>
-    public PromptQueueItem EnqueueAtFront(string text, int seqNum) {
-        var item = new PromptQueueItem { Text = text, SequenceNumber = seqNum };
+    public PromptQueueItem EnqueueAtFront(string text, int seqNum, string? sourceTag = null) {
+        var item = new PromptQueueItem { Text = text, SequenceNumber = seqNum, SourceTag = sourceTag };
         _items.Insert(0, item);
         return item;
     }
