@@ -1137,10 +1137,14 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         bool focusInTitle  = _noteTitleBox is not null && _noteTitleBox.IsKeyboardFocusWithin;
         if (!focusInEditor && !focusInTitle) return;
 
-        if (focusInEditor && editorTb is not null && _camelCaseNav.HandlePreviewKeyDown(e, editorTb))
+        if (focusInEditor && editorTb is not null && _camelCaseNav.HandlePreviewKeyDown(e, editorTb)) {
+            e.Handled = true;
             return;
-        if (focusInTitle && _camelCaseNavTitle.HandlePreviewKeyDown(e, _noteTitleBox))
+        }
+        if (focusInTitle && _camelCaseNavTitle.HandlePreviewKeyDown(e, _noteTitleBox)) {
+            e.Handled = true;
             return;
+        }
 
         var action = _editorPttGesture.HandleKeyDown(e.Key, e.IsRepeat, DateTime.UtcNow);
         if (action != CtrlDoubleTapGestureAction.Triggered) return;

@@ -118,7 +118,7 @@ internal sealed class MarkdownEditorPanel : DockPanel
 
     private void OnEditorPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_camelCaseNav.HandlePreviewKeyDown(e, EditorBox)) return;
+        if (_camelCaseNav.HandlePreviewKeyDown(e, EditorBox)) { e.Handled = true; return; }
 
         var modifiers = Keyboard.Modifiers;
 
