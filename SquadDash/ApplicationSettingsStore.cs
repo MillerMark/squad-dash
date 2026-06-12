@@ -844,6 +844,12 @@ internal sealed class ApplicationSettingsStore {
             if (current.DocsPanelStateByWorkspace.TryGetValue(key, out var ws))
                 return ws;
         }
+        else
+        {
+            // null/empty workspace uses "__default__" key in SaveDocsPanelState; check it first.
+            if (current.DocsPanelStateByWorkspace.TryGetValue("__default__", out var defaultWs))
+                return defaultWs;
+        }
         // Fall back to legacy global fields for backward compatibility
         return new WorkspaceDocsPanelState
         {
@@ -1495,8 +1501,11 @@ internal sealed record ApplicationSettingsSnapshot(
             foreach (var entry in DocsPanelStateByWorkspace) {
                 if (string.IsNullOrWhiteSpace(entry.Key))
                     continue;
-                var normalizedWorkspace = Path.GetFullPath(entry.Key)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                // "__default__" is the sentinel for null-workspace; preserve it verbatim.
+                var normalizedWorkspace = string.Equals(entry.Key, "__default__", StringComparison.OrdinalIgnoreCase)
+                    ? "__default__"
+                    : Path.GetFullPath(entry.Key)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 normalizedDocsPanelState[normalizedWorkspace] = entry.Value;
             }
         }

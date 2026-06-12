@@ -423,4 +423,57 @@ internal sealed class ApplicationSettingsStoreTests {
         Assert.That(loaded, Is.Not.Null);
         Assert.That(loaded.RecentFolders, Is.Empty);
     }
+
+    // QueuePaused persistence regression tests
+    [Test]
+    public void SaveDocsPanelState_QueuePaused_RoundTripsWithWorkspaceFolder() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveDocsPanelState(repo, new WorkspaceDocsPanelState { QueuePaused = true });
+
+        Assert.That(store.GetDocsPanelState(repo).QueuePaused, Is.True);
+    }
+
+    [Test]
+    public void SaveDocsPanelState_QueuePaused_RoundTripsWithNullWorkspaceFolder() {
+        // Regression: SaveDocsPanelState(null) stores under "__default__" key but
+        // GetDocsPanelState(null) previously bypassed the dict and returned the legacy
+        // fallback struct (no QueuePaused), so the paused state was lost on restart.
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveDocsPanelState(null, new WorkspaceDocsPanelState { QueuePaused = true });
+
+        Assert.That(store.GetDocsPanelState(null).QueuePaused, Is.True);
+    }
+
+    [Test]
+    public void SaveDocsPanelState_SubsequentSaveWithoutQueuePaused_PreservesValue() {
+        // Simulates MainWindow_Closing saving panel layout without QueuePaused (null) —
+        // the merge logic should preserve the previously saved QueuePaused=true.
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveDocsPanelState(repo, new WorkspaceDocsPanelState { QueuePaused = true });
+        // Subsequent shutdown save omits QueuePaused (null = don't overwrite)
+        store.SaveDocsPanelState(repo, new WorkspaceDocsPanelState { Open = true });
+
+        Assert.That(store.GetDocsPanelState(repo).QueuePaused, Is.True);
+    }
+
+    [Test]
+    public void SaveDocsPanelState_SubsequentSaveWithoutQueuePaused_NullWorkspace_PreservesValue() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveDocsPanelState(null, new WorkspaceDocsPanelState { QueuePaused = true });
+        store.SaveDocsPanelState(null, new WorkspaceDocsPanelState { Open = true });
+
+        Assert.That(store.GetDocsPanelState(null).QueuePaused, Is.True);
+    }
 }
