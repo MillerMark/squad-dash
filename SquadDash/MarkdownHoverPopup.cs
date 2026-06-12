@@ -201,14 +201,14 @@ internal static class MarkdownHoverPopup {
         row.MouseEnter += (_, _) => {
             CancelFade();
             if (!popup.IsOpen) {
-                bool instant = (DateTime.Now - _lastShownTime).TotalMilliseconds < 1000;
+                bool instant = (DateTime.Now - _lastShownTime).TotalMilliseconds < 200;
                 StartOpenTimer(instant);
             }
         };
         row.MouseLeave += (_, _) => {
             openTimer?.Stop();
             openTimer = null;
-            ScheduleFadeOut(500);
+            BeginFadeOut();
         };
 
         row.PreviewMouseDown += (_, _) => BeginFadeOut();
