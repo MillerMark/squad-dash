@@ -1327,6 +1327,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
                 SyncQueuePanel();
                 SyncLoopPanel();
+                // Refresh branch indicator after each turn — git operations run during the turn
+                // (e.g. checkout, merge, push) may have changed HEAD while _isPromptRunning was true.
+                // The FileSystemWatcher usually catches this, but a post-turn refresh guarantees
+                // the indicator is always correct when the user can next interact with it.
+                if (!v) UpdateBranchIndicator();
                 if (_remoteAccessActive)
                     _ = _bridge.BroadcastRcStatusAsync(v);
                 UpdateRestartStatusPanelVisibility();
@@ -3404,6 +3409,37 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return path;
     }
 
+    /// <summary>
+    /// A paperclip icon wrapped in a transparent Button so the user can click it to open
+    /// the attachment viewer for a queued-tab's follow-up attachments.
+    /// </summary>
+    private UIElement CreateQueueTabPaperclipButton(bool isActive, List<FollowUpAttachment> attachments)
+    {
+        var icon = CreatePaperclipIcon(isActive);
+        var btn = new Button
+        {
+            Content           = icon,
+            Width             = 16,
+            Height            = 20,
+            Padding           = new Thickness(0),
+            Margin            = new Thickness(2, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor            = Cursors.Hand,
+            Style             = (Style)FindResource("ThemedIconButtonStyle"),
+            ToolTip           = MakeThemedToolTip("Click to view attached context items."),
+        };
+        var capturedList = attachments;
+        btn.Click += (_, e) =>
+        {
+            e.Handled = true;
+            if (capturedList.Count == 1 && capturedList[0].InboxMessageId is { } msgId)
+                PromptAttachmentViewerWindow.Show(capturedList, CanShowOwnedWindow() ? this : null, m => OpenOrFocusInboxMessage(m));
+            else if (capturedList.Count > 0)
+                PromptAttachmentViewerWindow.Show(capturedList, CanShowOwnedWindow() ? this : null, m => OpenOrFocusInboxMessage(m));
+        };
+        return btn;
+    }
+
     private UIElement CreatePauseIcon()
     {
         var path = new System.Windows.Shapes.Path
@@ -3464,7 +3500,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             sp.Children.Add(textBlock);
             if (hasAttachment)
-                sp.Children.Add(CreatePaperclipIcon(isActive));
+                sp.Children.Add(CreateQueueTabPaperclipButton(isActive, attachList!.ToList()));
             if (showPause)
                 sp.Children.Add(CreatePauseIcon());
             tabChild = sp;
