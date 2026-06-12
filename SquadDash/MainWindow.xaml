@@ -1,4 +1,4 @@
-<Window x:Class="SquadDash.MainWindow"
+﻿<Window x:Class="SquadDash.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -1247,7 +1247,7 @@
                                            Foreground="{DynamicResource ActivePanelTitle}"
                                            HorizontalAlignment="Left"
                                            VerticalAlignment="Center"
-                                           Margin="0,-1,0,0" />
+                                           Margin="0,-2,0,0" />
 
                             </Grid>
                             <TextBlock x:Name="ActivePanelSubtitleTextBlock"
@@ -2542,9 +2542,10 @@
                                 Style="{StaticResource ThemedButtonStyle}"
                                 Click="AddDocumentButton_Click" />
                         <TextBlock Text="Topics"
-                                   FontSize="{DynamicResource FontSizeNormal}"
+                                   FontSize="{DynamicResource FontSizeLarge}"
                                    FontWeight="SemiBold"
-                                   Foreground="{DynamicResource LabelText}" />
+                                   Foreground="{DynamicResource LabelText}"
+                                   Margin="0,-2,0,0" />
                     </DockPanel>
                     <Grid>
                         <TreeView x:Name="DocTopicsTreeView"
