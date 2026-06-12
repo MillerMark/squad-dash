@@ -783,22 +783,61 @@ internal sealed class InboxPanelController
         menu.Items.Add(header);
         menu.Items.Add(MakeSep());
 
-        var markUnreadItem = MakeItem("Mark all as unread");
-        markUnreadItem.Click += (_, _) =>
+        // Determine the read state of selected messages so we can show appropriate items.
+        bool anyUnread = false;
+        bool anyRead   = false;
+        foreach (UIElement child in _listPanel.Children)
         {
-            foreach (UIElement child in _listPanel.Children)
+            if (child is Border { Tag: InboxMessage rowMsg } && _selectedIds.Contains(rowMsg.Id))
             {
-                if (child is Border { Tag: InboxMessage rowMsg } rowBorder
-                    && _selectedIds.Contains(rowMsg.Id))
-                {
-                    var dot   = FindDotInRow(rowBorder);
-                    var label = FindSubjectLabelInRow(rowBorder);
-                    if (dot is not null && label is not null)
-                        MarkRowUnread(rowMsg, rowBorder, dot, label);
-                }
+                if (rowMsg.Read) anyRead   = true;
+                else             anyUnread = true;
             }
-        };
-        menu.Items.Add(markUnreadItem);
+        }
+
+        // Show "Mark all as read" when any selected message is unread.
+        if (anyUnread)
+        {
+            var markReadItem = MakeItem("Mark all as read");
+            markReadItem.Click += (_, _) =>
+            {
+                foreach (UIElement child in _listPanel.Children)
+                {
+                    if (child is Border { Tag: InboxMessage rowMsg } rowBorder
+                        && _selectedIds.Contains(rowMsg.Id) && !rowMsg.Read)
+                    {
+                        var dot   = FindDotInRow(rowBorder);
+                        var label = FindSubjectLabelInRow(rowBorder);
+                        if (dot is not null && label is not null)
+                            MarkRowRead(rowMsg, rowBorder, dot, label);
+                    }
+                }
+            };
+            menu.Items.Add(markReadItem);
+        }
+
+        // Show "Mark all as unread" when any selected message is read.
+        if (anyRead)
+        {
+            var markUnreadItem = MakeItem("Mark all as unread");
+            markUnreadItem.Click += (_, _) =>
+            {
+                foreach (UIElement child in _listPanel.Children)
+                {
+                    if (child is Border { Tag: InboxMessage rowMsg } rowBorder
+                        && _selectedIds.Contains(rowMsg.Id) && rowMsg.Read)
+                    {
+                        var dot   = FindDotInRow(rowBorder);
+                        var label = FindSubjectLabelInRow(rowBorder);
+                        if (dot is not null && label is not null)
+                            MarkRowUnread(rowMsg, rowBorder, dot, label);
+                    }
+                }
+            };
+            menu.Items.Add(markUnreadItem);
+        }
+
+        menu.Items.Add(MakeSep());
 
         var deleteItem = MakeItem("Delete all");
         deleteItem.Click += (_, _) =>
