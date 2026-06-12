@@ -102,7 +102,7 @@ internal static class TintKeys
         "AgentRoleText",
         "AgentStatusText",
         "AgentDetailText",
-        "RosterPanelTitle",
+        "PanelTitle",
         "AlertBodyText",
         "ThreadBadgeText",
         "ToastText",

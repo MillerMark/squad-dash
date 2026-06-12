@@ -82,7 +82,7 @@
     <SolidColorBrush x:Key="AgentDetailText" Color="#876C53"/>
     <SolidColorBrush x:Key="ActivePanelTitle" Color="#32506E"/>
     <SolidColorBrush x:Key="ActivePanelSubtitle" Color="#5B7895"/>
-    <SolidColorBrush x:Key="RosterPanelTitle" Color="#5A4129"/>
+    <SolidColorBrush x:Key="PanelTitle" Color="#5A4129"/>
     <SolidColorBrush x:Key="ActionLinkText" Color="#365C9B"/>
     <SolidColorBrush x:Key="AlertBodyText" Color="#6A4A2C"/>
     <SolidColorBrush x:Key="ThreadBadgeText" Color="#6E5035"/>

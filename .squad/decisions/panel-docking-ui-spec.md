@@ -31,7 +31,7 @@ The docking feature is not yet widely known. A permanently visible affordance is
 | **Glyph** | `≡` (U+2261 IDENTICAL TO) — three horizontal bars, widely recognised as a menu/move icon |
 | **WPF element** | `TextBlock` |
 | **FontSize** | `14` (hardcoded, not a dynamic resource — matches the implemented value) |
-| **Foreground** | `{DynamicResource RosterPanelTitle}` — muted warm tone: `#C0A080` (dark theme) / `#5A4129` (light theme). Matches the panel title text, giving a low-contrast-but-legible muted appearance. |
+| **Foreground** | `{DynamicResource PanelTitle}` — muted warm tone: `#C0A080` (dark theme) / `#5A4129` (light theme). Matches the panel title text, giving a low-contrast-but-legible muted appearance. |
 | **Cursor** | `Hand` |
 | **Tooltip** | *"Ctrl+click anywhere on this panel to move it to another zone."* |
 | **DockPanel placement** | `DockPanel.Dock="Right"` — placed **left of the close button** by appearing after the close button in XAML order. Both use `Dock="Right"`; XAML declaration order determines final left-to-right stacking (close button outermost right, hamburger immediately to its left). |
@@ -165,4 +165,4 @@ Items in this section represent differences between this spec and the current im
 
 ### 7.2 No Divergences from Spec
 
-The hamburger affordance (always visible, `RosterPanelTitle` foreground, FontSize 14, Hand cursor, correct tooltip and placement) matches this spec exactly as shipped in commits d3acb2d / e597d29 / 2cff1b2. The popup (3 items, directional labels, current-zone disabled, `ThemedContextMenuStyle` / `ThemedMenuItemStyle`) also matches. **No code changes are required by this spec.**
+The hamburger affordance (always visible, `PanelTitle` foreground, FontSize 14, Hand cursor, correct tooltip and placement) matches this spec exactly as shipped in commits d3acb2d / e597d29 / 2cff1b2. The popup (3 items, directional labels, current-zone disabled, `ThemedContextMenuStyle` / `ThemedMenuItemStyle`) also matches. **No code changes are required by this spec.**

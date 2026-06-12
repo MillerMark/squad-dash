@@ -1306,13 +1306,13 @@
                                     ClipToBounds="False"
                                     Panel.ZIndex="0" />
 
-                            <TextBlock x:Name="RosterPanelTitleTextBlock"
+                            <TextBlock x:Name="PanelTitleTextBlock"
                                        Panel.ZIndex="1"
                                        Text="Roster &amp; History"
                                        FontSize="{DynamicResource FontSizeLarge}"
                                        FontWeight="SemiBold"
                                        Margin="0,-2,0,0"
-                                       Foreground="{DynamicResource RosterPanelTitle}" />
+                                       Foreground="{DynamicResource PanelTitle}" />
                             <TextBlock x:Name="RosterPanelSubtitleTextBlock"
                                        Grid.Row="1"
                                        Panel.ZIndex="1"
@@ -1405,7 +1405,7 @@
                                                FontWeight="SemiBold"
                                                VerticalAlignment="Center"
                                                Margin="0,0,0,0"
-                                               Foreground="{DynamicResource RosterPanelTitle}" />
+                                               Foreground="{DynamicResource PanelTitle}" />
                                     <ComboBox x:Name="LoopFilePicker"
                                               Grid.Column="1"
                                               Margin="8,0,6,0"
@@ -1618,7 +1618,7 @@
                                            Text="Tasks"
                                            FontSize="{DynamicResource FontSizeLarge}"
                                            FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
                                 <StackPanel DockPanel.Dock="Left"
                                             Orientation="Horizontal"
@@ -1757,7 +1757,7 @@
                                            Text="Approvals"
                                            FontSize="{DynamicResource FontSizeLarge}"
                                            FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
 
                                 <!-- Filter box + clear X: left-aligned, ~2 space-widths after title -->
@@ -1897,7 +1897,7 @@
                                            Text="Notes"
                                            FontSize="{DynamicResource FontSizeLarge}"
                                            FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
                                 <StackPanel DockPanel.Dock="Left"
                                             Orientation="Horizontal"
@@ -1981,7 +1981,7 @@
                                            Text="Maintenance"
                                            FontSize="{DynamicResource FontSizeLarge}"
                                            FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
                                 <!-- Unread-report badge -->
                                 <Border x:Name="MaintenancePanelBadge"
@@ -2106,7 +2106,7 @@
                                            Text="Inbox"
                                            FontSize="{DynamicResource FontSizeLarge}"
                                            FontWeight="SemiBold"
-                                           Foreground="{DynamicResource RosterPanelTitle}"
+                                           Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
                                 <StackPanel DockPanel.Dock="Left"
                                             Orientation="Horizontal"
