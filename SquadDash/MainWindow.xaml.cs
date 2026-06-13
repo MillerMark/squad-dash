@@ -247,6 +247,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private Vector? _traceWindowOffset;
     private Vector? _screenshotHealthWindowOffset;
     private double _cachedRosterHeightCap = -1; // Cache to prevent MaxHeight thrashing
+    private double _cachedActiveAgentsMaxWidth = double.NaN;
+    private bool _activeAgentsColumnWidthAutoApplied;
     private CommitApprovalPanel? _approvalPanel;
     private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
@@ -365,6 +367,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private DocStatusStore? _docStatusStore;
     private bool _activeAgentLaneNudgeScheduled;
     private bool _inactiveAgentLaneNudgeScheduled;
+    private bool _agentPanelLayoutRefreshScheduled;
     private int _toolSpinnerFrame;
     private double _transcriptFontSize = (double)Application.Current.Resources["FontSizeMedium"];
     private double _promptFontSize = (double)Application.Current.Resources["FontSizeMedium"];
@@ -949,12 +952,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             try
             {
-                var vsbVis = InactiveAgentsScrollViewer.ComputedVerticalScrollBarVisibility;
-                SquadDashTrace.Write("FlickerDiagnostics",
-                    $"StatusGrid.SizeChanged: H {e.PreviousSize.Height:F0} → {e.NewSize.Height:F0} | " +
-                    $"InactiveVSB={vsbVis}, ExtentH={InactiveAgentsScrollViewer.ExtentHeight:F0}, " +
-                    $"ViewportH={InactiveAgentsScrollViewer.ViewportHeight:F0}");
-                UpdateAgentPanelWidths();
+                if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) >= 1.0)
+                    UpdateAgentPanelWidths();
                 SquadDashTrace.Write("AgentCards",
                     $"SizeChanged: H {e.PreviousSize.Height:F0} → {e.NewSize.Height:F0} " +
                     $"W {e.PreviousSize.Width:F0} → {e.NewSize.Width:F0} | " +
@@ -1710,20 +1709,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 InflateAgentScrollViewerClip(ActiveAgentsScrollViewer);
                 UpdateAgentCardGlowOverlayPosition();
+                UpdateRosterHeightCap();
             };
             InactiveAgentsScrollViewer.LayoutUpdated += (_, _) =>
             {
                 try
                 {
-                    var vsbVis = InactiveAgentsScrollViewer.ComputedVerticalScrollBarVisibility;
-                    var hsbVis = InactiveAgentsScrollViewer.ComputedHorizontalScrollBarVisibility;
-                    SquadDashTrace.Write("FlickerDiagnostics",
-                        $"InactiveScroll.LayoutUpdated: VertSB={vsbVis}, HorzSB={hsbVis} | " +
-                        $"ViewportH={InactiveAgentsScrollViewer.ViewportHeight:F0}, " +
-                        $"ExtentH={InactiveAgentsScrollViewer.ExtentHeight:F0}, " +
-                        $"ContentH={InactiveAgentItemsControl.ActualHeight:F0}");
                     InflateAgentScrollViewerClip(InactiveAgentsScrollViewer);
                     UpdateAgentCardGlowOverlayPosition();
+                    UpdateRosterHeightCap();
                 }
                 catch (Exception ex)
                 {
@@ -11471,7 +11465,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         var topLeft = _agentCardGlowOverlayTarget.TranslatePoint(new System.Windows.Point(0, 0), overlayCoordinateRoot);
-        overlay.Margin = new Thickness(topLeft.X, topLeft.Y, 0, 0);
+        if (overlay.Margin != new Thickness(0))
+            overlay.Margin = new Thickness(0);
+        if (overlay.RenderTransform is System.Windows.Media.TranslateTransform translate)
+        {
+            translate.X = topLeft.X;
+            translate.Y = topLeft.Y;
+        }
+        else
+        {
+            overlay.RenderTransform = new System.Windows.Media.TranslateTransform(topLeft.X, topLeft.Y);
+        }
         overlay.Width = _agentCardGlowOverlayTarget.ActualWidth;
         overlay.Height = _agentCardGlowOverlayTarget.ActualHeight;
     }
@@ -27545,23 +27549,38 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
 
         var maxActiveWidth = Math.Max(360, Math.Floor(availableWidth * 0.8));
-        SquadDashTrace.Write("FlickerDiagnostics", 
-            $"UpdateAgentPanelWidths: availableWidth={availableWidth:F0}, maxActiveWidth={maxActiveWidth:F0}");
-        ActiveAgentsPanelBorder.MaxWidth = maxActiveWidth;
-        ActiveAgentsColumnDefinition.Width = GridLength.Auto;
+        var widthChanged = double.IsNaN(_cachedActiveAgentsMaxWidth)
+            || Math.Abs(maxActiveWidth - _cachedActiveAgentsMaxWidth) >= 1.0;
+        var columnNeedsAuto = !_activeAgentsColumnWidthAutoApplied
+            || !ActiveAgentsColumnDefinition.Width.IsAuto;
+        if (!widthChanged && !columnNeedsAuto)
+            return;
+
+        if (widthChanged)
+        {
+            _cachedActiveAgentsMaxWidth = maxActiveWidth;
+            ActiveAgentsPanelBorder.MaxWidth = maxActiveWidth;
+        }
+
+        if (columnNeedsAuto)
+        {
+            ActiveAgentsColumnDefinition.Width = GridLength.Auto;
+            _activeAgentsColumnWidthAutoApplied = true;
+        }
     }
 
     private void UpdateRosterHeightCap()
     {
         // Cap StatusPanelBorder so the top-zone row never pushes the transcript and
-        // prompt off screen.  The cap is ActualHeight/3, with a 240 px floor so that
-        // one row of agent cards (~160 px) plus panel chrome (~80 px) is always fully
-        // visible without clipping.  The matching InactiveAgentsScrollViewer cap lets
-        // the roster scroll rather than clip when the panel would otherwise exceed the
-        // budget.
+        // prompt off screen. The cap is ActualHeight/3, with a measured floor so that
+        // one row of agent cards plus the horizontal scrollbar and panel chrome is
+        // visible without clipping. The matching InactiveAgentsScrollViewer cap lets
+        // the roster scroll horizontally rather than clip when the row exceeds width.
         const double inactiveRosterPanelChrome = 80;
-        const double minPanelHeight = 240;
+        const double fallbackScrollViewerHeight = 178;
 
+        var minScrollViewerHeight = Math.Max(fallbackScrollViewerHeight, GetRosterRowMinimumScrollViewerHeight());
+        var minPanelHeight = Math.Ceiling(minScrollViewerHeight + inactiveRosterPanelChrome);
         var cap = Math.Max(minPanelHeight, Math.Floor(ActualHeight / 3));
 
         // Only update if cap changed significantly (threshold 1px) to avoid MaxHeight thrashing
@@ -27569,15 +27588,44 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (Math.Abs(cap - _cachedRosterHeightCap) < 1.0)
             return;
 
-        var scrollViewerCap = Math.Max(160, cap - inactiveRosterPanelChrome);
-        SquadDashTrace.Write("FlickerDiagnostics", 
-            $"UpdateRosterHeightCap: ActualHeight={ActualHeight:F0}, new cap={cap:F0}, scrollCap={scrollViewerCap:F0} " +
-            $"| before: StatusPanelBorder.MaxHeight={StatusPanelBorder.MaxHeight:F0}, InactiveScroll.MaxHeight={InactiveAgentsScrollViewer.MaxHeight:F0}");
-
+        var scrollViewerCap = Math.Max(minScrollViewerHeight, cap - inactiveRosterPanelChrome);
         _cachedRosterHeightCap = cap;
         StatusPanelBorder.MaxHeight = cap;
         InactiveAgentsScrollViewer.MaxHeight = scrollViewerCap;
         StatusAgentPanelsGrid.MaxHeight = double.PositiveInfinity;
+    }
+
+    private double GetRosterRowMinimumScrollViewerHeight()
+    {
+        const double horizontalScrollbarReserve = 18;
+        var rowHeight = Math.Max(
+            GetItemsControlRenderedHeight(ActiveAgentItemsControl),
+            GetItemsControlRenderedHeight(InactiveAgentItemsControl));
+
+        if (!double.IsFinite(rowHeight) || rowHeight <= 0)
+            return 0;
+
+        return Math.Ceiling(rowHeight + horizontalScrollbarReserve);
+    }
+
+    private static double GetItemsControlRenderedHeight(ItemsControl itemsControl)
+    {
+        var height = Math.Max(GetFiniteOrZero(itemsControl.ActualHeight), GetFiniteOrZero(itemsControl.DesiredSize.Height));
+        for (var i = 0; i < itemsControl.Items.Count; i++)
+        {
+            if (itemsControl.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement container)
+            {
+                height = Math.Max(height, GetFiniteOrZero(container.ActualHeight));
+                height = Math.Max(height, GetFiniteOrZero(container.DesiredSize.Height));
+            }
+        }
+
+        return height;
+    }
+
+    private static double GetFiniteOrZero(double value)
+    {
+        return double.IsFinite(value) ? value : 0;
     }
 
     private void CaptureDockingLayoutSnapshot(string reason)
@@ -27807,30 +27855,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ScheduleAgentPanelLayoutRefresh()
     {
+        if (_agentPanelLayoutRefreshScheduled)
+            return;
+
+        _agentPanelLayoutRefreshScheduled = true;
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
         {
-            SquadDashTrace.Write("FlickerDiagnostics", "ScheduleAgentPanelLayoutRefresh invoked");
-            UpdateAgentPanelWidths();
-            ActiveAgentsPanelBorder.InvalidateMeasure();
-            ActiveAgentsPanelBorder.InvalidateArrange();
-            ActiveAgentsScrollViewer.InvalidateMeasure();
-            ActiveAgentsScrollViewer.InvalidateArrange();
-            ActiveAgentItemsControl.InvalidateMeasure();
-            ActiveAgentItemsControl.InvalidateArrange();
-            InactiveAgentsPanelBorder.InvalidateMeasure();
-            InactiveAgentsPanelBorder.InvalidateArrange();
-            InactiveAgentsScrollViewer.InvalidateMeasure();
-            InactiveAgentsScrollViewer.InvalidateArrange();
-            InactiveAgentItemsControl.InvalidateMeasure();
-            InactiveAgentItemsControl.InvalidateArrange();
-            StatusAgentPanelsGrid.InvalidateMeasure();
-            StatusAgentPanelsGrid.InvalidateArrange();
-            StatusAgentPanelsGrid.UpdateLayout();
-            ActiveAgentsScrollViewer.ScrollToLeftEnd();
-            ActiveAgentsScrollViewer.ScrollToTop();
-            InactiveAgentsScrollViewer.ScrollToLeftEnd();
-            InactiveAgentsScrollViewer.ScrollToTop();
-            TryNudgeAgentLaneLayout();
+            try
+            {
+                UpdateAgentPanelWidths();
+                ActiveAgentsPanelBorder.InvalidateMeasure();
+                ActiveAgentsPanelBorder.InvalidateArrange();
+                ActiveAgentsScrollViewer.InvalidateMeasure();
+                ActiveAgentsScrollViewer.InvalidateArrange();
+                ActiveAgentItemsControl.InvalidateMeasure();
+                ActiveAgentItemsControl.InvalidateArrange();
+                InactiveAgentsPanelBorder.InvalidateMeasure();
+                InactiveAgentsPanelBorder.InvalidateArrange();
+                InactiveAgentsScrollViewer.InvalidateMeasure();
+                InactiveAgentsScrollViewer.InvalidateArrange();
+                InactiveAgentItemsControl.InvalidateMeasure();
+                InactiveAgentItemsControl.InvalidateArrange();
+                StatusAgentPanelsGrid.InvalidateMeasure();
+                StatusAgentPanelsGrid.InvalidateArrange();
+                StatusAgentPanelsGrid.UpdateLayout();
+                ActiveAgentsScrollViewer.ScrollToLeftEnd();
+                ActiveAgentsScrollViewer.ScrollToTop();
+                InactiveAgentsScrollViewer.ScrollToLeftEnd();
+                InactiveAgentsScrollViewer.ScrollToTop();
+                TryNudgeAgentLaneLayout();
+            }
+            finally
+            {
+                _agentPanelLayoutRefreshScheduled = false;
+            }
         }));
     }
 
