@@ -246,7 +246,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // Null means no saved position; window will open at its default CenterOwner location.
     private Vector? _traceWindowOffset;
     private Vector? _screenshotHealthWindowOffset;
-    private double _cachedAgentPanelMaxWidth = -1; // Cache to prevent SizeChanged feedback loop
+    private double _cachedRosterHeightCap = -1; // Cache to prevent MaxHeight thrashing
     private CommitApprovalPanel? _approvalPanel;
     private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
@@ -27481,9 +27481,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                          .OrderBy(GetAgentCardBucketSortKey))
             _activeAgentCards.Add(card);
 
-        // Inactive panel: full rebuild (sorted by last activity).
-        _inactiveAgentCards.Clear();
-        foreach (var card in visibleCards.Where(static card => !card.IsInActivePanel).OrderBy(GetAgentCardBucketSortKey))
+        // Inactive panel: smart diff (remove old, append new) to avoid collection thrashing.
+        var shouldBeInactive = visibleCards.Where(static c => !c.IsInActivePanel).ToHashSet();
+        for (var i = _inactiveAgentCards.Count - 1; i >= 0; i--)
+        {
+            if (!shouldBeInactive.Contains(_inactiveAgentCards[i]))
+                _inactiveAgentCards.RemoveAt(i);
+        }
+        var alreadyInactive = _inactiveAgentCards.ToHashSet();
+        foreach (var card in visibleCards.Where(c => !c.IsInActivePanel && !alreadyInactive.Contains(c))
+                                         .OrderBy(GetAgentCardBucketSortKey))
             _inactiveAgentCards.Add(card);
 
         var activeNames = string.Join(", ", _activeAgentCards.Select(static card => card.Name));
@@ -27519,14 +27526,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
 
         var maxActiveWidth = Math.Max(360, Math.Floor(availableWidth * 0.8));
-        
-        // Only update if the calculated width changed to prevent SizeChanged feedback loop.
-        // Setting GridLength.Auto on every size change triggers another measure cycle, 
-        // causing continuous SizeChanged events.
-        if (Math.Abs(maxActiveWidth - _cachedAgentPanelMaxWidth) < 0.1)
-            return;
-
-        _cachedAgentPanelMaxWidth = maxActiveWidth;
         ActiveAgentsPanelBorder.MaxWidth = maxActiveWidth;
         ActiveAgentsColumnDefinition.Width = GridLength.Auto;
     }
@@ -27544,6 +27543,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var cap = Math.Max(minPanelHeight, Math.Floor(ActualHeight / 3));
 
+        // Only update if cap changed significantly (threshold 1px) to avoid MaxHeight thrashing
+        // which triggers repeated SizeChanged events.
+        if (Math.Abs(cap - _cachedRosterHeightCap) < 1.0)
+            return;
+
+        _cachedRosterHeightCap = cap;
         StatusPanelBorder.MaxHeight = cap;
         InactiveAgentsScrollViewer.MaxHeight = Math.Max(160, cap - inactiveRosterPanelChrome);
         StatusAgentPanelsGrid.MaxHeight = double.PositiveInfinity;
