@@ -1321,7 +1321,8 @@
                                        FontSize="{DynamicResource FontSizeBody}"
                                        Foreground="{DynamicResource BodyText}"
                                        TextTrimming="CharacterEllipsis"
-                                       TextWrapping="NoWrap" />
+                                       TextWrapping="NoWrap"
+                                       ToolTipService.IsEnabled="False" />
                             <ScrollViewer x:Name="InactiveAgentsScrollViewer"
                                           Grid.Row="2"
                                           Panel.ZIndex="1"
