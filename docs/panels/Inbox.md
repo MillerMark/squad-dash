@@ -176,6 +176,6 @@ Any agent (typically a maintenance task) can send an inbox message by including 
 
 ## Related
 
-- **[Maintenance Panel](Maintenance.md)** — View and manage the maintenance tasks that send inbox messages
+- **[Code Health Panel](Maintenance.md)** — View and manage the maintenance tasks that send inbox messages
 - **[Maintenance Mode](../features/maintenance-mode.md)** — Full `INBOX_MESSAGE_JSON` format, `actions` array, and deferred-action guidance
 - **[Tasks Panel](Tasks.md)** — Track the open task backlog

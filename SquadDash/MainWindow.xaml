@@ -749,7 +749,7 @@
                               IsCheckable="True"
                               Click="ViewLoopPanelMenuItem_Click" />
                     <MenuItem x:Name="ViewMaintenanceMenuItem"
-                              Header="Maintenance"
+                              Header="Code Health"
                               IsCheckable="True"
                               Click="ViewMaintenanceMenuItem_Click" />
                     <MenuItem x:Name="ViewNotesMenuItem"
@@ -859,7 +859,7 @@
                                   Click="DockingTestCasesFolderMenuItem_Click" />
                     </MenuItem>
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
-                    <MenuItem Header="Theme _Colors..."
+                    <MenuItem Header="Theme _Explorer..."
                               Click="ThemeColorsMenuItem_Click" />
                 </MenuItem>
             </Menu>
@@ -1975,10 +1975,10 @@
                                         FontSize="{DynamicResource FontSizeNormal}"
                                         VerticalAlignment="Top"
                                         Style="{StaticResource PanelCloseButtonStyle}"
-                                        ToolTip="Hide Maintenance panel"
+                                        ToolTip="Hide Code Health panel"
                                         Click="MaintenancePanelCloseButton_Click" />
                                 <TextBlock DockPanel.Dock="Left"
-                                           Text="Maintenance"
+                                           Text="Code Health"
                                            FontSize="{DynamicResource FontSizeLarge}"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource PanelTitle}"
@@ -1992,7 +1992,7 @@
                                         Margin="5,0,0,0"
                                         VerticalAlignment="Center"
                                         Visibility="Collapsed"
-                                        ToolTip="Unread maintenance report">
+                                        ToolTip="Unread Code Health report">
                                     <Border.Background>
                                         <SolidColorBrush Color="#E53935" />
                                     </Border.Background>
@@ -2040,7 +2040,7 @@
                                         Margin="4,0,0,0"
                                         Padding="4,0"
                                         VerticalAlignment="Center"
-                                        ToolTip="Runs the selected maintenance tasks if needed."
+                                        ToolTip="Runs the selected Code Health tasks if needed."
                                         Style="{StaticResource ThemedIconButtonStyle}"
                                         Click="MaintenanceDoTheseButton_Click" />
                                 <TextBlock x:Name="MaintenanceStatusLabel"

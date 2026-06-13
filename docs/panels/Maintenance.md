@@ -1,12 +1,12 @@
 ---
-title: Maintenance Panel
+title: Code Health Panel
 nav_order: 5
 parent: Panels
 ---
 
-# Maintenance Panel
+# Code Health Panel
 
-The Maintenance Panel is your command centre for SquadDash's autonomous housekeeping system. It lists every task defined in `.squad/maintenance.md` (and any user-owned task files), lets you enable or disable individual tasks, adjust their run frequency and options, trigger an immediate run, and browse past maintenance reports — all without leaving the main window.
+The Code Health Panel is your command centre for SquadDash's autonomous housekeeping system.It lists every task defined in `.squad/maintenance.md` (and any user-owned task files), lets you enable or disable individual tasks, adjust their run frequency and options, trigger an immediate run, and browse past maintenance reports — all without leaving the main window.
 
 For full details on how Maintenance Mode works (idle detection, safety levels, reports, and the `INBOX_MESSAGE_JSON` format) see [Maintenance Mode](../features/maintenance-mode.md).
 
@@ -36,7 +36,7 @@ Close the panel with its **×** button.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-> 📸 *Screenshot needed: Maintenance panel with two or three tasks, one enabled (showing frequency picker and last-run line), one disabled (grayed). Recent Reports expander visible at the bottom.*
+> 📸 *Screenshot needed: Code Health panel with two or three tasks, one enabled (showing frequency picker and last-run line), one disabled (grayed). Recent Reports expander visible at the bottom.*
 
 Tasks are loaded from `.squad/maintenance.md` and any user-owned task files, and listed in alphabetical order by title.
 
@@ -174,7 +174,7 @@ Changes are saved back to the task's source file immediately when you click **Sa
 
 ## "While You Were Away" Banner
 
-After a maintenance cycle completes, a notification banner appears at the top of the main SquadDash window summarising what ran. The Maintenance Panel simultaneously reflects the updated task state (last-run timestamps, any transient status messages).
+After a maintenance cycle completes, a notification banner appears at the top of the main SquadDash window summarising what ran. The Code Health Panel simultaneously reflects the updated task state (last-run timestamps, any transient status messages).
 
 ---
 

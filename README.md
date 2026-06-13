@@ -137,7 +137,7 @@ This repo is developed with a Squad AI team. Each agent has a defined role and c
 | Atlas Wren | Mac & Cross-Platform Specialist |
 | Scribe | Session Logger |
 | Ralph | Work Monitor |
-| Argus Weld | Maintenance Coordinator |
+| Argus Weld | Continuous Improvement |
 | Malik Graves | Markdown Specialist |
 
 Full team details: [.squad/team.md](.squad/team.md)

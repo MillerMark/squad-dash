@@ -60,7 +60,7 @@ All tasks in the default `.squad/maintenance.md` ship with `enabled: false` — 
 | `enabled`      | yes      | `false`  | Whether this task can run                              |
 | `frequency`    | yes      | `daily`  | How often to run (see Frequency below)                 |
 | `safety`       | no       | global   | Per-task safety level; cannot exceed global floor      |
-| `title`        | no       | task ID  | Human-readable label shown in the Maintenance panel    |
+| `title`        | no       | task ID  | Human-readable label shown in the Code Health panel    |
 | `instructions` | yes      | —        | Prompt text injected when the task runs                |
 
 Tasks may also include an `options:` block (same format as `loop.md`) to let users configure runtime behaviour via the panel UI.
@@ -128,9 +128,9 @@ Set `enabled: true` or `enabled: false` on the relevant task block in `.squad/ma
  safety: branch
 ```
 
-### In the Maintenance panel
+### In the Code Health panel
 
-The **Maintenance panel** in SquadDash displays each task as a row with a checkbox. Checking or unchecking the box:
+The **Code Health panel** in SquadDash displays each task as a row with a checkbox. Checking or unchecking the box:
 
 1. Reads `.squad/maintenance.md` from disk.
 2. Flips `enabled: false ↔ true` for the target task ID in place, preserving all other content.
@@ -145,7 +145,7 @@ Both methods are equivalent — the file is the single source of truth.
 
 ### Run Now — force a single task
 
-Right-click any task row in the Maintenance panel and choose **Run Now** to execute that task immediately.
+Right-click any task row in the Code Health panel and choose **Run Now** to execute that task immediately.
 
 **Frequency rules are bypassed** — the task runs regardless of when it last ran or what its frequency setting is. Use this to:
 
@@ -436,7 +436,7 @@ Use the built-in SquadDash command `trigger_idle_cycle` to force a maintenance w
 
 SquadDash will wait for any currently-running prompt or Loop iteration to finish, then start the maintenance cycle exactly as it would after a real idle timeout.
 
-> This command is **silent** — it fires and returns immediately. Watch the Maintenance panel for status updates.
+> This command is **silent** — it fires and returns immediately. Watch the Code Health panel for status updates.
 
 ### Typical local test workflow
 
@@ -444,7 +444,7 @@ SquadDash will wait for any currently-running prompt or Loop iteration to finish
 1. Set idle_timeout: 1 in maintenance.md  (optional — trigger_idle_cycle skips the wait anyway)
 2. Enable at least one task:  enabled: true
 3. Run:  trigger_idle_cycle
-4. Watch the Maintenance panel — the banner changes to "Running: <task title>"
+4. Watch the Code Health panel — the banner changes to "Running: <task title>"
 5. Check .squad/maintenance-reports/ for the generated report
 6. Inspect maintenance-state.json to confirm lastRunAt was updated
 ```
