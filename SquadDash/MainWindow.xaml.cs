@@ -246,6 +246,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // Null means no saved position; window will open at its default CenterOwner location.
     private Vector? _traceWindowOffset;
     private Vector? _screenshotHealthWindowOffset;
+    private double _cachedAgentPanelMaxWidth = -1; // Cache to prevent SizeChanged feedback loop
     private CommitApprovalPanel? _approvalPanel;
     private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
@@ -27518,6 +27519,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
 
         var maxActiveWidth = Math.Max(360, Math.Floor(availableWidth * 0.8));
+        
+        // Only update if the calculated width changed to prevent SizeChanged feedback loop.
+        // Setting GridLength.Auto on every size change triggers another measure cycle, 
+        // causing continuous SizeChanged events.
+        if (Math.Abs(maxActiveWidth - _cachedAgentPanelMaxWidth) < 0.1)
+            return;
+
+        _cachedAgentPanelMaxWidth = maxActiveWidth;
         ActiveAgentsPanelBorder.MaxWidth = maxActiveWidth;
         ActiveAgentsColumnDefinition.Width = GridLength.Auto;
     }

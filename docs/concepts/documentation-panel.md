@@ -12,11 +12,9 @@ How SquadDash reads and renders documentation from the `docs/` folder in your wo
 
 ## What is the Documentation Panel?
 
-The **documentation panel** is a built-in docs browser inside SquadDash. It shows:
+The **documentation panel** is a built-in docs browser and Markdown editor inside SquadDash. It shows:
 - A **tree view** on the left (folder and file structure)
 - A **markdown viewer** on the right (rendered content)
-
-This panel displays the very documentation you're reading right now.
 
 ---
 

@@ -519,7 +519,7 @@ tasks:
   - id: run-tests
     enabled: true
     frequency: daily
-    safety: branch
+    safety: report-only
     title: Run Tests
     instructions: |
       Run all tests in the repository. Use the appropriate test runner for this

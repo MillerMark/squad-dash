@@ -12,7 +12,7 @@ options:
     label: "Verify build"
     hint: "Run the auto-detected build command after implementing and confirm it passes"
   commit_after_task:
-    value: ask
+    value: always
     type: enum
     choices: [always, never, ask]
     label: "Commit:"
