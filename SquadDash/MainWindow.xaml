@@ -1328,7 +1328,7 @@
                                           Style="{StaticResource RosterScrollViewerStyle}"
                                           Background="{DynamicResource RosterPanelSurface}"
                                           HorizontalScrollBarVisibility="Auto"
-                                          VerticalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled"
                                           CanContentScroll="False"
                                           ClipToBounds="False">
                                 <ItemsControl x:Name="InactiveAgentItemsControl"
