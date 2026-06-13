@@ -949,6 +949,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             try
             {
+                var vsbVis = InactiveAgentsScrollViewer.ComputedVerticalScrollBarVisibility;
+                SquadDashTrace.Write("FlickerDiagnostics",
+                    $"StatusGrid.SizeChanged: H {e.PreviousSize.Height:F0} → {e.NewSize.Height:F0} | " +
+                    $"InactiveVSB={vsbVis}, ExtentH={InactiveAgentsScrollViewer.ExtentHeight:F0}, " +
+                    $"ViewportH={InactiveAgentsScrollViewer.ViewportHeight:F0}");
                 UpdateAgentPanelWidths();
                 SquadDashTrace.Write("AgentCards",
                     $"SizeChanged: H {e.PreviousSize.Height:F0} → {e.NewSize.Height:F0} " +
@@ -1708,8 +1713,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             InactiveAgentsScrollViewer.LayoutUpdated += (_, _) =>
             {
-                InflateAgentScrollViewerClip(InactiveAgentsScrollViewer);
-                UpdateAgentCardGlowOverlayPosition();
+                try
+                {
+                    var vsbVis = InactiveAgentsScrollViewer.ComputedVerticalScrollBarVisibility;
+                    var hsbVis = InactiveAgentsScrollViewer.ComputedHorizontalScrollBarVisibility;
+                    SquadDashTrace.Write("FlickerDiagnostics",
+                        $"InactiveScroll.LayoutUpdated: VertSB={vsbVis}, HorzSB={hsbVis} | " +
+                        $"ViewportH={InactiveAgentsScrollViewer.ViewportHeight:F0}, " +
+                        $"ExtentH={InactiveAgentsScrollViewer.ExtentHeight:F0}, " +
+                        $"ContentH={InactiveAgentItemsControl.ActualHeight:F0}");
+                    InflateAgentScrollViewerClip(InactiveAgentsScrollViewer);
+                    UpdateAgentCardGlowOverlayPosition();
+                }
+                catch (Exception ex)
+                {
+                    HandleUiCallbackException("InactiveAgentsScrollViewer.LayoutUpdated", ex);
+                }
             };
 
             if (_startupInitialized)
