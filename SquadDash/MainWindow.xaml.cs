@@ -27526,6 +27526,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
 
         var maxActiveWidth = Math.Max(360, Math.Floor(availableWidth * 0.8));
+        SquadDashTrace.Write("FlickerDiagnostics", 
+            $"UpdateAgentPanelWidths: availableWidth={availableWidth:F0}, maxActiveWidth={maxActiveWidth:F0}");
         ActiveAgentsPanelBorder.MaxWidth = maxActiveWidth;
         ActiveAgentsColumnDefinition.Width = GridLength.Auto;
     }
@@ -27548,9 +27550,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (Math.Abs(cap - _cachedRosterHeightCap) < 1.0)
             return;
 
+        var scrollViewerCap = Math.Max(160, cap - inactiveRosterPanelChrome);
+        SquadDashTrace.Write("FlickerDiagnostics", 
+            $"UpdateRosterHeightCap: ActualHeight={ActualHeight:F0}, new cap={cap:F0}, scrollCap={scrollViewerCap:F0} " +
+            $"| before: StatusPanelBorder.MaxHeight={StatusPanelBorder.MaxHeight:F0}, InactiveScroll.MaxHeight={InactiveAgentsScrollViewer.MaxHeight:F0}");
+
         _cachedRosterHeightCap = cap;
         StatusPanelBorder.MaxHeight = cap;
-        InactiveAgentsScrollViewer.MaxHeight = Math.Max(160, cap - inactiveRosterPanelChrome);
+        InactiveAgentsScrollViewer.MaxHeight = scrollViewerCap;
         StatusAgentPanelsGrid.MaxHeight = double.PositiveInfinity;
     }
 
@@ -27783,6 +27790,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
         {
+            SquadDashTrace.Write("FlickerDiagnostics", "ScheduleAgentPanelLayoutRefresh invoked");
             UpdateAgentPanelWidths();
             ActiveAgentsPanelBorder.InvalidateMeasure();
             ActiveAgentsPanelBorder.InvalidateArrange();
