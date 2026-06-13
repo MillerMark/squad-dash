@@ -715,7 +715,24 @@ internal sealed class ApplicationSettingsStore {
             var normalized = snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
             return MigrateEncryptedFieldsIfNeeded(normalized);
         }
-        catch {
+        catch (Exception ex) {
+            SquadDashTrace.Write("Workspace", $"Settings load failed: {ex.Message}. Attempting backup recovery...");
+            
+            // Try to recover from backup
+            var backupPath = _settingsPath + ".backup";
+            if (File.Exists(backupPath)) {
+                try {
+                    var json = File.ReadAllText(backupPath);
+                    var snapshot = JsonSerializer.Deserialize<ApplicationSettingsSnapshot>(json);
+                    var normalized = snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
+                    SquadDashTrace.Write("Workspace", $"Settings recovered from backup.");
+                    return normalized;
+                }
+                catch (Exception backupEx) {
+                    SquadDashTrace.Write("Workspace", $"Backup recovery also failed: {backupEx.Message}. Resetting to defaults.");
+                }
+            }
+            
             return ApplicationSettingsSnapshot.Empty.Normalize();
         }
     }
