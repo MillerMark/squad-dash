@@ -28034,9 +28034,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             bool shouldRotate;
             if (stop == 0)
             {
-                // Natural: accent keys unchanged; non-accent keys get a small baseline shift toward red
-                delta = naturalTintShift;
-                shouldRotate = !isAccent; // only rotate non-accent keys
+                if (isAccent)
+                {
+                    // Natural: accent keys rotate only if user set a custom offset; delta is offset-only
+                    // (no baseline hue subtraction — palette stays natural so accent just shifts from baseline)
+                    delta = _activeAccentHueOffset;
+                    shouldRotate = _activeAccentHueOffset != 0;
+                }
+                else
+                {
+                    // Natural: non-accent keys get a small baseline shift toward warm/red
+                    delta = naturalTintShift;
+                    shouldRotate = true;
+                }
             }
             else
             {
