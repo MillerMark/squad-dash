@@ -393,7 +393,7 @@ internal sealed class ApplicationSettingsStore {
 
     public ApplicationSettingsSnapshot SaveWorkspaceTintStop(string workspaceFolder, int tintStop) {
         using var mutex = AcquireMutex();
-        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
         var current = LoadCore();
         var stops = current.TintStopByWorkspace
             .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
@@ -405,7 +405,7 @@ internal sealed class ApplicationSettingsStore {
 
     public ApplicationSettingsSnapshot SaveWorkspaceAccentHueOffset(string workspaceFolder, int offsetDegrees) {
         using var mutex = AcquireMutex();
-        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
         var current = LoadCore();
         var offsets = current.AccentHueOffsetByWorkspace
             .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
