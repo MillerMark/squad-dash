@@ -380,3 +380,9 @@ maintenance-state.json
 # SquadDash — maintenance reports (runtime, not for version control)
 .squad/maintenance-reports/
 /.squad/panel-layouts.json
+
+# SquadDash: maintenance state (auto-managed)
+code-health-state.json
+
+# SquadDash: maintenance reports (runtime, not for version control)
+.squad/code-health-reports/
