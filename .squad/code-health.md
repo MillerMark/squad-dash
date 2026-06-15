@@ -64,6 +64,7 @@ tasks:
     enabled: true
     frequency: monthly
     safety: report-only
+    has_safety_options: true
     title: Architectural Practice Review
     instructions: |
       Review the codebase for larger architectural problems: poor separation of
@@ -71,7 +72,8 @@ tasks:
       service boundaries, wrong layer responsibilities, etc.
 
       {{#if if_found == "branch"}}
-      Create a maintenance branch. Implement the improvements you identify.
+      Create a maintenance branch named: {{branchName}}
+      Implement the improvements you identify and commit to that branch.
       Document your reasoning in commit messages.
       {{/if}}
       {{#if if_found == "report"}}
@@ -96,6 +98,7 @@ tasks:
     enabled: false
     frequency: weekly-Saturday
     safety: report-only
+    has_safety_options: true
     title: Code Smell Cleanup
     instructions: |
       Scan the codebase for code smells: poor readability, long methods, unclear
@@ -106,7 +109,7 @@ tasks:
       Address smells inline on the current branch.
       {{/if}}
       {{#if if_found == "branch"}}
-      Create a maintenance branch and address smells there.
+      Create a maintenance branch named: {{branchName}} and address smells there.
       {{/if}}
       {{#if if_found == "report"}}
       Do not change any code. List each smell with file path, structural anchor,
@@ -131,6 +134,7 @@ tasks:
     enabled: true
     frequency: every-10-commits
     safety: report-only
+    has_safety_options: false
     title: Commit Quality Review
     instructions: |
       Review all commits since {{last_reviewed_sha}} ({{new_commit_count}} new commits since last review).
@@ -148,6 +152,7 @@ tasks:
     enabled: true
     frequency: weekly-Sunday
     safety: report-only
+    has_safety_options: true
     title: Documentation Review
     instructions: |
       Review the documentation in the `docs/` folder (or the repo's primary docs
@@ -179,7 +184,7 @@ tasks:
       {{/if}}
       {{#if if_found == "fix"}}
       Correct accuracy issues and fix broken links where possible (e.g. update a
-      link target, remove a dead link). Commit changes to a maintenance branch.
+      link target, remove a dead link). Commit changes to a maintenance branch named: {{branchName}}.
       Items that require human judgment (accuracy rewrites, missing images) should
       still be reported.
       {{/if}}
@@ -198,6 +203,7 @@ tasks:
     enabled: false
     frequency: daily
     safety: report-only
+    has_safety_options: true
     title: Eliminate Code Duplication
     instructions: |
       Scan the codebase for duplicated logic — identical or near-identical code
@@ -209,7 +215,7 @@ tasks:
       call sites, ensure tests still pass.
       {{/if}}
       {{#if if_found == "branch"}}
-      Create a maintenance branch and refactor there.
+      Create a maintenance branch named: {{branchName}} and refactor there.
       {{/if}}
       {{#if if_found == "report"}}
       Do not change any code. List each duplication instance with file paths,
@@ -234,6 +240,7 @@ tasks:
     enabled: true
     frequency: weekly-Thursday
     safety: report-only
+    has_safety_options: true
     title: Error Handling Audit
     instructions: |
       Audit the codebase for error-handling gaps and unsafe exception patterns.
@@ -365,7 +372,7 @@ tasks:
       (from: "argus-weld").
       {{/if}}
       {{#if if_found == "fix"}}
-      Fix issues that are safe to patch automatically on a maintenance branch:
+      Fix issues that are safe to patch automatically on a maintenance branch named: {{branchName}}:
       - Add logging to silent catch/error blocks where the failure is non-trivial
       - Wrap bare UI event handlers in try-catch / .catch() with appropriate logging
       - Add resource-cleanup guards (using / finally / defer / with) for obvious leaks
@@ -390,6 +397,7 @@ tasks:
     enabled: false
     frequency: daily
     safety: report-only
+    has_safety_options: true
     title: Extract Magic Numbers and Hardcoded Strings
     instructions: |
       Scan the codebase for magic numbers (numeric literals used in logic without
@@ -398,7 +406,7 @@ tasks:
 
       {{#if if_found == "extract"}}
       Extract each magic value into a named constant or config entry. Update all
-      references. Commit to a maintenance branch.
+      references. Commit to a maintenance branch named: {{branchName}}.
       {{/if}}
       {{#if if_found == "report"}}
       Do not change any code. List each instance with file path, structural anchor
@@ -420,6 +428,7 @@ tasks:
     enabled: false
     frequency: daily
     safety: report-only
+    has_safety_options: true
     title: Naming Convention Audit
     instructions: |
       Audit the codebase for naming inconsistencies:
@@ -455,6 +464,7 @@ tasks:
     enabled: true
     frequency: daily
     safety: report-only
+    has_safety_options: true
     title: Performance Improvements
     instructions: |
       Review the codebase for performance opportunities: inefficient algorithms,
@@ -467,7 +477,7 @@ tasks:
       explaining the change where the improvement is non-obvious.
       {{/if}}
       {{#if if_found == "branch"}}
-      Create a maintenance branch and implement improvements there.
+      Create a maintenance branch named: {{branchName}} and implement improvements there.
       {{/if}}
       {{#if if_found == "report"}}
       Do not change any code. Describe each opportunity, its likely impact, and
@@ -492,6 +502,7 @@ tasks:
     enabled: true
     frequency: daily
     safety: direct
+    has_safety_options: false
     title: Prune Completed Tasks
     instructions: |
       Open `.squad/tasks.md`. Remove all items that are marked as completed
@@ -504,6 +515,7 @@ tasks:
     enabled: true
     frequency: weekly-Wednesday
     safety: report-only
+    has_safety_options: false
     title: README Currency Check
     instructions: |
       Compare README.md (and any other top-level docs) against the current state
@@ -520,6 +532,7 @@ tasks:
     enabled: true
     frequency: daily
     safety: report-only
+    has_safety_options: true
     title: Run Tests
     instructions: |
       Run all tests in the repository. Use the appropriate test runner for this
@@ -527,7 +540,7 @@ tasks:
       
       {{#if if_failing == "fix"}}
       Diagnose each failing test. Fix the root cause in source — do not delete
-      tests or weaken assertions. Commit all fixes to the branch.
+      tests or weaken assertions. Commit all fixes to the branch named: {{branchName}}.
       {{/if}}
       {{#if if_failing == "report"}}
       Do not change any code. Write a summary of every failing test, the error
@@ -549,6 +562,7 @@ tasks:
     enabled: true
     frequency: weekly-Tuesday
     safety: report-only
+    has_safety_options: true
     title: Security Vulnerability Audit
     instructions: |
       Audit the codebase for security vulnerabilities and unsafe patterns.
@@ -572,7 +586,7 @@ tasks:
       {{#if if_found == "fix"}}
       Fix issues that are safe to patch automatically (remove hard-coded secrets,
       add input guards, replace deprecated crypto calls). Commit to a maintenance
-      branch. Issues requiring design decisions or external dependency updates
+      branch named: {{branchName}}. Issues requiring design decisions or external dependency updates
       should still be reported in an INBOX_MESSAGE_JSON block (from: "argus-weld").
       {{/if}}
     options:
@@ -591,6 +605,7 @@ tasks:
     enabled: false
     frequency: per-commit
     safety: direct
+    has_safety_options: false
     title: TODO / FIXME / HACK Scanner
     instructions: |
       Scan all source files for TODO, FIXME, HACK, XXX, and NOTE comments.
@@ -604,6 +619,7 @@ tasks:
     enabled: false
     frequency: daily
     safety: report-only
+    has_safety_options: false
     title: Unused Dependency Scan
     instructions: |
       Check for NuGet packages (*.csproj), npm packages (package.json), or other
@@ -619,6 +635,7 @@ tasks:
     enabled: false
     frequency: daily
     safety: report-only
+    has_safety_options: false
     title: XML Doc Comment Coverage
     instructions: |
       Scan all public types, methods, properties, and interfaces in the C# source
@@ -634,6 +651,7 @@ tasks:
     enabled: true
     frequency: weekly-Saturday
     safety: report-only
+    has_safety_options: false
     title: Thematic Compliance Audit
     instructions: |
       Audit the codebase for UI controls that are not respecting the application's
@@ -700,6 +718,7 @@ tasks:
     enabled: true
     frequency: daily
     safety: report-only
+    has_safety_options: false
     title: Issue & PR Tracker
     instructions: |
       Query the GitHub API to find new issues posted to the repository in the last
