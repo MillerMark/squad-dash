@@ -199,11 +199,13 @@ internal sealed class CodeHealthStateStore {
 
     /// <summary>Records a completed run and persists state atomically.</summary>
     public void RecordRun(string taskId, string? commitSha) {
-        var entry = new TaskState {
-            LastRunAt    = _clock.UtcNow,
-            LastCommitSha = commitSha,
-        };
-        _tasks[taskId] = entry;
+        if (!_tasks.TryGetValue(taskId, out var state))
+            state = new TaskState();
+        
+        // Preserve safety override when recording the run
+        state.LastRunAt = _clock.UtcNow;
+        state.LastCommitSha = commitSha;
+        _tasks[taskId] = state;
         Persist();
     }
 
