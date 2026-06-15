@@ -7,14 +7,14 @@ using System.Threading.Tasks;
 namespace SquadDash;
 
 /// <summary>Orchestrates maintenance task execution against the configured task list.</summary>
-internal sealed class MaintenanceRunner {
+internal sealed class CodeHealthRunner {
 
     private readonly Func<string, CancellationToken, Task<int>> _executePromptAsync;
     private readonly Func<string, CancellationToken, Task<(int anchorIndex, string responseText)>>? _executePromptAndCaptureAsync;
-    private readonly MaintenanceStateStore                       _stateStore;
+    private readonly CodeHealthStateStore                       _stateStore;
     private readonly Action<string>                              _onTaskStarted;
     private readonly Action<string, string, int, DateTimeOffset, TimeSpan> _onTaskCompleted;
-    private readonly Action<MaintenanceReport>                   _onCompleted;
+    private readonly Action<CodeHealthReport>                   _onCompleted;
     private readonly Func<string, CancellationToken, Task<string?>> _getCommitShaAsync;
     private readonly Func<DateTimeOffset, bool>?                 _wasInboxSavedSince;
     private readonly Action<DecomposedTaskGroup>?                _onDecomposeGroupReady;
@@ -23,12 +23,12 @@ internal sealed class MaintenanceRunner {
 
     public bool IsRunning => _isRunning;
 
-    public MaintenanceRunner(
+    public CodeHealthRunner(
         Func<string, CancellationToken, Task<int>> executePromptAsync,
-        MaintenanceStateStore                       stateStore,
+        CodeHealthStateStore                       stateStore,
         Action<string>                              onTaskStarted,
         Action<string, string, int, DateTimeOffset, TimeSpan> onTaskCompleted,
-        Action<MaintenanceReport>                   onCompleted,
+        Action<CodeHealthReport>                   onCompleted,
         Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null,
         Func<DateTimeOffset, bool>?                     wasInboxSavedSince = null,
         Func<string, CancellationToken, Task<(int, string)>>? executePromptAndCaptureAsync = null,
@@ -49,24 +49,24 @@ internal sealed class MaintenanceRunner {
     /// Runs eligible maintenance tasks in order. Awaitable — completes when all tasks have run.
     /// </summary>
     public async Task StartAsync(
-        MaintenanceMdConfig      config,
+        CodeHealthMdConfig      config,
         string                   workspacePath,
         CancellationToken        ct,
         IReadOnlySet<string>?    forceTaskIds = null) {
 
-        SquadInstallerService.EnsureMaintenanceStateInGitIgnore(workspacePath);
+        SquadInstallerService.EnsureCodeHealthStateInGitIgnore(workspacePath);
         _isRunning = true;
         var startedAt = DateTimeOffset.UtcNow;
         var ranIds     = new List<string>();
         var skippedIds = new List<string>();
-        var results    = new List<MaintenanceTaskResult>();
+        var results    = new List<CodeHealthTaskResult>();
 
         try {
             var tasks = config.Tasks ?? [];
 
             // When forceTaskIds is provided, only check those tasks for commit-SHA needs.
             var tasksForCommitCheck = forceTaskIds is { Count: > 0 }
-                ? (IEnumerable<MaintenanceTask>)tasks.Where(t => forceTaskIds.Contains(t.Id))
+                ? (IEnumerable<CodeHealthTask>)tasks.Where(t => forceTaskIds.Contains(t.Id))
                 : tasks;
 
             string? commitSha = NeedsCommitSha(tasksForCommitCheck)
@@ -106,7 +106,7 @@ internal sealed class MaintenanceRunner {
                 if (!string.Equals(effectiveSafety, task.Safety, StringComparison.OrdinalIgnoreCase)) {
                     safetyOverrideNote = $"Safety downgraded from '{task.Safety}' to '{effectiveSafety}' by global floor.";
                     SquadDashTrace.Write(TraceCategory.General,
-                        $"MaintenanceRunner: task '{task.Id}' safety override — declared '{task.Safety}', effective '{effectiveSafety}' (global floor '{config.Safety}').");
+                        $"CodeHealthRunner: task '{task.Id}' safety override — declared '{task.Safety}', effective '{effectiveSafety}' (global floor '{config.Safety}').");
                 }
 
                 var taskStartedAt = DateTimeOffset.UtcNow;
@@ -136,7 +136,7 @@ internal sealed class MaintenanceRunner {
                         && !_wasInboxSavedSince(taskStartedAt)) {
 
                         SquadDashTrace.Write(TraceCategory.General,
-                            $"MaintenanceRunner: report-only task '{task.Id}' produced no inbox message — sending recovery prompt.");
+                            $"CodeHealthRunner: report-only task '{task.Id}' produced no inbox message — sending recovery prompt.");
                         await _executePromptAsync(BuildInboxRecoveryPrompt(task.Title), ct).ConfigureAwait(false);
                     }
 
@@ -148,17 +148,17 @@ internal sealed class MaintenanceRunner {
                         && _onDecomposeGroupReady is not null) {
 
                         SquadDashTrace.Write(TraceCategory.General,
-                            $"MaintenanceRunner: TASKS_JSON found for group '{decomposeGroup.GroupId}' — notifying caller.");
+                            $"CodeHealthRunner: TASKS_JSON found for group '{decomposeGroup.GroupId}' — notifying caller.");
                         _onDecomposeGroupReady(decomposeGroup);
                     }
 
                     var elapsed = Stopwatch.GetElapsedTime(taskStart);
                     _stateStore.RecordRun(task.Id, commitSha);
                     ranIds.Add(task.Id);
-                    results.Add(new MaintenanceTaskResult(
+                    results.Add(new CodeHealthTaskResult(
                         Id:                 task.Id,
                         Title:              task.Title,
-                        Outcome:            MaintenanceTaskOutcome.Completed,
+                        Outcome:            CodeHealthTaskOutcome.Completed,
                         Duration:           elapsed,
                         SafetyOverrideNote: safetyOverrideNote));
                     _onTaskCompleted(task.Id, task.Title, anchorIndex, taskStartedAt, elapsed);
@@ -169,10 +169,10 @@ internal sealed class MaintenanceRunner {
                 catch (Exception ex) {
                     var elapsed = Stopwatch.GetElapsedTime(taskStart);
                     ranIds.Add(task.Id);
-                    results.Add(new MaintenanceTaskResult(
+                    results.Add(new CodeHealthTaskResult(
                         Id:                 task.Id,
                         Title:              task.Title,
-                        Outcome:            MaintenanceTaskOutcome.Error,
+                        Outcome:            CodeHealthTaskOutcome.Error,
                         Duration:           elapsed,
                         ErrorMessage:       ex.Message,
                         SafetyOverrideNote: safetyOverrideNote));
@@ -180,7 +180,7 @@ internal sealed class MaintenanceRunner {
                 }
             }
 
-            var report = new MaintenanceReport {
+            var report = new CodeHealthReport {
                 RanTaskIds     = ranIds,
                 SkippedTaskIds = skippedIds,
                 TaskResults    = results,
@@ -211,7 +211,7 @@ internal sealed class MaintenanceRunner {
         "Required format (fill in the fields):\n" +
         "INBOX_MESSAGE_JSON:\n" +
         "{\n" +
-        "  \"subject\": \"<Short descriptive title — no 'Maintenance Report:' prefix, no date>\",\n" +
+        "  \"subject\": \"<Short descriptive title — no 'Code Health Report:' prefix, no date>\",\n" +
         "  \"from\": \"argus-weld\",\n" +
         "  \"body\": \"## <Task Title>\\n\\n<Your full findings in Markdown>\",\n" +
         "  \"attachments\": [],\n" +
@@ -237,8 +237,8 @@ internal sealed class MaintenanceRunner {
         "YOUR FINAL MESSAGE MUST END WITH INBOX_MESSAGE_JSON. DO NOT END WITH ANYTHING ELSE.";
 
     private const string MaintenanceInboxReminder =
-        "<maintenance_inbox_reminder>\n" +
-        "You are running in maintenance mode — the user is not present. Follow these rules:\n" +
+        "<codehealth_inbox_reminder>\n" +
+        "You are running in code health mode — the user is not present. Follow these rules:\n" +
         "\n" +
         "1. Do NOT emit QUICK_REPLIES_JSON. Live quick replies require the user to be present and will block the queue.\n" +
         "\n" +
@@ -257,17 +257,17 @@ internal sealed class MaintenanceRunner {
         "   user needs to record a decision without launching an agent. In most cases, omit the 'done' action entirely.\n"+
         "\n" +
         "4. For report-only tasks: send findings as an inbox message with `\"from\": \"argus-weld\"`.\n" +
-        "   Subject = short descriptive title (no 'Maintenance Report:' prefix, no date). Body = full Markdown report. Actions = any follow-up choices.\n" +
+        "   Subject = short descriptive title (no 'Code Health Report:' prefix, no date). Body = full Markdown report. Actions = any follow-up choices.\n" +
         "   Put INBOX_MESSAGE_JSON on a bare top-level line; do not wrap it in markdown code fences.\n" +
         "\n" +
         "Example actions array:\n" +
         "  \"actions\": [\n" +
         "    { \"label\": \"Fix this\", \"routeMode\": \"start_named_agent\", \"targetAgent\": \"arjun-sen\",\n" +
-        "      \"prompt\": \"Arjun: during maintenance on [date] I found X in [file:line]. Please fix it. [full context]\" },\n" +
+        "      \"prompt\": \"Arjun: during code health on [date] I found X in [file:line]. Please fix it. [full context]\" },\n" +
         "    { \"label\": \"Add to backlog\", \"routeMode\": \"start_coordinator\",\n" +
-        "      \"prompt\": \"Add a task: [description discovered during maintenance on [date]]\" }\n" +
+        "      \"prompt\": \"Add a task: [description discovered during code health on [date]]\" }\n" +
         "  ]\n"+
-        "</maintenance_inbox_reminder>";
+        "</codehealth_inbox_reminder>";
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -281,7 +281,7 @@ internal sealed class MaintenanceRunner {
 
         // Strip the maintenance inbox reminder (and everything after it, which includes the
         // optional mandatory checklist suffix) from the display text.
-        const string reminderTag = "\n\n<maintenance_inbox_reminder>";
+        const string reminderTag = "\n\n<codehealth_inbox_reminder>";
         var reminderIdx = prompt.IndexOf(reminderTag, StringComparison.Ordinal);
         if (reminderIdx >= 0)
             prompt = prompt[..reminderIdx];
@@ -289,10 +289,10 @@ internal sealed class MaintenanceRunner {
         return prompt.Trim();
     }
 
-    private static string BuildPrompt(MaintenanceTask task, string globalSafety, DateTimeOffset runDate,
+    private static string BuildPrompt(CodeHealthTask task, string globalSafety, DateTimeOffset runDate,
         string? lastReviewedSha = null, int newCommitCount = 0) {
         var effectiveSafety = ApplySafetyFloor(globalSafety, task.Safety);
-        var branchName      = $"maintenance/{runDate:yyyyMMdd}-{task.Id}";
+        var branchName      = $"codehealth/{runDate:yyyyMMdd}-{task.Id}";
 
         string safetyPrefix;
         string suffix;
@@ -332,7 +332,7 @@ internal sealed class MaintenanceRunner {
         "The block must appear on a bare top-level line, not inside a code fence.\n\n" +
         "INBOX_MESSAGE_JSON:\n" +
         "{\n" +
-        "  \"subject\": \"<Short descriptive title — no 'Maintenance Report:' prefix, no date>\",\n" +
+        "  \"subject\": \"<Short descriptive title — no 'Code Health Report:' prefix, no date>\",\n" +
         "  \"from\": \"argus-weld\",\n" +
         "  \"body\": \"<your full findings in Markdown>\",\n" +
         "  \"attachments\": [],\n" +
@@ -347,9 +347,9 @@ internal sealed class MaintenanceRunner {
     /// <summary>
     /// Evaluates <c>{{#if}}</c>/<c>{{#unless}}</c> conditional blocks and replaces
     /// <c>{{key}}</c> placeholders in <paramref name="instructions"/> with the current
-    /// option values parsed from maintenance.md. Unrecognised placeholders are left as-is.
+    /// option values parsed from code-health.md. Unrecognised placeholders are left as-is.
     /// </summary>
-    internal static string SubstituteOptions(string instructions, IReadOnlyList<MaintenanceOption>? options) {
+    internal static string SubstituteOptions(string instructions, IReadOnlyList<CodeHealthOption>? options) {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (options is not null)
             foreach (var opt in options)
@@ -373,7 +373,7 @@ internal sealed class MaintenanceRunner {
         return Rank(globalSafety) >= Rank(taskSafety) ? globalSafety : taskSafety;
     }
 
-    private static bool NeedsCommitSha(IEnumerable<MaintenanceTask> tasks) =>
+    private static bool NeedsCommitSha(IEnumerable<CodeHealthTask> tasks) =>
         tasks.Any(task =>
             task.Enabled && (
                 string.Equals(task.Frequency, "after-commits", StringComparison.OrdinalIgnoreCase) ||
@@ -424,7 +424,7 @@ internal sealed class MaintenanceRunner {
             return null;
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("Maintenance", $"GetCurrentSha failed: {ex.Message}");
+            SquadDashTrace.Write("Code Health", $"GetCurrentSha failed: {ex.Message}");
             return null;
         }
     }
@@ -439,3 +439,5 @@ internal sealed class MaintenanceRunner {
         }
     }
 }
+
+

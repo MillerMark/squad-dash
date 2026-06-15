@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,11 +9,11 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Behavioral specs for <see cref="MaintenanceRunner"/>.
+/// Behavioral specs for <see cref="CodeHealthRunner"/>.
 /// Tests will compile once Arjun Sen's Phase 1 implementation lands.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenanceRunnerTests {
+internal sealed class CodeHealthRunnerTests {
 
     // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -39,8 +39,8 @@ internal sealed class MaintenanceRunnerTests {
 
     // ── Builder helpers ───────────────────────────────────────────────────────
 
-    private static MaintenanceMdConfig MakeConfig(
-        IReadOnlyList<MaintenanceTask>? tasks = null,
+    private static CodeHealthMdConfig MakeConfig(
+        IReadOnlyList<CodeHealthTask>? tasks = null,
         int maxTasksPerSession = 10,
         string safety = "branch") =>
         new(
@@ -49,7 +49,7 @@ internal sealed class MaintenanceRunnerTests {
             Safety: safety,
             Tasks: tasks ?? []);
 
-    private static MaintenanceTask MakeTask(
+    private static CodeHealthTask MakeTask(
         string id,
         bool enabled = true,
         string frequency = "always",
@@ -58,17 +58,17 @@ internal sealed class MaintenanceRunnerTests {
         string instructions = "Do work.") =>
         new(id, enabled, frequency, safety, title.Length > 0 ? title : id, instructions);
 
-    private MaintenanceRunner MakeRunner(
+    private CodeHealthRunner MakeRunner(
         Func<string, CancellationToken, Task<int>>? executePromptAsync = null,
-        MaintenanceStateStore? stateStore = null,
+        CodeHealthStateStore? stateStore = null,
         Action<string>? onTaskStarted = null,
         Action<string, string, int, DateTimeOffset, TimeSpan>? onTaskCompleted = null,
-        Action<MaintenanceReport>? onCompleted = null,
+        Action<CodeHealthReport>? onCompleted = null,
         Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null,
         Func<DateTimeOffset, bool>? wasInboxSavedSince = null) {
-        return new MaintenanceRunner(
+        return new CodeHealthRunner(
             executePromptAsync: executePromptAsync ?? ((_, _) => Task.FromResult(-1)),
-            stateStore:         stateStore ?? new MaintenanceStateStore(_stateDir),
+            stateStore:         stateStore ?? new CodeHealthStateStore(_stateDir),
             onTaskStarted:      onTaskStarted  ?? (_ => { }),
             onTaskCompleted:    onTaskCompleted ?? ((_, _, _, _, _) => { }),
             onCompleted:        onCompleted    ?? (_ => { }),
@@ -157,7 +157,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public async Task StartAsync_SkipsIneligibleTasks() {
         const string taskId = "ran-today";
-        var stateStore = new MaintenanceStateStore(_stateDir);
+        var stateStore = new CodeHealthStateStore(_stateDir);
         stateStore.RecordRun(taskId, commitSha: null);
 
         var executed = new List<string>();
@@ -219,7 +219,7 @@ internal sealed class MaintenanceRunnerTests {
 
     [Test]
     public async Task StartAsync_CallsRecordRunAfterEachSuccessfulTask() {
-        var stateStore = new MaintenanceStateStore(_stateDir);
+        var stateStore = new CodeHealthStateStore(_stateDir);
         var config = MakeConfig([
             MakeTask("rec-task-1", frequency: "daily"),
             MakeTask("rec-task-2", frequency: "daily"),
@@ -305,13 +305,13 @@ internal sealed class MaintenanceRunnerTests {
             "onTaskCompleted must receive the task id");
     }
 
-    // ── onCompleted (MaintenanceReport) ──────────────────────────────────────
+    // ── onCompleted (CodeHealthReport) ──────────────────────────────────────
 
     [Test]
     public async Task StartAsync_OnCompleted_FiredWithRunAndSkippedTaskLists() {
-        MaintenanceReport? report = null;
+        CodeHealthReport? report = null;
 
-        var stateStore = new MaintenanceStateStore(_stateDir);
+        var stateStore = new CodeHealthStateStore(_stateDir);
         stateStore.RecordRun("skipped-daily", commitSha: null);
 
         var config = MakeConfig([
@@ -486,7 +486,7 @@ internal sealed class MaintenanceRunnerTests {
 
     [Test]
     public async Task StartAsync_SafetyOverride_NoteRecordedInResult_WhenFloorApplies() {
-        MaintenanceReport? report = null;
+        CodeHealthReport? report = null;
         var config = MakeConfig(
             tasks: [MakeTask("override-task", safety: "direct", instructions: "Do work.")],
             safety: "branch");
@@ -504,7 +504,7 @@ internal sealed class MaintenanceRunnerTests {
 
     [Test]
     public async Task StartAsync_SafetyOverride_NoNote_WhenNoFloorApplied() {
-        MaintenanceReport? report = null;
+        CodeHealthReport? report = null;
         var config = MakeConfig(
             tasks: [MakeTask("no-override-task", safety: "branch", instructions: "Do work.")],
             safety: "branch");
@@ -520,7 +520,7 @@ internal sealed class MaintenanceRunnerTests {
 
     [Test]
     public async Task StartAsync_SafetyOverride_NoteIncluded_WhenGlobalReportOnlyOverridesDirect() {
-        MaintenanceReport? report = null;
+        CodeHealthReport? report = null;
         var config = MakeConfig(
             tasks: [MakeTask("report-only-override", safety: "direct", instructions: "Do work.")],
             safety: "report-only");
@@ -557,7 +557,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public async Task StartAsync_ForceTaskIds_RunsForcedTask_EvenWhenIneligible() {
         const string taskId = "ran-today";
-        var stateStore = new MaintenanceStateStore(_stateDir);
+        var stateStore = new CodeHealthStateStore(_stateDir);
         stateStore.RecordRun(taskId, commitSha: null);
 
         var started = new List<string>();
@@ -578,7 +578,7 @@ internal sealed class MaintenanceRunnerTests {
 
     [Test]
     public async Task StartAsync_ForceTaskIds_SkippedTasksInReport_ContainNonForcedTasks() {
-        MaintenanceReport? report = null;
+        CodeHealthReport? report = null;
         var config = MakeConfig([
             MakeTask("forced-task",  frequency: "always"),
             MakeTask("skipped-task", frequency: "always"),
@@ -641,7 +641,7 @@ internal sealed class MaintenanceRunnerTests {
         bool? isRunningDuringTask = null;
         var config = MakeConfig([MakeTask("running-probe")]);
 
-        MaintenanceRunner? runner = null;
+        CodeHealthRunner? runner = null;
         runner = MakeRunner(
             executePromptAsync: (_, _) => {
                 isRunningDuringTask = runner!.IsRunning;
@@ -661,7 +661,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void SubstituteOptions_IfBlock_IncludesMatchingBranch() {
         var opts = new[] {
-            new MaintenanceOption("if_found", "fix", "radio", null, null, null),
+            new CodeHealthOption("if_found", "fix", "radio", null, null, null),
         };
         var instructions = """
             Preamble.
@@ -673,7 +673,7 @@ internal sealed class MaintenanceRunnerTests {
             {{/if}}
             Postamble.
             """;
-        var result = MaintenanceRunner.SubstituteOptions(instructions, opts);
+        var result = CodeHealthRunner.SubstituteOptions(instructions, opts);
         Assert.That(result, Does.Contain("Apply the fix."));
         Assert.That(result, Does.Not.Contain("Write a report."));
         Assert.That(result, Does.Contain("Preamble."));
@@ -683,7 +683,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void SubstituteOptions_IfBlock_ExcludesNonMatchingBranch() {
         var opts = new[] {
-            new MaintenanceOption("if_found", "report", "radio", null, null, null),
+            new CodeHealthOption("if_found", "report", "radio", null, null, null),
         };
         var instructions = """
             {{#if if_found == "fix"}}
@@ -693,7 +693,7 @@ internal sealed class MaintenanceRunnerTests {
             Write a report.
             {{/if}}
             """;
-        var result = MaintenanceRunner.SubstituteOptions(instructions, opts);
+        var result = CodeHealthRunner.SubstituteOptions(instructions, opts);
         Assert.That(result, Does.Not.Contain("Apply the fix."));
         Assert.That(result, Does.Contain("Write a report."));
     }
@@ -701,7 +701,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void SubstituteOptions_UnlessBlock_ExcludesMatchingValue() {
         var opts = new[] {
-            new MaintenanceOption("if_found", "fix", "radio", null, null, null),
+            new CodeHealthOption("if_found", "fix", "radio", null, null, null),
         };
         var instructions = """
             {{#unless if_found == "fix"}}
@@ -709,7 +709,7 @@ internal sealed class MaintenanceRunnerTests {
             {{/unless}}
             Always shown.
             """;
-        var result = MaintenanceRunner.SubstituteOptions(instructions, opts);
+        var result = CodeHealthRunner.SubstituteOptions(instructions, opts);
         Assert.That(result, Does.Not.Contain("This should be hidden."));
         Assert.That(result, Does.Contain("Always shown."));
     }
@@ -717,24 +717,24 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void SubstituteOptions_PlainPlaceholder_StillSubstituted() {
         var opts = new[] {
-            new MaintenanceOption("if_found", "branch", "radio", null, null, null),
+            new CodeHealthOption("if_found", "branch", "radio", null, null, null),
         };
         var instructions = "Mode is {{if_found}}.";
-        var result = MaintenanceRunner.SubstituteOptions(instructions, opts);
+        var result = CodeHealthRunner.SubstituteOptions(instructions, opts);
         Assert.That(result, Is.EqualTo("Mode is branch."));
     }
 
     [Test]
     public void SubstituteOptions_NullOptions_ReturnsInstructionsUnchanged() {
         const string instructions = "Do the thing.";
-        var result = MaintenanceRunner.SubstituteOptions(instructions, null);
+        var result = CodeHealthRunner.SubstituteOptions(instructions, null);
         Assert.That(result, Is.EqualTo(instructions));
     }
 
     [Test]
     public void SubstituteOptions_ThreeBranchOptions_OnlySelectedBranchAppears() {
         var opts = new[] {
-            new MaintenanceOption("if_found", "branch", "radio", null, null, null),
+            new CodeHealthOption("if_found", "branch", "radio", null, null, null),
         };
         var instructions = """
             Found issues.
@@ -749,7 +749,7 @@ internal sealed class MaintenanceRunnerTests {
             {{/if}}
             Done.
             """;
-        var result = MaintenanceRunner.SubstituteOptions(instructions, opts);
+        var result = CodeHealthRunner.SubstituteOptions(instructions, opts);
         Assert.That(result, Does.Not.Contain("Fix inline."));
         Assert.That(result, Does.Contain("Create a maintenance branch."));
         Assert.That(result, Does.Not.Contain("Send report to Inbox."));
@@ -927,13 +927,13 @@ internal sealed class MaintenanceRunnerTests {
     // Read the exact private constants via reflection so the tests never drift from
     // production values — any change to the constants is automatically reflected here.
     private static string RealInboxPreamble =>
-        (string)typeof(MaintenanceRunner)
+        (string)typeof(CodeHealthRunner)
             .GetField("ReportOnlyInboxPreamble",
                       System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
             .GetValue(null)!;
 
     private static string RealInboxReminder =>
-        (string)typeof(MaintenanceRunner)
+        (string)typeof(CodeHealthRunner)
             .GetField("MaintenanceInboxReminder",
                       System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
             .GetValue(null)!;
@@ -941,26 +941,26 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void StripPreambleForDisplay_PlainText_ReturnedUnchanged() {
         const string prompt = "Scan all TODO comments and report findings.";
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Is.EqualTo(prompt));
     }
 
     [Test]
     public void StripPreambleForDisplay_EmptyString_ReturnsEmpty() {
-        var result = MaintenanceRunner.StripPreambleForDisplay(string.Empty);
+        var result = CodeHealthRunner.StripPreambleForDisplay(string.Empty);
         Assert.That(result, Is.EqualTo(string.Empty));
     }
 
     [Test]
     public void StripPreambleForDisplay_WhitespaceOnly_ReturnsEmpty() {
-        var result = MaintenanceRunner.StripPreambleForDisplay("   \n\n   ");
+        var result = CodeHealthRunner.StripPreambleForDisplay("   \n\n   ");
         Assert.That(result, Is.EqualTo(string.Empty));
     }
 
     [Test]
     public void StripPreambleForDisplay_InboxPreamblePrefix_IsStripped() {
         var prompt = RealInboxPreamble + "Do not modify source files. Scan for issues.";
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Does.Not.Contain("INBOX REQUIREMENT"),
             "The inbox preamble header must not appear in the stripped output");
         Assert.That(result, Does.Contain("Scan for issues."),
@@ -970,7 +970,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void StripPreambleForDisplay_InboxPreamblePrefix_LeavesNoLeadingWhitespace() {
         var prompt = RealInboxPreamble + "  Do not modify source files. Scan for issues.";
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Does.Not.StartWith(" "),
             "The result must be trimmed — no leading whitespace after preamble removal");
     }
@@ -978,7 +978,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void StripPreambleForDisplay_InboxReminderBlock_IsStripped() {
         var prompt = "Check for security issues.\n\n" + RealInboxReminder;
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Does.Not.Contain("<maintenance_inbox_reminder>"),
             "The maintenance inbox reminder tag must not appear in the stripped output");
         Assert.That(result, Does.Contain("Check for security issues."),
@@ -988,7 +988,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void StripPreambleForDisplay_InboxReminderBlock_EverythingAfterItIsAlsoStripped() {
         var prompt = "Find all dead code.\n\n" + RealInboxReminder + "\n\nSome trailing content that must vanish.";
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Does.Not.Contain("trailing content"),
             "Everything after the maintenance inbox reminder must be removed");
     }
@@ -996,7 +996,7 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void StripPreambleForDisplay_BothPreambleAndReminder_BothStripped() {
         var prompt = RealInboxPreamble + "Do not modify source files. Audit dependencies.\n\n" + RealInboxReminder;
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Does.Not.Contain("INBOX REQUIREMENT"),
             "Inbox preamble must be stripped when both elements are present");
         Assert.That(result, Does.Not.Contain("<maintenance_inbox_reminder>"),
@@ -1010,7 +1010,7 @@ internal sealed class MaintenanceRunnerTests {
         // The method only strips the preamble when it is a prefix — mid-string occurrence must survive.
         const string preambleFragment = "⚠️ INBOX REQUIREMENT — READ THIS FIRST ⚠️\n";
         var prompt = "Some instructions. " + preambleFragment + " More instructions.";
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Does.Contain("INBOX REQUIREMENT"),
             "A preamble-like string that is not a prefix must not be stripped");
         Assert.That(result, Does.Contain("Some instructions."),
@@ -1019,7 +1019,7 @@ internal sealed class MaintenanceRunnerTests {
 
     [Test]
     public void StripPreambleForDisplay_PreambleAloneWithNoTaskInstructions_ReturnsEmpty() {
-        var result = MaintenanceRunner.StripPreambleForDisplay(RealInboxPreamble);
+        var result = CodeHealthRunner.StripPreambleForDisplay(RealInboxPreamble);
         Assert.That(result, Is.EqualTo(string.Empty),
             "Stripping a prompt that is only the preamble must yield an empty string");
     }
@@ -1027,8 +1027,9 @@ internal sealed class MaintenanceRunnerTests {
     [Test]
     public void StripPreambleForDisplay_ResultIsAlwaysTrimmed() {
         var prompt = RealInboxPreamble + "   Audit the codebase.   ";
-        var result = MaintenanceRunner.StripPreambleForDisplay(prompt);
+        var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
         Assert.That(result, Is.EqualTo("Audit the codebase."),
             "The result must be trimmed of leading and trailing whitespace");
     }
 }
+

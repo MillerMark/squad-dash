@@ -1,4 +1,4 @@
-﻿<Window x:Class="SquadDash.MainWindow"
+<Window x:Class="SquadDash.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -748,10 +748,10 @@
                               Header="Loop"
                               IsCheckable="True"
                               Click="ViewLoopPanelMenuItem_Click" />
-                    <MenuItem x:Name="ViewMaintenanceMenuItem"
+                    <MenuItem x:Name="ViewCodeHealthMenuItem"
                               Header="Code Health"
                               IsCheckable="True"
-                              Click="ViewMaintenanceMenuItem_Click" />
+                              Click="ViewCodeHealthMenuItem_Click" />
                     <MenuItem x:Name="ViewNotesMenuItem"
                               Header="Notes"
                               IsCheckable="True"
@@ -1939,8 +1939,8 @@
                         </Grid>
                     </panelDocking:GripStripBorder>
 
-                    <!-- Maintenance panel (Column 8) -->
-                    <panelDocking:GripStripBorder x:Name="MaintenancePanelBorder"
+                    <!-- Code Health panel (Column 8) -->
+                    <panelDocking:GripStripBorder x:Name="CodeHealthPanelBorder"
                             Grid.Column="13"
                             MinWidth="200"
                             DockMinimumWidth="200"
@@ -1968,7 +1968,7 @@
 
                             <!-- Row 0: Title + badge + filter + close button -->
                             <DockPanel Grid.Row="0" LastChildFill="False">
-                                <Button x:Name="MaintenancePanelCloseButton"
+                                <Button x:Name="CodeHealthPanelCloseButton"
                                         DockPanel.Dock="Right"
                                         Content="×"
                                         Width="22"
@@ -1977,7 +1977,7 @@
                                         VerticalAlignment="Top"
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Code Health panel"
-                                        Click="MaintenancePanelCloseButton_Click" />
+                                        Click="CodeHealthPanelCloseButton_Click" />
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Code Health"
                                            FontSize="{DynamicResource FontSizeLarge}"
@@ -1985,7 +1985,7 @@
                                            Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
                                 <!-- Unread-report badge -->
-                                <Border x:Name="MaintenancePanelBadge"
+                                <Border x:Name="CodeHealthPanelBadge"
                                         DockPanel.Dock="Left"
                                         Width="8"
                                         Height="8"
@@ -2002,7 +2002,7 @@
                                             Orientation="Horizontal"
                                             VerticalAlignment="Center"
                                             Margin="6,0,0,0">
-                                    <TextBox x:Name="MaintenanceFilterBox"
+                                    <TextBox x:Name="CodeHealthFilterBox"
                                              Width="70"
                                              FontSize="{DynamicResource FontSizeSmall}"
                                              VerticalContentAlignment="Center"
@@ -2012,8 +2012,8 @@
                                              BorderBrush="{DynamicResource InputBorder}"
                                              BorderThickness="1"
                                              Style="{StaticResource PanelFilterBoxStyle}"
-                                             TextChanged="MaintenanceFilterBox_TextChanged" />
-                                    <Button x:Name="MaintenanceFilterClearButton"
+                                             TextChanged="CodeHealthFilterBox_TextChanged" />
+                                    <Button x:Name="CodeHealthFilterClearButton"
                                             Content="×"
                                             Width="14"
                                             Height="14"
@@ -2023,17 +2023,17 @@
                                             Visibility="Collapsed"
                                             ToolTip="Clear filter"
                                             Style="{StaticResource PanelFilterClearButtonStyle}"
-                                            Click="MaintenanceFilterClearButton_Click" />
+                                            Click="CodeHealthFilterClearButton_Click" />
                                 </StackPanel>
                             </DockPanel>
 
                             <!-- Row 1: Status label + Run on idle picker -->
                             <DockPanel Grid.Row="1" Margin="0,6,0,0" LastChildFill="True">
-                                <ContentControl x:Name="MaintenanceEnabledOnIdleHost"
+                                <ContentControl x:Name="CodeHealthEnabledOnIdleHost"
                                               DockPanel.Dock="Left"
                                               VerticalAlignment="Center"
                                               Margin="0,0,8,0" />
-                                <Button x:Name="MaintenanceDoTheseButton"
+                                <Button x:Name="CodeHealthDoTheseButton"
                                         DockPanel.Dock="Right"
                                         Content="▶ Run now"
                                         Height="17"
@@ -2043,8 +2043,8 @@
                                         VerticalAlignment="Center"
                                         ToolTip="Runs the selected Code Health tasks if needed."
                                         Style="{StaticResource ThemedIconButtonStyle}"
-                                        Click="MaintenanceDoTheseButton_Click" />
-                                <TextBlock x:Name="MaintenanceStatusLabel"
+                                        Click="CodeHealthDoTheseButton_Click" />
+                                <TextBlock x:Name="CodeHealthStatusLabel"
                                            Text=""
                                            Visibility="Collapsed"
                                            VerticalAlignment="Center"
@@ -2059,7 +2059,7 @@
                                           Margin="0,8,0,0"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel x:Name="MaintenanceTaskListPanel" />
+                                <StackPanel x:Name="CodeHealthTaskListPanel" />
                             </ScrollViewer>
                         </Grid>
                     </panelDocking:GripStripBorder>
@@ -2270,8 +2270,8 @@
         </Border>
 
 
-        <!-- Maintenance "While You Were Away" banner(Row 3) — shown after a maintenance cycle completes -->
-        <Border x:Name="MaintenanceBannerBorder"
+        <!-- Code Health "While You Were Away" banner(Row 3) — shown after a code health cycle completes -->
+        <Border x:Name="CodeHealthBannerBorder"
                 Grid.Row="3"
                 Grid.Column="0"
                 Margin="0,6,0,0"
@@ -2282,7 +2282,7 @@
                 CornerRadius="12"
                 Visibility="Collapsed">
             <DockPanel LastChildFill="True">
-                <Button x:Name="MaintenanceBannerDismissButton"
+                <Button x:Name="CodeHealthBannerDismissButton"
                         DockPanel.Dock="Right"
                         Content="×"
                         Width="22"
@@ -2291,18 +2291,18 @@
                         FontSize="{DynamicResource FontSizeNormal}"
                         Style="{StaticResource PanelCloseButtonStyle}"
                         ToolTip="Dismiss"
-                        Click="MaintenanceBannerDismissButton_Click" />
-                <Button x:Name="MaintenanceBannerViewButton"
+                        Click="CodeHealthBannerDismissButton_Click" />
+                <Button x:Name="CodeHealthBannerViewButton"
                         DockPanel.Dock="Right"
                         Height="22"
                         Margin="0,0,8,0"
                         Padding="8,0"
                         FontSize="{DynamicResource FontSizeSmall}"
                         Style="{StaticResource ThemedButtonStyle}"
-                        Click="MaintenanceBannerViewButton_Click">
+                        Click="CodeHealthBannerViewButton_Click">
                     View Report
                 </Button>
-                <TextBlock x:Name="MaintenanceBannerTextBlock"
+                <TextBlock x:Name="CodeHealthBannerTextBlock"
                            VerticalAlignment="Center"
                            TextWrapping="NoWrap"
                            TextTrimming="CharacterEllipsis"
@@ -3379,3 +3379,4 @@
 
     </Grid>  <!-- end RootPanel -->
 </Window>
+

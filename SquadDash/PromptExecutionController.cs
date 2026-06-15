@@ -175,7 +175,7 @@ internal sealed class PromptExecutionController {
     private readonly Func<HireAgentWindow.HireAgentSubmission?> _showHireAgentWindow;
     private readonly Action<string, bool>       _enqueuePrompt;
     private readonly Action                     _showScreenshotOverlay;
-    private readonly Action                     _triggerMaintenanceCycle;
+    private readonly Action                     _triggerCodeHealthCycle;
 
     // ── Injected — Runtime Issue ──────────────────────────────────────────
     private readonly Func<string, WorkspaceIssuePresentation> _showRuntimeIssue;
@@ -361,7 +361,7 @@ internal sealed class PromptExecutionController {
         Func<HireAgentWindow.HireAgentSubmission?> showHireAgentWindow,
         Action<string, bool> enqueuePrompt,
         Action showScreenshotOverlay,
-        Action triggerMaintenanceCycle,
+        Action triggerCodeHealthCycle,
         // Runtime Issue
         Func<string, WorkspaceIssuePresentation> showRuntimeIssue,
         Action clearRuntimeIssue,
@@ -418,7 +418,7 @@ internal sealed class PromptExecutionController {
         _showHireAgentWindow                   = showHireAgentWindow;
         _enqueuePrompt                         = enqueuePrompt;
         _showScreenshotOverlay                 = showScreenshotOverlay;
-        _triggerMaintenanceCycle               = triggerMaintenanceCycle;
+        _triggerCodeHealthCycle               = triggerCodeHealthCycle;
         _showRuntimeIssue                      = showRuntimeIssue;
         _clearRuntimeIssue                     = clearRuntimeIssue;
         _waitForRoutingRepairSettleAsync       = waitForRoutingRepairSettleAsync;
@@ -941,8 +941,8 @@ internal sealed class PromptExecutionController {
         if (TryMatchCommandWithBody(trimmed, "/queue-sim", out var queueSimBody))
             return HandleLocalTestQueueCommand(prompt, queueSimBody, addToHistory, clearPromptBox);
 
-        if (string.Equals(trimmed, "/maintenance", StringComparison.OrdinalIgnoreCase))
-            return HandleLocalMaintenanceCommand(prompt, addToHistory, clearPromptBox);
+        if (string.Equals(trimmed, "/codehealth", StringComparison.OrdinalIgnoreCase))
+            return HandleLocalCodeHealthCommand(prompt, addToHistory, clearPromptBox);
 
         return false;
     }
@@ -1004,9 +1004,9 @@ internal sealed class PromptExecutionController {
         return ExecuteLocalUiCommand(prompt, addToHistory, clearPromptBox, _runDoctor);
     }
 
-    private bool HandleLocalMaintenanceCommand(string prompt, bool addToHistory, bool clearPromptBox) {
+    private bool HandleLocalCodeHealthCommand(string prompt, bool addToHistory, bool clearPromptBox) {
         SquadDashTrace.Write("UI", "Local command intercepted prompt=/maintenance");
-        return ExecuteLocalUiCommand(prompt, addToHistory, clearPromptBox, _triggerMaintenanceCycle);
+        return ExecuteLocalUiCommand(prompt, addToHistory, clearPromptBox, _triggerCodeHealthCycle);
     }
 
     private bool HandleLocalModelCommand(string prompt, bool addToHistory, bool clearPromptBox) {
@@ -1884,12 +1884,12 @@ internal sealed class PromptExecutionController {
     }
 
     /// <summary>
-    /// Runs a maintenance task as a named-agent direct turn in the target agent's own thread.
+    /// Runs a code health task as a named-agent direct turn in the target agent's own thread.
     /// Does NOT write anything to the coordinator transcript — the coordinator only receives
     /// the lightweight stub that MainWindow's <c>onTaskCompleted</c> callback appends after
     /// this method returns.
     /// </summary>
-    internal async Task ExecuteMaintenanceTurnAsync(
+    internal async Task ExecuteCodeHealthTurnAsync(
         string targetAgentHandle,
         string prompt) {
         var workspace = _workspaceContext.GetCurrentWorkspace();
@@ -1918,7 +1918,7 @@ internal sealed class PromptExecutionController {
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) {
-            SquadDashTrace.Write("UI", $"ExecuteMaintenanceTurnAsync failed: {ex}");
+            SquadDashTrace.Write("UI", $"ExecuteCodeHealthTurnAsync failed: {ex}");
         }
         finally {
             await _waitForPostedUiActionsAsync();
@@ -2324,3 +2324,5 @@ internal static class SilentCompletionFollowUpPromptBuilder {
         return trimmed[..maxChars] + Environment.NewLine + Environment.NewLine + $"[{label} truncated for prompt size; use the thread ID above for the full report.]";
     }
 }
+
+

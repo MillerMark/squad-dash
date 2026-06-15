@@ -14,16 +14,16 @@ internal sealed record LoopOption(
     IReadOnlyList<string>? Choices);
 
 /// <summary>
-/// A typed option parsed from a maintenance.md task's <c>options:</c> block.
+/// A typed option parsed from a code-health.md task's <c>options:</c> block.
 /// Unlike <see cref="LoopOption"/>, each choice carries an optional tooltip.
 /// </summary>
-internal sealed record MaintenanceOption(
+internal sealed record CodeHealthOption(
     string Key,
     string RawValue,
     string Type,
     string? Label,
     string? Tooltip,
-    IReadOnlyList<MaintenanceOptionChoice>? Choices);
+    IReadOnlyList<CodeHealthOptionChoice>? Choices);
 
 /// <summary>
 /// Parsed configuration from a loop.md frontmatter block.
@@ -35,3 +35,4 @@ internal sealed record LoopMdConfig(
     string Instructions,
     IReadOnlyList<string>? Commands = null,
     IReadOnlyList<LoopOption>? Options = null);
+

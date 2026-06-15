@@ -226,7 +226,7 @@ internal sealed class GitIgnoreMaintenanceStateTests {
         var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
 
         Assert.That(result, Is.True);
-        Assert.That(File.ReadAllText(gitIgnorePath), Does.Contain("maintenance-state.json"));
+        Assert.That(File.ReadAllText(gitIgnorePath), Does.Contain("code-health-state.json"));
     }
 
     [Test]
@@ -234,7 +234,7 @@ internal sealed class GitIgnoreMaintenanceStateTests {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
         var allEntries = "node_modules\n.squad/inbox/\n.squad/orchestration-log/\n.squad/log/\n" +
                          ".squad/decisions/inbox/\n.squad/sessions/\n.squad-workstream\n" +
-                         "maintenance-state.json\n.squad/maintenance-reports/\n";
+                         "code-health-state.json\n.squad/code-health-reports/\n";
         File.WriteAllText(gitIgnorePath, allEntries);
         var originalLineCount = File.ReadAllLines(gitIgnorePath).Length;
 
@@ -254,7 +254,7 @@ internal sealed class GitIgnoreMaintenanceStateTests {
         Assert.That(result, Is.True);
         Assert.That(File.Exists(gitIgnorePath), Is.True);
         var content = File.ReadAllText(gitIgnorePath);
-        Assert.That(content, Does.Contain("maintenance-state.json"));
+        Assert.That(content, Does.Contain("code-health-state.json"));
         Assert.That(content, Does.Contain(".squad/inbox/"));
     }
 
@@ -263,7 +263,7 @@ internal sealed class GitIgnoreMaintenanceStateTests {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
         var allEntriesCased = ".SQUAD/INBOX/\n.SQUAD/ORCHESTRATION-LOG/\n.SQUAD/LOG/\n" +
                               ".SQUAD/DECISIONS/INBOX/\n.SQUAD/SESSIONS/\n.SQUAD-WORKSTREAM\n" +
-                              "MAINTENANCE-STATE.JSON\n.SQUAD/MAINTENANCE-REPORTS/\n";
+                              "code-health-state.json\n.SQUAD/code-health-reports/\n";
         File.WriteAllText(gitIgnorePath, allEntriesCased);
 
         var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
@@ -271,3 +271,4 @@ internal sealed class GitIgnoreMaintenanceStateTests {
         Assert.That(result, Is.False);
     }
 }
+

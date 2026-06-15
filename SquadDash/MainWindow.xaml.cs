@@ -169,7 +169,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private string _currentBranch = string.Empty;
     private readonly DispatcherTimer _teamRefreshDebounceTimer;
     private FileSystemWatcher? _docsWatcher;
-    private FileSystemWatcher? _maintenanceMdWatcher;
+    private FileSystemWatcher? _codeHealthMdWatcher;
     private CancellationTokenSource? _docsRefreshCts;
     private Point _docsDragStartPoint;
     private TreeViewItem? _docsDragItem;
@@ -257,13 +257,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private NotesStore? _notesStore;
     private NotesPanelController? _notesPanel;
     private List<NoteItem> _noteItems = [];
-    private MaintenancePanelController? _maintenancePanel;
+    private CodeHealthPanelController? _codeHealthPanel;
     private IdleDetectionService?       _idleDetectionService;
-    private MaintenanceRunner?          _maintenanceRunner;
-    private MaintenanceStateStore?      _maintenanceStateStore;
-    private MaintenanceReportWriter?    _maintenanceReportWriter;
-    private MaintenanceReport?          _pendingMaintenanceBannerReport;
-    private DispatcherTimer?            _maintenanceBannerTimer;
+    private CodeHealthRunner?          _CodeHealthRunner;
+    private CodeHealthStateStore?      _CodeHealthStateStore;
+    private CodeHealthReportWriter?    _CodeHealthReportWriter;
+    private CodeHealthReport?          _pendingCodeHealthBannerReport;
+    private DispatcherTimer?            _codeHealthBannerTimer;
     private bool                        _argusWeldSessionGapAppended;
     // Tracks sidecar paths already rendered this session (live or restored) to prevent duplicate stubs.
     private readonly HashSet<string>    _renderedSidecarPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -273,7 +273,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
-    private MaintenanceGroupRunner?  _maintenanceGroupRunner;
+    private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private bool                        _inboxSavedForCurrentTurn;
 
     // ── Panel docking ────────────────────────────────────────────────────────
@@ -289,7 +289,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly List<InboxMessageWindow> _openInboxWindows = new();
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
-    private bool _maintenancePendingOnIdle;
+    private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private bool _bridgeRestartForSettingsPending;
@@ -501,7 +501,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _tasksPanelVisible = false;
     private bool _approvalPanelVisible = false;
     private bool _notesPanelVisible = false;
-    private bool _maintenancePanelVisible = false;
+    private bool _codeHealthPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
     private int _watchWaveIndex;
@@ -704,7 +704,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ["tasks"]       = TasksPanelBorder,
                 ["approvals"]   = ApprovalPanelBorder,
                 ["notes"]       = NotesPanelBorder,
-                ["maintenance"] = MaintenancePanelBorder,
+                ["maintenance"] = CodeHealthPanelBorder,
                 ["inbox"]       = InboxPanelBorder,
             },
             LeftZonePanel,
@@ -1325,7 +1325,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                 bool loopAboutToStart = _loopQueued || _loopInterruptedByQueue || _loopPausedForQuickReply;
                                 _ = MaybeFireQueuedLoopAsync();
                                 if (!loopAboutToStart)
-                                    TryFireDeferredMaintenance();
+                                    TryFireDeferredCodeHealth();
                             }
                         }
                     }
@@ -1368,10 +1368,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             showHireAgentWindow: () => ShowHireAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) => EnqueuePrompt(text, isSystemInjected),
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
-            triggerMaintenanceCycle: () => {
-                SquadDashTrace.Write("UI", "triggerMaintenanceCycle: scheduling maintenance on next idle");
-                _maintenancePendingOnIdle = true;
-                TryFireDeferredMaintenance();
+            triggerCodeHealthCycle: () => {
+                SquadDashTrace.Write("UI", "triggerCodeHealthCycle: scheduling code health on next idle");
+                _codeHealthPendingOnIdle = true;
+                TryFireDeferredCodeHealth();
             },
             showRuntimeIssue: msg => ShowRuntimeIssue(msg),
             clearRuntimeIssue: () => ClearRuntimeIssue(),
@@ -5296,7 +5296,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write("UI", $"Loop stopped mdPath={evt.LoopMdPath ?? "(none)"}");
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
-        TryFireDeferredMaintenance();
+        TryFireDeferredCodeHealth();
     }
 
     private void HandleLoopError(SquadSdkEvent evt)
@@ -5383,9 +5383,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void OnNativeLoopStopped()
     {
         // Clear decompose state before resuming normal queue logic.
-        _maintenanceGroupRunner?.ClearCurrentStep();
+        _CodeHealthGroupRunner?.ClearCurrentStep();
         _activeDecomposeGroupId = null;
-        _maintenanceGroupRunner = null;
+        _CodeHealthGroupRunner = null;
 
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
@@ -5414,7 +5414,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
-        TryFireDeferredMaintenance();
+        TryFireDeferredCodeHealth();
     }
 
     private void OnNativeLoopError(string msg)
@@ -6689,18 +6689,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         _activeDecomposeGroupId = groupId;
-        _maintenanceGroupRunner = new MaintenanceGroupRunner(
+        _CodeHealthGroupRunner = new CodeHealthGroupRunner(
             new DecomposedTasksWriter(),
             System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"));
 
         // When the full group object is available, run cycle detection and write the group to
         // tasks.md before starting the loop.  If a cycle is detected, surface an inbox message
         // and abort — do not start the loop.
-        if (group is not null && !_maintenanceGroupRunner.TryStartGroup(group, out var inboxErrorJson))
+        if (group is not null && !_CodeHealthGroupRunner.TryStartGroup(group, out var inboxErrorJson))
         {
             SquadDashTrace.Write(TraceCategory.General,
                 $"StartDecomposeLoopAsync: cycle detected in group '{groupId}' — aborting loop start.");
-            _maintenanceGroupRunner  = null;
+            _CodeHealthGroupRunner  = null;
             _activeDecomposeGroupId  = null;
             if (inboxErrorJson is not null)
                 TrySaveInboxMessageFromResponse(inboxErrorJson);
@@ -7105,7 +7105,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _hostCommandExecutor.Register(new Commands.StopLoopCommandHandler(() =>
         {
             if (_activeDecomposeGroupId is not null)
-                _maintenanceGroupRunner?.OnStopRequested();
+                _CodeHealthGroupRunner?.OnStopRequested();
             _loopController.RequestStop();
             _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
         }));
@@ -7155,7 +7155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         "🤖 AI requested loop stop — finishing current iteration then halting.",
                         LoopLifecycleBrush);
                     if (_activeDecomposeGroupId is not null)
-                        _maintenanceGroupRunner?.OnStopRequested();
+                        _CodeHealthGroupRunner?.OnStopRequested();
                     _loopController.RequestStop();
                     _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
                     SyncLoopPanel();
@@ -9299,7 +9299,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             _idleDetectionService?.RecordActivity();
-            ShowMaintenanceBannerIfPending();
+            ShowCodeHealthBannerIfPending();
             if (TryRecoverPromptInputFromStaleModifiers(e))
                 return;
 
@@ -12799,7 +12799,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ["tasks"]       = TasksPanelBorder,
             ["approvals"]   = ApprovalPanelBorder,
             ["notes"]       = NotesPanelBorder,
-            ["maintenance"] = MaintenancePanelBorder,
+            ["maintenance"] = CodeHealthPanelBorder,
             ["inbox"]       = InboxPanelBorder,
             ["loop"]        = LoopPanelBorder,
         };
@@ -13228,7 +13228,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (ViewCommitApprovalsMenuItem is not null) ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
             if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanelVisible;
             if (ViewNotesMenuItem           is not null) ViewNotesMenuItem.IsChecked           = _notesPanelVisible;
-            if (ViewMaintenanceMenuItem     is not null) ViewMaintenanceMenuItem.IsChecked     = _maintenancePanelVisible;
+            if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(PanelsMenuItem_SubmenuOpened), ex); }
     }
@@ -13831,7 +13831,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             (Border: TasksPanelBorder,       PanelId: "tasks"),
             (Border: ApprovalPanelBorder,    PanelId: "approvals"),
             (Border: NotesPanelBorder,       PanelId: "notes"),
-            (Border: MaintenancePanelBorder, PanelId: "maintenance"),
+            (Border: CodeHealthPanelBorder, PanelId: "maintenance"),
             (Border: InboxPanelBorder,       PanelId: "inbox"),
             (Border: LoopPanelBorder,        PanelId: "loop"),
         };
@@ -14258,56 +14258,56 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(NotesPanelCloseButton_Click), ex); }
     }
 
-    private void ViewMaintenanceMenuItem_Click(object sender, RoutedEventArgs e)
+    private void ViewCodeHealthMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            _maintenancePanelVisible = !_maintenancePanelVisible;
-            SyncMaintenancePanel();
-            if (ViewMaintenanceMenuItem is not null)
-                ViewMaintenanceMenuItem.IsChecked = _maintenancePanelVisible;
-            if (_maintenancePanelVisible) DismissMaintenanceBadge();
-            PersistMaintenancePanelVisible();
+            _codeHealthPanelVisible = !_codeHealthPanelVisible;
+            SyncCodeHealthPanel();
+            if (ViewCodeHealthMenuItem is not null)
+                ViewCodeHealthMenuItem.IsChecked = _codeHealthPanelVisible;
+            if (_codeHealthPanelVisible) DismissCodeHealthBadge();
+            PersistCodeHealthPanelVisible();
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(ViewMaintenanceMenuItem_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ViewCodeHealthMenuItem_Click), ex); }
     }
 
-    private void MaintenancePanelCloseButton_Click(object sender, RoutedEventArgs e)
+    private void CodeHealthPanelCloseButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            _maintenancePanelVisible = false;
-            SyncMaintenancePanel();
-            if (ViewMaintenanceMenuItem is not null)
-                ViewMaintenanceMenuItem.IsChecked = false;
-            PersistMaintenancePanelVisible();
+            _codeHealthPanelVisible = false;
+            SyncCodeHealthPanel();
+            if (ViewCodeHealthMenuItem is not null)
+                ViewCodeHealthMenuItem.IsChecked = false;
+            PersistCodeHealthPanelVisible();
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenancePanelCloseButton_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CodeHealthPanelCloseButton_Click), ex); }
     }
 
-    private void MaintenanceFilterBox_TextChanged(object sender, TextChangedEventArgs e)
+    private void CodeHealthFilterBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         try
         {
-            var text = MaintenanceFilterBox?.Text ?? string.Empty;
-            _maintenancePanel?.SetFilter(text);
-            if (MaintenanceFilterClearButton is not null)
-                MaintenanceFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            var text = CodeHealthFilterBox?.Text ?? string.Empty;
+            _codeHealthPanel?.SetFilter(text);
+            if (CodeHealthFilterClearButton is not null)
+                CodeHealthFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceFilterBox_TextChanged), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CodeHealthFilterBox_TextChanged), ex); }
     }
 
-    private void MaintenanceFilterClearButton_Click(object sender, RoutedEventArgs e)
+    private void CodeHealthFilterClearButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            if (MaintenanceFilterBox is not null)
+            if (CodeHealthFilterBox is not null)
             {
-                MaintenanceFilterBox.Text = string.Empty;
-                MaintenanceFilterBox.Focus();
+                CodeHealthFilterBox.Text = string.Empty;
+                CodeHealthFilterBox.Focus();
             }
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceFilterClearButton_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CodeHealthFilterClearButton_Click), ex); }
     }
 
     private void ViewInboxMenuItem_Click(object sender, RoutedEventArgs e)
@@ -14381,20 +14381,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Unchecked), ex); }
     }
 
-    private void MaintenanceBannerDismissButton_Click(object sender, RoutedEventArgs e)
+    private void CodeHealthBannerDismissButton_Click(object sender, RoutedEventArgs e)
     {
-        try { DismissMaintenanceBanner(); }
-        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceBannerDismissButton_Click), ex); }
+        try { DismissCodeHealthBanner(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CodeHealthBannerDismissButton_Click), ex); }
     }
 
-    private void MaintenanceBannerViewButton_Click(object sender, RoutedEventArgs e)
+    private void CodeHealthBannerViewButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            DismissMaintenanceBanner();
-            if (_pendingMaintenanceBannerReport is not null && _maintenanceReportWriter is not null)
+            DismissCodeHealthBanner();
+            if (_pendingCodeHealthBannerReport is not null && _CodeHealthReportWriter is not null)
             {
-                var paths = _maintenanceReportWriter.GetReportPaths();
+                var paths = _CodeHealthReportWriter.GetReportPaths();
                 if (paths.Count > 0 && File.Exists(paths[0]))
                     MarkdownDocumentWindow.Show(
                         CanShowOwnedWindow() ? this : null,
@@ -14405,7 +14405,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         autoSave: false);
             }
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceBannerViewButton_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CodeHealthBannerViewButton_Click), ex); }
     }
 
     private void SetDocumentationMode(bool enabled, bool persistChange = true)
@@ -17391,7 +17391,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         UpdateSessionState("Ready");
         RefreshSidebar();
         UpdateInteractiveControlState();
-        RestoreMaintenanceStubs(folderPath);
+        RestoreCodeHealthStubs(folderPath);
         ScrollToEndIfAtBottom();
         MaybePromptForUniverseSelection();
         MaybePublishMissingUtilityAgentNotice();
@@ -20361,7 +20361,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (thread.Kind == TranscriptThreadKind.Agent)
         {
             var agentTurnMarkerPrompt = IsArgusWeldThread(thread)
-                ? MaintenanceRunner.StripPreambleForDisplay(prompt)
+                ? CodeHealthRunner.StripPreambleForDisplay(prompt)
                 : prompt;
             var startMarkerParagraph = CreateTranscriptParagraph(bottomMargin: 4);
             var startMarkerRun = new Run(ToolTranscriptFormatter.BuildAgentTurnStartMarker(agentTurnMarkerPrompt, startedAt))
@@ -20385,7 +20385,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // For Argus Weld (maintenance) turns, also strip the machine-instruction boilerplate
         // so only the user-relevant task description is shown in the transcript.
         string displayPrompt = IsArgusWeldThread(thread)
-            ? MaintenanceRunner.StripPreambleForDisplay(prompt)
+            ? CodeHealthRunner.StripPreambleForDisplay(prompt)
             : prompt;
         IReadOnlyList<FollowUpAttachment>? attachmentsForViewer = pendingAttachments;
         bool hasAttachments = pendingAttachments?.Count > 0;
@@ -24261,7 +24261,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         DisposeInboxWatcher();
         DisposeTeamFileWatcher();
-        DisposeMaintenanceMdWatcher();
+        DisposeCodeHealthMdWatcher();
         _conversationManager.CurrentSessionId = null;
         SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn cleared reason=ClearSessionView currentTurnWasPresent={_currentTurn is not null}");
         _currentTurn = null;
@@ -25209,7 +25209,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DisposeTeamFileWatcher();
             DisposeRestartRequestWatcher();
             DisposeDocsWatcher();
-            DisposeMaintenanceMdWatcher();
+            DisposeCodeHealthMdWatcher();
             DisposeGitHeadWatcher();
             _searchAdorner?.Dispose();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
@@ -25871,10 +25871,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var squadRoot = _currentWorkspace.SquadFolderPath;
         var squadFolderExists = Directory.Exists(squadRoot);
         ConfigureTeamFileWatcher();
-        InitMaintenanceMdWatcher(squadRoot);
+        InitCodeHealthMdWatcher(squadRoot);
 
         var loopMdPath        = Path.Combine(squadRoot, "loop.md");
-        var maintenanceMdPath = Path.Combine(squadRoot, "maintenance.md");
+        var maintenanceMdPath = Path.Combine(squadRoot, "code-health.md");
         var tasksMdPath       = Path.Combine(squadRoot, "tasks.md");
 
         // Regular squad files: added only when they exist.
@@ -25897,9 +25897,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         }
 
-        // loop.md, maintenance.md, and tasks.md always appear; clicking creates the file when missing.
+        // loop.md, code-health.md, and tasks.md always appear; clicking creates the file when missing.
         _squadFileMenuEntries.Add(("🔁 loop.md",        "loop.md",        () => OpenOrCreateLoopMd(loopMdPath)));
-        _squadFileMenuEntries.Add(("🔧 maintenance.md", "maintenance.md", () => OpenOrCreateMaintenanceMd(maintenanceMdPath)));
+        _squadFileMenuEntries.Add(("🔧 code-health.md", "code-health.md", () => OpenOrCreateCodeHealthMd(maintenanceMdPath)));
         _squadFileMenuEntries.Add(("📋 tasks.md",       "tasks.md",       () => OpenOrCreateTasksMd(tasksMdPath)));
 
         foreach (var (header, _, clickAction) in _squadFileMenuEntries.OrderBy(x => x.SortKey, StringComparer.OrdinalIgnoreCase))
@@ -26093,7 +26093,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private void OpenOrCreateMaintenanceMd(string maintenanceMdPath)
+    private void OpenOrCreateCodeHealthMd(string maintenanceMdPath)
     {
         try
         {
@@ -26115,7 +26115,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         catch (Exception ex)
         {
-            HandleUiCallbackException(nameof(OpenOrCreateMaintenanceMd), ex);
+            HandleUiCallbackException(nameof(OpenOrCreateCodeHealthMd), ex);
         }
     }
 
@@ -26564,34 +26564,34 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _docsRefreshCts = null;
     }
 
-    private void InitMaintenanceMdWatcher(string squadFolder) {
-        DisposeMaintenanceMdWatcher();
+    private void InitCodeHealthMdWatcher(string squadFolder) {
+        DisposeCodeHealthMdWatcher();
         if (!Directory.Exists(squadFolder)) return;
-        _maintenanceMdWatcher = new FileSystemWatcher(squadFolder, "maintenance.md") {
+        _codeHealthMdWatcher = new FileSystemWatcher(squadFolder, "code-health.md") {
             NotifyFilter          = NotifyFilters.LastWrite | NotifyFilters.Size,
             EnableRaisingEvents   = true,
             IncludeSubdirectories = false,
         };
-        _maintenanceMdWatcher.Changed += OnMaintenanceMdChanged;
-        _maintenanceMdWatcher.Created += OnMaintenanceMdChanged;
+        _codeHealthMdWatcher.Changed += OnMaintenanceMdChanged;
+        _codeHealthMdWatcher.Created += OnMaintenanceMdChanged;
     }
 
     private void OnMaintenanceMdChanged(object sender, FileSystemEventArgs e) {
         var timer = new System.Timers.Timer(300) { AutoReset = false };
         timer.Elapsed += (_, _) => {
             timer.Dispose();
-            Dispatcher.InvokeAsync(SyncMaintenancePanel);
+            Dispatcher.InvokeAsync(SyncCodeHealthPanel);
         };
         timer.Start();
     }
 
-    private void DisposeMaintenanceMdWatcher() {
-        if (_maintenanceMdWatcher is null) return;
-        _maintenanceMdWatcher.EnableRaisingEvents = false;
-        _maintenanceMdWatcher.Changed -= OnMaintenanceMdChanged;
-        _maintenanceMdWatcher.Created -= OnMaintenanceMdChanged;
-        _maintenanceMdWatcher.Dispose();
-        _maintenanceMdWatcher = null;
+    private void DisposeCodeHealthMdWatcher() {
+        if (_codeHealthMdWatcher is null) return;
+        _codeHealthMdWatcher.EnableRaisingEvents = false;
+        _codeHealthMdWatcher.Changed -= OnMaintenanceMdChanged;
+        _codeHealthMdWatcher.Created -= OnMaintenanceMdChanged;
+        _codeHealthMdWatcher.Dispose();
+        _codeHealthMdWatcher = null;
     }
 
     private ByokProviderSettings? BuildByokSettingsFromStore()
@@ -27736,7 +27736,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ("tasks", TasksPanelBorder),
             ("approvals", ApprovalPanelBorder),
             ("notes", NotesPanelBorder),
-            ("maintenance", MaintenancePanelBorder),
+            ("maintenance", CodeHealthPanelBorder),
             ("inbox", InboxPanelBorder),
             ("watch", WatchPanelBorder),
         };
@@ -27772,7 +27772,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 element = NotesPanelBorder;
                 return true;
             case "maintenance":
-                element = MaintenancePanelBorder;
+                element = CodeHealthPanelBorder;
                 return true;
             case "inbox":
                 element = InboxPanelBorder;
@@ -29388,12 +29388,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         // Restore maintenance panel visibility.
-        if (_docsPanelState.MaintenancePanelVisible == true)
+        if (_docsPanelState.CodeHealthPanelVisible == true)
         {
-            _maintenancePanelVisible = true;
-            SyncMaintenancePanel();
-            if (ViewMaintenanceMenuItem is not null)
-                ViewMaintenanceMenuItem.IsChecked = true;
+            _codeHealthPanelVisible = true;
+            SyncCodeHealthPanel();
+            if (ViewCodeHealthMenuItem is not null)
+                ViewCodeHealthMenuItem.IsChecked = true;
         }
 
         // Restore inbox panel visibility.
@@ -31752,29 +31752,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
     }
 
-    private void SyncMaintenancePanel()
+    private void SyncCodeHealthPanel()
     {
-        if (MaintenancePanelBorder is null) return;
-        MaintenancePanelBorder.Visibility = _maintenancePanelVisible ? Visibility.Visible : Visibility.Collapsed;
-        _dockingService?.OnPanelVisibilityChanged("maintenance", _maintenancePanelVisible);
+        if (CodeHealthPanelBorder is null) return;
+        CodeHealthPanelBorder.Visibility = _codeHealthPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+        _dockingService?.OnPanelVisibilityChanged("maintenance", _codeHealthPanelVisible);
         UpdateMainGridSideMargins();
-        if (!_maintenancePanelVisible) return;
+        if (!_codeHealthPanelVisible) return;
 
         var workspacePath = _currentWorkspace?.FolderPath;
         if (workspacePath is null) return;
 
-        if (_maintenancePanel is null)
+        if (_codeHealthPanel is null)
         {
-            _maintenancePanel = new MaintenancePanelController(
-                listPanel:              MaintenanceTaskListPanel,
-                statusLabel:            MaintenanceStatusLabel,
-                enabledOnIdleHost:      MaintenanceEnabledOnIdleHost,
+            _codeHealthPanel = new CodeHealthPanelController(
+                listPanel:              CodeHealthTaskListPanel,
+                statusLabel:            CodeHealthStatusLabel,
+                enabledOnIdleHost:      CodeHealthEnabledOnIdleHost,
                 getWorkspacePath:       () => _currentWorkspace?.FolderPath,
                 toggleTaskEnabled:      (taskId, enabled) => OnMaintenanceTaskToggled(taskId, enabled),
                 reloadPanel:            () => OnMaintenanceTaskToggled(string.Empty, false),
                 openInMarkdownEditor:   path => MarkdownDocumentWindow.Show(
                     CanShowOwnedWindow() ? this : null,
-                    "maintenance.md",
+                    "code-health.md",
                     path,
                     showSource: true,
                     BuildMarkdownCaptureContext()),
@@ -31786,31 +31786,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     BuildMarkdownCaptureContext(),
                     isReadOnly: true),
                 showInboxPanel:         () => ShowInboxPanel(),
-                runTask:                taskId => StartMaintenanceCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId })
-                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncMaintenancePanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
-                simulateIdle:           () => StartMaintenanceCycleAsync()
-                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncMaintenancePanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
+                runTask:                taskId => StartCodeHealthCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId })
+                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
+                simulateIdle:           () => StartCodeHealthCycleAsync()
+                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
                 onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
                 onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
 
             // Wire dynamic max-width hint so splitter snap targets content width
-            if (MaintenancePanelBorder is { } mpb)
+            if (CodeHealthPanelBorder is { } mpb)
                 mpb.MaximumUsefulSizeProvider = orientation => orientation switch
                 {
-                    DockResizeOrientation.Horizontal => _maintenancePanel.GetMaximumUsefulWidth(),
-                    DockResizeOrientation.Vertical   => _maintenancePanel.GetMaximumUsefulHeight(),
+                    DockResizeOrientation.Horizontal => _codeHealthPanel.GetMaximumUsefulWidth(),
+                    DockResizeOrientation.Vertical   => _codeHealthPanel.GetMaximumUsefulHeight(),
                     _                                => null
                 };
         }
 
-        var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
-        _maintenancePanel.Refresh(config, _maintenanceStateStore);
+        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+        _codeHealthPanel.Refresh(config, _CodeHealthStateStore);
     }
 
-    private void PersistMaintenancePanelVisible()
+    private void PersistCodeHealthPanelVisible()
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
-        _docsPanelState = state with { MaintenancePanelVisible = _maintenancePanelVisible };
+        _docsPanelState = state with { CodeHealthPanelVisible = _codeHealthPanelVisible };
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
     }
 
@@ -32281,26 +32281,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
-    private void DismissMaintenanceBadge()
+    private void DismissCodeHealthBadge()
     {
-        if (MaintenancePanelBadge is not null)
-            MaintenancePanelBadge.Visibility = Visibility.Collapsed;
+        if (CodeHealthPanelBadge is not null)
+            CodeHealthPanelBadge.Visibility = Visibility.Collapsed;
     }
 
-    private void DismissMaintenanceBanner()
+    private void DismissCodeHealthBanner()
     {
-        _maintenanceBannerTimer?.Stop();
-        _maintenanceBannerTimer = null;
-        _pendingMaintenanceBannerReport = null;
-        if (MaintenanceBannerBorder is not null)
-            MaintenanceBannerBorder.Visibility = Visibility.Collapsed;
-        DismissMaintenanceBadge();
+        _codeHealthBannerTimer?.Stop();
+        _codeHealthBannerTimer = null;
+        _pendingCodeHealthBannerReport = null;
+        if (CodeHealthBannerBorder is not null)
+            CodeHealthBannerBorder.Visibility = Visibility.Collapsed;
+        DismissCodeHealthBadge();
     }
 
-    private void ShowMaintenanceBannerIfPending()
+    private void ShowCodeHealthBannerIfPending()
     {
-        if (_pendingMaintenanceBannerReport is null) return;
-        var report = _pendingMaintenanceBannerReport;
+        if (_pendingCodeHealthBannerReport is null) return;
+        var report = _pendingCodeHealthBannerReport;
 
         int ran     = report.RanTaskIds?.Count  ?? 0;
         int skipped = report.SkippedTaskIds?.Count ?? 0;
@@ -32308,63 +32308,63 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? $"Maintenance complete — {ran} task ran, {skipped} skipped."
             : $"Maintenance complete — {ran} tasks ran, {skipped} skipped.";
 
-        if (MaintenanceBannerTextBlock is not null)
-            MaintenanceBannerTextBlock.Text = summary;
-        if (MaintenanceBannerBorder is not null)
-            MaintenanceBannerBorder.Visibility = Visibility.Visible;
+        if (CodeHealthBannerTextBlock is not null)
+            CodeHealthBannerTextBlock.Text = summary;
+        if (CodeHealthBannerBorder is not null)
+            CodeHealthBannerBorder.Visibility = Visibility.Visible;
 
-        _maintenanceBannerTimer?.Stop();
-        _maintenanceBannerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
-        _maintenanceBannerTimer.Tick += (_, _) => DismissMaintenanceBanner();
-        _maintenanceBannerTimer.Start();
+        _codeHealthBannerTimer?.Stop();
+        _codeHealthBannerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+        _codeHealthBannerTimer.Tick += (_, _) => DismissCodeHealthBanner();
+        _codeHealthBannerTimer.Start();
     }
 
     private void OnMaintenanceTaskToggled(string taskId, bool enabled)
     {
         var workspacePath = _currentWorkspace?.FolderPath;
-        if (workspacePath is null || _maintenancePanel is null) return;
-        var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
-        _maintenancePanel.Refresh(config, _maintenanceStateStore);
+        if (workspacePath is null || _codeHealthPanel is null) return;
+        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+        _codeHealthPanel.Refresh(config, _CodeHealthStateStore);
     }
 
-    private async Task StartMaintenanceCycleAsync(bool isManual = false, IReadOnlySet<string>? forceTaskIds = null)
+    private async Task StartCodeHealthCycleAsync(bool isManual = false, IReadOnlySet<string>? forceTaskIds = null)
     {
         var workspacePath = _currentWorkspace?.FolderPath;
         if (workspacePath is null) return;
-        if (ShouldSuppressMaintenanceCycle())
+        if (ShouldSuppressCodeHealthCycle())
         {
-            if (isManual) _maintenancePanel?.ShowTransientStatus("Cannot run — AI is busy. Try again when idle.");
+            if (isManual) _codeHealthPanel?.ShowTransientStatus("Cannot run — AI is busy. Try again when idle.");
             return;
         }
 
-        var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
+        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
         if (config is null)
         {
-            if (isManual) _maintenancePanel?.ShowTransientStatus("No maintenance.md found in this workspace.");
+            if (isManual) _codeHealthPanel?.ShowTransientStatus("No code-health.md found in this workspace.");
             return;
         }
         if (!isManual && !config.EnabledOnIdle) return;
         if (config.Tasks is not { Count: > 0 } tasks || !tasks.Any(task => task.Enabled))
         {
-            if (isManual) _maintenancePanel?.ShowTransientStatus("No enabled maintenance tasks to run.");
+            if (isManual) _codeHealthPanel?.ShowTransientStatus("No enabled maintenance tasks to run.");
             return;
         }
 
-        _maintenanceStateStore ??= new MaintenanceStateStore(Path.Combine(workspacePath, ".squad"));
-        _maintenanceStateStore.Reload();
-        _maintenanceReportWriter = new MaintenanceReportWriter(workspacePath);
+        _CodeHealthStateStore ??= new CodeHealthStateStore(Path.Combine(workspacePath, ".squad"));
+        _CodeHealthStateStore.Reload();
+        _CodeHealthReportWriter = new CodeHealthReportWriter(workspacePath);
 
-        if (_maintenanceRunner?.IsRunning == true)
+        if (_CodeHealthRunner?.IsRunning == true)
         {
-            if (isManual) _maintenancePanel?.ShowTransientStatus("Maintenance is already running.");
+            if (isManual) _codeHealthPanel?.ShowTransientStatus("Maintenance is already running.");
             return;
         }
 
         string? latestMaintenanceThreadId = null;
-        var stubRecords = new System.Collections.Generic.List<MaintenanceStubRecord>();
+        var stubRecords = new System.Collections.Generic.List<CodeHealthStubRecord>();
         var enabledTasks = config.Tasks?.Where(t => t.Enabled).ToList() ?? [];
 
-        _maintenanceRunner = new MaintenanceRunner(
+        _CodeHealthRunner = new CodeHealthRunner(
             executePromptAsync: (prompt, ct) =>
             {
                 var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -32374,7 +32374,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         var anchorIndex = -1;
                         latestMaintenanceThreadId = null;
-                        await _pec.ExecuteMaintenanceTurnAsync("argus-weld", prompt);
+                        await _pec.ExecuteCodeHealthTurnAsync("argus-weld", prompt);
                         if (FindLatestArgusWeldRunThread() is { } argusThread)
                         {
                             latestMaintenanceThreadId = argusThread.ThreadId;
@@ -32390,15 +32390,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 });
                 return tcs.Task;
             },
-            stateStore:      _maintenanceStateStore,
+            stateStore:      _CodeHealthStateStore,
             onTaskStarted:   title => Dispatcher.InvokeAsync(() => {
                 EnsureArgusWeldRegistered(workspacePath);
-                _maintenancePanel?.OnRunnerStarted(title);
+                _codeHealthPanel?.OnRunnerStarted(title);
             }),
             onTaskCompleted: (id, title, anchorIndex, startedAt, duration) => Dispatcher.InvokeAsync(() => {
-                _maintenancePanel?.OnRunnerCompleted();
+                _codeHealthPanel?.OnRunnerCompleted();
                 AppendMaintenanceStub(title, latestMaintenanceThreadId, anchorIndex, startedAt, duration);
-                stubRecords.Add(new MaintenanceStubRecord {
+                stubRecords.Add(new CodeHealthStubRecord {
                     TaskTitle       = title,
                     ThreadId        = latestMaintenanceThreadId,
                     AnchorIndex     = anchorIndex,
@@ -32411,28 +32411,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 Dispatcher.InvokeAsync(async () =>
                 {
                     // Skip the report file when nothing actually ran (e.g. all tasks skipped
-                    // or maintenance.md has configured: false). Empty reports add noise.
+                    // or code-health.md has configured: false). Empty reports add noise.
                     var hasActivity = report.TaskResults.Any(
-                        t => t.Outcome != MaintenanceTaskOutcome.Skipped);
+                        t => t.Outcome != CodeHealthTaskOutcome.Skipped);
                     var reportPath = hasActivity
-                        ? (_maintenanceReportWriter?.WriteReport(report) ?? "")
+                        ? (_CodeHealthReportWriter?.WriteReport(report) ?? "")
                         : "";
                     if (!string.IsNullOrEmpty(reportPath) && stubRecords.Count > 0)
                     {
-                        _maintenanceReportWriter?.WriteStubSidecar(reportPath, stubRecords);
+                        _CodeHealthReportWriter?.WriteStubSidecar(reportPath, stubRecords);
                         var sidecarPath = System.IO.Path.ChangeExtension(reportPath, ".json");
                         _renderedSidecarPaths.Add(sidecarPath);
-                        var stubState = new MaintenanceStubStateStore(System.IO.Path.Combine(workspacePath, ".squad"));
+                        var stubState = new CodeHealthStubStateStore(System.IO.Path.Combine(workspacePath, ".squad"));
                         stubState.LastRenderedSidecarPath = sidecarPath;
                         stubState.Save();
                     }
-                    _pendingMaintenanceBannerReport = report;
-                    if (MaintenancePanelBadge is not null)
-                        MaintenancePanelBadge.Visibility = Visibility.Visible;
+                    _pendingCodeHealthBannerReport = report;
+                    if (CodeHealthPanelBadge is not null)
+                        CodeHealthPanelBadge.Visibility = Visibility.Visible;
                     _idleDetectionService?.SetRunnerActive(false);
-                    _maintenancePanel?.OnRunnerCompleted();
-                    var updatedConfig = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
-                    _maintenancePanel?.Refresh(updatedConfig, _maintenanceStateStore);
+                    _codeHealthPanel?.OnRunnerCompleted();
+                    var updatedConfig = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+                    _codeHealthPanel?.Refresh(updatedConfig, _CodeHealthStateStore);
                     if (isManual && report.RanTaskIds.Count == 0 && report.SkippedTaskIds.Count > 0)
                     {
                         AppendManualRunSkippedFeedback(enabledTasks, workspacePath);
@@ -32458,7 +32458,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         var anchorIndex = -1;
                         var responseText = string.Empty;
                         latestMaintenanceThreadId = null;
-                        await _pec.ExecuteMaintenanceTurnAsync("argus-weld", prompt);
+                        await _pec.ExecuteCodeHealthTurnAsync("argus-weld", prompt);
                         if (FindLatestArgusWeldRunThread() is { } argusThread)
                         {
                             latestMaintenanceThreadId = argusThread.ThreadId;
@@ -32483,12 +32483,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }));
 
         _idleDetectionService?.SetRunnerActive(true);
-        _maintenancePanel?.OnRunnerStarted("starting…");
+        _codeHealthPanel?.OnRunnerStarted("starting…");
 
-        await _maintenanceRunner.StartAsync(config, workspacePath, CancellationToken.None, forceTaskIds);
+        await _CodeHealthRunner.StartAsync(config, workspacePath, CancellationToken.None, forceTaskIds);
     }
 
-    private bool ShouldSuppressMaintenanceCycle()
+    private bool ShouldSuppressCodeHealthCycle()
     {
         if (_isPromptRunning)
             return true;
@@ -32509,27 +32509,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Fires a deferred maintenance cycle if <c>_maintenancePendingOnIdle</c> is set and the
-    /// system is currently truly idle.  Uses <see cref="ShouldSuppressMaintenanceCycle"/> for
+    /// Fires a deferred maintenance cycle if <c>_codeHealthPendingOnIdle</c> is set and the
+    /// system is currently truly idle.  Uses <see cref="ShouldSuppressCodeHealthCycle"/> for
     /// the idle check (which does NOT include manual-mode), then calls
-    /// <see cref="StartMaintenanceCycleAsync"/> with <c>isManual: true</c> to bypass the
+    /// <see cref="StartCodeHealthCycleAsync"/> with <c>isManual: true</c> to bypass the
     /// manual-mode gate — that is the whole point of the /maintenance override.
     /// </summary>
-    private async void TryFireDeferredMaintenance()
+    private async void TryFireDeferredCodeHealth()
     {
-        if (!_maintenancePendingOnIdle)
+        if (!_codeHealthPendingOnIdle)
             return;
 
-        if (ShouldSuppressMaintenanceCycle())
+        if (ShouldSuppressCodeHealthCycle())
             return;
 
-        _maintenancePendingOnIdle = false;
-        SquadDashTrace.Write("UI", "TryFireDeferredMaintenance: firing deferred maintenance cycle");
+        _codeHealthPendingOnIdle = false;
+        SquadDashTrace.Write("UI", "TryFireDeferredCodeHealth: firing deferred maintenance cycle");
         try
         {
-            await StartMaintenanceCycleAsync(isManual: true);
+            await StartCodeHealthCycleAsync(isManual: true);
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(TryFireDeferredMaintenance), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(TryFireDeferredCodeHealth), ex); }
     }
 
     private void EnsureArgusWeldRegistered(string workspacePath) {
@@ -32643,7 +32643,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     private void AppendManualRunSkippedFeedback(
-        IReadOnlyList<MaintenanceTask> enabledTasks,
+        IReadOnlyList<CodeHealthTask> enabledTasks,
         string workspacePath)
     {
         var msgParagraph = CreateTranscriptParagraph(bottomMargin: 4);
@@ -32689,7 +32689,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 try
                 {
-                    await StartMaintenanceCycleAsync(
+                    await StartCodeHealthCycleAsync(
                         isManual: true,
                         forceTaskIds: new HashSet<string> { taskId });
                 }
@@ -32703,12 +32703,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
     /// if it has not been rendered yet (i.e. the app was restarted since the last maintenance run).
     /// </summary>
-    private void RestoreMaintenanceStubs(string workspacePath)
+    private void RestoreCodeHealthStubs(string workspacePath)
     {
         try
         {
-            var writer    = new MaintenanceReportWriter(workspacePath);
-            var stubState = new MaintenanceStubStateStore(System.IO.Path.Combine(workspacePath, ".squad"));
+            var writer    = new CodeHealthReportWriter(workspacePath);
+            var stubState = new CodeHealthStubStateStore(System.IO.Path.Combine(workspacePath, ".squad"));
             stubState.Load();
 
             var sidecarPath = writer.GetMostRecentSidecarPath();
@@ -32734,7 +32734,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex)
         {
             SquadDashTrace.Write(TraceCategory.General,
-                $"RestoreMaintenanceStubs: error — {ex.Message}");
+                $"RestoreCodeHealthStubs: error — {ex.Message}");
         }
     }
 
@@ -32794,15 +32794,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void InitIdleDetection(string workspacePath)
     {
-        _maintenanceStateStore ??= new MaintenanceStateStore(Path.Combine(workspacePath, ".squad"));
-        _maintenanceStateStore.Reload();
+        _CodeHealthStateStore ??= new CodeHealthStateStore(Path.Combine(workspacePath, ".squad"));
+        _CodeHealthStateStore.Reload();
 
-        var config = MaintenanceMdParser.Parse(Path.Combine(workspacePath, ".squad", "maintenance.md"));
+        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
         double thresholdMinutes = config?.IdleTimeout ?? 15.0;
 
         _idleDetectionService = new IdleDetectionService();
         _idleDetectionService.IdleThresholdReached += () =>
-            Dispatcher.InvokeAsync(() => StartMaintenanceCycleAsync()
+            Dispatcher.InvokeAsync(() => StartCodeHealthCycleAsync()
                 .ContinueWith(t => HandleUiCallbackException("IdleThresholdReached", t.Exception!),
                     TaskContinuationOptions.OnlyOnFaulted));
         _idleDetectionService.Start(thresholdMinutes);
@@ -33168,19 +33168,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
     }
 
-    private async void MaintenanceDoTheseButton_Click(object sender, RoutedEventArgs e)
+    private async void CodeHealthDoTheseButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            if (ShouldSuppressMaintenanceCycle())
+            if (ShouldSuppressCodeHealthCycle())
             {
-                EnqueuePrompt("/maintenance", isSystemInjected: false);
-                _maintenancePanel?.ShowTransientStatus("Queued — will run when AI is free.");
+                EnqueuePrompt("/codehealth", isSystemInjected: false);
+                _codeHealthPanel?.ShowTransientStatus("Queued — will run when AI is free.");
                 return;
             }
-            await StartMaintenanceCycleAsync(isManual: true);
+            await StartCodeHealthCycleAsync(isManual: true);
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(MaintenanceDoTheseButton_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CodeHealthDoTheseButton_Click), ex); }
     }
 
     private bool IsFilteredTasksLoopSelected()
@@ -35483,3 +35483,10 @@ public sealed class DocViewerScriptingBridge
         _window.Dispatcher.BeginInvoke(() => _window.ScrollDocSourceToLine(lineHint));
     }
 }
+
+
+
+
+
+
+

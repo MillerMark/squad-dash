@@ -6,7 +6,7 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 [TestFixture]
-internal sealed class MaintenanceMdParserRoundTripTests {
+internal sealed class CodeHealthMdParserRoundTripTests {
 
     // ── Shared YAML fixture ───────────────────────────────────────────────────
 
@@ -90,7 +90,7 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void Parse_MultiTaskFile_ReturnsAllTasksWithSourceFilePath() {
         var path = WriteTempFile(ThreeTaskMd);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
 
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(3));
@@ -120,12 +120,12 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void UpdateTask_TitleChange_RoundTrips() {
         var path = WriteTempFile(ThreeTaskMd);
         try {
-            var before  = MaintenanceMdParser.Parse(path)!.Tasks![0];
+            var before  = CodeHealthMdParser.Parse(path)!.Tasks![0];
             var updated = before with { Title = "Deep Clean Temp Files" };
 
-            MaintenanceMdParser.UpdateTask(path, "cleanup", updated);
+            CodeHealthMdParser.UpdateTask(path, "cleanup", updated);
 
-            var after = MaintenanceMdParser.Parse(path)!;
+            var after = CodeHealthMdParser.Parse(path)!;
             var task  = after.Tasks!.First(t => t.Id == "cleanup");
 
             Assert.That(task.Title,        Is.EqualTo("Deep Clean Temp Files"));
@@ -144,13 +144,13 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void UpdateTask_InstructionsChange_MultiLineWithTemplates_RoundTrips() {
         var path = WriteTempFile(ThreeTaskMd);
         try {
-            var before  = MaintenanceMdParser.Parse(path)!.Tasks![0];
+            var before  = CodeHealthMdParser.Parse(path)!.Tasks![0];
             var newInstr = "Delete stale artifacts from {{outputDir}}.\n{{#if verbose}}\nLog each deleted file.\n{{/if}}";
             var updated = before with { Instructions = newInstr };
 
-            MaintenanceMdParser.UpdateTask(path, "cleanup", updated);
+            CodeHealthMdParser.UpdateTask(path, "cleanup", updated);
 
-            var task = MaintenanceMdParser.Parse(path)!.Tasks!.First(t => t.Id == "cleanup");
+            var task = CodeHealthMdParser.Parse(path)!.Tasks!.First(t => t.Id == "cleanup");
 
             Assert.That(task.Instructions, Is.EqualTo(newInstr));
         }
@@ -164,16 +164,16 @@ internal sealed class MaintenanceMdParserRoundTripTests {
         var path = WriteTempFile(ThreeTaskMd);
         try {
             // lint starts as disabled — flip to enabled
-            var before  = MaintenanceMdParser.Parse(path)!.Tasks![1];
+            var before  = CodeHealthMdParser.Parse(path)!.Tasks![1];
             Assert.That(before.Enabled, Is.False);
 
-            MaintenanceMdParser.UpdateTask(path, "lint", before with { Enabled = true });
-            var afterTrue = MaintenanceMdParser.Parse(path)!.Tasks!.First(t => t.Id == "lint");
+            CodeHealthMdParser.UpdateTask(path, "lint", before with { Enabled = true });
+            var afterTrue = CodeHealthMdParser.Parse(path)!.Tasks!.First(t => t.Id == "lint");
             Assert.That(afterTrue.Enabled, Is.True);
 
             // flip back
-            MaintenanceMdParser.UpdateTask(path, "lint", afterTrue with { Enabled = false });
-            var afterFalse = MaintenanceMdParser.Parse(path)!.Tasks!.First(t => t.Id == "lint");
+            CodeHealthMdParser.UpdateTask(path, "lint", afterTrue with { Enabled = false });
+            var afterFalse = CodeHealthMdParser.Parse(path)!.Tasks!.First(t => t.Id == "lint");
             Assert.That(afterFalse.Enabled, Is.False);
         }
         finally { DeleteTempFile(path); }
@@ -190,12 +190,12 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void UpdateTask_FrequencyChange_RoundTrips(string newFrequency) {
         var path = WriteTempFile(ThreeTaskMd);
         try {
-            var before  = MaintenanceMdParser.Parse(path)!.Tasks![0];
+            var before  = CodeHealthMdParser.Parse(path)!.Tasks![0];
             var updated = before with { Frequency = newFrequency };
 
-            MaintenanceMdParser.UpdateTask(path, "cleanup", updated);
+            CodeHealthMdParser.UpdateTask(path, "cleanup", updated);
 
-            var task = MaintenanceMdParser.Parse(path)!.Tasks!.First(t => t.Id == "cleanup");
+            var task = CodeHealthMdParser.Parse(path)!.Tasks!.First(t => t.Id == "cleanup");
             Assert.That(task.Frequency, Is.EqualTo(newFrequency));
         }
         finally { DeleteTempFile(path); }
@@ -210,12 +210,12 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void UpdateTask_SafetyChange_RoundTrips(string newSafety) {
         var path = WriteTempFile(ThreeTaskMd);
         try {
-            var before  = MaintenanceMdParser.Parse(path)!.Tasks![0];
+            var before  = CodeHealthMdParser.Parse(path)!.Tasks![0];
             var updated = before with { Safety = newSafety };
 
-            MaintenanceMdParser.UpdateTask(path, "cleanup", updated);
+            CodeHealthMdParser.UpdateTask(path, "cleanup", updated);
 
-            var rawConfig = MaintenanceMdParser.Parse(path)!;
+            var rawConfig = CodeHealthMdParser.Parse(path)!;
             var task      = rawConfig.Tasks!.First(t => t.Id == "cleanup");
             // Safety floor is applied based on global safety ("branch") — verify
             // value is not more permissive than global.
@@ -230,14 +230,14 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void UpdateTask_Task2Changed_Task1AndTask3ByteIdentical() {
         var path = WriteTempFile(ThreeTaskMd);
         try {
-            var configBefore = MaintenanceMdParser.Parse(path)!;
+            var configBefore = CodeHealthMdParser.Parse(path)!;
             var task1Before  = configBefore.Tasks![0];
             var task3Before  = configBefore.Tasks[2];
             var task2        = configBefore.Tasks[1];
 
-            MaintenanceMdParser.UpdateTask(path, "lint", task2 with { Title = "Updated Linter Run" });
+            CodeHealthMdParser.UpdateTask(path, "lint", task2 with { Title = "Updated Linter Run" });
 
-            var configAfter = MaintenanceMdParser.Parse(path)!;
+            var configAfter = CodeHealthMdParser.Parse(path)!;
             var task1After  = configAfter.Tasks![0];
             var task3After  = configAfter.Tasks[2];
 
@@ -268,14 +268,14 @@ internal sealed class MaintenanceMdParserRoundTripTests {
     public void UpdateTask_TitleOnlyChange_OptionsBlockPreserved() {
         var path = WriteTempFile(OptionsTaskMd);
         try {
-            var before  = MaintenanceMdParser.Parse(path)!.Tasks![0];
+            var before  = CodeHealthMdParser.Parse(path)!.Tasks![0];
             Assert.That(before.Options, Is.Not.Null);
             Assert.That(before.Options!, Has.Count.EqualTo(1));
 
             var updated = before with { Title = "Deep Refactor Pass" };
-            MaintenanceMdParser.UpdateTask(path, "refactor", updated);
+            CodeHealthMdParser.UpdateTask(path, "refactor", updated);
 
-            var after = MaintenanceMdParser.Parse(path)!.Tasks![0];
+            var after = CodeHealthMdParser.Parse(path)!.Tasks![0];
 
             Assert.That(after.Title, Is.EqualTo("Deep Refactor Pass"));
             Assert.That(after.Options, Is.Not.Null);
@@ -294,3 +294,4 @@ internal sealed class MaintenanceMdParserRoundTripTests {
         finally { DeleteTempFile(path); }
     }
 }
+

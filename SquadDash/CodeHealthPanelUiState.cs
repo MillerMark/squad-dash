@@ -6,13 +6,13 @@ using System.IO;
 using System.Text.Json;
 
 /// <summary>Persists expand/collapse UI state for maintenance panel task rows.</summary>
-internal sealed class MaintenancePanelUiState {
+internal sealed class CodeHealthPanelUiState {
 
     private readonly string _statePath;
     private HashSet<string> _expandedTaskIds = new(StringComparer.Ordinal);
 
-    internal MaintenancePanelUiState(string stateDir) {
-        _statePath = Path.Combine(stateDir, "maintenance-panel-ui.json");
+    internal CodeHealthPanelUiState(string stateDir) {
+        _statePath = Path.Combine(stateDir, "code-health-panel-ui.json");
     }
 
     public bool IsExpanded(string taskId) => _expandedTaskIds.Contains(taskId);
@@ -49,7 +49,9 @@ internal sealed class MaintenancePanelUiState {
         }
         catch (Exception ex) {
             SquadDashTrace.Write(TraceCategory.General,
-                $"MaintenancePanelUiState: failed to save: {ex.Message}");
+                $"CodeHealthPanelUiState: failed to save: {ex.Message}");
         }
     }
 }
+
+

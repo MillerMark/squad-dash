@@ -542,11 +542,11 @@ internal sealed class DecomposedTasksWriterTests
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// MaintenanceGroupRunner (cycle detection + lifecycle)
+// CodeHealthGroupRunner (cycle detection + lifecycle)
 // ════════════════════════════════════════════════════════════════════════════
 
 [TestFixture]
-internal sealed class MaintenanceGroupRunnerTests
+internal sealed class CodeHealthGroupRunnerTests
 {
     private string _tasksFile = null!;
 
@@ -617,7 +617,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void TryStartGroup_LinearDag_ReturnsTrueAndWritesPendingTasks()
     {
         var writer  = new DecomposedTasksWriter();
-        var runner  = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner  = new CodeHealthGroupRunner(writer, _tasksFile);
         var group   = MakeLinearGroup();
 
         var result  = runner.TryStartGroup(group, out var errorJson);
@@ -634,7 +634,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void TryStartGroup_EmptyDependsOn_ReturnsTrueAndWritesPendingTasks()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         var group  = MakeNoDepsGroup();
 
         var result = runner.TryStartGroup(group, out var errorJson);
@@ -647,7 +647,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void TryStartGroup_DirectCycle_ReturnsFalseAndWritesFailedTasks()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         var group  = MakeDirectCycleGroup();
 
         var result = runner.TryStartGroup(group, out var errorJson);
@@ -661,7 +661,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void TryStartGroup_DirectCycle_InboxJsonContainsGroupId()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         var group  = MakeDirectCycleGroup("CYCLE-20240101");
 
         runner.TryStartGroup(group, out var errorJson);
@@ -674,7 +674,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void TryStartGroup_IndirectCycle_ReturnsFalse()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         var group  = MakeIndirectCycleGroup();
 
         var result = runner.TryStartGroup(group, out _);
@@ -688,7 +688,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void OnStopRequested_WithCurrentStep_MarksTaskFailed()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         runner.TryStartGroup(MakeLinearGroup(), out _);
 
         runner.SetCurrentStep("PROJ-20240101-001");
@@ -702,7 +702,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void OnStopRequested_AfterClearCurrentStep_DoesNothing()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         runner.TryStartGroup(MakeLinearGroup(), out _);
         var before = File.ReadAllText(_tasksFile);
 
@@ -718,7 +718,7 @@ internal sealed class MaintenanceGroupRunnerTests
     public void OnStopRequested_WithNoCurrentStep_DoesNotThrow()
     {
         var writer = new DecomposedTasksWriter();
-        var runner = new MaintenanceGroupRunner(writer, _tasksFile);
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
 
         Assert.DoesNotThrow(() => runner.OnStopRequested());
     }
@@ -826,3 +826,4 @@ internal sealed class BuildFilterInstructionDecomposeTests
         Assert.That(result, Does.Not.Contain("decompose group"));
     }
 }
+

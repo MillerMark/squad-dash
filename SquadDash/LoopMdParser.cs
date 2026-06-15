@@ -498,7 +498,7 @@ internal static class LoopMdParser {
 
     /// <summary>
     /// Overload that accepts an already-resolved key→value dictionary. Use this
-    /// when the caller has its own option type (e.g. <see cref="MaintenanceOption"/>).
+    /// when the caller has its own option type (e.g. <see cref="CodeHealthOption"/>).
     /// </summary>
     public static string PreprocessConditionals(string text, IReadOnlyDictionary<string, string> values)
     {
@@ -826,3 +826,4 @@ internal sealed class LoopOptionBuilder {
     public string?       Hint     { get; set; }
     public List<string>? Choices  { get; set; }
 }
+

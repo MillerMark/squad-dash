@@ -910,7 +910,7 @@ internal sealed class ApplicationSettingsStore {
                 ApprovalPanelVisible = state.ApprovalPanelVisible ?? existing.ApprovalPanelVisible,
                 NotesPanelVisible = state.NotesPanelVisible ?? existing.NotesPanelVisible,
                 LoopPanelVisible = state.LoopPanelVisible ?? existing.LoopPanelVisible,
-                MaintenancePanelVisible = state.MaintenancePanelVisible ?? existing.MaintenancePanelVisible,
+                CodeHealthPanelVisible = state.CodeHealthPanelVisible ?? existing.CodeHealthPanelVisible,
                 InboxPanelVisible = state.InboxPanelVisible ?? existing.InboxPanelVisible,
                 OpenInboxMessageIds = state.OpenInboxMessageIds ?? existing.OpenInboxMessageIds,
                 DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
@@ -976,10 +976,10 @@ internal sealed record WorkspaceDocsPanelState
     public bool? LoopPanelVisible { get; init; }
 
     /// <summary>
-    /// Whether the Maintenance inline panel was visible.
+    /// Whether the Code Health inline panel was visible.
     /// <c>null</c> or <c>false</c> = hidden (default). <c>true</c> = user had the panel open.
     /// </summary>
-    public bool? MaintenancePanelVisible { get; init; }
+    public bool? CodeHealthPanelVisible { get; init; }
 
     /// <summary>
     /// Whether the Inbox inline panel was visible.
@@ -1785,3 +1785,5 @@ internal sealed record WorkspaceWindowPlacement(
     private static double NormalizePositive(double value) =>
         IsFinitePositive(value) ? value : 0;
 }
+
+

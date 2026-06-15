@@ -9,20 +9,20 @@ namespace SquadDash;
 
 /// <summary>
 /// Writes "While You Were Away" maintenance reports to
-/// <c>.squad/maintenance-reports/YYYYMMDD-HHmmss.md</c>.
+/// <c>.squad/code-health-reports/YYYYMMDD-HHmmss.md</c>.
 /// Auto-prunes to the 30 most recent reports on every write.
 /// </summary>
-internal sealed class MaintenanceReportWriter {
+internal sealed class CodeHealthReportWriter {
 
     private const int MaxReports = 30;
     private readonly string _reportsDir;
 
-    internal MaintenanceReportWriter(string workspacePath) {
-        _reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
+    internal CodeHealthReportWriter(string workspacePath) {
+        _reportsDir = Path.Combine(workspacePath, ".squad", "code-health-reports");
     }
 
     /// <summary>Writes a report and returns the file path.</summary>
-    public string WriteReport(MaintenanceReport report) {
+    public string WriteReport(CodeHealthReport report) {
         Directory.CreateDirectory(_reportsDir);
 
         var fileName = report.StartedAt.LocalDateTime.ToString("yyyyMMdd-HHmmss") + ".md";
@@ -39,7 +39,7 @@ internal sealed class MaintenanceReportWriter {
     /// Writes a stub sidecar JSON file alongside the report at
     /// <paramref name="reportFilePath"/> (same path with <c>.json</c> extension).
     /// </summary>
-    public void WriteStubSidecar(string reportFilePath, IReadOnlyList<MaintenanceStubRecord> stubs) {
+    public void WriteStubSidecar(string reportFilePath, IReadOnlyList<CodeHealthStubRecord> stubs) {
         var sidecarPath = Path.ChangeExtension(reportFilePath, ".json");
         try {
             var json = JsonSerializer.Serialize(stubs, new JsonSerializerOptions { WriteIndented = true });
@@ -47,7 +47,7 @@ internal sealed class MaintenanceReportWriter {
         }
         catch (Exception ex) {
             SquadDashTrace.Write(TraceCategory.General,
-                $"MaintenanceReportWriter: failed to write stub sidecar: {ex.Message}");
+                $"CodeHealthReportWriter: failed to write stub sidecar: {ex.Message}");
         }
     }
 
@@ -55,12 +55,12 @@ internal sealed class MaintenanceReportWriter {
     /// Reads the stub sidecar at <paramref name="reportFilePath"/> (same path with
     /// <c>.json</c> extension). Returns null if the file does not exist or cannot be parsed.
     /// </summary>
-    public IReadOnlyList<MaintenanceStubRecord>? TryReadStubSidecar(string reportFilePath) {
+    public IReadOnlyList<CodeHealthStubRecord>? TryReadStubSidecar(string reportFilePath) {
         var sidecarPath = Path.ChangeExtension(reportFilePath, ".json");
         if (!File.Exists(sidecarPath)) return null;
         try {
             var json = File.ReadAllText(sidecarPath);
-            return JsonSerializer.Deserialize<List<MaintenanceStubRecord>>(json) ?? [];
+            return JsonSerializer.Deserialize<List<CodeHealthStubRecord>>(json) ?? [];
         }
         catch { return null; }
     }
@@ -86,11 +86,11 @@ internal sealed class MaintenanceReportWriter {
             .ToList();
     }
 
-    private static string BuildReportMarkdown(MaintenanceReport report) {
+    private static string BuildReportMarkdown(CodeHealthReport report) {
         var sb = new StringBuilder();
 
         var dateStr = report.StartedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
-        sb.AppendLine($"# Maintenance Report — {dateStr}");
+        sb.AppendLine($"# Code Health Report — {dateStr}");
         sb.AppendLine();
 
         var duration = FormatDuration(report.Duration);
@@ -106,17 +106,17 @@ internal sealed class MaintenanceReportWriter {
         else {
             foreach (var t in report.TaskResults) {
                 var icon = t.Outcome switch {
-                    MaintenanceTaskOutcome.Completed  => "✅",
-                    MaintenanceTaskOutcome.Skipped    => "⏭",
-                    MaintenanceTaskOutcome.Error      => "❌",
-                    MaintenanceTaskOutcome.Interrupted => "⏸",
+                    CodeHealthTaskOutcome.Completed  => "✅",
+                    CodeHealthTaskOutcome.Skipped    => "⏭",
+                    CodeHealthTaskOutcome.Error      => "❌",
+                    CodeHealthTaskOutcome.Interrupted => "⏸",
                     _                                  => "•",
                 };
                 var suffix = t.Outcome switch {
-                    MaintenanceTaskOutcome.Completed  => $" — {FormatDuration(t.Duration)}",
-                    MaintenanceTaskOutcome.Skipped    => " — skipped (already run today)",
-                    MaintenanceTaskOutcome.Interrupted => " — interrupted by user activity",
-                    MaintenanceTaskOutcome.Error      => " — error during execution",
+                    CodeHealthTaskOutcome.Completed  => $" — {FormatDuration(t.Duration)}",
+                    CodeHealthTaskOutcome.Skipped    => " — skipped (already run today)",
+                    CodeHealthTaskOutcome.Interrupted => " — interrupted by user activity",
+                    CodeHealthTaskOutcome.Error      => " — error during execution",
                     _                                  => "",
                 };
                 sb.AppendLine($"- {icon} {t.Title} ({t.Id}){suffix}");
@@ -177,13 +177,13 @@ internal sealed class MaintenanceReportWriter {
                 try { File.Delete(old); }
                 catch (Exception ex) {
                     SquadDashTrace.Write(TraceCategory.General,
-                        $"MaintenanceReportWriter: failed to prune {old}: {ex.Message}");
+                        $"CodeHealthReportWriter: failed to prune {old}: {ex.Message}");
                 }
             }
         }
         catch (Exception ex) {
             SquadDashTrace.Write(TraceCategory.General,
-                $"MaintenanceReportWriter: prune failed: {ex.Message}");
+                $"CodeHealthReportWriter: prune failed: {ex.Message}");
         }
     }
 
@@ -195,3 +195,5 @@ internal sealed class MaintenanceReportWriter {
         return $"{(int)ts.TotalHours}h {ts.Minutes}m";
     }
 }
+
+

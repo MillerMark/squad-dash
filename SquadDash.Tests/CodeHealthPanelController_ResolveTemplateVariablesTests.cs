@@ -6,11 +6,11 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Tests for <see cref="MaintenancePanelController.ResolveAndMarkTemplateVariables"/>.
+/// Tests for <see cref="CodeHealthPanelController.ResolveAndMarkTemplateVariables"/>.
 /// Pure string-manipulation tests — no WPF STA thread required.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
+internal sealed class CodeHealthPanelController_ResolveTemplateVariablesTests {
 
     private TestWorkspace _workspace = null!;
 
@@ -20,23 +20,23 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     [TearDown]
     public void TearDown() => _workspace.Dispose();
 
-    private const char S = MaintenancePanelController.HighlightSentinel;
+    private const char S = CodeHealthPanelController.HighlightSentinel;
 
-    private MaintenanceStateStore MakeStore(Func<string, string, Task<int>>? commitCounter = null) =>
+    private CodeHealthStateStore MakeStore(Func<string, string, Task<int>>? commitCounter = null) =>
         new(_workspace.RootPath, commitCounter: commitCounter);
 
     // ── Null / empty inputs ───────────────────────────────────────────────────
 
     [Test]
     public void NullInstructions_ReturnsEmpty() {
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             null, "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo(string.Empty));
     }
 
     [Test]
     public void EmptyInstructions_ReturnsEmpty() {
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             string.Empty, "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo(string.Empty));
     }
@@ -46,7 +46,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     [Test]
     public void NoVariables_ReturnsUnchanged() {
         const string text = "Review all the changes in the workspace.";
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             text, "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo(text));
     }
@@ -55,7 +55,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
 
     [Test]
     public void LastReviewedSha_NullStore_SubstitutesNone() {
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "Since {{last_reviewed_sha}}", "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo($"Since {S}(none){S}"));
     }
@@ -63,7 +63,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     [Test]
     public void LastReviewedSha_StoreHasNoRecord_SubstitutesNone() {
         var store = MakeStore();
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "SHA: {{last_reviewed_sha}}", "t1", store, workspacePath: null);
         Assert.That(result, Is.EqualTo($"SHA: {S}(none){S}"));
     }
@@ -72,7 +72,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     public void LastReviewedSha_StoreHasValue_SubstitutesWrappedSha() {
         var store = MakeStore();
         store.RecordRun("t1", "deadbeef1234");
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "SHA: {{last_reviewed_sha}}", "t1", store, workspacePath: null);
         Assert.That(result, Is.EqualTo($"SHA: {S}deadbeef1234{S}"));
     }
@@ -81,7 +81,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     public void LastReviewedSha_StoreHasEmptyString_SubstitutesNone() {
         var store = MakeStore();
         store.RecordRun("t1", commitSha: "");
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "{{last_reviewed_sha}}", "t1", store, workspacePath: null);
         Assert.That(result, Is.EqualTo($"{S}(none){S}"));
     }
@@ -92,7 +92,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     public void NewCommitCount_NullWorkspacePath_SubstitutesPending() {
         var store = MakeStore();
         store.RecordRun("t1", "abc");
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "{{new_commit_count}} commits", "t1", store, workspacePath: null);
         Assert.That(result, Is.EqualTo($"{S}(pending){S} commits"));
     }
@@ -101,14 +101,14 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     public void NewCommitCount_EmptyWorkspacePath_SubstitutesPending() {
         var store = MakeStore();
         store.RecordRun("t1", "abc");
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "{{new_commit_count}} commits", "t1", store, workspacePath: string.Empty);
         Assert.That(result, Is.EqualTo($"{S}(pending){S} commits"));
     }
 
     [Test]
     public void NewCommitCount_NullStore_SubstitutesUnknown() {
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "{{new_commit_count}} commits", "t1", stateStore: null, workspacePath: @"C:\repo");
         Assert.That(result, Is.EqualTo($"{S}(unknown){S} commits"));
     }
@@ -117,7 +117,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     public void NewCommitCount_WithWorkspaceAndStore_SubstitutesCount() {
         var store = MakeStore(commitCounter: (_, _) => Task.FromResult(7));
         store.RecordRun("t1", "abc123");
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "{{new_commit_count}} new commits", "t1", store, workspacePath: @"C:\repo");
         Assert.That(result, Is.EqualTo($"{S}7{S} new commits"));
     }
@@ -128,7 +128,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     public void MultipleVariables_BothResolved() {
         var store = MakeStore(commitCounter: (_, _) => Task.FromResult(3));
         store.RecordRun("t1", "feedcafe");
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             "Since {{last_reviewed_sha}} ({{new_commit_count}} commits)",
             "t1", store, workspacePath: @"C:\repo");
         Assert.That(result, Is.EqualTo($"Since {S}feedcafe{S} ({S}3{S} commits)"));
@@ -139,7 +139,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     [Test]
     public void ConditionalIfBlock_NotResolved() {
         const string text = "{{#if condition}}some text{{/if}}";
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             text, "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo(text));
     }
@@ -147,7 +147,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     [Test]
     public void UnknownVariable_LeftAsIs() {
         const string text = "Deploy to {{environment}} branch {{branch}}";
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             text, "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo(text));
     }
@@ -155,7 +155,7 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
     [Test]
     public void SlashVariable_LeftAsIs() {
         const string text = "End {{/if}}";
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             text, "t1", stateStore: null, workspacePath: null);
         Assert.That(result, Is.EqualTo(text));
     }
@@ -167,9 +167,10 @@ internal sealed class MaintenancePanelController_ResolveTemplateVariablesTests {
         var store = MakeStore();
         store.RecordRun("t1", "c0ffee");
         const string template = "Branch {{branch}}, since {{last_reviewed_sha}}, count {{new_commit_count}}";
-        var result = MaintenancePanelController.ResolveAndMarkTemplateVariables(
+        var result = CodeHealthPanelController.ResolveAndMarkTemplateVariables(
             template, "t1", store, workspacePath: null);
         Assert.That(result, Is.EqualTo(
             $"Branch {{{{branch}}}}, since {S}c0ffee{S}, count {S}(pending){S}"));
     }
 }
+

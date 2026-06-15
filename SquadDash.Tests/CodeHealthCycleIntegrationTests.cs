@@ -8,10 +8,10 @@ namespace SquadDash.Tests;
 /// <summary>
 /// End-to-end integration test for the full maintenance pipeline:
 /// idle threshold → runner picks eligible task → executePromptAsync called →
-/// MaintenanceTaskResult recorded → report written → banner-triggered event fires.
+/// CodeHealthTaskResult recorded → report written → banner-triggered event fires.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenanceCycleIntegrationTests {
+internal sealed class CodeHealthCycleIntegrationTests {
 
     private TestWorkspace _workspace = null!;
     private string _workspaceDir = null!;
@@ -36,12 +36,12 @@ internal sealed class MaintenanceCycleIntegrationTests {
         const string taskTitle        = "Run Linter";
         const string taskInstructions = "Run the linter on all source files.";
 
-        var config = new MaintenanceMdConfig(
+        var config = new CodeHealthMdConfig(
             IdleTimeout:        15,
             MaxTasksPerSession: 5,
             Safety:             "report-only",
             Tasks: [
-                new MaintenanceTask(
+                new CodeHealthTask(
                     Id:           taskId,
                     Enabled:      true,
                     Frequency:    "always",
@@ -50,8 +50,8 @@ internal sealed class MaintenanceCycleIntegrationTests {
                     Instructions: taskInstructions),
             ]);
 
-        var stateStore   = new MaintenanceStateStore(_stateDir);
-        var reportWriter = new MaintenanceReportWriter(_workspaceDir);
+        var stateStore   = new CodeHealthStateStore(_stateDir);
+        var reportWriter = new CodeHealthReportWriter(_workspaceDir);
 
         // Stub: captures the prompt text passed to executePromptAsync
         string? capturedPrompt = null;
@@ -61,13 +61,13 @@ internal sealed class MaintenanceCycleIntegrationTests {
         }
 
         // onCompleted mirrors what MainWindow does: write report then surface the banner event
-        MaintenanceReport? bannerReport = null;
-        void OnCompleted(MaintenanceReport report) {
+        CodeHealthReport? bannerReport = null;
+        void OnCompleted(CodeHealthReport report) {
             reportWriter.WriteReport(report);
             bannerReport = report;
         }
 
-        var runner = new MaintenanceRunner(
+        var runner = new CodeHealthRunner(
             executePromptAsync: ExecutePromptStub,
             stateStore:         stateStore,
             onTaskStarted:      _ => { },
@@ -103,7 +103,7 @@ internal sealed class MaintenanceCycleIntegrationTests {
             "Report must list the task as ran");
         Assert.That(bannerReport.TaskResults, Has.Count.EqualTo(1),
             "Report must contain exactly one task result");
-        Assert.That(bannerReport.TaskResults[0].Outcome, Is.EqualTo(MaintenanceTaskOutcome.Completed),
+        Assert.That(bannerReport.TaskResults[0].Outcome, Is.EqualTo(CodeHealthTaskOutcome.Completed),
             "Task outcome must be Completed");
 
         // ── Assert 3: state store updated ─────────────────────────────────────
@@ -120,3 +120,4 @@ internal sealed class MaintenanceCycleIntegrationTests {
             "Prompt passed to executePromptAsync must contain the task instructions");
     }
 }
+

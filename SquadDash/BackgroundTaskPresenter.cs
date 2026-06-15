@@ -193,7 +193,7 @@ internal sealed class BackgroundTaskPresenter {
         !IsArgusWeldThread(thread);
 
     /// <summary>
-    /// Returns true when the thread belongs to the Argus Weld maintenance agent.
+    /// Returns true when the thread belongs to the Argus Weld code health agent.
     /// Argus Weld reports should go to the Inbox only, not the Coordinator transcript.
     /// </summary>
     private static bool IsArgusWeldThread(TranscriptThreadState thread) =>
@@ -1289,3 +1289,4 @@ internal sealed record BackgroundAbortTarget(
     string? AgentId = null,
     string? ToolCallId = null,
     string TaskIdSource = "unknown");
+

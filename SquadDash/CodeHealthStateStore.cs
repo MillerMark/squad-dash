@@ -9,31 +9,40 @@ namespace SquadDash;
 
 /// <summary>
 /// Tracks per-task frequency state for maintenance mode.
-/// State is persisted to <c>{stateDir}/maintenance-state.json</c>.
+/// State is persisted to <c>{stateDir}/code-health-state.json</c>.
 /// </summary>
-internal sealed class MaintenanceStateStore {
+internal sealed class CodeHealthStateStore {
 
     private readonly string _statePath;
     private readonly ITimeProvider _clock;
     private readonly Func<string, string, Task<int>> _commitCounter;
     private Dictionary<string, TaskState> _tasks = new(StringComparer.Ordinal);
 
-    internal MaintenanceStateStore(string stateDir, ITimeProvider? clock = null,
+    internal CodeHealthStateStore(string stateDir, ITimeProvider? clock = null,
         Func<string, string, Task<int>>? commitCounter = null) {
-        _statePath = Path.Combine(stateDir, "maintenance-state.json");
+        _statePath = Path.Combine(stateDir, "code-health-state.json");
         _clock = clock ?? SystemTimeProvider.Instance;
         _commitCounter = commitCounter ?? CountCommitsSinceAsync;
     }
 
     /// <summary>Reloads state from disk. On any failure, starts with empty state.</summary>
     public void Reload() {
-        if (!File.Exists(_statePath)) {
+        // Migration: check for old maintenance-state.json file if code-health-state.json doesn't exist
+        var actualPath = _statePath;
+        if (!File.Exists(actualPath)) {
+            var oldPath = _statePath.Replace("code-health-state.json", "maintenance-state.json");
+            if (File.Exists(oldPath)) {
+                actualPath = oldPath;
+            }
+        }
+        
+        if (!File.Exists(actualPath)) {
             _tasks = new Dictionary<string, TaskState>(StringComparer.Ordinal);
             return;
         }
 
         try {
-            var json = File.ReadAllText(_statePath);
+            var json = File.ReadAllText(actualPath);
             using var doc = JsonDocument.Parse(json);
             var loaded = new Dictionary<string, TaskState>(StringComparer.Ordinal);
 
@@ -78,7 +87,7 @@ internal sealed class MaintenanceStateStore {
         if (freqLower == "after-commits" || freqLower == "per-commit") {
             if (commitSha is null) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenanceStateStore: after-commits git fallback — commit SHA unavailable, treating task '{taskId}' as daily");
+                    $"CodeHealthStateStore: after-commits git fallback — commit SHA unavailable, treating task '{taskId}' as daily");
                 goto HandleDaily;
             }
             if (!_tasks.TryGetValue(taskId, out var commitState))
@@ -210,7 +219,7 @@ internal sealed class MaintenanceStateStore {
         }
         catch (Exception ex) {
             SquadDashTrace.Write(TraceCategory.General,
-                $"MaintenanceStateStore: failed to persist state: {ex.Message}");
+                $"CodeHealthStateStore: failed to persist state: {ex.Message}");
         }
     }
 
@@ -262,3 +271,4 @@ internal sealed class MaintenanceStateStore {
         public string?   LastCommitSha { get; set; }
     }
 }
+

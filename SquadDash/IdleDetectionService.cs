@@ -129,3 +129,4 @@ internal sealed class IdleDetectionService {
         return elapsedMs >= thresholdMs;
     }
 }
+

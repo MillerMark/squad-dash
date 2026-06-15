@@ -6,23 +6,32 @@ using System.Text;
 namespace SquadDash;
 
 /// <summary>
-/// Parses a maintenance.md file. Tasks are embedded as a YAML list inside the frontmatter.
+/// Parses a code-health.md file. Tasks are embedded as a YAML list inside the frontmatter.
 /// </summary>
-internal static class MaintenanceMdParser {
+internal static class CodeHealthMdParser {
 
     /// <summary>
     /// Returns null if the file is missing or unreadable.
     /// When the frontmatter lacks <c>configured: true</c> the config is still returned
-    /// (with <see cref="MaintenanceMdConfig.Configured"/> == false) so the panel can
+    /// (with <see cref="CodeHealthMdConfig.Configured"/> == false) so the panel can
     /// show tasks for browsing.
     /// </summary>
-    public static MaintenanceMdConfig? Parse(string maintenanceMdPath) {
-        if (!File.Exists(maintenanceMdPath))
+    public static CodeHealthMdConfig? Parse(string codeHealthMdPath) {
+        // Migration: check for old maintenance.md file if code-health.md doesn't exist
+        var actualPath = codeHealthMdPath;
+        if (!File.Exists(actualPath)) {
+            var oldPath = codeHealthMdPath.Replace("code-health.md", "maintenance.md");
+            if (File.Exists(oldPath)) {
+                actualPath = oldPath;
+            }
+        }
+        
+        if (!File.Exists(actualPath))
             return null;
 
         string content;
         try {
-            content = File.ReadAllText(maintenanceMdPath);
+            content = File.ReadAllText(actualPath);
         }
         catch {
             return null;
@@ -43,15 +52,15 @@ internal static class MaintenanceMdParser {
         int    maxTasks      = 5;
         string safety        = "branch";
 
-        var tasks                      = new List<MaintenanceTaskBuilder>();
+        var tasks                      = new List<CodeHealthTaskBuilder>();
         bool inTasksList               = false;
-        MaintenanceTaskBuilder? current = null;
+        CodeHealthTaskBuilder? current = null;
         bool inOptionsBlock            = false;
         string? currentOptionKey       = null;
         var optionKeys                 = new List<string>();
-        var optionBuilders             = new Dictionary<string, MaintenanceOptionBuilder>(StringComparer.Ordinal);
+        var optionBuilders             = new Dictionary<string, CodeHealthOptionBuilder>(StringComparer.Ordinal);
         bool inChoicesList             = false;
-        MaintenanceOptionChoice? currentChoice = null;
+        CodeHealthOptionChoice? currentChoice = null;
         bool inMultiLineInstructions   = false;
         int  multiLineBaseIndent       = 6;
         var  multiLineAccumulator      = new StringBuilder();
@@ -105,7 +114,7 @@ internal static class MaintenanceMdParser {
                     pendingChoiceCb.Choices.Add(currentChoice);
 
                 FinalizeCurrentTask(current, optionKeys, optionBuilders, tasks);
-                current                = new MaintenanceTaskBuilder();
+                current                = new CodeHealthTaskBuilder();
                 inOptionsBlock         = false;
                 currentOptionKey       = null;
                 inChoicesList          = false;
@@ -155,7 +164,7 @@ internal static class MaintenanceMdParser {
                     inChoicesList = false;
                     currentChoice = null;
                     if (!optionBuilders.ContainsKey(currentOptionKey)) {
-                        optionBuilders[currentOptionKey] = new MaintenanceOptionBuilder { Key = currentOptionKey };
+                        optionBuilders[currentOptionKey] = new CodeHealthOptionBuilder { Key = currentOptionKey };
                         optionKeys.Add(currentOptionKey);
                     }
                 }
@@ -168,7 +177,7 @@ internal static class MaintenanceMdParser {
                     // Commit previous choice if any
                     if (currentChoice is not null && optionBuilders.TryGetValue(currentOptionKey, out var cb))
                         cb.Choices.Add(currentChoice);
-                    currentChoice = new MaintenanceOptionChoice();
+                    currentChoice = new CodeHealthOptionChoice();
                     // Parse "- value: fix" → value = "fix"
                     var rest = trimmed[2..]; // strip "- "
                     var colonIdx2 = rest.IndexOf(':');
@@ -215,10 +224,10 @@ internal static class MaintenanceMdParser {
         FinalizeCurrentTask(current, optionKeys, optionBuilders, tasks);
 
         var builtTasks = tasks
-            .Select(t => t.Build(safety, maintenanceMdPath))
+            .Select(t => t.Build(safety, codeHealthMdPath))
             .ToList();
 
-        return new MaintenanceMdConfig(configured, enabledOnIdle, idleTimeout, maxTasks, safety, builtTasks);
+        return new CodeHealthMdConfig(configured, enabledOnIdle, idleTimeout, maxTasks, safety, builtTasks);
     }
 
     // ── Safety floor enforcement ───────────────────────────────────────────────
@@ -241,10 +250,10 @@ internal static class MaintenanceMdParser {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static void FinalizeCurrentTask(
-        MaintenanceTaskBuilder? current,
+        CodeHealthTaskBuilder? current,
         List<string> optionKeys,
-        Dictionary<string, MaintenanceOptionBuilder> optionBuilders,
-        List<MaintenanceTaskBuilder> tasks) {
+        Dictionary<string, CodeHealthOptionBuilder> optionBuilders,
+        List<CodeHealthTaskBuilder> tasks) {
 
         if (current is null) return;
 
@@ -252,7 +261,7 @@ internal static class MaintenanceMdParser {
             current.BuiltOptions = optionKeys
                 .Select(k => {
                     var b = optionBuilders[k];
-                    return new MaintenanceOption(b.Key, b.RawValue ?? "", b.Type ?? "string",
+                    return new CodeHealthOption(b.Key, b.RawValue ?? "", b.Type ?? "string",
                         b.Label, b.Tooltip, b.Choices.Count > 0 ? b.Choices : null);
                 })
                 .ToList();
@@ -297,7 +306,7 @@ internal static class MaintenanceMdParser {
         }
     }
 
-    private static void ParseTaskKV(string field, MaintenanceTaskBuilder task) {
+    private static void ParseTaskKV(string field, CodeHealthTaskBuilder task) {
         var colonIdx = field.IndexOf(':');
         if (colonIdx < 0) return;
         var key = field[..colonIdx].Trim();
@@ -317,7 +326,7 @@ internal static class MaintenanceMdParser {
     /// <see langword="true"/> if the <c>choices:</c> key has no inline value, indicating
     /// the parser should switch to YAML-list collection mode.
     /// </returns>
-    private static bool ParseOptionSubfield(string field, MaintenanceOptionBuilder opt) {
+    private static bool ParseOptionSubfield(string field, CodeHealthOptionBuilder opt) {
         var colonIdx = field.IndexOf(':');
         if (colonIdx < 0) return false;
         var key = field[..colonIdx].Trim();
@@ -338,7 +347,7 @@ internal static class MaintenanceMdParser {
                 foreach (var s in stripped.Split(',')) {
                     var v = s.Trim().Trim('"', '\'');
                     if (v.Length > 0)
-                        opt.Choices.Add(new MaintenanceOptionChoice { Value = v });
+                        opt.Choices.Add(new CodeHealthOptionChoice { Value = v });
                 }
                 break;
         }
@@ -346,7 +355,7 @@ internal static class MaintenanceMdParser {
     }
 
     /// <summary>
-    /// Finds the task with <paramref name="taskId"/> in the maintenance.md frontmatter,
+    /// Finds the task with <paramref name="taskId"/> in the code-health.md frontmatter,
     /// then updates the <c>value:</c> sub-key under <paramref name="optionKey"/> and writes back.
     /// Does nothing if the file or key is not found.
     /// </summary>
@@ -486,7 +495,7 @@ internal static class MaintenanceMdParser {
     /// Preserves all file content outside the task block (other tasks, global config, comments,
     /// blank lines, YAML body below the closing ---).
     /// </summary>
-    public static void UpdateTask(string filePath, string taskId, MaintenanceTask updated) {
+    public static void UpdateTask(string filePath, string taskId, CodeHealthTask updated) {
         if (!File.Exists(filePath)) return;
 
         string raw;
@@ -557,7 +566,7 @@ internal static class MaintenanceMdParser {
     /// If no <c>tasks:</c> key is present in the frontmatter, one is inserted before the
     /// closing <c>---</c>. Does nothing if the file cannot be read or has no frontmatter.
     /// </summary>
-    public static void AppendTask(string filePath, MaintenanceTask task) {
+    public static void AppendTask(string filePath, CodeHealthTask task) {
         if (!File.Exists(filePath)) return;
 
         string raw;
@@ -599,7 +608,7 @@ internal static class MaintenanceMdParser {
         catch { /* best-effort */ }
     }
 
-    private static List<string> SerializeTask(MaintenanceTask t) {
+    private static List<string> SerializeTask(CodeHealthTask t) {
         var lines = new List<string>();
         lines.Add($"  - id: {t.Id}");
         lines.Add($"    enabled: {t.Enabled.ToString().ToLower()}");
@@ -641,7 +650,7 @@ internal static class MaintenanceMdParser {
     }
 
     /// <summary>
-    /// Finds the task with <paramref name="taskId"/> in the maintenance.md frontmatter and
+    /// Finds the task with <paramref name="taskId"/> in the code-health.md frontmatter and
     /// updates its <c>frequency:</c> value, then writes the file back. Does nothing if the
     /// file or task is not found.
     /// </summary>
@@ -748,16 +757,16 @@ internal static class MaintenanceMdParser {
 
     // ── Mutable builder ───────────────────────────────────────────────────────
 
-    private sealed class MaintenanceTaskBuilder {
+    private sealed class CodeHealthTaskBuilder {
         public string  Id           { get; set; } = "";
         public bool    Enabled      { get; set; } = false;
         public string  Frequency    { get; set; } = "daily";
         public string  Safety       { get; set; } = "";
         public string  Title        { get; set; } = "";
         public string  Instructions { get; set; } = "";
-        public List<MaintenanceOption>? BuiltOptions { get; set; }
+        public List<CodeHealthOption>? BuiltOptions { get; set; }
 
-        public MaintenanceTask Build(string globalSafety, string sourceFilePath = "") =>
+        public CodeHealthTask Build(string globalSafety, string sourceFilePath = "") =>
             new(
                 Id:             Id,
                 Enabled:        Enabled,
@@ -769,12 +778,13 @@ internal static class MaintenanceMdParser {
                 SourceFilePath: sourceFilePath);
     }
 
-    private sealed class MaintenanceOptionBuilder {
+    private sealed class CodeHealthOptionBuilder {
         public string Key      { get; init; } = "";
         public string? RawValue { get; set; }
         public string? Type     { get; set; }
         public string? Label    { get; set; }
         public string? Tooltip  { get; set; }
-        public List<MaintenanceOptionChoice> Choices { get; } = new();
+        public List<CodeHealthOptionChoice> Choices { get; } = new();
     }
 }
+

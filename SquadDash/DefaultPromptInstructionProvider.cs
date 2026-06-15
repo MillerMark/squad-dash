@@ -15,7 +15,7 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "<inbox_instructions>\n" +
             "You may send the user a message to their Inbox panel by appending an INBOX_MESSAGE_JSON block at the very end of your response, after all other content. Use this when:\n" +
             "- Your response is a detailed report, analysis, or long-form answer that the user might want to refer back to\n" +
-            "- You are completing a maintenance task with a report-only safety level\n" +
+            "- You are completing a code health task with a report-only safety level\n" +
             "- The user asked a question during a queued run and may have missed the answer in the transcript\n" +
             "\n" +
             "Only send an inbox message when the content genuinely warrants it — do not send one for every response.\n" +
@@ -53,7 +53,7 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "Only include a `\"done\"` action when its label records a meaningful user decision (e.g. 'Mark resolved', 'Already fixed') " +
             "and the user genuinely needs a way to record that decision without launching an agent. In most cases, omit the 'done' action entirely.\n"+
             "\n" +
-            "The `from` field must be `\"coordinator\"` for Coordinator responses or `\"argus-weld\"` for maintenance agent responses.\n" +
+            "The `from` field must be `\"coordinator\"` for Coordinator responses or `\"argus-weld\"` for code health agent responses.\n" +
             "\n" +
             "INBOX_MESSAGE_JSON blocks are stripped from the displayed transcript and delivered silently to the Inbox panel.\n" +
             "</inbox_instructions>",
@@ -74,3 +74,4 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
 
     public PromptInstructionSet Get() => Instance;
 }
+

@@ -7,11 +7,11 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Tests for <see cref="MaintenanceStubRecord"/> JSON serialisation/deserialisation
-/// and for <see cref="MaintenanceStubStateStore"/> load/save round-trips.
+/// Tests for <see cref="CodeHealthStubRecord"/> JSON serialisation/deserialisation
+/// and for <see cref="CodeHealthStubStateStore"/> load/save round-trips.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenanceStubTests {
+internal sealed class CodeHealthStubTests {
 
     private string _stateDir = null!;
 
@@ -32,7 +32,7 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubRecord_RoundTripsAllFields() {
-        var original = new MaintenanceStubRecord {
+        var original = new CodeHealthStubRecord {
             TaskTitle       = "Run Linter",
             ThreadId        = "abc-123",
             AnchorIndex     = 7,
@@ -41,7 +41,7 @@ internal sealed class MaintenanceStubTests {
         };
 
         var json       = JsonSerializer.Serialize(original);
-        var roundTrip  = JsonSerializer.Deserialize<MaintenanceStubRecord>(json);
+        var roundTrip  = JsonSerializer.Deserialize<CodeHealthStubRecord>(json);
 
         Assert.That(roundTrip, Is.Not.Null);
         Assert.Multiple(() => {
@@ -55,7 +55,7 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubRecord_NullThreadId_RoundTrips() {
-        var original = new MaintenanceStubRecord {
+        var original = new CodeHealthStubRecord {
             TaskTitle       = "Scan Deps",
             ThreadId        = null,
             AnchorIndex     = 0,
@@ -64,7 +64,7 @@ internal sealed class MaintenanceStubTests {
         };
 
         var json      = JsonSerializer.Serialize(original);
-        var roundTrip = JsonSerializer.Deserialize<MaintenanceStubRecord>(json);
+        var roundTrip = JsonSerializer.Deserialize<CodeHealthStubRecord>(json);
 
         Assert.That(roundTrip, Is.Not.Null);
         Assert.That(roundTrip!.ThreadId, Is.Null,
@@ -73,13 +73,13 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubRecordList_RoundTrips() {
-        var records = new List<MaintenanceStubRecord> {
+        var records = new List<CodeHealthStubRecord> {
             new() { TaskTitle = "Task A", AnchorIndex = 1, StartedAt = DateTimeOffset.UtcNow, DurationSeconds = 10 },
             new() { TaskTitle = "Task B", AnchorIndex = 2, StartedAt = DateTimeOffset.UtcNow, DurationSeconds = 20 },
         };
 
         var json      = JsonSerializer.Serialize(records);
-        var roundTrip = JsonSerializer.Deserialize<List<MaintenanceStubRecord>>(json);
+        var roundTrip = JsonSerializer.Deserialize<List<CodeHealthStubRecord>>(json);
 
         Assert.That(roundTrip, Has.Count.EqualTo(2));
         Assert.That(roundTrip![0].TaskTitle, Is.EqualTo("Task A"));
@@ -88,7 +88,7 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubRecord_JsonPropertyNames_AreCorrect() {
-        var record = new MaintenanceStubRecord {
+        var record = new CodeHealthStubRecord {
             TaskTitle       = "T",
             ThreadId        = "x",
             AnchorIndex     = 3,
@@ -107,11 +107,11 @@ internal sealed class MaintenanceStubTests {
         });
     }
 
-    // ── MaintenanceStubStateStore ─────────────────────────────────────────────
+    // ── CodeHealthStubStateStore ─────────────────────────────────────────────
 
     [Test]
     public void StubStateStore_Load_WhenFileAbsent_LeavesPropertyNull() {
-        var store = new MaintenanceStubStateStore(_stateDir);
+        var store = new CodeHealthStubStateStore(_stateDir);
         store.Load();
         Assert.That(store.LastRenderedSidecarPath, Is.Null,
             "Should leave LastRenderedSidecarPath null when state file does not exist");
@@ -119,11 +119,11 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubStateStore_SaveAndLoad_RoundTrips() {
-        var store = new MaintenanceStubStateStore(_stateDir);
+        var store = new CodeHealthStubStateStore(_stateDir);
         store.LastRenderedSidecarPath = @"C:\some\path\20260524-081625.json";
         store.Save();
 
-        var store2 = new MaintenanceStubStateStore(_stateDir);
+        var store2 = new CodeHealthStubStateStore(_stateDir);
         store2.Load();
 
         Assert.That(store2.LastRenderedSidecarPath,
@@ -133,11 +133,11 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubStateStore_Save_NullPath_RoundTrips() {
-        var store = new MaintenanceStubStateStore(_stateDir);
+        var store = new CodeHealthStubStateStore(_stateDir);
         store.LastRenderedSidecarPath = null;
         store.Save();
 
-        var store2 = new MaintenanceStubStateStore(_stateDir);
+        var store2 = new CodeHealthStubStateStore(_stateDir);
         store2.Load();
 
         Assert.That(store2.LastRenderedSidecarPath, Is.Null,
@@ -146,13 +146,14 @@ internal sealed class MaintenanceStubTests {
 
     [Test]
     public void StubStateStore_Save_IsIdempotent() {
-        var store = new MaintenanceStubStateStore(_stateDir);
+        var store = new CodeHealthStubStateStore(_stateDir);
         store.LastRenderedSidecarPath = "foo.json";
         store.Save();
         store.Save(); // second save must not throw
 
-        var store2 = new MaintenanceStubStateStore(_stateDir);
+        var store2 = new CodeHealthStubStateStore(_stateDir);
         store2.Load();
         Assert.That(store2.LastRenderedSidecarPath, Is.EqualTo("foo.json"));
     }
 }
+

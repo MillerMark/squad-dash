@@ -99,7 +99,7 @@ public class InboxStore
     }
 
     /// <summary>
-    /// Strips common "Maintenance Report:" prefixes and trailing date suffixes that
+    /// Strips common "Code Health Report:" prefixes and trailing date suffixes that
     /// AI agents may include in subject lines despite prompt instructions.
     /// </summary>
     internal static string NormalizeSubject(string subject)
@@ -336,3 +336,4 @@ public class InboxStore
             .Take(4000)
             .ToHashSet(StringComparer.Ordinal);
 }
+

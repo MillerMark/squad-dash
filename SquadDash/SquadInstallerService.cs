@@ -190,7 +190,7 @@ internal sealed class SquadInstallerService {
             EnsureLoopFiles(activeDirectory);
             EnsureCastingStateFiles(activeDirectory);
             PatchCastingPolicy(activeDirectory);
-            EnsureMaintenanceStateInGitIgnore(activeDirectory);
+            EnsureCodeHealthStateInGitIgnore(activeDirectory);
         }
         catch {
             // Non-fatal — Squad installed successfully; user can add universe files manually.
@@ -273,7 +273,7 @@ internal sealed class SquadInstallerService {
     /// control by adding any missing entries to the workspace <c>.gitignore</c>. Creates
     /// the file if absent. Returns <c>true</c> if the file was modified.
     /// </summary>
-    internal static bool EnsureMaintenanceStateInGitIgnore(string workspaceFolder) {
+    internal static bool EnsureCodeHealthStateInGitIgnore(string workspaceFolder) {
         // Each tuple: (gitignore entry, comment line written above it on first add)
         (string Entry, string Comment)[] required = [
             // Squad ephemeral directories — never track runtime state or user-local data
@@ -285,8 +285,8 @@ internal sealed class SquadInstallerService {
             (".squad-workstream",          "# Squad: SubSquad activation file (local to this machine)"),
             
             // SquadDash-specific entries
-            ("maintenance-state.json",       "# SquadDash: maintenance state (auto-managed)"),
-            (".squad/maintenance-reports/",  "# SquadDash: maintenance reports (runtime, not for version control)"),
+            ("code-health-state.json",       "# SquadDash: maintenance state (auto-managed)"),
+            (".squad/code-health-reports/",  "# SquadDash: maintenance reports (runtime, not for version control)"),
         ];
 
         var gitIgnorePath = Path.Combine(workspaceFolder, ".gitignore");
@@ -633,3 +633,5 @@ internal sealed record SquadPrerequisiteCheckResult(
     public static SquadPrerequisiteCheckResult SuccessResult { get; } =
         new(true, "Tooling is available.", Array.Empty<string>());
 }
+
+

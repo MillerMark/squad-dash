@@ -14,15 +14,15 @@ using System.Windows.Threading;
 namespace SquadDash;
 
 /// <summary>
-/// Custom WPF editor for a single <see cref="MaintenanceTask"/>. Shows title, properties,
+/// Custom WPF editor for a single <see cref="CodeHealthTask"/>. Shows title, properties,
 /// UI options YAML with live preview, and instructions with syntax highlighting.
 /// Opened via "Edit Task" in the Maintenance panel context menu.
 /// </summary>
-internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
+internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    private readonly MaintenanceTask                         _task;
+    private readonly CodeHealthTask                         _task;
     private readonly Func<ApplicationSettingsSnapshot>       _settingsProvider;
     private readonly Action                                  _onSaved;
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
@@ -83,9 +83,9 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
-    internal MaintenanceTaskEditorWindow(
+    internal CodeHealthTaskEditorWindow(
         Window owner,
-        MaintenanceTask task,
+        CodeHealthTask task,
         Func<ApplicationSettingsSnapshot> settingsProvider,
         Action onSaved,
         Action<RichTextBox, string>?         onReviseWithAi = null,
@@ -697,11 +697,11 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
         if (!string.IsNullOrEmpty(_task.SourceFilePath)) {
             try {
-                MaintenanceMdParser.UpdateTask(_task.SourceFilePath, _task.Id, updatedTask);
+                CodeHealthMdParser.UpdateTask(_task.SourceFilePath, _task.Id, updatedTask);
             }
             catch (Exception ex) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenanceTaskEditorWindow: failed to save task '{_task.Id}': {ex.Message}");
+                    $"CodeHealthTaskEditorWindow: failed to save task '{_task.Id}': {ex.Message}");
             }
         }
 
@@ -1049,7 +1049,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
 
     // ── YAML serialisation helpers ────────────────────────────────────────────
 
-    private static string SerializeOptionsToYaml(IReadOnlyList<MaintenanceOption>? opts) {
+    private static string SerializeOptionsToYaml(IReadOnlyList<CodeHealthOption>? opts) {
         if (opts is null || opts.Count == 0)
             return string.Empty;
 
@@ -1076,31 +1076,31 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
         return sb.ToString().TrimEnd();
     }
 
-    private static IReadOnlyList<MaintenanceOption>? ParseOptionsFromYaml(string yaml) =>
+    private static IReadOnlyList<CodeHealthOption>? ParseOptionsFromYaml(string yaml) =>
         ParseOptionsFromYaml(yaml, out _);
 
     /// <summary>
     /// Parses the options YAML. Sets <paramref name="error"/> to a user-facing
     /// error message on failure, or null on success.
     /// </summary>
-    private static IReadOnlyList<MaintenanceOption>? ParseOptionsFromYaml(string yaml, out string? error) {
+    private static IReadOnlyList<CodeHealthOption>? ParseOptionsFromYaml(string yaml, out string? error) {
         error = null;
         if (string.IsNullOrWhiteSpace(yaml))
             return null;
 
         try {
             var lines   = yaml.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
-            var options = new List<MaintenanceOption>();
+            var options = new List<CodeHealthOption>();
             string? currentKey = null;
             string? type = null, label = null, tooltip = null, rawValue = null;
             bool inChoices = false;
-            var choices = new List<MaintenanceOptionChoice>();
-            MaintenanceOptionChoice? currentChoice = null;
+            var choices = new List<CodeHealthOptionChoice>();
+            CodeHealthOptionChoice? currentChoice = null;
 
             void CommitOption() {
                 if (currentKey is null) return;
                 if (currentChoice is not null) { choices.Add(currentChoice); currentChoice = null; }
-                options.Add(new MaintenanceOption(
+                options.Add(new CodeHealthOption(
                     currentKey, rawValue ?? "", type ?? "string",
                     label, tooltip, choices.Count > 0 ? choices.ToList() : null));
                 type = label = tooltip = rawValue = null;
@@ -1125,7 +1125,7 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
                 if (inChoices) {
                     if (indent == 4 && trimmed.StartsWith("- ", StringComparison.Ordinal)) {
                         if (currentChoice is not null) choices.Add(currentChoice);
-                        currentChoice = new MaintenanceOptionChoice();
+                        currentChoice = new CodeHealthOptionChoice();
                         var rest = trimmed[2..];
                         var ci = rest.IndexOf(':');
                         if (ci >= 0 && rest[..ci].Trim() == "value")
@@ -1298,3 +1298,4 @@ internal sealed class MaintenanceTaskEditorWindow : ChromedWindow {
     // ── Caret helpers ─────────────────────────────────────────────────────────
     // (Plain-text caret API provided by RichTextBoxExtensions)
 }
+

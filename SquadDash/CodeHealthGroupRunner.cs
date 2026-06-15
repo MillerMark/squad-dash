@@ -6,13 +6,13 @@ namespace SquadDash;
 /// Orchestrates a decompose group lifecycle: validates the dependency DAG via Kahn's algorithm,
 /// writes the group to tasks.md, tracks the in-flight step, and marks failed steps on stop.
 /// </summary>
-internal sealed class MaintenanceGroupRunner
+internal sealed class CodeHealthGroupRunner
 {
     private readonly DecomposedTasksWriter _writer;
     private readonly string               _tasksFilePath;
     private string?                       _currentStepId;
 
-    internal MaintenanceGroupRunner(DecomposedTasksWriter writer, string tasksFilePath)
+    internal CodeHealthGroupRunner(DecomposedTasksWriter writer, string tasksFilePath)
     {
         _writer        = writer;
         _tasksFilePath = tasksFilePath;
@@ -133,3 +133,4 @@ internal sealed class MaintenanceGroupRunner
         "  \"actions\": []\n" +
         "}\n";
 }
+

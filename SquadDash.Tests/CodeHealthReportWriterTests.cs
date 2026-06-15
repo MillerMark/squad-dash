@@ -8,18 +8,18 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Integration tests for <see cref="MaintenanceReportWriter"/>.
+/// Integration tests for <see cref="CodeHealthReportWriter"/>.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenanceReportWriterTests {
+internal sealed class CodeHealthReportWriterTests {
 
     private TestWorkspace _workspace = null!;
-    private MaintenanceReportWriter _writer = null!;
+    private CodeHealthReportWriter _writer = null!;
 
     [SetUp]
     public void SetUp() {
         _workspace = new TestWorkspace();
-        _writer = new MaintenanceReportWriter(_workspace.RootPath);
+        _writer = new CodeHealthReportWriter(_workspace.RootPath);
     }
 
     [TearDown]
@@ -27,13 +27,13 @@ internal sealed class MaintenanceReportWriterTests {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static MaintenanceReport MakeReport(
+    private static CodeHealthReport MakeReport(
         DateTimeOffset? startedAt = null,
-        IReadOnlyList<MaintenanceTaskResult>? taskResults = null,
+        IReadOnlyList<CodeHealthTaskResult>? taskResults = null,
         string? summary = null) {
         var start = startedAt ?? DateTimeOffset.UtcNow;
         var results = taskResults ?? [];
-        return new MaintenanceReport {
+        return new CodeHealthReport {
             RanTaskIds     = results.Select(t => t.Id).ToList(),
             SkippedTaskIds = [],
             TaskResults    = results,
@@ -58,20 +58,20 @@ internal sealed class MaintenanceReportWriterTests {
         Assert.That(Regex.IsMatch(fileName, @"^\d{8}-\d{6}\.md$"), Is.True,
             $"Filename must match yyyyMMdd-HHmmss.md pattern; got: {fileName}");
 
-        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "code-health-reports");
         Assert.That(filePath, Does.StartWith(reportsDir),
-            "Report must be written inside .squad/maintenance-reports/");
+            "Report must be written inside .squad/code-health-reports/");
     }
 
     // ── Content sections ──────────────────────────────────────────────────────
 
     [Test]
     public void WriteReport_ContentContainsExpectedSections() {
-        var taskResults = new List<MaintenanceTaskResult> {
-            new("lint-task", "Run Linter", MaintenanceTaskOutcome.Completed,
+        var taskResults = new List<CodeHealthTaskResult> {
+            new("lint-task", "Run Linter", CodeHealthTaskOutcome.Completed,
                 TimeSpan.FromSeconds(12),
                 FilesChanged: ["src/foo.cs", "src/bar.cs"]),
-            new("fmt-task",  "Format Code", MaintenanceTaskOutcome.Skipped,
+            new("fmt-task",  "Format Code", CodeHealthTaskOutcome.Skipped,
                 TimeSpan.Zero),
         };
         var report = MakeReport(taskResults: taskResults, summary: "All clean.");
@@ -97,7 +97,7 @@ internal sealed class MaintenanceReportWriterTests {
     public void WriteReport_DurationFormattedCorrectly() {
         // 1 hour 25 minutes should format as e.g. "1h 25m"
         var start  = new DateTimeOffset(2024, 6, 1, 8, 0, 0, TimeSpan.Zero);
-        var report = new MaintenanceReport {
+        var report = new CodeHealthReport {
             RanTaskIds     = [],
             SkippedTaskIds = [],
             TaskResults    = [],
@@ -117,7 +117,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void WriteReport_PrunesOldFilesWhenOver30() {
-        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "code-health-reports");
         Directory.CreateDirectory(reportsDir);
 
         // Pre-populate with exactly 30 files with old timestamps (all before any current-date file)
@@ -141,7 +141,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void WriteReport_DoesNotPruneWhenUnder30() {
-        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "code-health-reports");
         Directory.CreateDirectory(reportsDir);
 
         // Pre-populate with only 5 old files
@@ -162,7 +162,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void GetReportPaths_ReturnsNewestFirst() {
-        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "code-health-reports");
         Directory.CreateDirectory(reportsDir);
 
         File.WriteAllText(Path.Combine(reportsDir, "20240101-120000.md"), "oldest");
@@ -193,7 +193,7 @@ internal sealed class MaintenanceReportWriterTests {
         var report = MakeReport(startedAt: DateTimeOffset.UtcNow);
         var reportPath = _writer.WriteReport(report);
 
-        var stubs = new List<MaintenanceStubRecord> {
+        var stubs = new List<CodeHealthStubRecord> {
             new() { TaskTitle = "Lint", ThreadId = "t1", AnchorIndex = 2,
                     StartedAt = report.StartedAt, DurationSeconds = 12.5 },
         };
@@ -209,7 +209,7 @@ internal sealed class MaintenanceReportWriterTests {
         var report     = MakeReport(startedAt: DateTimeOffset.UtcNow);
         var reportPath = _writer.WriteReport(report);
 
-        var original = new List<MaintenanceStubRecord> {
+        var original = new List<CodeHealthStubRecord> {
             new() { TaskTitle = "Scan Deps", ThreadId = "abc", AnchorIndex = 3,
                     StartedAt = report.StartedAt, DurationSeconds = 90.0 },
             new() { TaskTitle = "Format",    ThreadId = null,  AnchorIndex = 1,
@@ -251,7 +251,7 @@ internal sealed class MaintenanceReportWriterTests {
 
     [Test]
     public void GetMostRecentSidecarPath_ReturnsNewestSidecar() {
-        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "maintenance-reports");
+        var reportsDir = Path.Combine(_workspace.RootPath, ".squad", "code-health-reports");
         Directory.CreateDirectory(reportsDir);
 
         File.WriteAllText(Path.Combine(reportsDir, "20240101-120000.json"), "[]");
@@ -265,9 +265,10 @@ internal sealed class MaintenanceReportWriterTests {
             "GetMostRecentSidecarPath must return the lexicographically newest .json file");
     }
 
-    // TODO: WriteReport_CallsPushNotification — MaintenanceReportWriter does not currently
+    // TODO: WriteReport_CallsPushNotification — CodeHealthReportWriter does not currently
     // accept or invoke a push notification service. Sending "maintenance_completed" push
-    // notifications is the responsibility of the caller (e.g. MaintenanceRunner wired to
+    // notifications is the responsibility of the caller (e.g. CodeHealthRunner wired to
     // PushNotificationService.NotifyEventAsync). Add tests here once that wiring is added to
-    // this class, or cover it in MaintenanceRunnerTests with a fake IPushNotificationProvider.
+    // this class, or cover it in CodeHealthRunnerTests with a fake IPushNotificationProvider.
 }
+

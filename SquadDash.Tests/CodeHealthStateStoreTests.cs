@@ -6,14 +6,14 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Behavioral specs for <see cref="MaintenanceStateStore"/>.
+/// Behavioral specs for <see cref="CodeHealthStateStore"/>.
 /// Tests will compile once Arjun Sen's Phase 1 implementation lands.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenanceStateStoreTests {
+internal sealed class CodeHealthStateStoreTests {
 
     private TestWorkspace _workspace = null!;
-    private MaintenanceStateStore _store = null!;
+    private CodeHealthStateStore _store = null!;
 
     [SetUp]
     public void SetUp() {
@@ -21,9 +21,9 @@ internal sealed class MaintenanceStateStoreTests {
         _store = CreateStore();
     }
 
-    private MaintenanceStateStore CreateStore(ITimeProvider? clock = null,
+    private CodeHealthStateStore CreateStore(ITimeProvider? clock = null,
         Func<string, string, Task<int>>? commitCounter = null) =>
-        new MaintenanceStateStore(_workspace.RootPath, clock, commitCounter);
+        new CodeHealthStateStore(_workspace.RootPath, clock, commitCounter);
 
     [TearDown]
     public void TearDown() => _workspace.Dispose();
@@ -357,7 +357,7 @@ internal sealed class MaintenanceStateStoreTests {
         _store.RecordRun("reload-task", commitSha: "sha-reload");
 
         // Create a fresh store over the same directory and reload.
-        var freshStore = new MaintenanceStateStore(_workspace.RootPath);
+        var freshStore = new CodeHealthStateStore(_workspace.RootPath);
         freshStore.Reload();
 
         var eligible = freshStore.IsEligibleAsync("reload-task", "daily", commitSha: "sha-other").GetAwaiter().GetResult();
@@ -389,10 +389,10 @@ internal sealed class MaintenanceStateStoreTests {
     [Test]
     public void Load_CorruptStateFile_GracefulDegradation_ReturnsEmptyState() {
         // Write garbage directly to the expected state file.
-        var stateFile = Path.Combine(_workspace.RootPath, "maintenance-state.json");
+        var stateFile = Path.Combine(_workspace.RootPath, "code-health-state.json");
         File.WriteAllText(stateFile, "{ this is not valid json !!!");
 
-        var store = new MaintenanceStateStore(_workspace.RootPath);
+        var store = new CodeHealthStateStore(_workspace.RootPath);
         store.Reload();
 
         // All tasks should appear as never-run (no crash, empty state).
@@ -409,7 +409,7 @@ internal sealed class MaintenanceStateStoreTests {
         var emptyDir = Path.Combine(_workspace.RootPath, "empty");
         Directory.CreateDirectory(emptyDir);
 
-        var store = new MaintenanceStateStore(emptyDir);
+        var store = new CodeHealthStateStore(emptyDir);
         store.Reload();
 
         var eligible = store.IsEligibleAsync("any-task", "per-commit", commitSha: "sha").GetAwaiter().GetResult();
@@ -517,7 +517,7 @@ internal sealed class MaintenanceStateStoreTests {
     /// Writes a state JSON file where the task exists but <c>lastRunAt</c> is empty (parses as null).
     /// </summary>
     private void WriteStateWithNullLastRunAt(string taskId, string lastSha) {
-        var stateFile = Path.Combine(_workspace.RootPath, "maintenance-state.json");
+        var stateFile = Path.Combine(_workspace.RootPath, "code-health-state.json");
         var json = $$"""
             {
               "tasks": {
@@ -536,7 +536,7 @@ internal sealed class MaintenanceStateStoreTests {
     /// exercise date-dependent eligibility without waiting a real day.
     /// </summary>
     private void WriteStateWithLastRunAt(string taskId, DateTime lastRunAt, string lastSha) {
-        var stateFile = Path.Combine(_workspace.RootPath, "maintenance-state.json");
+        var stateFile = Path.Combine(_workspace.RootPath, "code-health-state.json");
         var json = $$"""
             {
               "tasks": {
@@ -550,3 +550,4 @@ internal sealed class MaintenanceStateStoreTests {
         File.WriteAllText(stateFile, json);
     }
 }
+

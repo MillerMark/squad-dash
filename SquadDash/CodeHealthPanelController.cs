@@ -1,4 +1,4 @@
-﻿namespace SquadDash;
+namespace SquadDash;
 
 using System;
 using System.Collections.Generic;
@@ -15,7 +15,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 
 /// <summary>Manages content in the inline Maintenance panel.</summary>
-internal sealed class MaintenancePanelController {
+internal sealed class CodeHealthPanelController {
 
     private readonly StackPanel           _listPanel;
     private readonly TextBlock            _statusLabel;
@@ -31,14 +31,14 @@ internal sealed class MaintenancePanelController {
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
     private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
 
-    private readonly MaintenancePanelViewModel _viewModel = new();
-    internal MaintenancePanelViewModel ViewModel => _viewModel;
+    private readonly CodeHealthPanelViewModel _viewModel = new();
+    internal CodeHealthPanelViewModel ViewModel => _viewModel;
     private DispatcherTimer?       _countdownTimer;
     private DispatcherTimer?       _transientStatusTimer;
 
     // ── Construction ─────────────────────────────────────────────────────────
 
-    internal MaintenancePanelController(
+    internal CodeHealthPanelController(
         StackPanel           listPanel,
         TextBlock            statusLabel,
         ContentControl       enabledOnIdleHost,
@@ -67,7 +67,7 @@ internal sealed class MaintenancePanelController {
         _onDirectRevise         = onDirectRevise;
 
         _enabledOnIdlePicker = new CompactPickerButton(
-            headerText:     "Maintenance Tasks:",
+            headerText:     "Code Health Tasks:",
             options:        [("Run on idle", "on-idle"), ("Manual runs only", "manual")],
             selectedValue:  "manual",
             onValueChanged: v => SetEnabledOnIdle(v == "on-idle"),
@@ -99,17 +99,17 @@ internal sealed class MaintenancePanelController {
             var workspacePath = _getWorkspacePath();
             if (workspacePath is null) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    "MaintenancePanelController: workspace path is null; cannot create task");
+                    "CodeHealthPanelController: workspace path is null; cannot create task");
                 return;
             }
-            var mdPath = Path.Combine(workspacePath, ".squad", "maintenance.md");
+            var mdPath = Path.Combine(workspacePath, ".squad", "code-health.md");
             if (!File.Exists(mdPath)) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenancePanelController: maintenance file not found at {mdPath}");
+                    $"CodeHealthPanelController: CodeHealth file not found at {mdPath}");
                 return;
             }
             var newId   = Guid.NewGuid().ToString("N")[..8];
-            var newTask = new MaintenanceTask(
+            var newTask = new CodeHealthTask(
                 Id:            newId,
                 Enabled:       false,
                 Frequency:     "weekly",
@@ -118,47 +118,47 @@ internal sealed class MaintenancePanelController {
                 Instructions:  "Describe what the agent should do here.\n\nAdd as many details as needed.",
                 SourceFilePath: mdPath);
             try {
-                MaintenanceMdParser.AppendTask(mdPath, newTask);
+                CodeHealthMdParser.AppendTask(mdPath, newTask);
             }
             catch (Exception ex) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenancePanelController: failed to create task: {ex.Message}");
+                    $"CodeHealthPanelController: failed to create task: {ex.Message}");
                 return;
             }
             var ownerWindow = Window.GetWindow(_listPanel);
             if (ownerWindow is null) return;
-            var editor = new MaintenanceTaskEditorWindow(
+            var editor = new CodeHealthTaskEditorWindow(
                 ownerWindow,
                 newTask,
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
                 onDirectRevise: _onDirectRevise);
-            editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("MaintenanceTaskEditor", editor);
-            FloatingWindowPositionStore.Shared.TryRestore("MaintenanceTaskEditor", editor);
+            editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);
+            FloatingWindowPositionStore.Shared.TryRestore("CodeHealthTaskEditor", editor);
             editor.Show();
         };
 
-        var editItem = new MenuItem { Header = "Edit Maintenance File…" };
+        var editItem = new MenuItem { Header = "Edit Code Health File…" };
         editItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         editItem.Click += (_, _) => {
             var workspacePath = _getWorkspacePath();
             if (workspacePath is null) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    "MaintenancePanelController: workspace path is null; cannot open maintenance file");
+                    "CodeHealthPanelController: workspace path is null; cannot open code health file");
                 return;
             }
-            var mdPath = Path.Combine(workspacePath, ".squad", "maintenance.md");
+            var mdPath = Path.Combine(workspacePath, ".squad", "code-health.md");
             if (!File.Exists(mdPath)) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenancePanelController: maintenance file not found at {mdPath}");
+                    $"CodeHealthPanelController: CodeHealth file not found at {mdPath}");
                 return;
             }
             try {
                 _openInMarkdownEditor(mdPath);
             } catch (Exception ex) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenancePanelController: failed to open maintenance file: {ex.Message}");
+                    $"CodeHealthPanelController: failed to open code health file: {ex.Message}");
             }
         };
 
@@ -172,7 +172,7 @@ internal sealed class MaintenancePanelController {
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    internal void Refresh(MaintenanceMdConfig? config, MaintenanceStateStore? stateStore) {
+    internal void Refresh(CodeHealthMdConfig? config, CodeHealthStateStore? stateStore) {
         _viewModel.Config     = config;
         _viewModel.StateStore = stateStore;
 
@@ -188,7 +188,7 @@ internal sealed class MaintenancePanelController {
 
     private void ApplyFilter() {
         foreach (UIElement child in _listPanel.Children) {
-            if (child is FrameworkElement fe && fe.Tag is MaintenanceTask task) {
+            if (child is FrameworkElement fe && fe.Tag is CodeHealthTask task) {
                 bool matches = string.IsNullOrEmpty(_viewModel.FilterText)
                     || PanelFilterHelper.Matches(task.Title, _viewModel.FilterText)
                     || PanelFilterHelper.Matches(task.Instructions ?? string.Empty, _viewModel.FilterText);
@@ -233,17 +233,17 @@ internal sealed class MaintenancePanelController {
 
     private string? GetMaintenanceMdPath() {
         var workspacePath = _getWorkspacePath();
-        return workspacePath is null ? null : Path.Combine(workspacePath, ".squad", "maintenance.md");
+        return workspacePath is null ? null : Path.Combine(workspacePath, ".squad", "code-health.md");
     }
 
     private void SetEnabledOnIdle(bool value) {
         var mdPath = GetMaintenanceMdPath();
         if (mdPath is null) return;
-        MaintenanceMdParser.UpdateEnabledOnIdle(mdPath, value);
+        CodeHealthMdParser.UpdateEnabledOnIdle(mdPath, value);
     }
 
     /// <summary>
-    /// Reads <c>.squad/maintenance.md</c>, locates the <paramref name="taskId"/> entry,
+    /// Reads <c>.squad/code-health.md</c>, locates the <paramref name="taskId"/> entry,
     /// flips its <c>enabled:</c> value, writes the file back preserving all other content,
     /// then invokes the host's reload callback so the panel refreshes.
     /// </summary>
@@ -251,38 +251,38 @@ internal sealed class MaintenancePanelController {
         var workspacePath = _getWorkspacePath();
         if (workspacePath is null) return;
 
-        var mdPath = Path.Combine(workspacePath, ".squad", "maintenance.md");
+        var mdPath = Path.Combine(workspacePath, ".squad", "code-health.md");
         if (!File.Exists(mdPath)) return;
 
         try {
-            var newEnabled = MaintenanceMdParser.ToggleTaskEnabled(mdPath, taskId);
+            var newEnabled = CodeHealthMdParser.ToggleTaskEnabled(mdPath, taskId);
 
             if (newEnabled is null) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"MaintenancePanelController: task '{taskId}' not found in {mdPath}");
+                    $"CodeHealthPanelController: task '{taskId}' not found in {mdPath}");
                 return;
             }
 
             SquadDashTrace.Write(TraceCategory.General,
-                $"MaintenancePanelController: task '{taskId}' toggled → enabled={newEnabled.Value}");
+                $"CodeHealthPanelController: task '{taskId}' toggled → enabled={newEnabled.Value}");
 
             _toggleTaskEnabled(taskId, newEnabled.Value);
         }
         catch (Exception ex) {
             SquadDashTrace.Write(TraceCategory.General,
-                $"MaintenancePanelController: failed to toggle task '{taskId}': {ex.Message}");
+                $"CodeHealthPanelController: failed to toggle task '{taskId}': {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Updates the <c>frequency:</c> field for <paramref name="taskId"/> in maintenance.md
+    /// Updates the <c>frequency:</c> field for <paramref name="taskId"/> in code-health.md
     /// and reloads the panel so the change is reflected immediately.
     /// </summary>
     private void ChangeTaskFrequency(string taskId, string newFrequency) {
         var mdPath = GetMaintenanceMdPath();
         if (mdPath is null) return;
         
-        MaintenanceMdParser.UpdateFrequency(mdPath, taskId, newFrequency);
+        CodeHealthMdParser.UpdateFrequency(mdPath, taskId, newFrequency);
         _reloadPanel();
     }
 
@@ -293,7 +293,7 @@ internal sealed class MaintenancePanelController {
 
         if (_viewModel.Config is null || _viewModel.Config.Tasks is null || _viewModel.Config.Tasks.Count == 0) {
             var empty = new TextBlock {
-                Text         = "No maintenance tasks configured.",
+                Text         = "No code health tasks configured.",
                 TextWrapping = TextWrapping.Wrap,
                 Margin       = new Thickness(4, 6, 4, 4),
                 FontStyle    = FontStyles.Italic,
@@ -349,7 +349,7 @@ internal sealed class MaintenancePanelController {
         var workspacePath = _getWorkspacePath();
         var reportsDir = workspacePath is null
             ? null
-            : Path.Combine(workspacePath, ".squad", "maintenance-reports");
+            : Path.Combine(workspacePath, ".squad", "code-health-reports");
 
         List<string> reportFiles = [];
         if (reportsDir is not null && Directory.Exists(reportsDir)) {
@@ -453,7 +453,7 @@ internal sealed class MaintenancePanelController {
         return (date, taskCount);
     }
 
-    private Border BuildTaskRow(MaintenanceTask task) {
+    private Border BuildTaskRow(CodeHealthTask task) {
         var row = new Border {
             Padding    = new Thickness(0, 2, 0, 2),
             Background = Brushes.Transparent,
@@ -639,7 +639,7 @@ internal sealed class MaintenancePanelController {
                         var capturedValue  = choice.Value;
                         rb.Checked += (_, _) => {
                             if (capturedPath is not null)
-                                MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, capturedValue);
+                                CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, capturedValue);
                         };
                         popupOptionsPanel.Children.Add(rb);
                     }
@@ -660,11 +660,11 @@ internal sealed class MaintenancePanelController {
                     var capturedOptKey = opt.Key;
                     cb.Checked += (_, _) => {
                         if (capturedPath is not null)
-                            MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "true");
+                            CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "true");
                     };
                     cb.Unchecked += (_, _) => {
                         if (capturedPath is not null)
-                            MaintenanceMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
+                            CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
                     };
                     popupOptionsPanel.Children.Add(cb);
                 }
@@ -740,15 +740,15 @@ internal sealed class MaintenancePanelController {
             var ownerWindow = Window.GetWindow(_listPanel);
             if (ownerWindow is null) return;
             var capturedTask = task;
-            var editor = new MaintenanceTaskEditorWindow(
+            var editor = new CodeHealthTaskEditorWindow(
                 ownerWindow,
                 capturedTask,
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
                 onDirectRevise: _onDirectRevise);
-            editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("MaintenanceTaskEditor", editor);
-            FloatingWindowPositionStore.Shared.TryRestore("MaintenanceTaskEditor", editor);
+            editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);
+            FloatingWindowPositionStore.Shared.TryRestore("CodeHealthTaskEditor", editor);
             editor.Show();
         };
         taskMenu.Items.Add(editTaskItem);
@@ -819,7 +819,7 @@ internal sealed class MaintenancePanelController {
     /// values that are "active": checked checkboxes (by label/key), selected radio values,
     /// and non-empty free-text values.  Returns an empty string when there is nothing to show.
     /// </summary>
-    internal static string BuildOptionsSummary(IReadOnlyList<MaintenanceOption>? options) {
+    internal static string BuildOptionsSummary(IReadOnlyList<CodeHealthOption>? options) {
         if (options is null or { Count: 0 })
             return string.Empty;
 
@@ -858,7 +858,7 @@ internal sealed class MaintenancePanelController {
     internal static string ResolveAndMarkTemplateVariables(
         string?                instructions,
         string                 taskId,
-        MaintenanceStateStore? stateStore,
+        CodeHealthStateStore? stateStore,
         string?                workspacePath) {
         if (string.IsNullOrEmpty(instructions))
             return instructions ?? string.Empty;
@@ -988,16 +988,16 @@ internal sealed class MaintenancePanelController {
     private void UpdateCountdownLabel() {
         var remaining = _viewModel.NextMaintenanceAt - DateTimeOffset.Now;
         if (remaining <= TimeSpan.Zero) {
-            _statusLabel.Text       = "Maintenance window — idle…";
+            _statusLabel.Text       = "Code Health window — idle…";
             _statusLabel.Visibility = Visibility.Visible;
             return;
         }
 
         var text = remaining.TotalHours >= 1
-            ? $"Next maintenance in: {(int)remaining.TotalHours}h {remaining.Minutes:D2}m"
+            ? $"Next code health in: {(int)remaining.TotalHours}h {remaining.Minutes:D2}m"
             : remaining.TotalMinutes >= 1
-                ? $"Next maintenance in: {(int)remaining.TotalMinutes}m {remaining.Seconds:D2}s"
-                : $"Next maintenance in: {(int)remaining.TotalSeconds}s";
+                ? $"Next code health in: {(int)remaining.TotalMinutes}m {remaining.Seconds:D2}s"
+                : $"Next code health in: {(int)remaining.TotalSeconds}s";
 
         _statusLabel.Text       = text;
         _statusLabel.Visibility = Visibility.Visible;
@@ -1031,7 +1031,7 @@ internal sealed class MaintenancePanelController {
             foreach (var child in _listPanel.Children)
             {
                 if (count >= maxRows) break;
-                if (child is not Border { Tag: MaintenanceTask task }) continue;
+                if (child is not Border { Tag: CodeHealthTask task }) continue;
                 var textWidth = MeasureTextWidth(task.Title, FontWeights.Normal);
                 const double perRowChrome = 19; // checkbox col (~13) + checkbox right margin (6)
                 maxRowWidth = Math.Max(maxRowWidth, textWidth + perRowChrome);
@@ -1056,7 +1056,7 @@ internal sealed class MaintenancePanelController {
 
         int count = 0;
         foreach (var child in _listPanel.Children)
-            if (child is Border { Tag: MaintenanceTask }) count++;
+            if (child is Border { Tag: CodeHealthTask }) count++;
 
         double h = titleRow + statusRow + count * taskRowHeight + 24;
         return Math.Clamp(h, floor, cap);
@@ -1077,3 +1077,5 @@ internal sealed class MaintenancePanelController {
         _countdownTimer = null;
     }
 }
+
+

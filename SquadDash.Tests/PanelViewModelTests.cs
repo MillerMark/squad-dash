@@ -92,12 +92,12 @@ internal sealed class PanelViewModelTests
         Assert.That(vm.Notes.Count, Is.EqualTo(2));
     }
 
-    // ── MaintenancePanelViewModel ────────────────────────────────────────────
+    // ── CodeHealthPanelViewModel ────────────────────────────────────────────
 
     [Test]
-    public void MaintenancePanelViewModel_DefaultValues_AreCorrect()
+    public void CodeHealthPanelViewModel_DefaultValues_AreCorrect()
     {
-        var vm = new MaintenancePanelViewModel();
+        var vm = new CodeHealthPanelViewModel();
 
         Assert.That(vm.Config,             Is.Null);
         Assert.That(vm.RunnerActive,        Is.False);
@@ -105,9 +105,9 @@ internal sealed class PanelViewModelTests
     }
 
     [Test]
-    public void MaintenancePanelViewModel_RunnerActive_CanBeSetToTrue()
+    public void CodeHealthPanelViewModel_RunnerActive_CanBeSetToTrue()
     {
-        var vm = new MaintenancePanelViewModel();
+        var vm = new CodeHealthPanelViewModel();
         vm.RunnerActive = true;
         Assert.That(vm.RunnerActive, Is.True);
     }
@@ -124,3 +124,4 @@ internal sealed class PanelViewModelTests
         Assert.That(hint, Does.Contain("brief or trivial"));
     }
 }
+

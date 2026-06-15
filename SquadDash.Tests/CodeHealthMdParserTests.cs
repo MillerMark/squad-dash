@@ -7,11 +7,11 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Behavioral specs for <see cref="MaintenanceMdParser"/>.
+/// Behavioral specs for <see cref="CodeHealthMdParser"/>.
 /// Tests will compile once Arjun Sen's Phase 1 implementation lands.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenanceMdParserTests {
+internal sealed class CodeHealthMdParserTests {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ internal sealed class MaintenanceMdParserTests {
 
     [Test]
     public void Parse_FileNotFound_ReturnsNull() {
-        var result = MaintenanceMdParser.Parse(@"C:\does\not\exist\maintenance.md");
+        var result = CodeHealthMdParser.Parse(@"C:\does\not\exist\code-health.md");
         Assert.That(result, Is.Null);
     }
 
@@ -47,7 +47,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Configured, Is.False);
         }
@@ -64,7 +64,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Configured, Is.False);
         }
@@ -85,7 +85,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.Multiple(() => {
                 Assert.That(config!.IdleTimeout,         Is.EqualTo(20));
@@ -107,7 +107,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.Multiple(() => {
                 Assert.That(config!.IdleTimeout,       Is.EqualTo(15),      "idle_timeout default");
@@ -136,7 +136,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(1));
 
@@ -176,7 +176,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(1));
 
@@ -218,7 +218,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(1));
 
@@ -247,7 +247,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(1));
 
@@ -274,7 +274,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             // report-only is already more restrictive than branch; must not be upgraded.
@@ -307,7 +307,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var task = (config.Tasks ?? []).Single(t => t.Id == "code-review");
@@ -343,7 +343,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var task = (config.Tasks ?? []).Single(t => t.Id == "multi-step");
@@ -381,7 +381,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var task = (config.Tasks ?? []).Single(t => t.Id == "with-options");
@@ -414,7 +414,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var task = (config.Tasks ?? []).Single(t => t.Id == "final-task");
@@ -452,7 +452,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -496,7 +496,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_found");
@@ -535,7 +535,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "mode");
@@ -570,7 +570,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "action");
@@ -614,7 +614,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opts = (config.Tasks ?? [])[0].Options!;
@@ -655,7 +655,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_found");
@@ -695,7 +695,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -731,7 +731,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -767,7 +767,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -806,7 +806,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -844,8 +844,8 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            MaintenanceMdParser.UpdateOptionValue(path, "run-tests", "if_failing", "fix");
-            var config = MaintenanceMdParser.Parse(path);
+            CodeHealthMdParser.UpdateOptionValue(path, "run-tests", "if_failing", "fix");
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -881,10 +881,10 @@ internal sealed class MaintenanceMdParserTests {
             """;
         var path = WriteTempFile(original);
         try {
-            MaintenanceMdParser.UpdateOptionValue(path, "nonexistent-task", "if_failing", "fix");
+            CodeHealthMdParser.UpdateOptionValue(path, "nonexistent-task", "if_failing", "fix");
             var content = File.ReadAllText(path);
             // The value: line should still be "report"
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -919,8 +919,8 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            MaintenanceMdParser.UpdateOptionValue(path, "run-tests", "nonexistent_key", "fix");
-            var config = MaintenanceMdParser.Parse(path);
+            CodeHealthMdParser.UpdateOptionValue(path, "run-tests", "nonexistent_key", "fix");
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
             var opt = (config.Tasks ?? [])[0].Options!.Single(o => o.Key == "if_failing");
@@ -932,8 +932,8 @@ internal sealed class MaintenanceMdParserTests {
     [Test]
     public void UpdateOptionValue_FileNotFound_DoesNothing() {
         Assert.DoesNotThrow(() =>
-            MaintenanceMdParser.UpdateOptionValue(
-                @"C:\does\not\exist\maintenance.md", "run-tests", "if_failing", "fix"));
+            CodeHealthMdParser.UpdateOptionValue(
+                @"C:\does\not\exist\code-health.md", "run-tests", "if_failing", "fix"));
     }
 
     [Test]
@@ -996,8 +996,8 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            MaintenanceMdParser.UpdateOptionValue(path, "task-beta", "opt_two", "y");
-            var config = MaintenanceMdParser.Parse(path);
+            CodeHealthMdParser.UpdateOptionValue(path, "task-beta", "opt_two", "y");
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
 
@@ -1041,7 +1041,7 @@ internal sealed class MaintenanceMdParserTests {
             """);
         try {
             Assert.DoesNotThrow(() =>
-                MaintenanceMdParser.UpdateOptionValue(path, "run-tests", "if_failing", "fix"));
+                CodeHealthMdParser.UpdateOptionValue(path, "run-tests", "if_failing", "fix"));
         }
         finally { DeleteTempFile(path); }
     }
@@ -1070,7 +1070,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,            Is.Not.Null,  "config must not be null when configured: false");
             Assert.That(config!.Configured, Is.False,    "Configured must be false");
             Assert.That(config.Tasks,       Is.Not.Null);
@@ -1095,7 +1095,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,             Is.Not.Null);
             Assert.That(config!.Configured,  Is.True);
         }
@@ -1118,7 +1118,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,             Is.Not.Null, "config must not be null when configured: key is absent");
             Assert.That(config!.Configured,  Is.False,   "Configured defaults to false when key is absent");
         }
@@ -1139,7 +1139,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,                  Is.Not.Null);
             Assert.That(config!.EnabledOnIdle,    Is.True, "EnabledOnIdle should be true");
         }
@@ -1158,7 +1158,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,                  Is.Not.Null);
             Assert.That(config!.EnabledOnIdle,    Is.False, "EnabledOnIdle should be false");
         }
@@ -1176,7 +1176,7 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            var config = MaintenanceMdParser.Parse(path);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,                  Is.Not.Null);
             Assert.That(config!.EnabledOnIdle,    Is.False, "EnabledOnIdle must default to false when key absent");
         }
@@ -1195,8 +1195,8 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            MaintenanceMdParser.UpdateEnabledOnIdle(path, true);
-            var config = MaintenanceMdParser.Parse(path);
+            CodeHealthMdParser.UpdateEnabledOnIdle(path, true);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,                  Is.Not.Null);
             Assert.That(config!.EnabledOnIdle,    Is.True, "EnabledOnIdle should be true after UpdateEnabledOnIdle(true)");
         }
@@ -1214,11 +1214,12 @@ internal sealed class MaintenanceMdParserTests {
             ---
             """);
         try {
-            MaintenanceMdParser.UpdateEnabledOnIdle(path, true);
-            var config = MaintenanceMdParser.Parse(path);
+            CodeHealthMdParser.UpdateEnabledOnIdle(path, true);
+            var config = CodeHealthMdParser.Parse(path);
             Assert.That(config,                  Is.Not.Null);
             Assert.That(config!.EnabledOnIdle,    Is.True, "EnabledOnIdle should be inserted and set to true");
         }
         finally { DeleteTempFile(path); }
     }
 }
+

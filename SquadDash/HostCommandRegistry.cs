@@ -38,7 +38,7 @@ internal sealed class HostCommandRegistry {
             ResultBehavior:     HostCommandResultBehavior.Silent),
         new HostCommandDescriptor(
             Name:           "trigger_idle_cycle",
-            Description:    "Forces maintenance mode to start immediately (for testing). Waits for any active prompt/loop to finish first.",
+            Description:    "Forces code health mode to start immediately (for testing). Waits for any active prompt/loop to finish first.",
             Parameters:     Array.Empty<HostCommandParameterDescriptor>(),
             ResultBehavior: HostCommandResultBehavior.Silent),
     ];
@@ -216,3 +216,4 @@ internal sealed class ValidationResult {
     internal static ValidationResult Ok() => new(true, null);
     internal static ValidationResult Fail(string message) => new(false, message);
 }
+

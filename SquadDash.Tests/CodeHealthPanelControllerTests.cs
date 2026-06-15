@@ -9,12 +9,12 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 /// <summary>
-/// Integration tests for <see cref="MaintenancePanelController.Refresh"/>.
+/// Integration tests for <see cref="CodeHealthPanelController.Refresh"/>.
 /// All tests run on a dedicated STA thread via <see cref="WpfTestContext"/> because
 /// WPF controls require an STA apartment.
 /// </summary>
 [TestFixture]
-internal sealed class MaintenancePanelControllerTests {
+internal sealed class CodeHealthPanelControllerTests {
 
     private TestWorkspace _workspace = null!;
 
@@ -26,14 +26,14 @@ internal sealed class MaintenancePanelControllerTests {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static (MaintenancePanelController controller,
+    private static (CodeHealthPanelController controller,
                     StackPanel listPanel,
                     TextBlock  statusLabel)
         CreateController() {
         var listPanel            = new StackPanel();
         var statusLabel          = new TextBlock();
         var enabledOnIdleHost    = new ContentControl();
-        var controller   = new MaintenancePanelController(
+        var controller   = new CodeHealthPanelController(
             listPanel,
             statusLabel,
             enabledOnIdleHost,
@@ -48,10 +48,10 @@ internal sealed class MaintenancePanelControllerTests {
         return (controller, listPanel, statusLabel);
     }
 
-    private static MaintenanceMdConfig MakeConfig(IReadOnlyList<MaintenanceTask>? tasks = null) =>
+    private static CodeHealthMdConfig MakeConfig(IReadOnlyList<CodeHealthTask>? tasks = null) =>
         new(IdleTimeout: 15, MaxTasksPerSession: 5, Safety: "branch", Tasks: tasks ?? []);
 
-    private static MaintenanceTask MakeTask(
+    private static CodeHealthTask MakeTask(
         string id, string title, bool enabled = true, string frequency = "daily", string safety = "branch") =>
         new(id, enabled, frequency, safety, title, "Do work.");
 
@@ -189,7 +189,7 @@ internal sealed class MaintenancePanelControllerTests {
             var (controller, listPanel, _) = CreateController();
             var config = MakeConfig([MakeTask("tracked-task", "Tracked Task")]);
 
-            var store = new MaintenanceStateStore(_workspace.RootPath);
+            var store = new CodeHealthStateStore(_workspace.RootPath);
             store.RecordRun("tracked-task", commitSha: null);
 
             controller.Refresh(config, store);
@@ -226,18 +226,18 @@ internal sealed class MaintenancePanelControllerTests {
     [Test]
     public void Refresh_FirstRun_WhenStateFileAbsent() {
         WpfTestContext.Run(() => {
-            // Point to an empty sub-directory that contains no maintenance-state.json
+            // Point to an empty sub-directory that contains no code-health-state.json
             var emptyDir = Path.Combine(_workspace.RootPath, "empty");
             Directory.CreateDirectory(emptyDir);
 
             var (controller, listPanel, _) = CreateController();
             var config = MakeConfig([MakeTask("new-task", "Brand New Task")]);
 
-            var store = new MaintenanceStateStore(emptyDir);
+            var store = new CodeHealthStateStore(emptyDir);
             store.Reload();  // no file exists — loads empty state gracefully
 
             Assert.DoesNotThrow(() => controller.Refresh(config, store),
-                "Refresh must not throw when no maintenance-state.json exists yet");
+                "Refresh must not throw when no code-health-state.json exists yet");
 
             // The task has never run — no "Last run:" label must appear
             var lastRunBlocks = CollectTextBlocks(listPanel)
@@ -277,14 +277,14 @@ internal sealed class MaintenancePanelControllerTests {
                 CollectButtonsCore(dep, result);
     }
 
-    private static (MaintenancePanelController controller,
+    private static (CodeHealthPanelController controller,
                     StackPanel listPanel,
                     TextBlock  statusLabel)
         CreateControllerWithWorkspace(string? workspacePath) {
         var listPanel            = new StackPanel();
         var statusLabel          = new TextBlock();
         var enabledOnIdleHost    = new ContentControl();
-        var controller   = new MaintenancePanelController(
+        var controller   = new CodeHealthPanelController(
             listPanel,
             statusLabel,
             enabledOnIdleHost,
@@ -321,7 +321,7 @@ internal sealed class MaintenancePanelControllerTests {
     public void ReportsSection_ShowsNoReportsYet_WhenDirectoryEmpty() {
         WpfTestContext.Run(() => {
             var workspacePath = Path.Combine(_workspace.RootPath, "ws_empty");
-            var reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
+            var reportsDir = Path.Combine(workspacePath, ".squad", "code-health-reports");
             Directory.CreateDirectory(reportsDir);
 
             var (controller, listPanel, _) = CreateControllerWithWorkspace(workspacePath);
@@ -343,7 +343,7 @@ internal sealed class MaintenancePanelControllerTests {
     public void ReportsSection_ShowsReportItem_WhenReportExists() {
         WpfTestContext.Run(() => {
             var workspacePath = Path.Combine(_workspace.RootPath, "ws_with_report");
-            var reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
+            var reportsDir = Path.Combine(workspacePath, ".squad", "code-health-reports");
             Directory.CreateDirectory(reportsDir);
 
             var reportContent = """
@@ -385,7 +385,7 @@ internal sealed class MaintenancePanelControllerTests {
     public void ReportsSection_ShowsOneTask_Singular() {
         WpfTestContext.Run(() => {
             var workspacePath = Path.Combine(_workspace.RootPath, "ws_one_task");
-            var reportsDir = Path.Combine(workspacePath, ".squad", "maintenance-reports");
+            var reportsDir = Path.Combine(workspacePath, ".squad", "code-health-reports");
             Directory.CreateDirectory(reportsDir);
 
             var reportContent = """
@@ -476,19 +476,19 @@ internal sealed class MaintenancePanelControllerTests {
     private static string WriteMaintFile(string workspacePath, string content) {
         var squadDir = Path.Combine(workspacePath, ".squad");
         Directory.CreateDirectory(squadDir);
-        var mdPath = Path.Combine(squadDir, "maintenance.md");
+        var mdPath = Path.Combine(squadDir, "code-health.md");
         File.WriteAllText(mdPath, content);
         return mdPath;
     }
 
-    private static (MaintenancePanelController controller,
+    private static (CodeHealthPanelController controller,
                     List<(string taskId, bool enabled)> toggleCalls)
         CreateControllerWithTracking(string workspacePath) {
         var listPanel            = new StackPanel();
         var statusLabel          = new TextBlock();
         var enabledOnIdleHost    = new ContentControl();
         var toggleCalls  = new List<(string, bool)>();
-        var controller   = new MaintenancePanelController(
+        var controller   = new CodeHealthPanelController(
             listPanel,
             statusLabel,
             enabledOnIdleHost,
@@ -590,8 +590,8 @@ internal sealed class MaintenancePanelControllerTests {
             controller.Refresh(config, stateStore: null);
 
             var borders = CollectBorders(listPanel);
-            var taskBorders = borders.Where(b => b.Tag is MaintenanceTask).ToList();
-            var titles = taskBorders.Select(b => ((MaintenanceTask)b.Tag).Title).ToList();
+            var taskBorders = borders.Where(b => b.Tag is CodeHealthTask).ToList();
+            var titles = taskBorders.Select(b => ((CodeHealthTask)b.Tag).Title).ToList();
 
             Assert.Multiple(() => {
                 Assert.That(titles[0], Is.EqualTo("Apple Task"),  "First task should be Apple (alphabetically first)");
@@ -614,8 +614,8 @@ internal sealed class MaintenancePanelControllerTests {
             controller.Refresh(config, stateStore: null);
 
             var borders = CollectBorders(listPanel);
-            var taskBorders = borders.Where(b => b.Tag is MaintenanceTask).ToList();
-            var titles = taskBorders.Select(b => ((MaintenanceTask)b.Tag).Title).ToList();
+            var taskBorders = borders.Where(b => b.Tag is CodeHealthTask).ToList();
+            var titles = taskBorders.Select(b => ((CodeHealthTask)b.Tag).Title).ToList();
 
             Assert.Multiple(() => {
                 Assert.That(titles[0], Is.EqualTo("Apple Task"),   "First should be Apple (case-insensitive)");
@@ -625,3 +625,4 @@ internal sealed class MaintenancePanelControllerTests {
         });
     }
 }
+
