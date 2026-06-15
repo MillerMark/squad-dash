@@ -273,6 +273,15 @@
   initialization failures with only a comment. Add `SquadDashTrace.Write(...)` in the catch block
   so failures are diagnosable when the branch indicator is blank in unusual environments.
 
+- [ ] [Test Infrastructure] Embed squaddash.md resource in SquadDash.Tests.csproj
+  The test `EnsureSquadDashUniverseFiles_WritesSquadDashMdToBothUniversesAndTemplatesUniverses`
+  (SquadDash.Tests/SquadInstallerServiceTests.cs:125) uses `Assume.That` to skip file-content
+  assertions when the embedded `squaddash.md` resource is not compiled into the test assembly.
+  The directory-creation assertion passes but the full test is never exercised in CI.
+  Investigate whether embedding the resource in the .csproj would allow full test coverage,
+  or whether the Assume pattern is intentional. Update test documentation if the pattern
+  is the correct long-term approach.
+
 - [ ] [UX] Flash/highlight PromptAttachmentViewerWindow on re-activation
   When the user clicks the 📎 attachment link a second time, the viewer is brought to front
   (no duplicate spawning) but there's no visual cue that it appeared. Add a brief flash or

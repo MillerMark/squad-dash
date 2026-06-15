@@ -539,7 +539,7 @@ tasks:
         type: radio
         label: If failing tests are found
         tooltip: Fix failures or only report them
-        value: fix
+        value: report
         choices:
           - value: fix
             tooltip: Fix each failing test; commit fixes to the branch
