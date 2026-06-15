@@ -31803,7 +31803,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 };
         }
 
-        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+        var config = CodeHealthMdParser.ParseWithAllSources(workspacePath);
         _codeHealthPanel.Refresh(config, _CodeHealthStateStore);
     }
 
@@ -32323,7 +32323,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var workspacePath = _currentWorkspace?.FolderPath;
         if (workspacePath is null || _codeHealthPanel is null) return;
-        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+        var config = CodeHealthMdParser.ParseWithAllSources(workspacePath);
         _codeHealthPanel.Refresh(config, _CodeHealthStateStore);
     }
 
@@ -32337,7 +32337,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+        var config = CodeHealthMdParser.ParseWithAllSources(workspacePath);
         if (config is null)
         {
             if (isManual) _codeHealthPanel?.ShowTransientStatus("No code-health.md found in this workspace.");
@@ -32431,7 +32431,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         CodeHealthPanelBadge.Visibility = Visibility.Visible;
                     _idleDetectionService?.SetRunnerActive(false);
                     _codeHealthPanel?.OnRunnerCompleted();
-                    var updatedConfig = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+                    var updatedConfig = CodeHealthMdParser.ParseWithAllSources(workspacePath);
                     _codeHealthPanel?.Refresh(updatedConfig, _CodeHealthStateStore);
                     if (isManual && report.RanTaskIds.Count == 0 && report.SkippedTaskIds.Count > 0)
                     {
@@ -32797,7 +32797,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _CodeHealthStateStore ??= new CodeHealthStateStore(Path.Combine(workspacePath, ".squad"));
         _CodeHealthStateStore.Reload();
 
-        var config = CodeHealthMdParser.Parse(Path.Combine(workspacePath, ".squad", "code-health.md"));
+        var config = CodeHealthMdParser.ParseWithAllSources(workspacePath);
         double thresholdMinutes = config?.IdleTimeout ?? 15.0;
 
         _idleDetectionService = new IdleDetectionService();

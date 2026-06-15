@@ -1221,5 +1221,273 @@ internal sealed class CodeHealthMdParserTests {
         }
         finally { DeleteTempFile(path); }
     }
+
+    // ── Override Pattern: Three-file loading with precedence ──────────────────
+
+    [Test]
+    public void ParseAllSources_NoOverridesOrCustom_ReturnsSystemTasks() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var systemPath = Path.Combine(tempDir, ".squad", "code-health.md");
+        var systemContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: system-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "System Task"
+                instructions: "This is from the system file."
+            ---
+            """;
+        File.WriteAllText(systemPath, systemContent);
+
+        try {
+            var tasks = CodeHealthMdParser.ParseAllSources(tempDir);
+            Assert.That(tasks, Has.Count.EqualTo(1));
+            Assert.That(tasks[0].Id, Is.EqualTo("system-task"));
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public void ParseAllSources_WithCustomTasks_ReturnsBoth() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var systemPath = Path.Combine(tempDir, ".squad", "code-health.md");
+        var systemContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: system-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "System Task"
+                instructions: "From system."
+            ---
+            """;
+        File.WriteAllText(systemPath, systemContent);
+
+        var customPath = Path.Combine(tempDir, ".squad", "code-health-custom.md");
+        var customContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: custom-task
+                enabled: true
+                frequency: weekly
+                safety: report-only
+                title: "Custom Task"
+                instructions: "From custom."
+            ---
+            """;
+        File.WriteAllText(customPath, customContent);
+
+        try {
+            var tasks = CodeHealthMdParser.ParseAllSources(tempDir);
+            Assert.That(tasks, Has.Count.EqualTo(2));
+            Assert.That(tasks.Any(t => t.Id == "system-task"), Is.True);
+            Assert.That(tasks.Any(t => t.Id == "custom-task"), Is.True);
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public void ParseAllSources_WithOverrides_OverridesHavePrecedence() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var systemPath = Path.Combine(tempDir, ".squad", "code-health.md");
+        var systemContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: shared-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Original Title"
+                instructions: "Original instructions."
+            ---
+            """;
+        File.WriteAllText(systemPath, systemContent);
+
+        var overridesPath = Path.Combine(tempDir, ".squad", "code-health-overrides.md");
+        var overridesContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: shared-task
+                enabled: false
+                frequency: weekly
+                safety: report-only
+                title: "Overridden Title"
+                instructions: "Overridden instructions."
+            ---
+            """;
+        File.WriteAllText(overridesPath, overridesContent);
+
+        try {
+            var tasks = CodeHealthMdParser.ParseAllSources(tempDir);
+            Assert.That(tasks, Has.Count.EqualTo(1));
+            Assert.That(tasks[0].Id, Is.EqualTo("shared-task"));
+            Assert.That(tasks[0].Title, Is.EqualTo("Overridden Title"),
+                "Override should take precedence over system version");
+            Assert.That(tasks[0].Enabled, Is.False);
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public void IsTaskOverridden_TaskInOverridesFile_ReturnsTrue() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var overridesPath = Path.Combine(tempDir, ".squad", "code-health-overrides.md");
+        var overridesContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: overridden-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Overridden"
+                instructions: "Test."
+            ---
+            """;
+        File.WriteAllText(overridesPath, overridesContent);
+
+        try {
+            Assert.That(CodeHealthMdParser.IsTaskOverridden("overridden-task", tempDir), Is.True);
+            Assert.That(CodeHealthMdParser.IsTaskOverridden("nonexistent-task", tempDir), Is.False);
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public void SaveTaskOverride_CreatesOverridesFile() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var task = new CodeHealthTask(
+            Id: "edited-task",
+            Enabled: true,
+            Frequency: "weekly",
+            Safety: "report-only",
+            Title: "Edited Task",
+            Instructions: "User edited this task.");
+
+        try {
+            CodeHealthMdParser.SaveTaskOverride(task, tempDir);
+
+            var overridesPath = Path.Combine(tempDir, ".squad", "code-health-overrides.md");
+            Assert.That(File.Exists(overridesPath), Is.True, "Overrides file should be created");
+
+            var config = CodeHealthMdParser.Parse(overridesPath);
+            Assert.That(config!.Tasks, Has.Count.EqualTo(1));
+            Assert.That(config.Tasks![0].Id, Is.EqualTo("edited-task"));
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public void RevertTaskToDefault_RemovesTaskFromOverrides() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var overridesPath = Path.Combine(tempDir, ".squad", "code-health-overrides.md");
+        var overridesContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: task-to-revert
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Task to Revert"
+                instructions: "This will be reverted."
+            ---
+            """;
+        File.WriteAllText(overridesPath, overridesContent);
+
+        try {
+            Assert.That(CodeHealthMdParser.IsTaskOverridden("task-to-revert", tempDir), Is.True);
+
+            CodeHealthMdParser.RevertTaskToDefault("task-to-revert", tempDir);
+
+            Assert.That(CodeHealthMdParser.IsTaskOverridden("task-to-revert", tempDir), Is.False);
+            Assert.That(File.Exists(overridesPath), Is.False,
+                "Overrides file should be deleted when it becomes empty");
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public void ShouldShowRevertOption_MatchesIsTaskOverridden() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+
+        var overridesPath = Path.Combine(tempDir, ".squad", "code-health-overrides.md");
+        var overridesContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: overridden
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Overridden"
+                instructions: "Test."
+            ---
+            """;
+        File.WriteAllText(overridesPath, overridesContent);
+
+        try {
+            Assert.That(CodeHealthMdParser.ShouldShowRevertOption("overridden", tempDir),
+                Is.EqualTo(CodeHealthMdParser.IsTaskOverridden("overridden", tempDir)));
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
 }
 
