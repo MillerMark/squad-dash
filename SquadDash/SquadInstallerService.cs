@@ -188,6 +188,7 @@ internal sealed class SquadInstallerService {
             EnsureUniverseMarkdown(templateUniversesDir, "squaddash.md", squadDashMd);
 
             EnsureLoopFiles(activeDirectory);
+            EnsureCodeHealthFile(activeDirectory);
             EnsureCastingStateFiles(activeDirectory);
             PatchCastingPolicy(activeDirectory);
             EnsureCodeHealthStateInGitIgnore(activeDirectory);
@@ -202,6 +203,19 @@ internal sealed class SquadInstallerService {
         EnsureLoopFile(squadDir, "loop-filtered-tasks.md");
         EnsureLoopFile(squadDir, "loop-fix-test-failures.md");
         EnsureLoopFile(squadDir, "loop-interactive-repair.md");
+    }
+
+    private static void EnsureCodeHealthFile(string activeDirectory) {
+        var squadDir = Path.Combine(activeDirectory, ".squad");
+        var destPath = Path.Combine(squadDir, "code-health.md");
+        if (File.Exists(destPath))
+            return;
+
+        var content = LoadEmbeddedMarkdown("code-health.md");
+        if (content is null)
+            return;
+
+        File.WriteAllText(destPath, content, Encoding.UTF8);
     }
 
     private static void EnsureLoopFile(string squadDir, string fileName) {

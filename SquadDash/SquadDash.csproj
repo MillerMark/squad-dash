@@ -67,6 +67,7 @@
     <EmbeddedResource Include="Assets\loop-fix-test-failures.md" />
     <EmbeddedResource Include="Assets\loop-interactive-repair.md" />
     <EmbeddedResource Include="Assets\loop-decompose.md" />
+    <EmbeddedResource Include="Assets\code-health.md" />
   </ItemGroup>
 
   <ItemGroup>
