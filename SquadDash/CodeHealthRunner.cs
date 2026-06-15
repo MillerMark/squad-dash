@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using HandlebarsDotNet;
 
 namespace SquadDash;
 
@@ -100,23 +101,36 @@ internal sealed class CodeHealthRunner {
                 _onTaskStarted(task.Title);
                 runCount++;
 
-                // Runtime safety floor check — log a warning if the global floor overrides the task's declared safety.
-                var effectiveSafety = ApplySafetyFloor(config.Safety, task.Safety);
-                string? safetyOverrideNote = null;
-                if (!string.Equals(effectiveSafety, task.Safety, StringComparison.OrdinalIgnoreCase)) {
-                    safetyOverrideNote = $"Safety downgraded from '{task.Safety}' to '{effectiveSafety}' by global floor.";
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"CodeHealthRunner: task '{task.Id}' safety override — declared '{task.Safety}', effective '{effectiveSafety}' (global floor '{config.Safety}').");
-                }
-
                 var taskStartedAt = DateTimeOffset.UtcNow;
                 var taskStart = Stopwatch.GetTimestamp();
+                string? safetyOverrideNote = null;
                 try {
+                    // Read safety override from state store (set by user via UI)
+                    var safetyOverride = _stateStore.GetSafetyOverride(task.Id);
+                    
+                    // Determine effective safety: override takes precedence, then task default, then global floor
+                    var baseSafety = safetyOverride ?? task.Safety;
+                    var effectiveSafety = ApplySafetyFloor(config.Safety, baseSafety);
+                    
+                    if (!string.Equals(effectiveSafety, task.Safety, StringComparison.OrdinalIgnoreCase)) {
+                        string reason = safetyOverride != null
+                            ? $"overridden by user to '{safetyOverride}'"
+                            : $"downgraded by global floor ('{config.Safety}')";
+                        safetyOverrideNote = $"Safety '{reason}'.";
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"CodeHealthRunner: task '{task.Id}' effective safety '{effectiveSafety}' (declared '{task.Safety}', override '{safetyOverride}', floor '{config.Safety}').");
+                    }
+
                     var lastReviewedSha = _stateStore.GetLastCommitSha(task.Id);
                     var newCommitCount  = NeedsCommitCount(task.Frequency) && commitSha is not null
                         ? await _stateStore.GetCommitCountSinceAsync(task.Id, workspacePath).ConfigureAwait(false)
                         : 0;
-                    var prompt = BuildPrompt(task, config.Safety, startedAt, lastReviewedSha, newCommitCount);
+                    
+                    // Generate dynamic branch name: codehealth/{taskId}/{YYYYMMDD-HHmmss}
+                    var dynamicBranchName = $"codehealth/{task.Id}/{taskStartedAt:yyyyMMdd-HHmmss}";
+                    
+                    var prompt = BuildPrompt(task, config.Safety, effectiveSafety, dynamicBranchName, 
+                        taskStartedAt, lastReviewedSha, newCommitCount);
                     int anchorIndex;
                     string? responseText = null;
 
@@ -289,10 +303,8 @@ internal sealed class CodeHealthRunner {
         return prompt.Trim();
     }
 
-    private static string BuildPrompt(CodeHealthTask task, string globalSafety, DateTimeOffset runDate,
-        string? lastReviewedSha = null, int newCommitCount = 0) {
-        var effectiveSafety = ApplySafetyFloor(globalSafety, task.Safety);
-        var branchName      = $"codehealth/{runDate:yyyyMMdd}-{task.Id}";
+    private static string BuildPrompt(CodeHealthTask task, string globalSafety, string effectiveSafety, 
+        string dynamicBranchName, DateTimeOffset runDate, string? lastReviewedSha = null, int newCommitCount = 0) {
 
         string safetyPrefix;
         string suffix;
@@ -305,7 +317,7 @@ internal sealed class CodeHealthRunner {
         }
         else {
             safetyPrefix = effectiveSafety switch {
-                "branch" => $"Create branch `{branchName}` before making any code changes. Commit to that branch only.\n\n",
+                "branch" => $"Create branch `{dynamicBranchName}` before making any code changes. Commit to that branch only.\n\n",
                 "direct" => "You may commit directly to the current branch.\n\n",
                 _        => string.Empty,
             };
@@ -313,14 +325,32 @@ internal sealed class CodeHealthRunner {
         }
 
         var inboxReminder = "\n\n" + MaintenanceInboxReminder;
+        
+        // First apply option substitution and legacy substitutions
         var instructions  = SubstituteOptions(task.Instructions, task.Options);
+        
+        // Apply legacy {{branch}} substitution for backward compatibility
+        instructions = instructions.Replace("{{branch}}", dynamicBranchName, StringComparison.OrdinalIgnoreCase);
 
-        // Apply {{branch}} substitution so task instructions can reference the computed branch name.
-        instructions = instructions.Replace("{{branch}}", branchName, StringComparison.OrdinalIgnoreCase);
-
-        // Apply commit-range substitutions for commit-frequency tasks.
+        // Apply commit-range substitutions for commit-frequency tasks
         instructions = instructions.Replace("{{last_reviewed_sha}}", lastReviewedSha ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{new_commit_count}}", newCommitCount.ToString(), StringComparison.OrdinalIgnoreCase);
+        
+        // Render instructions with Handlebars using dynamic variables
+        try {
+            var handlebarsEngine = HandlebarsDotNet.Handlebars.Create();
+            var compiledTemplate = handlebarsEngine.Compile(instructions);
+            var context = new {
+                branchName = dynamicBranchName,
+                safety = effectiveSafety.ToLowerInvariant()
+            };
+            instructions = compiledTemplate(context);
+        }
+        catch (Exception ex) {
+            // If Handlebars rendering fails, log and continue with unrendered instructions
+            SquadDashTrace.Write(TraceCategory.General,
+                $"CodeHealthRunner: Handlebars rendering failed for task '{task.Id}': {ex.Message}. Using unrendered instructions.");
+        }
 
         return safetyPrefix + instructions + inboxReminder + suffix;
     }

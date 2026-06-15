@@ -79,6 +79,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Handlebars.Net" Version="2.1.6" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="NAudio" Version="2.3.0" />
@@ -116,8 +117,7 @@
 
   <ItemGroup>
     <SquadDashLauncherBuildInput Include="$(SquadDashLauncherProject)" />
-    <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\..\SquadDashLauncher\**\*.cs"
-                                  Exclude="$(MSBuildProjectDirectory)\..\SquadDashLauncher\bin\**\*;$(MSBuildProjectDirectory)\..\SquadDashLauncher\obj\**\*" />
+    <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\..\SquadDashLauncher\**\*.cs" Exclude="$(MSBuildProjectDirectory)\..\SquadDashLauncher\bin\**\*;$(MSBuildProjectDirectory)\..\SquadDashLauncher\obj\**\*" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\Assets\SquadDash.ico" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\MutexLease.cs" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\JsonFileStorage.cs" />
@@ -135,18 +135,12 @@
     <Copy SourceFiles="$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll" DestinationFolder="$(OutputPath)" Condition="Exists('$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll')" OverwriteReadOnlyFiles="true" />
   </Target>
 
-  <Target Name="BuildStableLauncherIfNeeded"
-          Condition="'$(DesignTimeBuild)' != 'true' and '$(EnableRunSlotDeployment)' == 'true'"
-          Inputs="@(SquadDashLauncherBuildInput)"
-          Outputs="$(SquadDashLauncherPath)">
+  <Target Name="BuildStableLauncherIfNeeded" Condition="'$(DesignTimeBuild)' != 'true' and '$(EnableRunSlotDeployment)' == 'true'" Inputs="@(SquadDashLauncherBuildInput)" Outputs="$(SquadDashLauncherPath)">
     <Message Text="SquadDash launcher changed or missing; rebuilding stable launcher." Importance="high" />
     <MSBuild Projects="$(SquadDashLauncherProject)" Targets="Restore;Build" Properties="Configuration=$(Configuration)" />
   </Target>
 
-  <Target Name="BuildStableLauncherAndDeploy"
-          AfterTargets="Build"
-          DependsOnTargets="BuildStableLauncherIfNeeded"
-          Condition="'$(DesignTimeBuild)' != 'true' and '$(EnableRunSlotDeployment)' == 'true'">
+  <Target Name="BuildStableLauncherAndDeploy" AfterTargets="Build" DependsOnTargets="BuildStableLauncherIfNeeded" Condition="'$(DesignTimeBuild)' != 'true' and '$(EnableRunSlotDeployment)' == 'true'">
     <Exec Command="&quot;$(SquadDashLauncherPath)&quot; --deploy-build-output &quot;$(TargetDir)&quot;" />
   </Target>
 
