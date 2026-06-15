@@ -521,14 +521,21 @@ internal sealed class CodeHealthPanelController {
 
         var rightPanel = new StackPanel { Margin = new Thickness(0) };
 
-        // Title
+        // Title with override indicator
+        var workspacePath = _getWorkspacePath();
+        var isOverridden = workspacePath is not null && CodeHealthMdParser.IsTaskOverridden(task.Id, workspacePath);
+        var titleText = isOverridden ? $"{task.Title} *" : task.Title;
         var titleBlock = new TextBlock {
-            Text         = task.Title,
+            Text         = titleText,
             TextWrapping = TextWrapping.Wrap,
             Margin       = new Thickness(0, -3, 0, 2),
+            FontWeight   = isOverridden ? FontWeights.Bold : FontWeights.Normal,
+            FontStyle    = isOverridden ? FontStyles.Italic : FontStyles.Normal,
         };
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        if (isOverridden)
+            titleBlock.ToolTip = MakeThemedToolTip("This task has been customized. Click 'Revert to Default Implementation' to restore the system version.");
         rightPanel.Children.Add(titleBlock);
 
         // Chips: frequency picker + safety — only visible when task is enabled
@@ -658,7 +665,7 @@ internal sealed class CodeHealthPanelController {
             }
             
             // Add task-specific options
-            if (hasTaskOptions) {
+            if (hasTaskOptions && task.Options is not null) {
                 foreach (var opt in task.Options) {
                     if (!string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) &&
                         opt.Label is { Length: > 0 }) {
@@ -777,7 +784,7 @@ internal sealed class CodeHealthPanelController {
 
         rightColumn.Children.Add(rightPanel);
 
-        // Per-task context menu — "Run Now" and "Edit Task"
+        // Per-task context menu — "Run Now", "Edit Task", and optionally "Revert to Default Implementation"
         var taskMenu    = new ContextMenu();
         taskMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
         var runNowItem = new MenuItem { Header = "Run Now" };
@@ -806,6 +813,30 @@ internal sealed class CodeHealthPanelController {
             editor.Show();
         };
         taskMenu.Items.Add(editTaskItem);
+        
+        // Add "Revert to Default Implementation" if task is overridden
+        if (workspacePath is not null && CodeHealthMdParser.ShouldShowRevertOption(task.Id, workspacePath)) {
+            var revertSeparator = new Separator();
+            revertSeparator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+            taskMenu.Items.Add(revertSeparator);
+            
+            var revertItem = new MenuItem { Header = "Revert to Default Implementation" };
+            revertItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            var capturedTaskId = task.Id;
+            var capturedWorkspacePath = workspacePath;
+            revertItem.Click += (_, _) => {
+                try {
+                    CodeHealthMdParser.RevertTaskToDefault(capturedTaskId, capturedWorkspacePath);
+                    _reloadPanel();
+                }
+                catch (Exception ex) {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"CodeHealthPanelController: failed to revert task '{capturedTaskId}': {ex.Message}");
+                }
+            };
+            taskMenu.Items.Add(revertItem);
+        }
+        
         row.ContextMenu = taskMenu;
 
         return row;

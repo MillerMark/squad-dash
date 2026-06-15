@@ -219,18 +219,18 @@ internal sealed class GitIgnoreMaintenanceStateTests {
     public void TearDown() => _workspace.Dispose();
 
     [Test]
-    public void EnsureMaintenanceStateInGitIgnore_AppendsEntry_WhenGitIgnoreExists_AndEntryAbsent() {
+    public void EnsureCodeHealthStateInGitIgnore_AppendsEntry_WhenGitIgnoreExists_AndEntryAbsent() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
         File.WriteAllText(gitIgnorePath, "node_modules\n");
 
-        var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
+        var result = SquadInstallerService.EnsureCodeHealthStateInGitIgnore(_workspace.RootPath);
 
         Assert.That(result, Is.True);
         Assert.That(File.ReadAllText(gitIgnorePath), Does.Contain("code-health-state.json"));
     }
 
     [Test]
-    public void EnsureMaintenanceStateInGitIgnore_NoChange_WhenEntryAlreadyPresent() {
+    public void EnsureCodeHealthStateInGitIgnore_NoChange_WhenEntryAlreadyPresent() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
         var allEntries = "node_modules\n.squad/inbox/\n.squad/orchestration-log/\n.squad/log/\n" +
                          ".squad/decisions/inbox/\n.squad/sessions/\n.squad-workstream\n" +
@@ -238,18 +238,18 @@ internal sealed class GitIgnoreMaintenanceStateTests {
         File.WriteAllText(gitIgnorePath, allEntries);
         var originalLineCount = File.ReadAllLines(gitIgnorePath).Length;
 
-        var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
+        var result = SquadInstallerService.EnsureCodeHealthStateInGitIgnore(_workspace.RootPath);
 
         Assert.That(result, Is.False);
         Assert.That(File.ReadAllLines(gitIgnorePath).Length, Is.EqualTo(originalLineCount));
     }
 
     [Test]
-    public void EnsureMaintenanceStateInGitIgnore_CreatesGitIgnore_WhenFileAbsent() {
+    public void EnsureCodeHealthStateInGitIgnore_CreatesGitIgnore_WhenFileAbsent() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
         Assert.That(File.Exists(gitIgnorePath), Is.False);
 
-        var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
+        var result = SquadInstallerService.EnsureCodeHealthStateInGitIgnore(_workspace.RootPath);
 
         Assert.That(result, Is.True);
         Assert.That(File.Exists(gitIgnorePath), Is.True);
@@ -259,14 +259,14 @@ internal sealed class GitIgnoreMaintenanceStateTests {
     }
 
     [Test]
-    public void EnsureMaintenanceStateInGitIgnore_CaseInsensitive_ExistingEntry() {
+    public void EnsureCodeHealthStateInGitIgnore_CaseInsensitive_ExistingEntry() {
         var gitIgnorePath = Path.Combine(_workspace.RootPath, ".gitignore");
         var allEntriesCased = ".SQUAD/INBOX/\n.SQUAD/ORCHESTRATION-LOG/\n.SQUAD/LOG/\n" +
                               ".SQUAD/DECISIONS/INBOX/\n.SQUAD/SESSIONS/\n.SQUAD-WORKSTREAM\n" +
                               "code-health-state.json\n.SQUAD/code-health-reports/\n";
         File.WriteAllText(gitIgnorePath, allEntriesCased);
 
-        var result = SquadInstallerService.EnsureMaintenanceStateInGitIgnore(_workspace.RootPath);
+        var result = SquadInstallerService.EnsureCodeHealthStateInGitIgnore(_workspace.RootPath);
 
         Assert.That(result, Is.False);
     }

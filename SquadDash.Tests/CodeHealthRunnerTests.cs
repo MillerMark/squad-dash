@@ -474,8 +474,8 @@ internal sealed class CodeHealthRunnerTests {
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
         var expectedDate = DateTimeOffset.UtcNow.ToString("yyyyMMdd");
-        Assert.That(capturedPrompt, Does.Contain("maintenance/").IgnoreCase,
-            "branch prompt must contain the 'maintenance/' prefix");
+        Assert.That(capturedPrompt, Does.Contain("codehealth/").IgnoreCase,
+            "branch prompt must contain the 'codehealth/' prefix");
         Assert.That(capturedPrompt, Does.Contain("my-task"),
             "branch prompt must contain the task slug");
         Assert.That(capturedPrompt, Does.Contain(expectedDate),

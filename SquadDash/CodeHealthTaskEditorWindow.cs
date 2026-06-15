@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -249,6 +250,13 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _pttTitle.Dispose();
         _pttOptions.Dispose();
         _pttInstructions.Dispose();
+    }
+
+    /// <summary>Checks if the given file path is the system code-health.md file.</summary>
+    private static bool IsSystemCodeHealthFile(string filePath, string workspacePath) {
+        var expectedSystemPath = Path.Combine(workspacePath, ".squad", "code-health.md");
+        return string.Equals(Path.GetFullPath(filePath), Path.GetFullPath(expectedSystemPath), 
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -697,7 +705,17 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
         if (!string.IsNullOrEmpty(_task.SourceFilePath)) {
             try {
-                CodeHealthMdParser.UpdateTask(_task.SourceFilePath, _task.Id, updatedTask);
+                // Determine if this is a system task (from code-health.md)
+                // If so, save as override; otherwise use normal update
+                var workspacePath = Path.GetDirectoryName(Path.GetDirectoryName(_task.SourceFilePath));
+                if (workspacePath is not null && IsSystemCodeHealthFile(_task.SourceFilePath, workspacePath)) {
+                    // This is a system task, save as override
+                    CodeHealthMdParser.SaveTaskOverride(updatedTask, workspacePath);
+                }
+                else {
+                    // This is a custom or override task, use normal update
+                    CodeHealthMdParser.UpdateTask(_task.SourceFilePath, _task.Id, updatedTask);
+                }
             }
             catch (Exception ex) {
                 SquadDashTrace.Write(TraceCategory.General,
