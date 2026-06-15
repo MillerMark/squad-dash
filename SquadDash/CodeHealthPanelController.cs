@@ -595,8 +595,11 @@ internal sealed class CodeHealthPanelController {
             rightPanel.Children.Add(lastRunBlock);
         }
 
-        // Gear button + popup (if task has options)
-        if (task.Options is { Count: > 0 }) {
+        // Gear button + popup (if task has options OR has safety options)
+        bool hasSafetyOptions = task.HasSafetyOptions;
+        bool hasTaskOptions = task.Options is { Count: > 0 };
+        
+        if (hasTaskOptions || hasSafetyOptions) {
             var popupOptionsPanel = new StackPanel { Margin = new Thickness(0) };
             var popupTitleBlock = new TextBlock {
                 Text         = task.Title,
@@ -606,67 +609,118 @@ internal sealed class CodeHealthPanelController {
             popupTitleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             popupTitleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             popupOptionsPanel.Children.Add(popupTitleBlock);
-            foreach (var opt in task.Options) {
-                if (!string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) &&
-                    opt.Label is { Length: > 0 }) {
-                    var labelBlock = new TextBlock {
-                        Text         = opt.Label,
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin       = new Thickness(0, 2, 0, 1),
+            
+            // Add safety options radio buttons if enabled
+            if (hasSafetyOptions) {
+                var safetyLabel = new TextBlock {
+                    Text         = "Safety Level",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin       = new Thickness(0, 2, 0, 1),
+                };
+                safetyLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+                safetyLabel.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                safetyLabel.ToolTip = MakeThemedToolTip("Control execution scope: report-only (no changes), branch (create branch), or direct (current branch)");
+                popupOptionsPanel.Children.Add(safetyLabel);
+                
+                var currentSafety = _viewModel.StateStore?.GetSafetyOverride(task.Id) ?? task.Safety;
+                
+                var safetyOptions = new[] {
+                    ("report-only", "Report Only (no code changes)"),
+                    ("branch",      "Branch (create before changes)"),
+                    ("direct",      "Direct (changes on this branch)"),
+                };
+                
+                foreach (var (safetyValue, safetyLabel2) in safetyOptions) {
+                    var rb = new RadioButton {
+                        Content   = safetyLabel2,
+                        GroupName = $"task-{task.Id}-safety",
+                        IsChecked = string.Equals(safetyValue, currentSafety, StringComparison.OrdinalIgnoreCase),
+                        Margin    = new Thickness(8, 1, 0, 2),
                     };
-                    labelBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-                    labelBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-                    if (!string.IsNullOrEmpty(opt.Tooltip))
-                        labelBlock.ToolTip = MakeThemedToolTip(opt.Tooltip);
-                    popupOptionsPanel.Children.Add(labelBlock);
+                    rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
+                    rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
+                    rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
+                    var capturedSafetyValue = safetyValue;
+                    var capturedTaskId = task.Id;
+                    var capturedStateStore = _viewModel.StateStore;
+                    rb.Checked += (_, _) => {
+                        capturedStateStore?.SetSafetyOverride(capturedTaskId, capturedSafetyValue);
+                    };
+                    popupOptionsPanel.Children.Add(rb);
                 }
-                if (opt.Choices is { Count: > 0 }) {
-                    foreach (var choice in opt.Choices) {
-                        var rb = new RadioButton {
-                            Content   = choice.Value,
-                            GroupName = $"task-{task.Id}-{opt.Key}",
-                            IsChecked = string.Equals(choice.Value, opt.RawValue, StringComparison.OrdinalIgnoreCase),
-                            Margin    = new Thickness(8, 1, 0, 2),
+                
+                // Add separator if there are task options
+                if (hasTaskOptions) {
+                    var optionsSeparator = new Separator { Margin = new Thickness(0, 4, 0, 4) };
+                    optionsSeparator.SetResourceReference(Separator.BackgroundProperty, "SubtleBorder");
+                    popupOptionsPanel.Children.Add(optionsSeparator);
+                }
+            }
+            
+            // Add task-specific options
+            if (hasTaskOptions) {
+                foreach (var opt in task.Options) {
+                    if (!string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) &&
+                        opt.Label is { Length: > 0 }) {
+                        var labelBlock = new TextBlock {
+                            Text         = opt.Label,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin       = new Thickness(0, 2, 0, 1),
                         };
-                        rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
-                        rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
-                        rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
-                        if (!string.IsNullOrEmpty(choice.Tooltip))
-                            rb.ToolTip = MakeThemedToolTip(choice.Tooltip);
+                        labelBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+                        labelBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                        if (!string.IsNullOrEmpty(opt.Tooltip))
+                            labelBlock.ToolTip = MakeThemedToolTip(opt.Tooltip);
+                        popupOptionsPanel.Children.Add(labelBlock);
+                    }
+                    if (opt.Choices is { Count: > 0 }) {
+                        foreach (var choice in opt.Choices) {
+                            var rb = new RadioButton {
+                                Content   = choice.Value,
+                                GroupName = $"task-{task.Id}-{opt.Key}",
+                                IsChecked = string.Equals(choice.Value, opt.RawValue, StringComparison.OrdinalIgnoreCase),
+                                Margin    = new Thickness(8, 1, 0, 2),
+                            };
+                            rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
+                            rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
+                            rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
+                            if (!string.IsNullOrEmpty(choice.Tooltip))
+                                rb.ToolTip = MakeThemedToolTip(choice.Tooltip);
+                            var capturedPath   = GetMaintenanceMdPath();
+                            var capturedTaskId = task.Id;
+                            var capturedOptKey = opt.Key;
+                            var capturedValue  = choice.Value;
+                            rb.Checked += (_, _) => {
+                                if (capturedPath is not null)
+                                    CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, capturedValue);
+                            };
+                            popupOptionsPanel.Children.Add(rb);
+                        }
+                    }
+                    else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+                        var isChecked = IsStringTrueValue(opt.RawValue);
+                        var cb = new CheckBox {
+                            Content   = opt.Label ?? opt.Key,
+                            IsChecked = isChecked,
+                            Margin    = new Thickness(0, 1, 0, 1),
+                        };
+                        cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeBody");
+                        cb.SetResourceReference(CheckBox.ForegroundProperty, "ImportantText");
+                        if (!string.IsNullOrEmpty(opt.Tooltip))
+                            cb.ToolTip = MakeThemedToolTip(opt.Tooltip);
                         var capturedPath   = GetMaintenanceMdPath();
                         var capturedTaskId = task.Id;
                         var capturedOptKey = opt.Key;
-                        var capturedValue  = choice.Value;
-                        rb.Checked += (_, _) => {
+                        cb.Checked += (_, _) => {
                             if (capturedPath is not null)
-                                CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, capturedValue);
+                                CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "true");
                         };
-                        popupOptionsPanel.Children.Add(rb);
+                        cb.Unchecked += (_, _) => {
+                            if (capturedPath is not null)
+                                CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
+                        };
+                        popupOptionsPanel.Children.Add(cb);
                     }
-                }
-                else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
-                    var isChecked = IsStringTrueValue(opt.RawValue);
-                    var cb = new CheckBox {
-                        Content   = opt.Label ?? opt.Key,
-                        IsChecked = isChecked,
-                        Margin    = new Thickness(0, 1, 0, 1),
-                    };
-                    cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeBody");
-                    cb.SetResourceReference(CheckBox.ForegroundProperty, "ImportantText");
-                    if (!string.IsNullOrEmpty(opt.Tooltip))
-                        cb.ToolTip = MakeThemedToolTip(opt.Tooltip);
-                    var capturedPath   = GetMaintenanceMdPath();
-                    var capturedTaskId = task.Id;
-                    var capturedOptKey = opt.Key;
-                    cb.Checked += (_, _) => {
-                        if (capturedPath is not null)
-                            CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "true");
-                    };
-                    cb.Unchecked += (_, _) => {
-                        if (capturedPath is not null)
-                            CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
-                    };
-                    popupOptionsPanel.Children.Add(cb);
                 }
             }
 

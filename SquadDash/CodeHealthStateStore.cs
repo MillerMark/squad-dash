@@ -172,6 +172,21 @@ internal sealed class CodeHealthStateStore {
         return null;
     }
 
+    /// <summary>Returns the safety override for the task, or null if not set.</summary>
+    public string? GetSafetyOverride(string taskId) {
+        if (_tasks.TryGetValue(taskId, out var state))
+            return state.SafetyOverride;
+        return null;
+    }
+
+    /// <summary>Sets the safety override for the task.</summary>
+    public void SetSafetyOverride(string taskId, string? safetyLevel) {
+        if (!_tasks.TryGetValue(taskId, out var state))
+            state = _tasks[taskId] = new TaskState();
+        state.SafetyOverride = safetyLevel;
+        Persist();
+    }
+
     /// <summary>
     /// Returns the number of commits between the task's last-run SHA and HEAD,
     /// using the injected commit counter. Returns 0 if the task has no recorded baseline.
@@ -208,6 +223,7 @@ internal sealed class CodeHealthStateStore {
                 w.WriteStartObject();
                 w.WriteString("lastRunAt",    state.LastRunAt?.ToString("O") ?? "");
                 w.WriteString("lastCommitSha", state.LastCommitSha ?? "");
+                w.WriteString("safetyOverride", state.SafetyOverride ?? "");
                 w.WriteEndObject();
             }
             w.WriteEndObject();
@@ -233,6 +249,8 @@ internal sealed class CodeHealthStateStore {
         }
         if (el.TryGetProperty("lastCommitSha", out var sha) && sha.ValueKind == JsonValueKind.String)
             s.LastCommitSha = sha.GetString();
+        if (el.TryGetProperty("safetyOverride", out var safety) && safety.ValueKind == JsonValueKind.String)
+            s.SafetyOverride = safety.GetString();
         return s;
     }
 
@@ -267,8 +285,9 @@ internal sealed class CodeHealthStateStore {
     }
 
     private sealed class TaskState {
-        public DateTime? LastRunAt    { get; set; }
+        public DateTime? LastRunAt     { get; set; }
         public string?   LastCommitSha { get; set; }
+        public string?   SafetyOverride { get; set; }  // "report-only", "branch", or "direct"
     }
 }
 

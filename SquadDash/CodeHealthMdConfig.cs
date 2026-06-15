@@ -20,5 +20,6 @@ internal sealed record CodeHealthTask(
     string                   Title,
     string                   Instructions,
     IReadOnlyList<CodeHealthOption>? Options = null,
+    bool                     HasSafetyOptions = false,
     string                   SourceFilePath = "");
 

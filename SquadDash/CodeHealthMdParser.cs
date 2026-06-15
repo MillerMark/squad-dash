@@ -313,12 +313,13 @@ internal static class CodeHealthMdParser {
         var val = field[(colonIdx + 1)..].Trim().Trim('"', '\'');
 
         switch (key) {
-            case "id":           task.Id           = val; break;
-            case "enabled":      task.Enabled      = string.Equals(val, "true", System.StringComparison.OrdinalIgnoreCase); break;
-            case "frequency":    task.Frequency    = val; break;
-            case "safety":       task.Safety       = val; break;
-            case "title":        task.Title        = val; break;
-            case "instructions": task.Instructions = val; break;
+            case "id":                   task.Id               = val; break;
+            case "enabled":              task.Enabled          = string.Equals(val, "true", System.StringComparison.OrdinalIgnoreCase); break;
+            case "frequency":            task.Frequency        = val; break;
+            case "safety":               task.Safety           = val; break;
+            case "title":                task.Title            = val; break;
+            case "instructions":         task.Instructions     = val; break;
+            case "has_safety_options":   task.HasSafetyOptions = string.Equals(val, "true", System.StringComparison.OrdinalIgnoreCase); break;
         }
     }
 
@@ -615,6 +616,8 @@ internal static class CodeHealthMdParser {
         lines.Add($"    frequency: {t.Frequency}");
         lines.Add($"    safety: {t.Safety}");
         lines.Add($"    title: {t.Title}");
+        if (t.HasSafetyOptions)
+            lines.Add($"    has_safety_options: true");
         lines.Add("    instructions: |");
 
         // Instructions block scalar: content indented 6 spaces
@@ -758,24 +761,26 @@ internal static class CodeHealthMdParser {
     // ── Mutable builder ───────────────────────────────────────────────────────
 
     private sealed class CodeHealthTaskBuilder {
-        public string  Id           { get; set; } = "";
-        public bool    Enabled      { get; set; } = false;
-        public string  Frequency    { get; set; } = "daily";
-        public string  Safety       { get; set; } = "";
-        public string  Title        { get; set; } = "";
-        public string  Instructions { get; set; } = "";
+        public string  Id               { get; set; } = "";
+        public bool    Enabled          { get; set; } = false;
+        public string  Frequency        { get; set; } = "daily";
+        public string  Safety           { get; set; } = "";
+        public string  Title            { get; set; } = "";
+        public string  Instructions     { get; set; } = "";
+        public bool    HasSafetyOptions { get; set; } = false;
         public List<CodeHealthOption>? BuiltOptions { get; set; }
 
         public CodeHealthTask Build(string globalSafety, string sourceFilePath = "") =>
             new(
-                Id:             Id,
-                Enabled:        Enabled,
-                Frequency:      Frequency,
-                Safety:         EnforceSafetyFloor(globalSafety, Safety),
-                Title:          Title.Length > 0 ? Title : Id,
-                Instructions:   Instructions,
-                Options:        BuiltOptions,
-                SourceFilePath: sourceFilePath);
+                Id:                 Id,
+                Enabled:            Enabled,
+                Frequency:          Frequency,
+                Safety:             EnforceSafetyFloor(globalSafety, Safety),
+                Title:              Title.Length > 0 ? Title : Id,
+                Instructions:       Instructions,
+                Options:            BuiltOptions,
+                HasSafetyOptions:   HasSafetyOptions,
+                SourceFilePath:     sourceFilePath);
     }
 
     private sealed class CodeHealthOptionBuilder {
