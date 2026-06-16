@@ -740,6 +740,10 @@
                               Header="Approvals"
                               IsCheckable="True"
                               Click="ViewCommitApprovalsMenuItem_Click" />
+                    <MenuItem x:Name="ViewCodeHealthMenuItem"
+                              Header="Code Health"
+                              IsCheckable="True"
+                              Click="ViewCodeHealthMenuItem_Click" />
                     <MenuItem x:Name="ViewInboxMenuItem"
                               Header="Inbox"
                               IsCheckable="True"
@@ -748,10 +752,6 @@
                               Header="Loop"
                               IsCheckable="True"
                               Click="ViewLoopPanelMenuItem_Click" />
-                    <MenuItem x:Name="ViewCodeHealthMenuItem"
-                              Header="Code Health"
-                              IsCheckable="True"
-                              Click="ViewCodeHealthMenuItem_Click" />
                     <MenuItem x:Name="ViewNotesMenuItem"
                               Header="Notes"
                               IsCheckable="True"
