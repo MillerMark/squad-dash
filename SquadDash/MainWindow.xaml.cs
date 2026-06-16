@@ -26247,13 +26247,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            var headPath = Path.Combine(workspaceFolder, ".git", "HEAD");
-            if (!File.Exists(headPath)) return string.Empty;
-            var content = File.ReadAllText(headPath).Trim();
-            const string prefix = "ref: refs/heads/";
-            if (content.StartsWith(prefix, StringComparison.Ordinal))
-                return content[prefix.Length..].Trim();
-            return content.Length >= 7 ? $"(detached {content[..7]})" : "(detached)";
+            // Walk up the directory tree to find .git/HEAD — handles workspaces that
+            // are subdirectories of the actual repository root (e.g. C:\Repo\Package).
+            var dir = workspaceFolder;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                var headPath = Path.Combine(dir, ".git", "HEAD");
+                if (File.Exists(headPath))
+                {
+                    var content = File.ReadAllText(headPath).Trim();
+                    const string prefix = "ref: refs/heads/";
+                    if (content.StartsWith(prefix, StringComparison.Ordinal))
+                        return content[prefix.Length..].Trim();
+                    return content.Length >= 7 ? $"(detached {content[..7]})" : "(detached)";
+                }
+                dir = Path.GetDirectoryName(dir)!;
+            }
+            return string.Empty;
         }
         catch
         {
