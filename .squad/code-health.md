@@ -64,71 +64,47 @@ tasks:
     enabled: true
     frequency: monthly
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Architectural Practice Review
     instructions: |
       Review the codebase for larger architectural problems: poor separation of
       concerns, leaky abstractions, god objects, circular dependencies, missing
       service boundaries, wrong layer responsibilities, etc.
 
-      {{#if if_found == "branch"}}
+      {{#if safety == "branch"}}
       Create a maintenance branch named: {{branchName}}
       Implement the improvements you identify and commit to that branch.
       Document your reasoning in commit messages.
       {{/if}}
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. Write a structured report of each finding:
       problem description, affected files/layers, and a recommended fix.
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
       (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If architectural issues are found
-        tooltip: "Implement improvements or produce a report"
-        value: report
-        choices:
-          - value: branch
-            tooltip: Implement improvements on a maintenance branch
-          - value: report
-            tooltip: Write a report — do not change any code
 
   - id: code-smells
     enabled: false
     frequency: weekly-Saturday
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Code Smell Cleanup
     instructions: |
       Scan the codebase for code smells: poor readability, long methods, unclear
       naming, overly complex conditionals, dead code, unnecessary abstraction,
       inefficient patterns, missing null checks, etc.
 
-      {{#if if_found == "fix"}}
+      {{#if safety == "direct"}}
       Address smells inline on the current branch.
       {{/if}}
-      {{#if if_found == "branch"}}
+      {{#if safety == "branch"}}
       Create a maintenance branch named: {{branchName}} and address smells there.
       {{/if}}
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. List each smell with file path, structural anchor,
       category, and a brief description of the issue and suggested fix. Send the
       report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If code smells are found
-        tooltip: "Fix inline, use a branch, or report only"
-        value: report
-        choices:
-          - value: fix
-            tooltip: Address smells inline on the current branch
-          - value: branch
-            tooltip: Create a maintenance branch and address smells there
-          - value: report
-            tooltip: List each smell — do not change any code
 
   - id: commit-review
     enabled: true
@@ -150,7 +126,7 @@ tasks:
     enabled: true
     frequency: weekly-Sunday
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Documentation Review
     instructions: |
       Review the documentation in the `docs/` folder (or the repo's primary docs
@@ -172,7 +148,7 @@ tasks:
          other page (no inbound links from within the docs tree). These may be
          forgotten or accidentally unpublished pages.
       
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any files. Produce a structured report grouped by issue type,
       listing file path, structural anchor (e.g. `## Section > ### Subsection`),
       and a description of each problem found. Include a severity: Warning for
@@ -180,65 +156,41 @@ tasks:
       concerns. Send the report to the user's Inbox using an `INBOX_MESSAGE_JSON`
       block (from: "argus-weld").
       {{/if}}
-      {{#if if_found == "fix"}}
+      {{#if safety == "branch"}}
       Correct accuracy issues and fix broken links where possible (e.g. update a
       link target, remove a dead link). Commit changes to a maintenance branch named: {{branchName}}.
       Items that require human judgment (accuracy rewrites, missing images) should
       still be reported.
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If documentation issues are found
-        tooltip: Produce a report or fix what can be fixed automatically
-        value: report
-        choices:
-          - value: report
-            tooltip: Write a report — do not change any files
-          - value: fix
-            tooltip: Fix auto-correctable issues on a maintenance branch; report the rest
   - id: eliminate-duplication
     enabled: false
     frequency: daily
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Eliminate Code Duplication
     instructions: |
       Scan the codebase for duplicated logic — identical or near-identical code
       blocks, copy-pasted utility functions, repeated patterns that should be
       extracted. Focus on meaningful duplication (not trivial one-liners).
 
-      {{#if if_found == "fix"}}
+      {{#if safety == "direct"}}
       Refactor inline on the current branch. Extract shared logic, update all
       call sites, ensure tests still pass.
       {{/if}}
-      {{#if if_found == "branch"}}
+      {{#if safety == "branch"}}
       Create a maintenance branch named: {{branchName}} and refactor there.
       {{/if}}
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. List each duplication instance with file paths,
       structural anchors, and a brief description of the shared logic. Send the
       report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If duplication is found
-        tooltip: "Refactor now, create a branch, or just report"
-        value: report
-        choices:
-          - value: fix
-            tooltip: Refactor inline on the current branch
-          - value: branch
-            tooltip: Create a maintenance branch and refactor there
-          - value: report
-            tooltip: List each instance — do not change any code
 
   - id: error-handling-audit
     enabled: true
     frequency: weekly-Thursday
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Error Handling Audit
     instructions: |
       Audit the codebase for error-handling gaps and unsafe exception patterns.
@@ -355,7 +307,7 @@ tasks:
           - Go: `ctx.Done()` channel never selected on in long-running goroutines
           Swallowing cancellation breaks cooperative shutdown and resource cleanup.
 
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. Produce a structured report grouped by category,
       then by severity within each category. For each finding include:
       - File path and structural anchor (ClassName.MethodName or equivalent)
@@ -369,7 +321,7 @@ tasks:
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
       (from: "argus-weld").
       {{/if}}
-      {{#if if_found == "fix"}}
+      {{#if safety == "branch"}}
       Fix issues that are safe to patch automatically on a maintenance branch named: {{branchName}}:
       - Add logging to silent catch/error blocks where the failure is non-trivial
       - Wrap bare UI event handlers in try-catch / .catch() with appropriate logging
@@ -379,54 +331,32 @@ tasks:
       error handlers) should be reported instead in an INBOX_MESSAGE_JSON block
       (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If error-handling gaps are found
-        tooltip: "Produce a report or patch safe fixes automatically"
-        value: report
-        choices:
-          - value: report
-            tooltip: Write a structured report — do not change any code
-          - value: fix
-            tooltip: Patch safe fixes on a maintenance branch; report the rest
 
   - id: magic-numbers
     enabled: false
     frequency: daily
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Extract Magic Numbers and Hardcoded Strings
     instructions: |
       Scan the codebase for magic numbers (numeric literals used in logic without
       explanation) and hardcoded strings that belong in named constants or
       configuration (connection strings, URLs, thresholds, timeouts, limits, etc.).
 
-      {{#if if_found == "extract"}}
+      {{#if safety == "branch"}}
       Extract each magic value into a named constant or config entry. Update all
       references. Commit to a maintenance branch named: {{branchName}}.
       {{/if}}
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. List each instance with file path, structural anchor
       (e.g. ClassName.MethodName), the literal value, and a suggested constant name.
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If magic numbers or hardcoded strings are found
-        tooltip: "Extract to constants or report them"
-        value: report
-        choices:
-          - value: extract
-            tooltip: Extract to named constants; commit to a maintenance branch
-          - value: report
-            tooltip: List each instance — do not change any code
 
   - id: naming-conventions
     enabled: false
     frequency: daily
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Naming Convention Audit
     instructions: |
       Audit the codebase for naming inconsistencies:
@@ -436,33 +366,22 @@ tasks:
       - Abbreviations used in some places but not others
       - Test method naming inconsistencies
 
-      {{#if if_found == "fix"}}
+      {{#if safety == "direct"}}
       Rename inconsistencies directly on the current branch. Update all
       references. Ensure the project still builds.
       {{/if}}
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. List each inconsistency with file path, structural
       anchor (e.g. ClassName.MethodName), current name, and suggested name.
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
       (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If naming inconsistencies are found
-        tooltip: "Rename inconsistencies or produce a report"
-        value: report
-        choices:
-          - value: fix
-            tooltip: Rename directly on the current branch; update all references
-          - value: report
-            tooltip: List each inconsistency — do not change any code
 
   - id: speed-improvements
     enabled: true
     frequency: daily
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Performance Improvements
     instructions: |
       Review the codebase for performance opportunities: inefficient algorithms,
@@ -470,31 +389,18 @@ tasks:
       synchronous I/O where async would improve throughput, LINQ queries that
       could be rewritten, N+1 query patterns, etc.
 
-      {{#if if_found == "fix"}}
+      {{#if safety == "direct"}}
       Implement optimisations inline on the current branch. Add a brief comment
       explaining the change where the improvement is non-obvious.
       {{/if}}
-      {{#if if_found == "branch"}}
+      {{#if safety == "branch"}}
       Create a maintenance branch named: {{branchName}} and implement improvements there.
       {{/if}}
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. Describe each opportunity, its likely impact, and
       the recommended approach. Send the report to the user's Inbox using an
       INBOX_MESSAGE_JSON block (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If performance opportunities are found
-        tooltip: "Implement optimisations or report opportunities"
-        value: report
-        choices:
-          - value: fix
-            tooltip: Implement optimisations inline on the current branch
-          - value: branch
-            tooltip: Create a maintenance branch for the optimisations
-          - value: report
-            tooltip: Describe each opportunity — do not change any code
 
   - id: prune-tasks
     enabled: true
@@ -530,37 +436,26 @@ tasks:
     enabled: true
     frequency: daily
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Run Tests
     instructions: |
       Run all tests in the repository. Use the appropriate test runner for this
       project (e.g. `dotnet test`, `npm test`, `go test ./...`).
       
-      {{#if if_failing == "fix"}}
+      {{#if safety == "branch"}}
       Diagnose each failing test. Fix the root cause in source — do not delete
       tests or weaken assertions. Commit all fixes to the branch named: {{branchName}}.
       {{/if}}
-      {{#if if_failing == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. Write a summary of every failing test, the error
       message, and your diagnosis of the likely cause. Send the report to the
       user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
       {{/if}}
-    options:
-      if_failing:
-        type: radio
-        label: If failing tests are found
-        tooltip: Fix failures or only report them
-        value: report
-        choices:
-          - value: fix
-            tooltip: Fix each failing test; commit fixes to the branch
-          - value: report
-            tooltip: Report failures only — do not change any code
   - id: security-audit
     enabled: true
     frequency: weekly-Tuesday
     safety: report-only
-    has_safety_options: true
+    has_safety_options: false
     title: Security Vulnerability Audit
     instructions: |
       Audit the codebase for security vulnerabilities and unsafe patterns.
@@ -574,30 +469,19 @@ tasks:
       - Dependency or NuGet package references with known CVEs (check via `dotnet list package --vulnerable` if available)
       - File or network operations that trust caller-supplied paths without sanitisation
       - Sensitive data written to logs, temp files, or crash dumps
-      {{#if if_found == "report"}}
+      {{#if safety == "report-only"}}
       Do not change any code. Produce a structured report grouped by severity
       (Critical / High / Medium / Low), listing file path, structural anchor
       (e.g. ClassName.MethodName), and a description of each finding.
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
       (from: "argus-weld").
       {{/if}}
-      {{#if if_found == "fix"}}
+      {{#if safety == "branch"}}
       Fix issues that are safe to patch automatically (remove hard-coded secrets,
       add input guards, replace deprecated crypto calls). Commit to a maintenance
       branch named: {{branchName}}. Issues requiring design decisions or external dependency updates
       should still be reported in an INBOX_MESSAGE_JSON block (from: "argus-weld").
       {{/if}}
-    options:
-      if_found:
-        type: radio
-        label: If vulnerabilities are found
-        tooltip: "Produce a report or patch what can be fixed automatically"
-        value: report
-        choices:
-          - value: report
-            tooltip: Write a report — do not change any files
-          - value: fix
-            tooltip: Auto-patch safe fixes on a maintenance branch; report the rest
 
   - id: todo-fixme-scan
     enabled: false
