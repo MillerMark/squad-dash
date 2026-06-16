@@ -22,6 +22,7 @@ internal sealed class TranscriptConversationManager {
     // ── Owned state ────────────────────────────────────────────────────────────
     private WorkspaceConversationState _conversationState = WorkspaceConversationState.Empty;
     private readonly WorkspaceConversationStore _conversationStore = new();
+    private readonly PromptHistoryStore _promptHistoryStore = new();
     private string? _currentSessionId;
     private readonly List<PromptHistoryEntry> _promptHistory = [];
     private int? _historyIndex;
@@ -280,14 +281,33 @@ internal sealed class TranscriptConversationManager {
         _currentSessionId = _conversationState.SessionId;
         _promptHistory.Clear();
         const string voiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
-        _promptHistory.AddRange(
-            _conversationState.PromptHistory
+        
+        // Load prompt history from conversation state
+        var historyFromState = _conversationState.PromptHistory
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(text => {
+                bool isDictated = text.EndsWith(voiceAnnotation, StringComparison.Ordinal);
+                string clean    = isDictated ? text[..^voiceAnnotation.Length] : text;
+                return new PromptHistoryEntry(clean, Array.Empty<FollowUpAttachment>(), isDictated);
+            })
+            .ToList();
+        
+        // If conversation state has no prompt history, load from the persistent PromptHistoryStore
+        // as a fallback. This ensures that aborted prompts (saved directly to history store)
+        // are not lost if background conversation persistence hasn't completed.
+        if (historyFromState.Count == 0) {
+            var storedHistory = _promptHistoryStore.Load();
+            historyFromState = storedHistory
                 .Where(text => !string.IsNullOrWhiteSpace(text))
                 .Select(text => {
                     bool isDictated = text.EndsWith(voiceAnnotation, StringComparison.Ordinal);
                     string clean    = isDictated ? text[..^voiceAnnotation.Length] : text;
                     return new PromptHistoryEntry(clean, Array.Empty<FollowUpAttachment>(), isDictated);
-                }));
+                })
+                .ToList();
+        }
+        
+        _promptHistory.AddRange(historyFromState);
         ApplyPromptText(
             _conversationState.PromptDraft ?? string.Empty,
             _conversationState.PromptDraftCaretIndex,
@@ -710,13 +730,18 @@ internal sealed class TranscriptConversationManager {
             $"SaveTranscriptTurnToConversation: reason={reason} beforeTurns={_conversationState.Turns.Count} afterTurns={turns.Count} " +
             $"promptChars={CountChars(turn.Prompt)} responseChars={CountChars(turn.ResponseTextBuilder.ToString())} started={turn.StartedAt:O}");
 
+        // Save prompt history immediately to PromptHistoryStore to ensure persistence
+        // even if background conversation state persistence doesn't complete.
+        var promptHistoryArray = _promptHistory.Select(e => e.Text).ToArray();
+        _promptHistoryStore.Save(promptHistoryArray);
+
         PersistConversationState(_conversationState with {
             SessionId = _currentSessionId,
             SessionUpdatedAt = _currentSessionId is null
                 ? _conversationState.SessionUpdatedAt
                 : DateTimeOffset.UtcNow,
             PromptDraft = _getPromptText(),
-            PromptHistory = _promptHistory.Select(e => e.Text).ToArray(),
+            PromptHistory = promptHistoryArray,
             Turns = turns,
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
         }, $"SaveTranscriptTurnToConversation:{reason}");
@@ -1114,6 +1139,10 @@ internal sealed class TranscriptConversationManager {
         _conversationState = _conversationState with {
             PromptHistory = _promptHistory.Select(e => e.Text).ToArray()
         };
+        
+        // Persist prompt history immediately to ensure aborted prompts are preserved,
+        // even if background conversation persistence doesn't complete.
+        _promptHistoryStore.Save(_promptHistory.Select(e => e.Text).ToArray());
     }
 
     internal void UpdatePromptDraftState() {
