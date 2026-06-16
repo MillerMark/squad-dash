@@ -76,7 +76,8 @@ internal sealed class CompactPickerButton {
             Content         = GetButtonLabel(selectedValue),
             Padding         = new Thickness(5, 1, 5, 1),
             Margin          = new Thickness(0, 0, 4, 2),
-            BorderThickness = new Thickness(0),
+            BorderThickness = new Thickness(1),
+            BorderBrush     = System.Windows.Media.Brushes.Transparent,
             Background      = System.Windows.Media.Brushes.Transparent,
             ToolTip         = "Click to change",
         };
@@ -84,15 +85,15 @@ internal sealed class CompactPickerButton {
         Control.SetResourceReference(Button.FontSizeProperty,   "FontSizeXSmall");
         Control.SetResourceReference(Button.ForegroundProperty, "SubtleText");
 
-        // Show button chrome only on hover so it reads as plain text at rest.
+        // Show button chrome only on hover — border space is always reserved (thickness=1)
+        // so layout doesn't shift and cause a hover-flicker loop.
         Control.MouseEnter += (_, _) => {
-            Control.BorderThickness = new Thickness(1);
             Control.SetResourceReference(Button.BackgroundProperty,  "InputSurface");
             Control.SetResourceReference(Button.BorderBrushProperty, "InputBorder");
         };
         Control.MouseLeave += (_, _) => {
-            Control.BorderThickness = new Thickness(0);
-            Control.Background      = System.Windows.Media.Brushes.Transparent;
+            Control.Background  = System.Windows.Media.Brushes.Transparent;
+            Control.BorderBrush = System.Windows.Media.Brushes.Transparent;
         };
 
         Control.Click += OnButtonClick;
@@ -120,7 +121,8 @@ internal sealed class CompactPickerButton {
             Content         = GetButtonLabel(selectedValue),
             Padding         = new Thickness(5, 1, 5, 1),
             Margin          = new Thickness(0, 0, 4, 2),
-            BorderThickness = new Thickness(0),
+            BorderThickness = new Thickness(1),
+            BorderBrush     = System.Windows.Media.Brushes.Transparent,
             Background      = System.Windows.Media.Brushes.Transparent,
             ToolTip         = "Click to change",
         };
@@ -128,15 +130,15 @@ internal sealed class CompactPickerButton {
         Control.SetResourceReference(Button.FontSizeProperty,   "FontSizeXSmall");
         Control.SetResourceReference(Button.ForegroundProperty, "SubtleText");
 
-        // Show button chrome only on hover so it reads as plain text at rest.
+        // Show button chrome only on hover — border space is always reserved (thickness=1)
+        // so layout doesn't shift and cause a hover-flicker loop.
         Control.MouseEnter += (_, _) => {
-            Control.BorderThickness = new Thickness(1);
             Control.SetResourceReference(Button.BackgroundProperty,  "InputSurface");
             Control.SetResourceReference(Button.BorderBrushProperty, "InputBorder");
         };
         Control.MouseLeave += (_, _) => {
-            Control.BorderThickness = new Thickness(0);
-            Control.Background      = System.Windows.Media.Brushes.Transparent;
+            Control.Background  = System.Windows.Media.Brushes.Transparent;
+            Control.BorderBrush = System.Windows.Media.Brushes.Transparent;
         };
 
         Control.Click += OnButtonClick;
