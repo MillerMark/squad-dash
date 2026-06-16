@@ -929,15 +929,18 @@ internal sealed class InboxPanelController
             {
                 // ‼ (U+203C DOUBLE EXCLAMATION MARK) in the same red as high priority.
                 // Fixed Width=8 keeps the footprint consistent with the other indicators.
+                // RenderTransform scales it up 25% visually without affecting layout width.
                 var icon = new TextBlock
                 {
-                    Text              = "\u203C",
-                    Width             = 8,
-                    TextAlignment     = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 4, 0),
-                    Opacity           = opacity,
-                    FontWeight        = FontWeights.Bold,
+                    Text                    = "\u203C",
+                    Width                   = 8,
+                    TextAlignment           = TextAlignment.Center,
+                    VerticalAlignment       = VerticalAlignment.Center,
+                    Margin                  = new Thickness(0, 0, 4, 0),
+                    Opacity                 = opacity,
+                    FontWeight              = FontWeights.Bold,
+                    RenderTransformOrigin   = new Point(0.5, 0.5),
+                    RenderTransform         = new ScaleTransform(1.25, 1.25),
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
