@@ -41,7 +41,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly TextBox     _titleBox;
     private readonly CheckBox    _enabledCheck;
     private readonly ComboBox    _frequencyCombo;
-    private readonly ComboBox    _safetyCombo;
+    private RadioButton _safetyReportRadio = null!;
+    private RadioButton _safetyBranchRadio = null!;
+    private RadioButton _safetyDirectRadio = null!;
     private readonly TextBox     _optionsYamlBox;
     private readonly StackPanel  _optionsPreviewPanel;
     private readonly FlowDocumentScrollViewer _markdownPreview;
@@ -119,7 +121,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _titleBox            = BuildTitleBox();
         _enabledCheck        = BuildEnabledCheck();
         _frequencyCombo      = BuildFrequencyCombo();
-        _safetyCombo         = BuildSafetyCombo();
+        BuildSafetyRadioButtons();
         _optionsYamlBox      = BuildOptionsYamlBox();
         _optionsPreviewPanel = new StackPanel { Margin = new Thickness(4) };
         _markdownPreview     = BuildMarkdownPreview();
@@ -177,10 +179,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         // Track changes to frequency
         _frequencyCombo.SelectionChanged += OnFrequencyComboChanged;
         // Track changes to safety — update preview so {{safety}} tokens re-resolve live
-        _safetyCombo.SelectionChanged += (_, _) => {
-            _optionValues["safety"] = (_safetyCombo.SelectedItem as string) ?? _task.Safety;
-            UpdateMarkdownPreview();
-        };
+        _safetyReportRadio.Checked += OnSafetyRadioChecked;
+        _safetyBranchRadio.Checked += OnSafetyRadioChecked;
+        _safetyDirectRadio.Checked += OnSafetyRadioChecked;
         // Track changes to options YAML
         _optionsYamlBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
         // Track changes to instructions (TextChanged + PreviewUpdateRequested wired in BuildInstructionsPanel)
@@ -371,7 +372,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             Margin      = new Thickness(8, 0, 8, 4),
         };
         safetyRow.Children.Add(BuildLabel("Safety:"));
-        safetyRow.Children.Add(_safetyCombo);
+        safetyRow.Children.Add(_safetyReportRadio);
+        safetyRow.Children.Add(_safetyBranchRadio);
+        safetyRow.Children.Add(_safetyDirectRadio);
         DockPanel.SetDock(safetyRow, Dock.Top);
         root.Children.Add(safetyRow);
 
@@ -590,16 +593,40 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         return cb;
     }
 
-    private ComboBox BuildSafetyCombo() {
-        var cb = new ComboBox { Margin = new Thickness(0, 0, 8, 0) };
-        foreach (var item in new[] { "report-only", "branch", "direct" })
-            cb.Items.Add(item);
-        cb.SelectedItem = cb.Items.Contains(_task.Safety) ? _task.Safety : "branch";
-        cb.SetResourceReference(ComboBox.ForegroundProperty, "LabelText");
-        cb.SetResourceReference(ComboBox.BackgroundProperty, "RosterPanelSurface");
-        cb.SetResourceReference(ComboBox.FontSizeProperty,   "FontSizeBody");
-        cb.SetResourceReference(ComboBox.StyleProperty, "ThemedComboBoxStyle");
-        return cb;
+    private void BuildSafetyRadioButtons() {
+        RadioButton MakeRadio(string content, string tag, bool hasMargin) {
+            var rb = new RadioButton {
+                Content             = content,
+                Tag                 = tag,
+                GroupName           = "Safety",
+                VerticalAlignment   = VerticalAlignment.Center,
+                Margin              = hasMargin ? new Thickness(0, 0, 12, 0) : new Thickness(0),
+            };
+            rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+            rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
+            return rb;
+        }
+
+        _safetyReportRadio = MakeRadio("report", "report-only", hasMargin: true);
+        _safetyBranchRadio = MakeRadio("branch", "branch",      hasMargin: true);
+        _safetyDirectRadio = MakeRadio("direct", "direct",      hasMargin: false);
+
+        _safetyReportRadio.IsChecked = _task.Safety == "report-only";
+        _safetyBranchRadio.IsChecked = _task.Safety == "branch";
+        _safetyDirectRadio.IsChecked = _task.Safety == "direct";
+        if (_safetyReportRadio.IsChecked != true && _safetyBranchRadio.IsChecked != true && _safetyDirectRadio.IsChecked != true)
+            _safetyBranchRadio.IsChecked = true;
+    }
+
+    private void OnSafetyRadioChecked(object sender, RoutedEventArgs e) {
+        _optionValues["safety"] = GetSelectedSafety();
+        UpdateMarkdownPreview();
+    }
+
+    private string GetSelectedSafety() {
+        if (_safetyDirectRadio.IsChecked == true) return "direct";
+        if (_safetyBranchRadio.IsChecked == true) return "branch";
+        return "report-only";
     }
 
     /// <summary>Builds a horizontal panel with 7 day-of-week buttons for weekly frequency selection.</summary>
@@ -733,7 +760,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             Title        = _titleBox.Text,
             Enabled      = _enabledCheck.IsChecked == true,
             Frequency    = finalFrequency,
-            Safety       = (_safetyCombo.SelectedItem as string) ?? _task.Safety,
+            Safety       = GetSelectedSafety(),
             Instructions = instructionsText,
             Options      = ParseOptionsFromYaml(_optionsYamlBox.Text) ?? _task.Options,
         };
@@ -993,7 +1020,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             if (reparsed is not null) {
                 _optionValues.Clear();
                 foreach (var o in reparsed) _optionValues[o.Key] = o.RawValue ?? string.Empty;
-                _optionValues["safety"] = (_safetyCombo.SelectedItem as string) ?? _task.Safety;
+                _optionValues["safety"] = GetSelectedSafety();
             }
             UpdateOptionsPreview();
             UpdateMarkdownPreview();
