@@ -928,19 +928,15 @@ internal sealed class InboxPanelController
             case "critical":
             {
                 // ‼ (U+203C DOUBLE EXCLAMATION MARK) in the same red as high priority.
-                // Fixed Width=8 keeps the footprint consistent with the other indicators.
-                // RenderTransform scales it up 25% visually without affecting layout width.
+                // No fixed Width — let the glyph size itself naturally to avoid clipping.
                 var icon = new TextBlock
                 {
                     Text                    = "\u203C",
-                    Width                   = 8,
-                    TextAlignment           = TextAlignment.Right,
+                    TextAlignment           = TextAlignment.Center,
                     VerticalAlignment       = VerticalAlignment.Center,
                     Margin                  = new Thickness(0, 0, 4, 0),
                     Opacity                 = opacity,
                     FontWeight              = FontWeights.Bold,
-                    RenderTransformOrigin   = new Point(1.0, 0.5),
-                    RenderTransform         = new ScaleTransform(1.5, 1.5),
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
