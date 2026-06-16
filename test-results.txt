@@ -1,5 +1,0 @@
-Test run for D:\Drive\Source\SquadDash-public\SquadDash.Tests\bin\Debug\net10.0-windows\SquadDash.Tests.dll (.NETCoreApp,Version=v10.0)
-A total of 1 test files matched the specified pattern.
-  Skipped EnsureSquadDashUniverseFiles_WritesSquadDashMdToBothUniversesAndTemplatesUniverses [16 ms]
-
-Passed!  - Failed:     0, Passed:  2425, Skipped:     0, Total:  2425, Duration: 28 s - SquadDash.Tests.dll (net10.0)
