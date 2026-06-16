@@ -941,8 +941,8 @@ internal sealed class InboxPanelController
                     FontWeight              = FontWeights.Bold,
                     RenderTransformOrigin   = new Point(0.5, 0.5),
                     RenderTransform         = new TransformGroup { Children = {
-                        new ScaleTransform(1.425, 1.425),
-                        new TranslateTransform(-1, 0),
+                        new ScaleTransform(1.283, 1.283),
+                        new TranslateTransform(-3, 0),
                     }},
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
