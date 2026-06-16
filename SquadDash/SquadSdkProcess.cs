@@ -547,10 +547,13 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     private ProcessStartInfo BuildDefaultStartInfo() {
+        var sdkDirectory = _workspacePaths?.SquadSdkDirectory
+            ?? throw new InvalidOperationException("WorkspacePaths not configured");
+        var bridgeScriptPath = ResolveBridgeScriptPath(sdkDirectory);
+
         var psi = new ProcessStartInfo {
             FileName = ResolveNodeExecutablePath(),
-            Arguments = "runPrompt.js",
-            WorkingDirectory = _workspacePaths?.SquadSdkDirectory ?? throw new InvalidOperationException("WorkspacePaths not configured"),
+            WorkingDirectory = sdkDirectory,
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -559,6 +562,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
+        psi.ArgumentList.Add(bridgeScriptPath);
 
         if (ByokProviderSettings is { ProviderUrl: { Length: > 0 } providerUrl } byok) {
             psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
@@ -588,6 +592,21 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             new RestartCoordinatorStateStore().GetRequestPathForWatcher(applicationRoot);
 
         return psi;
+    }
+
+    private static string ResolveBridgeScriptPath(string sdkDirectory) {
+        var bridgeScriptPath = Path.Combine(sdkDirectory, "runPrompt.js");
+        if (Directory.Exists(sdkDirectory) && !File.Exists(bridgeScriptPath)) {
+            var sourcePath = Path.Combine(sdkDirectory, "runPrompt.ts");
+            var buildHint = File.Exists(sourcePath)
+                ? $"Run npm run build in {sdkDirectory} to regenerate the Squad SDK bridge."
+                : "Rebuild or reinstall SquadDash so the Squad SDK bridge files are present.";
+
+            throw new InvalidOperationException(
+                $"Squad SDK bridge script was not found at {bridgeScriptPath}. {buildHint}");
+        }
+
+        return bridgeScriptPath;
     }
 
     private async Task SendBridgeRequestAsync<TRequest>(TRequest request) {

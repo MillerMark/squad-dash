@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 
 namespace SquadDash.Tests;
 
@@ -382,6 +383,40 @@ internal sealed class ByokAndDocsPanelTests {
         });
     }
 
+    [Test]
+    public void BuildDefaultStartInfo_UsesAbsoluteRunPromptScriptArgument() {
+        var workspacePaths = new FakeWorkspacePaths();
+        var sut = new SquadSdkProcess(workspacePaths);
+
+        var psi = InvokeBuildDefaultStartInfo(sut);
+
+        Assert.Multiple(() => {
+            Assert.That(psi.Arguments, Is.Empty);
+            Assert.That(psi.ArgumentList, Has.Count.EqualTo(1));
+            Assert.That(psi.ArgumentList[0], Is.EqualTo(Path.Combine(workspacePaths.SquadSdkDirectory, "runPrompt.js")));
+            Assert.That(psi.WorkingDirectory, Is.EqualTo(workspacePaths.SquadSdkDirectory));
+        });
+    }
+
+    [Test]
+    public void BuildDefaultStartInfo_MissingRunPromptScriptInExistingSdkDirectory_ThrowsHelpfulError() {
+        using var workspace = new TestWorkspace();
+        var appRoot = workspace.GetPath("app-root");
+        var sdkDir = Path.Combine(appRoot, "Squad.SDK");
+        Directory.CreateDirectory(sdkDir);
+        File.WriteAllText(Path.Combine(sdkDir, "runPrompt.ts"), "export {};");
+
+        var sut = new SquadSdkProcess(new FakeWorkspacePaths(appRoot));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => InvokeBuildDefaultStartInfo(sut));
+
+        Assert.Multiple(() => {
+            Assert.That(ex!.Message, Does.Contain("runPrompt.js"));
+            Assert.That(ex.Message, Does.Contain("npm run build"));
+            Assert.That(ex.Message, Does.Contain(sdkDir));
+        });
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -392,7 +427,13 @@ internal sealed class ByokAndDocsPanelTests {
             BindingFlags.NonPublic | BindingFlags.Instance);
 
         Assert.That(method, Is.Not.Null, "BuildDefaultStartInfo method must exist");
-        return (ProcessStartInfo)method!.Invoke(process, null)!;
+        try {
+            return (ProcessStartInfo)method!.Invoke(process, null)!;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null) {
+            ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
     }
 
     /// <summary>
@@ -421,11 +462,17 @@ internal sealed class ByokAndDocsPanelTests {
     }
 
     private sealed class FakeWorkspacePaths : IWorkspacePaths {
-        public string ApplicationRoot => @"C:\fake\app";
-        public string SquadSdkDirectory => @"C:\fake\app\Squad.SDK";
-        public string RunRootDirectory => @"C:\fake\app\Run";
-        public string AgentImageAssetsDirectory => @"C:\fake\app\Assets\Agents";
-        public string RoleIconAssetsDirectory => @"C:\fake\app\Assets\Roles";
-        public string ScreenshotsDirectory => @"C:\fake\app\docs\screenshots";
+        private readonly string _applicationRoot;
+
+        public FakeWorkspacePaths(string? applicationRoot = null) {
+            _applicationRoot = applicationRoot ?? @"C:\fake\app";
+        }
+
+        public string ApplicationRoot => _applicationRoot;
+        public string SquadSdkDirectory => Path.Combine(ApplicationRoot, "Squad.SDK");
+        public string RunRootDirectory => Path.Combine(ApplicationRoot, "Run");
+        public string AgentImageAssetsDirectory => Path.Combine(ApplicationRoot, "Assets", "Agents");
+        public string RoleIconAssetsDirectory => Path.Combine(ApplicationRoot, "Assets", "Roles");
+        public string ScreenshotsDirectory => Path.Combine(ApplicationRoot, "docs", "screenshots");
     }
 }

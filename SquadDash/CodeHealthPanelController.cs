@@ -576,6 +576,24 @@ internal sealed class CodeHealthPanelController {
             onValueChanged: newFreq => ChangeTaskFrequency(taskIdForFreq, newFreq),
             getButtonLabel: freq => GetFrequencyDisplayText(freq));
         chipRow.Children.Add(frequencyPicker.Control);
+        
+        // Safety level picker
+        var effectiveSafety = GetEffectiveSafetyLevel(task);
+        var safetyPickerOptions = new (string DisplayName, string Value)[] {
+            ("report-only (no changes)",                       "report-only"),
+            ("branch (create a new branch before making changes)", "branch"),
+            ("direct (make changes directly to current branch)", "direct"),
+        };
+        
+        var safetyPicker = new CompactPickerButton(
+            headerText:     "Safety level",
+            options:        safetyPickerOptions,
+            selectedValue:  effectiveSafety,
+            onValueChanged: newSafety => ChangeTaskSafety(task.Id, newSafety),
+            getButtonLabel: safety => GetSafetyDisplayText(safety));
+        safetyPicker.Control.ToolTip = MakeThemedToolTip(GetSafetyDisplayTooltip(effectiveSafety));
+        chipRow.Children.Add(safetyPicker.Control);
+        
         var optsSummary = BuildOptionsSummary(task.Options);
         if (!string.IsNullOrEmpty(optsSummary)) {
             var summaryBlock = new TextBlock {
@@ -1162,6 +1180,54 @@ internal sealed class CodeHealthPanelController {
     private void StopCountdown() {
         _countdownTimer?.Stop();
         _countdownTimer = null;
+    }
+
+    // ── Safety level helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gets the effective safety level for a task, considering:
+    /// 1. User override from settings (highest priority)
+    /// 2. safety_default from code-health.md
+    /// 3. safety from code-health.md (lowest priority)
+    /// </summary>
+    private string GetEffectiveSafetyLevel(CodeHealthTask task) {
+        var override_ = _viewModel.StateStore?.GetSafetyOverride(task.Id);
+        if (!string.IsNullOrEmpty(override_))
+            return override_;
+        
+        if (!string.IsNullOrEmpty(task.SafetyDefault))
+            return task.SafetyDefault;
+        
+        return task.Safety;
+    }
+
+    private static string GetSafetyDisplayText(string safety) =>
+        safety.ToLowerInvariant() switch {
+            "report-only" => "report",
+            "branch"      => "branch",
+            "direct"      => "direct",
+            _             => safety,
+        };
+
+    private static string GetSafetyDisplayTooltip(string safety) =>
+        safety.ToLowerInvariant() switch {
+            "report-only" => "This task is directed to make no changes to the code. Results are reported only.",
+            "branch"      => "This task will create a new branch before making changes.",
+            "direct"      => "This task makes changes directly to the current branch.",
+            _             => "Unknown safety level",
+        };
+
+    /// <summary>
+    /// Updates the <c>safety:</c> field for <paramref name="taskId"/> in code-health.md
+    /// and reloads the panel so the change is reflected immediately.
+    /// </summary>
+    private void ChangeTaskSafety(string taskId, string newSafety) {
+        var mdPath = GetMaintenanceMdPath();
+        if (mdPath is null) return;
+        
+        // Store in state store instead of updating the file
+        _viewModel.StateStore?.SetSafetyOverride(taskId, newSafety);
+        _reloadPanel();
     }
 }
 

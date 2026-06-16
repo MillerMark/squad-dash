@@ -93,8 +93,14 @@ if ($LASTEXITCODE -ne 0) { Write-Error "App publish failed."; exit 1 }
 Write-Host "`n▶ Bundling Squad.SDK..."
 Push-Location "$root\Squad.SDK"
 try {
-    npm install --omit=dev *>&1 | Tee-Object -FilePath "$logs\npm-install.log"
+    npm install *>&1 | Tee-Object -FilePath "$logs\npm-install.log"
     if ($LASTEXITCODE -ne 0) { Write-Error "npm install failed."; exit 1 }
+
+    npm run build *>&1 | Tee-Object -FilePath "$logs\npm-build-sdk.log"
+    if ($LASTEXITCODE -ne 0) { Write-Error "npm run build failed."; exit 1 }
+
+    npm install --omit=dev *>&1 | Tee-Object -FilePath "$logs\npm-install-production.log"
+    if ($LASTEXITCODE -ne 0) { Write-Error "npm production install failed."; exit 1 }
 
     # Copy runtime JS files and package manifest
     Get-ChildItem -File -Filter "*.js" | Copy-Item -Destination "$artifacts\publish\sdk\"
