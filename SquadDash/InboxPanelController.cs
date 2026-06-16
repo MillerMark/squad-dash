@@ -928,7 +928,8 @@ internal sealed class InboxPanelController
             case "critical":
             {
                 // ‼ (U+203C DOUBLE EXCLAMATION MARK) in the same red as high priority.
-                // No fixed Width — let the glyph size itself naturally to avoid clipping.
+                // No fixed Width — let the TextBlock auto-size so the 1.5× scaled glyph isn't clipped.
+                // RenderTransformOrigin=(0.5,0.5) scales from center so growth is symmetric.
                 var icon = new TextBlock
                 {
                     Text                    = "\u203C",
@@ -937,6 +938,8 @@ internal sealed class InboxPanelController
                     Margin                  = new Thickness(0, 0, 4, 0),
                     Opacity                 = opacity,
                     FontWeight              = FontWeights.Bold,
+                    RenderTransformOrigin   = new Point(0.5, 0.5),
+                    RenderTransform         = new ScaleTransform(1.5, 1.5),
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
