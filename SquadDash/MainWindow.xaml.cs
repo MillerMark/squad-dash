@@ -29426,6 +29426,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         var win = new InboxMessageWindow(msg, DispatchInboxAction, LookupTaskById,
                             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
                             attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
+                            onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
                             initialFontSize:   _inboxFontSize,
                             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
                         win.Owner = this;
@@ -30959,6 +30960,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
             attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
             onMarkedRead: onMarkedRead,
+            onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -30997,6 +30999,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             LookupTaskById,
             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
             attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
+            onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
         win.Owner = CanShowOwnedWindow() ? this : null;

@@ -24,6 +24,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
     private readonly Action? _onMarkedRead;
+    private readonly Action? _onMarkedUnread;
     private readonly Action<double>? _onFontSizeChanged;
     private double _bodyFontSize;
     private bool _markedRead;
@@ -35,6 +36,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<string, InboxMessage>? attachSelectedTextToChat = null,
         Action<string, InboxMessage>? attachSelectedTextToNewChat = null,
         Action? onMarkedRead = null,
+        Action? onMarkedUnread = null,
         double initialFontSize = 14,
         Action<double>? onFontSizeChanged = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
@@ -44,6 +46,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _attachSelectedTextToNewChat = attachSelectedTextToNewChat;
         _message                = message;
         _onMarkedRead           = onMarkedRead;
+        _onMarkedUnread         = onMarkedUnread;
         _onFontSizeChanged      = onFontSizeChanged;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
@@ -69,13 +72,36 @@ internal sealed class InboxMessageWindow : ChromedWindow
         outerBorder.Child = root;
 
         // ── Header ────────────────────────────────────────────────────────────
+        var headerDock = new DockPanel
+        {
+            Margin          = new Thickness(12, 10, 12, 6),
+            LastChildFill   = true,
+        };
+        Grid.SetRow(headerDock, 0);
+        root.Children.Add(headerDock);
+
+        // "Close as Unread" button — docked to the right so subject text fills the rest
+        var closeUnreadBtn = new Button
+        {
+            Content             = "Close as Unread",
+            Padding             = new Thickness(6, 2, 6, 2),
+            VerticalAlignment   = VerticalAlignment.Top,
+            Margin              = new Thickness(8, 0, 0, 0),
+            ToolTip             = "Mark as unread and close",
+        };
+        closeUnreadBtn.SetResourceReference(Button.FontSizeProperty,        "FontSizeSmall");
+        closeUnreadBtn.SetResourceReference(Button.ForegroundProperty,      "SubtleText");
+        closeUnreadBtn.SetResourceReference(Button.BackgroundProperty,      "ChipSurface");
+        closeUnreadBtn.SetResourceReference(Button.BorderBrushProperty,     "ChipBorder");
+        closeUnreadBtn.Click += (_, _) => { _onMarkedUnread?.Invoke(); Close(); };
+        DockPanel.SetDock(closeUnreadBtn, Dock.Right);
+        headerDock.Children.Add(closeUnreadBtn);
+
         var headerPanel = new StackPanel
         {
             Orientation = Orientation.Vertical,
-            Margin      = new Thickness(12, 10, 12, 6),
         };
-        Grid.SetRow(headerPanel, 0);
-        root.Children.Add(headerPanel);
+        headerDock.Children.Add(headerPanel);
 
         var subjectLabel = new TextBlock
         {
