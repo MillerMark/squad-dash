@@ -326,8 +326,13 @@ internal sealed class CodeHealthRunner {
 
         var inboxReminder = "\n\n" + MaintenanceInboxReminder;
         
+        // Merge safety override into task options before template substitution.
+        // When effectiveSafety differs from task.Safety, we need to sync compatible options
+        // (e.g., if_found, execution_mode) so the template conditionals respect the override.
+        var adjustedOptions = MergeSafetyOverrideIntoOptions(task.Options, task.Safety, effectiveSafety);
+        
         // First apply option substitution and legacy substitutions
-        var instructions  = SubstituteOptions(task.Instructions, task.Options);
+        var instructions  = SubstituteOptions(task.Instructions, adjustedOptions);
         
         // Apply legacy {{branch}} substitution for backward compatibility
         instructions = instructions.Replace("{{branch}}", dynamicBranchName, StringComparison.OrdinalIgnoreCase);
@@ -373,6 +378,74 @@ internal sealed class CodeHealthRunner {
         "}\n" +
         "Each action may include an optional \"hint\" field — a short tooltip shown when the user hovers over the button.\n" +
         "Do NOT include any 'done' action whose label is purely acknowledgement-only — it records nothing and adds no value.";
+
+    /// <summary>
+    /// When effectiveSafety differs from the task's declared safety level due to a user override,
+    /// adjusts compatible task options to reflect the override so template conditionals work correctly.
+    /// For example, if effectiveSafety is "report-only" but the task offers "if_found" with choices
+    /// [branch, report], the option is set to "report" to ensure the template renders correctly.
+    /// </summary>
+    private static IReadOnlyList<CodeHealthOption>? MergeSafetyOverrideIntoOptions(
+        IReadOnlyList<CodeHealthOption>? options, string taskSafety, string effectiveSafety) {
+        
+        // If safety hasn't been overridden, return options unchanged
+        if (string.Equals(taskSafety, effectiveSafety, StringComparison.OrdinalIgnoreCase))
+            return options;
+        
+        if (options is null or { Count: 0 })
+            return options;
+        
+        // Create adjusted options list with safety-related options updated
+        var adjusted = new List<CodeHealthOption>();
+        foreach (var opt in options) {
+            // Check if this option controls execution mode/branch creation
+            // These options should be synchronized with the safety override
+            var isExecutionOption = string.Equals(opt.Key, "if_found", StringComparison.OrdinalIgnoreCase) ||
+                                    string.Equals(opt.Key, "execution_mode", StringComparison.OrdinalIgnoreCase);
+            
+            if (!isExecutionOption) {
+                adjusted.Add(opt);
+                continue;
+            }
+            
+            // Map effectiveSafety to the best matching option choice
+            string targetValue = effectiveSafety switch {
+                "report-only" => FindMatchingChoice(opt, ["report", "no-change", "report-only"]) ?? opt.RawValue,
+                "branch"      => FindMatchingChoice(opt, ["branch", "create-branch"]) ?? opt.RawValue,
+                "direct"      => FindMatchingChoice(opt, ["fix", "direct", "inline"]) ?? opt.RawValue,
+                _             => opt.RawValue
+            };
+            
+            // Create a new option with the adjusted value
+            var adjustedOpt = new CodeHealthOption(
+                Key:      opt.Key,
+                RawValue: targetValue ?? opt.RawValue,
+                Type:     opt.Type,
+                Label:    opt.Label,
+                Tooltip:  opt.Tooltip,
+                Choices:  opt.Choices);
+            adjusted.Add(adjustedOpt);
+            
+            SquadDashTrace.Write(TraceCategory.General,
+                $"CodeHealthRunner: Merged safety override into option '{opt.Key}': '{opt.RawValue}' → '{targetValue}'");
+        }
+        
+        return adjusted;
+    }
+    
+    /// <summary>Finds a choice in the option that matches one of the target values.</summary>
+    private static string? FindMatchingChoice(CodeHealthOption option, string[] targets) {
+        if (option.Choices is null or { Count: 0 })
+            return null;
+        
+        foreach (var target in targets) {
+            var match = option.Choices.FirstOrDefault(c => 
+                string.Equals(c.Value, target, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return match.Value;
+        }
+        return null;
+    }
 
     /// <summary>
     /// Evaluates <c>{{#if}}</c>/<c>{{#unless}}</c> conditional blocks and replaces
