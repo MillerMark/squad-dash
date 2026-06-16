@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using System.Windows.Shell;
 using System.Windows.Threading;
 
 namespace SquadDash;
@@ -83,16 +84,15 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // "Close as Unread" button — docked to the right so subject text fills the rest
         var closeUnreadBtn = new Button
         {
-            Content             = "Close as Unread",
-            Padding             = new Thickness(6, 2, 6, 2),
-            VerticalAlignment   = VerticalAlignment.Top,
-            Margin              = new Thickness(8, 0, 0, 0),
-            ToolTip             = "Mark as unread and close",
+            Content           = "Close as Unread",
+            Padding           = new Thickness(6, 2, 6, 2),
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin            = new Thickness(8, 0, 44, 0),
+            ToolTip           = "Mark as unread and close",
         };
-        closeUnreadBtn.SetResourceReference(Button.FontSizeProperty,        "FontSizeSmall");
-        closeUnreadBtn.SetResourceReference(Button.ForegroundProperty,      "SubtleText");
-        closeUnreadBtn.SetResourceReference(Button.BackgroundProperty,      "ChipSurface");
-        closeUnreadBtn.SetResourceReference(Button.BorderBrushProperty,     "ChipBorder");
+        closeUnreadBtn.SetResourceReference(Button.StyleProperty,    "FlatButtonStyle");
+        closeUnreadBtn.SetResourceReference(Button.FontSizeProperty, "FontSizeSmall");
+        WindowChrome.SetIsHitTestVisibleInChrome(closeUnreadBtn, true);
         closeUnreadBtn.Click += (_, _) => { _onMarkedUnread?.Invoke(); Close(); };
         DockPanel.SetDock(closeUnreadBtn, Dock.Right);
         headerDock.Children.Add(closeUnreadBtn);
