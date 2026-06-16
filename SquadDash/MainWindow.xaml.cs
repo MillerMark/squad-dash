@@ -31817,6 +31817,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         var config = CodeHealthMdParser.ParseWithAllSources(workspacePath);
+
+        // Ensure the state store is loaded even when no health cycle has run this session.
+        if (_CodeHealthStateStore is null)
+        {
+            _CodeHealthStateStore = new CodeHealthStateStore(Path.Combine(workspacePath, ".squad"));
+            _CodeHealthStateStore.Reload();
+        }
+
         _codeHealthPanel.Refresh(config, _CodeHealthStateStore);
     }
 
