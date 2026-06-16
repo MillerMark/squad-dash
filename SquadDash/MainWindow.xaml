@@ -872,7 +872,7 @@
                   Margin="8,2,0,0"
                   shell:WindowChrome.IsHitTestVisibleInChrome="True">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -880,7 +880,8 @@
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="SearchBox"
                          Grid.Column="0"
-                         HorizontalAlignment="Stretch"
+                         Width="135"
+                         HorizontalAlignment="Left"
                          VerticalAlignment="Center"
                          Padding="6,4,6,4"
                          FontSize="{DynamicResource FontSizeNormal}"
