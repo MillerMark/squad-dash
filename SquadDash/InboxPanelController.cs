@@ -905,31 +905,34 @@ internal sealed class InboxPanelController
             }
             case "high":
             {
-                var dot = new Ellipse
+                // Red diamond: a square rotated 45° via LayoutTransform so WPF
+                // accounts for the larger bounding box during layout.
+                var diamond = new Rectangle
                 {
-                    Width             = 8,
-                    Height            = 8,
+                    Width             = 6,
+                    Height            = 6,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 5, 0),
                     Visibility        = visible,
+                    LayoutTransform   = new RotateTransform(45),
                 };
-                dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityHigh");
-                return dot;
+                diamond.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
+                return diamond;
             }
             case "critical":
             {
-                // Filled red square — visually distinct from the round dots used for
-                // other priority levels, and clearly signals urgency via TaskPriorityHigh.
-                var square = new Rectangle
+                // ‼ (U+203C DOUBLE EXCLAMATION MARK) in the same red as high priority.
+                var icon = new TextBlock
                 {
-                    Width             = 8,
-                    Height            = 8,
+                    Text              = "\u203C",
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 5, 0),
+                    Margin            = new Thickness(0, 0, 3, 0),
                     Visibility        = visible,
+                    FontWeight        = FontWeights.Bold,
                 };
-                square.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
-                return square;
+                icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
+                return icon;
             }
             default: // "mid" and anything unrecognised
             {
