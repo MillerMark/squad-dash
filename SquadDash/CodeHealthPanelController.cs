@@ -580,7 +580,7 @@ internal sealed class CodeHealthPanelController {
         // Safety level picker
         var effectiveSafety = GetEffectiveSafetyLevel(task);
         var safetyPickerOptions = new (string DisplayName, string Value)[] {
-            ("report-only (no changes)",                       "report-only"),
+            ("report (no changes)",                            "report-only"),
             ("branch (create a new branch before making changes)", "branch"),
             ("direct (make changes directly to current branch)", "direct"),
         };
@@ -651,7 +651,7 @@ internal sealed class CodeHealthPanelController {
                 var currentSafety = _viewModel.StateStore?.GetSafetyOverride(task.Id) ?? task.Safety;
                 
                 var safetyOptions = new[] {
-                    ("report-only", "Report Only (no code changes)"),
+                    ("report-only", "Report (no code changes)"),
                     ("branch",      "Branch (create before changes)"),
                     ("direct",      "Direct (changes on this branch)"),
                 };
