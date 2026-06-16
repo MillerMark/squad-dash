@@ -614,9 +614,9 @@ internal sealed class CodeHealthPanelController {
                 new DateTimeOffset(lastRun.Value, TimeSpan.Zero));
             var lastRunBlock = new TextBlock {
                 Text   = $"Last run: {relTime}",
-                Margin = new Thickness(5, -1, 0, 0),
+                Margin = new Thickness(5, 0, 0, 0),
             };
-            lastRunBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeXSmall");
+            lastRunBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             lastRunBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             rightPanel.Children.Add(lastRunBlock);
         }
