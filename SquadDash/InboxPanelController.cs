@@ -390,8 +390,8 @@ internal sealed class InboxPanelController
     {
         msg.Read = true;
         _markRead(msg.Id);
-        row.Opacity            = 1.0;
-        indicator.Visibility   = Visibility.Hidden;
+        row.Opacity             = 1.0;
+        indicator.Opacity       = 0.4;
         subjectLabel.FontWeight = FontWeights.Normal;
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
     }
@@ -400,8 +400,8 @@ internal sealed class InboxPanelController
     {
         msg.Read = false;
         _markUnread(msg.Id);
-        row.Opacity            = 1.0;
-        indicator.Visibility   = Visibility.Visible;
+        row.Opacity             = 1.0;
+        indicator.Opacity       = 1.0;
         subjectLabel.FontWeight = FontWeights.SemiBold;
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
     }
@@ -886,35 +886,41 @@ internal sealed class InboxPanelController
     private static UIElement BuildPriorityIndicator(InboxMessage msg)
     {
         var priority = (msg.Priority ?? "mid").ToLowerInvariant();
-        var visible  = msg.Read ? Visibility.Hidden : Visibility.Visible;
+        // All indicators use the same 8px width + 4px right margin = 12px footprint
+        // so that every subject line starts at the same horizontal position.
+        // When read, opacity is dimmed rather than hidden so the shape stays visible.
+        double opacity = msg.Read ? 0.4 : 1.0;
 
         switch (priority)
         {
             case "low":
             {
-                var dot = new Ellipse
+                // Wide flat bar: same 8px horizontal footprint as other indicators.
+                var bar = new Rectangle
                 {
-                    Width             = 3.5,
-                    Height            = 3.5,
+                    Width             = 8,
+                    Height            = 2,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 5, 0),
-                    Visibility        = visible,
+                    Margin            = new Thickness(0, 0, 4, 0),
+                    Opacity           = opacity,
                 };
-                dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityLow");
-                return dot;
+                bar.SetResourceReference(Rectangle.FillProperty, "TaskPriorityLow");
+                return bar;
             }
             case "high":
             {
-                // Red diamond: a square rotated 45° via LayoutTransform so WPF
-                // accounts for the larger bounding box during layout.
+                // Diamond: 8×8 rectangle with RenderTransform (not LayoutTransform) so the
+                // layout bounding box stays at 8px while the visual diamond extends ~1.6px
+                // beyond each side — bigger looking without shifting the subject text.
                 var diamond = new Rectangle
                 {
-                    Width             = 6,
-                    Height            = 6,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 5, 0),
-                    Visibility        = visible,
-                    LayoutTransform   = new RotateTransform(45),
+                    Width                   = 8,
+                    Height                  = 8,
+                    VerticalAlignment       = VerticalAlignment.Center,
+                    Margin                  = new Thickness(0, 0, 4, 0),
+                    Opacity                 = opacity,
+                    RenderTransformOrigin   = new Point(0.5, 0.5),
+                    RenderTransform         = new RotateTransform(45),
                 };
                 diamond.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
                 return diamond;
@@ -922,12 +928,15 @@ internal sealed class InboxPanelController
             case "critical":
             {
                 // ‼ (U+203C DOUBLE EXCLAMATION MARK) in the same red as high priority.
+                // Fixed Width=8 keeps the footprint consistent with the other indicators.
                 var icon = new TextBlock
                 {
                     Text              = "\u203C",
+                    Width             = 8,
+                    TextAlignment     = TextAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 3, 0),
-                    Visibility        = visible,
+                    Margin            = new Thickness(0, 0, 4, 0),
+                    Opacity           = opacity,
                     FontWeight        = FontWeights.Bold,
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
@@ -938,11 +947,11 @@ internal sealed class InboxPanelController
             {
                 var dot = new Ellipse
                 {
-                    Width             = 7,
-                    Height            = 7,
+                    Width             = 8,
+                    Height            = 8,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 5, 0),
-                    Visibility        = visible,
+                    Margin            = new Thickness(0, 0, 4, 0),
+                    Opacity           = opacity,
                 };
                 dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityLow");
                 return dot;
