@@ -144,6 +144,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         if (_task.Options is not null)
             foreach (var opt in _task.Options)
                 _optionValues[opt.Key] = opt.RawValue ?? string.Empty;
+        _optionValues["safety"] = _task.Safety;
 
         ApplyOuterBorder().Child = BuildLayout();
 
@@ -159,6 +160,11 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _enabledCheck.Unchecked += (_, _) => _hasUnsavedChanges = true;
         // Track changes to frequency
         _frequencyCombo.SelectionChanged += OnFrequencyComboChanged;
+        // Track changes to safety — update preview so {{safety}} tokens re-resolve live
+        _safetyCombo.SelectionChanged += (_, _) => {
+            _optionValues["safety"] = (_safetyCombo.SelectedItem as string) ?? _task.Safety;
+            UpdateMarkdownPreview();
+        };
         // Track changes to options YAML
         _optionsYamlBox.TextChanged += (_, _) => _hasUnsavedChanges = true;
         // Track changes to instructions (TextChanged + PreviewUpdateRequested wired in BuildInstructionsPanel)
@@ -977,6 +983,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             if (reparsed is not null) {
                 _optionValues.Clear();
                 foreach (var o in reparsed) _optionValues[o.Key] = o.RawValue ?? string.Empty;
+                _optionValues["safety"] = (_safetyCombo.SelectedItem as string) ?? _task.Safety;
             }
             UpdateOptionsPreview();
             UpdateMarkdownPreview();
