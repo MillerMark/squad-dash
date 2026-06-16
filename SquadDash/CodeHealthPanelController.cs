@@ -134,7 +134,9 @@ internal sealed class CodeHealthPanelController {
                 _reloadPanel,
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
-                onDirectRevise: _onDirectRevise);
+                onDirectRevise: _onDirectRevise,
+                stateStore: _viewModel.StateStore,
+                workspacePath: _getWorkspacePath?.Invoke());
             editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);
             FloatingWindowPositionStore.Shared.TryRestore("CodeHealthTaskEditor", editor);
             editor.Show();
@@ -835,7 +837,9 @@ internal sealed class CodeHealthPanelController {
                 _reloadPanel,
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
-                onDirectRevise: _onDirectRevise);
+                onDirectRevise: _onDirectRevise,
+                stateStore: _viewModel.StateStore,
+                workspacePath: _getWorkspacePath?.Invoke());
             editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);
             FloatingWindowPositionStore.Shared.TryRestore("CodeHealthTaskEditor", editor);
             editor.Show();

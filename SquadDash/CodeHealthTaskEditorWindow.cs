@@ -92,7 +92,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         Action onSaved,
         Action reloadPanel,
         Action<RichTextBox, string>?         onReviseWithAi = null,
-        Action<RichTextBox, string, string>? onDirectRevise = null) : base(captionHeight: 56) {
+        Action<RichTextBox, string, string>? onDirectRevise = null,
+        CodeHealthStateStore?                stateStore     = null,
+        string?                              workspacePath  = null) : base(captionHeight: 56) {
 
         _task             = task;
         _settingsProvider = settingsProvider;
@@ -145,6 +147,19 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             foreach (var opt in _task.Options)
                 _optionValues[opt.Key] = opt.RawValue ?? string.Empty;
         _optionValues["safety"] = _task.Safety;
+
+        // Seed system runtime variables with representative preview values
+        _optionValues["branch"] = $"codehealth/{task.Id}/{DateTimeOffset.Now:yyyyMMdd-HHmmss}";
+
+        if (stateStore is not null) {
+            var sha = stateStore.GetLastCommitSha(task.Id);
+            _optionValues["last_reviewed_sha"] = string.IsNullOrEmpty(sha) ? "(none yet)" : sha;
+            _optionValues["new_commit_count"]  = "0";
+        }
+        else {
+            _optionValues["last_reviewed_sha"] = "(not available)";
+            _optionValues["new_commit_count"]  = "0";
+        }
 
         ApplyOuterBorder().Child = BuildLayout();
 
