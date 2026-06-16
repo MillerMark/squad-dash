@@ -846,12 +846,15 @@ internal sealed class CodeHealthPanelController {
         };
         taskMenu.Items.Add(editTaskItem);
         
-        // Add "Revert to Default Implementation" if task is overridden
-        if (workspacePath is not null && CodeHealthMdParser.ShouldShowRevertOption(task.Id, workspacePath)) {
+        // Add "Revert to Default Implementation" and/or "Move changes to main code health file" if task is overridden
+        bool taskIsOverridden = workspacePath is not null && CodeHealthMdParser.ShouldShowRevertOption(task.Id, workspacePath);
+        bool showPromote      = SquadDashEnvironment.IsDeveloperMode && taskIsOverridden;
+
+        if (taskIsOverridden) {
             var revertSeparator = new Separator();
             revertSeparator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
             taskMenu.Items.Add(revertSeparator);
-            
+
             var revertItem = new MenuItem { Header = "Revert to Default Implementation" };
             revertItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             var capturedTaskId = task.Id;
@@ -867,6 +870,24 @@ internal sealed class CodeHealthPanelController {
                 }
             };
             taskMenu.Items.Add(revertItem);
+
+            if (showPromote) {
+                var promoteItem = new MenuItem { Header = "Move changes to main code health file" };
+                promoteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                var capturedTaskIdForPromote = task.Id;
+                var capturedWorkspaceForPromote = workspacePath;
+                promoteItem.Click += (_, _) => {
+                    try {
+                        CodeHealthMdParser.PromoteOverrideToSystemFile(capturedTaskIdForPromote, capturedWorkspaceForPromote);
+                        _reloadPanel();
+                    }
+                    catch (Exception ex) {
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"CodeHealthPanelController: failed to promote task '{capturedTaskIdForPromote}': {ex.Message}");
+                    }
+                };
+                taskMenu.Items.Add(promoteItem);
+            }
         }
         
         row.ContextMenu = taskMenu;

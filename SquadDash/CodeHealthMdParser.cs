@@ -917,6 +917,31 @@ internal static class CodeHealthMdParser {
     }
 
     /// <summary>
+    /// Promotes a task override to the system code-health.md file.
+    /// Reads the task from code-health-overrides.md, writes it to code-health.md,
+    /// then removes it from the overrides file.
+    /// </summary>
+    public static void PromoteOverrideToSystemFile(string taskId, string workspacePath) {
+        var systemPath    = Path.Combine(workspacePath, ".squad", "code-health.md");
+        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+
+        if (!File.Exists(overridesPath)) return;
+
+        var overridesConfig = Parse(overridesPath);
+        var overriddenTask  = overridesConfig?.Tasks?.FirstOrDefault(
+            t => string.Equals(t.Id, taskId, StringComparison.Ordinal));
+        if (overriddenTask is null) return;
+
+        if (File.Exists(systemPath))
+            UpdateTask(systemPath, taskId, overriddenTask);
+
+        RevertTaskToDefault(taskId, workspacePath);
+
+        SquadDashTrace.Write(TraceCategory.General,
+            $"Promoted task '{taskId}' override to system code-health.md");
+    }
+
+    /// <summary>
     /// Migrates user edits from code-health.md to code-health-overrides.md on startup.
     /// Compares current code-health.md against the embedded system version to detect differences.
     /// Only called if migration is needed (user had edited code-health.md directly).
