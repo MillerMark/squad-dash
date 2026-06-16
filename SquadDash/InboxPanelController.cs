@@ -934,13 +934,13 @@ internal sealed class InboxPanelController
                 {
                     Text                    = "\u203C",
                     Width                   = 8,
-                    TextAlignment           = TextAlignment.Center,
+                    TextAlignment           = TextAlignment.Right,
                     VerticalAlignment       = VerticalAlignment.Center,
                     Margin                  = new Thickness(0, 0, 4, 0),
                     Opacity                 = opacity,
                     FontWeight              = FontWeights.Bold,
-                    RenderTransformOrigin   = new Point(0.5, 0.5),
-                    RenderTransform         = new ScaleTransform(1.25, 1.25),
+                    RenderTransformOrigin   = new Point(1.0, 0.5),
+                    RenderTransform         = new ScaleTransform(1.5, 1.5),
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
