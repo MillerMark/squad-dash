@@ -1,0 +1,64 @@
+{
+  "tasks": {
+    "architectural-practices": {
+      "lastRunAt": "2026-06-01T13:30:21.5929118Z",
+      "lastCommitSha": "",
+      "safetyOverride": ""
+    },
+    "code-smells": {
+      "lastRunAt": "2026-06-01T13:34:13.6385115Z",
+      "lastCommitSha": "",
+      "safetyOverride": ""
+    },
+    "docs-review": {
+      "lastRunAt": "2026-06-14T00:09:22.5656664Z",
+      "lastCommitSha": "8874428eb7e3a8e96758eacd1c5e3d9c43233b39",
+      "safetyOverride": ""
+    },
+    "error-handling-audit": {
+      "lastRunAt": "2026-06-11T00:07:01.8596584Z",
+      "lastCommitSha": "e904d48dc7673c49330588fd40f4bf9930c55e2b",
+      "safetyOverride": ""
+    },
+    "security-audit": {
+      "lastRunAt": "2026-06-16T00:10:35.1290139Z",
+      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "safetyOverride": ""
+    },
+    "readme-currency": {
+      "lastRunAt": "2026-06-10T00:09:35.4865626Z",
+      "lastCommitSha": "5ca4027fd085b8be74ba51e77dbf20367117df18",
+      "safetyOverride": ""
+    },
+    "commit-review": {
+      "lastRunAt": "2026-06-15T19:11:39.1304001Z",
+      "lastCommitSha": "1ad6ad1836c8fa327ab168718720d0ea895207fc",
+      "safetyOverride": ""
+    },
+    "daily-issue-pr-tracker": {
+      "lastRunAt": "2026-06-16T00:01:58.6211760Z",
+      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "safetyOverride": ""
+    },
+    "run-tests": {
+      "lastRunAt": "2026-06-16T00:03:34.2537932Z",
+      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "safetyOverride": ""
+    },
+    "thematic-compliance": {
+      "lastRunAt": "2026-06-13T13:35:46.7749974Z",
+      "lastCommitSha": "9ae7a8d4795ee1c4b518f07307801564070247eb",
+      "safetyOverride": ""
+    },
+    "speed-improvements": {
+      "lastRunAt": "2026-06-15T00:06:39.8936560Z",
+      "lastCommitSha": "8874428eb7e3a8e96758eacd1c5e3d9c43233b39",
+      "safetyOverride": ""
+    },
+    "prune-tasks": {
+      "lastRunAt": "2026-06-16T00:02:38.5018357Z",
+      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "safetyOverride": ""
+    }
+  }
+}

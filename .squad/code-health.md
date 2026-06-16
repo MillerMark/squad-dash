@@ -132,22 +132,20 @@ tasks:
 
   - id: commit-review
     enabled: true
-    frequency: every-10-commits
+    frequency: daily
     safety: report-only
-    has_safety_options: false
     title: Commit Quality Review
     instructions: |
       Review all commits since {{last_reviewed_sha}} ({{new_commit_count}} new commits since last review).
-      If {{last_reviewed_sha}} is empty, review the last 10 commits.
+      If "{{last_reviewed_sha}}" is empty, review the last 10 commits.
       For each commit, review the diff and note:
       - Code quality issues introduced (smells, complexity, missing tests)
       - Missing or inadequate commit message detail
       - Potential bugs or regressions
       - Positive patterns worth reinforcing
-
+      
       Write a structured review report. Do not change any code. Send the report
       to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
-
   - id: docs-review
     enabled: true
     frequency: weekly-Sunday

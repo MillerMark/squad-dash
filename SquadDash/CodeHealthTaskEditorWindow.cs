@@ -26,6 +26,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly CodeHealthTask                         _task;
     private readonly Func<ApplicationSettingsSnapshot>       _settingsProvider;
     private readonly Action                                  _onSaved;
+    private readonly Action                                  _reloadPanel;
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
     private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
 
@@ -89,12 +90,14 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         CodeHealthTask task,
         Func<ApplicationSettingsSnapshot> settingsProvider,
         Action onSaved,
+        Action reloadPanel,
         Action<RichTextBox, string>?         onReviseWithAi = null,
         Action<RichTextBox, string, string>? onDirectRevise = null) : base(captionHeight: 56) {
 
         _task             = task;
         _settingsProvider = settingsProvider;
         _onSaved          = onSaved;
+        _reloadPanel      = reloadPanel;
         _onReviseWithAi   = onReviseWithAi;
         _onDirectRevise   = onDirectRevise;
 
@@ -725,6 +728,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
         _hasUnsavedChanges = false;
         _onSaved();
+        _reloadPanel();
         Close();
     }
 

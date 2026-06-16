@@ -132,6 +132,7 @@ internal sealed class CodeHealthPanelController {
                 newTask,
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
+                _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
                 onDirectRevise: _onDirectRevise);
             editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);
@@ -805,6 +806,7 @@ internal sealed class CodeHealthPanelController {
                 ownerWindow,
                 capturedTask,
                 () => new ApplicationSettingsStore().Load(),
+                _reloadPanel,
                 _reloadPanel,
                 onReviseWithAi: _onReviseWithAi,
                 onDirectRevise: _onDirectRevise);
