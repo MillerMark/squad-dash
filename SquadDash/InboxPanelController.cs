@@ -900,7 +900,7 @@ internal sealed class InboxPanelController
                     Margin            = new Thickness(0, 0, 5, 0),
                     Visibility        = visible,
                 };
-                dot.SetResourceReference(Ellipse.FillProperty, "ActionLinkText");
+                dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityLow");
                 return dot;
             }
             case "high":
@@ -918,15 +918,18 @@ internal sealed class InboxPanelController
             }
             case "critical":
             {
-                var icon = new TextBlock
+                // Filled red square — visually distinct from the round dots used for
+                // other priority levels, and clearly signals urgency via TaskPriorityHigh.
+                var square = new Rectangle
                 {
-                    Text              = "❗",
+                    Width             = 8,
+                    Height            = 8,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 4, 0),
+                    Margin            = new Thickness(0, 0, 5, 0),
                     Visibility        = visible,
                 };
-                icon.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-                return icon;
+                square.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
+                return square;
             }
             default: // "mid" and anything unrecognised
             {
@@ -938,7 +941,7 @@ internal sealed class InboxPanelController
                     Margin            = new Thickness(0, 0, 5, 0),
                     Visibility        = visible,
                 };
-                dot.SetResourceReference(Ellipse.FillProperty, "ActionLinkText");
+                dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityLow");
                 return dot;
             }
         }
