@@ -19879,12 +19879,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 try
                 {
-                    // Skip entries whose Expander is inside a collapsed parent (IsVisible
-                    // returns false when any ancestor has Visibility=Collapsed).
-                    if (!toolEntry.Expander.IsVisible) continue;
+                    // Determine the element to measure against the viewport.
+                    // When the individual tool row (toolEntry.Expander) is inside a collapsed
+                    // ThinkingBlock, IsVisible is false — but the ThinkingBlock's own Expander
+                    // header IS visible and sits at the correct vertical position.  Use that
+                    // instead so collapsed tooling groups don't hide the intent from the scan.
+                    FrameworkElement measureTarget;
+                    if (toolEntry.Expander.IsVisible)
+                    {
+                        measureTarget = toolEntry.Expander;
+                    }
+                    else if (toolEntry.ThinkingBlock?.Expander is { } tbExp && tbExp.IsVisible)
+                    {
+                        measureTarget = tbExp;
+                    }
+                    else
+                    {
+                        continue; // truly not in the visual tree
+                    }
 
-                    var pos = toolEntry.Expander.TranslatePoint(new Point(0, 0), scrollViewer);
-                    var entryBottom = pos.Y + toolEntry.Expander.ActualHeight;
+                    var pos = measureTarget.TranslatePoint(new Point(0, 0), scrollViewer);
+                    var entryBottom = pos.Y + measureTarget.ActualHeight;
 
                     // At least partially on screen: top is above viewport bottom AND
                     // bottom is below viewport top.
@@ -19966,12 +19981,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             try
             {
-                if (!toolEntry.Expander.IsVisible) continue;
+                // Same collapsed-group handling as the coordinator scan:
+                // fall back to the ThinkingBlock header position when the row is hidden
+                // inside a collapsed tooling group.
+                FrameworkElement measureTarget;
+                if (toolEntry.Expander.IsVisible)
+                {
+                    measureTarget = toolEntry.Expander;
+                }
+                else if (toolEntry.ThinkingBlock?.Expander is { } tbExp && tbExp.IsVisible)
+                {
+                    measureTarget = tbExp;
+                }
+                else
+                {
+                    continue;
+                }
 
                 if (scrollViewer is not null)
                 {
-                    var pos = toolEntry.Expander.TranslatePoint(new Point(0, 0), scrollViewer);
-                    var entryBottom = pos.Y + toolEntry.Expander.ActualHeight;
+                    var pos = measureTarget.TranslatePoint(new Point(0, 0), scrollViewer);
+                    var entryBottom = pos.Y + measureTarget.ActualHeight;
                     // At least partially on screen.
                     if (pos.Y < scrollViewer.ViewportHeight && entryBottom > 0)
                     {
