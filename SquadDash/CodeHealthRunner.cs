@@ -312,7 +312,7 @@ internal sealed class CodeHealthRunner {
         if (string.Equals(effectiveSafety, "report-only", StringComparison.OrdinalIgnoreCase)) {
             // Fix 1: for report-only tasks the INBOX requirement goes at the very top and
             // a mandatory checklist is appended at the end so it cannot be lost in the middle.
-            safetyPrefix = ReportOnlyInboxPreamble + "Do not modify any source files. Generate a report only.\n\n";
+            safetyPrefix = ReportOnlyInboxPreamble + "Do not modify any source files. Do not create, checkout, or switch git branches. Do not run any git write commands. Generate a report only.\n\n";
             suffix       = ReportOnlyMandatoryChecklist;
         }
         else {
