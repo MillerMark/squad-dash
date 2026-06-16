@@ -233,15 +233,7 @@ internal sealed class InboxPanelController
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        var dot = new Ellipse
-        {
-            Width             = 7,
-            Height            = 7,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin            = new Thickness(0, 0, 5, 0),
-            Visibility        = msg.Read ? Visibility.Hidden : Visibility.Visible,
-        };
-        dot.SetResourceReference(Ellipse.FillProperty, "ActionLinkText");
+        var indicator = BuildPriorityIndicator(msg);
 
         var subjectLabel = new TextBlock
         {
@@ -254,7 +246,7 @@ internal sealed class InboxPanelController
         subjectLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, msg.Read ? "SubtleText" : "LabelText");
 
-        headerRow.Children.Add(dot);
+        headerRow.Children.Add(indicator);
         headerRow.Children.Add(subjectLabel);
         rowStack.Children.Add(headerRow);
 
@@ -284,13 +276,13 @@ internal sealed class InboxPanelController
             else if ((modifiers & ModifierKeys.Shift) != 0)
                 RangeSelectMessage(msg);
             else
-                SelectMessage(msg, row, dot, subjectLabel);
+                SelectMessage(msg, row, indicator, subjectLabel);
         };
-        row.ContextMenu         = BuildRowContextMenu(msg, row, dot, subjectLabel);
+        row.ContextMenu         = BuildRowContextMenu(msg, row, indicator, subjectLabel);
         // Rebuild the context menu each time it opens so the read/unread item reflects current state.
         row.ContextMenuOpening += (_, _) => row.ContextMenu = _selectedIds.Count >= 2
             ? BuildMultiSelectContextMenu()
-            : BuildRowContextMenu(msg, row, dot, subjectLabel);
+            : BuildRowContextMenu(msg, row, indicator, subjectLabel);
 
         return row;
     }
@@ -307,7 +299,7 @@ internal sealed class InboxPanelController
 
     // ── Message selection ─────────────────────────────────────────────────────
 
-    private void SelectMessage(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
+    private void SelectMessage(InboxMessage msg, Border row, UIElement indicator, TextBlock subjectLabel)
     {
         _selectedIds.Clear();
         _selectedIds.Add(msg.Id);
@@ -320,7 +312,7 @@ internal sealed class InboxPanelController
 
         // Defer mark-as-read: the window fires the callback after 3 s of viewing
         // or on any scroll, whichever comes first.
-        Action? markReadCallback = msg.Read ? null : () => MarkRowRead(msg, row, dot, subjectLabel);
+        Action? markReadCallback = msg.Read ? null : () => MarkRowRead(msg, row, indicator, subjectLabel);
 
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxPanelController.SelectMessage: calling _openMessageWindow (wired to OpenOrFocusInboxMessage) for msgId={msg.Id}");
         _openMessageWindow(msg, markReadCallback);
@@ -394,22 +386,22 @@ internal sealed class InboxPanelController
             row.Background = Brushes.Transparent;
     }
 
-    private void MarkRowRead(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
+    private void MarkRowRead(InboxMessage msg, Border row, UIElement indicator, TextBlock subjectLabel)
     {
         msg.Read = true;
         _markRead(msg.Id);
         row.Opacity            = 1.0;
-        dot.Visibility         = Visibility.Hidden;
+        indicator.Visibility   = Visibility.Hidden;
         subjectLabel.FontWeight = FontWeights.Normal;
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
     }
 
-    private void MarkRowUnread(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
+    private void MarkRowUnread(InboxMessage msg, Border row, UIElement indicator, TextBlock subjectLabel)
     {
         msg.Read = false;
         _markUnread(msg.Id);
         row.Opacity            = 1.0;
-        dot.Visibility         = Visibility.Visible;
+        indicator.Visibility   = Visibility.Visible;
         subjectLabel.FontWeight = FontWeights.SemiBold;
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
     }
@@ -712,7 +704,7 @@ internal sealed class InboxPanelController
 
     // ── Context menu ──────────────────────────────────────────────────────────
 
-    private ContextMenu BuildRowContextMenu(InboxMessage msg, Border row, Ellipse dot, TextBlock subjectLabel)
+    private ContextMenu BuildRowContextMenu(InboxMessage msg, Border row, UIElement indicator, TextBlock subjectLabel)
     {
         var menu = MakeMenu();
 
@@ -738,7 +730,7 @@ internal sealed class InboxPanelController
             var markUnreadItem = MakeItem("Mark as unread");
             markUnreadItem.Click += (_, _) =>
             {
-                MarkRowUnread(msg, row, dot, subjectLabel);
+                MarkRowUnread(msg, row, indicator, subjectLabel);
             };
             menu.Items.Add(markUnreadItem);
         }
@@ -747,7 +739,7 @@ internal sealed class InboxPanelController
             var markReadItem = MakeItem("Mark as read");
             markReadItem.Click += (_, _) =>
             {
-                MarkRowRead(msg, row, dot, subjectLabel);
+                MarkRowRead(msg, row, indicator, subjectLabel);
             };
             menu.Items.Add(markReadItem);
         }
@@ -806,7 +798,7 @@ internal sealed class InboxPanelController
                     if (child is Border { Tag: InboxMessage rowMsg } rowBorder
                         && _selectedIds.Contains(rowMsg.Id) && !rowMsg.Read)
                     {
-                        var dot   = FindDotInRow(rowBorder);
+                        var dot   = FindIndicatorInRow(rowBorder);
                         var label = FindSubjectLabelInRow(rowBorder);
                         if (dot is not null && label is not null)
                             MarkRowRead(rowMsg, rowBorder, dot, label);
@@ -827,7 +819,7 @@ internal sealed class InboxPanelController
                     if (child is Border { Tag: InboxMessage rowMsg } rowBorder
                         && _selectedIds.Contains(rowMsg.Id) && rowMsg.Read)
                     {
-                        var dot   = FindDotInRow(rowBorder);
+                        var dot   = FindIndicatorInRow(rowBorder);
                         var label = FindSubjectLabelInRow(rowBorder);
                         if (dot is not null && label is not null)
                             MarkRowUnread(rowMsg, rowBorder, dot, label);
@@ -881,15 +873,75 @@ internal sealed class InboxPanelController
         return menu;
     }
 
-    private static Ellipse? FindDotInRow(Border row)
+    private static UIElement? FindIndicatorInRow(Border row)
     {
         if (row.Child is StackPanel outer
             && outer.Children.Count > 0
             && outer.Children[0] is StackPanel header
-            && header.Children.Count > 0
-            && header.Children[0] is Ellipse dot)
-            return dot;
+            && header.Children.Count > 0)
+            return header.Children[0] as UIElement;
         return null;
+    }
+
+    private static UIElement BuildPriorityIndicator(InboxMessage msg)
+    {
+        var priority = (msg.Priority ?? "mid").ToLowerInvariant();
+        var visible  = msg.Read ? Visibility.Hidden : Visibility.Visible;
+
+        switch (priority)
+        {
+            case "low":
+            {
+                var dot = new Ellipse
+                {
+                    Width             = 3.5,
+                    Height            = 3.5,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(0, 0, 5, 0),
+                    Visibility        = visible,
+                };
+                dot.SetResourceReference(Ellipse.FillProperty, "ActionLinkText");
+                return dot;
+            }
+            case "high":
+            {
+                var dot = new Ellipse
+                {
+                    Width             = 8,
+                    Height            = 8,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(0, 0, 5, 0),
+                    Visibility        = visible,
+                };
+                dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityHigh");
+                return dot;
+            }
+            case "critical":
+            {
+                var icon = new TextBlock
+                {
+                    Text              = "❗",
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(0, 0, 4, 0),
+                    Visibility        = visible,
+                };
+                icon.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+                return icon;
+            }
+            default: // "mid" and anything unrecognised
+            {
+                var dot = new Ellipse
+                {
+                    Width             = 7,
+                    Height            = 7,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(0, 0, 5, 0),
+                    Visibility        = visible,
+                };
+                dot.SetResourceReference(Ellipse.FillProperty, "ActionLinkText");
+                return dot;
+            }
+        }
     }
 
     private static TextBlock? FindSubjectLabelInRow(Border row)

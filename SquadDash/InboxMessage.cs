@@ -42,6 +42,13 @@ public sealed record InboxMessage
     /// </summary>
     [JsonPropertyName("gitSha")]
     public string? GitSha { get; init; }
+
+    /// <summary>
+    /// Optional priority level for this message. Valid values: "low", "mid", "high", "critical".
+    /// Defaults to "mid" if absent. Controls the unread indicator appearance in the inbox list.
+    /// </summary>
+    [JsonPropertyName("priority")]
+    public string? Priority { get; init; }
 }
 
 public sealed record InboxAttachment
