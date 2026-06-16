@@ -24,6 +24,9 @@ internal sealed class InboxMessageDto
 
     [JsonPropertyName("actions")]
     public IReadOnlyList<InboxAction> Actions { get; init; } = [];
+
+    [JsonPropertyName("priority")]
+    public string? Priority { get; init; }
 }
 
 /// <summary>
@@ -247,6 +250,7 @@ internal static class InboxMessageParser
             Body        = dto.Body,
             Attachments = dto.Attachments,
             Actions     = filtered,
+            Priority    = dto.Priority,
         };
     }
 

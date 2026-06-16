@@ -32264,6 +32264,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Subject     = dto.Subject,
             From        = dto.From,
             Body        = dto.Body,
+            Priority    = dto.Priority,
             Timestamp   = DateTimeOffset.Now,
             GitSha      = null,   // populated asynchronously after save (see below)
             Attachments = dto.Attachments,
