@@ -136,6 +136,17 @@ internal static class MarkdownFlowDocumentBuilder {
                                nextRaw.Length > 0 && char.IsWhiteSpace(nextRaw[0])) {
                         currentItem.Append(' ').Append(next);
                         index++;
+                    } else if (string.IsNullOrWhiteSpace(next) &&
+                               index + 2 < lines.Length &&
+                               IsOrderedListItem(lines[index + 2].Trim())) {
+                        // Blank line between ordered list items (loose list) — skip the blank
+                        // and continue collecting so all items end up in one sequential list.
+                        listItems.Add(currentItem.ToString());
+                        index += 2; // skip blank, land on next item line
+                        var lookaheadRaw = lines[index];
+                        var lookahead    = lookaheadRaw.Trim();
+                        var nextDotIdx   = lookahead.IndexOf(". ", StringComparison.Ordinal);
+                        currentItem = new System.Text.StringBuilder(lookahead[(nextDotIdx + 2)..].Trim());
                     } else {
                         break;
                     }
