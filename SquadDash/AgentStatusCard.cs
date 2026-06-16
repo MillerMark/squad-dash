@@ -375,6 +375,12 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     public void FireActivityPulse(SpinnerActivityKind kind) =>
         ActivityPulsed?.Invoke(this, kind);
 
+    /// <summary>Fired when the agent's turn ends — causes the spinner to begin a forced wind-down.</summary>
+    public event EventHandler? TurnEnded;
+
+    /// <summary>Call from the UI thread when the agent's turn completes to trigger forced spinner fade-out.</summary>
+    public void NotifyTurnEnded() => TurnEnded?.Invoke(this, EventArgs.Empty);
+
     // ── Theme ─────────────────────────────────────────────────────────────
 
     /// <summary>Raised (on any thread) when the app theme changes.</summary>

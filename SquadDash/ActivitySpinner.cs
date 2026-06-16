@@ -32,6 +32,11 @@ public sealed class ActivitySpinner : FrameworkElement
     private double _scaleTarget = 0.0;
     private double _currentScale = 0.0;
 
+    // Forced fade-out state (triggered when a turn ends)
+    private bool _forcedFadeOutActive;
+    private double _forcedFadeOutDuration;
+    private double _forcedFadeOutElapsed;
+
     // Animated layout width (drives smooth text slide)
     private double _animatedWidth = 0.0;
     private double _widthTarget = 0.0;
@@ -132,6 +137,7 @@ public sealed class ActivitySpinner : FrameworkElement
         {
             _subscribedCard.ActivityPulsed -= OnActivityPulsed;
             _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
+            _subscribedCard.TurnEnded -= OnTurnEnded;
             _subscribedCard = null;
         }
         if (e.NewValue is AgentStatusCard card)
@@ -139,6 +145,7 @@ public sealed class ActivitySpinner : FrameworkElement
             _subscribedCard = card;
             card.ActivityPulsed += OnActivityPulsed;
             card.PropertyChanged += OnCardPropertyChanged;
+            card.TurnEnded += OnTurnEnded;
             SyncAccentColor();
         }
     }
@@ -164,6 +171,7 @@ public sealed class ActivitySpinner : FrameworkElement
         {
             _subscribedCard.ActivityPulsed -= OnActivityPulsed;
             _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
+            _subscribedCard.TurnEnded -= OnTurnEnded;
             _subscribedCard = null;
         }
         AgentStatusCard.ThemeChanged -= OnThemeChanged;
@@ -178,8 +186,27 @@ public sealed class ActivitySpinner : FrameworkElement
 
     // ── Activity pulse entry point ──────────────────────────────────────────
 
+    /// <summary>
+    /// Begins a forced wind-down of the spinner over <paramref name="durationSeconds"/> seconds.
+    /// No-op if the spinner is not currently running or already below the fade threshold.
+    /// </summary>
+    public void BeginForcedFadeOut(double durationSeconds = 3.0)
+    {
+        if (!_physicsTimer.IsEnabled || _angularVelocity < FadeOutThreshold)
+            return;
+
+        _forcedFadeOutActive = true;
+        _forcedFadeOutDuration = durationSeconds;
+        _forcedFadeOutElapsed = 0.0;
+    }
+
+    private void OnTurnEnded(object? sender, EventArgs e) => BeginForcedFadeOut(3.0);
+
     private void OnActivityPulsed(object? sender, SpinnerActivityKind kind)
     {
+        // A new activity pulse cancels any in-progress forced fade-out
+        _forcedFadeOutActive = false;
+
         _currentKind = kind;
 
         var impulse = kind == SpinnerActivityKind.Writing ? WritingImpulse : ThinkingImpulse;
@@ -229,6 +256,21 @@ public sealed class ActivitySpinner : FrameworkElement
             _velocityAccelPhase = Math.Max(0.0, _velocityAccelPhase - dt);
             var accelRate = (_velocityTarget - _angularVelocity) / VelocityRampSeconds;
             _angularVelocity = Math.Min(_angularVelocity + accelRate * dt, _velocityTarget);
+        }
+
+        // Forced fade-out: override normal coasting with accelerated deceleration
+        if (_forcedFadeOutActive)
+        {
+            _forcedFadeOutElapsed += dt;
+            var remaining = Math.Max(0.001, _forcedFadeOutDuration - _forcedFadeOutElapsed);
+            _angularVelocity *= Math.Exp(-dt / (remaining / 3.0));
+            _velocityTarget = 0;
+            _velocityAccelPhase = 0;
+            if (_forcedFadeOutElapsed >= _forcedFadeOutDuration)
+            {
+                _angularVelocity = 0;
+                _forcedFadeOutActive = false;
+            }
         }
 
         // Friction: exponential decay (always applied so spinner coasts to stop when idle)

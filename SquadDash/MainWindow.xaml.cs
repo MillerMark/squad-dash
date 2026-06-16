@@ -4546,6 +4546,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "bridge-done-event");
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
                 FlushDeferredSystemLines();
+                _leadAgent?.NotifyTurnEnded();
+                foreach (var agentThread in _agentThreadRegistry.ThreadOrder)
+                    FindAgentCardForThread(agentThread)?.NotifyTurnEnded();
                 {
                     var agentName = _leadAgent?.Name ?? "Agent";
                     var rawResponse = doneCurrentTurn?.ResponseTextBuilder.ToString();
@@ -5043,6 +5046,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         FinalizeCurrentTurnResponse(thread);
         thread.ResponseStreamed = false;
+        FindAgentCardForThread(thread)?.NotifyTurnEnded();
 
         SyncThreadChip(thread);
         UpdateAgentCardFromThread(thread);
