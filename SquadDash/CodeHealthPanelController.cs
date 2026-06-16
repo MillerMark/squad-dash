@@ -616,7 +616,7 @@ internal sealed class CodeHealthPanelController {
                 Text   = $"Last run: {relTime}",
                 Margin = new Thickness(5, -1, 0, 0),
             };
-            lastRunBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            lastRunBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeXSmall");
             lastRunBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             rightPanel.Children.Add(lastRunBlock);
         }
