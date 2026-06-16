@@ -343,6 +343,22 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         DockPanel.SetDock(propsRow, Dock.Top);
         root.Children.Add(propsRow);
 
+        // ── Safety row ────────────────────────────────────────────────────────
+        var safetyRow = new StackPanel {
+            Orientation = Orientation.Horizontal,
+            Margin      = new Thickness(8, 0, 8, 4),
+        };
+        safetyRow.Children.Add(BuildLabel("Safety:"));
+        safetyRow.Children.Add(_safetyCombo);
+        if (!_task.HasSafetyOptions)
+        {
+            _safetyCombo.IsEnabled = false;
+            _safetyCombo.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                "Safety level is fixed for this task. Edit the task YAML to change it.");
+        }
+        DockPanel.SetDock(safetyRow, Dock.Top);
+        root.Children.Add(safetyRow);
+
         // ── Button row ────────────────────────────────────────────────────────
         var buttonRow = new StackPanel {
             Orientation         = Orientation.Horizontal,
