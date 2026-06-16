@@ -356,12 +356,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         };
         safetyRow.Children.Add(BuildLabel("Safety:"));
         safetyRow.Children.Add(_safetyCombo);
-        if (!_task.HasSafetyOptions)
-        {
-            _safetyCombo.IsEnabled = false;
-            _safetyCombo.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                "Safety level is fixed for this task. Edit the task YAML to change it.");
-        }
         DockPanel.SetDock(safetyRow, Dock.Top);
         root.Children.Add(safetyRow);
 
