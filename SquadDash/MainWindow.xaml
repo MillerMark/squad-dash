@@ -1984,20 +1984,6 @@
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource PanelTitle}"
                                            VerticalAlignment="Center" />
-                                <!-- Unread-report badge -->
-                                <Border x:Name="CodeHealthPanelBadge"
-                                        DockPanel.Dock="Left"
-                                        Width="8"
-                                        Height="8"
-                                        CornerRadius="4"
-                                        Margin="5,0,0,0"
-                                        VerticalAlignment="Center"
-                                        Visibility="Collapsed"
-                                        ToolTip="Unread Code Health report">
-                                    <Border.Background>
-                                        <SolidColorBrush Color="#E53935" />
-                                    </Border.Background>
-                                </Border>
                                 <StackPanel DockPanel.Dock="Left"
                                             Orientation="Horizontal"
                                             VerticalAlignment="Center"
@@ -3379,4 +3365,5 @@
 
     </Grid>  <!-- end RootPanel -->
 </Window>
+
 

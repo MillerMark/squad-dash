@@ -32283,9 +32283,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void DismissCodeHealthBadge()
     {
-        if (CodeHealthPanelBadge is not null)
-            CodeHealthPanelBadge.Visibility = Visibility.Collapsed;
     }
+
 
     private void DismissCodeHealthBanner()
     {
@@ -32427,8 +32426,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         stubState.Save();
                     }
                     _pendingCodeHealthBannerReport = report;
-                    if (CodeHealthPanelBadge is not null)
-                        CodeHealthPanelBadge.Visibility = Visibility.Visible;
                     _idleDetectionService?.SetRunnerActive(false);
                     _codeHealthPanel?.OnRunnerCompleted();
                     var updatedConfig = CodeHealthMdParser.ParseWithAllSources(workspacePath);
