@@ -104,7 +104,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _onDirectRevise   = onDirectRevise;
 
         Owner                 = owner;
-        Title                 = "Edit Maintenance Task";
+        Title                 = "Edit Health Task";
         Width                 = 800;
         Height                = 700;
         MinWidth              = 500;
@@ -149,7 +149,8 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _optionValues["safety"] = _task.Safety;
 
         // Seed system runtime variables with representative preview values
-        _optionValues["branch"] = $"codehealth/{task.Id}/{DateTimeOffset.Now:yyyyMMdd-HHmmss}";
+        _optionValues["branch"]     = $"codehealth/{task.Id}/{DateTimeOffset.Now:yyyyMMdd-HHmmss}";
+        _optionValues["branchName"] = _optionValues["branch"]; // same value, Handlebars-style alias
 
         if (stateStore is not null) {
             var sha = stateStore.GetLastCommitSha(task.Id);
@@ -323,7 +324,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
         // ── Window caption ────────────────────────────────────────────────────
         var captionLabel = new TextBlock {
-            Text              = "Edit Maintenance Task",
+            Text              = "Edit Health Task",
             VerticalAlignment = VerticalAlignment.Center,
             FontWeight        = FontWeights.SemiBold,
             Margin            = new Thickness(12, 8, 50, 4),
