@@ -897,10 +897,11 @@ internal sealed class InboxPanelController
             {
                 var path = new System.Windows.Shapes.Path
                 {
-                    Data = Geometry.Parse("M21.3333333333333,29.3333333333333C34.6666666666666,6,34.6666666666666,6,34.6666666666666,6C36.3333333333333,3.33333333333333,34.3333333333333,-0.333333333333336,31,-0.333333333333336C4.33333333333331,-0.333333333333336,4.33333333333331,-0.333333333333336,4.33333333333331,-0.333333333333336C1,-0.333333333333336,-1.33333333333337,3.33333333333333,0.333333333333314,6C14,29.3333333333333,14,29.3333333333333,14,29.3333333333333C15.6666666666666,32.3333333333333,19.6666666666666,32.3333333333333,21.3333333333333,29.3333333333333z"),
+                    Data            = Geometry.Parse("M18.3333333333333,17.6666666666667C30.6666666666666,5.66666666666666,30.6666666666666,5.66666666666666,30.6666666666666,5.66666666666666C32.6666666666666,3.66666666666666,31.3333333333333,0.333333333333329,28.6666666666666,0.333333333333329C3.66666666666663,0.333333333333329,3.66666666666663,0.333333333333329,3.66666666666663,0.333333333333329C0.666666666666629,0.333333333333329,-0.666666666666686,3.66666666666666,1.33333333333331,5.66666666666666C14,17.6666666666667,14,17.6666666666667,14,17.6666666666667C15,19,17,19,18.3333333333333,17.6666666666667z"),
+                    StrokeThickness = 1.333,
                 };
                 path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "TaskPriorityLow");
-                var canvas = new Canvas { Width = 35, Height = 31 };
+                var canvas = new Canvas { Width = 32, Height = 19 };
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
@@ -953,6 +954,7 @@ internal sealed class InboxPanelController
                     Opacity           = opacity,
                     Child             = canvas,
                 };
+                viewbox.LayoutTransform = new System.Windows.Media.ScaleTransform(1.15, 1.15);
                 viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
                 viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
                 return viewbox;
@@ -962,6 +964,7 @@ internal sealed class InboxPanelController
                 var dot = new Ellipse
                 {
                     VerticalAlignment = VerticalAlignment.Center,
+                    LayoutTransform   = new System.Windows.Media.ScaleTransform(0.8, 0.8),
                     Margin            = new Thickness(0, 0, 4, 0),
                     Opacity           = opacity,
                 };
