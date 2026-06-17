@@ -858,7 +858,7 @@ internal sealed class CodeHealthPanelController {
             var revertItem = new MenuItem { Header = "Revert to Default Implementation" };
             revertItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             var capturedTaskId = task.Id;
-            var capturedWorkspacePath = workspacePath;
+            var capturedWorkspacePath = workspacePath!;
             revertItem.Click += (_, _) => {
                 try {
                     CodeHealthMdParser.RevertTaskToDefault(capturedTaskId, capturedWorkspacePath);
@@ -875,7 +875,7 @@ internal sealed class CodeHealthPanelController {
                 var promoteItem = new MenuItem { Header = "Move changes to main code health file" };
                 promoteItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 var capturedTaskIdForPromote = task.Id;
-                var capturedWorkspaceForPromote = workspacePath;
+                var capturedWorkspaceForPromote = workspacePath!;
                 promoteItem.Click += (_, _) => {
                     try {
                         CodeHealthMdParser.PromoteOverrideToSystemFile(capturedTaskIdForPromote, capturedWorkspaceForPromote);
