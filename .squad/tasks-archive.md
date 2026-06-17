@@ -469,3 +469,17 @@
 
 - [x] **[Docking] Panel docking UI spec** *(Owner: mira-quill)* — commit fc205b2
 
+
+## Archived 2026-06-16T20:14:55Z — prune-tasks maintenance pass
+
+- [x] **[Inbox Test] Send a test inbox message at mid priority**
+  Send an inbox message with `priority: "mid"` to verify the medium blue dot indicator appears correctly.
+
+- [x] **[Inbox Test] Send a test inbox message at critical priority**
+  Send an inbox message with `priority: "critical"` to verify the red square indicator appears correctly.
+
+- [x] **[Inbox Test] Send a test inbox message at high priority**
+  Send an inbox message with `priority: "high"` to verify the red dot indicator appears correctly.
+
+- [x] **[Inbox Test] Send a test inbox message at low priority**
+  Send an inbox message with `priority: "low"` to verify the small blue dot indicator appears correctly.

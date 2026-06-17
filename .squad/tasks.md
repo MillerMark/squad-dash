@@ -9,7 +9,7 @@
 
 ## 🟡 Mid Priority
 
-- [ ] **[Docking] Refactor DockingMapBuilder to loop-based zone layout** *(Owner: Lyra Morn)*
+- [ ] **[Docking] Refactor DockingMapBuilderto loop-based zone layout***(Owner: Lyra Morn)*
   DockingMapBuilder.BuildDockingMap currently uses hardcoded per-zone if/else chains for suppression,
   thin generation, and slot layout (Left3/Left2/Left, Right/Right2/Right3). This makes adding a 4th
   zone tier a near-rewrite. Prerequisite: lock down test cases for all N=0/1/2 configurations (Left and
@@ -64,7 +64,7 @@
 
 ## 🔴 High Priority
 
-- [ ] **[Bug] Prompt history cycling (Ctrl+Up/Down) doesn't copy attachments to queued item** *(Owner: Lyra Morn)*
+- [ ] **[Bug] Prompt history cycling(Ctrl+Up/Down) doesn't copy attachments to queued item***(Owner: Lyra Morn)*
   When a queued prompt item is selected and the user cycles through prompt history with Ctrl+Up/Down,
   only the text content is brought in — attachments from the history entry are not copied to the queued item.
   Attachments appear on the active draft instead. Expected: cycling history into a queued item should
@@ -257,7 +257,11 @@
 
 ---
 
-## 🟢 Low Priority — maintenance.md File Quality (Malik's Suggestions)
+## 🟢 Low Priority
+
+---
+
+## 🟢 Low Priority — maintenance.md File Quality(Malik's Suggestions)
 
 > These tasks clean up and improve the default `.squad/maintenance.md` file format and content.
 > Run one at a time via the loop. S1, S3b, S4 require parser/UI changes; the rest are file-only edits.
