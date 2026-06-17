@@ -504,6 +504,53 @@ internal sealed class CodeHealthStateStoreTests {
             "Null commitSha must fall back to daily — not eligible again on the same day");
     }
 
+    // ── GetSafetyOverride — empty string treated as null ─────────────────────
+
+    [Test]
+    public void GetSafetyOverride_EmptyStringInJson_ReturnsNull() {
+        // Regression: persisted safetyOverride: "" must be treated as "no override"
+        // so it doesn't shadow the task's declared safety via null-coalescing.
+        var stateFile = Path.Combine(_workspace.RootPath, "code-health-state.json");
+        File.WriteAllText(stateFile, """
+            {
+              "tasks": {
+                "commit-review": {
+                  "lastRunAt": "2026-06-17T18:00:00Z",
+                  "lastCommitSha": "abc123",
+                  "safetyOverride": ""
+                }
+              }
+            }
+            """);
+        var store = new CodeHealthStateStore(_workspace.RootPath);
+        store.Reload();
+
+        var result = store.GetSafetyOverride("commit-review");
+        Assert.That(result, Is.Null,
+            "An empty safetyOverride string must be treated as no override (return null), " +
+            "otherwise it defeats the task's declared safety level via null-coalescing.");
+    }
+
+    [Test]
+    public void GetSafetyOverride_ActualOverride_ReturnsValue() {
+        var store = new CodeHealthStateStore(_workspace.RootPath);
+        store.SetSafetyOverride("some-task", "report-only");
+
+        var result = store.GetSafetyOverride("some-task");
+        Assert.That(result, Is.EqualTo("report-only"),
+            "A non-empty safetyOverride must be returned as-is.");
+    }
+
+    [Test]
+    public void GetSafetyOverride_NullOverride_ReturnsNull() {
+        var store = new CodeHealthStateStore(_workspace.RootPath);
+        store.SetSafetyOverride("some-task", null);
+
+        var result = store.GetSafetyOverride("some-task");
+        Assert.That(result, Is.Null,
+            "A null safetyOverride must be returned as null.");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private sealed class CapturingTraceTarget(

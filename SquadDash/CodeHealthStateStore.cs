@@ -172,10 +172,11 @@ internal sealed class CodeHealthStateStore {
         return null;
     }
 
-    /// <summary>Returns the safety override for the task, or null if not set.</summary>
+    /// <summary>Returns the safety override for the task, or null if not set.
+    /// Empty string is treated as "no override" (returns null) to guard against persisted empty values.</summary>
     public string? GetSafetyOverride(string taskId) {
         if (_tasks.TryGetValue(taskId, out var state))
-            return state.SafetyOverride;
+            return string.IsNullOrEmpty(state.SafetyOverride) ? null : state.SafetyOverride;
         return null;
     }
 
