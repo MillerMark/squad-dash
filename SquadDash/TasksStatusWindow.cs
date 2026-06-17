@@ -148,9 +148,10 @@ internal sealed class TasksStatusWindow : ChromedWindow {
     }
 
     internal static string? EmojiResourceKey(string segment) => segment switch {
-        "🔴" => "TaskPriorityHigh",
-        "🟡" => "TaskPriorityMid",
-        "🟢" => "TaskPriorityLow",
+        "⚫" => "PriorityCritical",
+        "🔴" => "PriorityHigh",
+        "🟡" => "PriorityMid",
+        "🟢" => "PriorityLow",
         _    => null
     };
 }

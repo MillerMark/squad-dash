@@ -39,9 +39,10 @@ internal static class MarkdownHtmlBuilder {
         var line         = BrushHex("LineColor")                 ?? (isDark ? "#3e3730"  : "#e2d9ca");
         var lineStrong   = BrushHex("QuoteBorder")               ?? (isDark ? "#6a5038"  : "#c0a070");
         var thHeaderBg   = BrushHex("TableHeaderSurface")        ?? (isDark ? "#2a2520"  : "#ede8e0");
-        var prioHigh     = BrushHex("TaskPriorityHigh")          ?? (isDark ? "#FF5252"  : "#DE3333");
-        var prioMid      = BrushHex("TaskPriorityMid")           ?? (isDark ? "#FFD740"  : "#A06800");
-        var prioLow      = BrushHex("TaskPriorityLow")           ?? (isDark ? "#64B5F6"  : "#1976D2");
+        var prioCritical = BrushHex("PriorityCritical")  ?? (isDark ? "#FF5252"  : "#DE3333");
+        var prioHigh     = BrushHex("PriorityHigh")      ?? (isDark ? "#FFD740"  : "#D78C00");
+        var prioMid      = BrushHex("PriorityMid")       ?? (isDark ? "#64B5F6"  : "#1976D2");
+        var prioLow      = BrushHex("PriorityLow")       ?? (isDark ? "#2E7D32"  : "#50BA55");
         var sbTrack      = BrushHex("ScrollBarTrackBrush")       ?? (isDark ? "#2a2a2a"  : "#f0f0f0");
         var sbThumb      = BrushHex("ScrollBarThumbBrush")       ?? (isDark ? "#555555"  : "#aaaaaa");
         var sbThumbHov   = BrushHex("ScrollBarThumbHoverBrush")  ?? (isDark ? "#777777"  : "#888888");
@@ -164,9 +165,10 @@ internal static class MarkdownHtmlBuilder {
     vertical-align: middle;
     margin: 0 3px 1px 0;
   }
-  .pdot-high { background: {{prioHigh}}; }
-  .pdot-mid  { background: {{prioMid}}; }
-  .pdot-low  { background: {{prioLow}}; }
+  .pdot-critical { background: {{prioCritical}}; }
+  .pdot-high     { background: {{prioHigh}}; }
+  .pdot-mid      { background: {{prioMid}}; }
+  .pdot-low      { background: {{prioLow}}; }
 </style>
 </head>
 <body>
@@ -274,9 +276,10 @@ document.addEventListener('click', function(e) {
                 var level = Math.Clamp(trimmed.TakeWhile(character => character == '#').Count(), 1, 4);
                 var headingText = trimmed[level..].Trim();
 
-                // Detect priority headings (## 🔴/🟡/🟢 ...)
+                // Detect priority headings (## ⚫/🔴/🟡/🟢 ...)
                 if (level == 2) {
-                    if (headingText.Contains("🔴"))      currentPrioClass = "prio-high";
+                    if (headingText.Contains("⚫"))      currentPrioClass = "prio-critical";
+                    else if (headingText.Contains("🔴")) currentPrioClass = "prio-high";
                     else if (headingText.Contains("🟡")) currentPrioClass = "prio-mid";
                     else if (headingText.Contains("🟢")) currentPrioClass = "prio-low";
                     else                                  currentPrioClass = null;
@@ -398,6 +401,7 @@ document.addEventListener('click', function(e) {
 
         // Replace priority circle emoji with themed HTML dots before other inline processing.
         escaped = escaped
+            .Replace("⚫", "<span class=\"pdot pdot-critical\"></span>")
             .Replace("🔴", "<span class=\"pdot pdot-high\"></span>")
             .Replace("🟡", "<span class=\"pdot pdot-mid\"></span>")
             .Replace("🟢", "<span class=\"pdot pdot-low\"></span>");

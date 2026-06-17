@@ -7,9 +7,10 @@ internal sealed class TasksStatusWindowEmojiTests {
 
     // ── Known priority emoji → correct resource key ───────────────────────
 
-    [TestCase("🔴", "TaskPriorityHigh")]
-    [TestCase("🟡", "TaskPriorityMid")]
-    [TestCase("🟢", "TaskPriorityLow")]
+    [TestCase("⚫", "PriorityCritical")]
+    [TestCase("🔴", "PriorityHigh")]
+    [TestCase("🟡", "PriorityMid")]
+    [TestCase("🟢", "PriorityLow")]
     public void EmojiResourceKey_KnownEmoji_ReturnsCorrectResourceKey(string emoji, string expectedKey) {
         var result = TasksStatusWindow.EmojiResourceKey(emoji);
         Assert.That(result, Is.EqualTo(expectedKey));

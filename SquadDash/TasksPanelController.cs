@@ -24,7 +24,6 @@ internal sealed class TasksPanelController {
     private readonly Func<string?>   _getTasksPath;
     private readonly Action          _reloadPanel;
     private readonly Action          _editTasksAction;
-    private readonly Func<string, Brush> _priorityDotColor;
     private readonly Action<TaskItem>?  _attachFollowUp;
     private readonly Action<TaskItem>?  _addToNewChat;
     private readonly Action<TaskItem>?  _addToNotes;
@@ -46,7 +45,6 @@ internal sealed class TasksPanelController {
         Border               outerBorder,
         Func<string?>        getTasksPath,
         Action               editTasksAction,
-        Func<string, Brush>  priorityDotColor,
         Action               reloadPanel,
         Action<TaskItem>?    attachFollowUp = null,
         Action<TaskItem>?    addToNewChat   = null,
@@ -58,7 +56,6 @@ internal sealed class TasksPanelController {
         _completedSection = completedSection;
         _getTasksPath     = getTasksPath;
         _editTasksAction  = editTasksAction;
-        _priorityDotColor = priorityDotColor;
         _reloadPanel      = reloadPanel;
         _attachFollowUp   = attachFollowUp;
         _addToNewChat     = addToNewChat;
@@ -84,18 +81,13 @@ internal sealed class TasksPanelController {
             foreach (var group in openGroups) {
                 if (group.Items.Count == 0) continue;
 
-                // Priority heading: colored dot + label
+                // Priority heading: shaped indicator + label
                 var headingRow = new StackPanel {
                     Orientation = Orientation.Horizontal,
                     Margin      = new Thickness(0, 8, 0, 3),
                 };
-                var dot = new Ellipse {
-                    Width             = 9,
-                    Height            = 9,
-                    Fill              = _priorityDotColor(group.Emoji),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 5, 0),
-                };
+                var indicator = PriorityIndicatorHelper.BuildIndicator(
+                    PriorityIndicatorHelper.EmojiToPriority(group.Emoji));
                 var headingLabel = new TextBlock {
                     Text              = group.Label,
                     FontWeight        = FontWeights.SemiBold,
@@ -103,7 +95,7 @@ internal sealed class TasksPanelController {
                 };
                 headingLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                headingRow.Children.Add(dot);
+                headingRow.Children.Add(indicator);
                 headingRow.Children.Add(headingLabel);
                 _activePanel.Children.Add(headingRow);
 

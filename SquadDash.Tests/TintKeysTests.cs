@@ -18,8 +18,8 @@ internal sealed class TintKeysTests {
     [Test]
     public void TintKeys_ExcludesSemanticStatusColors() {
         Assert.Multiple(() => {
-            Assert.That(TintKeys.All, Does.Not.Contain("TaskPriorityMid"),
-                "TaskPriorityMid is amber = mid-priority status; shifting it would collide with TaskPriorityLow");
+            Assert.That(TintKeys.All, Does.Not.Contain("PriorityHigh"),
+                "PriorityHigh is amber = mid-priority status; shifting it would collide with PriorityMid");
             Assert.That(TintKeys.All, Does.Not.Contain("ScreenshotAnchorUnnamed"),
                 "ScreenshotAnchorUnnamed is amber = semantic annotation color");
         });

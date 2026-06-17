@@ -6537,7 +6537,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                      ? null
                                      : Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"),
             editTasksAction: () => EditTasksMenuItem_Click(this, new RoutedEventArgs()),
-            priorityDotColor: PriorityDotColor,
             reloadPanel: () => Dispatcher.BeginInvoke(LoadTasksPanel),
             attachFollowUp: task => AttachContextFollowUp(
                 $"Task: {task.Text}",
@@ -6613,19 +6612,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private Brush PriorityDotColor(string emoji) => emoji switch
     {
-        "🔴" => (Brush)FindResource("TaskPriorityHigh"),
-        "🟡" => (Brush)FindResource("TaskPriorityMid"),
-        "🟢" => (Brush)FindResource("TaskPriorityLow"),
-        "🔵" => (Brush)FindResource("TaskPriorityLow"),
+        "⚫" => (Brush)FindResource("PriorityCritical"),
+        "🔴" => (Brush)FindResource("PriorityHigh"),
+        "🟡" => (Brush)FindResource("PriorityMid"),
+        "🟢" => (Brush)FindResource("PriorityLow"),
+        "🔵" => (Brush)FindResource("PriorityLow"),
         _ => Brushes.Gray
     };
 
     private static string PriorityResourceKey(string emoji) => emoji switch
     {
-        "🔴" => "TaskPriorityHigh",
-        "🟡" => "TaskPriorityMid",
-        "🟢" => "TaskPriorityLow",
-        "🔵" => "TaskPriorityLow",
+        "⚫" => "PriorityCritical",
+        "🔴" => "PriorityHigh",
+        "🟡" => "PriorityMid",
+        "🟢" => "PriorityLow",
+        "🔵" => "PriorityLow",
         _ => "LabelText"
     };
 
@@ -26249,7 +26250,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(tasksMdPath)!);
                 File.WriteAllText(tasksMdPath,
-                    "## 🔴 High Priority\n\n## 🟡 Mid Priority\n\n## 🟢 Low Priority\n");
+                    "## ⚫ Critical\n\n## 🔴 High Priority\n\n## 🟡 Mid Priority\n\n## 🟢 Low Priority\n");
                 _pec.TasksFilePath = tasksMdPath;
                 SyncTasksPanel();
             }
@@ -30840,6 +30841,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         sb.AppendLine("## Task context");
         sb.AppendLine($"Title: {task.Text}");
         var priority = task.Emoji switch {
+            "⚫" => "Critical",
             "🔴" => "High",
             "🟡" => "Mid",
             "🟢" => "Low",
@@ -30866,6 +30868,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var sb = new System.Text.StringBuilder();
         var priority = task.Emoji switch {
+            "⚫" => "Critical",
             "🔴" => "High",
             "🟡" => "Mid",
             "🟢" => "Low",

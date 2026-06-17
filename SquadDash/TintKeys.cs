@@ -9,7 +9,7 @@ namespace SquadDash;
 /// Excluded by design:
 /// <list type="bullet">
 ///   <item><c>TaskPriorityMid</c> — amber = mid-priority status; shifting it to blue would
-///         collide with <c>TaskPriorityLow</c> (already blue).</item>
+///         collide with <c>TaskPriorityLow</c> (already blue). The unified key is <c>PriorityHigh</c>.</item>
 ///   <item><c>ScreenshotAnchorUnnamed</c> — amber = semantic "unnamed anchor" annotation.</item>
 ///   <item><c>SearchHighlight</c>, <c>SearchHighlightCurrent</c>, <c>SearchHighlightText</c>
 ///         — search highlight chrome must stay visually distinct from the tinted palette.</item>

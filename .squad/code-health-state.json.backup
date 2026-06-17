@@ -51,8 +51,8 @@
       "safetyOverride": ""
     },
     "speed-improvements": {
-      "lastRunAt": "2026-06-16T00:13:55.8257534Z",
-      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "lastRunAt": "2026-06-17T00:25:39.5017964Z",
+      "lastCommitSha": "ef3f62848d891354cc9d6934ca66b95492b2be60",
       "safetyOverride": ""
     },
     "prune-tasks": {

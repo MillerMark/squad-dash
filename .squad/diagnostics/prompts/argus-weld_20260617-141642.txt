@@ -1,0 +1,58 @@
+﻿================================================================================
+PROMPT DIAGNOSTIC METADATA
+================================================================================
+Task: argus-weld
+Timestamp: 2026-06-17 14:16:42
+Workspace: D:\Drive\Source\SquadDash-public
+Session ID: 2b0c82ae-deae-4bd5-9f58-93455002d0c2
+Handoff Context Length: 0 chars
+Prompt Length: 2746 chars
+
+================================================================================
+EVALUATED PROMPT TEXT
+================================================================================
+
+Create branch `codehealth/commit-review/20260617-181642` before making any code changes. Commit to that branch only.
+
+Review all commits since ef541dbde1c9a0fba063f90058c0e062e3c0df93 (18 new commits since last review).
+If "ef541dbde1c9a0fba063f90058c0e062e3c0df93" is empty, review the last 10 commits.
+For each commit, review the diff and note:
+- Code quality issues introduced (smells, complexity, missing tests)
+- Missing or inadequate commit message detail
+- Potential bugs or regressions
+- Positive patterns worth reinforcing
+
+Write a structured review report. Do not change any code. Send the report
+to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+
+<codehealth_inbox_reminder>
+You are running in code health mode — the user is not present. Follow these rules:
+
+1. Do NOT emit QUICK_REPLIES_JSON. Live quick replies require the user to be present and will block the queue.
+
+2. Instead, embed any decision points as deferred actions in your INBOX_MESSAGE_JSON block.
+   Use the `actions` array so the user can make choices later when they review the message.
+
+3. Each action MUST have a self-contained `prompt`. Action buttons are strongly encouraged — they are excellent
+   for usability and let the user act on your findings without typing. Use them whenever a natural follow-up
+   choice exists. Consider `"draft"` actions when you need the user to answer questions: pre-fill the prompt
+   with labeled placeholders so the user just fills in the blanks and sends.
+   Each action may also include an optional `"hint"` field — a short tooltip string shown when the user hovers
+   over the button.
+
+   Do NOT include any 'done' action whose label is purely acknowledgement-only (closing the message without recording a decision).
+   Only include a `"done"` action when its label is genuinely meaningful (e.g. 'Mark resolved', 'Already fixed') and the
+   user needs to record a decision without launching an agent. In most cases, omit the 'done' action entirely.
+
+4. For report-only tasks: send findings as an inbox message with `"from": "argus-weld"`.
+   Subject = short descriptive title (no 'Code Health Report:' prefix, no date). Body = full Markdown report. Actions = any follow-up choices.
+   Put INBOX_MESSAGE_JSON on a bare top-level line; do not wrap it in markdown code fences.
+
+Example actions array:
+  "actions": [
+    { "label": "Fix this", "routeMode": "start_named_agent", "targetAgent": "arjun-sen",
+      "prompt": "Arjun: during code health on [date] I found X in [file:line]. Please fix it. [full context]" },
+    { "label": "Add to backlog", "routeMode": "start_coordinator",
+      "prompt": "Add a task: [description discovered during code health on [date]]" }
+  ]
+</codehealth_inbox_reminder>

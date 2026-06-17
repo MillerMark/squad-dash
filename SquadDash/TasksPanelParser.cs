@@ -13,9 +13,9 @@ namespace SquadDash;
 /// </summary>
 internal static class TasksPanelParser {
 
-    // Matches: ## 🔴 High Priority, ## 🟡 Mid Priority, ## 🟢/🔵 Low Priority, etc.
+    // Matches: ## 🔴 High Priority, ## 🟡 Mid Priority, ## 🟢/🔵 Low Priority, ## ⚫ Critical, etc.
     private static readonly Regex PriorityHeadingRegex =
-        new(@"^##\s+(🔴|🟡|🟢|🔵)\s+(.+)$", RegexOptions.Compiled);
+        new(@"^##\s+(🔴|🟡|🟢|🔵|⚫)\s+(.+)$", RegexOptions.Compiled);
 
     private const string OwnerMarker = " *(Owner:";
 
@@ -206,6 +206,7 @@ internal static class TasksPanelParser {
     }
 
     private static int PriorityOrder(string emoji) => emoji switch {
+        "⚫" => -1,   // Critical sorts first
         "🔴" => 0,
         "🟡" => 1,
         "🟢" => 2,
