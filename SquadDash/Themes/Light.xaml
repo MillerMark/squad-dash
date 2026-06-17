@@ -28,6 +28,7 @@
     <SolidColorBrush x:Key="TaskPriorityHigh"        Color="#DE3333"/>
     <SolidColorBrush x:Key="TaskPriorityMid"         Color="#A06800"/>
     <SolidColorBrush x:Key="TaskPriorityLow"         Color="#1976D2"/>
+    <SolidColorBrush x:Key="InboxPriorityLow"        Color="#388E3C"/>
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>

@@ -895,59 +895,61 @@ internal sealed class InboxPanelController
         {
             case "low":
             {
-                // Wide flat bar: same 8px horizontal footprint as other indicators.
-                var bar = new Rectangle
+                // Small green square (~5.3×5.3) centred in the fixed 8px layout slot.
+                // A Grid container holds the exact 8px footprint so subject text aligns.
+                var container = new Grid
                 {
                     Width             = 8,
-                    Height            = 2,
+                    Height            = 8,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 4, 0),
                     Opacity           = opacity,
                 };
-                bar.SetResourceReference(Rectangle.FillProperty, "TaskPriorityLow");
-                return bar;
+                var square = new Rectangle
+                {
+                    Width               = 5.3,
+                    Height              = 5.3,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment   = VerticalAlignment.Center,
+                };
+                square.SetResourceReference(Rectangle.FillProperty, "InboxPriorityLow");
+                container.Children.Add(square);
+                return container;
             }
             case "high":
             {
-                // Diamond: 8×8 rectangle with RenderTransform (not LayoutTransform) so the
-                // layout bounding box stays at 8px while the visual diamond extends ~1.6px
-                // beyond each side — bigger looking without shifting the subject text.
-                var diamond = new Rectangle
-                {
-                    Width                   = 8,
-                    Height                  = 8,
-                    VerticalAlignment       = VerticalAlignment.Center,
-                    Margin                  = new Thickness(0, 0, 4, 0),
-                    Opacity                 = opacity,
-                    RenderTransformOrigin   = new Point(0.5, 0.5),
-                    RenderTransform         = new RotateTransform(45),
-                };
-                diamond.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
-                return diamond;
-            }
-            case "critical":
-            {
-                // ‼ (U+203C DOUBLE EXCLAMATION MARK) in the same red as high priority.
-                // Scale 1.425 (95% of 1.5). Left margin of 2px provides headroom so the
-                // scaled glyph doesn't clip; TranslateTransform(-1,0) shifts the visual
-                // 1px left (leaves 1px clearance vs the 2px left margin).
+                // ⚠ (U+26A0 WARNING SIGN) scaled to fit the 8px slot.
+                // RenderTransform keeps the layout footprint unchanged so subject text aligns.
                 var icon = new TextBlock
                 {
-                    Text                    = "\u203C",
-                    TextAlignment           = TextAlignment.Center,
-                    VerticalAlignment       = VerticalAlignment.Center,
-                    Margin                  = new Thickness(2, 0, 3, 0),
-                    Opacity                 = opacity,
-                    FontWeight              = FontWeights.Bold,
-                    RenderTransformOrigin   = new Point(0.5, 0.5),
-                    RenderTransform         = new TransformGroup { Children = {
-                        new ScaleTransform(1.283, 1.283),
-                        new TranslateTransform(-3, 0),
-                    }},
+                    Text                  = "\u26A0",
+                    TextAlignment         = TextAlignment.Center,
+                    VerticalAlignment     = VerticalAlignment.Center,
+                    Margin                = new Thickness(0, 0, 4, 0),
+                    Opacity               = opacity,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform       = new ScaleTransform(1.1, 1.1),
                 };
                 icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
                 return icon;
+            }
+            case "critical":
+            {
+                // Red diamond: 8×8 rectangle rotated 45° via RenderTransform so the layout
+                // bounding box stays at 8px while the visual diamond extends beyond each side.
+                var diamond = new Rectangle
+                {
+                    Width                 = 8,
+                    Height                = 8,
+                    VerticalAlignment     = VerticalAlignment.Center,
+                    Margin                = new Thickness(0, 0, 4, 0),
+                    Opacity               = opacity,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform       = new RotateTransform(45),
+                };
+                diamond.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
+                return diamond;
             }
             default: // "mid" and anything unrecognised
             {
