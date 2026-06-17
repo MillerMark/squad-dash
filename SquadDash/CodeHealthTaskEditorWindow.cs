@@ -371,7 +371,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             Orientation = Orientation.Horizontal,
             Margin      = new Thickness(8, 0, 8, 4),
         };
-        safetyRow.Children.Add(BuildLabel("Safety:"));
+        var safetyLabel = BuildLabel("Safety:");
+        safetyLabel.Margin = new Thickness(0, 0, 8, 0);
+        safetyRow.Children.Add(safetyLabel);
         safetyRow.Children.Add(_safetyReportRadio);
         safetyRow.Children.Add(_safetyBranchRadio);
         safetyRow.Children.Add(_safetyDirectRadio);
@@ -596,12 +598,14 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private void BuildSafetyRadioButtons() {
         RadioButton MakeRadio(string content, string tag, bool hasMargin) {
             var rb = new RadioButton {
-                Content             = content,
-                Tag                 = tag,
-                GroupName           = "Safety",
-                VerticalAlignment   = VerticalAlignment.Center,
-                Margin              = hasMargin ? new Thickness(0, 0, 12, 0) : new Thickness(0),
+                Content                  = content,
+                Tag                      = tag,
+                GroupName                = "Safety",
+                VerticalAlignment        = VerticalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Margin                   = hasMargin ? new Thickness(0, 0, 12, 0) : new Thickness(0),
             };
+            rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
             rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
             rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
             return rb;

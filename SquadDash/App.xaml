@@ -1152,24 +1152,27 @@
                     <Setter.Value>
                         <ControlTemplate TargetType="RadioButton">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <!-- Outer ring -->
-                                <Grid Width="14" Height="14"
+                                <!-- Outer ring — sized to FontSize so it scales with the body font -->
+                                <Grid Width="{TemplateBinding FontSize}"
+                                      Height="{TemplateBinding FontSize}"
                                       VerticalAlignment="Center"
                                       Margin="0,0,6,0">
                                     <Ellipse x:Name="OuterRing"
-                                             Width="14" Height="14"
+                                             Width="{TemplateBinding FontSize}"
+                                             Height="{TemplateBinding FontSize}"
                                              Stroke="{DynamicResource CheckBoxBorder}"
                                              StrokeThickness="1.5"
                                              Fill="Transparent"/>
-                                    <!-- Inner fill dot (visible when checked) -->
+                                    <!-- Inner fill dot — Margin="3" keeps it ~half the circle size -->
                                     <Ellipse x:Name="InnerDot"
-                                             Width="7" Height="7"
+                                             Margin="3"
                                              Fill="{DynamicResource LabelText}"
                                              HorizontalAlignment="Center"
                                              VerticalAlignment="Center"
                                              Visibility="Collapsed"/>
                                 </Grid>
                                 <ContentPresenter VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"
                                                   TextElement.Foreground="{TemplateBinding Foreground}"/>
                             </StackPanel>
                             <ControlTemplate.Triggers>
