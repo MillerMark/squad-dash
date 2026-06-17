@@ -2275,7 +2275,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             var prompt = PromptTextBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(prompt))
+            if (string.IsNullOrWhiteSpace(prompt) && !(_followUpAttachments.TryGetValue("", out var clickAttachCheck) && clickAttachCheck.Count > 0))
                 return;
 
             SquadDashTrace.Write("UI", "Prompt sent: SendButton click");
@@ -2357,7 +2357,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void EnqueueCurrentPrompt()
     {
         var text = PromptTextBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(text)) return;
+        var hasDraftAttachments = _followUpAttachments.TryGetValue("", out var draftAttachCheck) && draftAttachCheck.Count > 0;
+        if (string.IsNullOrWhiteSpace(text) && !hasDraftAttachments) return;
 
         var isDictated = _promptHasVoiceInput;
         _promptHasVoiceInput = false;
@@ -10486,9 +10487,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     // that tab directly rather than enqueuing a duplicate new item.
                     _ = DispatchQueuedTabAsync(_activeTabId);
                 }
-                else if (!string.IsNullOrWhiteSpace(PromptTextBox.Text))
+                else if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) ||
+                         (_followUpAttachments.TryGetValue("", out var pttAttachCheck) && pttAttachCheck.Count > 0))
                 {
-                    // TODO: verify follow-up attachments are captured in PTT send path
                     EnqueueCurrentPrompt();
                     _ = DrainQueueIfNeededAsync();
                 }
