@@ -886,8 +886,10 @@ internal sealed class InboxPanelController
     private static UIElement BuildPriorityIndicator(InboxMessage msg)
     {
         var priority = (msg.Priority ?? "mid").ToLowerInvariant();
-        // All indicators use the same 8px width + 4px right margin = 12px footprint
-        // so that every subject line starts at the same horizontal position.
+        // All indicators reserve the same layout footprint (FontSizeBody × FontSizeBody + 4px margin)
+        // so every subject line starts at the same horizontal position.
+        // RenderTransform (not LayoutTransform) scales visually without shrinking the layout
+        // footprint, keeping all icons aligned. RenderTransformOrigin=0.5,0.5 centers the scale.
         // When read, opacity is dimmed rather than hidden so the shape stays visible.
         double opacity = msg.Read ? 0.4 : 1.0;
 
@@ -905,11 +907,14 @@ internal sealed class InboxPanelController
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
-                    Stretch           = Stretch.Uniform,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 4, 0),
-                    Opacity           = opacity,
-                    Child             = canvas,
+                    Stretch                  = Stretch.Uniform,
+                    VerticalAlignment        = VerticalAlignment.Center,
+                    HorizontalAlignment      = HorizontalAlignment.Center,
+                    Margin                   = new Thickness(0, 0, 4, 0),
+                    Opacity                  = opacity,
+                    Child                    = canvas,
+                    RenderTransformOrigin    = new System.Windows.Point(0.5, 0.5),
+                    RenderTransform          = new System.Windows.Media.ScaleTransform(0.8, 0.8),
                 };
                 viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
                 viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
@@ -927,11 +932,14 @@ internal sealed class InboxPanelController
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
-                    Stretch           = Stretch.Uniform,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 4, 0),
-                    Opacity           = opacity,
-                    Child             = canvas,
+                    Stretch                  = Stretch.Uniform,
+                    VerticalAlignment        = VerticalAlignment.Center,
+                    HorizontalAlignment      = HorizontalAlignment.Center,
+                    Margin                   = new Thickness(0, 0, 4, 0),
+                    Opacity                  = opacity,
+                    Child                    = canvas,
+                    RenderTransformOrigin    = new System.Windows.Point(0.5, 0.5),
+                    RenderTransform          = new System.Windows.Media.ScaleTransform(0.95, 0.95),
                 };
                 viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
                 viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
@@ -948,13 +956,15 @@ internal sealed class InboxPanelController
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
-                    Stretch           = Stretch.Uniform,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 4, 0),
-                    Opacity           = opacity,
-                    Child             = canvas,
+                    Stretch                  = Stretch.Uniform,
+                    VerticalAlignment        = VerticalAlignment.Center,
+                    HorizontalAlignment      = HorizontalAlignment.Center,
+                    Margin                   = new Thickness(0, 0, 4, 0),
+                    Opacity                  = opacity,
+                    Child                    = canvas,
+                    RenderTransformOrigin    = new System.Windows.Point(0.5, 0.5),
+                    RenderTransform          = new System.Windows.Media.ScaleTransform(1.15, 1.15),
                 };
-                viewbox.LayoutTransform = new System.Windows.Media.ScaleTransform(1.15, 1.15);
                 viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
                 viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
                 return viewbox;
@@ -963,10 +973,12 @@ internal sealed class InboxPanelController
             {
                 var dot = new Ellipse
                 {
-                    VerticalAlignment = VerticalAlignment.Center,
-                    LayoutTransform   = new System.Windows.Media.ScaleTransform(0.8, 0.8),
-                    Margin            = new Thickness(0, 0, 4, 0),
-                    Opacity           = opacity,
+                    VerticalAlignment        = VerticalAlignment.Center,
+                    HorizontalAlignment      = HorizontalAlignment.Center,
+                    Margin                   = new Thickness(0, 0, 4, 0),
+                    Opacity                  = opacity,
+                    RenderTransformOrigin    = new System.Windows.Point(0.5, 0.5),
+                    RenderTransform          = new System.Windows.Media.ScaleTransform(0.9, 0.9),
                 };
                 dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityLow");
                 dot.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
