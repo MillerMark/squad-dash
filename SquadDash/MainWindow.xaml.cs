@@ -31562,47 +31562,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
             menu.Items.Add(sep1);
 
-            var setHomeItem = new MenuItem { Header = "Set as home branch" };
-            setHomeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            setHomeItem.Click += (_, _) =>
-            {
-                _settingsSnapshot = _settingsStore.SaveHomeBranch(workspaceFolder, branch);
-                UpdateBranchIndicator();
-            };
-            menu.Items.Add(setHomeItem);
-
             if (!isOnMain)
             {
-                var sep2 = new Separator();
-                sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
-                menu.Items.Add(sep2);
-
                 bool alreadyQueued = _promptQueue.Items.Any(i => i.SourceTag == "branch-indicator");
-
-                var switchItem = new MenuItem { Header = $"Switch to {homeBranch}", IsEnabled = !alreadyQueued };
-                switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                switchItem.Click += async (_, _) =>
-                {
-                    if (_isPromptRunning || IsNativeLoopRunning)
-                    {
-                        BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", ++_promptQueueSeq, sourceTag: "branch-indicator");
-                        _promptQueue.RenumberSequentially();
-                        SyncQueuePanel();
-                        _ = DrainQueueIfNeededAsync();
-                        return;
-                    }
-                    try
-                    {
-                        await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
-                        UpdateBranchIndicator();
-                    }
-                    catch (Exception ex)
-                    {
-                        UIErrorHelper.ShowError("Switch Branch", $"Could not switch branch:\n\n{ex.Message}");
-                    }
-                };
-                menu.Items.Add(switchItem);
 
                 var mergeItem = new MenuItem { Header = $"Merge this branch into {homeBranch} →", IsEnabled = !alreadyQueued };
                 mergeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -31641,7 +31603,45 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     }
                 };
                 menu.Items.Add(mergeItem);
+
+                var switchItem = new MenuItem { Header = $"Switch to {homeBranch}", IsEnabled = !alreadyQueued };
+                switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                switchItem.Click += async (_, _) =>
+                {
+                    if (_isPromptRunning || IsNativeLoopRunning)
+                    {
+                        BranchNameText.Text += " — queued, waiting for active turn to finish";
+                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", ++_promptQueueSeq, sourceTag: "branch-indicator");
+                        _promptQueue.RenumberSequentially();
+                        SyncQueuePanel();
+                        _ = DrainQueueIfNeededAsync();
+                        return;
+                    }
+                    try
+                    {
+                        await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
+                        UpdateBranchIndicator();
+                    }
+                    catch (Exception ex)
+                    {
+                        UIErrorHelper.ShowError("Switch Branch", $"Could not switch branch:\n\n{ex.Message}");
+                    }
+                };
+                menu.Items.Add(switchItem);
+
+                var sep2 = new Separator();
+                sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(sep2);
             }
+
+            var setHomeItem = new MenuItem { Header = "Set as home branch" };
+            setHomeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            setHomeItem.Click += (_, _) =>
+            {
+                _settingsSnapshot = _settingsStore.SaveHomeBranch(workspaceFolder, branch);
+                UpdateBranchIndicator();
+            };
+            menu.Items.Add(setHomeItem);
 
             var sep3 = new Separator();
             sep3.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
