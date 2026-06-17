@@ -895,44 +895,45 @@ internal sealed class InboxPanelController
         {
             case "low":
             {
-                // Small green square (~5.3×5.3) centred in the fixed 8px layout slot.
-                // A Grid container holds the exact 8px footprint so subject text aligns.
-                var container = new Grid
+                var path = new System.Windows.Shapes.Path
+                {
+                    Data = Geometry.Parse("M21.3333333333333,29.3333333333333C34.6666666666666,6,34.6666666666666,6,34.6666666666666,6C36.3333333333333,3.33333333333333,34.3333333333333,-0.333333333333336,31,-0.333333333333336C4.33333333333331,-0.333333333333336,4.33333333333331,-0.333333333333336,4.33333333333331,-0.333333333333336C1,-0.333333333333336,-1.33333333333337,3.33333333333333,0.333333333333314,6C14,29.3333333333333,14,29.3333333333333,14,29.3333333333333C15.6666666666666,32.3333333333333,19.6666666666666,32.3333333333333,21.3333333333333,29.3333333333333z"),
+                };
+                path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "InboxPriorityLow");
+                var canvas = new Canvas { Width = 35, Height = 31 };
+                canvas.Children.Add(path);
+                var viewbox = new Viewbox
                 {
                     Width             = 8,
                     Height            = 8,
+                    Stretch           = Stretch.Uniform,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 4, 0),
                     Opacity           = opacity,
+                    Child             = canvas,
                 };
-                var square = new Rectangle
-                {
-                    Width               = 5.3,
-                    Height              = 5.3,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment   = VerticalAlignment.Center,
-                };
-                square.SetResourceReference(Rectangle.FillProperty, "InboxPriorityLow");
-                container.Children.Add(square);
-                return container;
+                return viewbox;
             }
             case "high":
             {
-                // ⚠ (U+26A0 WARNING SIGN) scaled to fit the 8px slot.
-                // RenderTransform keeps the layout footprint unchanged so subject text aligns.
-                var icon = new TextBlock
+                var path = new System.Windows.Shapes.Path
                 {
-                    Text                  = "\u26A0",
-                    TextAlignment         = TextAlignment.Center,
-                    VerticalAlignment     = VerticalAlignment.Center,
-                    Margin                = new Thickness(0, 0, 4, 0),
-                    Opacity               = opacity,
-                    RenderTransformOrigin = new Point(0.5, 0.5),
-                    RenderTransform       = new ScaleTransform(1.1, 1.1),
+                    Data = Geometry.Parse("M13.6666666666666,1.66666666666666C0,25,0,25,0,25C-1.66666666666669,27.6666666666667,0.666666666666629,31.3333333333333,4,31.3333333333333C30.6666666666666,31.3333333333333,30.6666666666666,31.3333333333333,30.6666666666666,31.3333333333333C34,31.3333333333333,36,27.6666666666667,34.3333333333333,25C21,1.66666666666666,21,1.66666666666666,21,1.66666666666666C19.3333333333333,-1,15.3333333333333,-1,13.6666666666666,1.66666666666666z"),
                 };
-                icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-                icon.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
-                return icon;
+                path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "TaskPriorityMid");
+                var canvas = new Canvas { Width = 35, Height = 31 };
+                canvas.Children.Add(path);
+                var viewbox = new Viewbox
+                {
+                    Width             = 8,
+                    Height            = 8,
+                    Stretch           = Stretch.Uniform,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(0, 0, 4, 0),
+                    Opacity           = opacity,
+                    Child             = canvas,
+                };
+                return viewbox;
             }
             case "critical":
             {
@@ -943,7 +944,7 @@ internal sealed class InboxPanelController
                     Width                 = 8,
                     Height                = 8,
                     VerticalAlignment     = VerticalAlignment.Center,
-                    Margin                = new Thickness(0, 0, 4, 0),
+                    Margin                = new Thickness(4, 0, 4, 0),
                     Opacity               = opacity,
                     RenderTransformOrigin = new Point(0.5, 0.5),
                     RenderTransform       = new RotateTransform(45),
