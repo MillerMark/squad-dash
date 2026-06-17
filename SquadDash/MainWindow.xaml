@@ -880,7 +880,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="SearchBox"
                          Grid.Column="0"
-                         Width="135"
+                         MinWidth="135"
                          HorizontalAlignment="Left"
                          VerticalAlignment="Center"
                          Padding="6,4,6,4"
@@ -1824,8 +1824,7 @@
                                 <Button x:Name="ApprovalClearAllButton"
                                         DockPanel.Dock="Right"
                                         Content="Clear Approved"
-                                        Height="20"
-                                        Padding="6,0"
+                                        Padding="6,2"
                                         FontSize="{DynamicResource FontSizeSmall}"
                                         Style="{StaticResource ThemedButtonStyle}"
                                         Click="ApprovalClearAllButton_Click" />
@@ -2780,8 +2779,8 @@
                             Margin="14,0,0,0"
                             VerticalAlignment="Top">
                     <Button x:Name="RunButton"
-                            Width="120"
-                            Height="34"
+                            MinWidth="120"
+                            Padding="12,6"
                             FontSize="{DynamicResource FontSizeNormal}"
                             Style="{StaticResource ThemedButtonStyle}"
                             Click="RunButton_Click">
@@ -2789,8 +2788,8 @@
                     </Button>
 
                     <Button x:Name="AbortButton"
-                            Width="120"
-                            Height="34"
+                            MinWidth="120"
+                            Padding="12,6"
                             Margin="0,8,0,0"
                             IsEnabled="False"
                             FontSize="{DynamicResource FontSizeNormal}"
