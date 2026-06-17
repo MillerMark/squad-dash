@@ -27,14 +27,10 @@
     <SolidColorBrush x:Key="QueueTabInactiveText"    Color="#7D6853"/>
     <!-- Unified priority colors -->
     <SolidColorBrush x:Key="PriorityLow"      Color="#50BA55"/>
-    <SolidColorBrush x:Key="PriorityMid"      Color="#1976D2"/>
-    <SolidColorBrush x:Key="PriorityHigh"     Color="#D78C00"/>
-    <SolidColorBrush x:Key="PriorityCritical" Color="#DE3333"/>
-    <!-- Legacy aliases (ScreenshotHealthWindow uses TaskPriorityHigh/Mid for error/warning indicators) -->
-    <SolidColorBrush x:Key="TaskPriorityHigh"  Color="#DE3333"/>
-    <SolidColorBrush x:Key="TaskPriorityMid"   Color="#D78C00"/>
-    <SolidColorBrush x:Key="TaskPriorityLow"   Color="#1976D2"/>
-    <SolidColorBrush x:Key="InboxPriorityLow"  Color="#50BA55"/>
+    <SolidColorBrush x:Key="PriorityMid"      Color="#2586E5"/>
+    <SolidColorBrush x:Key="PriorityHigh"     Color="#C37F00"/>
+    <SolidColorBrush x:Key="PriorityCritical" Color="#D82323"/>
+
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>

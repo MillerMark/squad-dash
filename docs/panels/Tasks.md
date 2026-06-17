@@ -25,11 +25,12 @@ Tasks are read from `.squad/tasks.md` in the workspace's `.squad/` folder and gr
 
 ![Screenshot: Tasks panel showing prioritised task groups](images/tasks-panel.png)
 
-| Emoji | Priority label | Dot color |
-|---|---|---|
-| 🔴 | High Priority | Red |
-| 🟡 | Mid Priority | Amber |
-| 🟢 | Low Priority | Blue (TaskPriorityLow theme colour) |
+| Emoji | Priority label | Icon | Theme color |
+|---|---|---|---|
+| ⚫ | Critical | Diamond | `PriorityCritical` (red) |
+| 🔴 | High Priority | Triangle | `PriorityHigh` (amber) |
+| 🟡 | Mid Priority | Circle | `PriorityMid` (blue) |
+| 🟢 | Low Priority | Chevron down | `PriorityLow` (green) |
 
 You can assign tasks and mark them complete directly from the panel; see [Context Menu](#context-menu) below.
 

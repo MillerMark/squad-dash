@@ -111,7 +111,7 @@ internal static class PriorityIndicatorHelper
                     Opacity               = opacity,
                     Child                 = canvas,
                     RenderTransformOrigin = new Point(0.5, 0.5),
-                    RenderTransform       = new ScaleTransform(1.15, 1.15),
+                    RenderTransform       = new ScaleTransform(1.035, 1.035),
                 };
                 viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
                 viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");

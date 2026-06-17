@@ -38,12 +38,17 @@ internal sealed class ThemeColorsWindow : Window
     private readonly Slider _saturationSlider;
     private readonly TextBlock _brightnessValueLabel;
     private readonly TextBlock _saturationValueLabel;
+    private readonly RadioButton _darkRadio;
+    private readonly RadioButton _lightRadio;
 
     // Currently selected key
     private string? _selectedKey;
 
     // Suppress slider callbacks while programmatically updating values
     private bool _suppressSliderEvents;
+
+    // Suppress SwitchToTheme during programmatic radio initialization
+    private bool _suppressThemeSwitch;
 
     // ── Constructor ───────────────────────────────────────────────────────
     internal ThemeColorsWindow(MainWindow mainWindow)
@@ -55,7 +60,7 @@ internal sealed class ThemeColorsWindow : Window
         SnapshotBothThemes();
 
         // ── Window properties ─────────────────────────────────────────────
-        Title = "Theme Colors";
+        Title = "Theme Explorer";
         Width = 700;
         Height = 520;
         ShowInTaskbar = false;
@@ -110,22 +115,36 @@ internal sealed class ThemeColorsWindow : Window
         themeLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         themeBar.Children.Add(themeLabel);
 
-        var darkRadio = new RadioButton { Content = "Dark", Margin = new Thickness(0, 0, 12, 0), GroupName = "ThemeSelector" };
-        darkRadio.SetResourceReference(StyleProperty, "ThemedRadioButtonStyle");
+        var darkRadio = new RadioButton { Content = "Dark", Margin = new Thickness(0, 0, 12, 0) };
+        darkRadio.SetResourceReference(ForegroundProperty, "LabelText");
         themeBar.Children.Add(darkRadio);
+        _darkRadio = darkRadio;
 
-        var lightRadio = new RadioButton { Content = "Light", GroupName = "ThemeSelector" };
-        lightRadio.SetResourceReference(StyleProperty, "ThemedRadioButtonStyle");
+        var lightRadio = new RadioButton { Content = "Light" };
+        lightRadio.SetResourceReference(ForegroundProperty, "LabelText");
         themeBar.Children.Add(lightRadio);
-
-        // Set initial radio selection
-        if (string.Equals(_snapshotThemeName, "Dark", StringComparison.OrdinalIgnoreCase))
-            darkRadio.IsChecked = true;
-        else
-            lightRadio.IsChecked = true;
+        _lightRadio = lightRadio;
 
         darkRadio.Checked += (_, _) => SwitchToTheme("Dark");
         lightRadio.Checked += (_, _) => SwitchToTheme("Light");
+
+        // Set initial selection after the window is fully rendered and visible.
+        // Use _suppressThemeSwitch so the Checked event doesn't trigger a theme switch.
+        ContentRendered += (_, _) =>
+        {
+            _suppressThemeSwitch = true;
+            try
+            {
+                if (string.Equals(_mainWindow.ActiveThemeName, "Dark", StringComparison.OrdinalIgnoreCase))
+                    _darkRadio.IsChecked = true;
+                else
+                    _lightRadio.IsChecked = true;
+            }
+            finally
+            {
+                _suppressThemeSwitch = false;
+            }
+        };
 
         // ── Theme bar separator ───────────────────────────────────────────
         var themeBarSep = new Separator();
@@ -312,8 +331,18 @@ internal sealed class ThemeColorsWindow : Window
 
     private void SwitchToTheme(string themeName)
     {
+        if (_suppressThemeSwitch) return;
         if (string.Equals(_mainWindow.ActiveThemeName, themeName, StringComparison.OrdinalIgnoreCase))
             return;
+
+        // Clear ALL pending direct-resource overrides before switching.
+        // ApplyAdjustment writes direct entries to Application.Current.Resources
+        // which override merged-dictionary values. If we don't remove them first,
+        // the outgoing theme's adjusted colors bleed into the incoming theme.
+        // RebuildList() re-applies the incoming theme's own pending changes.
+        foreach (var (_, pending) in _pendingByTheme)
+            foreach (var key in pending.Keys)
+                Application.Current.Resources.Remove(key);
 
         _mainWindow.SwitchTheme(themeName);
         RebuildList();
@@ -323,6 +352,22 @@ internal sealed class ThemeColorsWindow : Window
         _brightnessSlider.Value = 0;
         _saturationSlider.Value = 0;
         _suppressSliderEvents = false;
+
+        // The theme reload re-instantiates the ControlTemplate, losing the IsChecked
+        // visual state even though IsChecked is still true. Re-apply with suppress to
+        // avoid a recursive SwitchToTheme call.
+        _suppressThemeSwitch = true;
+        try
+        {
+            if (string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase))
+                _darkRadio.IsChecked = true;
+            else
+                _lightRadio.IsChecked = true;
+        }
+        finally
+        {
+            _suppressThemeSwitch = false;
+        }
     }
 
     // ── List selection ────────────────────────────────────────────────────
@@ -540,7 +585,7 @@ internal sealed class ThemeColorsWindow : Window
             {
                 MessageBox.Show(
                     $"Could not locate Themes/{themeName}.xaml source file. Changes for '{themeName}' theme were not saved.",
-                    "Theme Colors", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Theme Explorer", MessageBoxButton.OK, MessageBoxImage.Warning);
                 continue;
             }
 
@@ -566,7 +611,7 @@ internal sealed class ThemeColorsWindow : Window
                 SquadDashTrace.Write("ThemeColors", $"Failed to write theme file '{xamlPath}': {ex.Message}");
                 MessageBox.Show(
                     $"Could not write changes to '{xamlPath}':\n{ex.Message}",
-                    "Theme Colors", MessageBoxButton.OK, MessageBoxImage.Error);
+                    "Theme Explorer", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

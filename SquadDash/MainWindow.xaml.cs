@@ -6462,7 +6462,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     IsChecked = string.Equals(choice, opt.RawValue, StringComparison.Ordinal),
                     Margin    = new Thickness(12, 0, 0, 1),
                 };
-                rb.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
                 rb.SetResourceReference(Control.ForegroundProperty, "LabelText");
                 rb.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
@@ -26420,7 +26419,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (isMaintenance)
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "PriorityCritical");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
             BranchNameText.Text = $"⚠ {branch}";
         }
@@ -26432,7 +26431,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         else
         {
-            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "TaskPriorityHigh");
+            BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "PriorityCritical");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
             BranchNameText.Text = branch;
         }

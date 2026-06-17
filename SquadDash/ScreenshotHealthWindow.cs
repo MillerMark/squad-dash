@@ -174,7 +174,7 @@ internal sealed class ScreenshotHealthWindow : ChromedWindow
         catch (Exception ex)
         {
             _summaryBlock.Text = $"Check failed: {ex.Message}";
-            _summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "TaskPriorityHigh");
+            _summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "PriorityCritical");
             AddPlaceholderRow($"Error: {ex.Message}");
         }
         finally
@@ -210,8 +210,8 @@ internal sealed class ScreenshotHealthWindow : ChromedWindow
               $"   — {report.Results.Count} definition{(report.Results.Count == 1 ? "" : "s")} at {report.GeneratedAt.ToLocalTime():HH:mm:ss}"
             : $"✅ All {report.Results.Count} definitions passed at {report.GeneratedAt.ToLocalTime():HH:mm:ss}";
 
-        string summaryColorKey = report.ErrorCount > 0   ? "TaskPriorityHigh"
-                               : report.WarningCount > 0 ? "TaskPriorityMid"
+        string summaryColorKey = report.ErrorCount > 0   ? "PriorityCritical"
+                               : report.WarningCount > 0 ? "PriorityHigh"
                                                          : "BodyText";
         _summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, summaryColorKey);
 
@@ -255,10 +255,10 @@ internal sealed class ScreenshotHealthWindow : ChromedWindow
         var (statusIcon, colorKey) = result.Status switch
         {
             ScreenshotHealthStatus.Pass        => ("✅", "BodyText"),
-            ScreenshotHealthStatus.Warning     => ("⚠️", "TaskPriorityMid"),
-            ScreenshotHealthStatus.Error       => ("❌", "TaskPriorityHigh"),
+            ScreenshotHealthStatus.Warning     => ("⚠️", "PriorityHigh"),
+            ScreenshotHealthStatus.Error       => ("❌", "PriorityCritical"),
             ScreenshotHealthStatus.NotCaptured => ("⬜", "SubtleText"),
-            ScreenshotHealthStatus.Stale       => ("🕐", "TaskPriorityMid"),
+            ScreenshotHealthStatus.Stale       => ("🕐", "PriorityHigh"),
             _                                  => ("❓", "SubtleText"),
         };
 
@@ -281,8 +281,8 @@ internal sealed class ScreenshotHealthWindow : ChromedWindow
         {
             var (issueIcon, issueSeverityKey) = issue.Severity switch
             {
-                ScreenshotIssueSeverity.Error   => ("❌", "TaskPriorityHigh"),
-                ScreenshotIssueSeverity.Warning => ("⚠️", "TaskPriorityMid"),
+                ScreenshotIssueSeverity.Error   => ("❌", "PriorityCritical"),
+                ScreenshotIssueSeverity.Warning => ("⚠️", "PriorityHigh"),
                 ScreenshotIssueSeverity.Info    => ("ℹ️", "SubtleText"),
                 _                               => ("·",  "SubtleText"),
             };

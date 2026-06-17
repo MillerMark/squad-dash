@@ -667,7 +667,6 @@ internal sealed class CodeHealthPanelController {
                     };
                     rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
                     rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
-                    rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
                     var capturedSafetyValue = safetyValue;
                     var capturedTaskId = task.Id;
                     var capturedStateStore = _viewModel.StateStore;
@@ -711,7 +710,6 @@ internal sealed class CodeHealthPanelController {
                             };
                             rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
                             rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
-                            rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
                             if (!string.IsNullOrEmpty(choice.Tooltip))
                                 rb.ToolTip = MakeThemedToolTip(choice.Tooltip);
                             var capturedPath   = GetMaintenanceMdPath();

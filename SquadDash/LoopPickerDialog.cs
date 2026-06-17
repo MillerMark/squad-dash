@@ -114,7 +114,7 @@ internal sealed class LoopPickerDialog : Window
             Margin    = new Thickness(0, 0, 0, 8),
             GroupName = "LoopChoice",
         };
-        _radioCurrentLoop.SetResourceReference(RadioButton.StyleProperty, "ThemedRadioButtonStyle");
+        _radioCurrentLoop.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
         body.Children.Add(_radioCurrentLoop);
 
         // Radio 2 — filtered-tasks loop (default)
@@ -125,7 +125,7 @@ internal sealed class LoopPickerDialog : Window
             Margin    = new Thickness(0, 0, 0, otherLoops.Count > 0 ? 8 : 16),
             GroupName = "LoopChoice",
         };
-        _radioFilteredTasks.SetResourceReference(RadioButton.StyleProperty, "ThemedRadioButtonStyle");
+        _radioFilteredTasks.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
         body.Children.Add(_radioFilteredTasks);
 
         // Radio 3 + ComboBox — only when there are additional loops beyond current + filtered-tasks
@@ -146,7 +146,7 @@ internal sealed class LoopPickerDialog : Window
                 Margin        = new Thickness(0, 0, 8, 0),
                 GroupName     = "LoopChoice",
             };
-            _radioOtherLoop.SetResourceReference(RadioButton.StyleProperty, "ThemedRadioButtonStyle");
+            _radioOtherLoop.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
             row3.Children.Add(_radioOtherLoop);
 
             _otherLoopCombo = new ComboBox

@@ -7,6 +7,12 @@
 
 ---
 
+## ⚫ Critical
+
+- [ ] [TEST] Verify critical priority icon rendering in Tasks panel and Markdown preview
+  Dummy task to confirm the ⚫ critical priority shape (diamond) renders correctly everywhere.
+  Remove once visually verified.
+
 ## 🟡 Mid Priority
 
 - [ ] **[Docking] Refactor DockingMapBuilderto loop-based zone layout***(Owner: Lyra Morn)*

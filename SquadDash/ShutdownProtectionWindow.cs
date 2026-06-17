@@ -73,7 +73,7 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
                     Margin = new Thickness(4, 0, 0, 6),
                     IsChecked = true,
                 };
-                afterTurnRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+                afterTurnRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
                 root.Children.Add(afterTurnRadio);
             }
 
@@ -85,7 +85,7 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
                     Margin = new Thickness(4, 0, 0, 6),
                     IsChecked = afterTurnRadio is null, // default if no turn option
                 };
-                afterQueuedRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+                afterQueuedRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
                 root.Children.Add(afterQueuedRadio);
             }
 

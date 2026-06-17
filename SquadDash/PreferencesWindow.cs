@@ -240,7 +240,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 6),
             IsChecked = !isOpenAi
         };
-        _azureSpeechRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+        _azureSpeechRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _openAiSpeechRadio = new RadioButton {
             Content = "OpenAI Whisper",
@@ -249,7 +249,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 6),
             IsChecked = isOpenAi
         };
-        _openAiSpeechRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+        _openAiSpeechRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _pttAutoSendRadio = new RadioButton {
             Content = "Send/queue my spoken prompt immediately",
@@ -257,14 +257,14 @@ internal sealed class PreferencesWindow : Window {
             IsChecked = currentSettings.PttAutoSend,
             Margin = new Thickness(0, 0, 0, 2)
         };
-        _pttAutoSendRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+        _pttAutoSendRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
         _pttDoNothingRadio = new RadioButton {
             Content = "Do nothing",
             GroupName = "PttBehavior",
             IsChecked = !currentSettings.PttAutoSend,
             Margin = new Thickness(0, 0, 0, 2)
         };
-        _pttDoNothingRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+        _pttDoNothingRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         var currentOpenAiKey = currentSettings.OpenAiSpeechApiKey ?? string.Empty;
         _openAiSpeechKeyPasswordBox = new PasswordBox {
@@ -360,14 +360,14 @@ internal sealed class PreferencesWindow : Window {
             IsChecked = !useCustomModelProvider,
             Margin = new Thickness(0, 0, 0, 6)
         };
-        _githubCopilotProviderRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+        _githubCopilotProviderRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
         _customModelProviderRadio = new RadioButton {
             Content = "Custom Model",
             GroupName = "ModelProvider",
             IsChecked = useCustomModelProvider,
             Margin = new Thickness(0, 0, 0, 6)
         };
-        _customModelProviderRadio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+        _customModelProviderRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _copilotModelComboBox = new ComboBox {
             Height = 30,

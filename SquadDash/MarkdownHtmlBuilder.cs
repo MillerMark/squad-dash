@@ -48,6 +48,14 @@ internal static class MarkdownHtmlBuilder {
         var sbThumbHov   = BrushHex("ScrollBarThumbHoverBrush")  ?? (isDark ? "#777777"  : "#888888");
         var sbThumbAct   = BrushHex("ScrollBarThumbPressedBrush")?? (isDark ? "#999999"  : "#666666");
 
+        // Substitute priority icon tokens emitted by ProcessInlineMarkdown with inline SVGs
+        // so the markdown preview matches the WPF panel shapes (diamond/triangle/circle/chevron).
+        body = body
+            .Replace("@@PDOT_CRITICAL@@", $"<svg style=\"display:inline-block;width:0.72em;height:0.72em;vertical-align:middle;margin:0 3px 1px 0\" viewBox=\"0 0 35 35\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M 17.5,0 L 35,17.5 L 17.5,35 L 0,17.5 Z\" fill=\"{prioCritical}\"/></svg>")
+            .Replace("@@PDOT_HIGH@@",     $"<svg style=\"display:inline-block;width:0.8em;height:0.8em;vertical-align:middle;margin:0 3px 2px 0\" viewBox=\"0 0 36 32\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M13.667,1.667C0,25,0,25,0,25C-1.667,27.667,0.667,31.333,4,31.333C30.667,31.333,30.667,31.333,30.667,31.333C34,31.333,36,27.667,34.333,25C21,1.667,21,1.667,21,1.667C19.333,-1,15.333,-1,13.667,1.667z\" fill=\"{prioHigh}\"/></svg>")
+            .Replace("@@PDOT_MID@@",      $"<svg style=\"display:inline-block;width:0.72em;height:0.72em;vertical-align:middle;margin:0 3px 1px 0\" viewBox=\"0 0 10 10\" xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"5\" cy=\"5\" r=\"5\" fill=\"{prioMid}\"/></svg>")
+            .Replace("@@PDOT_LOW@@",      $"<svg style=\"display:inline-block;width:1em;height:0.6em;vertical-align:middle;margin:0 3px 1px 0\" viewBox=\"0 0 32 19\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M18.333,17.667C30.667,5.667,30.667,5.667,30.667,5.667C32.667,3.667,31.333,0.333,28.667,0.333C3.667,0.333,3.667,0.333,3.667,0.333C0.667,0.333,-0.667,3.667,1.333,5.667C14,17.667,14,17.667,14,17.667C15,19,17,19,18.333,17.667z\" fill=\"{prioLow}\"/></svg>");
+
         return $$"""
 <!DOCTYPE html>
 <html>
@@ -157,18 +165,7 @@ internal static class MarkdownHtmlBuilder {
   ::-webkit-scrollbar-thumb:active {
     background: {{sbThumbAct}};
   }
-  /* ── Priority circle dots (emoji replaced with <span class="pdot">) */
-  .pdot {
-    display: inline-block;
-    width: 0.75em; height: 0.75em;
-    border-radius: 50%;
-    vertical-align: middle;
-    margin: 0 3px 1px 0;
-  }
-  .pdot-critical { background: {{prioCritical}}; }
-  .pdot-high     { background: {{prioHigh}}; }
-  .pdot-mid      { background: {{prioMid}}; }
-  .pdot-low      { background: {{prioLow}}; }
+  /* Priority icons are inline SVGs injected by the C# build step — no CSS needed */
 </style>
 </head>
 <body>
@@ -399,12 +396,13 @@ document.addEventListener('click', function(e) {
 
         var escaped = EscapeHtml(withUrlPlaceholders);
 
-        // Replace priority circle emoji with themed HTML dots before other inline processing.
+        // Replace priority emoji with tokens that Build() will swap for inline SVGs.
         escaped = escaped
-            .Replace("⚫", "<span class=\"pdot pdot-critical\"></span>")
-            .Replace("🔴", "<span class=\"pdot pdot-high\"></span>")
-            .Replace("🟡", "<span class=\"pdot pdot-mid\"></span>")
-            .Replace("🟢", "<span class=\"pdot pdot-low\"></span>");
+            .Replace("⚫", "@@PDOT_CRITICAL@@")
+            .Replace("🔴", "@@PDOT_HIGH@@")
+            .Replace("🟡", "@@PDOT_MID@@")
+            .Replace("🟢", "@@PDOT_LOW@@")
+            .Replace("🔵", "@@PDOT_LOW@@");
 
         var codePlaceholders = new Dictionary<string, string>();
         var placeholderIndex = 0;

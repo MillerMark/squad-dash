@@ -1144,6 +1144,7 @@
             <!-- Themed RadioButton: draws a circle glyph using theme colors instead of the
                  default Windows system RadioButton which ignores app themes. -->
             <Style x:Key="ThemedRadioButtonStyle" TargetType="RadioButton">
+                <Setter Property="OverridesDefaultStyle" Value="True"/>
                 <Setter Property="Foreground"      Value="{DynamicResource LabelText}"/>
                 <Setter Property="Background"      Value="Transparent"/>
                 <Setter Property="FocusVisualStyle" Value="{x:Null}"/>

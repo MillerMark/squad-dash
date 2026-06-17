@@ -605,7 +605,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Margin                   = hasMargin ? new Thickness(0, 0, 12, 0) : new Thickness(0),
             };
-            rb.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
             rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
             rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
             return rb;
@@ -1080,7 +1079,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                             StringComparison.OrdinalIgnoreCase),
                         Margin    = new Thickness(8, topMargin, 0, 2),
                     };
-                    rb.SetResourceReference(RadioButton.StyleProperty,    "ThemedRadioButtonStyle");
                     rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
                     rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeSmall");
                     rb.Checked += (_, _) => {
