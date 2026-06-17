@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -173,6 +174,23 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             "Bridge",
             $"RunNamedAgentDirectAsync targetAgent={targetAgentHandle} optionChars={selectedOption.Length} " +
             $"optionPreview=\"{BuildTracePreview(selectedOption)}\" handoffChars={handoffContext?.Length ?? 0} cwd={workingDirectory}");
+
+        // Log the fully-evaluated prompt for diagnostic purposes (developer mode only)
+        if (SquadDashEnvironment.IsDeveloperMode) {
+            try {
+                var logger = new CodeHealthPromptLogger(workingDirectory);
+                var metadata = $"Task: {targetAgentHandle}\n" +
+                              $"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n" +
+                              $"Workspace: {workingDirectory}\n" +
+                              $"Session ID: {coordinatorSessionId ?? "(none)"}\n" +
+                              $"Handoff Context Length: {handoffContext?.Length ?? 0} chars\n" +
+                              $"Prompt Length: {selectedOption.Length} chars";
+                logger.LogPrompt(targetAgentHandle, selectedOption, metadata);
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write("Bridge", $"Failed to log code health prompt: {ex.Message}");
+            }
+        }
 
         await _promptLock.WaitAsync().ConfigureAwait(false);
         try {

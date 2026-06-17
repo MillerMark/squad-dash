@@ -2393,6 +2393,7 @@
                                  IsUndoEnabled="False"
                                  IsInactiveSelectionHighlightEnabled="False"
                                  ContextMenu="{x:Null}"
+                                 FontSize="{DynamicResource FontSizeMedium}"
                                  Foreground="{DynamicResource LabelText}"
                                  SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
                                  SelectionOpacity="{DynamicResource DocEditorSelectionOpacity}"

@@ -3,7 +3,7 @@
     "architectural-practices": {
       "lastRunAt": "2026-06-01T13:30:21.5929118Z",
       "lastCommitSha": "",
-      "safetyOverride": ""
+      "safetyOverride": "report-only"
     },
     "code-smells": {
       "lastRunAt": "2026-06-01T13:34:13.6385115Z",
@@ -26,23 +26,23 @@
       "safetyOverride": ""
     },
     "readme-currency": {
-      "lastRunAt": "2026-06-10T00:09:35.4865626Z",
-      "lastCommitSha": "5ca4027fd085b8be74ba51e77dbf20367117df18",
+      "lastRunAt": "2026-06-17T00:19:49.7339404Z",
+      "lastCommitSha": "ef3f62848d891354cc9d6934ca66b95492b2be60",
       "safetyOverride": ""
     },
     "commit-review": {
-      "lastRunAt": "2026-06-15T19:11:39.1304001Z",
-      "lastCommitSha": "1ad6ad1836c8fa327ab168718720d0ea895207fc",
+      "lastRunAt": "2026-06-16T18:09:10.6652425Z",
+      "lastCommitSha": "ef541dbde1c9a0fba063f90058c0e062e3c0df93",
       "safetyOverride": ""
     },
     "daily-issue-pr-tracker": {
-      "lastRunAt": "2026-06-16T00:01:58.6211760Z",
-      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "lastRunAt": "2026-06-17T00:14:54.9248282Z",
+      "lastCommitSha": "ef3f62848d891354cc9d6934ca66b95492b2be60",
       "safetyOverride": ""
     },
     "run-tests": {
-      "lastRunAt": "2026-06-16T00:03:34.2537932Z",
-      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "lastRunAt": "2026-06-17T00:21:19.3988723Z",
+      "lastCommitSha": "ef3f62848d891354cc9d6934ca66b95492b2be60",
       "safetyOverride": ""
     },
     "thematic-compliance": {
@@ -56,8 +56,8 @@
       "safetyOverride": ""
     },
     "prune-tasks": {
-      "lastRunAt": "2026-06-16T00:02:38.5018357Z",
-      "lastCommitSha": "9be118e61512e153ead570950e498a378472e780",
+      "lastRunAt": "2026-06-17T00:16:29.6089522Z",
+      "lastCommitSha": "ef3f62848d891354cc9d6934ca66b95492b2be60",
       "safetyOverride": ""
     }
   }

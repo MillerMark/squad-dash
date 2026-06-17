@@ -84,6 +84,7 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public bool WasObservedAsBackgroundTask { get; set; }
     public bool SuppressCoordinatorPromotion { get; set; }
     public bool IsCurrentBackgroundRun { get; set; }
+    public bool LaunchedFromInbox { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public int SequenceNumber { get; set; }

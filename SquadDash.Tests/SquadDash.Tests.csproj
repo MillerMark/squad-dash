@@ -135,6 +135,7 @@
     <Compile Include="..\SquadDash\RoutingIssueWatchPathPolicy.cs" Link="Source\RoutingIssueWatchPathPolicy.cs" />
     <Compile Include="..\SquadDash\SquadSdkEvent.cs" Link="Source\SquadSdkEvent.cs" />
     <Compile Include="..\SquadDash\SquadSdkProcess.cs" Link="Source\SquadSdkProcess.cs" />
+    <Compile Include="..\SquadDash\CodeHealthPromptLogger.cs" Link="Source\CodeHealthPromptLogger.cs" />
     <Compile Include="..\SquadDash\SquadTeamRosterLoader.cs" Link="Source\SquadTeamRosterLoader.cs" />
     <Compile Include="..\SquadDash\NativeMethods.cs" Link="Source\NativeMethods.cs" />
     <Compile Include="..\SquadDash\FloatingWindowPositionStore.cs" Link="Source\FloatingWindowPositionStore.cs" />

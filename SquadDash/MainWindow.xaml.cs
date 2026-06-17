@@ -270,6 +270,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private InboxStore?                 _inboxStore;
     private InboxPanelController?       _inboxPanel;
     private bool                        _inboxPanelVisible = false;
+    private readonly HashSet<string>    _inboxLaunchedAgentHandles = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -4946,6 +4947,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        
+        // Mark as inbox-launched if this agent was dispatched from an inbox action
+        if (!string.IsNullOrWhiteSpace(evt.AgentName) && _inboxLaunchedAgentHandles.Contains(evt.AgentName))
+        {
+            thread.LaunchedFromInbox = true;
+            _inboxLaunchedAgentHandles.Remove(evt.AgentName);
+            SquadDashTrace.Write(TraceCategory.Inbox, $"Marked agent thread as inbox-launched: {evt.AgentName}");
+        }
+        
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Running", detailText: evt.AgentDescription ?? "Background work started.");
         if (matchedPendingQuickReply)
@@ -5183,6 +5193,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         UpdateCompletedTimeFooters();
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
+        
+        // If this agent was launched from an inbox action, also display the response in the Coordinator transcript
+        if (thread.LaunchedFromInbox && !string.IsNullOrWhiteSpace(thread.LatestResponse))
+        {
+            var agentName = thread.AgentDisplayName ?? thread.AgentName ?? "Agent";
+            var attributionLine = $"**{agentName} responded:**";
+            
+            AppendLine(CoordinatorThread, attributionLine, ThemeBrush("SubtleText"));
+            AppendLine(CoordinatorThread, thread.LatestResponse!, null);
+            
+            SquadDashTrace.Write(
+                TraceCategory.Inbox, 
+                $"Added inbox-launched agent response to Coordinator transcript: {agentName} ({thread.LatestResponse!.Length} chars)");
+        }
+        
         var needsDirectQuickReplyFollowUp = CompleteDirectQuickReplyAgentThread(thread, "subagent_completed");
 
         var promoted = _backgroundTaskPresenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
@@ -6341,7 +6366,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             Content   = opt.Label ?? opt.Key,
             IsChecked = opt.RawValue.Equals("true", StringComparison.OrdinalIgnoreCase),
-            ToolTip   = opt.Hint,
+            ToolTip   = string.IsNullOrEmpty(opt.Hint) ? null : MakeThemedToolTip(opt.Hint),
             Margin    = new Thickness(0, 0, 0, 4),
         };
         cb.SetResourceReference(Control.ForegroundProperty, "LabelText");
@@ -6363,7 +6388,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var label = new TextBlock
         {
             Text              = opt.Label ?? opt.Key,
-            ToolTip           = opt.Hint,
+            ToolTip           = string.IsNullOrEmpty(opt.Hint) ? null : MakeThemedToolTip(opt.Hint),
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(0, 0, 6, 0),
         };
@@ -6420,7 +6445,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var label = new TextBlock
             {
                 Text    = opt.Label ?? opt.Key,
-                ToolTip = opt.Hint,
+                ToolTip = string.IsNullOrEmpty(opt.Hint) ? null : MakeThemedToolTip(opt.Hint),
                 Margin  = new Thickness(0, 0, 0, 2),
             };
             label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
@@ -6461,7 +6486,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var comboLabel = new TextBlock
         {
             Text              = opt.Label ?? opt.Key,
-            ToolTip           = opt.Hint,
+            ToolTip           = string.IsNullOrEmpty(opt.Hint) ? null : MakeThemedToolTip(opt.Hint),
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(0, 0, 6, 0),
         };
@@ -11482,6 +11507,61 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         overlay.Width = _agentCardGlowOverlayTarget.ActualWidth;
         overlay.Height = _agentCardGlowOverlayTarget.ActualHeight;
+
+        // Clip the glow overlay ONLY on the right edge when the card extends beyond the viewport.
+        // The glow MUST extend beyond the card boundaries on the left, top, and bottom sides
+        // (approximately 30 pixels) - this is intentional and required for the glow effect.
+        // Only the RIGHT side should be clipped, and only when BOTH conditions are true:
+        // 1. The card is the rightmost visible card
+        // 2. The card is being cropped (doesn't have enough width to show fully)
+        var owningScrollViewer = FindVisualAncestor<ScrollViewer>(_agentCardGlowOverlayTarget);
+        if (owningScrollViewer is not null && owningScrollViewer.IsLoaded)
+        {
+            try
+            {
+                // Get ScrollViewer viewport bounds in overlay coordinate space
+                var scrollViewerTopLeft = owningScrollViewer.TranslatePoint(new System.Windows.Point(0, 0), overlayCoordinateRoot);
+                var viewportRightEdge = scrollViewerTopLeft.X + owningScrollViewer.ViewportWidth;
+
+                // Calculate overlay bounds in the same coordinate space
+                var overlayRight = topLeft.X + overlay.Width;
+
+                // Check if the overlay extends beyond the viewport's right edge
+                if (overlayRight > viewportRightEdge)
+                {
+                    // The card is clipped on the right - create a clip geometry that:
+                    // - Has NO left boundary (extends far left to allow glow, e.g., -100)
+                    // - Has NO top boundary (extends far up to allow glow, e.g., -100)
+                    // - Has NO bottom boundary (extends far down to allow glow)
+                    // - Has a RIGHT boundary at the viewport edge (clips at viewport right)
+                    const double glowMargin = 100; // More than enough for the ~30px glow extension
+                    
+                    var clipRect = new Rect(
+                        -glowMargin, // Allow glow to extend left
+                        -glowMargin, // Allow glow to extend up
+                        viewportRightEdge - topLeft.X + glowMargin, // Width: from far-left to viewport right edge
+                        overlay.Height + (2 * glowMargin)); // Height: allow glow to extend down and up
+
+                    overlay.Clip = new System.Windows.Media.RectangleGeometry(clipRect);
+                }
+                else
+                {
+                    // Card is fully visible or clipped on left - no clipping needed
+                    // Glow extends freely on all sides
+                    overlay.Clip = null;
+                }
+            }
+            catch
+            {
+                // If coordinate transform fails, clear clip to avoid hiding the glow entirely
+                overlay.Clip = null;
+            }
+        }
+        else
+        {
+            // No ScrollViewer found or not loaded, don't clip
+            overlay.Clip = null;
+        }
     }
 
     private void HideAgentCardGlowOverlay(Border? agentCardBorder = null)
@@ -24730,6 +24810,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _squadCliAdapter.LaunchPowerShellCommandWindow(action);
                 SetInstallStatus(BuildIssueActionStatusMessage(action, launched: true));
                 break;
+
+            case WorkspaceIssueActionKind.SwitchModelToAuto:
+                _settingsSnapshot = _settingsStore.SaveModelSettings(ModelProvider.GitHubCopilot, "auto");
+                _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(_settingsSnapshot);
+                SetInstallStatus("Model switched to 'auto'. Retry your prompt.");
+                ClearRuntimeIssue();
+                break;
         }
     }
 
@@ -32006,6 +32093,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     SquadDashTrace.Write(
                         TraceCategory.Inbox,
                         $"DispatchInboxAction: direct named-agent launch target={targetAgent} label='{selectedOption}' msgId={message.Id}");
+                    
+                    // Track this as an inbox-launched agent so we can add response to Coordinator transcript
+                    _inboxLaunchedAgentHandles.Add(targetAgent);
+                    
                     ResetQueuePausedState();
                     await _pec.ExecuteNamedAgentDirectAsync(
                         targetAgent,

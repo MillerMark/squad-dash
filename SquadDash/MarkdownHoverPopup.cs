@@ -189,15 +189,17 @@ internal static class MarkdownHoverPopup {
             }
         }
 
+        // ── Mouse interaction: keep popup open when hovering over it ─────────
         popupBorder.MouseEnter += (_, _) => {
             isMouseOverPopup = true;
-            CancelFade();
+            CancelFade();  // Cancel any pending or active fade animation
         };
         popupBorder.MouseLeave += (_, _) => {
             isMouseOverPopup = false;
-            BeginFadeOut();
+            ScheduleFadeOut(500);  // Delay before hiding, allows re-hovering
         };
 
+        // ── Row hover triggers popup open ─────────────────────────────────────
         row.MouseEnter += (_, _) => {
             CancelFade();
             if (!popup.IsOpen) {
@@ -208,7 +210,7 @@ internal static class MarkdownHoverPopup {
         row.MouseLeave += (_, _) => {
             openTimer?.Stop();
             openTimer = null;
-            BeginFadeOut();
+            ScheduleFadeOut(150);  // Short delay allows mouse to reach popup
         };
 
         row.PreviewMouseDown += (_, _) => BeginFadeOut();

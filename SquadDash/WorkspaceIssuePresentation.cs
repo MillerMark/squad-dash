@@ -26,7 +26,8 @@ internal sealed record WorkspaceIssueExternalLink(string Label, string Url);
 internal enum WorkspaceIssueActionKind {
     None,
     CopyText,
-    LaunchPowerShellCommand
+    LaunchPowerShellCommand,
+    SwitchModelToAuto
 }
 
 internal static class WorkspaceIssueFactory {
@@ -124,6 +125,19 @@ internal static class WorkspaceIssueFactory {
                 HelpWindowContent: BuildCopilotAuthHelpText(),
                 PrimaryLink: new WorkspaceIssueExternalLink("Copilot Docs", "https://docs.github.com/copilot"),
                 SecondaryLink: new WorkspaceIssueExternalLink("GitHub Copilot", "https://github.com/features/copilot"));
+        }
+
+        if (normalizedMessage.Contains("is not available", StringComparison.OrdinalIgnoreCase) &&
+            (normalizedMessage.Contains("Model", StringComparison.OrdinalIgnoreCase) ||
+             normalizedMessage.Contains("session.create", StringComparison.OrdinalIgnoreCase))) {
+            return new WorkspaceIssuePresentation(
+                Title: "The selected model is not available",
+                Message: "The model you selected isn't available from GitHub Copilot right now.",
+                DetailText: "Switch to 'auto' to let Copilot choose an available model, then retry the prompt.",
+                HelpButtonLabel: "View Diagnostics",
+                HelpWindowTitle: "Model Unavailable",
+                HelpWindowContent: BuildModelUnavailableHelpText(normalizedMessage),
+                Action: new WorkspaceIssueAction("Switch Model to Auto", WorkspaceIssueActionKind.SwitchModelToAuto));
         }
 
         if (IsBuildOutputLockError(normalizedMessage)) {
@@ -491,6 +505,20 @@ internal static class WorkspaceIssueFactory {
         builder.AppendLine(buildCommand);
         builder.AppendLine("3. If that succeeds, the original failure came from the restricted build environment, not from SquadDash itself.");
         builder.AppendLine("4. If it still fails in normal PowerShell, then inspect running dotnet or MSBuild processes and retry.");
+        builder.AppendLine();
+        builder.AppendLine("Raw error");
+        builder.AppendLine(rawError);
+        return builder.ToString().TrimEnd();
+    }
+
+    private static string BuildModelUnavailableHelpText(string rawError) {
+        var builder = new StringBuilder();
+        builder.AppendLine("The model you selected isn't available from GitHub Copilot.");
+        builder.AppendLine();
+        builder.AppendLine("What to do");
+        builder.AppendLine("1. Retry the prompt once.");
+        builder.AppendLine("2. If it fails again, use Cleanup > Run Squad Doctor.");
+        builder.AppendLine("3. Click 'Switch Model to Auto' to change the model to 'auto' and let Copilot choose an available model.");
         builder.AppendLine();
         builder.AppendLine("Raw error");
         builder.AppendLine(rawError);

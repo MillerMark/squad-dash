@@ -136,6 +136,26 @@ internal sealed class WorkspaceIssueFactoryTests {
     }
 
     [Test]
+    public void CreateRuntimeIssue_WhenModelUnavailableError_ReturnsModelUnavailableTitle() {
+        const string errorMessage = "Request session.create failed with message: Model \"claude-sonnet-4.6\" is not available.";
+
+        var issue = WorkspaceIssueFactory.CreateRuntimeIssue(errorMessage, null);
+
+        Assert.That(issue.Title, Does.Contain("model is not available"));
+    }
+
+    [Test]
+    public void CreateRuntimeIssue_WhenModelUnavailableError_ProvidesSwitchModelAction() {
+        const string errorMessage = "Request session.create failed with message: Model \"claude-sonnet-4.6\" is not available.";
+
+        var issue = WorkspaceIssueFactory.CreateRuntimeIssue(errorMessage, null);
+
+        Assert.That(issue.Action, Is.Not.Null);
+        Assert.That(issue.Action!.Kind, Is.EqualTo(WorkspaceIssueActionKind.SwitchModelToAuto));
+        Assert.That(issue.Action!.Label, Does.Contain("Switch Model to Auto"));
+    }
+
+    [Test]
     public void CreateRuntimeIssue_AlwaysReturnsNonNullPresentation() {
         var issue = WorkspaceIssueFactory.CreateRuntimeIssue("some error", null);
 

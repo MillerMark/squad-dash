@@ -1,0 +1,15 @@
+﻿================================================================================
+PROMPT DIAGNOSTIC METADATA
+================================================================================
+Task: argus-weld
+Timestamp: 2026-06-17 11:11:54
+Workspace: D:\Drive\Source\SquadDash-public
+Session ID: 2b0c82ae-deae-4bd5-9f58-93455002d0c2
+Handoff Context Length: 1830 chars
+Prompt Length: 18 chars
+
+================================================================================
+EVALUATED PROMPT TEXT
+================================================================================
+
+Review open issues

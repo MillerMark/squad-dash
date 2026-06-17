@@ -84,7 +84,7 @@ tasks:
       {{/if}}
 
   - id: code-smells
-    enabled: false
+    enabled: true
     frequency: weekly-Saturday
     safety: report-only
     has_safety_options: false
@@ -108,7 +108,7 @@ tasks:
 
   - id: commit-review
     enabled: true
-    frequency: daily
+    frequency: every-10-commits
     safety: report-only
     title: Commit Quality Review
     instructions: |
@@ -126,7 +126,6 @@ tasks:
     enabled: true
     frequency: weekly-Sunday
     safety: report-only
-    has_safety_options: false
     title: Documentation Review
     instructions: |
       Review the documentation in the `docs/` folder (or the repo's primary docs
@@ -159,6 +158,12 @@ tasks:
       {{#if safety == "branch"}}
       Correct accuracy issues and fix broken links where possible (e.g. update a
       link target, remove a dead link). Commit changes to a maintenance branch named: {{branchName}}.
+      Items that require human judgment (accuracy rewrites, missing images) should
+      still be reported.
+      {{/if}}
+      {{#if safety == "direct"}}
+      Correct accuracy issues and fix broken links where possible (e.g. update a
+      link target, remove a dead link). Commit changes directly to the current branch.
       Items that require human judgment (accuracy rewrites, missing images) should
       still be reported.
       {{/if}}
@@ -610,22 +615,31 @@ tasks:
       - Identify the current repository (use `gh repo view --json nameWithOwner`)
       - Search for issues created in the last 24 hours using GitHub's search syntax
       {{#if includePullRequests}}- Also search for pull requests created in the last 24 hours{{/if}}
-      - Retrieve title, number, creation time, and URL for each result
+      - Retrieve title, number, creation time, labels, and URL for each result
+      - For each closed issue, check if there are comments posted AFTER the issue was closed
+      - Flag any closed issues with post-closure comments as potentially needing attention
       
       Format the findings into a clear, actionable report:
-      1. **Summary**: Total count of new issues{{#if includePullRequests}} and pull requests{{/if}}
+      1. **Summary**: Total count of new issues{{#if includePullRequests}} and pull requests{{/if}}. If any issues have labels like "bug", "critical", "security", or similar high-priority indicators, note them in the summary.
       2. **New Issues** (if any):
-         - List each with: #<number> Title (created: YYYY-MM-DD HH:MM UTC)
+         - List each with: #<number> [labels] Title (created: YYYY-MM-DD HH:MM UTC)
          - Include link: https://github.com/owner/repo/issues/<number>
+         - Group by label category if meaningful (e.g., bugs first, then enhancements)
       {{#if includePullRequests}}
       3. **New Pull Requests** (if any):
-         - List each with: #<number> Title (created: YYYY-MM-DD HH:MM UTC)
+         - List each with: #<number> [labels] Title (created: YYYY-MM-DD HH:MM UTC)
          - Include link: https://github.com/owner/repo/pull/<number>
-      4. **Suggested Next Steps**: Brief recommendations for triage/review
       {{/if}}
-      {{#if !includePullRequests}}
-      3. **Suggested Next Steps**: Brief recommendations for issue triage
-      {{/if}}
+      {{#if includePullRequests}}4{{else}}3{{/if}}. **Closed Issues with Post-Closure Comments** (if any):
+         - List each closed issue that has received comments after closure
+         - Include issue number, title, when it was closed, and summary of post-closure comments
+         - Flag potential issues requiring reopening or follow-up
+      {{#if includePullRequests}}5{{else}}4{{/if}}. **Suggested Next Steps**: Brief recommendations for triage/review
+      
+      **Inbox Priority Guidelines**: Set the inbox message priority based on content:
+      - `"high"` if any issues have labels like "bug", "critical", "security", "regression", or similar urgent markers
+      - `"mid"` for standard new issues or enhancements
+      - `"low"` if no new issues and only routine activity
       
       Do not change any code or issues. Send the report to the user's Inbox using
       an INBOX_MESSAGE_JSON block (from: "argus-weld").
