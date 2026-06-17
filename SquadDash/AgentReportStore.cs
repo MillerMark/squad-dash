@@ -105,11 +105,16 @@ internal static class AgentReportStore
         "Ralph",
     };
 
+    private static readonly Regex WhitespaceRegex =
+        new(@"\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly HashSet<char> InvalidFileNameChars =
+        new(Path.GetInvalidFileNameChars());
+
     private static string SanitizeForFileName(string name)
     {
-        var invalid = Path.GetInvalidFileNameChars();
-        var chars   = name.Select(c => Array.IndexOf(invalid, c) >= 0 ? '_' : c).ToArray();
-        var result  = Regex.Replace(new string(chars), @"\s+", "-");
+        var chars  = name.Select(c => InvalidFileNameChars.Contains(c) ? '_' : c).ToArray();
+        var result = WhitespaceRegex.Replace(new string(chars), "-");
         return result.Length > 40 ? result[..40] : result;
     }
 }

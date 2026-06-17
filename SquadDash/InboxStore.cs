@@ -27,6 +27,20 @@ public class InboxStore
         PropertyNameCaseInsensitive = true,
     };
 
+    private static readonly Regex MaintenanceReportPrefixRegex =
+        new(@"(?i)^maintenance\s+report\s*[:\-\u2013\u2014]?\s*",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex TrailingDateRegex =
+        new(@"[\s\-\u2013\u2014]+\d{4}[-/]\d{2}[-/]\d{2}\s*$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex WhitespaceCollapseRegex =
+        new(@"\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex WordTokenRegex =
+        new(@"[a-z0-9_]{3,}", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     public InboxStore(string squadFolder)
     {
         _squadFolder     = squadFolder;
@@ -107,16 +121,10 @@ public class InboxStore
         if (string.IsNullOrWhiteSpace(subject)) return subject;
 
         // Strip leading "Maintenance Report" prefix (case-insensitive)
-        var stripped = System.Text.RegularExpressions.Regex.Replace(
-            subject.Trim(),
-            @"(?i)^maintenance\s+report\s*[:\-\u2013\u2014]?\s*",
-            string.Empty).Trim();
+        var stripped = MaintenanceReportPrefixRegex.Replace(subject.Trim(), string.Empty).Trim();
 
         // Strip trailing date (e.g. " — 2026-05-24", " -- 2026-05-24", " - 2026/05/24")
-        stripped = System.Text.RegularExpressions.Regex.Replace(
-            stripped,
-            @"[\s\-\u2013\u2014]+\d{4}[-/]\d{2}[-/]\d{2}\s*$",
-            string.Empty).Trim();
+        stripped = TrailingDateRegex.Replace(stripped, string.Empty).Trim();
 
         return string.IsNullOrWhiteSpace(stripped) ? subject : stripped;
     }
@@ -327,11 +335,11 @@ public class InboxStore
         if (string.IsNullOrWhiteSpace(body))
             return string.Empty;
 
-        return Regex.Replace(body.ToLowerInvariant(), @"\s+", " ").Trim();
+        return WhitespaceCollapseRegex.Replace(body.ToLowerInvariant(), " ").Trim();
     }
 
     private static HashSet<string> ExtractComparableWords(string text) =>
-        Regex.Matches(text, @"[a-z0-9_]{3,}")
+        WordTokenRegex.Matches(text)
             .Select(match => match.Value)
             .Take(4000)
             .ToHashSet(StringComparer.Ordinal);

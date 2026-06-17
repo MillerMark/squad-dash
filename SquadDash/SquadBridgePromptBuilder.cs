@@ -141,12 +141,13 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
         if (members.Count == 0)
             return null;
 
+        var membersByHandle = members.ToDictionary(m => m.Handle, StringComparer.OrdinalIgnoreCase);
+
         var matches = MentionRegex.Matches(prompt)
             .Select(match => match.Groups["handle"].Value.Trim().ToLowerInvariant())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(handle => members.FirstOrDefault(member => string.Equals(member.Handle, handle, StringComparison.OrdinalIgnoreCase)))
-            .Where(member => member is not null)
-            .Cast<TeamRoutingMember>()
+            .Where(handle => membersByHandle.ContainsKey(handle))
+            .Select(handle => membersByHandle[handle])
             .DistinctBy(member => member.Handle)
             .ToArray();
 
@@ -170,10 +171,15 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
         if (members.Count == 0)
             return null;
 
+        var knownMemberNames = members
+            .Select(static m => m.Name)
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var matches = members
             .Select(member => new {
                 Member = member,
-                Matches = BuildOwnershipSignals(member, members, rules, workspaceFolder)
+                Matches = BuildOwnershipSignals(member, knownMemberNames, rules, workspaceFolder)
                     .Where(signal => PromptContainsSignal(prompt, signal))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray()
@@ -204,14 +210,10 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
 
     private IReadOnlyList<string> BuildOwnershipSignals(
         TeamRoutingMember member,
-        IReadOnlyList<TeamRoutingMember> members,
+        IReadOnlySet<string> knownMemberNames,
         IReadOnlyList<RoutingRule> rules,
         string workspaceFolder) {
         var signals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var knownMemberNames = members
-            .Select(candidate => candidate.Name)
-            .Where(static name => !string.IsNullOrWhiteSpace(name))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var rule in rules.Where(rule => string.Equals(rule.RouteTo, member.Name, StringComparison.OrdinalIgnoreCase))) {
             foreach (var token in ExtractOwnershipTokens(rule.WorkType, knownMemberNames))
