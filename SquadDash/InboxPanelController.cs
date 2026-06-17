@@ -899,7 +899,7 @@ internal sealed class InboxPanelController
                 {
                     Data = Geometry.Parse("M21.3333333333333,29.3333333333333C34.6666666666666,6,34.6666666666666,6,34.6666666666666,6C36.3333333333333,3.33333333333333,34.3333333333333,-0.333333333333336,31,-0.333333333333336C4.33333333333331,-0.333333333333336,4.33333333333331,-0.333333333333336,4.33333333333331,-0.333333333333336C1,-0.333333333333336,-1.33333333333337,3.33333333333333,0.333333333333314,6C14,29.3333333333333,14,29.3333333333333,14,29.3333333333333C15.6666666666666,32.3333333333333,19.6666666666666,32.3333333333333,21.3333333333333,29.3333333333333z"),
                 };
-                path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "InboxPriorityLow");
+                path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "TaskPriorityLow");
                 var canvas = new Canvas { Width = 35, Height = 31 };
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
@@ -915,6 +915,7 @@ internal sealed class InboxPanelController
                 return viewbox;
             }
             case "high":
+
             {
                 var path = new System.Windows.Shapes.Path
                 {
@@ -925,8 +926,8 @@ internal sealed class InboxPanelController
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
-                    Width             = 8,
-                    Height            = 8,
+                    Width             = 9.6,
+                    Height            = 9.6,
                     Stretch           = Stretch.Uniform,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 4, 0),
@@ -937,20 +938,30 @@ internal sealed class InboxPanelController
             }
             case "critical":
             {
-                // Red diamond: 8×8 rectangle rotated 45° via RenderTransform so the layout
-                // bounding box stays at 8px while the visual diamond extends beyond each side.
                 var diamond = new Rectangle
                 {
                     Width                 = 8,
                     Height                = 8,
+                    HorizontalAlignment   = HorizontalAlignment.Center,
                     VerticalAlignment     = VerticalAlignment.Center,
-                    Margin                = new Thickness(4, 0, 4, 0),
                     Opacity               = opacity,
                     RenderTransformOrigin = new Point(0.5, 0.5),
                     RenderTransform       = new RotateTransform(45),
                 };
                 diamond.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
-                return diamond;
+
+                // Container is wider than the layout slot to give the rotated rectangle
+                // room on the left so its tip doesn't clip. Negative left margin pulls
+                // the container back left so subject text alignment is unchanged.
+                var container = new Grid
+                {
+                    Width             = 12,   // extra 4px for the rotated tip
+                    Height            = 8,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(-2, 0, 2, 0),  // net: same right-edge position as other icons
+                };
+                container.Children.Add(diamond);
+                return container;
             }
             default: // "mid" and anything unrecognised
             {
