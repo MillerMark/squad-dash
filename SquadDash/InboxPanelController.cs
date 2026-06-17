@@ -904,14 +904,14 @@ internal sealed class InboxPanelController
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
-                    Width             = 8,
-                    Height            = 8,
                     Stretch           = Stretch.Uniform,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 4, 0),
                     Opacity           = opacity,
                     Child             = canvas,
                 };
+                viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
+                viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
                 return viewbox;
             }
             case "high":
@@ -926,54 +926,48 @@ internal sealed class InboxPanelController
                 canvas.Children.Add(path);
                 var viewbox = new Viewbox
                 {
-                    Width             = 9.6,
-                    Height            = 9.6,
                     Stretch           = Stretch.Uniform,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 4, 0),
                     Opacity           = opacity,
                     Child             = canvas,
                 };
+                viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
+                viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
                 return viewbox;
             }
             case "critical":
             {
-                var diamond = new Rectangle
+                var path = new System.Windows.Shapes.Path
                 {
-                    Width                 = 8,
-                    Height                = 8,
-                    HorizontalAlignment   = HorizontalAlignment.Center,
-                    VerticalAlignment     = VerticalAlignment.Center,
-                    Opacity               = opacity,
-                    RenderTransformOrigin = new Point(0.5, 0.5),
-                    RenderTransform       = new RotateTransform(45),
+                    Data = Geometry.Parse("M 17.5,0 L 35,17.5 L 17.5,35 L 0,17.5 Z"),
                 };
-                diamond.SetResourceReference(Rectangle.FillProperty, "TaskPriorityHigh");
-
-                // Container is wider than the layout slot to give the rotated rectangle
-                // room on the left so its tip doesn't clip. Negative left margin pulls
-                // the container back left so subject text alignment is unchanged.
-                var container = new Grid
+                path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "TaskPriorityHigh");
+                var canvas = new Canvas { Width = 35, Height = 35 };
+                canvas.Children.Add(path);
+                var viewbox = new Viewbox
                 {
-                    Width             = 12,   // extra 4px for the rotated tip
-                    Height            = 8,
+                    Stretch           = Stretch.Uniform,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(-2, 0, 2, 0),  // net: same right-edge position as other icons
+                    Margin            = new Thickness(0, 0, 4, 0),
+                    Opacity           = opacity,
+                    Child             = canvas,
                 };
-                container.Children.Add(diamond);
-                return container;
+                viewbox.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
+                viewbox.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
+                return viewbox;
             }
             default: // "mid" and anything unrecognised
             {
                 var dot = new Ellipse
                 {
-                    Width             = 8,
-                    Height            = 8,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin            = new Thickness(0, 0, 4, 0),
                     Opacity           = opacity,
                 };
                 dot.SetResourceReference(Ellipse.FillProperty, "TaskPriorityLow");
+                dot.SetResourceReference(FrameworkElement.WidthProperty,  "FontSizeBody");
+                dot.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeBody");
                 return dot;
             }
         }
