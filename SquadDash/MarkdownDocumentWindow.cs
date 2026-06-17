@@ -158,11 +158,12 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         _backButton = new Button {
             Content = "← Back",
             MinWidth = 80,
-            Height = 30,
+            Padding = new Thickness(12, 6, 12, 6),
             Margin = new Thickness(0, 0, 8, 0),
             IsEnabled = false
         };
         _backButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _backButton.SetResourceReference(TextElement.FontSizeProperty, "FontSizeNormal");
         _backButton.Click += BackButton_Click;
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_backButton, true);
         actionPanel.Children.Add(_backButton);
@@ -170,7 +171,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         _showSourceButton = new Button {
             Content = "Show Source",
             MinWidth = 108,
-            Height = 30,
+            Padding = new Thickness(12, 6, 12, 6),
             Margin = new Thickness(0, 0, 8, 0)
         };
         _showSourceButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
@@ -181,11 +182,12 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
         _saveButton = new Button {
             Content = "Save",
-            Width = 88,
-            Height = 30,
+            MinWidth = 88,
+            Padding = new Thickness(12, 6, 12, 6),
             IsEnabled = false
         };
         _saveButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _saveButton.SetResourceReference(TextElement.FontSizeProperty, "FontSizeNormal");
         _saveButton.Click += SaveButton_Click;
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_saveButton, true);
         actionPanel.Children.Add(_saveButton);
