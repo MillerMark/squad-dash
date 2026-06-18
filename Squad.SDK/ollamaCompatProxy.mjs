@@ -5,17 +5,136 @@ import { pathToFileURL } from "node:url";
 
 const host = process.env.OLLAMA_COMPAT_HOST || "127.0.0.1";
 const port = Number(process.env.OLLAMA_COMPAT_PORT || 11436);
-const targetBaseUrl = new URL(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.0.1:11435");
+const defaultTargetBaseUrl = new URL(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.0.1:11435");
 const logPath = path.resolve(
     process.env.OLLAMA_COMPAT_LOG ||
     path.join(process.cwd(), "..", ".squad", "diagnostics", "ollama-compat-proxy.jsonl"));
 const maxInputChars = Number(process.env.OLLAMA_COMPAT_MAX_INPUT_CHARS || 65000);
+const workerConcurrency = Math.max(1, Number(process.env.OLLAMA_COMPAT_MAX_CONCURRENT || 1));
 const gptOssToolingHint = [
     "[Local GPT-OSS tooling hint]",
     "For straightforward text-file edits, prefer the powershell tool.",
     "Use apply_patch only when you can emit a valid structured apply_patch tool call; do not pass raw patch text as the tool arguments.",
     "After editing a file, read it back to verify before replying."
 ].join(" ");
+
+function splitTargetList(value) {
+    if (!value)
+        return [];
+
+    return value
+        .split(/[;,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function parseTargetDescriptor(rawTarget, index) {
+    const separatorIndex = rawTarget.indexOf("=");
+    const hasName = separatorIndex > 0;
+    const name = hasName
+        ? rawTarget.slice(0, separatorIndex).trim()
+        : `local-${index + 1}`;
+    const urlText = hasName
+        ? rawTarget.slice(separatorIndex + 1).trim()
+        : rawTarget;
+
+    return {
+        name: name || `local-${index + 1}`,
+        url: new URL(urlText)
+    };
+}
+
+function parseTargetWorkers(targetsValue, fallbackTarget, maxConcurrent = workerConcurrency) {
+    const rawTargets = splitTargetList(targetsValue);
+    const descriptors = rawTargets.length > 0
+        ? rawTargets
+        : [fallbackTarget.href];
+
+    return descriptors.map((descriptor, index) => ({
+        ...parseTargetDescriptor(descriptor, index),
+        maxConcurrent: Math.max(1, Number(maxConcurrent) || 1),
+        active: 0
+    }));
+}
+
+class LocalModelRequestScheduler {
+    constructor(workers) {
+        if (!Array.isArray(workers) || workers.length === 0)
+            throw new Error("Local model scheduler requires at least one worker.");
+
+        this.workers = workers;
+        this.queue = [];
+    }
+
+    acquire() {
+        const queuedBefore = this.queue.length;
+        const worker = this.tryAcquireWorker();
+        if (worker)
+            return Promise.resolve(this.createLease(worker, queuedBefore, 0));
+
+        const queuedAt = Date.now();
+        return new Promise((resolve) => {
+            this.queue.push({ resolve, queuedAt, queuedBefore });
+        });
+    }
+
+    tryAcquireWorker() {
+        for (const worker of this.workers) {
+            if (worker.active < worker.maxConcurrent) {
+                worker.active++;
+                return worker;
+            }
+        }
+
+        return undefined;
+    }
+
+    createLease(worker, queuedBefore, waitMs) {
+        let released = false;
+        return {
+            worker,
+            queuedBefore,
+            waitMs,
+            release: () => {
+                if (released)
+                    return;
+
+                released = true;
+                worker.active = Math.max(0, worker.active - 1);
+                this.drain();
+            }
+        };
+    }
+
+    drain() {
+        while (this.queue.length > 0) {
+            const worker = this.tryAcquireWorker();
+            if (!worker)
+                return;
+
+            const next = this.queue.shift();
+            next.resolve(this.createLease(
+                worker,
+                next.queuedBefore,
+                Date.now() - next.queuedAt));
+        }
+    }
+}
+
+const scheduler = new LocalModelRequestScheduler(
+    parseTargetWorkers(process.env.OLLAMA_COMPAT_TARGETS, defaultTargetBaseUrl));
+
+function shouldScheduleModelRequest(req) {
+    if (req.method !== "POST")
+        return false;
+
+    const urlPath = new URL(req.url || "/", defaultTargetBaseUrl).pathname.toLowerCase();
+    return urlPath.endsWith("/chat/completions") ||
+        urlPath.endsWith("/completions") ||
+        urlPath.endsWith("/responses") ||
+        urlPath.endsWith("/api/chat") ||
+        urlPath.endsWith("/api/generate");
+}
 
 function normalizeContent(value) {
     if (value === null || value === undefined)
@@ -406,6 +525,11 @@ function readRequestBody(req) {
 
 const server = http.createServer(async (req, res) => {
     const startedAt = Date.now();
+    const shouldSchedule = shouldScheduleModelRequest(req);
+    const lease = shouldSchedule
+        ? await scheduler.acquire()
+        : undefined;
+    const targetBaseUrl = lease?.worker.url ?? scheduler.workers[0].url;
     const inboundBody = await readRequestBody(req);
     let outboundBody = inboundBody;
     let normalized = false;
@@ -453,6 +577,10 @@ const server = http.createServer(async (req, res) => {
                 capturedAt: new Date().toISOString(),
                 method: req.method,
                 path: req.url,
+                scheduled: shouldSchedule,
+                worker: lease?.worker.name,
+                queueWaitMs: lease?.waitMs ?? 0,
+                queuedBefore: lease?.queuedBefore ?? 0,
                 statusCode: proxyRes.statusCode,
                 durationMs: Date.now() - startedAt,
                 normalized,
@@ -460,6 +588,7 @@ const server = http.createServer(async (req, res) => {
                 requestPreview: inboundBody.toString("utf8").slice(0, 4000),
                 responsePreview: responseBody.slice(0, 4000)
             });
+            lease?.release();
         });
     });
 
@@ -470,6 +599,10 @@ const server = http.createServer(async (req, res) => {
             capturedAt: new Date().toISOString(),
             method: req.method,
             path: req.url,
+            scheduled: shouldSchedule,
+            worker: lease?.worker.name,
+            queueWaitMs: lease?.waitMs ?? 0,
+            queuedBefore: lease?.queuedBefore ?? 0,
             statusCode: 502,
             durationMs: Date.now() - startedAt,
             normalized,
@@ -477,6 +610,7 @@ const server = http.createServer(async (req, res) => {
             requestPreview: inboundBody.toString("utf8").slice(0, 4000),
             error: error.message
         });
+        lease?.release();
     });
 
     proxyReq.end(outboundBody);
@@ -484,14 +618,16 @@ const server = http.createServer(async (req, res) => {
 
 export {
     addGptOssToolingHint,
+    LocalModelRequestScheduler,
     normalizeRequestBody,
+    parseTargetWorkers,
     replaceFailedApplyPatchExchanges
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     server.listen(port, host, () => {
         console.log(`Ollama compatibility proxy listening on http://${host}:${port}`);
-        console.log(`Forwarding to ${targetBaseUrl.href}`);
+        console.log(`Forwarding to ${scheduler.workers.map((worker) => `${worker.name}=${worker.url.href}x${worker.maxConcurrent}`).join(", ")}`);
         console.log(`Writing diagnostics to ${logPath}`);
     });
 }

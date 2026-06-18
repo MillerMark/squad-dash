@@ -1,7 +1,80 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeRequestBody } from "./ollamaCompatProxy.mjs";
+import {
+    LocalModelRequestScheduler,
+    normalizeRequestBody,
+    parseTargetWorkers
+} from "./ollamaCompatProxy.mjs";
+
+test("Local model scheduler queues a second request for a single worker", async () => {
+    const scheduler = new LocalModelRequestScheduler([
+        {
+            name: "ai-box-1",
+            url: new URL("http://127.0.0.1:11434"),
+            maxConcurrent: 1,
+            active: 0
+        }
+    ]);
+
+    const first = await scheduler.acquire();
+    let secondResolved = false;
+    const secondPromise = scheduler.acquire().then((lease) => {
+        secondResolved = true;
+        return lease;
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(secondResolved, false);
+
+    first.release();
+    const second = await secondPromise;
+
+    assert.equal(secondResolved, true);
+    assert.equal(second.worker.name, "ai-box-1");
+    assert.equal(second.queuedBefore, 0);
+    second.release();
+});
+
+test("Local model scheduler uses multiple workers before queueing", async () => {
+    const scheduler = new LocalModelRequestScheduler([
+        {
+            name: "ai-box-1",
+            url: new URL("http://127.0.0.1:11434"),
+            maxConcurrent: 1,
+            active: 0
+        },
+        {
+            name: "ai-box-2",
+            url: new URL("http://127.0.0.2:11434"),
+            maxConcurrent: 1,
+            active: 0
+        }
+    ]);
+
+    const first = await scheduler.acquire();
+    const second = await scheduler.acquire();
+
+    assert.equal(first.worker.name, "ai-box-1");
+    assert.equal(second.worker.name, "ai-box-2");
+
+    first.release();
+    second.release();
+});
+
+test("Local model target parser accepts named semicolon-separated workers", () => {
+    const workers = parseTargetWorkers(
+        "fast=http://ai-box-1:11434;deep=http://ai-box-2:11434",
+        new URL("http://fallback:11434"),
+        1);
+
+    assert.deepEqual(
+        workers.map((worker) => [worker.name, worker.url.href, worker.maxConcurrent]),
+        [
+            ["fast", "http://ai-box-1:11434/", 1],
+            ["deep", "http://ai-box-2:11434/", 1]
+        ]);
+});
 
 test("GPT-OSS requests replace failed raw apply_patch history with recovery guidance", () => {
     const body = normalizeRequestBody({
