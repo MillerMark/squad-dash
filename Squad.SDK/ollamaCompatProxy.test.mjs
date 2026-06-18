@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+    applyCapabilityProfile,
     LocalModelRequestScheduler,
     normalizeRequestBody,
     normalizeServerSentEvents,
     parseTargetWorkers,
+    resolveLocalCapabilityProfile,
     resolveLocalProviderProfile
 } from "./ollamaCompatProxy.mjs";
 
@@ -33,6 +35,57 @@ test("Local provider profile accepts conservative preset and explicit overrides"
         maxOutputTokens: 512,
         maxConcurrent: 2
     });
+});
+
+test("Local capability profile defaults to full tool access", () => {
+    const profile = resolveLocalCapabilityProfile(undefined, {});
+
+    assert.deepEqual(profile, {
+        id: "full",
+        allowedTools: undefined
+    });
+});
+
+test("Local-lite capability profile keeps only read-only coordination tools", () => {
+    const profile = resolveLocalCapabilityProfile("local-lite", {});
+    const body = {
+        tool_choice: {
+            type: "function",
+            function: { name: "powershell" }
+        },
+        tools: [
+            { type: "function", function: { name: "powershell" } },
+            { type: "function", function: { name: "view" } },
+            { type: "function", function: { name: "grep" } },
+            { type: "function", function: { name: "glob" } },
+            { type: "function", function: { name: "report_intent" } },
+            { type: "function", function: { name: "task" } }
+        ]
+    };
+
+    const changed = applyCapabilityProfile(body, profile);
+
+    assert.equal(changed, true);
+    assert.deepEqual(
+        body.tools.map((tool) => tool.function.name),
+        ["view", "grep", "glob", "report_intent"]);
+    assert.equal(body.tool_choice, undefined);
+});
+
+test("Text-only capability profile removes tool declarations", () => {
+    const profile = resolveLocalCapabilityProfile("text-only", {});
+    const body = {
+        tool_choice: "auto",
+        tools: [
+            { type: "function", function: { name: "report_intent" } }
+        ]
+    };
+
+    const changed = applyCapabilityProfile(body, profile);
+
+    assert.equal(changed, true);
+    assert.equal(body.tools, undefined);
+    assert.equal(body.tool_choice, undefined);
 });
 
 test("Local provider profile clamps OpenAI output budgets", () => {

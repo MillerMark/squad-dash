@@ -39,12 +39,52 @@ const profilePresets = {
     }
 };
 
+const capabilityProfilePresets = {
+    full: {
+        id: "full",
+        allowedTools: undefined
+    },
+    "local-lite": {
+        id: "local-lite",
+        allowedTools: ["report_intent", "grep", "glob", "view"]
+    },
+    "read-only": {
+        id: "read-only",
+        allowedTools: ["report_intent", "grep", "glob", "view"]
+    },
+    "text-only": {
+        id: "text-only",
+        allowedTools: []
+    }
+};
+
 function readPositiveInteger(value, fallback) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0)
         return fallback;
 
     return Math.max(1, Math.floor(parsed));
+}
+
+function splitToolList(value) {
+    if (typeof value !== "string")
+        return undefined;
+
+    return value
+        .split(/[;,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function resolveLocalCapabilityProfile(profileId, env = process.env) {
+    const normalizedId = String(profileId || "full").trim().toLowerCase();
+    const preset = capabilityProfilePresets[normalizedId] ?? capabilityProfilePresets.full;
+    const overrideTools = splitToolList(env.OLLAMA_COMPAT_ALLOWED_TOOLS);
+
+    return {
+        id: preset.id,
+        allowedTools: overrideTools ?? preset.allowedTools
+    };
 }
 
 function resolveLocalProviderProfile(profileId, env = process.env) {
@@ -87,6 +127,7 @@ function applyOutputLimit(body) {
 }
 
 const localProviderProfile = resolveLocalProviderProfile(process.env.OLLAMA_COMPAT_PROFILE, process.env);
+const localCapabilityProfile = resolveLocalCapabilityProfile(process.env.OLLAMA_COMPAT_CAPABILITY_PROFILE, process.env);
 const maxInputChars = localProviderProfile.maxInputChars;
 const workerConcurrency = localProviderProfile.maxConcurrent;
 const firstDataTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FIRST_DATA_TIMEOUT_MS, 30000);
@@ -309,6 +350,34 @@ function getToolNames(body) {
     return new Set(body.tools
         .map(getToolName)
         .filter(Boolean));
+}
+
+function applyCapabilityProfile(body, capabilityProfile = localCapabilityProfile) {
+    if (!body || typeof body !== "object")
+        return false;
+
+    if (!Array.isArray(body.tools))
+        return false;
+
+    const allowedTools = capabilityProfile?.allowedTools;
+    if (!Array.isArray(allowedTools))
+        return false;
+
+    const allowed = new Set(allowedTools.map((tool) => String(tool).toLowerCase()));
+    const beforeTools = body.tools;
+    body.tools = beforeTools.filter((tool) =>
+        allowed.has(getToolName(tool).toLowerCase()));
+
+    if (body.tools.length === 0) {
+        delete body.tools;
+        delete body.tool_choice;
+    } else if (body.tool_choice && typeof body.tool_choice === "object") {
+        const selectedToolName = getToolName(body.tool_choice).toLowerCase();
+        if (selectedToolName && !allowed.has(selectedToolName))
+            delete body.tool_choice;
+    }
+
+    return body.tools?.length !== beforeTools.length;
 }
 
 function hasGptOssToolingHint(messages) {
@@ -548,6 +617,7 @@ function normalizeRequestBody(body) {
     const model = typeof body.model === "string" ? body.model : "";
     const isGptOss = model.toLowerCase().startsWith("gpt-oss");
     applyOutputLimit(body);
+    applyCapabilityProfile(body);
 
     if (isGptOss) {
         body.reasoning_effort ??= "low";
@@ -712,6 +782,7 @@ function summarizeRequestBody(body) {
     const lastMessage = messages.at(-1);
     return {
         profile: localProviderProfile.id,
+        capabilityProfile: localCapabilityProfile.id,
         profileMaxInputChars: localProviderProfile.maxInputChars,
         profileMaxOutputTokens: localProviderProfile.maxOutputTokens,
         model: body.model,
@@ -825,10 +896,15 @@ const server = http.createServer(async (req, res) => {
         try {
             const parsed = JSON.parse(inboundBody.toString("utf8"));
             const before = JSON.stringify(parsed);
+            const originalRequestSummary = summarizeRequestBody(parsed);
             const normalizedBody = normalizeRequestBody(parsed);
             const after = JSON.stringify(normalizedBody);
             normalized = before !== after;
-            requestSummary = summarizeRequestBody(normalizedBody);
+            requestSummary = {
+                ...summarizeRequestBody(normalizedBody),
+                originalToolCount: originalRequestSummary?.toolCount,
+                originalToolsJsonChars: originalRequestSummary?.toolsJsonChars
+            };
             outboundBody = Buffer.from(after, "utf8");
         } catch {
             // Forward invalid JSON as-is so the target can report the real error.
@@ -1080,10 +1156,12 @@ const server = http.createServer(async (req, res) => {
 
 export {
     addGptOssToolingHint,
+    applyCapabilityProfile,
     LocalModelRequestScheduler,
     normalizeRequestBody,
     normalizeServerSentEvents,
     parseTargetWorkers,
+    resolveLocalCapabilityProfile,
     replaceFailedApplyPatchExchanges,
     resolveLocalProviderProfile
 };
