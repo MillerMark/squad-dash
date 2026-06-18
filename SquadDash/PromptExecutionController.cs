@@ -2150,9 +2150,10 @@ internal sealed class PromptExecutionController {
         // first and HOST_COMMAND_JSON last. The parser regex requires HOST_COMMAND_JSON at the
         // very end of the response; placing it after TurnSummaryInstruction would break the match.
         // InboxMessageInstruction is placed before TurnSummaryInstruction so the ordering is:
-        //   … triggeredCtx, inboxCtx, TurnSummaryInstruction, hostCmdCtx
+        //   … triggeredCtx, inboxCtx, commitReportingCtx, TurnSummaryInstruction, hostCmdCtx
         var inboxCtx = _instructionProvider.Get().InboxMessage;
-        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, inboxCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
+        var commitReportingCtx = _instructionProvider.Get().CommitReporting;
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, inboxCtx, commitReportingCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = _promptBuilder.Build(
             prompt,

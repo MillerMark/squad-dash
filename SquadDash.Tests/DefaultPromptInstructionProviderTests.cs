@@ -15,4 +15,18 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Not.Contain("Strongly encouraged"));
         });
     }
+
+    [Test]
+    public void CommitReportingInstruction_RequiresBareShortHash()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().CommitReporting;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("bare short commit hash"));
+            Assert.That(instruction, Does.Contain("7 chars"));
+            Assert.That(instruction, Does.Contain("git rev-parse --short HEAD"));
+            Assert.That(instruction, Does.Contain("Do not construct a markdown hyperlink"));
+        });
+    }
 }

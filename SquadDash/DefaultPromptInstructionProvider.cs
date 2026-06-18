@@ -11,6 +11,10 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "At the very end of your response, on its own line, append a machine-readable turn summary in this exact format " +
             "(it is stripped from the displayed transcript and is never shown to the user):\n" +
             "<system_notification>{\"notification\": \"one short sentence — 10 words or fewer — describing what you did or answered. If you made or reported a git commit, the description must name what was committed.\"}</system_notification>",
+        CommitReporting:
+            "If you make a git commit, your visible response must include the resulting bare short commit hash (7 chars) as plain text immediately after describing the commit. " +
+            "Do not construct a markdown hyperlink or GitHub URL. SquadDash auto-links bare commit hashes in the transcript. " +
+            "Obtain the hash after committing with `git rev-parse --short HEAD`. Example: `Committed: a1b2c3d`.",
         InboxMessage:
             "<inbox_instructions>\n" +
             "You may send the user a message to their Inbox panel by appending an INBOX_MESSAGE_JSON block at the very end of your response, after all other content. Use this when:\n" +
