@@ -1637,6 +1637,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // the moment the user sees the window.
             ActiveScrollController.SyncScrollState();
 
+            // Branch may have changed while SquadDash was in the background (e.g. via
+            // an external VCS tool).  The FileSystemWatcher can miss those events, so do
+            // a lightweight async re-check on every activation.
+            _ = RefreshBranchIfChangedAsync();
+
             if (!_pendingPowerShellInstallRecheck)
                 return;
 
@@ -26399,6 +26404,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (item.SourceTag == "branch-indicator")
             Dispatcher.InvokeAsync(() => UpdateBranchIndicator(), System.Windows.Threading.DispatcherPriority.Normal);
+    }
+
+    private async Task RefreshBranchIfChangedAsync()
+    {
+        // Capture workspace folder on the UI thread before going async.
+        var folder = _currentWorkspace?.FolderPath;
+        if (folder is null)
+            return;
+
+        var branch = await Task.Run(() => ReadGitBranch(folder)).ConfigureAwait(false);
+        if (branch != _currentBranch)
+            await Dispatcher.InvokeAsync(UpdateBranchIndicator);
     }
 
     private void UpdateBranchIndicator()
