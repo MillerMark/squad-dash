@@ -4,8 +4,47 @@ import test from "node:test";
 import {
     LocalModelRequestScheduler,
     normalizeRequestBody,
-    parseTargetWorkers
+    parseTargetWorkers,
+    resolveLocalProviderProfile
 } from "./ollamaCompatProxy.mjs";
+
+test("Local provider profile defaults to balanced capacity", () => {
+    const profile = resolveLocalProviderProfile(undefined, {});
+
+    assert.deepEqual(profile, {
+        id: "balanced",
+        maxInputChars: 65000,
+        maxOutputTokens: 2048,
+        maxConcurrent: 1
+    });
+});
+
+test("Local provider profile accepts conservative preset and explicit overrides", () => {
+    const profile = resolveLocalProviderProfile("conservative", {
+        OLLAMA_COMPAT_MAX_INPUT_CHARS: "12000",
+        OLLAMA_COMPAT_MAX_OUTPUT_TOKENS: "512",
+        OLLAMA_COMPAT_MAX_CONCURRENT: "2"
+    });
+
+    assert.deepEqual(profile, {
+        id: "conservative",
+        maxInputChars: 12000,
+        maxOutputTokens: 512,
+        maxConcurrent: 2
+    });
+});
+
+test("Local provider profile clamps OpenAI output budgets", () => {
+    const body = normalizeRequestBody({
+        model: "qwen2.5-coder:7b",
+        max_tokens: 99999,
+        messages: [
+            { role: "user", content: "hello" }
+        ]
+    });
+
+    assert.equal(body.max_tokens, 2048);
+});
 
 test("Local model scheduler queues a second request for a single worker", async () => {
     const scheduler = new LocalModelRequestScheduler([

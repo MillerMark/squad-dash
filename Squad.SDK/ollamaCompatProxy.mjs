@@ -9,14 +9,84 @@ const defaultTargetBaseUrl = new URL(process.env.OLLAMA_COMPAT_TARGET || "http:/
 const logPath = path.resolve(
     process.env.OLLAMA_COMPAT_LOG ||
     path.join(process.cwd(), "..", ".squad", "diagnostics", "ollama-compat-proxy.jsonl"));
-const maxInputChars = Number(process.env.OLLAMA_COMPAT_MAX_INPUT_CHARS || 65000);
-const workerConcurrency = Math.max(1, Number(process.env.OLLAMA_COMPAT_MAX_CONCURRENT || 1));
 const gptOssToolingHint = [
     "[Local GPT-OSS tooling hint]",
     "For straightforward text-file edits, prefer the powershell tool.",
     "Use apply_patch only when you can emit a valid structured apply_patch tool call; do not pass raw patch text as the tool arguments.",
     "After editing a file, read it back to verify before replying."
 ].join(" ");
+
+const profilePresets = {
+    conservative: {
+        id: "conservative",
+        maxInputChars: 24000,
+        maxOutputTokens: 1024,
+        maxConcurrent: 1
+    },
+    balanced: {
+        id: "balanced",
+        maxInputChars: 65000,
+        maxOutputTokens: 2048,
+        maxConcurrent: 1
+    },
+    maximum: {
+        id: "maximum",
+        maxInputChars: 130000,
+        maxOutputTokens: 4096,
+        maxConcurrent: 1
+    }
+};
+
+function readPositiveInteger(value, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return fallback;
+
+    return Math.max(1, Math.floor(parsed));
+}
+
+function resolveLocalProviderProfile(profileId, env = process.env) {
+    const normalizedId = String(profileId || "balanced").trim().toLowerCase();
+    const preset = profilePresets[normalizedId] ?? profilePresets.balanced;
+
+    return {
+        ...preset,
+        maxInputChars: readPositiveInteger(env.OLLAMA_COMPAT_MAX_INPUT_CHARS, preset.maxInputChars),
+        maxOutputTokens: readPositiveInteger(env.OLLAMA_COMPAT_MAX_OUTPUT_TOKENS, preset.maxOutputTokens),
+        maxConcurrent: readPositiveInteger(env.OLLAMA_COMPAT_MAX_CONCURRENT, preset.maxConcurrent)
+    };
+}
+
+function clampTokenLimit(value, maxTokens) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0)
+        return maxTokens;
+
+    return Math.min(maxTokens, Math.max(1, Math.floor(parsed)));
+}
+
+function applyOutputLimit(body) {
+    if (!body || typeof body !== "object")
+        return false;
+
+    const beforeMaxTokens = body.max_tokens;
+    const beforeMaxCompletionTokens = body.max_completion_tokens;
+
+    if (body.max_tokens !== undefined || body.max_completion_tokens === undefined)
+        body.max_tokens = clampTokenLimit(body.max_tokens, localProviderProfile.maxOutputTokens);
+
+    if (body.max_completion_tokens !== undefined)
+        body.max_completion_tokens = clampTokenLimit(
+            body.max_completion_tokens,
+            localProviderProfile.maxOutputTokens);
+
+    return beforeMaxTokens !== body.max_tokens ||
+        beforeMaxCompletionTokens !== body.max_completion_tokens;
+}
+
+const localProviderProfile = resolveLocalProviderProfile(process.env.OLLAMA_COMPAT_PROFILE, process.env);
+const maxInputChars = localProviderProfile.maxInputChars;
+const workerConcurrency = localProviderProfile.maxConcurrent;
 
 function splitTargetList(value) {
     if (!value)
@@ -421,17 +491,10 @@ function normalizeRequestBody(body) {
 
     const model = typeof body.model === "string" ? body.model : "";
     const isGptOss = model.toLowerCase().startsWith("gpt-oss");
+    applyOutputLimit(body);
 
     if (isGptOss) {
         body.reasoning_effort ??= "low";
-
-        const maxTokens = Number(body.max_tokens);
-        if (!Number.isFinite(maxTokens) || maxTokens < 1024)
-            body.max_tokens = 1024;
-
-        const maxCompletionTokens = Number(body.max_completion_tokens);
-        if (Number.isFinite(maxCompletionTokens) && maxCompletionTokens < 1024)
-            body.max_completion_tokens = 1024;
 
         pruneOversizedGptOssMessages(body);
         addGptOssToolingHint(body);
@@ -489,6 +552,9 @@ function summarizeRequestBody(body) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const lastMessage = messages.at(-1);
     return {
+        profile: localProviderProfile.id,
+        profileMaxInputChars: localProviderProfile.maxInputChars,
+        profileMaxOutputTokens: localProviderProfile.maxOutputTokens,
         model: body.model,
         stream: body.stream,
         reasoning_effort: body.reasoning_effort,
@@ -621,12 +687,14 @@ export {
     LocalModelRequestScheduler,
     normalizeRequestBody,
     parseTargetWorkers,
-    replaceFailedApplyPatchExchanges
+    replaceFailedApplyPatchExchanges,
+    resolveLocalProviderProfile
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     server.listen(port, host, () => {
         console.log(`Ollama compatibility proxy listening on http://${host}:${port}`);
+        console.log(`Local provider profile ${localProviderProfile.id}: maxInputChars=${localProviderProfile.maxInputChars}, maxOutputTokens=${localProviderProfile.maxOutputTokens}, maxConcurrent=${localProviderProfile.maxConcurrent}`);
         console.log(`Forwarding to ${scheduler.workers.map((worker) => `${worker.name}=${worker.url.href}x${worker.maxConcurrent}`).join(", ")}`);
         console.log(`Writing diagnostics to ${logPath}`);
     });
