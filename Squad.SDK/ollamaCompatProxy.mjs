@@ -1,6 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
@@ -753,12 +754,49 @@ function appendPreview(preview, chunk) {
 
 const server = http.createServer(async (req, res) => {
     const startedAt = Date.now();
+    const proxyRequestId = randomUUID();
     const shouldSchedule = shouldScheduleModelRequest(req);
-    const lease = shouldSchedule
-        ? await scheduler.acquire()
-        : undefined;
+    appendLog({
+        capturedAt: new Date().toISOString(),
+        event: "request:received",
+        requestId: proxyRequestId,
+        method: req.method,
+        path: req.url,
+        scheduled: shouldSchedule
+    });
+
+    let lease;
+    if (shouldSchedule) {
+        appendLog({
+            capturedAt: new Date().toISOString(),
+            event: "scheduler:acquire:start",
+            requestId: proxyRequestId,
+            queuedBefore: scheduler.queue.length
+        });
+        lease = await scheduler.acquire();
+        appendLog({
+            capturedAt: new Date().toISOString(),
+            event: "scheduler:acquire:done",
+            requestId: proxyRequestId,
+            worker: lease.worker.name,
+            queueWaitMs: lease.waitMs ?? 0,
+            queuedBefore: lease.queuedBefore ?? 0
+        });
+    }
+
     const targetBaseUrl = lease?.worker.url ?? scheduler.workers[0].url;
+    appendLog({
+        capturedAt: new Date().toISOString(),
+        event: "request:body:start",
+        requestId: proxyRequestId
+    });
     const inboundBody = await readRequestBody(req);
+    appendLog({
+        capturedAt: new Date().toISOString(),
+        event: "request:body:done",
+        requestId: proxyRequestId,
+        inboundBytes: inboundBody.length
+    });
     let outboundBody = inboundBody;
     let normalized = false;
     let requestSummary;
@@ -782,6 +820,14 @@ const server = http.createServer(async (req, res) => {
     const headers = { ...req.headers };
     headers.host = targetUrl.host;
     headers["content-length"] = String(outboundBody.length);
+    appendLog({
+        capturedAt: new Date().toISOString(),
+        event: "upstream:start",
+        requestId: proxyRequestId,
+        target: targetUrl.href,
+        outboundBytes: outboundBody.length,
+        requestSummary
+    });
 
     const proxyReq = http.request({
         protocol: targetUrl.protocol,
@@ -791,6 +837,14 @@ const server = http.createServer(async (req, res) => {
         method: req.method,
         headers
     }, (proxyRes) => {
+        appendLog({
+            capturedAt: new Date().toISOString(),
+            event: "upstream:response",
+            requestId: proxyRequestId,
+            statusCode: proxyRes.statusCode,
+            contentType: proxyRes.headers["content-type"],
+            durationMs: Date.now() - startedAt
+        });
         const isEventStream = String(proxyRes.headers["content-type"] || "")
             .includes("text/event-stream");
         const responseChunks = [];
@@ -804,6 +858,7 @@ const server = http.createServer(async (req, res) => {
             let responsePreview = "";
             let responseNormalized = false;
             let sawDone = false;
+            let firstResponseChunkLogged = false;
 
             const flushEvent = (event) => {
                 if (!event.trim())
@@ -828,6 +883,16 @@ const server = http.createServer(async (req, res) => {
             };
 
             proxyRes.on("data", (chunk) => {
+                if (!firstResponseChunkLogged) {
+                    firstResponseChunkLogged = true;
+                    appendLog({
+                        capturedAt: new Date().toISOString(),
+                        event: "upstream:first-data",
+                        requestId: proxyRequestId,
+                        bytes: chunk.length,
+                        durationMs: Date.now() - startedAt
+                    });
+                }
                 eventBuffer += decoder.write(chunk);
                 flushCompleteEvents();
             });
@@ -844,6 +909,8 @@ const server = http.createServer(async (req, res) => {
                 res.end();
                 appendLog({
                     capturedAt: new Date().toISOString(),
+                    event: "request:done",
+                    requestId: proxyRequestId,
                     method: req.method,
                     path: req.url,
                     scheduled: shouldSchedule,
@@ -863,7 +930,18 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        let firstResponseChunkLogged = false;
         proxyRes.on("data", (chunk) => {
+            if (!firstResponseChunkLogged) {
+                firstResponseChunkLogged = true;
+                appendLog({
+                    capturedAt: new Date().toISOString(),
+                    event: "upstream:first-data",
+                    requestId: proxyRequestId,
+                    bytes: chunk.length,
+                    durationMs: Date.now() - startedAt
+                });
+            }
             responseChunks.push(chunk);
         });
         proxyRes.on("end", () => {
@@ -872,6 +950,8 @@ const server = http.createServer(async (req, res) => {
             res.end(responseBuffer);
             appendLog({
                 capturedAt: new Date().toISOString(),
+                event: "request:done",
+                requestId: proxyRequestId,
                 method: req.method,
                 path: req.url,
                 scheduled: shouldSchedule,
@@ -895,6 +975,8 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: error.message }));
         appendLog({
             capturedAt: new Date().toISOString(),
+            event: "request:error",
+            requestId: proxyRequestId,
             method: req.method,
             path: req.url,
             scheduled: shouldSchedule,
