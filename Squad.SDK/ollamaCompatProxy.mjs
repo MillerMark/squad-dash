@@ -1,6 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const host = process.env.OLLAMA_COMPAT_HOST || "127.0.0.1";
 const port = Number(process.env.OLLAMA_COMPAT_PORT || 11436);
@@ -9,6 +10,12 @@ const logPath = path.resolve(
     process.env.OLLAMA_COMPAT_LOG ||
     path.join(process.cwd(), "..", ".squad", "diagnostics", "ollama-compat-proxy.jsonl"));
 const maxInputChars = Number(process.env.OLLAMA_COMPAT_MAX_INPUT_CHARS || 65000);
+const gptOssToolingHint = [
+    "[Local GPT-OSS tooling hint]",
+    "For straightforward text-file edits, prefer the powershell tool.",
+    "Use apply_patch only when you can emit a valid structured apply_patch tool call; do not pass raw patch text as the tool arguments.",
+    "After editing a file, read it back to verify before replying."
+].join(" ");
 
 function normalizeContent(value) {
     if (value === null || value === undefined)
@@ -90,6 +97,125 @@ function normalizeMessageToolCalls(message) {
     };
 }
 
+function getToolName(tool) {
+    if (!tool || typeof tool !== "object")
+        return "";
+
+    const func = tool.function;
+    if (func && typeof func === "object" && typeof func.name === "string")
+        return func.name;
+
+    return "";
+}
+
+function getToolNames(body) {
+    if (!Array.isArray(body.tools))
+        return new Set();
+
+    return new Set(body.tools
+        .map(getToolName)
+        .filter(Boolean));
+}
+
+function hasGptOssToolingHint(messages) {
+    return messages.some((message) =>
+        typeof message?.content === "string" &&
+        message.content.includes("[Local GPT-OSS tooling hint]"));
+}
+
+function addGptOssToolingHint(body) {
+    if (!Array.isArray(body.messages) || hasGptOssToolingHint(body.messages))
+        return false;
+
+    const toolNames = getToolNames(body);
+    if (!toolNames.has("apply_patch") || !toolNames.has("powershell"))
+        return false;
+
+    let insertIndex = 0;
+    while (insertIndex < body.messages.length &&
+        (body.messages[insertIndex]?.role === "system" ||
+            body.messages[insertIndex]?.role === "developer")) {
+        insertIndex++;
+    }
+
+    body.messages.splice(insertIndex, 0, {
+        role: "system",
+        content: gptOssToolingHint
+    });
+    return true;
+}
+
+function toolCallArgumentsText(toolCall) {
+    const args = toolCall?.function?.arguments;
+    if (typeof args === "string")
+        return args;
+
+    if (args === undefined || args === null)
+        return "";
+
+    try {
+        return JSON.stringify(args);
+    } catch {
+        return String(args);
+    }
+}
+
+function isApplyPatchToolCall(toolCall) {
+    const name = getToolName(toolCall).toLowerCase();
+    if (name === "apply_patch")
+        return true;
+
+    const argsText = toolCallArgumentsText(toolCall).toLowerCase();
+    if (!argsText)
+        return false;
+
+    return argsText.includes("\"command\":\"apply_patch\"") ||
+        argsText.includes("\"command\": \"apply_patch\"") ||
+        argsText.includes("*** begin patch");
+}
+
+function isApplyPatchAssistantMessage(message) {
+    return message?.role === "assistant" &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.some(isApplyPatchToolCall);
+}
+
+function isApplyPatchParseFailure(message) {
+    if (message?.role !== "tool")
+        return false;
+
+    const content = normalizeContent(message.content);
+    return content.includes("Failed to parse patch") &&
+        content.includes("*** Begin Patch");
+}
+
+function replaceFailedApplyPatchExchanges(messages) {
+    const rewritten = [];
+    let replacementCount = 0;
+
+    for (const message of messages) {
+        if (isApplyPatchParseFailure(message) &&
+            isApplyPatchAssistantMessage(rewritten.at(-1))) {
+            rewritten.pop();
+            rewritten.push({
+                role: "user",
+                content: [
+                    "[Local GPT-OSS recovery]",
+                    "The previous apply_patch attempt failed before editing files because its arguments were malformed.",
+                    "Continue the original request now.",
+                    "For this local model profile, use the powershell tool for simple text-file edits, then read the file back to verify before replying."
+                ].join(" ")
+            });
+            replacementCount++;
+            continue;
+        }
+
+        rewritten.push(message);
+    }
+
+    return replacementCount > 0 ? rewritten : messages;
+}
+
 function isContinuationPrompt(message) {
     if (!message || typeof message !== "object")
         return false;
@@ -159,9 +285,13 @@ function normalizeRequestBody(body) {
             body.max_completion_tokens = 1024;
 
         pruneOversizedGptOssMessages(body);
+        addGptOssToolingHint(body);
     }
 
     if (Array.isArray(body.messages)) {
+        if (isGptOss)
+            body.messages = replaceFailedApplyPatchExchanges(body.messages);
+
         body.messages = body.messages.map((message) => {
             if (!message || typeof message !== "object")
                 return message;
@@ -322,8 +452,16 @@ const server = http.createServer(async (req, res) => {
     proxyReq.end(outboundBody);
 });
 
-server.listen(port, host, () => {
-    console.log(`Ollama compatibility proxy listening on http://${host}:${port}`);
-    console.log(`Forwarding to ${targetBaseUrl.href}`);
-    console.log(`Writing diagnostics to ${logPath}`);
-});
+export {
+    addGptOssToolingHint,
+    normalizeRequestBody,
+    replaceFailedApplyPatchExchanges
+};
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    server.listen(port, host, () => {
+        console.log(`Ollama compatibility proxy listening on http://${host}:${port}`);
+        console.log(`Forwarding to ${targetBaseUrl.href}`);
+        console.log(`Writing diagnostics to ${logPath}`);
+    });
+}
