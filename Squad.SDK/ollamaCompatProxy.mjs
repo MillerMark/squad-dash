@@ -8,6 +8,7 @@ const targetBaseUrl = new URL(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.
 const logPath = path.resolve(
     process.env.OLLAMA_COMPAT_LOG ||
     path.join(process.cwd(), "..", ".squad", "diagnostics", "ollama-compat-proxy.jsonl"));
+const maxInputChars = Number(process.env.OLLAMA_COMPAT_MAX_INPUT_CHARS || 65000);
 
 function normalizeContent(value) {
     if (value === null || value === undefined)
@@ -37,6 +38,61 @@ function normalizeContent(value) {
     return String(value);
 }
 
+function getMessageContentLength(message) {
+    if (!message || typeof message !== "object")
+        return 0;
+
+    return normalizeContent(message.content).length;
+}
+
+function isContinuationPrompt(message) {
+    if (!message || typeof message !== "object")
+        return false;
+
+    if (message.role !== "user")
+        return false;
+
+    return /^please continue from where you left off\.?$/i
+        .test(normalizeContent(message.content).trim());
+}
+
+function getCurrentUserMessageIndex(messages) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const message = messages[i];
+        if (message?.role === "user" && !isContinuationPrompt(message))
+            return i;
+    }
+
+    return -1;
+}
+
+function pruneOversizedGptOssMessages(body) {
+    if (!Array.isArray(body.messages) || body.messages.length <= 2)
+        return false;
+
+    const totalContentLength = body.messages.reduce(
+        (sum, message) => sum + getMessageContentLength(message),
+        0);
+    if (!Number.isFinite(maxInputChars) ||
+        maxInputChars <= 0 ||
+        totalContentLength <= maxInputChars) {
+        return false;
+    }
+
+    const currentUserIndex = getCurrentUserMessageIndex(body.messages);
+    if (currentUserIndex < 0)
+        return false;
+
+    const leadingContext = body.messages.filter((message, index) =>
+        index < currentUserIndex &&
+        (message?.role === "system" || message?.role === "developer"));
+    body.messages = [
+        ...leadingContext,
+        body.messages[currentUserIndex]
+    ];
+    return true;
+}
+
 function normalizeRequestBody(body) {
     if (!body || typeof body !== "object")
         return body;
@@ -54,6 +110,8 @@ function normalizeRequestBody(body) {
         const maxCompletionTokens = Number(body.max_completion_tokens);
         if (Number.isFinite(maxCompletionTokens) && maxCompletionTokens < 1024)
             body.max_completion_tokens = 1024;
+
+        pruneOversizedGptOssMessages(body);
     }
 
     if (Array.isArray(body.messages)) {
