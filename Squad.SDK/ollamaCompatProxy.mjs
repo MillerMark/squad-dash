@@ -88,7 +88,9 @@ function pruneOversizedGptOssMessages(body) {
         (message?.role === "system" || message?.role === "developer"));
     body.messages = [
         ...leadingContext,
-        body.messages[currentUserIndex]
+        ...body.messages
+            .slice(currentUserIndex)
+            .filter((message) => !isContinuationPrompt(message))
     ];
     return true;
 }
@@ -169,6 +171,7 @@ function summarizeRequestBody(body) {
         max_tokens: body.max_tokens,
         max_completion_tokens: body.max_completion_tokens,
         messageCount: messages.length,
+        messageRoles: messages.map((message) => message?.role),
         messageContentLengths: messages.map((message) =>
             typeof message?.content === "string" ? message.content.length : undefined),
         lastMessageRole: lastMessage?.role,
