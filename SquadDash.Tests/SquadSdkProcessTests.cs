@@ -124,6 +124,72 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task RunPromptAsync_LocalByokProvider_DoesNotResumeSavedSession() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"session_ready","sessionId":"fresh-local-session","sessionResumed":false,"requestId":"' + $request.requestId + '"}')
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+        sut.ByokProviderSettings = new ByokProviderSettings(
+            "http://127.0.0.1:11437/v1",
+            "qwen2.5-coder-14b-instruct-cuda-gpu:4",
+            "openai",
+            ApiKey: null,
+            OfflineMode: true);
+
+        await sut.RunPromptAsync(
+            "hello",
+            _workspace.RootPath,
+            sessionId: "saved-session",
+            configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
+
+        var promptRequestLine = FindLoggedRequestLine(requestLogPath, "prompt");
+        using var promptRequest = JsonDocument.Parse(promptRequestLine);
+
+        Assert.That(
+            promptRequest.RootElement.TryGetProperty("sessionId", out _),
+            Is.False,
+            "Local BYOK prompts should start fresh rather than taking the SDK provider-resume path.");
+    }
+
+    [Test]
+    public async Task RunPromptAsync_RemoteByokProvider_StillResumesSavedSession() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"session_ready","sessionId":"' + $request.sessionId + '","sessionResumed":true,"requestId":"' + $request.requestId + '"}')
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+        sut.ByokProviderSettings = new ByokProviderSettings(
+            "https://provider.example.com/v1",
+            "remote-model",
+            "openai",
+            ApiKey: "sk-test");
+
+        await sut.RunPromptAsync(
+            "hello",
+            _workspace.RootPath,
+            sessionId: "saved-session",
+            configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
+
+        var promptRequestLine = FindLoggedRequestLine(requestLogPath, "prompt");
+        using var promptRequest = JsonDocument.Parse(promptRequestLine);
+
+        Assert.That(
+            promptRequest.RootElement.GetProperty("sessionId").GetString(),
+            Is.EqualTo("saved-session"));
+    }
+
+    [Test]
     public async Task RunNamedAgentDelegationAsync_EmptySessionId_ThrowsArgumentException() {
         await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
 

@@ -36,6 +36,15 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void PromptRequest_NullSessionId_OmitsSessionIdProperty() {
+        var json = JsonSerializer.Serialize(new SquadSdkPromptRequest(
+            "status?",
+            @"D:\Drive\Source\SquadUI"));
+
+        Assert.That(json, Does.Not.Contain("\"sessionId\""));
+    }
+
+    [Test]
     public void DelegateRequest_UsesLowercaseJsonPropertyNames() {
         var json = JsonSerializer.Serialize(new SquadSdkDelegateRequest(
             "Hand off to Lyra",

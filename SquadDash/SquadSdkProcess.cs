@@ -273,18 +273,20 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string workingDirectory,
         string? sessionId,
         string? configDirectory) {
+        var effectiveSessionId = ResolvePromptSessionIdForProvider(sessionId);
+
         try {
             await RunPromptOnceAsync(
                 prompt,
                 workingDirectory,
-                sessionId,
+                effectiveSessionId,
                 configDirectory,
-                allowRecoverableSessionReset: !string.IsNullOrWhiteSpace(sessionId)).ConfigureAwait(false);
+                allowRecoverableSessionReset: !string.IsNullOrWhiteSpace(effectiveSessionId)).ConfigureAwait(false);
         }
-        catch (RecoverableSessionResetException ex) when (!string.IsNullOrWhiteSpace(sessionId)) {
+        catch (RecoverableSessionResetException ex) when (!string.IsNullOrWhiteSpace(effectiveSessionId)) {
             SquadDashTrace.Write(
                 "Bridge",
-                $"Resetting resumed session {sessionId} after recoverable provider error: {ex.Message}");
+                $"Resetting resumed session {effectiveSessionId} after recoverable provider error: {ex.Message}");
             ResetProcess();
 
             EventReceived?.Invoke(this, new SquadSdkEvent {
@@ -299,6 +301,35 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 configDirectory,
                 allowRecoverableSessionReset: false).ConfigureAwait(false);
         }
+    }
+
+    private string? ResolvePromptSessionIdForProvider(string? sessionId) {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return null;
+
+        if (!ShouldStartFreshPromptSessionForLocalByok())
+            return sessionId;
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"Local BYOK provider active - starting a fresh SDK session instead of resuming {sessionId}.");
+        return null;
+    }
+
+    private bool ShouldStartFreshPromptSessionForLocalByok() {
+        if (ByokProviderSettings is not { ProviderUrl.Length: > 0 } byok)
+            return false;
+
+        return IsLocalProviderUrl(byok.ProviderUrl);
+    }
+
+    internal static bool IsLocalProviderUrl(string? providerUrl) {
+        if (!Uri.TryCreate(providerUrl, UriKind.Absolute, out var uri))
+            return false;
+
+        return string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task RunPromptOnceAsync(
@@ -1599,7 +1630,7 @@ internal sealed class SquadSdkProcessOptions {
 internal sealed record SquadSdkPromptRequest(
     [property: JsonPropertyName("prompt")] string Prompt,
     [property: JsonPropertyName("cwd")] string Cwd,
-    [property: JsonPropertyName("sessionId")] string? SessionId = null,
+    [property: JsonPropertyName("sessionId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SessionId = null,
     [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "prompt",
