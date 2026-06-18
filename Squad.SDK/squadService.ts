@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SquadClient } from "@bradygaster/squad-sdk/client";
+import type { SquadSessionConfig } from "@bradygaster/squad-sdk/client";
 
 const SessionIdleTimeoutMs = 60 * 60 * 1000;
 
@@ -219,6 +220,7 @@ type RequestContext = {
     aborted: boolean;
     handlers: SquadRunHandlers;
     sawMessageDelta: boolean;
+    streamedMessageContent: string;
     lastAssistantMessageContent: string;
     hiddenAdditionalContext?: string;
 };
@@ -251,6 +253,115 @@ const GenericIdentityKeys = new Set([
 function normalizeOptionalString(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function normalizeAssistantResponseContent(content: string | undefined): string | undefined {
+    const trimmed = content?.trim();
+    if (!trimmed)
+        return undefined;
+
+    const jsonText = unwrapJsonCodeFence(trimmed);
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(jsonText);
+    }
+    catch {
+        return content;
+    }
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return content;
+
+    const record = parsed as Record<string, unknown>;
+    if (record.name === "report_intent" ||
+        record.name === "report_model" ||
+        record.name === "task")
+        return undefined;
+
+    if (record.name === "report_progress")
+        return normalizeReportProgressContent(record) ?? undefined;
+
+    if (record.name !== "report")
+        return content;
+
+    const args = record.arguments;
+    if (!args || typeof args !== "object" || Array.isArray(args))
+        return content;
+
+    const body = (args as Record<string, unknown>).body;
+    return typeof body === "string" && body.trim().length > 0
+        ? body
+        : content;
+}
+
+function normalizeReportProgressContent(record: Record<string, unknown>): string | undefined {
+    const args = record.arguments;
+    if (!args || typeof args !== "object" || Array.isArray(args))
+        return undefined;
+
+    const message = (args as Record<string, unknown>).message;
+    return typeof message === "string" && message.trim().length > 0
+        ? message
+        : undefined;
+}
+
+function unwrapJsonCodeFence(text: string): string {
+    const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
+    return match ? match[1].trim() : text;
+}
+
+type ProviderType = NonNullable<NonNullable<SquadSessionConfig["provider"]>["type"]>;
+type WireApi = NonNullable<NonNullable<SquadSessionConfig["provider"]>["wireApi"]>;
+
+function normalizeProviderType(value: string | undefined): ProviderType | undefined {
+    const normalized = normalizeOptionalString(value)?.toLowerCase();
+    return normalized === "openai" || normalized === "azure" || normalized === "anthropic"
+        ? normalized
+        : undefined;
+}
+
+function normalizeWireApi(value: string | undefined): WireApi | undefined {
+    const normalized = normalizeOptionalString(value)?.toLowerCase();
+    return normalized === "completions" || normalized === "responses"
+        ? normalized
+        : undefined;
+}
+
+function buildCustomProviderFromEnv(): SquadSessionConfig["provider"] | undefined {
+    const baseUrl = normalizeOptionalString(process.env.COPILOT_PROVIDER_BASE_URL);
+    if (!baseUrl)
+        return undefined;
+
+    const provider: NonNullable<SquadSessionConfig["provider"]> = { baseUrl };
+    const type = normalizeProviderType(process.env.COPILOT_PROVIDER_TYPE);
+    const wireApi = normalizeWireApi(process.env.COPILOT_PROVIDER_WIRE_API);
+    const apiKey = normalizeOptionalString(process.env.COPILOT_PROVIDER_API_KEY);
+    const bearerToken = normalizeOptionalString(process.env.COPILOT_PROVIDER_BEARER_TOKEN);
+    const azureApiVersion = normalizeOptionalString(process.env.COPILOT_PROVIDER_AZURE_API_VERSION);
+
+    if (type)
+        provider.type = type;
+
+    if (wireApi)
+        provider.wireApi = wireApi;
+
+    if (apiKey)
+        provider.apiKey = apiKey;
+
+    if (bearerToken)
+        provider.bearerToken = bearerToken;
+
+    if (azureApiVersion)
+        provider.azure = { apiVersion: azureApiVersion };
+
+    return provider;
+}
+
+function resolveSessionModel(optionsModel: string | undefined): string | undefined {
+    return normalizeOptionalString(optionsModel) ??
+        normalizeOptionalString(process.env.COPILOT_MODEL) ??
+        normalizeOptionalString(process.env.COPILOT_PROVIDER_MODEL_ID) ??
+        normalizeOptionalString(process.env.COPILOT_PROVIDER_WIRE_MODEL);
 }
 
 const PendingRestartDeploymentEnv = {
@@ -1417,6 +1528,7 @@ export class SquadBridgeService {
             aborted: false,
             handlers,
             sawMessageDelta: false,
+            streamedMessageContent: "",
             lastAssistantMessageContent: state.lastAssistantMessageContent,
             hiddenAdditionalContext
         };
@@ -1448,8 +1560,10 @@ export class SquadBridgeService {
                 extractAssistantMessageContent(finalMessage) ||
                 requestContext.lastAssistantMessageContent ||
                 state.lastAssistantMessageContent;
-            if (!requestContext.sawMessageDelta && finalContent)
-                handlers.onDelta?.(finalContent);
+            const responseContent = requestContext.streamedMessageContent || finalContent;
+            const normalizedContent = normalizeAssistantResponseContent(responseContent);
+            if (normalizedContent)
+                handlers.onDelta?.(normalizedContent);
 
             handlers.onDone?.({ kind: "completed" });
         }
@@ -1800,12 +1914,14 @@ export class SquadBridgeService {
         }
 
         let stateRef: SessionState | undefined;
+        const customProvider = buildCustomProviderFromEnv();
         const sessionConfig = {
             onPermissionRequest: async () => approvePermissionRequest(),
             streaming: true,
             workingDirectory: options.cwd,
             configDir: options.configDir,
-            model: normalizeOptionalString(options.model),
+            model: resolveSessionModel(options.model),
+            provider: customProvider,
             hooks: {
                 onPreToolUse: (input: { toolName: string; toolArgs: unknown; cwd?: string }) => {
                     const rewrite = maybeRewritePowerShellToolArgs(
@@ -2100,7 +2216,7 @@ export class SquadBridgeService {
                 return;
 
             request.sawMessageDelta = true;
-            request.handlers.onDelta?.(chunk);
+            request.streamedMessageContent += chunk;
         });
 
         state.session.on("tool.execution_start", (event: unknown) => {

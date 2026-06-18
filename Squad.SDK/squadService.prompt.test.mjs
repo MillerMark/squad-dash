@@ -5,6 +5,7 @@ import {
     buildNamedAgentExecutionPrompt,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
+    normalizeAssistantResponseContent,
     resolvePermissionApprovalKind,
     resolvePermissionApprovalKindFromSchema,
     SquadBridgeService
@@ -95,6 +96,79 @@ test("runPrompt passes explicit model to session config", async () => {
         });
 
     assert.equal(capturedConfig.model, "claude-sonnet-4.6");
+});
+
+test("normalizes raw report tool JSON into assistant body text", () => {
+    assert.equal(
+        normalizeAssistantResponseContent(
+            '{"name":"report","arguments":{"subject":"Hello World","from":"coordinator","body":"Hello, world!"}}'),
+        "Hello, world!");
+});
+
+test("suppresses raw report_intent tool JSON when it appears as assistant text", () => {
+    assert.equal(
+        normalizeAssistantResponseContent(
+            '{"name":"report_intent","arguments":{"intent":"Exploring codebase"}}'),
+        undefined);
+});
+
+test("normalizes raw report_progress message JSON into assistant text", () => {
+    assert.equal(
+        normalizeAssistantResponseContent(
+            '{"name":"report_progress","arguments":{"message":"Hello world!"}}'),
+        "Hello world!");
+});
+
+test("suppresses raw report_model and task tool JSON when they appear as assistant text", () => {
+    assert.equal(
+        normalizeAssistantResponseContent(
+            '{"name":"report_model","arguments":{}}'),
+        undefined);
+
+    assert.equal(
+        normalizeAssistantResponseContent(
+            '{"name":"task","arguments":{"name":"squad-tasks","description":"List all open tasks."}}'),
+        undefined);
+});
+
+test("runPrompt buffers streamed raw report JSON and emits assistant body text", async () => {
+    const listeners = new Map();
+    const deltas = [];
+    const session = {
+        sessionId: "session-report-json",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            const chunks = [
+                '{"name":"report","arguments":{"subject":"Hello World",',
+                '"from":"coordinator","body":"Hello, world!"}}'
+            ];
+            for (const chunk of chunks)
+                listeners.get("message_delta")?.({ deltaContent: chunk });
+
+            return { content: chunks.join("") };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Can you say hello world?",
+        {
+            onDelta(chunk) {
+                deltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(deltas, ["Hello, world!"]);
 });
 
 test("pending restart self-build hook disables run-slot deployment", () => {

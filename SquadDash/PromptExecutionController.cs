@@ -1821,10 +1821,19 @@ internal sealed class PromptExecutionController {
             allowLocalCommandHandling: true,
             async (workspace, configDirectory) => {
                 var bridgePrompt = BuildBridgePrompt(prompt);
+                var sessionId = sessionIdOverride ?? _conversationManager.CurrentSessionId;
+                SavePromptDispatchDiagnostic(
+                    workspace,
+                    sessionId,
+                    configDirectory,
+                    CurrentDispatchedItem,
+                    PendingQueueItemCount,
+                    displayPrompt ?? prompt,
+                    bridgePrompt);
                 await _runPromptAsync(
                     bridgePrompt,
                     workspace.FolderPath,
-                    sessionIdOverride ?? _conversationManager.CurrentSessionId,
+                    sessionId,
                     configDirectory);
             });
     }
@@ -2155,6 +2164,25 @@ internal sealed class PromptExecutionController {
             _instructionProvider.Get().CoordinatorDelegationAccountability);
         SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary} accountability=included");
         return buildResult.PromptText;
+    }
+
+    private static void SavePromptDispatchDiagnostic(
+        SessionWorkspace workspace,
+        string? sessionId,
+        string? configDirectory,
+        PromptQueueItem? queueItem,
+        int pendingQueueItemCount,
+        string visiblePrompt,
+        string bridgePrompt) {
+        var record = PromptDispatchDiagnosticsStore.CreateRecord(
+            workspace.FolderPath,
+            sessionId,
+            configDirectory,
+            queueItem,
+            pendingQueueItemCount,
+            visiblePrompt,
+            bridgePrompt);
+        PromptDispatchDiagnosticsStore.TryAppend(workspace.FolderPath, record);
     }
 
     private string? BuildTriggeredInjections(string prompt) {

@@ -79,6 +79,7 @@
     <Compile Include="..\SquadDash\SilentBackgroundAgentPolicy.cs" Link="Source\SilentBackgroundAgentPolicy.cs" />
     <Compile Include="..\SquadDash\StatusTimingPresentation.cs" Link="Source\StatusTimingPresentation.cs" />
     <Compile Include="..\SquadDash\PromptTraceMetrics.cs" Link="Source\PromptTraceMetrics.cs" />
+    <Compile Include="..\SquadDash\PromptDispatchDiagnosticsStore.cs" Link="Source\PromptDispatchDiagnosticsStore.cs" />
     <Compile Include="..\SquadDash\RestartDeferralPolicy.cs" Link="Source\RestartDeferralPolicy.cs" />
     <Compile Include="..\SquadDash\QuickReplyRoutePresentation.cs" Link="Source\QuickReplyRoutePresentation.cs" />
     <Compile Include="..\SquadDash\QuickReplyAgentLaunchPolicy.cs" Link="Source\QuickReplyAgentLaunchPolicy.cs" />

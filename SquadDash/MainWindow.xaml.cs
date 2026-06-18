@@ -13266,8 +13266,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _bridge.ByokProviderSettings = currentByokSettings;
                     _bridge.CopilotDefaultModel = currentCopilotDefaultModel;
                     if (!Equals(previousByokSettings, currentByokSettings) ||
-                        !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal))
+                        !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal)) {
+                        DetachCurrentSessionForModelSettingsChange("preferences-model-changed");
                         RestartBridgeForSettingsWhenIdle("preferences-model-changed");
+                    }
                     else
                         SquadDashTrace.Write("Bridge", "Preferences saved; model bridge settings unchanged, no bridge restart needed.");
                 },
@@ -26771,6 +26773,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         SquadDashTrace.Write("Bridge", $"Restarting bridge for settings reason={reason}");
         _bridge.RestartBridgeForNewSettings();
+    }
+
+    private void DetachCurrentSessionForModelSettingsChange(string reason)
+    {
+        var previousSessionId = _conversationManager.StartFreshSessionPreservingTranscript();
+        SquadDashTrace.Write(
+            "Routing",
+            $"Detached current session for model settings change reason={reason} previousSessionId={previousSessionId ?? "(none)"}");
+
+        if (_currentWorkspace is not null)
+        {
+            _conversationManager.PersistConversationState(_conversationManager.ConversationState with
+            {
+                SessionId = null,
+                SessionUpdatedAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        UpdateSessionState("Ready");
+        RefreshSidebar();
     }
 
     private void ApplyPendingBridgeSettingsRestartIfIdle(string reason)

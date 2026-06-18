@@ -8,6 +8,7 @@
         "test": "echo \"Error: no test specified\" && exit 1",
         "build": "tsc --build",
         "clean": "tsc --build --clean",
+        "conformance": "tsx modelConformance.ts",
         "runprompt": "tsx runPrompt.ts",
         "postinstall": "patch-package"
     },

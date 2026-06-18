@@ -3,6 +3,72 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class PromptExecutionControllerTests {
     [Test]
+    public void PromptDispatchDiagnosticsStore_AppendsExactPromptTextAndQueueMetadata() {
+        using var workspace = new TestWorkspace();
+        var item = new PromptQueueItem {
+            Text = "Can you tell me what model you are?",
+            QueueNumber = 53,
+            SequenceNumber = 1,
+            IsDictated = true,
+            SourceTag = "voice"
+        };
+
+        var record = PromptDispatchDiagnosticsStore.CreateRecord(
+            workspace.RootPath,
+            sessionId: "session-123",
+            configDirectory: Path.Combine(workspace.RootPath, ".squad", "sessions", "session-123"),
+            queueItem: item,
+            pendingQueueItemCount: 4,
+            visiblePrompt: "Can you tell me what model you are?\n(some or all of this prompt was dictated by voice)",
+            bridgePrompt: "FULL BRIDGE PROMPT\nTASK CONTEXT\nCan you tell me what model you are?",
+            capturedAt: new DateTimeOffset(2026, 6, 17, 20, 2, 0, TimeSpan.Zero));
+
+        PromptDispatchDiagnosticsStore.Append(workspace.RootPath, record);
+
+        var saved = System.Text.Json.JsonSerializer.Deserialize<PromptDispatchDiagnosticRecord[]>(
+            File.ReadAllText(PromptDispatchDiagnosticsStore.GetPath(workspace.RootPath)))!;
+
+        Assert.Multiple(() => {
+            Assert.That(saved, Has.Length.EqualTo(1));
+            Assert.That(saved[0].QueueNumber, Is.EqualTo(53));
+            Assert.That(saved[0].QueueItemId, Is.EqualTo(item.Id));
+            Assert.That(saved[0].PendingQueueItemCount, Is.EqualTo(4));
+            Assert.That(saved[0].IsDictated, Is.True);
+            Assert.That(saved[0].SourceTag, Is.EqualTo("voice"));
+            Assert.That(saved[0].VisiblePrompt, Does.Contain("what model you are"));
+            Assert.That(saved[0].BridgePrompt, Does.Contain("TASK CONTEXT"));
+            Assert.That(saved[0].BridgePromptLength, Is.EqualTo(saved[0].BridgePrompt.Length));
+        });
+    }
+
+    [Test]
+    public void PromptDispatchDiagnosticsStore_PrunesToMostRecentTwentyRecords() {
+        using var workspace = new TestWorkspace();
+
+        for (var i = 0; i < 25; i++) {
+            var record = PromptDispatchDiagnosticsStore.CreateRecord(
+                workspace.RootPath,
+                sessionId: null,
+                configDirectory: null,
+                queueItem: null,
+                pendingQueueItemCount: 0,
+                visiblePrompt: $"visible-{i}",
+                bridgePrompt: $"bridge-{i}",
+                capturedAt: new DateTimeOffset(2026, 6, 17, 20, 0, 0, TimeSpan.Zero).AddMinutes(i));
+            PromptDispatchDiagnosticsStore.Append(workspace.RootPath, record);
+        }
+
+        var saved = System.Text.Json.JsonSerializer.Deserialize<PromptDispatchDiagnosticRecord[]>(
+            File.ReadAllText(PromptDispatchDiagnosticsStore.GetPath(workspace.RootPath)))!;
+
+        Assert.Multiple(() => {
+            Assert.That(saved, Has.Length.EqualTo(20));
+            Assert.That(saved[0].VisiblePrompt, Is.EqualTo("visible-5"));
+            Assert.That(saved[^1].VisiblePrompt, Is.EqualTo("visible-24"));
+        });
+    }
+
+    [Test]
     public void ShouldCountPromptActivity_IgnoresDelayOnlyPowerShellReads_WhenRestartPending() {
         var evt = new SquadSdkEvent {
             Type = "tool_complete",

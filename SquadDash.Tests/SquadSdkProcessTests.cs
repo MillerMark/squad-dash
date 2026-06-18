@@ -101,6 +101,29 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public void ResolveByokWireApi_LocalOpenAiProvider_UsesCompletionsForOllamaCompatibility() {
+        var settings = new ByokProviderSettings(
+            "http://127.0.0.1:11435/v1",
+            "lfm2.5:8b",
+            "openai",
+            ApiKey: null,
+            OfflineMode: true);
+
+        Assert.That(SquadSdkProcess.ResolveByokWireApi(settings), Is.EqualTo("completions"));
+    }
+
+    [Test]
+    public void ResolveByokWireApi_RemoteOpenAiProvider_LeavesSdkDefault() {
+        var settings = new ByokProviderSettings(
+            "https://api.openai.example/v1",
+            "some-model",
+            "openai",
+            ApiKey: null);
+
+        Assert.That(SquadSdkProcess.ResolveByokWireApi(settings), Is.Null);
+    }
+
+    [Test]
     public async Task RunNamedAgentDelegationAsync_EmptySessionId_ThrowsArgumentException() {
         await using var sut = new SquadSdkProcess(BuildStartInfo("@echo off"));
 
@@ -546,6 +569,48 @@ internal sealed class SquadSdkProcessTests {
             "hello",
             _workspace.RootPath,
             sessionId: "poisoned-session",
+            configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
+
+        Assert.Multiple(() => {
+            Assert.That(processStarts, Is.EqualTo(2));
+            Assert.That(
+                events.Select(e => e.Type).ToArray(),
+                Is.EqualTo(new[] { "session_ready", "session_reset", "session_ready", "response", "done" }));
+            Assert.That(events.Any(e => string.Equals(e.Type, "error", StringComparison.Ordinal)), Is.False);
+            Assert.That(
+                events.Single(e => string.Equals(e.Type, "session_reset", StringComparison.Ordinal)).Message,
+                Does.Contain("fresh session"));
+        });
+    }
+
+    [Test]
+    public async Task RunPromptAsync_ResumedSessionMissingAuthOrCustomProvider_RetriesWithFreshSession() {
+        var events = new List<SquadSdkEvent>();
+        var scriptQueue = new Queue<string>(new[] {
+            """
+            echo {"type":"session_ready","sessionId":"copilot-born-session","sessionResumed":true}
+            echo {"type":"error","message":"Execution failed: Error: Session was not created with authentication info or custom provider"}
+            """,
+            """
+            echo {"type":"session_ready","sessionId":"fresh-local-session","sessionResumed":false}
+            echo {"type":"response","message":"hello from local"}
+            echo {"type":"done","message":""}
+            """
+        });
+        var processStarts = 0;
+
+        ProcessStartInfo Factory() {
+            processStarts++;
+            return BuildScriptStartInfo(scriptQueue.Dequeue());
+        }
+
+        await using var sut = new SquadSdkProcess(Factory);
+        sut.EventReceived += (_, e) => events.Add(e);
+
+        await sut.RunPromptAsync(
+            "hello",
+            _workspace.RootPath,
+            sessionId: "copilot-born-session",
             configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
 
         Assert.Multiple(() => {

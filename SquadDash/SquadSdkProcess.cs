@@ -591,6 +591,10 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             if (!string.IsNullOrEmpty(byok.ProviderType))
                 psi.EnvironmentVariables["COPILOT_PROVIDER_TYPE"] = byok.ProviderType;
 
+            var wireApi = ResolveByokWireApi(byok);
+            if (!string.IsNullOrEmpty(wireApi))
+                psi.EnvironmentVariables["COPILOT_PROVIDER_WIRE_API"] = wireApi;
+
             if (!string.IsNullOrEmpty(byok.ApiKey))
                 psi.EnvironmentVariables["COPILOT_PROVIDER_API_KEY"] = byok.ApiKey;
 
@@ -598,7 +602,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 psi.EnvironmentVariables["COPILOT_OFFLINE"] = "true";
 
             SquadDashTrace.Write("Bridge",
-                $"BYOK active — url={providerUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")} offline={byok.OfflineMode}");
+                $"BYOK active — url={providerUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")} offline={byok.OfflineMode}");
         } else {
             SquadDashTrace.Write("Bridge", "BYOK not configured — using default GitHub Copilot provider.");
         }
@@ -610,6 +614,24 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             new RestartCoordinatorStateStore().GetRequestPathForWatcher(applicationRoot);
 
         return psi;
+    }
+
+    internal static string? ResolveByokWireApi(ByokProviderSettings byok) {
+        if (!string.Equals(byok.ProviderType, "openai", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!Uri.TryCreate(byok.ProviderUrl, UriKind.Absolute, out var uri))
+            return null;
+
+        var host = uri.Host;
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase) ||
+            host.Contains("ollama", StringComparison.OrdinalIgnoreCase)) {
+            return "completions";
+        }
+
+        return null;
     }
 
     private static string ResolveBridgeScriptPath(string sdkDirectory) {
@@ -907,6 +929,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                (message.Contains("CAPIError", StringComparison.OrdinalIgnoreCase) &&
                 message.Contains("Bad Request", StringComparison.OrdinalIgnoreCase)) ||
                message.Contains("Session not found", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("Session was not created with authentication info or custom provider", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("session.send failed", StringComparison.OrdinalIgnoreCase);
     }
 
