@@ -90,6 +90,7 @@ const localProviderProfile = resolveLocalProviderProfile(process.env.OLLAMA_COMP
 const maxInputChars = localProviderProfile.maxInputChars;
 const workerConcurrency = localProviderProfile.maxConcurrent;
 const firstDataTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FIRST_DATA_TIMEOUT_MS, 30000);
+const upstreamResponseTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_UPSTREAM_RESPONSE_TIMEOUT_MS, 30000);
 const truncationNotice = "\n\n[Local provider profile truncated additional context before sending to the local model.]";
 
 function splitTargetList(value) {
@@ -855,6 +856,7 @@ const server = http.createServer(async (req, res) => {
         method: req.method,
         headers
     }, (proxyRes) => {
+        clearTimeout(upstreamResponseTimer);
         appendLog({
             capturedAt: new Date().toISOString(),
             event: "upstream:response",
@@ -1027,7 +1029,28 @@ const server = http.createServer(async (req, res) => {
         });
     });
 
+    const upstreamTimeoutMessage =
+        `Local provider did not return response headers within ${upstreamResponseTimeoutMs} ms.`;
+    const upstreamResponseTimer = setTimeout(() => {
+        if (res.writableEnded)
+            return;
+
+        res.writeHead(504, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: upstreamTimeoutMessage }));
+        appendLog({
+            capturedAt: new Date().toISOString(),
+            event: "upstream:response-timeout",
+            requestId: proxyRequestId,
+            timeoutMs: upstreamResponseTimeoutMs,
+            durationMs: Date.now() - startedAt,
+            requestSummary
+        });
+        releaseLease();
+        proxyReq.destroy(new Error(upstreamTimeoutMessage));
+    }, upstreamResponseTimeoutMs);
+
     proxyReq.on("error", (error) => {
+        clearTimeout(upstreamResponseTimer);
         if (!res.writableEnded) {
             res.writeHead(502, { "content-type": "application/json" });
             res.end(JSON.stringify({ error: error.message }));
