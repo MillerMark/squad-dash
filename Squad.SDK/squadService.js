@@ -749,6 +749,39 @@ function extractErrorMessage(error) {
         return error.message;
     return String(error);
 }
+function summarizeErrorForDiagnostics(error, depth = 0) {
+    if (depth > 2)
+        return { truncated: true };
+    if (!(error instanceof Error)) {
+        return {
+            type: typeof error,
+            value: String(error)
+        };
+    }
+    const errorWithFields = error;
+    const summary = {
+        name: error.name,
+        constructorName: error.constructor?.name,
+        message: error.message,
+        stackTop: error.stack?.split(/\r?\n/).slice(0, 6).join("\n")
+    };
+    for (const key of ["code", "status", "type", "requestID", "request_id"]) {
+        const value = errorWithFields[key];
+        if (value !== undefined)
+            summary[key] = value;
+    }
+    if (errorWithFields.error !== undefined) {
+        try {
+            summary.error = JSON.stringify(errorWithFields.error).slice(0, 2000);
+        }
+        catch {
+            summary.error = String(errorWithFields.error);
+        }
+    }
+    if (errorWithFields.cause)
+        summary.cause = summarizeErrorForDiagnostics(errorWithFields.cause, depth + 1);
+    return summary;
+}
 function normalizeAgentHandle(value) {
     return value.trim().replace(/^@+/, "").toLowerCase();
 }
@@ -1049,6 +1082,12 @@ export class SquadBridgeService {
             handlers.onDone?.({ kind: "completed" });
         }
         catch (error) {
+            bridgeDiagnostic("runSessionRequest:sendAndWait:error", {
+                sessionId: state.session.sessionId,
+                promptChars: trimmedPrompt.length,
+                model: options.model ?? "(default)",
+                error: summarizeErrorForDiagnostics(error)
+            });
             if (requestContext.aborted) {
                 handlers.onAborted?.();
                 return;

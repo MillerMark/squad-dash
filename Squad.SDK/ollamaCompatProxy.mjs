@@ -673,7 +673,7 @@ function normalizeRequestBody(body) {
     return body;
 }
 
-function sanitizeStreamingChoice(choice) {
+function sanitizeStreamingChoice(choice, options = {}) {
     if (!choice || typeof choice !== "object")
         return choice;
 
@@ -684,12 +684,14 @@ function sanitizeStreamingChoice(choice) {
         sanitized.delta = { ...sanitized.delta };
         if (Array.isArray(sanitized.delta.tool_calls) && sanitized.delta.tool_calls.length === 0)
             delete sanitized.delta.tool_calls;
+        if (options.dropRole)
+            delete sanitized.delta.role;
     }
 
     return sanitized;
 }
 
-function sanitizeOpenAiChunk(chunk) {
+function sanitizeOpenAiChunk(chunk, options = {}) {
     if (!chunk || typeof chunk !== "object")
         return chunk;
 
@@ -700,17 +702,70 @@ function sanitizeOpenAiChunk(chunk) {
     delete sanitized.HttpStatusCode;
 
     if (Array.isArray(sanitized.choices))
-        sanitized.choices = sanitized.choices.map(sanitizeStreamingChoice);
+        sanitized.choices = sanitized.choices.map((choice) => sanitizeStreamingChoice(choice, options));
 
     return sanitized;
 }
 
-function normalizeServerSentEvent(event) {
+function shouldDropStreamingRoles(event, roleSeenByIndex) {
+    if (typeof event !== "string" || !event.trim())
+        return false;
+
+    let dropRole = false;
+    for (const line of event.split(/\r?\n/)) {
+        if (!line.startsWith("data:"))
+            continue;
+
+        const data = line.slice("data:".length).trimStart();
+        if (data === "[DONE]")
+            continue;
+
+        try {
+            const parsed = JSON.parse(data);
+            if (!Array.isArray(parsed?.choices))
+                continue;
+
+            for (const choice of parsed.choices) {
+                if (choice?.delta?.role == null)
+                    continue;
+
+                const index = choice.index ?? 0;
+                if (roleSeenByIndex.has(index))
+                    dropRole = true;
+                else
+                    roleSeenByIndex.add(index);
+            }
+        } catch {
+            // Leave malformed stream events unchanged.
+        }
+    }
+
+    return dropRole;
+}
+
+function buildCompletionStopEvent(model, id) {
+    return `data: ${JSON.stringify({
+        id: id || "chatcmpl-local-stop",
+        model: model || "local-model",
+        choices: [{
+            index: 0,
+            delta: {},
+            finish_reason: "stop"
+        }],
+        created: Math.floor(Date.now() / 1000),
+        object: "chat.completion.chunk"
+    })}`;
+}
+
+function normalizeServerSentEvent(event, options = {}) {
     let changed = false;
     let sawDone = false;
+    let sawFinishReason = false;
+    let model;
+    let id;
 
     if (typeof event !== "string" || !event.trim())
-        return { body: event, normalized: false, sawDone: false };
+        return { body: event, normalized: false, sawDone: false, sawFinishReason: false };
 
     const lines = event.split(/\r?\n/);
     const normalizedLines = lines.map((line) => {
@@ -725,7 +780,13 @@ function normalizeServerSentEvent(event) {
 
         try {
             const parsed = JSON.parse(data);
-            const sanitized = sanitizeOpenAiChunk(parsed);
+            const sanitized = sanitizeOpenAiChunk(parsed, options);
+            if (typeof sanitized?.model === "string")
+                model = sanitized.model;
+            if (typeof sanitized?.id === "string")
+                id = sanitized.id;
+            if (Array.isArray(sanitized?.choices) && sanitized.choices.some((choice) => choice?.finish_reason != null))
+                sawFinishReason = true;
             const before = JSON.stringify(parsed);
             const after = JSON.stringify(sanitized);
             if (before !== after)
@@ -739,7 +800,10 @@ function normalizeServerSentEvent(event) {
     return {
         body: normalizedLines.join("\n"),
         normalized: changed,
-        sawDone
+        sawDone,
+        sawFinishReason,
+        model,
+        id
     };
 }
 
@@ -749,6 +813,10 @@ function normalizeServerSentEvents(responseBody) {
 
     let changed = false;
     let sawDone = false;
+    let sawFinishReason = false;
+    let lastModel;
+    let lastId;
+    const roleSeenByIndex = new Set();
     const events = responseBody.split(/\r?\n\r?\n/);
     const normalizedEvents = [];
 
@@ -756,13 +824,29 @@ function normalizeServerSentEvents(responseBody) {
         if (!event.trim())
             continue;
 
-        const result = normalizeServerSentEvent(event);
+        const result = normalizeServerSentEvent(event, {
+            dropRole: shouldDropStreamingRoles(event, roleSeenByIndex)
+        });
+        if (result.model)
+            lastModel = result.model;
+        if (result.id)
+            lastId = result.id;
+        if (result.sawDone && !sawFinishReason && !result.sawFinishReason) {
+            normalizedEvents.push(buildCompletionStopEvent(lastModel, lastId));
+            sawFinishReason = true;
+            changed = true;
+        }
         changed ||= result.normalized;
+        sawFinishReason ||= result.sawFinishReason;
         sawDone ||= result.sawDone;
         normalizedEvents.push(result.body);
     }
 
     if (!sawDone) {
+        if (!sawFinishReason) {
+            normalizedEvents.push(buildCompletionStopEvent(lastModel, lastId));
+            sawFinishReason = true;
+        }
         normalizedEvents.push("data: [DONE]");
         changed = true;
     }
@@ -954,15 +1038,36 @@ const server = http.createServer(async (req, res) => {
             let responsePreview = "";
             let responseNormalized = false;
             let sawDone = false;
+            let sawFinishReason = false;
+            let lastStreamModel;
+            let lastStreamId;
+            const roleSeenByIndex = new Set();
             let firstResponseChunkLogged = false;
             let firstDataTimer;
+
+            const writeCompletionStopEvent = () => {
+                const stopEvent = `${buildCompletionStopEvent(lastStreamModel ?? requestSummary?.model, lastStreamId)}\n\n`;
+                responseNormalized = true;
+                sawFinishReason = true;
+                responsePreview = appendPreview(responsePreview, stopEvent);
+                res.write(stopEvent);
+            };
 
             const flushEvent = (event) => {
                 if (!event.trim())
                     return;
 
-                const result = normalizeServerSentEvent(event);
+                const result = normalizeServerSentEvent(event, {
+                    dropRole: shouldDropStreamingRoles(event, roleSeenByIndex)
+                });
+                if (result.model)
+                    lastStreamModel = result.model;
+                if (result.id)
+                    lastStreamId = result.id;
+                if (result.sawDone && !sawFinishReason && !result.sawFinishReason)
+                    writeCompletionStopEvent();
                 responseNormalized ||= result.normalized;
+                sawFinishReason ||= result.sawFinishReason;
                 sawDone ||= result.sawDone;
                 const output = `${result.body}\n\n`;
                 responsePreview = appendPreview(responsePreview, output);
@@ -988,8 +1093,10 @@ const server = http.createServer(async (req, res) => {
                 })}\n\n`;
                 const doneEvent = "data: [DONE]\n\n";
                 responsePreview = appendPreview(responsePreview, errorEvent);
-                responsePreview = appendPreview(responsePreview, doneEvent);
                 res.write(errorEvent);
+                if (!sawFinishReason)
+                    writeCompletionStopEvent();
+                responsePreview = appendPreview(responsePreview, doneEvent);
                 res.write(doneEvent);
                 res.end();
                 appendLog({
@@ -1037,6 +1144,8 @@ const server = http.createServer(async (req, res) => {
                 flushEvent(eventBuffer);
                 if (!sawDone) {
                     const doneEvent = "data: [DONE]\n\n";
+                    if (!sawFinishReason)
+                        writeCompletionStopEvent();
                     responseNormalized = true;
                     responsePreview = appendPreview(responsePreview, doneEvent);
                     res.write(doneEvent);

@@ -547,8 +547,19 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     if (!string.IsNullOrWhiteSpace(excerptText) && owner is InboxMessageWindow inboxWin)
                     {
                         SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.AttachmentChip.Click: owner is InboxMessageWindow — calling SelectAndScrollToText");
-                        try { inboxWin.SelectAndScrollToText(excerptText); }
-                        catch (Exception ex) { SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.AttachmentChip.Click: SelectAndScrollToText threw: {ex.Message}"); }
+                        try
+                        {
+                            if (inboxWin.SelectAndScrollToText(excerptText))
+                                return;
+
+                            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.AttachmentChip.Click: text not found in body — opening inline content viewer");
+                            MarkdownDocumentWindow.ShowContent(owner, att.Label, excerptText);
+                        }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.AttachmentChip.Click: text attachment open threw: {ex.Message}");
+                            UIErrorHelper.ShowWarning("Open Failed", $"Could not open:\n{ex.Message}");
+                        }
                     }
                     else
                     {
@@ -580,21 +591,21 @@ internal sealed class InboxMessageWindow : ChromedWindow
         RebuildDocument();
     }
 
-    public void SelectAndScrollToText(string excerptText)
+    public bool SelectAndScrollToText(string excerptText)
     {
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: called for msgId={MessageId} excerptLen={excerptText.Length} excerpt='{excerptText[..Math.Min(80, excerptText.Length)]}'");
 
         if (string.IsNullOrWhiteSpace(excerptText))
         {
             SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: EARLY EXIT — excerpt text is null or whitespace");
-            return;
+            return false;
         }
 
         var doc = _bodyViewer.Document;
         if (doc is null)
         {
             SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: EARLY EXIT — _bodyViewer.Document is null");
-            return;
+            return false;
         }
 
         var debugRange = new TextRange(doc.ContentStart, doc.ContentEnd);
@@ -625,10 +636,12 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: character rect is Empty — BringIntoView(rect) skipped");
             }
             SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: scroll+select complete");
+            return true;
         }
         else
         {
             SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: text NOT found in document via FindTextInRange — excerptText='{excerptText}'");
+            return false;
         }
     }
 

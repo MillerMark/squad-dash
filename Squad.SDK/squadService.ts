@@ -1195,6 +1195,54 @@ function extractErrorMessage(error: unknown): string {
     return String(error);
 }
 
+function summarizeErrorForDiagnostics(error: unknown, depth = 0): Record<string, unknown> {
+    if (depth > 2)
+        return { truncated: true };
+
+    if (!(error instanceof Error)) {
+        return {
+            type: typeof error,
+            value: String(error)
+        };
+    }
+
+    const errorWithFields = error as Error & {
+        cause?: unknown;
+        code?: unknown;
+        status?: unknown;
+        type?: unknown;
+        requestID?: unknown;
+        request_id?: unknown;
+        error?: unknown;
+    };
+
+    const summary: Record<string, unknown> = {
+        name: error.name,
+        constructorName: error.constructor?.name,
+        message: error.message,
+        stackTop: error.stack?.split(/\r?\n/).slice(0, 6).join("\n")
+    };
+
+    for (const key of ["code", "status", "type", "requestID", "request_id"] as const) {
+        const value = errorWithFields[key];
+        if (value !== undefined)
+            summary[key] = value;
+    }
+
+    if (errorWithFields.error !== undefined) {
+        try {
+            summary.error = JSON.stringify(errorWithFields.error).slice(0, 2000);
+        } catch {
+            summary.error = String(errorWithFields.error);
+        }
+    }
+
+    if (errorWithFields.cause)
+        summary.cause = summarizeErrorForDiagnostics(errorWithFields.cause, depth + 1);
+
+    return summary;
+}
+
 function normalizeAgentHandle(value: string): string {
     return value.trim().replace(/^@+/, "").toLowerCase();
 }
@@ -1601,6 +1649,13 @@ export class SquadBridgeService {
             handlers.onDone?.({ kind: "completed" });
         }
         catch (error) {
+            bridgeDiagnostic("runSessionRequest:sendAndWait:error", {
+                sessionId: state.session.sessionId,
+                promptChars: trimmedPrompt.length,
+                model: options.model ?? "(default)",
+                error: summarizeErrorForDiagnostics(error)
+            });
+
             if (requestContext.aborted) {
                 handlers.onAborted?.();
                 return;

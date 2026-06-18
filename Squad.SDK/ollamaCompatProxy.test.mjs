@@ -131,7 +131,44 @@ test("Foundry SSE chunks are normalized to plain OpenAI stream chunks", () => {
     assert.ok(!result.body.includes('"message"'));
     assert.ok(!result.body.includes('"tool_calls":[]'));
     assert.ok(!result.body.includes('"Successful"'));
+    assert.ok(result.body.includes('"finish_reason":"stop"'));
+    assert.ok(result.body.indexOf('"finish_reason":"stop"') < result.body.indexOf("data: [DONE]"));
     assert.ok(result.body.includes("data: [DONE]"));
+});
+
+test("Foundry SSE normalization preserves existing finish reason chunks", () => {
+    const foundryStream = [
+        'data: {"model":"qwen","choices":[{"delta":{},"finish_reason":"stop","index":0}],"object":"chat.completion.chunk"}',
+        "",
+        "data: [DONE]",
+        ""
+    ].join("\n");
+
+    const result = normalizeServerSentEvents(foundryStream);
+    const finishReasonMatches = result.body.match(/"finish_reason":"stop"/g) ?? [];
+
+    assert.equal(finishReasonMatches.length, 1);
+    assert.ok(result.body.includes("data: [DONE]"));
+});
+
+test("Foundry SSE normalization keeps assistant role only once", () => {
+    const foundryStream = [
+        'data: {"model":"qwen","id":"chat.id.1","choices":[{"delta":{"role":"assistant","content":"Hel"},"index":0}],"object":"chat.completion.chunk"}',
+        "",
+        'data: {"model":"qwen","id":"chat.id.1","choices":[{"delta":{"role":"assistant","content":"lo"},"index":0}],"object":"chat.completion.chunk"}',
+        "",
+        "data: [DONE]",
+        ""
+    ].join("\n");
+
+    const result = normalizeServerSentEvents(foundryStream);
+    const roleMatches = result.body.match(/"role":"assistant"/g) ?? [];
+
+    assert.equal(roleMatches.length, 1);
+    assert.ok(result.body.includes('"content":"Hel"'));
+    assert.ok(result.body.includes('"content":"lo"'));
+    assert.ok(result.body.includes('"id":"chat.id.1"'));
+    assert.ok(result.body.includes('"finish_reason":"stop"'));
 });
 
 test("Local model scheduler queues a second request for a single worker", async () => {
