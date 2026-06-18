@@ -45,6 +45,51 @@ function getMessageContentLength(message) {
     return normalizeContent(message.content).length;
 }
 
+function normalizeToolCallArguments(argumentsValue) {
+    if (typeof argumentsValue === "string") {
+        try {
+            JSON.parse(argumentsValue);
+            return argumentsValue;
+        } catch {
+            return JSON.stringify({ input: argumentsValue });
+        }
+    }
+
+    if (argumentsValue === undefined || argumentsValue === null)
+        return "{}";
+
+    try {
+        return JSON.stringify(argumentsValue);
+    } catch {
+        return JSON.stringify({ input: String(argumentsValue) });
+    }
+}
+
+function normalizeMessageToolCalls(message) {
+    if (!message || typeof message !== "object" || !Array.isArray(message.tool_calls))
+        return message;
+
+    return {
+        ...message,
+        tool_calls: message.tool_calls.map((toolCall) => {
+            if (!toolCall || typeof toolCall !== "object")
+                return toolCall;
+
+            const func = toolCall.function;
+            if (!func || typeof func !== "object")
+                return toolCall;
+
+            return {
+                ...toolCall,
+                function: {
+                    ...func,
+                    arguments: normalizeToolCallArguments(func.arguments)
+                }
+            };
+        })
+    };
+}
+
 function isContinuationPrompt(message) {
     if (!message || typeof message !== "object")
         return false;
@@ -121,10 +166,10 @@ function normalizeRequestBody(body) {
             if (!message || typeof message !== "object")
                 return message;
 
-            return {
+            return normalizeMessageToolCalls({
                 ...message,
                 content: normalizeContent(message.content)
-            };
+            });
         });
     }
 
