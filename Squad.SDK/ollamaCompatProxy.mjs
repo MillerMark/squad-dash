@@ -1,6 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
 const host = process.env.OLLAMA_COMPAT_HOST || "127.0.0.1";
@@ -631,6 +632,44 @@ function sanitizeOpenAiChunk(chunk) {
     return sanitized;
 }
 
+function normalizeServerSentEvent(event) {
+    let changed = false;
+    let sawDone = false;
+
+    if (typeof event !== "string" || !event.trim())
+        return { body: event, normalized: false, sawDone: false };
+
+    const lines = event.split(/\r?\n/);
+    const normalizedLines = lines.map((line) => {
+        if (!line.startsWith("data:"))
+            return line;
+
+        const data = line.slice("data:".length).trimStart();
+        if (data === "[DONE]") {
+            sawDone = true;
+            return line;
+        }
+
+        try {
+            const parsed = JSON.parse(data);
+            const sanitized = sanitizeOpenAiChunk(parsed);
+            const before = JSON.stringify(parsed);
+            const after = JSON.stringify(sanitized);
+            if (before !== after)
+                changed = true;
+            return `data: ${after}`;
+        } catch {
+            return line;
+        }
+    });
+
+    return {
+        body: normalizedLines.join("\n"),
+        normalized: changed,
+        sawDone
+    };
+}
+
 function normalizeServerSentEvents(responseBody) {
     if (typeof responseBody !== "string" || !responseBody.includes("data:"))
         return { body: responseBody, normalized: false };
@@ -644,31 +683,10 @@ function normalizeServerSentEvents(responseBody) {
         if (!event.trim())
             continue;
 
-        const lines = event.split(/\r?\n/);
-        const normalizedLines = lines.map((line) => {
-            if (!line.startsWith("data:"))
-                return line;
-
-            const data = line.slice("data:".length).trimStart();
-            if (data === "[DONE]") {
-                sawDone = true;
-                return line;
-            }
-
-            try {
-                const parsed = JSON.parse(data);
-                const sanitized = sanitizeOpenAiChunk(parsed);
-                const before = JSON.stringify(parsed);
-                const after = JSON.stringify(sanitized);
-                if (before !== after)
-                    changed = true;
-                return `data: ${after}`;
-            } catch {
-                return line;
-            }
-        });
-
-        normalizedEvents.push(normalizedLines.join("\n"));
+        const result = normalizeServerSentEvent(event);
+        changed ||= result.normalized;
+        sawDone ||= result.sawDone;
+        normalizedEvents.push(result.body);
     }
 
     if (!sawDone) {
@@ -726,6 +744,13 @@ function readRequestBody(req) {
     });
 }
 
+function appendPreview(preview, chunk) {
+    if (preview.length >= 4000)
+        return preview;
+
+    return `${preview}${chunk}`.slice(0, 4000);
+}
+
 const server = http.createServer(async (req, res) => {
     const startedAt = Date.now();
     const shouldSchedule = shouldScheduleModelRequest(req);
@@ -766,22 +791,84 @@ const server = http.createServer(async (req, res) => {
         method: req.method,
         headers
     }, (proxyRes) => {
+        const isEventStream = String(proxyRes.headers["content-type"] || "")
+            .includes("text/event-stream");
         const responseChunks = [];
+        const responseHeaders = { ...proxyRes.headers };
+        delete responseHeaders["content-length"];
+        res.writeHead(proxyRes.statusCode || 502, responseHeaders);
+
+        if (isEventStream) {
+            const decoder = new StringDecoder("utf8");
+            let eventBuffer = "";
+            let responsePreview = "";
+            let responseNormalized = false;
+            let sawDone = false;
+
+            const flushEvent = (event) => {
+                if (!event.trim())
+                    return;
+
+                const result = normalizeServerSentEvent(event);
+                responseNormalized ||= result.normalized;
+                sawDone ||= result.sawDone;
+                const output = `${result.body}\n\n`;
+                responsePreview = appendPreview(responsePreview, output);
+                res.write(output);
+            };
+
+            const flushCompleteEvents = () => {
+                let match = eventBuffer.match(/\r?\n\r?\n/);
+                while (match) {
+                    const event = eventBuffer.slice(0, match.index);
+                    eventBuffer = eventBuffer.slice(match.index + match[0].length);
+                    flushEvent(event);
+                    match = eventBuffer.match(/\r?\n\r?\n/);
+                }
+            };
+
+            proxyRes.on("data", (chunk) => {
+                eventBuffer += decoder.write(chunk);
+                flushCompleteEvents();
+            });
+            proxyRes.on("end", () => {
+                eventBuffer += decoder.end();
+                flushCompleteEvents();
+                flushEvent(eventBuffer);
+                if (!sawDone) {
+                    const doneEvent = "data: [DONE]\n\n";
+                    responseNormalized = true;
+                    responsePreview = appendPreview(responsePreview, doneEvent);
+                    res.write(doneEvent);
+                }
+                res.end();
+                appendLog({
+                    capturedAt: new Date().toISOString(),
+                    method: req.method,
+                    path: req.url,
+                    scheduled: shouldSchedule,
+                    worker: lease?.worker.name,
+                    queueWaitMs: lease?.waitMs ?? 0,
+                    queuedBefore: lease?.queuedBefore ?? 0,
+                    statusCode: proxyRes.statusCode,
+                    durationMs: Date.now() - startedAt,
+                    normalized,
+                    responseNormalized,
+                    requestSummary,
+                    requestPreview: inboundBody.toString("utf8").slice(0, 4000),
+                    responsePreview
+                });
+                lease?.release();
+            });
+            return;
+        }
 
         proxyRes.on("data", (chunk) => {
             responseChunks.push(chunk);
         });
         proxyRes.on("end", () => {
             const responseBody = Buffer.concat(responseChunks).toString("utf8");
-            const sseResult = String(proxyRes.headers["content-type"] || "")
-                .includes("text/event-stream")
-                ? normalizeServerSentEvents(responseBody)
-                : { body: responseBody, normalized: false };
-            const responseBuffer = Buffer.from(sseResult.body, "utf8");
-            const responseHeaders = { ...proxyRes.headers };
-            delete responseHeaders["content-length"];
-
-            res.writeHead(proxyRes.statusCode || 502, responseHeaders);
+            const responseBuffer = Buffer.from(responseBody, "utf8");
             res.end(responseBuffer);
             appendLog({
                 capturedAt: new Date().toISOString(),
@@ -794,10 +881,10 @@ const server = http.createServer(async (req, res) => {
                 statusCode: proxyRes.statusCode,
                 durationMs: Date.now() - startedAt,
                 normalized,
-                responseNormalized: sseResult.normalized,
+                responseNormalized: false,
                 requestSummary,
                 requestPreview: inboundBody.toString("utf8").slice(0, 4000),
-                responsePreview: sseResult.body.slice(0, 4000)
+                responsePreview: responseBody.slice(0, 4000)
             });
             lease?.release();
         });
