@@ -375,6 +375,17 @@ const RunSlotDeploymentSuppressedMessage =
 const RunSlotDeploymentEnabledMessage =
     "[SquadDash] Run-slot deployment enabled for this self-build.";
 
+function bridgeDiagnostic(message: string, fields: Record<string, unknown> = {}) {
+    if (process.env.SQUADDASH_BRIDGE_DIAGNOSTICS !== "true")
+        return;
+
+    console.error(`[SquadDash bridge diagnostic] ${JSON.stringify({
+        at: new Date().toISOString(),
+        message,
+        ...fields
+    })}`);
+}
+
 type ToolArgsRewriteResult = {
     modifiedArgs: Record<string, unknown>;
     reason: string;
@@ -1520,7 +1531,21 @@ export class SquadBridgeService {
             throw new Error("Prompt cannot be empty.");
 
         const { state, sessionReady } = await this.getOrCreateSession(options);
+        bridgeDiagnostic("runSessionRequest:session-ready", {
+            sessionId: state.session.sessionId,
+            resumed: sessionReady.resumed,
+            sessionReuseKind: sessionReady.sessionReuseKind,
+            sessionAcquireDurationMs: sessionReady.sessionAcquireDurationMs
+        });
+        bridgeDiagnostic("runSessionRequest:refresh-background:start", {
+            sessionId: state.session.sessionId
+        });
         await this.refreshBackgroundTasks(state);
+        bridgeDiagnostic("runSessionRequest:refresh-background:done", {
+            sessionId: state.session.sessionId,
+            backgroundAgentCount: state.backgroundTasks.agents.length,
+            backgroundShellCount: state.backgroundTasks.shells.length
+        });
         if (state.currentRequest)
             throw new Error("A prompt is already running for this Squad session.");
 
@@ -1547,9 +1572,17 @@ export class SquadBridgeService {
 
         try {
             requestSubmitted = true;
+            bridgeDiagnostic("runSessionRequest:sendAndWait:start", {
+                sessionId: state.session.sessionId,
+                promptChars: trimmedPrompt.length,
+                model: options.model ?? "(default)"
+            });
             const finalMessage = state.session.sendAndWait
                 ? await state.session.sendAndWait({ prompt: trimmedPrompt }, SessionIdleTimeoutMs)
                 : await this.client!.sendAndWait(state.session, { prompt: trimmedPrompt }, SessionIdleTimeoutMs);
+            bridgeDiagnostic("runSessionRequest:sendAndWait:done", {
+                sessionId: state.session.sessionId
+            });
 
             if (requestContext.aborted) {
                 handlers.onAborted?.();
@@ -1897,12 +1930,21 @@ export class SquadBridgeService {
     }
 
     private async getOrCreateSession(options: SquadSessionRequest): Promise<{ state: SessionState; sessionReady: SessionAcquireTelemetry; }> {
+        bridgeDiagnostic("getOrCreateSession:start", {
+            cwd: options.cwd,
+            sessionId: options.sessionId ?? "(new)",
+            model: options.model ?? "(default)"
+        });
         const client = await this.ensureClient(options.cwd);
         const acquireStartedAt = Date.now();
 
         if (options.sessionId) {
             const existingState = this.sessions.get(options.sessionId);
-            if (existingState)
+            if (existingState) {
+                bridgeDiagnostic("getOrCreateSession:bridge-cache", {
+                    sessionId: options.sessionId,
+                    durationMs: Date.now() - acquireStartedAt
+                });
                 return {
                     state: existingState,
                     sessionReady: {
@@ -1911,6 +1953,7 @@ export class SquadBridgeService {
                         sessionAcquireDurationMs: Date.now() - acquireStartedAt
                     }
                 };
+            }
         }
 
         let stateRef: SessionState | undefined;
@@ -1965,28 +2008,53 @@ export class SquadBridgeService {
         if (options.sessionId) {
             try {
                 const resumeStartedAt = Date.now();
+                bridgeDiagnostic("getOrCreateSession:resume:start", {
+                    sessionId: options.sessionId
+                });
                 session = await client.resumeSession(options.sessionId, sessionConfig);
                 sessionResumeDurationMs = Date.now() - resumeStartedAt;
+                bridgeDiagnostic("getOrCreateSession:resume:done", {
+                    sessionId: options.sessionId,
+                    durationMs: sessionResumeDurationMs
+                });
                 resumed = true;
                 sessionReuseKind = "provider_resume";
             }
             catch (error) {
                 sessionResumeFailureMessage = extractErrorMessage(error);
+                bridgeDiagnostic("getOrCreateSession:resume:failed", {
+                    sessionId: options.sessionId,
+                    message: sessionResumeFailureMessage
+                });
                 if (options.requireSameSession) {
                     throw new Error(
                         `Named-agent delegation requires the existing coordinator session, but Squad could not resume session ${options.sessionId}: ${sessionResumeFailureMessage}`);
                 }
 
                 const createStartedAt = Date.now();
+                bridgeDiagnostic("getOrCreateSession:create-after-resume-failure:start", {
+                    model: sessionConfig.model ?? "(default)"
+                });
                 session = await client.createSession(sessionConfig);
                 sessionCreateDurationMs = Date.now() - createStartedAt;
+                bridgeDiagnostic("getOrCreateSession:create-after-resume-failure:done", {
+                    sessionId: session.sessionId,
+                    durationMs: sessionCreateDurationMs
+                });
                 sessionReuseKind = "resume_failed_create";
             }
         }
         else {
             const createStartedAt = Date.now();
+            bridgeDiagnostic("getOrCreateSession:create:start", {
+                model: sessionConfig.model ?? "(default)"
+            });
             session = await client.createSession(sessionConfig);
             sessionCreateDurationMs = Date.now() - createStartedAt;
+            bridgeDiagnostic("getOrCreateSession:create:done", {
+                sessionId: session.sessionId,
+                durationMs: sessionCreateDurationMs
+            });
             sessionReuseKind = "provider_create";
         }
 

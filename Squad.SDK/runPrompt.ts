@@ -352,6 +352,17 @@ function emit(event: unknown) {
     console.log(JSON.stringify(event));
 }
 
+function bridgeDiagnostic(message: string, fields: Record<string, unknown> = {}) {
+    if (process.env.SQUADDASH_BRIDGE_DIAGNOSTICS !== "true")
+        return;
+
+    console.error(`[SquadDash bridge diagnostic] ${JSON.stringify({
+        at: new Date().toISOString(),
+        message,
+        ...fields
+    })}`);
+}
+
 function ensurePersonalSquadDir() {
     const personalDir = path.join(resolveGlobalSquadPath(), "personal-squad");
     const agentsDir = path.join(personalDir, "agents");
@@ -944,7 +955,16 @@ function handleRunLoopStop(request: RunLoopStopRequest): void {
 }
 
 async function handlePrompt(request: PromptRequest) {
+    bridgeDiagnostic("handlePrompt:start", {
+        requestId: request.requestId,
+        promptChars: request.prompt.length,
+        sessionId: request.sessionId ?? "(new)",
+        model: request.model ?? "(default)"
+    });
     await bridge.runPrompt(request.prompt, buildRunHandlers(request.requestId, activeRemoteBridge ?? undefined, "coordinator", "Coordinator"), request);
+    bridgeDiagnostic("handlePrompt:done", {
+        requestId: request.requestId
+    });
 }
 
 async function handleDelegate(request: DelegateRequest) {
@@ -1693,6 +1713,11 @@ async function main() {
             await handlePersonalInit(request);
             continue;
         }
+
+        bridgeDiagnostic("request:received", {
+            type: request.type,
+            requestId: request.requestId
+        });
 
         if (activePromptTask) {
             emit({
