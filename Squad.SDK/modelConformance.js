@@ -323,7 +323,8 @@ async function main() {
     runs.push(plain);
     checks.push(scorePlain(plain, plainToken));
     const tool = await runPromptCheck("tool_execution", [
-        "Use an actual available shell or PowerShell tool now. Do not describe the steps.",
+        "Use the PowerShell tool now. Do not use apply_patch. Do not describe the steps.",
+        "Use Set-Content to write the file and Get-Content to read it back.",
         `Create the file ${JSON.stringify(toolFilePath)} containing exactly ${toolToken}.`,
         "Then read the file back and report whether the file content matched."
     ].join("\n"), args);

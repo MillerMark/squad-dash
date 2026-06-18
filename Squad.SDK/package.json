@@ -9,6 +9,7 @@
         "build": "tsc --build",
         "clean": "tsc --build --clean",
         "conformance": "tsx modelConformance.ts",
+        "ollama-proxy": "node ollamaCompatProxy.mjs",
         "runprompt": "tsx runPrompt.ts",
         "postinstall": "patch-package"
     },
