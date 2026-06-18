@@ -89,6 +89,7 @@ function applyOutputLimit(body) {
 const localProviderProfile = resolveLocalProviderProfile(process.env.OLLAMA_COMPAT_PROFILE, process.env);
 const maxInputChars = localProviderProfile.maxInputChars;
 const workerConcurrency = localProviderProfile.maxConcurrent;
+const firstDataTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FIRST_DATA_TIMEOUT_MS, 30000);
 const truncationNotice = "\n\n[Local provider profile truncated additional context before sending to the local model.]";
 
 function splitTargetList(value) {
@@ -706,6 +707,7 @@ function summarizeRequestBody(body) {
         return undefined;
 
     const messages = Array.isArray(body.messages) ? body.messages : [];
+    const tools = Array.isArray(body.tools) ? body.tools : [];
     const lastMessage = messages.at(-1);
     return {
         profile: localProviderProfile.id,
@@ -716,6 +718,14 @@ function summarizeRequestBody(body) {
         reasoning_effort: body.reasoning_effort,
         max_tokens: body.max_tokens,
         max_completion_tokens: body.max_completion_tokens,
+        toolChoice: body.tool_choice,
+        toolCount: tools.length,
+        toolNames: tools
+            .map((tool) => tool?.function?.name ?? tool?.name)
+            .filter(Boolean)
+            .slice(0, 40),
+        toolsJsonChars: tools.length > 0 ? JSON.stringify(tools).length : 0,
+        responseFormat: body.response_format,
         messageCount: messages.length,
         messageRoles: messages.map((message) => message?.role),
         messageContentLengths: messages.map((message) =>
@@ -800,6 +810,14 @@ const server = http.createServer(async (req, res) => {
     let outboundBody = inboundBody;
     let normalized = false;
     let requestSummary;
+    let leaseReleased = false;
+    const releaseLease = () => {
+        if (leaseReleased)
+            return;
+
+        leaseReleased = true;
+        lease?.release();
+    };
 
     const contentType = req.headers["content-type"] || "";
     if (inboundBody.length > 0 && String(contentType).includes("application/json")) {
@@ -859,6 +877,7 @@ const server = http.createServer(async (req, res) => {
             let responseNormalized = false;
             let sawDone = false;
             let firstResponseChunkLogged = false;
+            let firstDataTimer;
 
             const flushEvent = (event) => {
                 if (!event.trim())
@@ -871,6 +890,42 @@ const server = http.createServer(async (req, res) => {
                 responsePreview = appendPreview(responsePreview, output);
                 res.write(output);
             };
+
+            const timeoutMessage =
+                `Local provider opened a stream but did not emit a first token within ${firstDataTimeoutMs} ms.`;
+            firstDataTimer = setTimeout(() => {
+                if (firstResponseChunkLogged || res.writableEnded)
+                    return;
+
+                responseNormalized = true;
+                const errorEvent = `data: ${JSON.stringify({
+                    object: "chat.completion.chunk",
+                    choices: [{
+                        index: 0,
+                        delta: {
+                            role: "assistant",
+                            content: `[error] ${timeoutMessage}`
+                        }
+                    }]
+                })}\n\n`;
+                const doneEvent = "data: [DONE]\n\n";
+                responsePreview = appendPreview(responsePreview, errorEvent);
+                responsePreview = appendPreview(responsePreview, doneEvent);
+                res.write(errorEvent);
+                res.write(doneEvent);
+                res.end();
+                appendLog({
+                    capturedAt: new Date().toISOString(),
+                    event: "upstream:first-data-timeout",
+                    requestId: proxyRequestId,
+                    timeoutMs: firstDataTimeoutMs,
+                    durationMs: Date.now() - startedAt,
+                    requestSummary,
+                    responsePreview
+                });
+                releaseLease();
+                proxyReq.destroy(new Error(timeoutMessage));
+            }, firstDataTimeoutMs);
 
             const flushCompleteEvents = () => {
                 let match = eventBuffer.match(/\r?\n\r?\n/);
@@ -885,6 +940,7 @@ const server = http.createServer(async (req, res) => {
             proxyRes.on("data", (chunk) => {
                 if (!firstResponseChunkLogged) {
                     firstResponseChunkLogged = true;
+                    clearTimeout(firstDataTimer);
                     appendLog({
                         capturedAt: new Date().toISOString(),
                         event: "upstream:first-data",
@@ -897,6 +953,7 @@ const server = http.createServer(async (req, res) => {
                 flushCompleteEvents();
             });
             proxyRes.on("end", () => {
+                clearTimeout(firstDataTimer);
                 eventBuffer += decoder.end();
                 flushCompleteEvents();
                 flushEvent(eventBuffer);
@@ -925,7 +982,7 @@ const server = http.createServer(async (req, res) => {
                     requestPreview: inboundBody.toString("utf8").slice(0, 4000),
                     responsePreview
                 });
-                lease?.release();
+                releaseLease();
             });
             return;
         }
@@ -966,13 +1023,15 @@ const server = http.createServer(async (req, res) => {
                 requestPreview: inboundBody.toString("utf8").slice(0, 4000),
                 responsePreview: responseBody.slice(0, 4000)
             });
-            lease?.release();
+            releaseLease();
         });
     });
 
     proxyReq.on("error", (error) => {
-        res.writeHead(502, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: error.message }));
+        if (!res.writableEnded) {
+            res.writeHead(502, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: error.message }));
+        }
         appendLog({
             capturedAt: new Date().toISOString(),
             event: "request:error",
@@ -990,7 +1049,7 @@ const server = http.createServer(async (req, res) => {
             requestPreview: inboundBody.toString("utf8").slice(0, 4000),
             error: error.message
         });
-        lease?.release();
+        releaseLease();
     });
 
     proxyReq.end(outboundBody);
