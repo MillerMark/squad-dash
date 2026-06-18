@@ -180,13 +180,49 @@ function isApplyPatchAssistantMessage(message) {
         message.tool_calls.some(isApplyPatchToolCall);
 }
 
+function isAssistantToolCallMessage(message) {
+    return message?.role === "assistant" &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.length > 0;
+}
+
 function isApplyPatchParseFailure(message) {
     if (message?.role !== "tool")
         return false;
 
     const content = normalizeContent(message.content);
-    return content.includes("Failed to parse patch") &&
-        content.includes("*** Begin Patch");
+    return content.includes("Failed to parse patch");
+}
+
+function isApplyPatchSuccess(message) {
+    if (message?.role !== "tool")
+        return false;
+
+    const content = normalizeContent(message.content);
+    return /^Modified \d+ file\(s\):/i.test(content.trim());
+}
+
+function getApplyPatchToolSummary(message) {
+    const content = normalizeContent(message.content).trim();
+    if (isApplyPatchParseFailure(message)) {
+        return [
+            "[Local GPT-OSS recovery]",
+            "The previous apply_patch attempt failed before editing files because its arguments were malformed.",
+            "Continue the original request now.",
+            "For this local model profile, use the powershell tool for simple text-file edits, then read the file back to verify before replying."
+        ].join(" ");
+    }
+
+    if (isApplyPatchSuccess(message)) {
+        return [
+            "[Local GPT-OSS tool summary]",
+            `The previous apply_patch tool reported success: ${content}`,
+            "Continue the original request now.",
+            "Read the edited file back to verify the intended change, then commit if the user requested a commit."
+        ].join(" ");
+    }
+
+    return undefined;
 }
 
 function replaceFailedApplyPatchExchanges(messages) {
@@ -194,18 +230,12 @@ function replaceFailedApplyPatchExchanges(messages) {
     let replacementCount = 0;
 
     for (const message of messages) {
-        if (isApplyPatchParseFailure(message) &&
-            isApplyPatchAssistantMessage(rewritten.at(-1))) {
+        const applyPatchSummary = getApplyPatchToolSummary(message);
+        if (applyPatchSummary &&
+            (isApplyPatchAssistantMessage(rewritten.at(-1)) ||
+                isAssistantToolCallMessage(rewritten.at(-1)))) {
             rewritten.pop();
-            rewritten.push({
-                role: "user",
-                content: [
-                    "[Local GPT-OSS recovery]",
-                    "The previous apply_patch attempt failed before editing files because its arguments were malformed.",
-                    "Continue the original request now.",
-                    "For this local model profile, use the powershell tool for simple text-file edits, then read the file back to verify before replying."
-                ].join(" ")
-            });
+            rewritten.push({ role: "user", content: applyPatchSummary });
             replacementCount++;
             continue;
         }
