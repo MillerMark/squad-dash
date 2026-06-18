@@ -41,6 +41,21 @@ function normalizeRequestBody(body) {
     if (!body || typeof body !== "object")
         return body;
 
+    const model = typeof body.model === "string" ? body.model : "";
+    const isGptOss = model.toLowerCase().startsWith("gpt-oss");
+
+    if (isGptOss) {
+        body.reasoning_effort ??= "low";
+
+        const maxTokens = Number(body.max_tokens);
+        if (!Number.isFinite(maxTokens) || maxTokens < 1024)
+            body.max_tokens = 1024;
+
+        const maxCompletionTokens = Number(body.max_completion_tokens);
+        if (Number.isFinite(maxCompletionTokens) && maxCompletionTokens < 1024)
+            body.max_completion_tokens = 1024;
+    }
+
     if (Array.isArray(body.messages)) {
         body.messages = body.messages.map((message) => {
             if (!message || typeof message !== "object")
@@ -83,6 +98,28 @@ function normalizeRequestBody(body) {
     return body;
 }
 
+function summarizeRequestBody(body) {
+    if (!body || typeof body !== "object")
+        return undefined;
+
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const lastMessage = messages.at(-1);
+    return {
+        model: body.model,
+        stream: body.stream,
+        reasoning_effort: body.reasoning_effort,
+        max_tokens: body.max_tokens,
+        max_completion_tokens: body.max_completion_tokens,
+        messageCount: messages.length,
+        messageContentLengths: messages.map((message) =>
+            typeof message?.content === "string" ? message.content.length : undefined),
+        lastMessageRole: lastMessage?.role,
+        lastMessagePreview: typeof lastMessage?.content === "string"
+            ? lastMessage.content.slice(0, 500)
+            : undefined
+    };
+}
+
 function appendLog(record) {
     try {
         fs.mkdirSync(path.dirname(logPath), { recursive: true });
@@ -106,6 +143,7 @@ const server = http.createServer(async (req, res) => {
     const inboundBody = await readRequestBody(req);
     let outboundBody = inboundBody;
     let normalized = false;
+    let requestSummary;
 
     const contentType = req.headers["content-type"] || "";
     if (inboundBody.length > 0 && String(contentType).includes("application/json")) {
@@ -115,6 +153,7 @@ const server = http.createServer(async (req, res) => {
             const normalizedBody = normalizeRequestBody(parsed);
             const after = JSON.stringify(normalizedBody);
             normalized = before !== after;
+            requestSummary = summarizeRequestBody(normalizedBody);
             outboundBody = Buffer.from(after, "utf8");
         } catch {
             // Forward invalid JSON as-is so the target can report the real error.
@@ -151,6 +190,7 @@ const server = http.createServer(async (req, res) => {
                 statusCode: proxyRes.statusCode,
                 durationMs: Date.now() - startedAt,
                 normalized,
+                requestSummary,
                 requestPreview: inboundBody.toString("utf8").slice(0, 4000),
                 responsePreview: responseBody.slice(0, 4000)
             });
@@ -167,6 +207,7 @@ const server = http.createServer(async (req, res) => {
             statusCode: 502,
             durationMs: Date.now() - startedAt,
             normalized,
+            requestSummary,
             requestPreview: inboundBody.toString("utf8").slice(0, 4000),
             error: error.message
         });
