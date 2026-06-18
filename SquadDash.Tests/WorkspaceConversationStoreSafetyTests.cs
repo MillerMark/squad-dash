@@ -170,6 +170,78 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
         });
     }
 
+    [Test]
+    public void Load_RestoresAtomicReplaceTempWhenPrimaryConversationStateIsAccidentallyEmpty() {
+        using var workspace = new TestWorkspace();
+        var root = workspace.GetPath("state");
+        var store = new WorkspaceConversationStore(root);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        var workspaceDirectory = store.GetWorkspaceStateDirectory(repo);
+        Directory.CreateDirectory(workspaceDirectory);
+        var primaryPath = Path.Combine(workspaceDirectory, "conversation.json");
+        var backupPath = primaryPath + ".bak";
+        var replaceTempPath = Path.Combine(workspaceDirectory, "conversation.json~RF3b379b.TMP");
+
+        var empty = WorkspaceConversationState.Empty;
+        var lessCompleteBackup = new WorkspaceConversationState(
+            null,
+            null,
+            null,
+            new[] { "old prompt" },
+            Array.Empty<TranscriptTurnRecord>());
+        var recovered = CreateCrashRecoveryState("session-recovered", turnCount: 2, threadCount: 1);
+
+        File.WriteAllText(primaryPath, JsonSerializer.Serialize(empty));
+        File.WriteAllText(backupPath, JsonSerializer.Serialize(lessCompleteBackup));
+        File.WriteAllText(replaceTempPath, JsonSerializer.Serialize(recovered));
+        File.SetLastWriteTimeUtc(primaryPath, DateTime.UtcNow);
+        File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow.AddSeconds(-5));
+        File.SetLastWriteTimeUtc(replaceTempPath, DateTime.UtcNow.AddSeconds(-10));
+
+        var loaded = store.Load(repo);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.SessionId, Is.EqualTo("session-recovered"));
+            Assert.That(loaded.Turns, Has.Count.EqualTo(2));
+            Assert.That(loaded.GetThreads(), Has.Count.EqualTo(1));
+            Assert.That(new FileInfo(primaryPath).Length, Is.GreaterThan(500));
+        });
+    }
+
+    [Test]
+    public void Save_BlocksEmptyOverwriteUsingAtomicReplaceTempRecoveryCandidate() {
+        using var workspace = new TestWorkspace();
+        var root = workspace.GetPath("state");
+        var store = new WorkspaceConversationStore(root);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        var workspaceDirectory = store.GetWorkspaceStateDirectory(repo);
+        Directory.CreateDirectory(workspaceDirectory);
+        var primaryPath = Path.Combine(workspaceDirectory, "conversation.json");
+        var replaceTempPath = Path.Combine(workspaceDirectory, "conversation.json~RF3b379b.TMP");
+
+        var recovered = CreateCrashRecoveryState("session-recovered", turnCount: 1, threadCount: 1);
+
+        File.WriteAllText(primaryPath, JsonSerializer.Serialize(WorkspaceConversationState.Empty));
+        File.WriteAllText(replaceTempPath, JsonSerializer.Serialize(recovered));
+        File.SetLastWriteTimeUtc(primaryPath, DateTime.UtcNow);
+        File.SetLastWriteTimeUtc(replaceTempPath, DateTime.UtcNow.AddSeconds(-5));
+
+        var preserved = store.Save(repo, WorkspaceConversationState.Empty);
+
+        var primary = JsonSerializer.Deserialize<WorkspaceConversationState>(File.ReadAllText(primaryPath));
+        Assert.Multiple(() => {
+            Assert.That(preserved.SessionId, Is.EqualTo("session-recovered"));
+            Assert.That(preserved.Turns, Has.Count.EqualTo(1));
+            Assert.That(primary, Is.Not.Null);
+            Assert.That(primary!.SessionId, Is.EqualTo("session-recovered"));
+            Assert.That(Directory.GetFiles(workspaceDirectory, "conversation.empty-overwrite.*.json"), Has.Length.EqualTo(1));
+        });
+    }
+
     // ── Corrupt-JSON fallback (TryLoadState silent catch) ─────────────────────
 
     [Test]
@@ -248,5 +320,64 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
         var result = store.Load(repo);
 
         Assert.That(result.Turns, Is.Empty);
+    }
+
+    private static WorkspaceConversationState CreateCrashRecoveryState(
+        string sessionId,
+        int turnCount,
+        int threadCount) {
+        var now = DateTimeOffset.UtcNow;
+        var turns = Enumerable.Range(0, turnCount)
+            .Select(index => new TranscriptTurnRecord(
+                now.AddMinutes(-10 + index),
+                now.AddMinutes(-9 + index),
+                $"prompt {index}",
+                string.Empty,
+                $"response {index}",
+                false,
+                Array.Empty<TranscriptToolRecord>()))
+            .ToArray();
+
+        var threads = Enumerable.Range(0, threadCount)
+            .Select(index => new TranscriptThreadRecord(
+                $"thread-{index}",
+                $"Agent {index}",
+                null,
+                $"tool-{index}",
+                "agent",
+                $"Agent {index}",
+                null,
+                "general-purpose",
+                $"agent-{index}",
+                $"agent prompt {index}",
+                null,
+                null,
+                null,
+                Array.Empty<string>(),
+                null,
+                "Running",
+                string.Empty,
+                now.AddMinutes(-8 + index),
+                null,
+                new[] {
+                    new TranscriptTurnRecord(
+                        now.AddMinutes(-8 + index),
+                        null,
+                        $"agent prompt {index}",
+                        string.Empty,
+                        string.Empty,
+                        false,
+                        Array.Empty<TranscriptToolRecord>())
+                }))
+            .ToArray();
+
+        return new WorkspaceConversationState(
+            sessionId,
+            now,
+            null,
+            new[] { "recent prompt" },
+            turns,
+            threads,
+            new[] { sessionId });
     }
 }

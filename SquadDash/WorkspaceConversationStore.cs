@@ -21,6 +21,7 @@ internal sealed class WorkspaceConversationStore {
     // Progressive tool compression: strip content at 3 days, collapse to stub at 7 days.
     private static readonly TimeSpan ToolDetailRetentionPeriod = TimeSpan.FromDays(3);
     private static readonly TimeSpan ToolExistenceRetentionPeriod = TimeSpan.FromDays(7);
+    private static readonly TimeSpan RecoveryCandidateStalenessTolerance = TimeSpan.FromHours(24);
     private readonly string _rootDirectory;
 
     public WorkspaceConversationStore()
@@ -65,6 +66,7 @@ internal sealed class WorkspaceConversationStore {
         if (WouldOverwriteNonEmptyState(existing, normalized)) {
             CreateBackup(normalizedWorkspace, existing);
             CreateRescueBackup(normalizedWorkspace, existing, "empty-overwrite");
+            SaveCore(normalizedWorkspace, existing);
             return existing;
         }
 
@@ -77,6 +79,7 @@ internal sealed class WorkspaceConversationStore {
                 $"existingTurns={existing.Turns.Count} incomingTurns={normalized.Turns.Count} existingThreads={existing.GetThreads().Count} incomingThreads={normalized.GetThreads().Count}");
             CreateBackup(normalizedWorkspace, existing);
             CreateRescueBackup(normalizedWorkspace, existing, "durable-drop");
+            SaveCore(normalizedWorkspace, existing);
             return existing;
         }
 
@@ -99,6 +102,12 @@ internal sealed class WorkspaceConversationStore {
         return LoadStateWithRecovery(normalizedWorkspace, repairPrimary: false);
     }
 
+    private sealed record ConversationRecoveryCandidate(
+        string Path,
+        WorkspaceConversationState State,
+        int Score,
+        DateTime LastWriteUtc);
+
     public string GetSessionConfigDirectory(string workspaceFolder) {
         var normalizedWorkspace = NormalizeWorkspaceFolder(workspaceFolder);
         var directory = Path.Combine(GetWorkspaceStateDirectoryCore(normalizedWorkspace), "sdk-config");
@@ -117,17 +126,17 @@ internal sealed class WorkspaceConversationStore {
         if (TryLoadState(path, out var state)) {
             var normalized = NormalizeState(state ?? WorkspaceConversationState.Empty);
 
-            var preferredBackupPath = path + ".bak";
-            if (!HasMeaningfulContent(normalized) &&
-                !IsExplicitClear(normalized) &&
-                TryLoadState(preferredBackupPath, out var preferredBackupState)) {
-                var preferredNormalizedBackup = NormalizeState(preferredBackupState ?? WorkspaceConversationState.Empty);
-                if (HasMeaningfulContent(preferredNormalizedBackup)) {
-                    if (repairPrimary)
-                        SaveCore(normalizedWorkspace, preferredNormalizedBackup);
+            if (TryFindRecoveryCandidate(path, normalized, out var recoveryCandidate) &&
+                recoveryCandidate is not null) {
+                SquadDashTrace.Write(
+                    "Persistence",
+                    $"ConversationStore.Load: recovered transcript from {Path.GetFileName(recoveryCandidate.Path)} " +
+                    $"turns={recoveryCandidate.State.Turns.Count} threads={recoveryCandidate.State.GetThreads().Count}");
 
-                    return preferredNormalizedBackup;
-                }
+                if (repairPrimary)
+                    SaveCore(normalizedWorkspace, recoveryCandidate.State);
+
+                return recoveryCandidate.State;
             }
 
             if (repairPrimary && !Equals(state, normalized))
@@ -137,6 +146,19 @@ internal sealed class WorkspaceConversationStore {
         }
 
         var backupPath = path + ".bak";
+        if (TryFindRecoveryCandidate(path, null, out var missingPrimaryRecovery) &&
+            missingPrimaryRecovery is not null) {
+            SquadDashTrace.Write(
+                "Persistence",
+                $"ConversationStore.Load: recovered missing/corrupt transcript from {Path.GetFileName(missingPrimaryRecovery.Path)} " +
+                $"turns={missingPrimaryRecovery.State.Turns.Count} threads={missingPrimaryRecovery.State.GetThreads().Count}");
+
+            if (repairPrimary && HasMeaningfulContent(missingPrimaryRecovery.State))
+                SaveCore(normalizedWorkspace, missingPrimaryRecovery.State);
+
+            return missingPrimaryRecovery.State;
+        }
+
         if (!TryLoadState(backupPath, out var backupState))
             return WorkspaceConversationState.Empty;
 
@@ -146,6 +168,92 @@ internal sealed class WorkspaceConversationStore {
 
         return normalizedBackup;
     }
+
+    private bool TryFindRecoveryCandidate(
+        string primaryPath,
+        WorkspaceConversationState? current,
+        out ConversationRecoveryCandidate? candidate) {
+        candidate = null;
+
+        if (current is not null && IsExplicitClear(current))
+            return false;
+
+        foreach (var candidatePath in EnumerateRecoveryCandidatePaths(primaryPath)) {
+            if (!TryLoadState(candidatePath, out var candidateState))
+                continue;
+
+            var normalized = NormalizeState(candidateState ?? WorkspaceConversationState.Empty);
+            if (!HasMeaningfulContent(normalized) || IsExplicitClear(normalized))
+                continue;
+
+            if (current is not null && !ShouldPreferRecoveryCandidate(current, normalized))
+                continue;
+
+            var next = new ConversationRecoveryCandidate(
+                candidatePath,
+                normalized,
+                RecoveryContentScore(normalized),
+                File.GetLastWriteTimeUtc(candidatePath));
+
+            if (candidate is null ||
+                next.Score > candidate.Score ||
+                next.Score == candidate.Score && next.LastWriteUtc > candidate.LastWriteUtc)
+                candidate = next;
+        }
+
+        return candidate is not null;
+    }
+
+    private static IEnumerable<string> EnumerateRecoveryCandidatePaths(string primaryPath) {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var path in new[] { primaryPath + ".bak", primaryPath + ".backup", primaryPath + ".tmp" }) {
+            if (seen.Add(path) && IsPlausibleRecoveryCandidate(primaryPath, path))
+                yield return path;
+        }
+
+        var directory = Path.GetDirectoryName(primaryPath);
+        var fileName = Path.GetFileName(primaryPath);
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            yield break;
+
+        foreach (var path in Directory.EnumerateFiles(directory, fileName + "~RF*.TMP")
+                     .Where(candidate => IsPlausibleRecoveryCandidate(primaryPath, candidate))
+                     .OrderByDescending(File.GetLastWriteTimeUtc)
+                     .Take(3)) {
+            if (seen.Add(path))
+                yield return path;
+        }
+    }
+
+    private static bool IsPlausibleRecoveryCandidate(string primaryPath, string candidatePath) {
+        if (!File.Exists(candidatePath))
+            return false;
+
+        if (!File.Exists(primaryPath))
+            return true;
+
+        var primaryLastWrite = File.GetLastWriteTimeUtc(primaryPath);
+        var candidateLastWrite = File.GetLastWriteTimeUtc(candidatePath);
+        return candidateLastWrite >= primaryLastWrite - RecoveryCandidateStalenessTolerance;
+    }
+
+    private static bool ShouldPreferRecoveryCandidate(
+        WorkspaceConversationState current,
+        WorkspaceConversationState candidate) {
+        if (!HasMeaningfulContent(current))
+            return true;
+
+        return CountDurableTranscriptTurns(current) == 0 &&
+               CountDurableTranscriptTurns(candidate) > 0;
+    }
+
+    private static int RecoveryContentScore(WorkspaceConversationState state) =>
+        CountDurableTranscriptTurns(state) * 1000 +
+        state.Turns.Count * 10 +
+        state.GetThreads().Count * 10 +
+        state.PromptHistory.Count +
+        state.GetRecentSessionIds().Count;
 
     private static bool TryLoadState(string path, out WorkspaceConversationState? state) {
         state = null;
