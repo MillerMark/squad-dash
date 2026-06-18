@@ -87,6 +87,7 @@ function applyOutputLimit(body) {
 const localProviderProfile = resolveLocalProviderProfile(process.env.OLLAMA_COMPAT_PROFILE, process.env);
 const maxInputChars = localProviderProfile.maxInputChars;
 const workerConcurrency = localProviderProfile.maxConcurrent;
+const truncationNotice = "\n\n[Local provider profile truncated additional context before sending to the local model.]";
 
 function splitTargetList(value) {
     if (!value)
@@ -485,6 +486,57 @@ function pruneOversizedGptOssMessages(body) {
     return true;
 }
 
+function truncateMessageContent(content, maxChars) {
+    if (typeof content !== "string" || content.length <= maxChars)
+        return content;
+
+    const availableChars = Math.max(0, maxChars - truncationNotice.length);
+    return `${content.slice(0, availableChars)}${truncationNotice}`;
+}
+
+function enforceInputLimit(body) {
+    if (!Array.isArray(body.messages))
+        return false;
+
+    if (!Number.isFinite(maxInputChars) || maxInputChars <= 0)
+        return false;
+
+    let totalContentLength = body.messages.reduce(
+        (sum, message) => sum + getMessageContentLength(message),
+        0);
+    if (totalContentLength <= maxInputChars)
+        return false;
+
+    const currentUserIndex = getCurrentUserMessageIndex(body.messages);
+    let changed = false;
+    const currentUserMinimumChars = Math.min(4000, Math.max(1000, Math.floor(maxInputChars * 0.35)));
+    const otherMinimumChars = Math.min(6000, Math.max(1000, Math.floor(maxInputChars * 0.45)));
+
+    for (let i = 0; i < body.messages.length && totalContentLength > maxInputChars; i++) {
+        const message = body.messages[i];
+        if (!message || typeof message.content !== "string")
+            continue;
+
+        const minimumPreservedChars = i === currentUserIndex
+            ? currentUserMinimumChars
+            : otherMinimumChars;
+        if (message.content.length <= minimumPreservedChars)
+            continue;
+
+        const overage = totalContentLength - maxInputChars;
+        const targetLength = Math.max(minimumPreservedChars, message.content.length - overage);
+        const truncated = truncateMessageContent(message.content, targetLength);
+        if (truncated === message.content)
+            continue;
+
+        totalContentLength -= message.content.length - truncated.length;
+        message.content = truncated;
+        changed = true;
+    }
+
+    return changed;
+}
+
 function normalizeRequestBody(body) {
     if (!body || typeof body !== "object")
         return body;
@@ -513,6 +565,8 @@ function normalizeRequestBody(body) {
                 content: normalizeContent(message.content)
             });
         });
+
+        enforceInputLimit(body);
     }
 
     if (Array.isArray(body.input)) {
@@ -543,6 +597,89 @@ function normalizeRequestBody(body) {
     }
 
     return body;
+}
+
+function sanitizeStreamingChoice(choice) {
+    if (!choice || typeof choice !== "object")
+        return choice;
+
+    const sanitized = { ...choice };
+    delete sanitized.message;
+
+    if (sanitized.delta && typeof sanitized.delta === "object") {
+        sanitized.delta = { ...sanitized.delta };
+        if (Array.isArray(sanitized.delta.tool_calls) && sanitized.delta.tool_calls.length === 0)
+            delete sanitized.delta.tool_calls;
+    }
+
+    return sanitized;
+}
+
+function sanitizeOpenAiChunk(chunk) {
+    if (!chunk || typeof chunk !== "object")
+        return chunk;
+
+    const sanitized = { ...chunk };
+    delete sanitized.CreatedAt;
+    delete sanitized.IsDelta;
+    delete sanitized.Successful;
+    delete sanitized.HttpStatusCode;
+
+    if (Array.isArray(sanitized.choices))
+        sanitized.choices = sanitized.choices.map(sanitizeStreamingChoice);
+
+    return sanitized;
+}
+
+function normalizeServerSentEvents(responseBody) {
+    if (typeof responseBody !== "string" || !responseBody.includes("data:"))
+        return { body: responseBody, normalized: false };
+
+    let changed = false;
+    let sawDone = false;
+    const events = responseBody.split(/\r?\n\r?\n/);
+    const normalizedEvents = [];
+
+    for (const event of events) {
+        if (!event.trim())
+            continue;
+
+        const lines = event.split(/\r?\n/);
+        const normalizedLines = lines.map((line) => {
+            if (!line.startsWith("data:"))
+                return line;
+
+            const data = line.slice("data:".length).trimStart();
+            if (data === "[DONE]") {
+                sawDone = true;
+                return line;
+            }
+
+            try {
+                const parsed = JSON.parse(data);
+                const sanitized = sanitizeOpenAiChunk(parsed);
+                const before = JSON.stringify(parsed);
+                const after = JSON.stringify(sanitized);
+                if (before !== after)
+                    changed = true;
+                return `data: ${after}`;
+            } catch {
+                return line;
+            }
+        });
+
+        normalizedEvents.push(normalizedLines.join("\n"));
+    }
+
+    if (!sawDone) {
+        normalizedEvents.push("data: [DONE]");
+        changed = true;
+    }
+
+    return {
+        body: `${normalizedEvents.join("\n\n")}\n\n`,
+        normalized: changed
+    };
 }
 
 function summarizeRequestBody(body) {
@@ -631,14 +768,21 @@ const server = http.createServer(async (req, res) => {
     }, (proxyRes) => {
         const responseChunks = [];
 
-        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
         proxyRes.on("data", (chunk) => {
             responseChunks.push(chunk);
-            res.write(chunk);
         });
         proxyRes.on("end", () => {
-            res.end();
             const responseBody = Buffer.concat(responseChunks).toString("utf8");
+            const sseResult = String(proxyRes.headers["content-type"] || "")
+                .includes("text/event-stream")
+                ? normalizeServerSentEvents(responseBody)
+                : { body: responseBody, normalized: false };
+            const responseBuffer = Buffer.from(sseResult.body, "utf8");
+            const responseHeaders = { ...proxyRes.headers };
+            delete responseHeaders["content-length"];
+
+            res.writeHead(proxyRes.statusCode || 502, responseHeaders);
+            res.end(responseBuffer);
             appendLog({
                 capturedAt: new Date().toISOString(),
                 method: req.method,
@@ -650,9 +794,10 @@ const server = http.createServer(async (req, res) => {
                 statusCode: proxyRes.statusCode,
                 durationMs: Date.now() - startedAt,
                 normalized,
+                responseNormalized: sseResult.normalized,
                 requestSummary,
                 requestPreview: inboundBody.toString("utf8").slice(0, 4000),
-                responsePreview: responseBody.slice(0, 4000)
+                responsePreview: sseResult.body.slice(0, 4000)
             });
             lease?.release();
         });
@@ -686,6 +831,7 @@ export {
     addGptOssToolingHint,
     LocalModelRequestScheduler,
     normalizeRequestBody,
+    normalizeServerSentEvents,
     parseTargetWorkers,
     replaceFailedApplyPatchExchanges,
     resolveLocalProviderProfile

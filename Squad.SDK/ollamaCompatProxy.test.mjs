@@ -4,6 +4,7 @@ import test from "node:test";
 import {
     LocalModelRequestScheduler,
     normalizeRequestBody,
+    normalizeServerSentEvents,
     parseTargetWorkers,
     resolveLocalProviderProfile
 } from "./ollamaCompatProxy.mjs";
@@ -44,6 +45,40 @@ test("Local provider profile clamps OpenAI output budgets", () => {
     });
 
     assert.equal(body.max_tokens, 2048);
+});
+
+test("Local provider profile truncates oversized non-GPT local requests", () => {
+    const body = normalizeRequestBody({
+        model: "qwen2.5-0.5b-instruct-generic-cpu:4",
+        messages: [
+            { role: "system", content: "s".repeat(70000) },
+            { role: "user", content: `What model are you?\n${"u".repeat(10000)}` }
+        ]
+    });
+    const total = body.messages.reduce((sum, message) => sum + message.content.length, 0);
+
+    assert.ok(total <= 65000);
+    assert.ok(body.messages[1].content.startsWith("What model are you?"));
+    assert.ok(body.messages.some((message) =>
+        message.content.includes("Local provider profile truncated additional context")));
+});
+
+test("Foundry SSE chunks are normalized to plain OpenAI stream chunks", () => {
+    const foundryStream = [
+        'data: {"model":"qwen","choices":[{"delta":{"role":"assistant","content":"OK","tool_calls":[]},"message":{"role":"assistant","content":"OK","tool_calls":[]},"index":0}],"CreatedAt":"now","IsDelta":false,"Successful":true,"HttpStatusCode":0,"object":"chat.completion.chunk"}',
+        "",
+        "data: [DONE]",
+        ""
+    ].join("\n");
+
+    const result = normalizeServerSentEvents(foundryStream);
+
+    assert.equal(result.normalized, true);
+    assert.ok(result.body.includes('"content":"OK"'));
+    assert.ok(!result.body.includes('"message"'));
+    assert.ok(!result.body.includes('"tool_calls":[]'));
+    assert.ok(!result.body.includes('"Successful"'));
+    assert.ok(result.body.includes("data: [DONE]"));
 });
 
 test("Local model scheduler queues a second request for a single worker", async () => {
