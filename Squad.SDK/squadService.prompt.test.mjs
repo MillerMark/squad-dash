@@ -171,6 +171,53 @@ test("runPrompt buffers streamed raw report JSON and emits assistant body text",
     assert.deepEqual(deltas, ["Hello, world!"]);
 });
 
+test("runPrompt routes streamed local think tags as thinking deltas", async () => {
+    const listeners = new Map();
+    const thinkingDeltas = [];
+    const deltas = [];
+    const chunks = [
+        "<thi",
+        "nk>\nThinking ",
+        "live.</thi",
+        "nk>\nI am qwen3-14b-cuda-gpu."
+    ];
+    const session = {
+        sessionId: "session-local-think",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            for (const chunk of chunks)
+                listeners.get("message_delta")?.({ deltaContent: chunk });
+
+            return { content: chunks.join("") };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "What model are you?",
+        {
+            onThinking(chunk) {
+                thinkingDeltas.push(chunk);
+            },
+            onDelta(chunk) {
+                deltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(thinkingDeltas, ["\nThinking ", "live."]);
+    assert.deepEqual(deltas, ["I am qwen3-14b-cuda-gpu."]);
+});
+
 test("pending restart self-build hook disables run-slot deployment", () => {
     const rewrite = maybeRewritePendingRestartSelfBuildToolArgs(
         "powershell",

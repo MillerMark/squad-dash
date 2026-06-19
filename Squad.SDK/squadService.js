@@ -49,6 +49,77 @@ export function normalizeAssistantResponseContent(content) {
         ? body
         : content;
 }
+function longestTagPrefixSuffix(text, tag) {
+    const max = Math.min(text.length, tag.length - 1);
+    for (let length = max; length > 0; length--) {
+        if (tag.startsWith(text.slice(text.length - length)))
+            return length;
+    }
+    return 0;
+}
+function processLocalThinkDelta(state, chunk) {
+    const openTag = "<think>";
+    const closeTag = "</think>";
+    let responseText = "";
+    let thinkingText = "";
+    state.buffer += chunk;
+    while (state.buffer.length > 0) {
+        if (state.mode === "thinking") {
+            const closeIndex = state.buffer.indexOf(closeTag);
+            if (closeIndex >= 0) {
+                thinkingText += state.buffer.slice(0, closeIndex);
+                state.buffer = state.buffer.slice(closeIndex + closeTag.length);
+                if (!state.emittedResponse)
+                    state.buffer = state.buffer.replace(/^\s+/, "");
+                state.mode = "response";
+                continue;
+            }
+            const holdLength = longestTagPrefixSuffix(state.buffer, closeTag);
+            thinkingText += state.buffer.slice(0, state.buffer.length - holdLength);
+            state.buffer = state.buffer.slice(state.buffer.length - holdLength);
+            break;
+        }
+        const openIndex = state.buffer.indexOf(openTag);
+        if (openIndex >= 0) {
+            const responseChunk = state.buffer.slice(0, openIndex);
+            if (state.emittedResponse || responseChunk.trim().length > 0) {
+                const holdLength = longestTagPrefixSuffix(state.buffer, openTag);
+                const literalChunk = state.buffer.slice(0, state.buffer.length - holdLength);
+                responseText += literalChunk;
+                state.emittedResponse ||= literalChunk.length > 0;
+                state.buffer = state.buffer.slice(state.buffer.length - holdLength);
+                break;
+            }
+            responseText += responseChunk;
+            state.emittedResponse ||= responseChunk.length > 0;
+            state.buffer = state.buffer.slice(openIndex + openTag.length);
+            state.mode = "thinking";
+            continue;
+        }
+        const holdLength = longestTagPrefixSuffix(state.buffer, openTag);
+        const responseChunk = state.buffer.slice(0, state.buffer.length - holdLength);
+        responseText += responseChunk;
+        state.emittedResponse ||= responseChunk.length > 0;
+        state.buffer = state.buffer.slice(state.buffer.length - holdLength);
+        break;
+    }
+    return { responseText, thinkingText };
+}
+function splitLocalThinkFinalContent(content) {
+    const state = {
+        mode: "response",
+        buffer: "",
+        emittedResponse: false
+    };
+    const result = processLocalThinkDelta(state, content);
+    if (state.buffer.length > 0) {
+        if (state.mode === "thinking")
+            result.thinkingText += state.buffer;
+        else
+            result.responseText += state.buffer;
+    }
+    return result;
+}
 function normalizeReportProgressContent(record) {
     const args = record.arguments;
     if (!args || typeof args !== "object" || Array.isArray(args))
@@ -1047,6 +1118,11 @@ export class SquadBridgeService {
             sawMessageDelta: false,
             streamedMessageContent: "",
             lastAssistantMessageContent: state.lastAssistantMessageContent,
+            localThinkState: {
+                mode: "response",
+                buffer: "",
+                emittedResponse: false
+            },
             hiddenAdditionalContext
         };
         state.currentRequest = requestContext;
@@ -1614,9 +1690,16 @@ export class SquadBridgeService {
             }
             if (!content)
                 return;
-            state.lastAssistantMessageContent = content;
-            if (state.currentRequest)
-                state.currentRequest.lastAssistantMessageContent = content;
+            const request = state.currentRequest;
+            const split = splitLocalThinkFinalContent(content);
+            const responseContent = split.thinkingText.length > 0
+                ? split.responseText
+                : content;
+            if (request && !request.sawMessageDelta && split.thinkingText.length > 0)
+                request.handlers.onThinking?.(split.thinkingText);
+            state.lastAssistantMessageContent = responseContent;
+            if (request)
+                request.lastAssistantMessageContent = responseContent;
         });
         state.session.on("message_delta", (event) => {
             const chunk = getEventRawStringValue(event, "deltaContent") ?? "";
@@ -1633,7 +1716,11 @@ export class SquadBridgeService {
             if (!request || chunk.length === 0)
                 return;
             request.sawMessageDelta = true;
-            request.streamedMessageContent += chunk;
+            const split = processLocalThinkDelta(request.localThinkState, chunk);
+            if (split.thinkingText.length > 0)
+                request.handlers.onThinking?.(split.thinkingText);
+            if (split.responseText.length > 0)
+                request.streamedMessageContent += split.responseText;
         });
         state.session.on("tool.execution_start", (event) => {
             const toolCallId = getEventStringValue(event, "toolCallId") ?? "";
