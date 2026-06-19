@@ -67,6 +67,42 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void RowActionText_LoadsUnloadedModelsBeforeNotesExist() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.NotLoaded,
+            ToolStatus: ModelProbeCheckStatus.NotLoaded);
+
+        Assert.That(result.RowActionText, Is.EqualTo("Load"));
+    }
+
+    [Test]
+    public void RowActionText_ProbesUnprobedModels() {
+        var result = new ModelProviderProbeResult("model", "http://provider/v1");
+
+        Assert.That(result.RowActionText, Is.EqualTo("Probe"));
+    }
+
+    [Test]
+    public void RowActionText_ShowsDetailsForProbedOrLoadFailedModels() {
+        var probed = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.Passed,
+            ToolStatus: ModelProbeCheckStatus.Failed);
+        var loadFailed = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            Notes: "Load failed.");
+
+        Assert.Multiple(() => {
+            Assert.That(probed.RowActionText, Is.EqualTo("Details..."));
+            Assert.That(loadFailed.RowActionText, Is.EqualTo("Details..."));
+        });
+    }
+
+    [Test]
     public async Task DiscoverModelsAsync_FallsBackToRawProviderUrlWhenV1CandidateFails() {
         var handler = new StubHttpHandler(request => {
             if (request.RequestUri!.AbsoluteUri == "http://provider/v1/models")

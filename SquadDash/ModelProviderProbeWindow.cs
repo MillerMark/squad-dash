@@ -14,8 +14,6 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly ObservableCollection<ModelProviderProbeResult> _models;
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
-    private readonly Button _liveProbeButton;
-    private readonly Button _loadButton;
     private readonly TextBlock _statusText;
 
     public string? SelectedModelId { get; private set; }
@@ -60,26 +58,12 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         DockPanel.SetDock(closeButton, Dock.Right);
         footer.Children.Add(closeButton);
 
-        _useButton = MakeButton("Use This Model", 130);
+        _useButton = MakeButton("Use Selected Model", 160);
         _useButton.IsEnabled = false;
         _useButton.Margin = new Thickness(0, 0, 8, 0);
         _useButton.Click += (_, _) => UseSelectedModel();
         DockPanel.SetDock(_useButton, Dock.Right);
         footer.Children.Add(_useButton);
-
-        _loadButton = MakeButton("Load Model", 110);
-        _loadButton.IsEnabled = false;
-        _loadButton.Margin = new Thickness(0, 0, 8, 0);
-        _loadButton.Click += LoadButton_Click;
-        DockPanel.SetDock(_loadButton, Dock.Right);
-        footer.Children.Add(_loadButton);
-
-        _liveProbeButton = MakeButton("Live Probe", 110);
-        _liveProbeButton.IsEnabled = false;
-        _liveProbeButton.Margin = new Thickness(0, 0, 8, 0);
-        _liveProbeButton.Click += LiveProbeButton_Click;
-        DockPanel.SetDock(_liveProbeButton, Dock.Right);
-        footer.Children.Add(_liveProbeButton);
 
         _statusText = new TextBlock {
             Text = models.Count == 0 ? "No models were returned by the provider." : $"{models.Count} model(s) found.",
@@ -111,7 +95,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.Columns.Add(MakeTextColumn("Chat", nameof(ModelProviderProbeResult.ChatStatusText), 90));
         _modelsGrid.Columns.Add(MakeTextColumn("Tool Probe", nameof(ModelProviderProbeResult.ToolStatusText), 100));
         _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.NoteSummary), new DataGridLength(1, DataGridLengthUnitType.Star), minWidth: 260));
-        _modelsGrid.Columns.Add(MakeDetailsColumn());
+        _modelsGrid.Columns.Add(MakeActionColumn());
 
         root.Children.Add(_modelsGrid);
     }
@@ -145,23 +129,22 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         };
     }
 
-    private static DataGridTemplateColumn MakeDetailsColumn() {
+    private static DataGridTemplateColumn MakeActionColumn() {
         var template = new DataTemplate();
         var button = new FrameworkElementFactory(typeof(Button));
-        button.SetValue(Button.ContentProperty, "Details");
         button.SetValue(FrameworkElement.HeightProperty, 24.0);
         button.SetValue(FrameworkElement.MinWidthProperty, 70.0);
         button.SetValue(Control.PaddingProperty, new Thickness(8, 2, 8, 2));
-        button.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(ModelProviderProbeResult.HasNotes)));
+        button.SetBinding(ContentControl.ContentProperty, new Binding(nameof(ModelProviderProbeResult.RowActionText)));
         button.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
-        button.AddHandler(Button.ClickEvent, new RoutedEventHandler(NotesDetailsButton_Click));
+        button.AddHandler(Button.ClickEvent, new RoutedEventHandler(RowActionButton_Click));
         template.VisualTree = button;
 
         return new DataGridTemplateColumn {
-            Header = "",
+            Header = "Action",
             CellTemplate = template,
-            Width = 86,
-            MinWidth = 80
+            Width = 104,
+            MinWidth = 96
         };
     }
 
@@ -203,23 +186,18 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         grid.RowStyle = rowStyle;
     }
 
-    private static void NotesDetailsButton_Click(object sender, RoutedEventArgs e) {
-        if (sender is not FrameworkElement { DataContext: ModelProviderProbeResult { HasNotes: true } result })
+    private static void RowActionButton_Click(object sender, RoutedEventArgs e) {
+        if (sender is not FrameworkElement { DataContext: ModelProviderProbeResult result })
             return;
 
-        var owner = Window.GetWindow((DependencyObject)sender);
-        var window = new ModelProviderProbeNoteWindow(result.ModelId, result.Notes ?? string.Empty) {
-            Owner = owner
-        };
-        window.ShowDialog();
+        if (Window.GetWindow((DependencyObject)sender) is ModelProviderProbeWindow owner)
+            owner.ExecuteRowAction(result);
         e.Handled = true;
     }
 
     private void SyncButtonState() {
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
-        _liveProbeButton.IsEnabled = hasSelection;
-        _loadButton.IsEnabled = hasSelection;
     }
 
     private void UseSelectedModel() {
@@ -231,16 +209,27 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         Close();
     }
 
-    private async void LiveProbeButton_Click(object sender, RoutedEventArgs e) {
-        if (_modelsGrid.SelectedItem is not ModelProviderProbeResult selected)
+    private void ExecuteRowAction(ModelProviderProbeResult selected) {
+        _modelsGrid.SelectedItem = selected;
+        if (selected.RowActionText == "Load") {
+            _ = LoadModelAsync(selected);
             return;
+        }
 
+        if (selected.RowActionText == "Probe") {
+            _ = RunLiveProbeAsync(selected);
+            return;
+        }
+
+        ShowDetails(selected);
+    }
+
+    private async Task RunLiveProbeAsync(ModelProviderProbeResult selected) {
         var index = _models.IndexOf(selected);
         if (index < 0)
             return;
 
-        _liveProbeButton.IsEnabled = false;
-        _useButton.IsEnabled = false;
+        SetActionButtonsEnabled(false);
         _statusText.Text = $"Running live probe for {selected.ModelId}...";
         try {
             var probed = await _probeService.RunLiveProbeAsync(_providerUrl, _apiKey, selected);
@@ -262,10 +251,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         }
     }
 
-    private async void LoadButton_Click(object sender, RoutedEventArgs e) {
-        if (_modelsGrid.SelectedItem is not ModelProviderProbeResult selected)
-            return;
-
+    private async Task LoadModelAsync(ModelProviderProbeResult selected) {
         var index = _models.IndexOf(selected);
         if (index < 0)
             return;
@@ -311,10 +297,16 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         }
     }
 
+    private void ShowDetails(ModelProviderProbeResult selected) {
+        var window = new ModelProviderProbeNoteWindow(_providerUrl, selected) {
+            Owner = this
+        };
+        window.ShowDialog();
+    }
+
     private void SetActionButtonsEnabled(bool enabled) {
         _useButton.IsEnabled = enabled;
-        _liveProbeButton.IsEnabled = enabled;
-        _loadButton.IsEnabled = enabled;
+        _modelsGrid.IsEnabled = enabled;
     }
 
     private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {
@@ -342,11 +334,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 }
 
 internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
-    private readonly string _noteText;
+    private readonly string _diagnosticText;
     private readonly TextBlock _statusText;
 
-    public ModelProviderProbeNoteWindow(string modelId, string noteText) : base(captionHeight: CloseButtonHeight) {
-        _noteText = noteText;
+    public ModelProviderProbeNoteWindow(string providerUrl, ModelProviderProbeResult result) : base(captionHeight: CloseButtonHeight) {
+        _diagnosticText = BuildDiagnosticText(providerUrl, result);
 
         Title = "Probe Details";
         Width = 780;
@@ -360,7 +352,7 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
         content.Child = root;
 
         var header = new TextBlock {
-            Text = modelId,
+            Text = result.ModelId,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10),
             FontWeight = FontWeights.SemiBold
@@ -393,7 +385,7 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
         footer.Children.Add(_statusText);
 
         var detailsBox = new TextBox {
-            Text = noteText,
+            Text = _diagnosticText,
             IsReadOnly = true,
             AcceptsReturn = true,
             AcceptsTab = true,
@@ -409,6 +401,39 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
         root.Children.Add(detailsBox);
     }
 
+    private static string BuildDiagnosticText(string providerUrl, ModelProviderProbeResult result) {
+        var lines = new List<string> {
+            "Model Probe Diagnostics",
+            "",
+            $"Provider URL: {providerUrl}",
+            $"Endpoint root: {result.ProviderEndpointRoot}",
+            $"Provider kind: {InferProviderKind(providerUrl, result)}",
+            $"Model: {result.ModelId}",
+            $"Parent: {result.ParentModel ?? "(unknown)"}",
+            $"Owner: {result.Owner ?? "(unknown)"}",
+            $"Catalog tool calling: {result.CatalogToolCallingText}",
+            $"Chat probe: {result.ChatStatusText}",
+            $"Tool probe: {result.ToolStatusText}",
+            "",
+            "Notes:",
+            string.IsNullOrWhiteSpace(result.Notes) ? "(none)" : result.Notes!
+        };
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string InferProviderKind(string providerUrl, ModelProviderProbeResult result) {
+        if (string.Equals(result.Owner, "Microsoft", StringComparison.OrdinalIgnoreCase) ||
+            result.ModelId.Contains("-cuda-gpu", StringComparison.OrdinalIgnoreCase) ||
+            providerUrl.Contains("5273", StringComparison.OrdinalIgnoreCase))
+            return "Foundry Local";
+
+        if (providerUrl.Contains("11434", StringComparison.OrdinalIgnoreCase))
+            return "Ollama";
+
+        return "OpenAI-compatible";
+    }
+
     private Button MakeButton(string text, double width) {
         var button = new Button {
             Content = text,
@@ -421,7 +446,7 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
     }
 
     private void CopyNote() {
-        Clipboard.SetText(_noteText);
+        Clipboard.SetText(_diagnosticText);
         _statusText.Text = "Copied.";
     }
 }

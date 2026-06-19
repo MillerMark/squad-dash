@@ -34,6 +34,18 @@ internal sealed record ModelProviderProbeResult(
     public string ToolStatusText => StatusText(ToolStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
     public string NoteSummary => SummarizeNote(Notes);
+    public bool HasProbeResult => ChatStatus != ModelProbeCheckStatus.NotRun ||
+                                  ToolStatus != ModelProbeCheckStatus.NotRun;
+    public string RowActionText =>
+        IsLoadFailure
+            ? "Details..."
+            : ChatStatus == ModelProbeCheckStatus.NotLoaded || ToolStatus == ModelProbeCheckStatus.NotLoaded
+                ? "Load"
+                : HasProbeResult || HasNotes
+                ? "Details..."
+                : "Probe";
+    private bool IsLoadFailure =>
+        Notes?.Contains("Load failed", StringComparison.OrdinalIgnoreCase) == true;
 
     private static string StatusText(ModelProbeCheckStatus status) => status switch {
         ModelProbeCheckStatus.Passed => "Passed",
