@@ -69,6 +69,18 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void NoteSummary_ShowsConciseInstructionForUnloadedModels() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.NotLoaded,
+            ToolStatus: ModelProbeCheckStatus.NotLoaded,
+            Notes: "Chat probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient.");
+
+        Assert.That(result.NoteSummary, Is.EqualTo("Not loaded. Click Load to load this model."));
+    }
+
+    [Test]
     public void RowActionText_LoadsUnloadedModelsBeforeNotesExist() {
         var result = new ModelProviderProbeResult(
             "model",
@@ -77,6 +89,21 @@ internal sealed class ModelProviderProbeServiceTests {
             ToolStatus: ModelProbeCheckStatus.NotLoaded);
 
         Assert.That(result.RowActionText, Is.EqualTo("Load"));
+    }
+
+    [Test]
+    public void RowActionText_ProbesModelsAfterSuccessfulLoad() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.NotRun,
+            ToolStatus: ModelProbeCheckStatus.NotRun,
+            Notes: "Chat probe returned 400 Bad Request: Model is not loaded. Load succeeded: loaded exit=0");
+
+        Assert.Multiple(() => {
+            Assert.That(result.RowActionText, Is.EqualTo("Probe"));
+            Assert.That(result.NoteSummary, Is.EqualTo("Loaded. Click Probe to test this model."));
+        });
     }
 
     [Test]

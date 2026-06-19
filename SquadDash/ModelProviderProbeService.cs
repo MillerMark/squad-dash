@@ -38,7 +38,7 @@ internal sealed record ModelProviderProbeResult(
     public string ChatStatusDisplay => StatusDisplay(ChatStatus);
     public string ToolStatusDisplay => StatusDisplay(ToolStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
-    public string NoteSummary => SummarizeNote(Notes);
+    public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes);
     public string CatalogSummary => SummarizeNote(CatalogNotes);
     public bool HasProbeResult => ChatStatus != ModelProbeCheckStatus.NotRun ||
                                   ToolStatus != ModelProbeCheckStatus.NotRun;
@@ -47,11 +47,15 @@ internal sealed record ModelProviderProbeResult(
             ? "Details..."
             : ChatStatus == ModelProbeCheckStatus.NotLoaded || ToolStatus == ModelProbeCheckStatus.NotLoaded
                 ? "Load"
+                : IsLoadSuccess && !HasProbeResult
+                ? "Probe"
                 : HasProbeResult || HasNotes
                 ? "Details..."
                 : "Probe";
     private bool IsLoadFailure =>
         Notes?.Contains("Load failed", StringComparison.OrdinalIgnoreCase) == true;
+    private bool IsLoadSuccess =>
+        Notes?.Contains("Load succeeded", StringComparison.OrdinalIgnoreCase) == true;
 
     private static string StatusText(ModelProbeCheckStatus status) => status switch {
         ModelProbeCheckStatus.Passed => "Passed",
@@ -68,6 +72,21 @@ internal sealed record ModelProviderProbeResult(
         ModelProbeCheckStatus.NotLoaded => "Not loaded",
         _ => "Not run"
     };
+
+    private static string BuildNoteSummary(
+        ModelProbeCheckStatus chatStatus,
+        ModelProbeCheckStatus toolStatus,
+        string? note) {
+        if (chatStatus == ModelProbeCheckStatus.NotLoaded || toolStatus == ModelProbeCheckStatus.NotLoaded)
+            return "Not loaded. Click Load to load this model.";
+
+        if (chatStatus == ModelProbeCheckStatus.NotRun &&
+            toolStatus == ModelProbeCheckStatus.NotRun &&
+            note?.Contains("Load succeeded", StringComparison.OrdinalIgnoreCase) == true)
+            return "Loaded. Click Probe to test this model.";
+
+        return SummarizeNote(note);
+    }
 
     private static string SummarizeNote(string? note) {
         if (string.IsNullOrWhiteSpace(note))
