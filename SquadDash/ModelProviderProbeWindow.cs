@@ -302,11 +302,21 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             : $"Loaded GPU models: {string.Join(", ", loadedGpuModels)}";
 
         foreach (var gpu in status.GpuMemory.OrderBy(gpu => gpu.Index)) {
-            host.Children.Add(BuildGpuMemoryRow(gpu, loadedText));
+            host.Children.Add(BuildGpuMemoryRow(gpu));
         }
+
+        var loadedLine = new TextBlock {
+            Text = loadedText ?? "Loaded GPU models: none reported",
+            Margin = new Thickness(260, 0, 140, 0),
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        loadedLine.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        loadedLine.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        host.Children.Add(loadedLine);
     }
 
-    private FrameworkElement BuildGpuMemoryRow(LocalGpuMemoryInfo gpu, string? loadedText) {
+    private FrameworkElement BuildGpuMemoryRow(LocalGpuMemoryInfo gpu) {
         var row = new DockPanel {
             Height = 30,
             LastChildFill = true,
@@ -340,8 +350,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var free = Math.Max(0, total - used);
         var bar = new Grid {
             Height = 22,
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = loadedText
+            VerticalAlignment = VerticalAlignment.Center
         };
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.1, used), GridUnitType.Star) });
         bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.1, free), GridUnitType.Star) });
@@ -355,18 +364,6 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         freeBorder.SetResourceReference(Border.BackgroundProperty, "MemoryFree");
         Grid.SetColumn(freeBorder, 1);
         bar.Children.Add(freeBorder);
-
-        var overlayText = new TextBlock {
-            Text = loadedText ?? "No loaded GPU models reported",
-            Margin = new Thickness(8, 0, 8, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        };
-        overlayText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-        overlayText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-        Grid.SetColumnSpan(overlayText, 2);
-        bar.Children.Add(overlayText);
 
         var frame = new Border {
             Child = bar,
