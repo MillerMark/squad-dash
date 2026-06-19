@@ -20,6 +20,7 @@ internal sealed record ModelProviderProbeResult(
     string? ParentModel = null,
     string? Owner = null,
     bool? CatalogSupportsToolCalling = null,
+    string? CatalogNotes = null,
     ModelProbeCheckStatus ChatStatus = ModelProbeCheckStatus.NotRun,
     ModelProbeCheckStatus ToolStatus = ModelProbeCheckStatus.NotRun,
     string? Notes = null) {
@@ -34,6 +35,7 @@ internal sealed record ModelProviderProbeResult(
     public string ToolStatusText => StatusText(ToolStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
     public string NoteSummary => SummarizeNote(Notes);
+    public string CatalogSummary => SummarizeNote(CatalogNotes);
     public bool HasProbeResult => ChatStatus != ModelProbeCheckStatus.NotRun ||
                                   ToolStatus != ModelProbeCheckStatus.NotRun;
     public string RowActionText =>
@@ -199,7 +201,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 ParentModel: GetString(item, "parent") ?? GetString(item, "base_model"),
                 Owner: GetString(item, "owned_by") ?? GetString(item, "publisher"),
                 CatalogSupportsToolCalling: TryGetToolCallingSupport(item),
-                Notes: BuildCatalogNotes(item)));
+                CatalogNotes: BuildCatalogNotes(item)));
         }
 
         return results

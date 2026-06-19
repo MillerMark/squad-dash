@@ -47,6 +47,8 @@ internal sealed class ModelProviderProbeServiceTests {
             Assert.That(results[0].ParentModel, Is.EqualTo("base-model"));
             Assert.That(results[0].Owner, Is.EqualTo("Microsoft"));
             Assert.That(results[0].CatalogSupportsToolCalling, Is.True);
+            Assert.That(results[0].CatalogNotes, Does.Contain("object=model"));
+            Assert.That(results[0].Notes, Is.Null);
         });
     }
 
@@ -79,7 +81,10 @@ internal sealed class ModelProviderProbeServiceTests {
 
     [Test]
     public void RowActionText_ProbesUnprobedModels() {
-        var result = new ModelProviderProbeResult("model", "http://provider/v1");
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            CatalogNotes: "object=model; catalogSuccess=True");
 
         Assert.That(result.RowActionText, Is.EqualTo("Probe"));
     }

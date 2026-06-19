@@ -29,7 +29,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _models = new ObservableCollection<ModelProviderProbeResult>(models);
 
         Title = "Model Probe";
-        Width = 980;
+        Width = 1300;
         Height = 620;
         MinWidth = 760;
         MinHeight = 460;
@@ -412,6 +412,7 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
             $"Parent: {result.ParentModel ?? "(unknown)"}",
             $"Owner: {result.Owner ?? "(unknown)"}",
             $"Catalog tool calling: {result.CatalogToolCallingText}",
+            $"Catalog notes: {result.CatalogNotes ?? "(none)"}",
             $"Chat probe: {result.ChatStatusText}",
             $"Tool probe: {result.ToolStatusText}",
             "",
