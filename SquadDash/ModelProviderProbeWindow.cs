@@ -30,7 +30,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
     private readonly Button _copyAllButton;
-    private readonly Button? _cleanFoundryButton;
+    private Button? _cleanFoundryButton;
     private readonly Button _closeButton;
     private readonly TextBlock _statusText;
     private readonly string? _initialModelId;
@@ -80,10 +80,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         content.Child = root;
 
         var summary = new TextBlock {
-            Text = $"Provider: {_providerUrl}\nSelect one model to run a live chat/tool probe. Live probes can load that model, so run them one at a time.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
         };
+        summary.Inlines.Add(new Run("Provider: "));
+        summary.Inlines.Add(new Run(_providerUrl) { FontWeight = FontWeights.Bold });
+        summary.Inlines.Add(new LineBreak());
+        summary.Inlines.Add(new Run("Select one model to run a live chat/tool probe. Live probes can load that model, so run them one at a time."));
         summary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         DockPanel.SetDock(summary, Dock.Top);
@@ -167,15 +170,6 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _copyAllButton.Click += (_, _) => CopyAllDetails();
         DockPanel.SetDock(_copyAllButton, Dock.Right);
         footer.Children.Add(_copyAllButton);
-
-        if (_canLoadFoundryModels) {
-            _cleanFoundryButton = MakeButton("Unload Loaded Models", 168);
-            _cleanFoundryButton.IsEnabled = _loadedFoundryUnloadIds.Count > 0;
-            _cleanFoundryButton.Margin = new Thickness(0, 0, 8, 0);
-            _cleanFoundryButton.Click += (_, _) => _ = UnloadLoadedFoundryModelsAsync();
-            DockPanel.SetDock(_cleanFoundryButton, Dock.Right);
-            footer.Children.Add(_cleanFoundryButton);
-        }
 
         _statusText = new TextBlock {
             Text = models.Count == 0 ? "No models were returned by the provider." : $"{models.Count} model(s) found.",
@@ -291,6 +285,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var host = new StackPanel {
             Margin = new Thickness(0, 0, 0, 12)
         };
+        Grid.SetIsSharedSizeScope(host, true);
         PopulateMemoryPanel(host, status);
         return host;
     }
@@ -309,32 +304,45 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private FrameworkElement BuildGpuMemoryRow(LocalGpuMemoryInfo gpu) {
-        var row = new DockPanel {
+        var row = new Grid {
             Height = 30,
-            LastChildFill = true,
             Margin = new Thickness(0, 0, 0, 4)
         };
+        row.ColumnDefinitions.Add(new ColumnDefinition {
+            Width = GridLength.Auto,
+            SharedSizeGroup = "ProbeGpuLabel"
+        });
+        row.ColumnDefinitions.Add(new ColumnDefinition {
+            Width = new GridLength(1, GridUnitType.Star),
+            MinWidth = 160
+        });
+        row.ColumnDefinitions.Add(new ColumnDefinition {
+            Width = GridLength.Auto,
+            SharedSizeGroup = "ProbeGpuMemory"
+        });
 
         var label = new TextBlock {
-            Text = $"GPU {gpu.Index}: {gpu.Name}",
-            Width = 260,
             VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 8, 0)
         };
+        label.Inlines.Add(new Run($"GPU {gpu.Index}: "));
+        label.Inlines.Add(new Run(gpu.Name) { FontWeight = FontWeights.Bold });
         label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        DockPanel.SetDock(label, Dock.Left);
+        Grid.SetColumn(label, 0);
         row.Children.Add(label);
 
         var totalText = new TextBlock {
-            Text = $"{gpu.FreeMiB:N0} MB free (out of {gpu.TotalMiB:N0} MB)",
-            Width = 230,
             TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
         };
+        totalText.Inlines.Add(new Run($"{gpu.FreeMiB:N0} MB free") { FontWeight = FontWeights.Bold });
+        totalText.Inlines.Add(new Run($" (out of {gpu.TotalMiB:N0} MB)"));
         totalText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         totalText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        DockPanel.SetDock(totalText, Dock.Right);
+        Grid.SetColumn(totalText, 2);
         row.Children.Add(totalText);
 
         var total = Math.Max(1, gpu.TotalMiB);
@@ -349,6 +357,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
         var usedBorder = new Border();
         usedBorder.SetResourceReference(Border.BackgroundProperty, "MemoryOccupied");
+        usedBorder.ToolTip = $"{used:N0} MB used";
         Grid.SetColumn(usedBorder, 0);
         bar.Children.Add(usedBorder);
 
@@ -356,8 +365,10 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             Text = $"\u2190 {used:N0} MB used \u2192",
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            FontWeight = FontWeights.Bold,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(4, 0, 4, 0)
+            Margin = new Thickness(4, 0, 4, 0),
+            ToolTip = $"{used:N0} MB used"
         };
         usedText.SetResourceReference(TextBlock.ForegroundProperty, "MemoryOccupiedIndicator");
         usedText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
@@ -374,6 +385,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             BorderThickness = new Thickness(1)
         };
         frame.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+        Grid.SetColumn(frame, 1);
         row.Children.Add(frame);
 
         return row;
@@ -388,8 +400,24 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             ? "none reported"
             : string.Join(", ", loadedModels);
 
+        var row = new Grid {
+            Margin = new Thickness(0, 0, 0, 0)
+        };
+        row.ColumnDefinitions.Add(new ColumnDefinition {
+            Width = GridLength.Auto,
+            SharedSizeGroup = "ProbeGpuLabel"
+        });
+        row.ColumnDefinitions.Add(new ColumnDefinition {
+            Width = new GridLength(1, GridUnitType.Star),
+            MinWidth = 160
+        });
+        row.ColumnDefinitions.Add(new ColumnDefinition {
+            Width = GridLength.Auto,
+            SharedSizeGroup = "ProbeGpuMemory"
+        });
+
         var line = new TextBlock {
-            Margin = new Thickness(260, 0, 230, 0),
+            Margin = new Thickness(0, 0, 8, 0),
             TextWrapping = TextWrapping.Wrap,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
@@ -397,7 +425,19 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         line.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         line.Inlines.Add(new Run("Loaded models: "));
         line.Inlines.Add(new Run(modelText) { FontWeight = FontWeights.Bold });
-        return line;
+        Grid.SetColumn(line, 0);
+        Grid.SetColumnSpan(line, 2);
+        row.Children.Add(line);
+
+        if (_canLoadFoundryModels) {
+            _cleanFoundryButton = MakeButton("Unload Loaded Models", 168);
+            _cleanFoundryButton.IsEnabled = _loadedFoundryUnloadIds.Count > 0;
+            _cleanFoundryButton.Click += (_, _) => _ = UnloadLoadedFoundryModelsAsync();
+            Grid.SetColumn(_cleanFoundryButton, 2);
+            row.Children.Add(_cleanFoundryButton);
+        }
+
+        return row;
     }
 
     private Button MakeButton(string text, double width) {
