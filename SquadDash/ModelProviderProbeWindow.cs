@@ -59,8 +59,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                 Padding = new Thickness(10, 8, 10, 8),
                 FontWeight = FontWeights.SemiBold
             };
-            warning.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC4, 0x66));
-            warning.Background = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xA5, 0x00));
+            warning.SetResourceReference(TextBlock.ForegroundProperty, "SystemErrorText");
+            warning.SetResourceReference(TextBlock.BackgroundProperty, "ChipFailedSurface");
             DockPanel.SetDock(warning, Dock.Top);
             root.Children.Add(warning);
         }
