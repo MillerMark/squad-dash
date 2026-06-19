@@ -98,8 +98,8 @@
     <SolidColorBrush x:Key="UserPromptPrefixText" Color="#7672A8"/>
     <SolidColorBrush x:Key="VoiceAnnotationText" Color="#A09AB8"/>
     <SolidColorBrush x:Key="SelfHandledText" Color="#AC9D8E"/>
-    <SolidColorBrush x:Key="SystemErrorText" Color="#CC2222"/>
-    <SolidColorBrush x:Key="SystemErrorBackground" Color="#230303"/>
+    <SolidColorBrush x:Key="SystemErrorText" Color="#420B0B"/>
+    <SolidColorBrush x:Key="SystemErrorBackground" Color="#E0C1C1"/>
     <SolidColorBrush x:Key="AbortButtonText"  Color="#991010"/>
     <SolidColorBrush x:Key="SystemInfoText" Color="#B8860B"/>
     <SolidColorBrush x:Key="TaskSuccessText" Color="#226B22"/>
