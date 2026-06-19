@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -175,7 +176,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
         _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
         _modelsGrid.Columns.Add(MakeStatusColumn("Chat", nameof(ModelProviderProbeResult.ChatStatus), nameof(ModelProviderProbeResult.ChatStatusDisplay), 100));
-        _modelsGrid.Columns.Add(MakeStatusColumn("Tooling", nameof(ModelProviderProbeResult.ToolStatus), nameof(ModelProviderProbeResult.ToolStatusDisplay), 120));
+        _modelsGrid.Columns.Add(MakeStatusColumn("Tools", nameof(ModelProviderProbeResult.ToolStatus), nameof(ModelProviderProbeResult.ToolStatusDisplay), 120));
         _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.NoteSummary), new DataGridLength(1, DataGridLengthUnitType.Star), minWidth: 260));
         _modelsGrid.Columns.Add(MakeActionColumn());
 
@@ -233,7 +234,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             ElementStyle = new Style(typeof(TextBlock)) {
                 Setters = {
                     new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap),
-                    new Setter(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center)
+                    new Setter(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center),
+                    new Setter(FrameworkElement.MarginProperty, new Thickness(6, 0, 6, 0))
                 }
             }
         };
@@ -244,6 +246,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var text = new FrameworkElementFactory(typeof(TextBlock));
         text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
         text.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+        text.SetValue(FrameworkElement.MarginProperty, new Thickness(6, 0, 6, 0));
         text.SetBinding(TextBlock.TextProperty, new Binding(textPath));
         text.SetBinding(TextBlock.ForegroundProperty, new Binding(statusPath) {
             Converter = ProbeStatusBrushConverter.Instance
@@ -263,6 +266,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var button = new FrameworkElementFactory(typeof(Button));
         button.SetValue(FrameworkElement.HeightProperty, 24.0);
         button.SetValue(FrameworkElement.MinWidthProperty, 70.0);
+        button.SetValue(FrameworkElement.MarginProperty, new Thickness(6, 0, 6, 0));
         button.SetValue(Control.PaddingProperty, new Thickness(8, 2, 8, 2));
         button.SetBinding(ContentControl.ContentProperty, new Binding(nameof(ModelProviderProbeResult.RowActionText)));
         button.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
@@ -399,15 +403,18 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
         SetActionButtonsEnabled(false);
         _statusText.Text = $"Running live probe for {selected.ModelId}...";
+        var ticker = StartStatusTicker(index, "Probing");
         try {
             _models[index] = selected with { Notes = "Probing..." };
             _modelsGrid.SelectedIndex = index;
             var probed = await _probeService.RunLiveProbeAsync(_providerUrl, _apiKey, selected);
+            ticker.Stop();
             _models[index] = probed;
             _modelsGrid.SelectedItem = probed;
             _statusText.Text = $"Live probe complete for {selected.ModelId}.";
         }
         catch (Exception ex) {
+            ticker.Stop();
             _models[index] = selected with {
                 ChatStatus = ModelProbeCheckStatus.Failed,
                 ToolStatus = ModelProbeCheckStatus.Failed,
@@ -433,11 +440,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
         SetActionButtonsEnabled(false);
         _statusText.Text = $"Loading {selected.ModelId} with Foundry...";
+        var ticker = StartStatusTicker(index, "Loading");
         try {
             _models[index] = selected with { Notes = "Loading..." };
             _modelsGrid.SelectedIndex = index;
             var unloadNote = await UnloadCurrentFoundryModelBeforeLoadAsync(selected.ModelId);
             var result = await _probeService.LoadFoundryModelAsync(selected.ModelId);
+            ticker.Stop();
             var diagnosticNote = result.Success
                 ? BuildLoadNote("Load succeeded", result)
                 : BuildLoadNote("Load failed", result);
@@ -474,6 +483,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             }
         }
         catch (OperationCanceledException) {
+            ticker.Stop();
             _models[index] = selected with {
                 Notes = AppendNote(selected.Notes, "Load canceled.")
             };
@@ -481,6 +491,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _statusText.Text = $"Load canceled for {selected.ModelId}.";
         }
         catch (Exception ex) {
+            ticker.Stop();
             _models[index] = selected with {
                 Notes = AppendNote(selected.Notes, "Load failed."),
                 DiagnosticNotes = AppendDiagnosticNote(selected.DiagnosticNotes, $"Load failed: {ex.Message}")
@@ -579,6 +590,25 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             Owner = this
         };
         window.ShowDialog();
+    }
+
+    private DispatcherTimer StartStatusTicker(int index, string label) {
+        var started = DateTimeOffset.UtcNow;
+        var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        timer.Tick += (_, _) => UpdateTimedStatusNote(index, label, started);
+        timer.Start();
+        return timer;
+    }
+
+    private void UpdateTimedStatusNote(int index, string label, DateTimeOffset started) {
+        if (index < 0 || index >= _models.Count)
+            return;
+
+        var seconds = Math.Max(1, (int)Math.Floor((DateTimeOffset.UtcNow - started).TotalSeconds));
+        _models[index] = _models[index] with { Notes = $"{label}... ({seconds}s)" };
+        _modelsGrid.SelectedIndex = index;
     }
 
     private void CopyAllDetails() {
