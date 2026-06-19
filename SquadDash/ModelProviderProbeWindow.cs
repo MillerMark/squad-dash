@@ -317,8 +317,16 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private void SyncButtonState() {
-        _isBusy = false;
+        if (_isBusy) {
+            _modelsGrid.IsEnabled = false;
+            _modelsGrid.IsHitTestVisible = false;
+            _useButton.IsEnabled = false;
+            _closeButton.IsEnabled = false;
+            return;
+        }
+
         _modelsGrid.IsEnabled = true;
+        _modelsGrid.IsHitTestVisible = true;
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
         _closeButton.IsEnabled = true;
@@ -341,6 +349,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private void UseSelectedModel() {
+        if (_isBusy) {
+            _statusText.Text = "Wait for the current load or probe to finish.";
+            return;
+        }
+
         if (_modelsGrid.SelectedItem is not ModelProviderProbeResult selected)
             return;
 
@@ -349,6 +362,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private void ExecuteRowAction(ModelProviderProbeResult selected) {
+        if (_isBusy) {
+            _statusText.Text = "Wait for the current load or probe to finish.";
+            return;
+        }
+
         _modelsGrid.SelectedItem = selected;
         if (selected.RowActionText == "Load" && _canLoadFoundryModels) {
             _ = LoadModelAsync(selected, probeAfterLoad: selected.ChatStatus == ModelProbeCheckStatus.NotLoaded ||
@@ -389,7 +407,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _statusText.Text = $"Live probe failed: {ex.Message}";
         }
         finally {
-            SyncButtonState();
+            SetActionButtonsEnabled(true);
         }
     }
 
@@ -461,7 +479,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _statusText.Text = $"Load failed: {ex.Message}";
         }
         finally {
-            SyncButtonState();
+            SetActionButtonsEnabled(true);
         }
     }
 
@@ -541,7 +559,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             }
             else {
                 _closeFinalizationStarted = false;
-                SyncButtonState();
+                SetActionButtonsEnabled(true);
             }
         }
     }
@@ -555,9 +573,10 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
     private void SetActionButtonsEnabled(bool enabled) {
         _isBusy = !enabled;
-        _useButton.IsEnabled = enabled;
         _modelsGrid.IsEnabled = enabled;
+        _modelsGrid.IsHitTestVisible = enabled;
         _closeButton.IsEnabled = enabled;
+        _useButton.IsEnabled = enabled && _modelsGrid.SelectedItem is ModelProviderProbeResult;
     }
 
     private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {
