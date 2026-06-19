@@ -800,6 +800,10 @@
                               Click="ThemeRevealMenuItem_Click" />
                     <MenuItem Header="Show _Trace Window"
                               Click="ShowTraceWindowMenuItem_Click" />
+                    <MenuItem x:Name="SquadBridgeDiagnosticsMenuItem"
+                              Header="Squad _Bridge Diagnostics"
+                              IsCheckable="True"
+                              Click="SquadBridgeDiagnosticsMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Simulation"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"

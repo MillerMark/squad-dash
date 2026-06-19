@@ -684,9 +684,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _screenshotRefreshOptions = screenshotRefreshOptions ?? ScreenshotRefreshOptions.None;
         var ctorSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
+        var initialSettings = _settingsStore.Load();
         _bridge = new SquadSdkProcess(_workspacePaths);
-        _bridge.ByokProviderSettings = BuildByokSettingsFromStore();
-        _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(_settingsStore.Load());
+        _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
+        _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(initialSettings);
+        _bridge.BridgeDiagnosticsEnabled = initialSettings.BridgeDiagnosticsEnabled;
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
         _noWorkspaceOnStart    = noWorkspaceOnStart;
@@ -2157,6 +2159,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var initWsSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
         _settingsSnapshot = _settingsStore.Load();
+        _bridge.BridgeDiagnosticsEnabled = _settingsSnapshot.BridgeDiagnosticsEnabled;
+        RefreshBridgeDiagnosticsMenuCheckmark();
         AgentStatusCard.AvatarsSettingEnabled = _settingsSnapshot.ShowAgentAvatars;
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: settings loaded {initWsSw.ElapsedMilliseconds}ms.");
         _promptFontSize = Math.Clamp(_settingsSnapshot.PromptFontSize, PromptFontSizeMin, PromptFontSizeMax);
@@ -26745,11 +26749,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _codeHealthMdWatcher = null;
     }
 
-    private ByokProviderSettings? BuildByokSettingsFromStore()
-    {
-        return BuildByokSettings(_settingsStore.Load());
-    }
-
     private static ByokProviderSettings? BuildByokSettings(ApplicationSettingsSnapshot snapshot)
     {
         if (snapshot.ModelProvider != ModelProvider.Custom)
@@ -33917,6 +33916,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     private void ShowTraceWindowMenuItem_Click(object sender, RoutedEventArgs e) => ShowTraceWindow();
+
+    private void SquadBridgeDiagnosticsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var enabled = SquadBridgeDiagnosticsMenuItem?.IsChecked == true;
+            _settingsSnapshot = _settingsStore.SaveBridgeDiagnosticsEnabled(enabled);
+            _bridge.BridgeDiagnosticsEnabled = _settingsSnapshot.BridgeDiagnosticsEnabled;
+            RefreshBridgeDiagnosticsMenuCheckmark();
+            RestartBridgeForSettingsWhenIdle("bridge-diagnostics-changed");
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SquadBridgeDiagnosticsMenuItem_Click), ex);
+        }
+    }
+
+    private void RefreshBridgeDiagnosticsMenuCheckmark()
+    {
+        if (SquadBridgeDiagnosticsMenuItem is not null)
+            SquadBridgeDiagnosticsMenuItem.IsChecked = _settingsSnapshot.BridgeDiagnosticsEnabled;
+    }
 
     private void ShowTraceWindow()
     {

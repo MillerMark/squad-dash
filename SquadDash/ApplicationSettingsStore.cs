@@ -381,6 +381,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveBridgeDiagnosticsEnabled(bool enabled) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { BridgeDiagnosticsEnabled = enabled };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveTheme(string theme) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1101,6 +1109,12 @@ internal sealed record ApplicationSettingsSnapshot(
     public IReadOnlyDictionary<string, DeveloperRuntimeIssueSimulation> RuntimeIssueSimulationByWorkspace { get; init; } =
         new Dictionary<string, DeveloperRuntimeIssueSimulation>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// When true, enables verbose Squad SDK bridge diagnostics in the bridge child process.
+    /// Intended for developer troubleshooting and off by default.
+    /// </summary>
+    public bool BridgeDiagnosticsEnabled { get; init; } = false;
+
     public DeveloperStartupIssueSimulation GetStartupIssueSimulation(string workspaceFolder) {
         if (string.IsNullOrEmpty(workspaceFolder)) return DeveloperStartupIssueSimulation.None;
         var key = Path.GetFullPath(workspaceFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -1706,6 +1720,7 @@ internal sealed record ApplicationSettingsSnapshot(
             AccentHueOffsetByWorkspace = normalizedAccentOffsets,
             StartupIssueSimulationByWorkspace = normalizedStartupSimulations,
             RuntimeIssueSimulationByWorkspace = normalizedRuntimeSimulations,
+            BridgeDiagnosticsEnabled = BridgeDiagnosticsEnabled,
             HomeBranchByWorkspace = normalizedHomeBranches,
             FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),
         };

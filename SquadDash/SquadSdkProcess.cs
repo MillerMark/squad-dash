@@ -56,6 +56,11 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     internal ByokProviderSettings? ByokProviderSettings { get; set; }
 
     /// <summary>
+    /// Enables verbose diagnostics from the JavaScript bridge child process.
+    /// </summary>
+    internal bool BridgeDiagnosticsEnabled { get; set; }
+
+    /// <summary>
     /// Optional GitHub Copilot model override passed to new SDK sessions. Null means
     /// the bridge lets the Copilot/Squad runtime choose automatically.
     /// </summary>
@@ -632,17 +637,17 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             if (byok.OfflineMode)
                 psi.EnvironmentVariables["COPILOT_OFFLINE"] = "true";
 
-            if (string.Equals(
-                    Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS"),
-                    "true",
-                    StringComparison.OrdinalIgnoreCase)) {
-                psi.EnvironmentVariables["SQUADDASH_BRIDGE_DIAGNOSTICS"] = "true";
-            }
-
             SquadDashTrace.Write("Bridge",
                 $"BYOK active — url={providerUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")} offline={byok.OfflineMode}");
         } else {
             SquadDashTrace.Write("Bridge", "BYOK not configured — using default GitHub Copilot provider.");
+        }
+
+        if (BridgeDiagnosticsEnabled || string.Equals(
+                Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS"),
+                "true",
+                StringComparison.OrdinalIgnoreCase)) {
+            psi.EnvironmentVariables["SQUADDASH_BRIDGE_DIAGNOSTICS"] = "true";
         }
 
         var applicationRoot = _workspacePaths?.ApplicationRoot

@@ -400,6 +400,16 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
+    public void SaveBridgeDiagnosticsEnabled_PersistsGlobally() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        store.SaveBridgeDiagnosticsEnabled(true);
+
+        Assert.That(store.Load().BridgeDiagnosticsEnabled, Is.True);
+    }
+
+    [Test]
     public void Load_WhenFileDoesNotExist_ReturnsDefaultSnapshot() {
         using var workspace = new TestWorkspace();
         var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
