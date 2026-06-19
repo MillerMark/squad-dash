@@ -198,12 +198,14 @@ internal sealed class ModelProviderProbeServiceTests {
 
     [Test]
     public async Task RunLiveProbeAsync_DetectsStructuredToolCall() {
+        string? toolProbeBody = null;
         var handler = new StubHttpHandler(request => {
             if (request.RequestUri!.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))
                 return JsonResponse("""{ "data": [ { "id": "tool-model" } ] }""");
 
             var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-            if (body.Contains("\"tools\"", StringComparison.Ordinal))
+            if (body.Contains("\"tools\"", StringComparison.Ordinal)) {
+                toolProbeBody = body;
                 return JsonResponse("""
                     {
                       "choices": [
@@ -223,6 +225,7 @@ internal sealed class ModelProviderProbeServiceTests {
                       ]
                     }
                     """);
+            }
 
             return JsonResponse("""
                 {
@@ -241,6 +244,8 @@ internal sealed class ModelProviderProbeServiceTests {
         Assert.Multiple(() => {
             Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
             Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
+            Assert.That(toolProbeBody, Does.Contain("\"tool_choice\""));
+            Assert.That(toolProbeBody, Does.Contain("\"name\":\"report_probe\""));
         });
     }
 

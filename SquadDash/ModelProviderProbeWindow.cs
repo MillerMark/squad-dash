@@ -675,20 +675,19 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
 internal sealed class ProbeStatusBrushConverter : IValueConverter {
     public static readonly ProbeStatusBrushConverter Instance = new();
 
-    private static readonly Brush PassedBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0xA9, 0xFF));
-    private static readonly Brush FailedBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x6B, 0x6B));
-    private static readonly Brush WaitingBrush = new SolidColorBrush(Color.FromRgb(0xC8, 0xA8, 0xFF));
-
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
         return value switch {
-            ModelProbeCheckStatus.Passed => PassedBrush,
-            ModelProbeCheckStatus.Failed => FailedBrush,
-            ModelProbeCheckStatus.TimedOut => FailedBrush,
-            ModelProbeCheckStatus.NotLoaded => WaitingBrush,
-            _ => Application.Current.TryFindResource("LabelText") as Brush ?? Brushes.LightGray
+            ModelProbeCheckStatus.Passed => FindBrush("StatusSuccess", Brushes.DodgerBlue),
+            ModelProbeCheckStatus.Failed => FindBrush("StatusFailure", Brushes.IndianRed),
+            ModelProbeCheckStatus.TimedOut => FindBrush("StatusFailure", Brushes.IndianRed),
+            ModelProbeCheckStatus.NotLoaded => FindBrush("StatusPending", Brushes.MediumPurple),
+            _ => FindBrush("LabelText", Brushes.LightGray)
         };
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         Binding.DoNothing;
+
+    private static Brush FindBrush(string resourceKey, Brush fallback) =>
+        Application.Current.TryFindResource(resourceKey) as Brush ?? fallback;
 }

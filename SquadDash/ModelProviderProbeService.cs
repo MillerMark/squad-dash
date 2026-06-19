@@ -437,7 +437,12 @@ internal sealed class ModelProviderProbeService : IDisposable {
                     }
                 }
             },
-            tool_choice = "auto",
+            tool_choice = new {
+                type = "function",
+                function = new {
+                    name = "report_probe"
+                }
+            },
             max_tokens = 64,
             stream = false
         };
