@@ -615,7 +615,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         var body = new {
             model = modelId,
             messages = new[] {
-                new { role = "user", content = "Use the report_probe tool with result set to OK." }
+                new { role = "user", content = "/no_think Use the report_probe tool with result set to OK. Do not explain." }
             },
             tools = new[] {
                 new {
@@ -639,7 +639,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
                     name = "report_probe"
                 }
             },
-            max_tokens = 64,
+            max_tokens = 128,
             stream = false
         };
 

@@ -360,6 +360,8 @@ internal sealed class ModelProviderProbeServiceTests {
             Assert.That(probed.Notes, Is.EqualTo("Probe succeeded."));
             Assert.That(toolProbeBody, Does.Contain("\"tool_choice\""));
             Assert.That(toolProbeBody, Does.Contain("\"name\":\"report_probe\""));
+            Assert.That(toolProbeBody, Does.Contain("/no_think"));
+            Assert.That(toolProbeBody, Does.Contain("\"max_tokens\":128"));
         });
     }
 

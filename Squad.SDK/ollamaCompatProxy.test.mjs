@@ -53,6 +53,16 @@ test("Foundry server status parser reads active web URL", () => {
     assert.equal(url, "http://127.0.0.1:55824");
 });
 
+test("Foundry server status parser rejects stopped server", () => {
+    assert.throws(
+        () => parseFoundryServerStatusUrl(JSON.stringify({
+            running: false,
+            state: "not_running",
+            webUrls: ["http://127.0.0.1:55824"]
+        })),
+        /not running/);
+});
+
 test("Foundry target resolver uses server status URL", () => {
     const url = resolveFoundryServerUrl((fileName, args) => {
         assert.equal(fileName, "foundry");
@@ -68,6 +78,21 @@ test("Target resolver accepts Foundry local target alias", () => {
         JSON.stringify({ webUrls: ["http://127.0.0.1:55824"] }));
 
     assert.equal(url.href, "http://127.0.0.1:55824/");
+});
+
+test("Default Foundry target remains refreshable after worker parsing", () => {
+    const workers = parseTargetWorkers(
+        undefined,
+        {
+            name: "foundry",
+            url: new URL("http://127.0.0.1:55824"),
+            targetKind: "foundry",
+            targetResolvedAt: 123
+        });
+
+    assert.equal(workers[0].url.href, "http://127.0.0.1:55824/");
+    assert.equal(workers[0].targetKind, "foundry");
+    assert.equal(workers[0].targetResolvedAt, 123);
 });
 
 test("Local capability profile defaults to full tool access", () => {

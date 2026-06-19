@@ -8,7 +8,8 @@ import { pathToFileURL } from "node:url";
 
 const host = process.env.OLLAMA_COMPAT_HOST || "127.0.0.1";
 const port = Number(process.env.OLLAMA_COMPAT_PORT || 11436);
-const defaultTargetBaseUrl = resolveTargetBaseUrl(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.0.1:11435");
+const defaultTargetDescriptor = resolveTargetDescriptor(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.0.1:11435");
+const defaultTargetBaseUrl = defaultTargetDescriptor.url;
 const logPath = path.resolve(
     process.env.OLLAMA_COMPAT_LOG ||
     path.join(process.cwd(), "..", ".squad", "diagnostics", "ollama-compat-proxy.jsonl"));
@@ -175,6 +176,9 @@ function isFoundryTarget(value) {
 
 function parseFoundryServerStatusUrl(statusText) {
     const parsed = JSON.parse(statusText);
+    if (parsed.running === false)
+        throw new Error("Foundry server is not running.");
+
     if (!Array.isArray(parsed.webUrls) || parsed.webUrls.length === 0)
         throw new Error("Foundry server status did not include webUrls.");
 
@@ -213,15 +217,36 @@ function resolveTargetDescriptor(value, runner = execFileSync) {
 
 function parseTargetWorkers(targetsValue, fallbackTarget, maxConcurrent = workerConcurrency) {
     const rawTargets = splitTargetList(targetsValue);
-    const descriptors = rawTargets.length > 0
-        ? rawTargets
-        : [fallbackTarget.href];
+    const targets = rawTargets.length > 0
+        ? rawTargets.map((descriptor, index) => parseTargetDescriptor(descriptor, index))
+        : [normalizeFallbackTargetDescriptor(fallbackTarget)];
 
-    return descriptors.map((descriptor, index) => ({
-        ...parseTargetDescriptor(descriptor, index),
+    return targets.map((target, index) => ({
+        name: target.name || `local-${index + 1}`,
+        url: target.url,
+        targetKind: target.targetKind,
+        targetResolvedAt: target.targetResolvedAt,
         maxConcurrent: Math.max(1, Number(maxConcurrent) || 1),
         active: 0
     }));
+}
+
+function normalizeFallbackTargetDescriptor(fallbackTarget) {
+    if (fallbackTarget && fallbackTarget.url instanceof URL) {
+        return {
+            name: fallbackTarget.name || "local-1",
+            url: fallbackTarget.url,
+            targetKind: fallbackTarget.targetKind || "static",
+            targetResolvedAt: fallbackTarget.targetResolvedAt || Date.now()
+        };
+    }
+
+    return {
+        name: "local-1",
+        url: fallbackTarget instanceof URL ? fallbackTarget : new URL(String(fallbackTarget)),
+        targetKind: "static",
+        targetResolvedAt: Date.now()
+    };
 }
 
 class LocalModelRequestScheduler {
@@ -289,7 +314,7 @@ class LocalModelRequestScheduler {
 }
 
 const scheduler = new LocalModelRequestScheduler(
-    parseTargetWorkers(process.env.OLLAMA_COMPAT_TARGETS, defaultTargetBaseUrl));
+    parseTargetWorkers(process.env.OLLAMA_COMPAT_TARGETS, defaultTargetDescriptor));
 
 function refreshWorkerTargetUrl(worker) {
     if (!worker || worker.targetKind !== "foundry")
