@@ -9342,6 +9342,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (TryRecoverPromptInputFromStaleModifiers(e))
                 return;
 
+            // ── Ctrl+O: open Options ─────────────────────────────────────────────
+            if (e.Key == Key.O
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
+            {
+                PreferencesMenuItem_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
             // ── Ctrl+Shift+Break: abort loop (more-specific, checked first) ──────────
             if (e.Key == Key.Cancel
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0

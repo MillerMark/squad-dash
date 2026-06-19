@@ -499,7 +499,8 @@
                     <MenuItem x:Name="RecentFoldersMenuItem"
                               Header="_Reopen Folder" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
-                    <MenuItem Header="_Preferences..."
+                    <MenuItem Header="_Options..."
+                              InputGestureText="Ctrl+O"
                               Click="PreferencesMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem Header="E_xit"

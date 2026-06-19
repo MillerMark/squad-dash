@@ -23,6 +23,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
     private readonly TextBlock _statusText;
+    private string? _loadedFoundryModelId;
 
     public string? SelectedModelId { get; private set; }
 
@@ -319,7 +320,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private void ExecuteRowAction(ModelProviderProbeResult selected) {
         _modelsGrid.SelectedItem = selected;
         if (selected.RowActionText == "Load") {
-            _ = LoadModelAsync(selected);
+            _ = LoadModelAsync(selected, probeAfterLoad: selected.ChatStatus == ModelProbeCheckStatus.NotLoaded ||
+                                                    selected.ToolStatus == ModelProbeCheckStatus.NotLoaded);
             return;
         }
 
@@ -358,7 +360,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         }
     }
 
-    private async Task LoadModelAsync(ModelProviderProbeResult selected) {
+    private async Task LoadModelAsync(ModelProviderProbeResult selected, bool probeAfterLoad = false) {
         var index = _models.IndexOf(selected);
         if (index < 0)
             return;
@@ -366,12 +368,14 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         SetActionButtonsEnabled(false);
         _statusText.Text = $"Loading {selected.ModelId} with Foundry...";
         try {
+            var unloadNote = await UnloadCurrentFoundryModelBeforeLoadAsync(selected.ModelId);
             var result = await _probeService.LoadFoundryModelAsync(selected.ModelId);
             var note = result.Success
                 ? BuildLoadNote("Load succeeded", result)
                 : BuildLoadNote("Load failed", result);
+            note = AppendNote(unloadNote, note);
 
-            _models[index] = selected with {
+            var loaded = selected with {
                 ChatStatus = result.Success && selected.ChatStatus == ModelProbeCheckStatus.NotLoaded
                     ? ModelProbeCheckStatus.NotRun
                     : selected.ChatStatus,
@@ -380,10 +384,19 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                     : selected.ToolStatus,
                 Notes = AppendNote(selected.Notes, note)
             };
+            _models[index] = loaded;
             _modelsGrid.SelectedIndex = index;
+            if (result.Success)
+                _loadedFoundryModelId = selected.ModelId;
             _statusText.Text = result.Success
-                ? $"Loaded {selected.ModelId}. Run Live Probe to test it."
+                ? probeAfterLoad
+                    ? $"Loaded {selected.ModelId}. Running live probe..."
+                    : $"Loaded {selected.ModelId}. Run Live Probe to test it."
                 : $"Load failed for {selected.ModelId}.";
+            if (result.Success && probeAfterLoad) {
+                SyncButtonState();
+                await RunLiveProbeAsync(loaded);
+            }
         }
         catch (OperationCanceledException) {
             _models[index] = selected with {
@@ -402,6 +415,22 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         finally {
             SyncButtonState();
         }
+    }
+
+    private async Task<string?> UnloadCurrentFoundryModelBeforeLoadAsync(string nextModelId) {
+        if (string.IsNullOrWhiteSpace(_loadedFoundryModelId) ||
+            string.Equals(_loadedFoundryModelId, nextModelId, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var previousModelId = _loadedFoundryModelId;
+        _statusText.Text = $"Unloading {previousModelId} before loading {nextModelId}...";
+        var result = await _probeService.UnloadFoundryModelAsync(previousModelId);
+        if (result.Success) {
+            _loadedFoundryModelId = null;
+            return BuildLoadNote($"Unloaded {previousModelId}", result);
+        }
+
+        return BuildLoadNote($"Unload {previousModelId} failed", result);
     }
 
     private void ShowDetails(ModelProviderProbeResult selected) {

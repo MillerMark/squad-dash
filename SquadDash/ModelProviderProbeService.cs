@@ -239,6 +239,20 @@ internal sealed class ModelProviderProbeService : IDisposable {
         return AttachDiagnostic(result, foundry.Diagnostic);
     }
 
+    public async Task<ModelProviderCommandResult> UnloadFoundryModelAsync(
+        string modelId,
+        CancellationToken cancellationToken = default) {
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new ArgumentException("Model id cannot be empty.", nameof(modelId));
+
+        var foundry = await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);
+        var result = await _commandRunner(
+            foundry.FileName,
+            ["model", "unload", modelId.Trim()],
+            cancellationToken).ConfigureAwait(false);
+        return AttachDiagnostic(result, foundry.Diagnostic);
+    }
+
     public async Task<FoundryCliResolution> DiagnoseFoundryCliAsync(
         CancellationToken cancellationToken = default) {
         return await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);

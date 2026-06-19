@@ -340,6 +340,33 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public async Task UnloadFoundryModelAsync_InvokesFoundryModelUnload() {
+        IReadOnlyList<string>? observedArguments = null;
+        using var http = new HttpClient(new StubHttpHandler(_ => JsonResponse("{}")));
+        using var service = new ModelProviderProbeService(
+            http,
+            commandRunner: (_, arguments, _) => {
+                if (arguments.SequenceEqual(new[] { "--version" }))
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, "0.10.0", ""));
+                if (arguments.SequenceEqual(new[] { "--help" }))
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, "Commands:\n  model\n  server", ""));
+
+                observedArguments = arguments.ToArray();
+                return Task.FromResult(new ModelProviderCommandResult(true, 0, "unloaded", ""));
+            },
+            foundryCliCandidates: () => new[] {
+                new FoundryCliCandidate("foundry", "PATH alias")
+            });
+
+        var result = await service.UnloadFoundryModelAsync("qwen3-8b-cuda-gpu");
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(observedArguments, Is.EqualTo(new[] { "model", "unload", "qwen3-8b-cuda-gpu" }));
+        });
+    }
+
+    [Test]
     public async Task LoadFoundryModelAsync_PrefersNewFoundryCliWhenPathAliasIsOld() {
         const string newFoundry = @"C:\Program Files\WindowsApps\Microsoft.FoundryLocalCLI_0.10.0.0_x64__8wekyb3d8bbwe\foundry.exe";
         string? observedFileName = null;
