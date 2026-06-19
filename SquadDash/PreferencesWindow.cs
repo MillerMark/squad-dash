@@ -1148,8 +1148,8 @@ internal sealed class PreferencesWindow : Window {
         modelRow.Children.Add(_byokModelBox);
 
         var byokProbeButton = new Button {
-            Content = "Probe",
-            Width = 78,
+            Content = "Probe...",
+            Width = 86,
             Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
             Padding = new Thickness(10, 4, 10, 4)
@@ -1976,6 +1976,9 @@ internal sealed class PreferencesWindow : Window {
         }
         catch (Exception ex) {
             _byokTestStatusText.Text = $"Probe failed: {ex.Message}";
+            UIErrorHelper.ShowError(
+                "Model Probe",
+                $"Unable to open the model probe.{Environment.NewLine}{Environment.NewLine}{ex.Message}");
         }
         finally {
             if (clickedButton is not null)

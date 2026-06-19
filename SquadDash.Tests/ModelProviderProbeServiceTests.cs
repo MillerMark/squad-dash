@@ -150,6 +150,26 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void DiscoverModelsAsync_IncludesProviderErrorBodyWhenDiscoveryFails() {
+        var handler = new StubHttpHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.InternalServerError) {
+                Content = new StringContent(
+                    """
+                    { "error": { "message": "Foundry daemon is not ready." } }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        using var http = new HttpClient(handler);
+        using var service = new ModelProviderProbeService(http);
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.DiscoverModelsAsync("http://provider/v1", apiKey: null));
+
+        Assert.That(ex!.Message, Does.Contain("Foundry daemon is not ready."));
+    }
+
+    [Test]
     public async Task RunLiveProbeAsync_DetectsStructuredToolCall() {
         var handler = new StubHttpHandler(request => {
             if (request.RequestUri!.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))

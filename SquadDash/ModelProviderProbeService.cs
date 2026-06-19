@@ -158,7 +158,8 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
                 if (!response.IsSuccessStatusCode) {
-                    errors.Add($"{endpointRoot}/models returned {(int)response.StatusCode} {response.ReasonPhrase}");
+                    var errorMessage = ExtractErrorMessage(body);
+                    errors.Add($"{endpointRoot}/models returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}");
                     continue;
                 }
 
