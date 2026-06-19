@@ -1966,7 +1966,8 @@ internal sealed class PreferencesWindow : Window {
                 url,
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim(),
                 models,
-                providerWarning) {
+                providerWarning,
+                _byokModelBox.Text) {
                 Owner = this
             };
 

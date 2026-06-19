@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Globalization;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -23,7 +24,12 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
     private readonly TextBlock _statusText;
+    private readonly string? _initialModelId;
     private string? _loadedFoundryModelId;
+    private bool _allowClose;
+    private bool _closeFinalizationStarted;
+    private bool? _finalDialogResult;
+    private string? _desiredModelIdOnClose;
 
     public string? SelectedModelId { get; private set; }
 
@@ -32,11 +38,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         string providerUrl,
         string? apiKey,
         IReadOnlyList<ModelProviderProbeResult> models,
-        ModelProviderProbeWarning? providerWarning = null) : base(captionHeight: CloseButtonHeight) {
+        ModelProviderProbeWarning? providerWarning = null,
+        string? initialModelId = null) : base(captionHeight: CloseButtonHeight) {
         _probeService = probeService;
         _providerUrl = providerUrl;
         _apiKey = apiKey;
         _models = new ObservableCollection<ModelProviderProbeResult>(models);
+        _initialModelId = NormalizeModelId(initialModelId);
 
         Title = "Model Probe";
         Width = 1300;
@@ -114,7 +122,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         root.Children.Add(footer);
 
         var closeButton = MakeButton("Close", 86);
-        closeButton.Click += (_, _) => Close();
+        closeButton.Click += (_, _) => BeginCloseWithModelState(null, false);
         DockPanel.SetDock(closeButton, Dock.Right);
         footer.Children.Add(closeButton);
 
@@ -308,13 +316,22 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _useButton.IsEnabled = hasSelection;
     }
 
+    protected override void OnClosing(CancelEventArgs e) {
+        if (_allowClose) {
+            base.OnClosing(e);
+            return;
+        }
+
+        e.Cancel = true;
+        BeginCloseWithModelState(null, false);
+    }
+
     private void UseSelectedModel() {
         if (_modelsGrid.SelectedItem is not ModelProviderProbeResult selected)
             return;
 
         SelectedModelId = selected.ModelId;
-        DialogResult = true;
-        Close();
+        BeginCloseWithModelState(selected.ModelId, true);
     }
 
     private void ExecuteRowAction(ModelProviderProbeResult selected) {
@@ -433,6 +450,68 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         return BuildLoadNote($"Unload {previousModelId} failed", result);
     }
 
+    private void BeginCloseWithModelState(string? desiredModelId, bool dialogResult) {
+        if (_closeFinalizationStarted)
+            return;
+
+        _closeFinalizationStarted = true;
+        _desiredModelIdOnClose = NormalizeModelId(desiredModelId) ?? _initialModelId;
+        _finalDialogResult = dialogResult;
+        _ = CloseWithModelStateAsync();
+    }
+
+    private async Task CloseWithModelStateAsync() {
+        SetActionButtonsEnabled(false);
+        _useButton.IsEnabled = false;
+        var canClose = true;
+
+        try {
+            var desiredModelId = _desiredModelIdOnClose;
+            if (!string.IsNullOrWhiteSpace(_loadedFoundryModelId) &&
+                !string.Equals(_loadedFoundryModelId, desiredModelId, StringComparison.OrdinalIgnoreCase)) {
+                var temporaryModelId = _loadedFoundryModelId;
+                _statusText.Text = $"Unloading temporary model {temporaryModelId}...";
+                var unload = await _probeService.UnloadFoundryModelAsync(temporaryModelId);
+                if (unload.Success)
+                    _loadedFoundryModelId = null;
+                else {
+                    _statusText.Text = $"Could not unload temporary model {temporaryModelId}. Open Details for the model before closing.";
+                    canClose = false;
+                }
+            }
+
+            if (canClose &&
+                !string.IsNullOrWhiteSpace(desiredModelId) &&
+                !string.Equals(_loadedFoundryModelId, desiredModelId, StringComparison.OrdinalIgnoreCase)) {
+                _statusText.Text = $"Restoring selected model {desiredModelId}...";
+                var restore = await _probeService.LoadFoundryModelAsync(desiredModelId);
+                if (restore.Success)
+                    _loadedFoundryModelId = desiredModelId;
+                else {
+                    _statusText.Text = $"Could not restore selected model {desiredModelId}.";
+                    canClose = false;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) {
+            _statusText.Text = $"Model cleanup before close failed: {ex.Message}";
+            canClose = false;
+        }
+        finally {
+            if (canClose) {
+                _allowClose = true;
+                if (_finalDialogResult == true)
+                    DialogResult = true;
+                else
+                    Close();
+            }
+            else {
+                _closeFinalizationStarted = false;
+                SyncButtonState();
+            }
+        }
+    }
+
     private void ShowDetails(ModelProviderProbeResult selected) {
         var window = new ModelProviderProbeNoteWindow(_providerUrl, selected) {
             Owner = this
@@ -469,6 +548,9 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
         return $"{existing} {note}";
     }
+
+    private static string? NormalizeModelId(string? modelId) =>
+        string.IsNullOrWhiteSpace(modelId) ? null : modelId.Trim();
 }
 
 internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
