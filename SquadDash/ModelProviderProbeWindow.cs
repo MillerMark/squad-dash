@@ -12,6 +12,7 @@ namespace SquadDash;
 
 internal sealed record ModelProviderProbeWarning(
     string Message,
+    string? Guidance,
     IReadOnlyList<string> Folders);
 
 internal sealed class ModelProviderProbeWindow : ChromedWindow {
@@ -58,12 +59,15 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         root.Children.Add(summary);
 
         if (providerWarning is not null && !string.IsNullOrWhiteSpace(providerWarning.Message)) {
+            var warningHost = new DockPanel {
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            warningHost.ContextMenu = MakeWarningContextMenu(BuildWarningClipboardText(providerWarning));
+
             var warningBorder = new Border {
-                Margin = new Thickness(0, 0, 0, 12),
                 Padding = new Thickness(10, 8, 10, 8)
             };
             warningBorder.SetResourceReference(Border.BackgroundProperty, "SystemErrorBackground");
-            warningBorder.ContextMenu = MakeWarningContextMenu(providerWarning.Message);
 
             var warningPanel = new DockPanel();
             warningBorder.Child = warningPanel;
@@ -85,7 +89,22 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             warningPanel.Children.Add(warningText);
 
             DockPanel.SetDock(warningBorder, Dock.Top);
-            root.Children.Add(warningBorder);
+            warningHost.Children.Add(warningBorder);
+
+            if (!string.IsNullOrWhiteSpace(providerWarning.Guidance)) {
+                var guidanceText = new TextBlock {
+                    Text = providerWarning.Guidance.Trim(),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(10, 6, 10, 0),
+                    FontWeight = FontWeights.SemiBold
+                };
+                guidanceText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                DockPanel.SetDock(guidanceText, Dock.Bottom);
+                warningHost.Children.Add(guidanceText);
+            }
+
+            DockPanel.SetDock(warningHost, Dock.Top);
+            root.Children.Add(warningHost);
         }
 
         var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -139,6 +158,12 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         root.Children.Add(_modelsGrid);
     }
 
+    private static string BuildWarningClipboardText(ModelProviderProbeWarning warning) {
+        return string.IsNullOrWhiteSpace(warning.Guidance)
+            ? warning.Message.Trim()
+            : $"{warning.Message.Trim()}{Environment.NewLine}{Environment.NewLine}{warning.Guidance.Trim()}";
+    }
+
     private static ContextMenu MakeWarningContextMenu(string message) {
         var menu = new ContextMenu();
         var copyItem = new MenuItem { Header = "Copy Warning" };
@@ -148,7 +173,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private static void OpenWarningFolders(IReadOnlyList<string> folders) {
-        foreach (var folder in folders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase)) {
+        foreach (var folder in folders.Distinct(StringComparer.OrdinalIgnoreCase)) {
             try {
                 Process.Start(new ProcessStartInfo {
                     FileName = folder,

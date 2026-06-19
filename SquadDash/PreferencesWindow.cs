@@ -2007,34 +2007,37 @@ internal sealed class PreferencesWindow : Window {
             var message = foundry.HasConflict
                 ? BuildFoundryWarningMessage(
                     "Foundry CLI conflict detected.",
-                    foundry.Diagnostic,
-                    selectedVersion)
+                    foundry.Diagnostic)
                 : BuildFoundryWarningMessage(
                     "Older Foundry CLI detected.",
-                    foundry.Diagnostic,
-                    selectedVersion);
+                    foundry.Diagnostic);
+            var guidance = BuildFoundryWarningGuidance(selectedVersion);
             return new ModelProviderProbeWarning(
                 message,
+                guidance,
                 BuildCliFolders(foundry.Locations));
         }
         catch (Exception ex) {
             return new ModelProviderProbeWarning(
                 $"Unable to verify the Foundry CLI installation: {ex.Message}",
+                Guidance: null,
                 Array.Empty<string>());
         }
     }
 
     private static string BuildFoundryWarningMessage(
         string heading,
-        string diagnostic,
-        string selectedVersion) {
+        string diagnostic) {
         return string.Join(
             Environment.NewLine,
             heading,
-            diagnostic,
-            "",
+            diagnostic);
+    }
+
+    private static string BuildFoundryWarningGuidance(string selectedVersion) {
+        return string.Join(
+            Environment.NewLine,
             "When conflicts are found, Squad Dash will use the most recent version it can run.",
-            "",
             $"Selected Foundry CLI version: {selectedVersion}.");
     }
 
@@ -2050,7 +2053,7 @@ internal sealed class PreferencesWindow : Window {
             folders.Add(aliasFolder);
 
         return folders
-            .Where(Directory.Exists)
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
@@ -2080,12 +2083,28 @@ internal sealed class PreferencesWindow : Window {
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             "WindowsApps");
         var versionText = location.Version.ToString();
-        var candidate = Path.Combine(
+        var exactCandidate = Path.Combine(
             windowsApps,
             $"{packageRoot}_{versionText}_x64__8wekyb3d8bbwe");
-        if (Directory.Exists(candidate)) {
-            folder = candidate;
+        if (Directory.Exists(exactCandidate)) {
+            folder = exactCandidate;
             return true;
+        }
+
+        var versionParts = versionText.Split('.');
+        if (versionParts.Length == 3) {
+            var fourPartCandidate = Path.Combine(
+                windowsApps,
+                $"{packageRoot}_{versionText}.0_x64__8wekyb3d8bbwe");
+            if (Directory.Exists(fourPartCandidate)) {
+                folder = fourPartCandidate;
+                return true;
+            }
+
+            folder = fourPartCandidate;
+        }
+        else {
+            folder = exactCandidate;
         }
 
         try {
@@ -2099,10 +2118,10 @@ internal sealed class PreferencesWindow : Window {
             }
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
-            return false;
+            return !string.IsNullOrWhiteSpace(folder);
         }
 
-        return false;
+        return !string.IsNullOrWhiteSpace(folder);
     }
 
     private static IReadOnlyList<string> BuildKnownFoundryAliasFolders() {
