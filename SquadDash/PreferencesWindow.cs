@@ -2101,10 +2101,6 @@ internal sealed class PreferencesWindow : Window {
                 return true;
             }
 
-            folder = fourPartCandidate;
-        }
-        else {
-            folder = exactCandidate;
         }
 
         try {
@@ -2118,10 +2114,10 @@ internal sealed class PreferencesWindow : Window {
             }
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
-            return !string.IsNullOrWhiteSpace(folder);
+            return false;
         }
 
-        return !string.IsNullOrWhiteSpace(folder);
+        return false;
     }
 
     private static IReadOnlyList<string> BuildKnownFoundryAliasFolders() {

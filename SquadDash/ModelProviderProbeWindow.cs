@@ -75,6 +75,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             if (providerWarning.Folders.Count > 0) {
                 var openFoldersButton = MakeButton("Open CLI Folders", 132);
                 openFoldersButton.Margin = new Thickness(10, 0, 0, 0);
+                openFoldersButton.VerticalAlignment = VerticalAlignment.Bottom;
                 openFoldersButton.Click += (_, _) => OpenWarningFolders(providerWarning.Folders);
                 DockPanel.SetDock(openFoldersButton, Dock.Right);
                 warningPanel.Children.Add(openFoldersButton);
