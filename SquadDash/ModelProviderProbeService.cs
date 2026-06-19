@@ -9,7 +9,8 @@ internal enum ModelProbeCheckStatus {
     NotRun,
     Passed,
     Failed,
-    TimedOut
+    TimedOut,
+    NotLoaded
 }
 
 internal sealed record ModelProviderProbeResult(
@@ -35,6 +36,7 @@ internal sealed record ModelProviderProbeResult(
         ModelProbeCheckStatus.Passed => "Passed",
         ModelProbeCheckStatus.Failed => "Failed",
         ModelProbeCheckStatus.TimedOut => "Timed out",
+        ModelProbeCheckStatus.NotLoaded => "Not loaded",
         _ => "Not run"
     };
 }
@@ -158,8 +160,11 @@ internal sealed class ModelProviderProbeService : IDisposable {
             using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
-                notes.Add($"Chat probe returned {(int)response.StatusCode} {response.ReasonPhrase}.");
-                return ModelProbeCheckStatus.Failed;
+                var errorMessage = ExtractErrorMessage(json);
+                notes.Add($"Chat probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}.");
+                return IsModelNotLoadedError(errorMessage)
+                    ? ModelProbeCheckStatus.NotLoaded
+                    : ModelProbeCheckStatus.Failed;
             }
 
             var content = ExtractFirstAssistantContent(json);
@@ -216,8 +221,11 @@ internal sealed class ModelProviderProbeService : IDisposable {
             using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
-                notes.Add($"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}.");
-                return ModelProbeCheckStatus.Failed;
+                var errorMessage = ExtractErrorMessage(json);
+                notes.Add($"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}.");
+                return IsModelNotLoadedError(errorMessage)
+                    ? ModelProbeCheckStatus.NotLoaded
+                    : ModelProbeCheckStatus.Failed;
             }
 
             if (ResponseContainsStructuredToolCall(json))
@@ -328,6 +336,38 @@ internal sealed class ModelProviderProbeService : IDisposable {
         }
 
         return null;
+    }
+
+    private static string? ExtractErrorMessage(string json) {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("error", out var error)) {
+                if (error.ValueKind == JsonValueKind.Object &&
+                    error.TryGetProperty("message", out var message) &&
+                    message.ValueKind == JsonValueKind.String)
+                    return message.GetString();
+
+                if (error.ValueKind == JsonValueKind.String)
+                    return error.GetString();
+            }
+
+            if (doc.RootElement.TryGetProperty("message", out var rootMessage) &&
+                rootMessage.ValueKind == JsonValueKind.String)
+                return rootMessage.GetString();
+        }
+        catch (JsonException) {
+            return json.Length <= 240 ? json : json[..240] + "...";
+        }
+
+        return null;
+    }
+
+    private static bool IsModelNotLoadedError(string? message) {
+        return !string.IsNullOrWhiteSpace(message) &&
+               message.Contains("not loaded", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ResponseContainsStructuredToolCall(string json) {

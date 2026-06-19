@@ -158,6 +158,36 @@ internal sealed class ModelProviderProbeServiceTests {
         });
     }
 
+    [Test]
+    public async Task RunLiveProbeAsync_MarksFoundryNotLoadedError() {
+        var handler = new StubHttpHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.BadRequest) {
+                Content = new StringContent(
+                    """
+                    {
+                      "error": {
+                        "message": "Failed to handle OpenAI completion: Model 'qwen3-8b-cuda-gpu' is not loaded. Please load the model before getting a ChatClient.",
+                        "type": "invalid_request_error",
+                        "code": null
+                      }
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            });
+        using var http = new HttpClient(handler);
+        using var service = new ModelProviderProbeService(http);
+        var model = new ModelProviderProbeResult("qwen3-8b-cuda-gpu", "http://provider/v1");
+
+        var probed = await service.RunLiveProbeAsync("http://provider/v1", null, model);
+
+        Assert.Multiple(() => {
+            Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.NotLoaded));
+            Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.NotLoaded));
+            Assert.That(probed.Notes, Does.Contain("Please load the model"));
+        });
+    }
+
     private static HttpResponseMessage JsonResponse(string json) {
         return new HttpResponseMessage(HttpStatusCode.OK) {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
