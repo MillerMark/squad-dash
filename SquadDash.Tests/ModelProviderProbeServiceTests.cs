@@ -188,6 +188,36 @@ internal sealed class ModelProviderProbeServiceTests {
         });
     }
 
+    [Test]
+    public async Task LoadFoundryModelAsync_InvokesFoundryModelLoad() {
+        string? observedFileName = null;
+        IReadOnlyList<string>? observedArguments = null;
+        using var http = new HttpClient(new StubHttpHandler(_ => JsonResponse("{}")));
+        using var service = new ModelProviderProbeService(
+            http,
+            commandRunner: (fileName, arguments, _) => {
+                observedFileName = fileName;
+                observedArguments = arguments.ToArray();
+                return Task.FromResult(new ModelProviderCommandResult(true, 0, "loaded", ""));
+            });
+
+        var result = await service.LoadFoundryModelAsync("qwen3-8b-cuda-gpu");
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(observedFileName, Is.EqualTo("foundry"));
+            Assert.That(observedArguments, Is.EqualTo(new[] { "model", "load", "qwen3-8b-cuda-gpu" }));
+        });
+    }
+
+    [Test]
+    public void LoadFoundryModelAsync_RejectsEmptyModelId() {
+        using var http = new HttpClient(new StubHttpHandler(_ => JsonResponse("{}")));
+        using var service = new ModelProviderProbeService(http);
+
+        Assert.ThrowsAsync<ArgumentException>(() => service.LoadFoundryModelAsync(" "));
+    }
+
     private static HttpResponseMessage JsonResponse(string json) {
         return new HttpResponseMessage(HttpStatusCode.OK) {
             Content = new StringContent(json, Encoding.UTF8, "application/json")

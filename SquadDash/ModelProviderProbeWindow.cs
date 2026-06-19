@@ -15,6 +15,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
     private readonly Button _liveProbeButton;
+    private readonly Button _loadButton;
     private readonly TextBlock _statusText;
 
     public string? SelectedModelId { get; private set; }
@@ -65,6 +66,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _useButton.Click += (_, _) => UseSelectedModel();
         DockPanel.SetDock(_useButton, Dock.Right);
         footer.Children.Add(_useButton);
+
+        _loadButton = MakeButton("Load Model", 110);
+        _loadButton.IsEnabled = false;
+        _loadButton.Margin = new Thickness(0, 0, 8, 0);
+        _loadButton.Click += LoadButton_Click;
+        DockPanel.SetDock(_loadButton, Dock.Right);
+        footer.Children.Add(_loadButton);
 
         _liveProbeButton = MakeButton("Live Probe", 110);
         _liveProbeButton.IsEnabled = false;
@@ -161,6 +169,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
         _liveProbeButton.IsEnabled = hasSelection;
+        _loadButton.IsEnabled = hasSelection;
     }
 
     private void UseSelectedModel() {
@@ -201,5 +210,83 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         finally {
             SyncButtonState();
         }
+    }
+
+    private async void LoadButton_Click(object sender, RoutedEventArgs e) {
+        if (_modelsGrid.SelectedItem is not ModelProviderProbeResult selected)
+            return;
+
+        var index = _models.IndexOf(selected);
+        if (index < 0)
+            return;
+
+        SetActionButtonsEnabled(false);
+        _statusText.Text = $"Loading {selected.ModelId} with Foundry...";
+        try {
+            var result = await _probeService.LoadFoundryModelAsync(selected.ModelId);
+            var note = result.Success
+                ? BuildLoadNote("Load succeeded", result)
+                : BuildLoadNote("Load failed", result);
+
+            _models[index] = selected with {
+                ChatStatus = result.Success && selected.ChatStatus == ModelProbeCheckStatus.NotLoaded
+                    ? ModelProbeCheckStatus.NotRun
+                    : selected.ChatStatus,
+                ToolStatus = result.Success && selected.ToolStatus == ModelProbeCheckStatus.NotLoaded
+                    ? ModelProbeCheckStatus.NotRun
+                    : selected.ToolStatus,
+                Notes = AppendNote(selected.Notes, note)
+            };
+            _modelsGrid.SelectedIndex = index;
+            _statusText.Text = result.Success
+                ? $"Loaded {selected.ModelId}. Run Live Probe to test it."
+                : $"Load failed for {selected.ModelId}.";
+        }
+        catch (OperationCanceledException) {
+            _models[index] = selected with {
+                Notes = AppendNote(selected.Notes, "Load canceled.")
+            };
+            _modelsGrid.SelectedIndex = index;
+            _statusText.Text = $"Load canceled for {selected.ModelId}.";
+        }
+        catch (Exception ex) {
+            _models[index] = selected with {
+                Notes = AppendNote(selected.Notes, $"Load failed: {ex.Message}")
+            };
+            _modelsGrid.SelectedIndex = index;
+            _statusText.Text = $"Load failed: {ex.Message}";
+        }
+        finally {
+            SyncButtonState();
+        }
+    }
+
+    private void SetActionButtonsEnabled(bool enabled) {
+        _useButton.IsEnabled = enabled;
+        _liveProbeButton.IsEnabled = enabled;
+        _loadButton.IsEnabled = enabled;
+    }
+
+    private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {
+        var detail = FirstNonEmpty(result.Output, result.Error);
+        var suffix = string.IsNullOrWhiteSpace(detail)
+            ? $"exit={result.ExitCode}"
+            : $"{detail} exit={result.ExitCode}";
+        return $"{prefix}: {suffix}";
+    }
+
+    private static string? FirstNonEmpty(params string?[] values) {
+        foreach (var value in values) {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+        return null;
+    }
+
+    private static string AppendNote(string? existing, string note) {
+        if (string.IsNullOrWhiteSpace(existing))
+            return note;
+
+        return $"{existing} {note}";
     }
 }

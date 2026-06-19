@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -41,17 +42,28 @@ internal sealed record ModelProviderProbeResult(
     };
 }
 
+internal sealed record ModelProviderCommandResult(
+    bool Success,
+    int ExitCode,
+    string Output,
+    string Error);
+
 internal sealed class ModelProviderProbeService : IDisposable {
     private readonly HttpClient _http;
     private readonly bool _disposeHttp;
+    private readonly Func<string, IReadOnlyList<string>, CancellationToken, Task<ModelProviderCommandResult>> _commandRunner;
 
     public ModelProviderProbeService()
         : this(new HttpClient { Timeout = TimeSpan.FromSeconds(12) }, disposeHttp: true) {
     }
 
-    internal ModelProviderProbeService(HttpClient httpClient, bool disposeHttp = false) {
+    internal ModelProviderProbeService(
+        HttpClient httpClient,
+        bool disposeHttp = false,
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<ModelProviderCommandResult>>? commandRunner = null) {
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _disposeHttp = disposeHttp;
+        _commandRunner = commandRunner ?? RunCommandAsync;
     }
 
     public async Task<IReadOnlyList<ModelProviderProbeResult>> DiscoverModelsAsync(
@@ -102,6 +114,18 @@ internal sealed class ModelProviderProbeService : IDisposable {
             ToolStatus = toolStatus,
             Notes = notes.Count == 0 ? model.Notes : string.Join(" ", notes)
         };
+    }
+
+    public async Task<ModelProviderCommandResult> LoadFoundryModelAsync(
+        string modelId,
+        CancellationToken cancellationToken = default) {
+        if (string.IsNullOrWhiteSpace(modelId))
+            throw new ArgumentException("Model id cannot be empty.", nameof(modelId));
+
+        return await _commandRunner(
+            "foundry",
+            ["model", "load", modelId.Trim()],
+            cancellationToken).ConfigureAwait(false);
     }
 
     internal static IReadOnlyList<string> BuildOpenAiEndpointCandidates(string providerUrl) {
@@ -399,6 +423,61 @@ internal sealed class ModelProviderProbeService : IDisposable {
 
         return message.TryGetProperty("function_call", out var functionCall) &&
                functionCall.ValueKind == JsonValueKind.Object;
+    }
+
+    private static async Task<ModelProviderCommandResult> RunCommandAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken) {
+        var psi = new ProcessStartInfo {
+            FileName = fileName,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = psi };
+        try {
+            process.Start();
+        }
+        catch (Exception ex) {
+            return new ModelProviderCommandResult(false, -1, "", ex.Message);
+        }
+
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+
+        try {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) {
+            TryKill(process);
+            throw;
+        }
+
+        var output = await outputTask.ConfigureAwait(false);
+        var error = await errorTask.ConfigureAwait(false);
+        return new ModelProviderCommandResult(
+            process.ExitCode == 0,
+            process.ExitCode,
+            output.Trim(),
+            error.Trim());
+    }
+
+    private static void TryKill(Process process) {
+        try {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch {
+            // Best-effort cleanup after cancellation.
+        }
     }
 
     public void Dispose() {
