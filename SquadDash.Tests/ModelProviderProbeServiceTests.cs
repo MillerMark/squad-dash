@@ -354,6 +354,42 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public async Task LoadFoundryModelAsync_PrefersHighestServerCapableFoundryCli() {
+        const string foundry010 = @"C:\Foundry\0.10\foundry.exe";
+        const string foundry020 = @"C:\Foundry\0.20\foundry.exe";
+        string? observedFileName = null;
+        using var http = new HttpClient(new StubHttpHandler(_ => JsonResponse("{}")));
+        using var service = new ModelProviderProbeService(
+            http,
+            commandRunner: (fileName, arguments, _) => {
+                if (arguments.SequenceEqual(new[] { "--version" })) {
+                    var version = string.Equals(fileName, foundry020, StringComparison.OrdinalIgnoreCase)
+                        ? "0.20.0"
+                        : "0.10.0";
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, version, ""));
+                }
+
+                if (arguments.SequenceEqual(new[] { "--help" }))
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, "Commands:\n  model\n  server", ""));
+
+                observedFileName = fileName;
+                return Task.FromResult(new ModelProviderCommandResult(true, 0, "loaded", ""));
+            },
+            foundryCliCandidates: () => new[] {
+                new FoundryCliCandidate(foundry010, "Foundry Local CLI package alias"),
+                new FoundryCliCandidate(foundry020, "Foundry Local CLI package alias")
+            });
+
+        var result = await service.LoadFoundryModelAsync("qwen3-8b-cuda-gpu");
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(observedFileName, Is.EqualTo(foundry020));
+            Assert.That(result.Output, Does.Contain("Foundry CLI version: 0.20.0"));
+        });
+    }
+
+    [Test]
     public void ParseFoundryVersion_ReadsSemverPrefix() {
         Assert.Multiple(() => {
             Assert.That(ModelProviderProbeService.ParseFoundryVersion("0.10.0+174be11"), Is.EqualTo(new Version(0, 10, 0)));

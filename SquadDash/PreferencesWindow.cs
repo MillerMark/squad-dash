@@ -1991,7 +1991,7 @@ internal sealed class PreferencesWindow : Window {
         }
     }
 
-    private static async Task<string?> BuildModelProbeProviderWarningAsync(
+    private static async Task<ModelProviderProbeWarning?> BuildModelProbeProviderWarningAsync(
         ModelProviderProbeService probeService,
         string providerUrl,
         IReadOnlyList<ModelProviderProbeResult> models) {
@@ -2003,13 +2003,29 @@ internal sealed class PreferencesWindow : Window {
             if (!foundry.HasConflict && !foundry.IsLegacyVersion)
                 return null;
 
-            return foundry.HasConflict
-                ? $"Foundry CLI conflict detected. {foundry.Diagnostic}"
-                : $"Older Foundry CLI detected. {foundry.Diagnostic}";
+            var selectedVersion = foundry.SelectedVersion?.ToString() ?? "unknown";
+            var message = foundry.HasConflict
+                ? $"Foundry CLI conflict detected. When conflicts are found, Squad Dash will use the most recent version it can run. Selected Foundry CLI version: {selectedVersion}.{Environment.NewLine}{foundry.Diagnostic}"
+                : $"Older Foundry CLI detected. Selected Foundry CLI version: {selectedVersion}.{Environment.NewLine}{foundry.Diagnostic}";
+            return new ModelProviderProbeWarning(
+                message,
+                BuildCliFolders(foundry.CandidateFileNames));
         }
         catch (Exception ex) {
-            return $"Unable to verify the Foundry CLI installation: {ex.Message}";
+            return new ModelProviderProbeWarning(
+                $"Unable to verify the Foundry CLI installation: {ex.Message}",
+                Array.Empty<string>());
         }
+    }
+
+    private static IReadOnlyList<string> BuildCliFolders(IReadOnlyList<string> fileNames) {
+        return fileNames
+            .Where(Path.IsPathRooted)
+            .Select(Path.GetDirectoryName)
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static bool LooksLikeFoundryProvider(

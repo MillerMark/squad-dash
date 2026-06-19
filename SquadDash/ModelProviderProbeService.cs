@@ -113,7 +113,9 @@ internal sealed record FoundryCliResolution(
     string FileName,
     string Diagnostic,
     bool HasConflict,
-    bool IsLegacyVersion);
+    bool IsLegacyVersion,
+    Version? SelectedVersion,
+    IReadOnlyList<string> CandidateFileNames);
 
 internal sealed record FoundryCliInfo(
     FoundryCliCandidate Candidate,
@@ -614,7 +616,9 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 "foundry",
                 $"Foundry CLI discovery failed. Falling back to PATH alias. {failures}",
                 HasConflict: false,
-                IsLegacyVersion: true);
+                IsLegacyVersion: true,
+                SelectedVersion: null,
+                CandidateFileNames: infos.Select(info => info.Candidate.FileName).ToArray());
         }
 
         var hasConflict = HasFoundryCliConflict(selected, infos);
@@ -622,7 +626,13 @@ internal sealed class ModelProviderProbeService : IDisposable {
             selected.Candidate.FileName,
             BuildFoundryCliDiagnostic(selected, infos),
             HasConflict: hasConflict,
-            IsLegacyVersion: IsLegacyFoundryVersion(selected.Version));
+            IsLegacyVersion: IsLegacyFoundryVersion(selected.Version),
+            SelectedVersion: selected.Version,
+            CandidateFileNames: infos
+                .Where(info => info.IsUsable)
+                .Select(info => info.Candidate.FileName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray());
     }
 
     private async Task<FoundryCliInfo> ProbeFoundryCliAsync(

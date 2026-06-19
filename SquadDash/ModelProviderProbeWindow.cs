@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO;
 using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Windows;
@@ -7,6 +9,10 @@ using System.Windows.Data;
 using System.Windows.Media;
 
 namespace SquadDash;
+
+internal sealed record ModelProviderProbeWarning(
+    string Message,
+    IReadOnlyList<string> Folders);
 
 internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly ModelProviderProbeService _probeService;
@@ -24,7 +30,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         string providerUrl,
         string? apiKey,
         IReadOnlyList<ModelProviderProbeResult> models,
-        string? providerWarning = null) : base(captionHeight: CloseButtonHeight) {
+        ModelProviderProbeWarning? providerWarning = null) : base(captionHeight: CloseButtonHeight) {
         _probeService = probeService;
         _providerUrl = providerUrl;
         _apiKey = apiKey;
@@ -51,18 +57,35 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         DockPanel.SetDock(summary, Dock.Top);
         root.Children.Add(summary);
 
-        if (!string.IsNullOrWhiteSpace(providerWarning)) {
-            var warning = new TextBlock {
-                Text = providerWarning.Trim(),
-                TextWrapping = TextWrapping.Wrap,
+        if (providerWarning is not null && !string.IsNullOrWhiteSpace(providerWarning.Message)) {
+            var warningBorder = new Border {
                 Margin = new Thickness(0, 0, 0, 12),
-                Padding = new Thickness(10, 8, 10, 8),
+                Padding = new Thickness(10, 8, 10, 8)
+            };
+            warningBorder.SetResourceReference(Border.BackgroundProperty, "SystemErrorBackground");
+            warningBorder.ContextMenu = MakeWarningContextMenu(providerWarning.Message);
+
+            var warningPanel = new DockPanel();
+            warningBorder.Child = warningPanel;
+
+            if (providerWarning.Folders.Count > 0) {
+                var openFoldersButton = MakeButton("Open Folders", 110);
+                openFoldersButton.Margin = new Thickness(10, 0, 0, 0);
+                openFoldersButton.Click += (_, _) => OpenWarningFolders(providerWarning.Folders);
+                DockPanel.SetDock(openFoldersButton, Dock.Right);
+                warningPanel.Children.Add(openFoldersButton);
+            }
+
+            var warningText = new TextBlock {
+                Text = providerWarning.Message.Trim(),
+                TextWrapping = TextWrapping.Wrap,
                 FontWeight = FontWeights.SemiBold
             };
-            warning.SetResourceReference(TextBlock.ForegroundProperty, "SystemErrorText");
-            warning.SetResourceReference(TextBlock.BackgroundProperty, "ChipFailedSurface");
-            DockPanel.SetDock(warning, Dock.Top);
-            root.Children.Add(warning);
+            warningText.SetResourceReference(TextBlock.ForegroundProperty, "SystemErrorText");
+            warningPanel.Children.Add(warningText);
+
+            DockPanel.SetDock(warningBorder, Dock.Top);
+            root.Children.Add(warningBorder);
         }
 
         var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -114,6 +137,28 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.Columns.Add(MakeActionColumn());
 
         root.Children.Add(_modelsGrid);
+    }
+
+    private static ContextMenu MakeWarningContextMenu(string message) {
+        var menu = new ContextMenu();
+        var copyItem = new MenuItem { Header = "Copy Warning" };
+        copyItem.Click += (_, _) => Clipboard.SetText(message);
+        menu.Items.Add(copyItem);
+        return menu;
+    }
+
+    private static void OpenWarningFolders(IReadOnlyList<string> folders) {
+        foreach (var folder in folders.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase)) {
+            try {
+                Process.Start(new ProcessStartInfo {
+                    FileName = folder,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex) {
+                UIErrorHelper.ShowWarning("Open Folder", $"Could not open:{Environment.NewLine}{folder}{Environment.NewLine}{Environment.NewLine}{ex.Message}");
+            }
+        }
     }
 
     private Button MakeButton(string text, double width) {
