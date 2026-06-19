@@ -376,7 +376,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         bar.Children.Add(usedText);
 
         var freeBorder = new Border();
-        freeBorder.SetResourceReference(Border.BackgroundProperty, "MemoryFree");
+        freeBorder.SetResourceReference(Border.BackgroundProperty, "RosterPanelBorder");
         Grid.SetColumn(freeBorder, 1);
         bar.Children.Add(freeBorder);
 
