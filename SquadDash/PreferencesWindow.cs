@@ -1961,6 +1961,9 @@ internal sealed class PreferencesWindow : Window {
                 url,
                 models);
             var canLoadFoundryModels = LooksLikeLocalFoundryProvider(url, models);
+            var localStatus = canLoadFoundryModels
+                ? await BuildModelProbeLocalStatusAsync(probeService)
+                : null;
 
             var probeWindow = new ModelProviderProbeWindow(
                 probeService,
@@ -1969,7 +1972,8 @@ internal sealed class PreferencesWindow : Window {
                 models,
                 providerWarning,
                 _byokModelBox.Text,
-                canLoadFoundryModels) {
+                canLoadFoundryModels,
+                localStatus) {
                 Owner = this
             };
 
@@ -1992,6 +1996,27 @@ internal sealed class PreferencesWindow : Window {
             if (clickedButton is not null)
                 clickedButton.IsEnabled = true;
         }
+    }
+
+    private static async Task<ModelProviderLocalStatus> BuildModelProbeLocalStatusAsync(
+        ModelProviderProbeService probeService) {
+        IReadOnlyList<FoundryLoadedModel> loadedModels;
+        try {
+            loadedModels = await probeService.ListLoadedFoundryModelsAsync();
+        }
+        catch {
+            loadedModels = Array.Empty<FoundryLoadedModel>();
+        }
+
+        IReadOnlyList<LocalGpuMemoryInfo> gpuMemory;
+        try {
+            gpuMemory = await probeService.GetNvidiaGpuMemoryAsync();
+        }
+        catch {
+            gpuMemory = Array.Empty<LocalGpuMemoryInfo>();
+        }
+
+        return new ModelProviderLocalStatus(loadedModels, gpuMemory);
     }
 
     private static async Task<ModelProviderProbeWarning?> BuildModelProbeProviderWarningAsync(

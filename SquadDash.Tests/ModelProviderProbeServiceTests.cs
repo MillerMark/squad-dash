@@ -118,11 +118,26 @@ internal sealed class ModelProviderProbeServiceTests {
         var result = new ModelProviderProbeResult(
             "model",
             "http://provider/v1",
-            ChatStatus: ModelProbeCheckStatus.NotLoaded,
-            ToolStatus: ModelProbeCheckStatus.NotLoaded,
             CanLoadLocally: true);
 
-        Assert.That(result.RowActionText, Is.EqualTo("Load"));
+        Assert.Multiple(() => {
+            Assert.That(result.RowActionText, Is.EqualTo("Load"));
+            Assert.That(result.NoteSummary, Is.EqualTo("Not loaded. Click Load to load this model."));
+        });
+    }
+
+    [Test]
+    public void RowActionText_ProbesLoadedLocalModelsBeforeNotesExist() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            CanLoadLocally: true,
+            IsLoadedLocally: true);
+
+        Assert.Multiple(() => {
+            Assert.That(result.RowActionText, Is.EqualTo("Probe"));
+            Assert.That(result.NoteSummary, Is.EqualTo("Loaded. Click Probe to test this model."));
+        });
     }
 
     [Test]
@@ -164,6 +179,54 @@ internal sealed class ModelProviderProbeServiceTests {
             CatalogNotes: "object=model; catalogSuccess=True");
 
         Assert.That(result.RowActionText, Is.EqualTo("Probe"));
+    }
+
+    [Test]
+    public void ParseFoundryLoadedModels_ReadsStructuredJson() {
+        var loaded = ModelProviderProbeService.ParseFoundryLoadedModels(
+            """
+            {
+              "models": [
+                {
+                  "alias": "qwen2.5-coder-14b",
+                  "id": "qwen2.5-coder-14b-instruct-cuda-gpu:4",
+                  "displayName": "qwen2.5-coder-14b-instruct-cuda-gpu",
+                  "device": "Gpu",
+                  "fileSizeMb": 9000,
+                  "supportsToolCalling": true
+                }
+              ]
+            }
+            """);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded, Has.Count.EqualTo(1));
+            Assert.That(loaded[0].ModelId, Is.EqualTo("qwen2.5-coder-14b-instruct-cuda-gpu:4"));
+            Assert.That(loaded[0].Alias, Is.EqualTo("qwen2.5-coder-14b"));
+            Assert.That(loaded[0].DisplayName, Is.EqualTo("qwen2.5-coder-14b-instruct-cuda-gpu"));
+            Assert.That(loaded[0].Device, Is.EqualTo("Gpu"));
+            Assert.That(loaded[0].FileSizeMb, Is.EqualTo(9000));
+            Assert.That(loaded[0].SupportsToolCalling, Is.True);
+        });
+    }
+
+    [Test]
+    public void ParseNvidiaGpuMemory_ReadsCsvOutput() {
+        var gpus = ModelProviderProbeService.ParseNvidiaGpuMemory(
+            """
+            0, NVIDIA GeForce RTX 3090, 24576, 24067, 256
+            1, NVIDIA GeForce RTX 2080 Ti, 11264, 712, 10316
+            """);
+
+        Assert.Multiple(() => {
+            Assert.That(gpus, Has.Count.EqualTo(2));
+            Assert.That(gpus[0].Index, Is.EqualTo(0));
+            Assert.That(gpus[0].Name, Is.EqualTo("NVIDIA GeForce RTX 3090"));
+            Assert.That(gpus[0].TotalMiB, Is.EqualTo(24576));
+            Assert.That(gpus[0].UsedMiB, Is.EqualTo(24067));
+            Assert.That(gpus[0].FreeMiB, Is.EqualTo(256));
+            Assert.That(gpus[1].Index, Is.EqualTo(1));
+        });
     }
 
     [Test]

@@ -23,9 +23,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly string? _apiKey;
     private readonly ObservableCollection<ModelProviderProbeResult> _models;
     private readonly bool _canLoadFoundryModels;
+    private readonly HashSet<string> _loadedFoundryModelIds;
+    private readonly HashSet<string> _loadedFoundryUnloadIds;
+    private readonly StackPanel? _memoryPanel;
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
     private readonly Button _copyAllButton;
+    private readonly Button? _cleanFoundryButton;
     private readonly Button _closeButton;
     private readonly TextBlock _statusText;
     private readonly string? _initialModelId;
@@ -45,14 +49,23 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         IReadOnlyList<ModelProviderProbeResult> models,
         ModelProviderProbeWarning? providerWarning = null,
         string? initialModelId = null,
-        bool canLoadFoundryModels = false) : base(captionHeight: CloseButtonHeight) {
+        bool canLoadFoundryModels = false,
+        ModelProviderLocalStatus? localStatus = null) : base(captionHeight: CloseButtonHeight) {
         _probeService = probeService;
         _providerUrl = providerUrl;
         _apiKey = apiKey;
         _canLoadFoundryModels = canLoadFoundryModels;
+        _loadedFoundryModelIds = BuildLoadedFoundryModelIdSet(localStatus?.LoadedModels ?? Array.Empty<FoundryLoadedModel>());
+        _loadedFoundryUnloadIds = BuildFoundryUnloadIdSet(localStatus?.LoadedModels ?? Array.Empty<FoundryLoadedModel>());
         _models = new ObservableCollection<ModelProviderProbeResult>(
-            models.Select(model => model with { CanLoadLocally = canLoadFoundryModels }));
+            models.Select(model => model with {
+                CanLoadLocally = canLoadFoundryModels,
+                IsLoadedLocally = canLoadFoundryModels && IsModelLoaded(model, _loadedFoundryModelIds)
+            }));
         _initialModelId = NormalizeModelId(initialModelId);
+        _loadedFoundryModelId = _loadedFoundryUnloadIds.Count == 1
+            ? _loadedFoundryUnloadIds.First()
+            : null;
 
         Title = "Model Probe";
         Width = 1300;
@@ -125,6 +138,12 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             root.Children.Add(warningHost);
         }
 
+        if (localStatus?.GpuMemory.Count > 0) {
+            _memoryPanel = BuildMemoryPanel(localStatus);
+            DockPanel.SetDock(_memoryPanel, Dock.Top);
+            root.Children.Add(_memoryPanel);
+        }
+
         var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
@@ -147,6 +166,15 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _copyAllButton.Click += (_, _) => CopyAllDetails();
         DockPanel.SetDock(_copyAllButton, Dock.Right);
         footer.Children.Add(_copyAllButton);
+
+        if (_canLoadFoundryModels) {
+            _cleanFoundryButton = MakeButton("Unload Loaded Models", 168);
+            _cleanFoundryButton.IsEnabled = _loadedFoundryUnloadIds.Count > 0;
+            _cleanFoundryButton.Margin = new Thickness(0, 0, 8, 0);
+            _cleanFoundryButton.Click += (_, _) => _ = UnloadLoadedFoundryModelsAsync();
+            DockPanel.SetDock(_cleanFoundryButton, Dock.Right);
+            footer.Children.Add(_cleanFoundryButton);
+        }
 
         _statusText = new TextBlock {
             Text = models.Count == 0 ? "No models were returned by the provider." : $"{models.Count} model(s) found.",
@@ -209,6 +237,145 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                 UIErrorHelper.ShowWarning("Open Folder", $"Could not open:{Environment.NewLine}{folder}{Environment.NewLine}{Environment.NewLine}{ex.Message}");
             }
         }
+    }
+
+    private static HashSet<string> BuildLoadedFoundryModelIdSet(IReadOnlyList<FoundryLoadedModel> loadedModels) {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in loadedModels) {
+            AddModelId(ids, model.ModelId);
+            AddModelId(ids, RemoveFoundryVariantSuffix(model.ModelId));
+            AddModelId(ids, model.Alias);
+            AddModelId(ids, model.DisplayName);
+        }
+
+        return ids;
+    }
+
+    private static HashSet<string> BuildFoundryUnloadIdSet(IReadOnlyList<FoundryLoadedModel> loadedModels) {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in loadedModels) {
+            AddModelId(ids, model.DisplayName);
+            if (string.IsNullOrWhiteSpace(model.DisplayName))
+                AddModelId(ids, RemoveFoundryVariantSuffix(model.ModelId));
+        }
+
+        return ids;
+    }
+
+    private static bool IsModelLoaded(ModelProviderProbeResult model, HashSet<string> loadedModelIds) {
+        return loadedModelIds.Contains(model.ModelId) ||
+               (!string.IsNullOrWhiteSpace(model.ParentModel) && loadedModelIds.Contains(model.ParentModel));
+    }
+
+    private static void AddModelId(HashSet<string> ids, string? value) {
+        if (!string.IsNullOrWhiteSpace(value))
+            ids.Add(value.Trim());
+    }
+
+    private static string? RemoveFoundryVariantSuffix(string? modelId) {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return null;
+
+        var trimmed = modelId.Trim();
+        var separator = trimmed.LastIndexOf(':');
+        return separator > 0 ? trimmed[..separator] : trimmed;
+    }
+
+    private StackPanel BuildMemoryPanel(ModelProviderLocalStatus status) {
+        var host = new StackPanel {
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        PopulateMemoryPanel(host, status);
+        return host;
+    }
+
+    private void PopulateMemoryPanel(StackPanel host, ModelProviderLocalStatus status) {
+        host.Children.Clear();
+
+        var loadedGpuModels = status.LoadedModels
+            .Where(model => string.Equals(model.Device, "Gpu", StringComparison.OrdinalIgnoreCase))
+            .Select(model => model.DisplayName ?? model.Alias ?? RemoveFoundryVariantSuffix(model.ModelId) ?? model.ModelId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var loadedText = loadedGpuModels.Length == 0
+            ? null
+            : $"Loaded GPU models: {string.Join(", ", loadedGpuModels)}";
+
+        foreach (var gpu in status.GpuMemory.OrderBy(gpu => gpu.Index)) {
+            host.Children.Add(BuildGpuMemoryRow(gpu, loadedText));
+        }
+    }
+
+    private FrameworkElement BuildGpuMemoryRow(LocalGpuMemoryInfo gpu, string? loadedText) {
+        var row = new DockPanel {
+            Height = 30,
+            LastChildFill = true,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+
+        var label = new TextBlock {
+            Text = $"GPU {gpu.Index}: {gpu.Name}",
+            Width = 260,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        DockPanel.SetDock(label, Dock.Left);
+        row.Children.Add(label);
+
+        var totalText = new TextBlock {
+            Text = $"{gpu.UsedMiB:N0} / {gpu.TotalMiB:N0} MiB",
+            Width = 140,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        totalText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        totalText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        DockPanel.SetDock(totalText, Dock.Right);
+        row.Children.Add(totalText);
+
+        var total = Math.Max(1, gpu.TotalMiB);
+        var used = Math.Clamp(gpu.UsedMiB, 0, total);
+        var free = Math.Max(0, total - used);
+        var bar = new Grid {
+            Height = 22,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = loadedText
+        };
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.1, used), GridUnitType.Star) });
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.1, free), GridUnitType.Star) });
+
+        var usedBorder = new Border();
+        usedBorder.SetResourceReference(Border.BackgroundProperty, "MemoryOccupied");
+        Grid.SetColumn(usedBorder, 0);
+        bar.Children.Add(usedBorder);
+
+        var freeBorder = new Border();
+        freeBorder.SetResourceReference(Border.BackgroundProperty, "MemoryFree");
+        Grid.SetColumn(freeBorder, 1);
+        bar.Children.Add(freeBorder);
+
+        var overlayText = new TextBlock {
+            Text = loadedText ?? "No loaded GPU models reported",
+            Margin = new Thickness(8, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        overlayText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        overlayText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        Grid.SetColumnSpan(overlayText, 2);
+        bar.Children.Add(overlayText);
+
+        var frame = new Border {
+            Child = bar,
+            BorderThickness = new Thickness(1)
+        };
+        frame.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+        row.Children.Add(frame);
+
+        return row;
     }
 
     private Button MakeButton(string text, double width) {
@@ -334,6 +501,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _modelsGrid.IsHitTestVisible = false;
             _useButton.IsEnabled = false;
             _copyAllButton.IsEnabled = false;
+            if (_cleanFoundryButton is not null)
+                _cleanFoundryButton.IsEnabled = false;
             _closeButton.IsEnabled = false;
             return;
         }
@@ -343,6 +512,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
         _copyAllButton.IsEnabled = _models.Count > 0;
+        if (_cleanFoundryButton is not null)
+            _cleanFoundryButton.IsEnabled = _loadedFoundryUnloadIds.Count > 0;
         _closeButton.IsEnabled = true;
     }
 
@@ -467,12 +638,23 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                     : selected.ToolStatus,
                 Notes = AppendNote(source.Notes, displayNote),
                 DiagnosticNotes = AppendDiagnosticNote(source.DiagnosticNotes, diagnosticNote),
-                CanLoadLocally = _canLoadFoundryModels
+                CanLoadLocally = _canLoadFoundryModels,
+                IsLoadedLocally = result.Success
             };
+            if (result.Success)
+                MarkAllLocalModelsUnloadedExcept(selected.ModelId);
             _models[index] = loaded;
             _modelsGrid.SelectedIndex = index;
-            if (result.Success)
+            if (result.Success) {
                 _loadedFoundryModelId = selected.ModelId;
+                _loadedFoundryModelIds.Clear();
+                _loadedFoundryModelIds.Add(selected.ModelId);
+                if (!string.IsNullOrWhiteSpace(selected.ParentModel))
+                    _loadedFoundryModelIds.Add(selected.ParentModel);
+                _loadedFoundryUnloadIds.Clear();
+                _loadedFoundryUnloadIds.Add(selected.ModelId);
+                await RefreshMemoryPanelAsync();
+            }
             _statusText.Text = result.Success
                 ? probeAfterLoad
                     ? $"Loaded {selected.ModelId}. Running live probe..."
@@ -505,19 +687,32 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private async Task<string?> UnloadCurrentFoundryModelBeforeLoadAsync(string nextModelId) {
-        if (string.IsNullOrWhiteSpace(_loadedFoundryModelId) ||
-            string.Equals(_loadedFoundryModelId, nextModelId, StringComparison.OrdinalIgnoreCase))
+        if (_loadedFoundryUnloadIds.Count == 0)
             return null;
 
-        var previousModelId = _loadedFoundryModelId;
-        _statusText.Text = $"Unloading {previousModelId} before loading {nextModelId}...";
-        var result = await _probeService.UnloadFoundryModelAsync(previousModelId);
-        if (result.Success) {
-            _loadedFoundryModelId = null;
-            return BuildLoadNote($"Unloaded {previousModelId}", result);
+        var notes = new List<string>();
+        foreach (var previousModelId in _loadedFoundryUnloadIds
+                     .Where(modelId => !string.Equals(modelId, nextModelId, StringComparison.OrdinalIgnoreCase))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .ToArray()) {
+            _statusText.Text = $"Unloading {previousModelId} before loading {nextModelId}...";
+            var result = await _probeService.UnloadFoundryModelAsync(previousModelId);
+            notes.Add(BuildLoadNote(result.Success ? $"Unloaded {previousModelId}" : $"Unload {previousModelId} failed", result));
+            if (result.Success) {
+                _loadedFoundryUnloadIds.Remove(previousModelId);
+                _loadedFoundryModelIds.Remove(previousModelId);
+                MarkMatchingLocalModelLoaded(previousModelId, false);
+            }
         }
 
-        return BuildLoadNote($"Unload {previousModelId} failed", result);
+        if (_loadedFoundryUnloadIds.Count == 0) {
+            _loadedFoundryModelId = null;
+            _loadedFoundryModelIds.Clear();
+        }
+
+        return notes.Count == 0
+            ? null
+            : string.Join(Environment.NewLine, notes);
     }
 
     private void BeginCloseWithModelState(string? desiredModelId, bool dialogResult) {
@@ -545,8 +740,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                 var temporaryModelId = _loadedFoundryModelId;
                 _statusText.Text = $"Unloading temporary model {temporaryModelId}...";
                 var unload = await _probeService.UnloadFoundryModelAsync(temporaryModelId);
-                if (unload.Success)
+                if (unload.Success) {
                     _loadedFoundryModelId = null;
+                    _loadedFoundryUnloadIds.Remove(temporaryModelId);
+                    _loadedFoundryModelIds.Remove(temporaryModelId);
+                }
                 else {
                     _statusText.Text = $"Could not unload temporary model {temporaryModelId}. Open Details for the model before closing.";
                     canClose = false;
@@ -555,11 +753,16 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
             if (canClose &&
                 !string.IsNullOrWhiteSpace(desiredModelId) &&
-                !string.Equals(_loadedFoundryModelId, desiredModelId, StringComparison.OrdinalIgnoreCase)) {
+                !IsFoundryModelKnownLoaded(desiredModelId)) {
                 _statusText.Text = $"Restoring selected model {desiredModelId}...";
                 var restore = await _probeService.LoadFoundryModelAsync(desiredModelId);
-                if (restore.Success)
+                if (restore.Success) {
                     _loadedFoundryModelId = desiredModelId;
+                    _loadedFoundryUnloadIds.Clear();
+                    _loadedFoundryUnloadIds.Add(desiredModelId);
+                    _loadedFoundryModelIds.Clear();
+                    _loadedFoundryModelIds.Add(desiredModelId);
+                }
                 else {
                     _statusText.Text = $"Could not restore selected model {desiredModelId}.";
                     canClose = false;
@@ -590,6 +793,64 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             Owner = this
         };
         window.ShowDialog();
+    }
+
+    private async Task UnloadLoadedFoundryModelsAsync() {
+        if (!_canLoadFoundryModels || _loadedFoundryUnloadIds.Count == 0)
+            return;
+
+        SetActionButtonsEnabled(false);
+        _statusText.Text = "Unloading loaded Foundry models...";
+        var failures = new List<string>();
+        foreach (var modelId in _loadedFoundryUnloadIds.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()) {
+            _statusText.Text = $"Unloading {modelId}...";
+            var result = await _probeService.UnloadFoundryModelAsync(modelId);
+            if (result.Success) {
+                _loadedFoundryUnloadIds.Remove(modelId);
+                _loadedFoundryModelIds.Remove(modelId);
+                MarkMatchingLocalModelLoaded(modelId, false);
+            }
+            else {
+                failures.Add(BuildLoadNote($"Unload {modelId} failed", result));
+            }
+        }
+
+        if (_loadedFoundryUnloadIds.Count == 0)
+            _loadedFoundryModelId = null;
+        if (_loadedFoundryUnloadIds.Count == 0)
+            _loadedFoundryModelIds.Clear();
+
+        _statusText.Text = failures.Count == 0
+            ? "Loaded Foundry models were unloaded."
+            : $"Could not unload {failures.Count} model(s). Open Details for diagnostics.";
+        if (failures.Count > 0)
+            AppendDiagnosticsToLoadedRows(string.Join(Environment.NewLine, failures));
+        await RefreshMemoryPanelAsync();
+        SetActionButtonsEnabled(true);
+    }
+
+    private async Task RefreshMemoryPanelAsync() {
+        if (_memoryPanel is null)
+            return;
+
+        IReadOnlyList<FoundryLoadedModel> loadedModels;
+        try {
+            loadedModels = await _probeService.ListLoadedFoundryModelsAsync();
+        }
+        catch {
+            loadedModels = Array.Empty<FoundryLoadedModel>();
+        }
+
+        IReadOnlyList<LocalGpuMemoryInfo> gpuMemory;
+        try {
+            gpuMemory = await _probeService.GetNvidiaGpuMemoryAsync();
+        }
+        catch {
+            gpuMemory = Array.Empty<LocalGpuMemoryInfo>();
+        }
+
+        if (gpuMemory.Count > 0)
+            PopulateMemoryPanel(_memoryPanel, new ModelProviderLocalStatus(loadedModels, gpuMemory));
     }
 
     private DispatcherTimer StartStatusTicker(int index, string label) {
@@ -637,6 +898,48 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _closeButton.IsEnabled = enabled;
         _useButton.IsEnabled = enabled && _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _copyAllButton.IsEnabled = enabled && _models.Count > 0;
+        if (_cleanFoundryButton is not null)
+            _cleanFoundryButton.IsEnabled = enabled && _loadedFoundryUnloadIds.Count > 0;
+    }
+
+    private bool IsFoundryModelKnownLoaded(string modelId) =>
+        _loadedFoundryModelIds.Contains(modelId) ||
+        _loadedFoundryUnloadIds.Contains(modelId);
+
+    private void MarkAllLocalModelsUnloadedExcept(string modelId) {
+        for (var i = 0; i < _models.Count; i++) {
+            var model = _models[i];
+            if (!model.CanLoadLocally || string.Equals(model.ModelId, modelId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            _models[i] = model with { IsLoadedLocally = false };
+        }
+    }
+
+    private void MarkMatchingLocalModelLoaded(string modelId, bool isLoaded) {
+        for (var i = 0; i < _models.Count; i++) {
+            var model = _models[i];
+            if (!model.CanLoadLocally)
+                continue;
+
+            if (string.Equals(model.ModelId, modelId, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(model.ParentModel) &&
+                 string.Equals(model.ParentModel, modelId, StringComparison.OrdinalIgnoreCase))) {
+                _models[i] = model with { IsLoadedLocally = isLoaded };
+            }
+        }
+    }
+
+    private void AppendDiagnosticsToLoadedRows(string diagnostic) {
+        for (var i = 0; i < _models.Count; i++) {
+            var model = _models[i];
+            if (!model.IsLoadedLocally)
+                continue;
+
+            _models[i] = model with {
+                DiagnosticNotes = AppendDiagnosticNote(model.DiagnosticNotes, diagnostic)
+            };
+        }
     }
 
     private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {

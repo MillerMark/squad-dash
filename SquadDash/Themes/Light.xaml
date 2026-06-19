@@ -103,6 +103,8 @@
     <SolidColorBrush x:Key="StatusSuccess" Color="#5C9BEF"/>
     <SolidColorBrush x:Key="StatusFailure" Color="#D82323"/>
     <SolidColorBrush x:Key="StatusPending" Color="#7A5CC8"/>
+    <SolidColorBrush x:Key="MemoryOccupied" Color="#D82323"/>
+    <SolidColorBrush x:Key="MemoryFree" Color="#50BA55"/>
     <SolidColorBrush x:Key="AbortButtonText"  Color="#991010"/>
     <SolidColorBrush x:Key="SystemInfoText" Color="#B8860B"/>
     <SolidColorBrush x:Key="TaskSuccessText" Color="#226B22"/>

@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -27,7 +28,8 @@ internal sealed record ModelProviderProbeResult(
     ModelProbeCheckStatus ToolStatus = ModelProbeCheckStatus.NotRun,
     string? Notes = null,
     string? DiagnosticNotes = null,
-    bool CanLoadLocally = false) {
+    bool CanLoadLocally = false,
+    bool IsLoadedLocally = false) {
 
     public string CatalogToolCallingText => CatalogSupportsToolCalling switch {
         true => "Supported",
@@ -41,20 +43,20 @@ internal sealed record ModelProviderProbeResult(
     public string ToolStatusDisplay => StatusDisplay(ToolStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes) ||
                             !string.IsNullOrWhiteSpace(DiagnosticNotes);
-    public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes, CanLoadLocally);
+    public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes, CanLoadLocally, IsLoadedLocally);
     public string CatalogSummary => SummarizeNote(CatalogNotes);
     public bool HasProbeResult => ChatStatus != ModelProbeCheckStatus.NotRun ||
                                   ToolStatus != ModelProbeCheckStatus.NotRun;
     public string RowActionText =>
         IsLoadFailure
             ? "Details..."
-            : CanLoadLocally && (ChatStatus == ModelProbeCheckStatus.NotLoaded || ToolStatus == ModelProbeCheckStatus.NotLoaded)
-                ? "Load"
-                : IsLoadSuccess && !HasProbeResult
-                ? "Probe"
-                : HasProbeResult || HasNotes
-                ? "Details..."
-                : "Probe";
+            : CanLoadLocally && !IsLoadedLocally
+            ? "Load"
+            : IsLoadSuccess && !HasProbeResult
+            ? "Probe"
+            : HasProbeResult || HasNotes
+            ? "Details..."
+            : "Probe";
     private bool IsLoadFailure =>
         Notes?.Contains("Load failed", StringComparison.OrdinalIgnoreCase) == true;
     private bool IsLoadSuccess =>
@@ -80,9 +82,18 @@ internal sealed record ModelProviderProbeResult(
         ModelProbeCheckStatus chatStatus,
         ModelProbeCheckStatus toolStatus,
         string? note,
-        bool canLoadLocally) {
+        bool canLoadLocally,
+        bool isLoadedLocally) {
         if (IsTransientStatusNote(note))
             return note!.Trim();
+
+        if (canLoadLocally &&
+            chatStatus == ModelProbeCheckStatus.NotRun &&
+            toolStatus == ModelProbeCheckStatus.NotRun &&
+            string.IsNullOrWhiteSpace(note))
+            return isLoadedLocally
+                ? "Loaded. Click Probe to test this model."
+                : "Not loaded. Click Load to load this model.";
 
         if (chatStatus == ModelProbeCheckStatus.NotLoaded || toolStatus == ModelProbeCheckStatus.NotLoaded) {
             return canLoadLocally
@@ -178,6 +189,25 @@ internal sealed record FoundryCliLocation(
     string Source,
     Version? Version,
     bool IsSelected);
+
+internal sealed record FoundryLoadedModel(
+    string ModelId,
+    string? Alias,
+    string? DisplayName,
+    string? Device,
+    int? FileSizeMb,
+    bool? SupportsToolCalling);
+
+internal sealed record LocalGpuMemoryInfo(
+    int Index,
+    string Name,
+    long TotalMiB,
+    long UsedMiB,
+    long FreeMiB);
+
+internal sealed record ModelProviderLocalStatus(
+    IReadOnlyList<FoundryLoadedModel> LoadedModels,
+    IReadOnlyList<LocalGpuMemoryInfo> GpuMemory);
 
 internal sealed record FoundryCliResolution(
     string FileName,
@@ -315,6 +345,34 @@ internal sealed class ModelProviderProbeService : IDisposable {
         return AttachDiagnostic(result, foundry.Diagnostic);
     }
 
+    public async Task<IReadOnlyList<FoundryLoadedModel>> ListLoadedFoundryModelsAsync(
+        CancellationToken cancellationToken = default) {
+        var foundry = await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);
+        var result = await _commandRunner(
+            foundry.FileName,
+            ["model", "list", "--loaded", "-o", "json"],
+            cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            return Array.Empty<FoundryLoadedModel>();
+
+        return ParseFoundryLoadedModels(result.Output);
+    }
+
+    public async Task<IReadOnlyList<LocalGpuMemoryInfo>> GetNvidiaGpuMemoryAsync(
+        CancellationToken cancellationToken = default) {
+        var result = await _commandRunner(
+            "nvidia-smi",
+            [
+                "--query-gpu=index,name,memory.total,memory.used,memory.free",
+                "--format=csv,noheader,nounits"
+            ],
+            cancellationToken).ConfigureAwait(false);
+        if (!result.Success)
+            return Array.Empty<LocalGpuMemoryInfo>();
+
+        return ParseNvidiaGpuMemory(result.Output);
+    }
+
     public async Task<FoundryCliResolution> DiagnoseFoundryCliAsync(
         CancellationToken cancellationToken = default) {
         return await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);
@@ -426,6 +484,54 @@ internal sealed class ModelProviderProbeService : IDisposable {
         return results
             .OrderBy(r => r.ModelId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    internal static IReadOnlyList<FoundryLoadedModel> ParseFoundryLoadedModels(string json) {
+        if (string.IsNullOrWhiteSpace(json))
+            return Array.Empty<FoundryLoadedModel>();
+
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
+            return Array.Empty<FoundryLoadedModel>();
+
+        var results = new List<FoundryLoadedModel>();
+        foreach (var model in models.EnumerateArray()) {
+            var id = GetString(model, "id");
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+
+            results.Add(new FoundryLoadedModel(
+                id,
+                GetString(model, "alias"),
+                GetString(model, "displayName"),
+                GetString(model, "device"),
+                TryGetInt(model, "fileSizeMb"),
+                TryGetBool(model, "supportsToolCalling")));
+        }
+
+        return results;
+    }
+
+    internal static IReadOnlyList<LocalGpuMemoryInfo> ParseNvidiaGpuMemory(string output) {
+        if (string.IsNullOrWhiteSpace(output))
+            return Array.Empty<LocalGpuMemoryInfo>();
+
+        var results = new List<LocalGpuMemoryInfo>();
+        foreach (var rawLine in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
+            var parts = rawLine.Split(',').Select(part => part.Trim()).ToArray();
+            if (parts.Length < 5)
+                continue;
+
+            if (!int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index) ||
+                !long.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var total) ||
+                !long.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var used) ||
+                !long.TryParse(parts[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out var free))
+                continue;
+
+            results.Add(new LocalGpuMemoryInfo(index, parts[1], total, used, free));
+        }
+
+        return results;
     }
 
     private async Task<ModelProbeCheckStatus> ProbeChatAsync(
@@ -603,6 +709,22 @@ internal sealed class ModelProviderProbeService : IDisposable {
             return true;
 
         return false;
+    }
+
+    private static bool? TryGetBool(JsonElement item, string propertyName) =>
+        TryReadBool(item, propertyName, out var value) ? value : null;
+
+    private static int? TryGetInt(JsonElement item, string propertyName) {
+        if (!item.TryGetProperty(propertyName, out var property))
+            return null;
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value))
+            return value;
+
+        return property.ValueKind == JsonValueKind.String &&
+               int.TryParse(property.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+            ? value
+            : null;
     }
 
     private static string? BuildCatalogNotes(JsonElement item) {
