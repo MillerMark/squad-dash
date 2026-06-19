@@ -23,7 +23,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         ModelProviderProbeService probeService,
         string providerUrl,
         string? apiKey,
-        IReadOnlyList<ModelProviderProbeResult> models) : base(captionHeight: CloseButtonHeight) {
+        IReadOnlyList<ModelProviderProbeResult> models,
+        string? providerWarning = null) : base(captionHeight: CloseButtonHeight) {
         _probeService = probeService;
         _providerUrl = providerUrl;
         _apiKey = apiKey;
@@ -49,6 +50,20 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         DockPanel.SetDock(summary, Dock.Top);
         root.Children.Add(summary);
+
+        if (!string.IsNullOrWhiteSpace(providerWarning)) {
+            var warning = new TextBlock {
+                Text = providerWarning.Trim(),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12),
+                Padding = new Thickness(10, 8, 10, 8),
+                FontWeight = FontWeights.SemiBold
+            };
+            warning.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC4, 0x66));
+            warning.Background = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xA5, 0x00));
+            DockPanel.SetDock(warning, Dock.Top);
+            root.Children.Add(warning);
+        }
 
         var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
         DockPanel.SetDock(footer, Dock.Bottom);

@@ -111,7 +111,9 @@ internal sealed record FoundryCliCandidate(
 
 internal sealed record FoundryCliResolution(
     string FileName,
-    string Diagnostic);
+    string Diagnostic,
+    bool HasConflict,
+    bool IsLegacyVersion);
 
 internal sealed record FoundryCliInfo(
     FoundryCliCandidate Candidate,
@@ -210,6 +212,11 @@ internal sealed class ModelProviderProbeService : IDisposable {
         return AttachDiagnostic(result, foundry.Diagnostic);
     }
 
+    public async Task<FoundryCliResolution> DiagnoseFoundryCliAsync(
+        CancellationToken cancellationToken = default) {
+        return await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     internal static IReadOnlyList<string> BuildOpenAiEndpointCandidates(string providerUrl) {
         if (string.IsNullOrWhiteSpace(providerUrl))
             return Array.Empty<string>();
@@ -235,6 +242,13 @@ internal sealed class ModelProviderProbeService : IDisposable {
         }
 
         Add(Environment.GetEnvironmentVariable("SQUADDASH_FOUNDRY_CLI"), "SQUADDASH_FOUNDRY_CLI");
+        var localWindowsApps = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Microsoft",
+            "WindowsApps");
+        AddPackageAliasCandidates(localWindowsApps, "Microsoft.FoundryLocalCLI_*", "Foundry Local CLI package alias", Add);
+        AddPackageAliasCandidates(localWindowsApps, "Microsoft.FoundryLocal_*", "Foundry Local package alias", Add);
+
         Add("foundry", "PATH alias");
 
         var windowsApps = Path.Combine(
@@ -244,6 +258,26 @@ internal sealed class ModelProviderProbeService : IDisposable {
         AddPackageCandidates(windowsApps, "Microsoft.FoundryLocal_*", "Foundry Local package", Add);
 
         return candidates;
+    }
+
+    private static void AddPackageAliasCandidates(
+        string localWindowsApps,
+        string pattern,
+        string source,
+        Action<string?, string> add) {
+        try {
+            if (!Directory.Exists(localWindowsApps))
+                return;
+
+            foreach (var directory in Directory.EnumerateDirectories(localWindowsApps, pattern)) {
+                var foundry = Path.Combine(directory, "foundry.exe");
+                if (File.Exists(foundry))
+                    add(foundry, source);
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
+            // Package-specific aliases are a best-effort path before the global alias.
+        }
     }
 
     private static void AddPackageCandidates(
@@ -578,12 +612,17 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 : string.Join("; ", infos.Select(info => $"{info.Candidate.Source} ({info.Candidate.FileName}) failed: {info.Error ?? "unknown error"}"));
             return new FoundryCliResolution(
                 "foundry",
-                $"Foundry CLI discovery failed. Falling back to PATH alias. {failures}");
+                $"Foundry CLI discovery failed. Falling back to PATH alias. {failures}",
+                HasConflict: false,
+                IsLegacyVersion: true);
         }
 
+        var hasConflict = HasFoundryCliConflict(selected, infos);
         return new FoundryCliResolution(
             selected.Candidate.FileName,
-            BuildFoundryCliDiagnostic(selected, infos));
+            BuildFoundryCliDiagnostic(selected, infos),
+            HasConflict: hasConflict,
+            IsLegacyVersion: IsLegacyFoundryVersion(selected.Version));
     }
 
     private async Task<FoundryCliInfo> ProbeFoundryCliAsync(
@@ -636,6 +675,19 @@ internal sealed class ModelProviderProbeService : IDisposable {
             RegexOptions.IgnoreCase | RegexOptions.Multiline);
     }
 
+    private static bool HasFoundryCliConflict(FoundryCliInfo selected, IReadOnlyList<FoundryCliInfo> infos) {
+        return infos.Any(info =>
+            info.IsUsable &&
+            !string.Equals(info.Candidate.FileName, selected.Candidate.FileName, StringComparison.OrdinalIgnoreCase) &&
+            (info.Version != selected.Version ||
+             info.SupportsServerCommand != selected.SupportsServerCommand ||
+             info.SupportsServiceCommand != selected.SupportsServiceCommand));
+    }
+
+    private static bool IsLegacyFoundryVersion(Version? version) {
+        return version is null || version < new Version(0, 10, 0);
+    }
+
     private static string BuildFoundryCliDiagnostic(FoundryCliInfo selected, IReadOnlyList<FoundryCliInfo> infos) {
         var lines = new List<string> {
             $"Foundry CLI: {selected.Candidate.FileName}",
@@ -649,7 +701,9 @@ internal sealed class ModelProviderProbeService : IDisposable {
             string.Equals(info.Candidate.Source, "PATH alias", StringComparison.OrdinalIgnoreCase));
         if (alias is not null &&
             !string.Equals(alias.Candidate.FileName, selected.Candidate.FileName, StringComparison.OrdinalIgnoreCase) &&
-            alias.Version != selected.Version) {
+            (alias.Version != selected.Version ||
+             alias.SupportsServerCommand != selected.SupportsServerCommand ||
+             alias.SupportsServiceCommand != selected.SupportsServiceCommand)) {
             lines.Add(
                 $"Foundry CLI conflict: PATH alias resolves to {alias.Version} at {alias.Candidate.FileName}, but SquadDash selected {selected.Version} from {selected.Candidate.Source}.");
         }

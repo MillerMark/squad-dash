@@ -1956,12 +1956,17 @@ internal sealed class PreferencesWindow : Window {
             var models = await probeService.DiscoverModelsAsync(
                 url,
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim());
+            var providerWarning = await BuildModelProbeProviderWarningAsync(
+                probeService,
+                url,
+                models);
 
             var probeWindow = new ModelProviderProbeWindow(
                 probeService,
                 url,
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim(),
-                models) {
+                models,
+                providerWarning) {
                 Owner = this
             };
 
@@ -1984,6 +1989,38 @@ internal sealed class PreferencesWindow : Window {
             if (clickedButton is not null)
                 clickedButton.IsEnabled = true;
         }
+    }
+
+    private static async Task<string?> BuildModelProbeProviderWarningAsync(
+        ModelProviderProbeService probeService,
+        string providerUrl,
+        IReadOnlyList<ModelProviderProbeResult> models) {
+        if (!LooksLikeFoundryProvider(providerUrl, models))
+            return null;
+
+        try {
+            var foundry = await probeService.DiagnoseFoundryCliAsync();
+            if (!foundry.HasConflict && !foundry.IsLegacyVersion)
+                return null;
+
+            return foundry.HasConflict
+                ? $"Foundry CLI conflict detected. {foundry.Diagnostic}"
+                : $"Older Foundry CLI detected. {foundry.Diagnostic}";
+        }
+        catch (Exception ex) {
+            return $"Unable to verify the Foundry CLI installation: {ex.Message}";
+        }
+    }
+
+    private static bool LooksLikeFoundryProvider(
+        string providerUrl,
+        IReadOnlyList<ModelProviderProbeResult> models) {
+        return providerUrl.Contains("5273", StringComparison.OrdinalIgnoreCase) ||
+               providerUrl.Contains("11437", StringComparison.OrdinalIgnoreCase) ||
+               models.Any(model =>
+                   string.Equals(model.Owner, "Microsoft", StringComparison.OrdinalIgnoreCase) ||
+                   model.ModelId.Contains("-cuda-gpu", StringComparison.OrdinalIgnoreCase) ||
+                   model.ModelId.Contains("-generic-cpu", StringComparison.OrdinalIgnoreCase));
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e) {
