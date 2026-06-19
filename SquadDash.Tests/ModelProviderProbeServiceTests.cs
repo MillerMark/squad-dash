@@ -90,6 +90,22 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void StatusDisplay_AddsPassAndFailGlyphs() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.Passed,
+            ToolStatus: ModelProbeCheckStatus.Failed);
+
+        Assert.Multiple(() => {
+            Assert.That(result.ChatStatusText, Is.EqualTo("Passed"));
+            Assert.That(result.ToolStatusText, Is.EqualTo("Failed"));
+            Assert.That(result.ChatStatusDisplay, Is.EqualTo("\u2611 Passed"));
+            Assert.That(result.ToolStatusDisplay, Is.EqualTo("\u2715 Failed"));
+        });
+    }
+
+    [Test]
     public void RowActionText_ShowsDetailsForProbedOrLoadFailedModels() {
         var probed = new ModelProviderProbeResult(
             "model",

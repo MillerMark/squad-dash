@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -92,8 +93,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.Columns.Add(MakeTextColumn("Parent", nameof(ModelProviderProbeResult.ParentModel), 190));
         _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
         _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
-        _modelsGrid.Columns.Add(MakeTextColumn("Chat", nameof(ModelProviderProbeResult.ChatStatusText), 90));
-        _modelsGrid.Columns.Add(MakeTextColumn("Tool Probe", nameof(ModelProviderProbeResult.ToolStatusText), 100));
+        _modelsGrid.Columns.Add(MakeStatusColumn("Chat", nameof(ModelProviderProbeResult.ChatStatus), nameof(ModelProviderProbeResult.ChatStatusDisplay), 100));
+        _modelsGrid.Columns.Add(MakeStatusColumn("Tool Probe", nameof(ModelProviderProbeResult.ToolStatus), nameof(ModelProviderProbeResult.ToolStatusDisplay), 120));
         _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.NoteSummary), new DataGridLength(1, DataGridLengthUnitType.Star), minWidth: 260));
         _modelsGrid.Columns.Add(MakeActionColumn());
 
@@ -126,6 +127,25 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                     new Setter(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center)
                 }
             }
+        };
+    }
+
+    private static DataGridTemplateColumn MakeStatusColumn(string header, string statusPath, string textPath, double width) {
+        var template = new DataTemplate();
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        text.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+        text.SetBinding(TextBlock.TextProperty, new Binding(textPath));
+        text.SetBinding(TextBlock.ForegroundProperty, new Binding(statusPath) {
+            Converter = ProbeStatusBrushConverter.Instance
+        });
+        template.VisualTree = text;
+
+        return new DataGridTemplateColumn {
+            Header = header,
+            CellTemplate = template,
+            Width = width,
+            MinWidth = width
         };
     }
 
@@ -196,6 +216,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private void SyncButtonState() {
+        _modelsGrid.IsEnabled = true;
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
     }
@@ -450,4 +471,25 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
         Clipboard.SetText(_diagnosticText);
         _statusText.Text = "Copied.";
     }
+}
+
+internal sealed class ProbeStatusBrushConverter : IValueConverter {
+    public static readonly ProbeStatusBrushConverter Instance = new();
+
+    private static readonly Brush PassedBrush = new SolidColorBrush(Color.FromRgb(0x6B, 0xA9, 0xFF));
+    private static readonly Brush FailedBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x6B, 0x6B));
+    private static readonly Brush WaitingBrush = new SolidColorBrush(Color.FromRgb(0xC8, 0xA8, 0xFF));
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
+        return value switch {
+            ModelProbeCheckStatus.Passed => PassedBrush,
+            ModelProbeCheckStatus.Failed => FailedBrush,
+            ModelProbeCheckStatus.TimedOut => FailedBrush,
+            ModelProbeCheckStatus.NotLoaded => WaitingBrush,
+            _ => Application.Current.TryFindResource("LabelText") as Brush ?? Brushes.LightGray
+        };
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        Binding.DoNothing;
 }

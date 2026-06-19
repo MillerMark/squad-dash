@@ -33,6 +33,8 @@ internal sealed record ModelProviderProbeResult(
 
     public string ChatStatusText => StatusText(ChatStatus);
     public string ToolStatusText => StatusText(ToolStatus);
+    public string ChatStatusDisplay => StatusDisplay(ChatStatus);
+    public string ToolStatusDisplay => StatusDisplay(ToolStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
     public string NoteSummary => SummarizeNote(Notes);
     public string CatalogSummary => SummarizeNote(CatalogNotes);
@@ -53,6 +55,14 @@ internal sealed record ModelProviderProbeResult(
         ModelProbeCheckStatus.Passed => "Passed",
         ModelProbeCheckStatus.Failed => "Failed",
         ModelProbeCheckStatus.TimedOut => "Timed out",
+        ModelProbeCheckStatus.NotLoaded => "Not loaded",
+        _ => "Not run"
+    };
+
+    private static string StatusDisplay(ModelProbeCheckStatus status) => status switch {
+        ModelProbeCheckStatus.Passed => "\u2611 Passed",
+        ModelProbeCheckStatus.Failed => "\u2715 Failed",
+        ModelProbeCheckStatus.TimedOut => "\u2715 Timed out",
         ModelProbeCheckStatus.NotLoaded => "Not loaded",
         _ => "Not run"
     };
