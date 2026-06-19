@@ -314,6 +314,48 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public async Task RunLiveProbeAsync_ExplainsFoundryToolGrammarFailure() {
+        var requestIndex = 0;
+        var handler = new StubHttpHandler(_ => {
+            requestIndex++;
+            if (requestIndex == 1)
+                return JsonResponse("""
+                    {
+                      "choices": [
+                        { "message": { "role": "assistant", "content": "OK" } }
+                      ]
+                    }
+                    """);
+
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError) {
+                Content = new StringContent(
+                    """
+                    {
+                      "error": {
+                        "message": "Failed to handle OpenAI completion: Error creating grammar: unknown name: \"TOOL_CALLS\"",
+                        "type": "server_error",
+                        "code": null
+                      }
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        });
+        using var http = new HttpClient(handler);
+        using var service = new ModelProviderProbeService(http);
+        var model = new ModelProviderProbeResult("ministral", "http://provider/v1");
+
+        var probed = await service.RunLiveProbeAsync("http://provider/v1", null, model);
+
+        Assert.Multiple(() => {
+            Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
+            Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.Failed));
+            Assert.That(probed.Notes, Does.Contain("Provider rejected the structured tool-call request"));
+        });
+    }
+
+    [Test]
     public async Task LoadFoundryModelAsync_InvokesFoundryModelLoad() {
         string? observedFileName = null;
         IReadOnlyList<string>? observedArguments = null;

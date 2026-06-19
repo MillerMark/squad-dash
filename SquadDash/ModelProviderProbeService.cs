@@ -453,7 +453,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
                 var errorMessage = ExtractErrorMessage(json);
-                notes.Add($"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}.");
+                notes.Add($"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {FormatToolProbeError(errorMessage)}.");
                 return IsModelNotLoadedError(errorMessage)
                     ? ModelProbeCheckStatus.NotLoaded
                     : ModelProbeCheckStatus.Failed;
@@ -599,6 +599,17 @@ internal sealed class ModelProviderProbeService : IDisposable {
     private static bool IsModelNotLoadedError(string? message) {
         return !string.IsNullOrWhiteSpace(message) &&
                message.Contains("not loaded", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatToolProbeError(string? message) {
+        if (string.IsNullOrWhiteSpace(message))
+            return "no error body";
+
+        if (message.Contains("Error creating grammar", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("TOOL_CALLS", StringComparison.OrdinalIgnoreCase))
+            return "Provider rejected the structured tool-call request while creating its tool grammar. The provider/model likely does not currently support OpenAI tool calls correctly.";
+
+        return message;
     }
 
     private static bool ResponseContainsStructuredToolCall(string json) {

@@ -62,6 +62,7 @@ test("Local-lite capability profile keeps only read-only coordination tools", ()
             { type: "function", function: { name: "grep" } },
             { type: "function", function: { name: "glob" } },
             { type: "function", function: { name: "report_intent" } },
+            { type: "function", function: { name: "report_probe" } },
             { type: "function", function: { name: "task" } }
         ]
     };
@@ -71,8 +72,31 @@ test("Local-lite capability profile keeps only read-only coordination tools", ()
     assert.equal(changed, true);
     assert.deepEqual(
         body.tools.map((tool) => tool.function.name),
-        ["view", "grep", "glob", "report_intent"]);
+        ["view", "grep", "glob", "report_intent", "report_probe"]);
     assert.equal(body.tool_choice, undefined);
+});
+
+test("Local-lite capability profile preserves forced model probe tool choice", () => {
+    const profile = resolveLocalCapabilityProfile("local-lite", {});
+    const body = {
+        tool_choice: {
+            type: "function",
+            function: { name: "report_probe" }
+        },
+        tools: [
+            { type: "function", function: { name: "report_probe" } }
+        ]
+    };
+
+    const changed = applyCapabilityProfile(body, profile);
+
+    assert.equal(changed, false);
+    assert.deepEqual(
+        body.tool_choice,
+        {
+            type: "function",
+            function: { name: "report_probe" }
+        });
 });
 
 test("Text-only capability profile removes tool declarations", () => {

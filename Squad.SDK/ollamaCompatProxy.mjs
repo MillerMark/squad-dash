@@ -46,11 +46,11 @@ const capabilityProfilePresets = {
     },
     "local-lite": {
         id: "local-lite",
-        allowedTools: ["report_intent", "grep", "glob", "view"]
+        allowedTools: ["report_intent", "report_probe", "grep", "glob", "view"]
     },
     "read-only": {
         id: "read-only",
-        allowedTools: ["report_intent", "grep", "glob", "view"]
+        allowedTools: ["report_intent", "report_probe", "grep", "glob", "view"]
     },
     "text-only": {
         id: "text-only",
