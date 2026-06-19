@@ -132,6 +132,8 @@ const maxInputChars = localProviderProfile.maxInputChars;
 const workerConcurrency = localProviderProfile.maxConcurrent;
 const firstDataTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FIRST_DATA_TIMEOUT_MS, 30000);
 const upstreamResponseTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_UPSTREAM_RESPONSE_TIMEOUT_MS, 30000);
+const upstreamStreamMode = String(process.env.OLLAMA_COMPAT_UPSTREAM_STREAM_MODE || "passthrough").trim().toLowerCase();
+const lastUserPrefix = process.env.OLLAMA_COMPAT_LAST_USER_PREFIX || "";
 const truncationNotice = "\n\n[Local provider profile truncated additional context before sending to the local model.]";
 
 function splitTargetList(value) {
@@ -673,6 +675,110 @@ function normalizeRequestBody(body) {
     return body;
 }
 
+function shouldUseNonStreamingUpstream(body) {
+    return upstreamStreamMode === "non-stream" &&
+        body &&
+        typeof body === "object" &&
+        body.stream === true;
+}
+
+function applyLastUserPrefix(body, prefix = lastUserPrefix) {
+    if (!prefix || !Array.isArray(body?.messages))
+        return false;
+
+    const currentUserIndex = getCurrentUserMessageIndex(body.messages);
+    if (currentUserIndex < 0)
+        return false;
+
+    const message = body.messages[currentUserIndex];
+    const content = normalizeContent(message.content);
+    if (content.startsWith(prefix))
+        return false;
+
+    message.content = `${prefix}${content}`;
+    return true;
+}
+
+function normalizeNonStreamingToolCalls(toolCalls) {
+    if (!Array.isArray(toolCalls))
+        return undefined;
+
+    return toolCalls.map((toolCall, index) => {
+        const normalized = normalizeMessageToolCalls({
+            tool_calls: [{
+                index,
+                id: toolCall?.id || `call_local_${index}`,
+                type: toolCall?.type || "function",
+                function: {
+                    name: toolCall?.function?.name ?? toolCall?.name ?? "",
+                    arguments: toolCall?.function?.arguments ?? toolCall?.arguments ?? {}
+                }
+            }]
+        }).tool_calls[0];
+
+        return normalized;
+    });
+}
+
+function sanitizeAssistantContent(content) {
+    if (typeof content !== "string")
+        return content;
+
+    return content.replace(/^\s*<think>\s*<\/think>\s*/i, "");
+}
+
+function buildStreamingChunkFromCompletion(completion, requestSummary) {
+    const model = completion?.model || requestSummary?.model || "local-model";
+    const id = completion?.id || "chatcmpl-local-nonstream";
+    const created = completion?.created || Math.floor(Date.now() / 1000);
+    const choices = Array.isArray(completion?.choices) && completion.choices.length > 0
+        ? completion.choices
+        : [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "stop" }];
+
+    return {
+        id,
+        model,
+        created,
+        object: "chat.completion.chunk",
+        choices: choices.map((choice, fallbackIndex) => {
+            const message = choice.message ?? choice.delta ?? {};
+            const toolCalls = normalizeNonStreamingToolCalls(message.tool_calls ?? choice.tool_calls);
+            const delta = {
+                role: message.role || "assistant"
+            };
+
+            if (toolCalls?.length > 0)
+                delta.tool_calls = toolCalls;
+            else if (typeof message.content === "string")
+                delta.content = sanitizeAssistantContent(message.content);
+            else
+                delta.content = "";
+
+            return {
+                index: choice.index ?? fallbackIndex,
+                delta,
+                finish_reason: choice.finish_reason ?? (toolCalls?.length > 0 ? "tool_calls" : "stop")
+            };
+        })
+    };
+}
+
+function convertNonStreamingCompletionToSse(responseBody, requestSummary) {
+    try {
+        const completion = JSON.parse(responseBody);
+        const chunk = buildStreamingChunkFromCompletion(completion, requestSummary);
+        return {
+            body: `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+            normalized: true
+        };
+    } catch {
+        return {
+            body: responseBody,
+            normalized: false
+        };
+    }
+}
+
 function sanitizeStreamingChoice(choice, options = {}) {
     if (!choice || typeof choice !== "object")
         return choice;
@@ -966,6 +1072,7 @@ const server = http.createServer(async (req, res) => {
     let outboundBody = inboundBody;
     let normalized = false;
     let requestSummary;
+    let synthesizeStreamFromNonStreaming = false;
     let leaseReleased = false;
     const releaseLease = () => {
         if (leaseReleased)
@@ -982,12 +1089,21 @@ const server = http.createServer(async (req, res) => {
             const before = JSON.stringify(parsed);
             const originalRequestSummary = summarizeRequestBody(parsed);
             const normalizedBody = normalizeRequestBody(parsed);
+            const prefixed = applyLastUserPrefix(normalizedBody);
+            if (shouldUseNonStreamingUpstream(normalizedBody)) {
+                normalizedBody.stream = false;
+                synthesizeStreamFromNonStreaming = true;
+            }
             const after = JSON.stringify(normalizedBody);
-            normalized = before !== after;
+            normalized = before !== after || prefixed || synthesizeStreamFromNonStreaming;
             requestSummary = {
                 ...summarizeRequestBody(normalizedBody),
                 originalToolCount: originalRequestSummary?.toolCount,
-                originalToolsJsonChars: originalRequestSummary?.toolsJsonChars
+                originalToolsJsonChars: originalRequestSummary?.toolsJsonChars,
+                originalStream: originalRequestSummary?.stream,
+                upstreamStreamMode,
+                appliedLastUserPrefix: prefixed,
+                synthesizeStreamFromNonStreaming
             };
             outboundBody = Buffer.from(after, "utf8");
         } catch {
@@ -1030,6 +1146,12 @@ const server = http.createServer(async (req, res) => {
         const responseChunks = [];
         const responseHeaders = { ...proxyRes.headers };
         delete responseHeaders["content-length"];
+        if (synthesizeStreamFromNonStreaming &&
+            proxyRes.statusCode &&
+            proxyRes.statusCode >= 200 &&
+            proxyRes.statusCode < 300) {
+            responseHeaders["content-type"] = "text/event-stream; charset=utf-8";
+        }
         res.writeHead(proxyRes.statusCode || 502, responseHeaders);
 
         if (isEventStream) {
@@ -1190,7 +1312,13 @@ const server = http.createServer(async (req, res) => {
         });
         proxyRes.on("end", () => {
             const responseBody = Buffer.concat(responseChunks).toString("utf8");
-            const responseBuffer = Buffer.from(responseBody, "utf8");
+            const converted = synthesizeStreamFromNonStreaming &&
+                proxyRes.statusCode &&
+                proxyRes.statusCode >= 200 &&
+                proxyRes.statusCode < 300
+                ? convertNonStreamingCompletionToSse(responseBody, requestSummary)
+                : { body: responseBody, normalized: false };
+            const responseBuffer = Buffer.from(converted.body, "utf8");
             res.end(responseBuffer);
             appendLog({
                 capturedAt: new Date().toISOString(),
@@ -1205,10 +1333,10 @@ const server = http.createServer(async (req, res) => {
                 statusCode: proxyRes.statusCode,
                 durationMs: Date.now() - startedAt,
                 normalized,
-                responseNormalized: false,
+                responseNormalized: converted.normalized,
                 requestSummary,
                 requestPreview: inboundBody.toString("utf8").slice(0, 4000),
-                responsePreview: responseBody.slice(0, 4000)
+                responsePreview: converted.body.slice(0, 4000)
             });
             releaseLease();
         });
@@ -1266,6 +1394,8 @@ const server = http.createServer(async (req, res) => {
 export {
     addGptOssToolingHint,
     applyCapabilityProfile,
+    applyLastUserPrefix,
+    convertNonStreamingCompletionToSse,
     LocalModelRequestScheduler,
     normalizeRequestBody,
     normalizeServerSentEvents,

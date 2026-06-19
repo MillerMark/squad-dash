@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
     applyCapabilityProfile,
+    applyLastUserPrefix,
+    convertNonStreamingCompletionToSse,
     LocalModelRequestScheduler,
     normalizeRequestBody,
     normalizeServerSentEvents,
@@ -86,6 +88,80 @@ test("Text-only capability profile removes tool declarations", () => {
     assert.equal(changed, true);
     assert.equal(body.tools, undefined);
     assert.equal(body.tool_choice, undefined);
+});
+
+test("Last user prefix applies only to the current non-continuation user message", () => {
+    const body = {
+        messages: [
+            { role: "system", content: "system" },
+            { role: "user", content: "older" },
+            { role: "assistant", content: "reply" },
+            { role: "user", content: "Please continue from where you left off." },
+            { role: "user", content: "What time is it?" }
+        ]
+    };
+
+    const changed = applyLastUserPrefix(body, "/no_think ");
+
+    assert.equal(changed, true);
+    assert.equal(body.messages[1].content, "older");
+    assert.equal(body.messages[3].content, "Please continue from where you left off.");
+    assert.equal(body.messages[4].content, "/no_think What time is it?");
+});
+
+test("Non-streaming completion with tool calls converts to OpenAI SSE", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu:2",
+        choices: [{
+            index: 0,
+            message: {
+                role: "assistant",
+                content: "<think>\n\n</think>\n<tool_call>{\"name\":\"get_time\",\"arguments\":{}}</tool_call>",
+                tool_calls: [{
+                    id: "call_1",
+                    type: "function",
+                    function: {
+                        name: "get_time",
+                        arguments: {}
+                    }
+                }]
+            },
+            finish_reason: "tool_calls"
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {
+        model: "qwen3-14b-cuda-gpu:2"
+    });
+
+    assert.equal(converted.normalized, true);
+    assert.ok(converted.body.includes("data: "));
+    assert.ok(converted.body.includes("data: [DONE]"));
+    assert.ok(converted.body.includes('"finish_reason":"tool_calls"'));
+    assert.ok(converted.body.includes('"tool_calls"'));
+    assert.ok(converted.body.includes('"name":"get_time"'));
+    assert.ok(!converted.body.includes("<tool_call>"));
+});
+
+test("Non-streaming text completion drops only empty leading think block", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu:2",
+        choices: [{
+            message: {
+                role: "assistant",
+                content: "<think>\n\n</think>\n\nThe current time is 8:25 AM."
+            },
+            finish_reason: "stop"
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {});
+
+    assert.equal(converted.normalized, true);
+    assert.ok(converted.body.includes("The current time is 8:25 AM."));
+    assert.ok(!converted.body.includes("<think>"));
 });
 
 test("Local provider profile clamps OpenAI output budgets", () => {
