@@ -2001,22 +2001,26 @@ internal sealed class PreferencesWindow : Window {
     private static async Task<ModelProviderLocalStatus> BuildModelProbeLocalStatusAsync(
         ModelProviderProbeService probeService) {
         IReadOnlyList<FoundryLoadedModel> loadedModels;
+        var loadedModelsAvailable = true;
         try {
             loadedModels = await probeService.ListLoadedFoundryModelsAsync();
         }
         catch {
+            loadedModelsAvailable = false;
             loadedModels = Array.Empty<FoundryLoadedModel>();
         }
 
         IReadOnlyList<LocalGpuMemoryInfo> gpuMemory;
+        var gpuMemoryAvailable = true;
         try {
             gpuMemory = await probeService.GetNvidiaGpuMemoryAsync();
         }
         catch {
+            gpuMemoryAvailable = false;
             gpuMemory = Array.Empty<LocalGpuMemoryInfo>();
         }
 
-        return new ModelProviderLocalStatus(loadedModels, gpuMemory);
+        return new ModelProviderLocalStatus(loadedModels, gpuMemory, loadedModelsAvailable, gpuMemoryAvailable);
     }
 
     private static async Task<ModelProviderProbeWarning?> BuildModelProbeProviderWarningAsync(

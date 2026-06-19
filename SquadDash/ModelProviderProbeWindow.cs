@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -84,7 +85,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             Margin = new Thickness(0, 0, 0, 12)
         };
         summary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         DockPanel.SetDock(summary, Dock.Top);
         root.Children.Add(summary);
 
@@ -138,8 +139,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             root.Children.Add(warningHost);
         }
 
-        if (localStatus?.GpuMemory.Count > 0) {
-            _memoryPanel = BuildMemoryPanel(localStatus);
+        if (localStatus is { } status && HasLocalStatusSection(status)) {
+            _memoryPanel = BuildMemoryPanel(status);
             DockPanel.SetDock(_memoryPanel, Dock.Top);
             root.Children.Add(_memoryPanel);
         }
@@ -182,7 +183,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             TextWrapping = TextWrapping.Wrap
         };
         _statusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        _statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        _statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         footer.Children.Add(_statusText);
 
         _modelsGrid = new DataGrid {
@@ -281,6 +282,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         return separator > 0 ? trimmed[..separator] : trimmed;
     }
 
+    private static bool HasLocalStatusSection(ModelProviderLocalStatus? status) =>
+        status is not null &&
+        ((status.GpuMemoryAvailable && status.GpuMemory.Count > 0) ||
+         status.LoadedModelsAvailable);
+
     private StackPanel BuildMemoryPanel(ModelProviderLocalStatus status) {
         var host = new StackPanel {
             Margin = new Thickness(0, 0, 0, 12)
@@ -292,28 +298,14 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private void PopulateMemoryPanel(StackPanel host, ModelProviderLocalStatus status) {
         host.Children.Clear();
 
-        var loadedGpuModels = status.LoadedModels
-            .Where(model => string.Equals(model.Device, "Gpu", StringComparison.OrdinalIgnoreCase))
-            .Select(model => model.DisplayName ?? model.Alias ?? RemoveFoundryVariantSuffix(model.ModelId) ?? model.ModelId)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var loadedText = loadedGpuModels.Length == 0
-            ? null
-            : $"Loaded GPU models: {string.Join(", ", loadedGpuModels)}";
-
-        foreach (var gpu in status.GpuMemory.OrderBy(gpu => gpu.Index)) {
-            host.Children.Add(BuildGpuMemoryRow(gpu));
+        if (status.GpuMemoryAvailable) {
+            foreach (var gpu in status.GpuMemory.OrderBy(gpu => gpu.Index)) {
+                host.Children.Add(BuildGpuMemoryRow(gpu));
+            }
         }
 
-        var loadedLine = new TextBlock {
-            Text = loadedText ?? "Loaded GPU models: none reported",
-            Margin = new Thickness(260, 0, 140, 0),
-            TextWrapping = TextWrapping.Wrap,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        };
-        loadedLine.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        loadedLine.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-        host.Children.Add(loadedLine);
+        if (status.LoadedModelsAvailable)
+            host.Children.Add(BuildLoadedModelsLine(status));
     }
 
     private FrameworkElement BuildGpuMemoryRow(LocalGpuMemoryInfo gpu) {
@@ -330,18 +322,18 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             TextTrimming = TextTrimming.CharacterEllipsis
         };
         label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         DockPanel.SetDock(label, Dock.Left);
         row.Children.Add(label);
 
         var totalText = new TextBlock {
-            Text = $"{gpu.UsedMiB:N0} / {gpu.TotalMiB:N0} MiB",
-            Width = 140,
+            Text = $"{gpu.FreeMiB:N0} MB free (out of {gpu.TotalMiB:N0} MB)",
+            Width = 230,
             TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center
         };
         totalText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        totalText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        totalText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         DockPanel.SetDock(totalText, Dock.Right);
         row.Children.Add(totalText);
 
@@ -360,6 +352,18 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         Grid.SetColumn(usedBorder, 0);
         bar.Children.Add(usedBorder);
 
+        var usedText = new TextBlock {
+            Text = $"\u2190 {used:N0} MB used \u2192",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(4, 0, 4, 0)
+        };
+        usedText.SetResourceReference(TextBlock.ForegroundProperty, "MemoryOccupiedIndicator");
+        usedText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        Grid.SetColumn(usedText, 0);
+        bar.Children.Add(usedText);
+
         var freeBorder = new Border();
         freeBorder.SetResourceReference(Border.BackgroundProperty, "MemoryFree");
         Grid.SetColumn(freeBorder, 1);
@@ -373,6 +377,27 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         row.Children.Add(frame);
 
         return row;
+    }
+
+    private FrameworkElement BuildLoadedModelsLine(ModelProviderLocalStatus status) {
+        var loadedModels = status.LoadedModels
+            .Select(model => model.DisplayName ?? model.Alias ?? RemoveFoundryVariantSuffix(model.ModelId) ?? model.ModelId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var modelText = loadedModels.Length == 0
+            ? "none reported"
+            : string.Join(", ", loadedModels);
+
+        var line = new TextBlock {
+            Margin = new Thickness(260, 0, 230, 0),
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        line.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        line.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        line.Inlines.Add(new Run("Loaded models: "));
+        line.Inlines.Add(new Run(modelText) { FontWeight = FontWeights.Bold });
+        return line;
     }
 
     private Button MakeButton(string text, double width) {
@@ -719,7 +744,18 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _closeFinalizationStarted = true;
         _desiredModelIdOnClose = NormalizeModelId(desiredModelId) ?? _initialModelId;
         _finalDialogResult = dialogResult;
-        _ = CloseWithModelStateAsync();
+        _ = CloseWithModelStateSafelyAsync();
+    }
+
+    private async Task CloseWithModelStateSafelyAsync() {
+        try {
+            await CloseWithModelStateAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) {
+            _closeFinalizationStarted = false;
+            _statusText.Text = $"Model cleanup before close failed: {ex.Message}";
+            SetActionButtonsEnabled(true);
+        }
     }
 
     private async Task CloseWithModelStateAsync() {
@@ -773,10 +809,12 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         finally {
             if (canClose) {
                 _allowClose = true;
-                if (_finalDialogResult == true)
-                    DialogResult = true;
-                else
-                    Close();
+                await Dispatcher.InvokeAsync(() => {
+                    if (_finalDialogResult == true)
+                        DialogResult = true;
+                    else
+                        Close();
+                }, DispatcherPriority.Background);
             }
             else {
                 _closeFinalizationStarted = false;
@@ -831,23 +869,31 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             return;
 
         IReadOnlyList<FoundryLoadedModel> loadedModels;
+        var loadedModelsAvailable = true;
         try {
             loadedModels = await _probeService.ListLoadedFoundryModelsAsync();
         }
         catch {
+            loadedModelsAvailable = false;
             loadedModels = Array.Empty<FoundryLoadedModel>();
         }
 
         IReadOnlyList<LocalGpuMemoryInfo> gpuMemory;
+        var gpuMemoryAvailable = true;
         try {
             gpuMemory = await _probeService.GetNvidiaGpuMemoryAsync();
         }
         catch {
+            gpuMemoryAvailable = false;
             gpuMemory = Array.Empty<LocalGpuMemoryInfo>();
         }
 
-        if (gpuMemory.Count > 0)
-            PopulateMemoryPanel(_memoryPanel, new ModelProviderLocalStatus(loadedModels, gpuMemory));
+        if (gpuMemory.Count > 0 || loadedModelsAvailable)
+            PopulateMemoryPanel(_memoryPanel, new ModelProviderLocalStatus(
+                loadedModels,
+                gpuMemory,
+                loadedModelsAvailable,
+                gpuMemoryAvailable));
     }
 
     private DispatcherTimer StartStatusTicker(int index, string label) {
@@ -1019,7 +1065,7 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
             TextWrapping = TextWrapping.Wrap
         };
         _statusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        _statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        _statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         footer.Children.Add(_statusText);
 
         var detailsBox = new TextBox {

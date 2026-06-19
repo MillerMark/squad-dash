@@ -207,7 +207,9 @@ internal sealed record LocalGpuMemoryInfo(
 
 internal sealed record ModelProviderLocalStatus(
     IReadOnlyList<FoundryLoadedModel> LoadedModels,
-    IReadOnlyList<LocalGpuMemoryInfo> GpuMemory);
+    IReadOnlyList<LocalGpuMemoryInfo> GpuMemory,
+    bool LoadedModelsAvailable = true,
+    bool GpuMemoryAvailable = true);
 
 internal sealed record FoundryCliResolution(
     string FileName,
