@@ -2040,7 +2040,7 @@ internal sealed class PreferencesWindow : Window {
     private static string BuildFoundryWarningGuidance(string selectedVersion) {
         return string.Join(
             Environment.NewLine,
-            "When conflicts are found, Squad Dash will use the most recent version it can run.",
+            "When conflicts are found, SquadDash will use the most recent version it can run.",
             $"Selected Foundry CLI version: {selectedVersion}.");
     }
 
