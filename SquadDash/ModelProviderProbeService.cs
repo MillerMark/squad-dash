@@ -231,6 +231,9 @@ internal sealed record FoundryCliInfo(
 }
 
 internal sealed class ModelProviderProbeService : IDisposable {
+    private static readonly TimeSpan FoundryStatusCommandTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan NvidiaStatusCommandTimeout = TimeSpan.FromSeconds(3);
+
     private readonly HttpClient _http;
     private readonly bool _disposeHttp;
     private readonly Func<string, IReadOnlyList<string>, CancellationToken, Task<ModelProviderCommandResult>> _commandRunner;
@@ -349,30 +352,50 @@ internal sealed class ModelProviderProbeService : IDisposable {
 
     public async Task<IReadOnlyList<FoundryLoadedModel>> ListLoadedFoundryModelsAsync(
         CancellationToken cancellationToken = default) {
-        var foundry = await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);
-        var result = await _commandRunner(
-            foundry.FileName,
-            ["model", "list", "--loaded", "-o", "json"],
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Success)
-            return Array.Empty<FoundryLoadedModel>();
+        using var timeout = CreateStatusTimeout(cancellationToken, FoundryStatusCommandTimeout);
+        try {
+            var foundry = await ResolveFoundryCliAsync(timeout.Token).ConfigureAwait(false);
+            var result = await _commandRunner(
+                foundry.FileName,
+                ["model", "list", "--loaded", "-o", "json"],
+                timeout.Token).ConfigureAwait(false);
+            if (!result.Success)
+                return Array.Empty<FoundryLoadedModel>();
 
-        return ParseFoundryLoadedModels(result.Output);
+            return ParseFoundryLoadedModels(result.Output);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) {
+            return Array.Empty<FoundryLoadedModel>();
+        }
     }
 
     public async Task<IReadOnlyList<LocalGpuMemoryInfo>> GetNvidiaGpuMemoryAsync(
         CancellationToken cancellationToken = default) {
-        var result = await _commandRunner(
-            "nvidia-smi",
-            [
-                "--query-gpu=index,name,memory.total,memory.used,memory.free",
-                "--format=csv,noheader,nounits"
-            ],
-            cancellationToken).ConfigureAwait(false);
-        if (!result.Success)
-            return Array.Empty<LocalGpuMemoryInfo>();
+        using var timeout = CreateStatusTimeout(cancellationToken, NvidiaStatusCommandTimeout);
+        try {
+            var result = await _commandRunner(
+                "nvidia-smi",
+                [
+                    "--query-gpu=index,name,memory.total,memory.used,memory.free",
+                    "--format=csv,noheader,nounits"
+                ],
+                timeout.Token).ConfigureAwait(false);
+            if (!result.Success)
+                return Array.Empty<LocalGpuMemoryInfo>();
 
-        return ParseNvidiaGpuMemory(result.Output);
+            return ParseNvidiaGpuMemory(result.Output);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) {
+            return Array.Empty<LocalGpuMemoryInfo>();
+        }
+    }
+
+    private static CancellationTokenSource CreateStatusTimeout(
+        CancellationToken cancellationToken,
+        TimeSpan timeout) {
+        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        source.CancelAfter(timeout);
+        return source;
     }
 
     public async Task<FoundryCliResolution> DiagnoseFoundryCliAsync(
