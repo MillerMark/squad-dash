@@ -262,7 +262,11 @@ internal sealed class ModelProviderProbeService : IDisposable {
         var notes = new List<string>();
         var diagnosticNotes = new List<string>();
         var chatStatus = await ProbeChatAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
-        var toolStatus = await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
+        var toolStatus = chatStatus == ModelProbeCheckStatus.TimedOut
+            ? ModelProbeCheckStatus.TimedOut
+            : await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
+        if (chatStatus == ModelProbeCheckStatus.TimedOut)
+            notes.Add("Tool probe skipped because chat probe timed out.");
         var probeSucceeded = chatStatus == ModelProbeCheckStatus.Passed &&
                              toolStatus == ModelProbeCheckStatus.Passed &&
                              notes.Count == 0;

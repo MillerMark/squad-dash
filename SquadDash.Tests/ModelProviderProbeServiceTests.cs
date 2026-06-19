@@ -335,6 +335,25 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public async Task RunLiveProbeAsync_SkipsToolProbeWhenChatTimesOut() {
+        var handler = new DelayingHttpHandler();
+        using var http = new HttpClient(handler) {
+            Timeout = TimeSpan.FromMilliseconds(20)
+        };
+        using var service = new ModelProviderProbeService(http);
+        var model = new ModelProviderProbeResult("slow-model", "http://provider/v1");
+
+        var probed = await service.RunLiveProbeAsync("http://provider/v1", null, model);
+
+        Assert.Multiple(() => {
+            Assert.That(handler.RequestCount, Is.EqualTo(1));
+            Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.TimedOut));
+            Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.TimedOut));
+            Assert.That(probed.Notes, Does.Contain("Tool probe skipped"));
+        });
+    }
+
+    [Test]
     public async Task RunLiveProbeAsync_MarksFoundryNotLoadedError() {
         var handler = new StubHttpHandler(_ =>
             new HttpResponseMessage(HttpStatusCode.BadRequest) {
@@ -569,6 +588,16 @@ internal sealed class ModelProviderProbeServiceTests {
     private sealed class StubHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> handler) : HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
             return Task.FromResult(handler(request));
+        }
+    }
+
+    private sealed class DelayingHttpHandler : HttpMessageHandler {
+        public int RequestCount { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
+            RequestCount++;
+            await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+            return JsonResponse("""{ "choices": [ { "message": { "role": "assistant", "content": "OK" } } ] }""");
         }
     }
 }
