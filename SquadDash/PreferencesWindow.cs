@@ -2005,17 +2005,40 @@ internal sealed class PreferencesWindow : Window {
 
             var selectedVersion = foundry.SelectedVersion?.ToString() ?? "unknown";
             var message = foundry.HasConflict
-                ? $"Foundry CLI conflict detected. When conflicts are found, Squad Dash will use the most recent version it can run. Selected Foundry CLI version: {selectedVersion}.{Environment.NewLine}{foundry.Diagnostic}"
-                : $"Older Foundry CLI detected. Selected Foundry CLI version: {selectedVersion}.{Environment.NewLine}{foundry.Diagnostic}";
+                ? BuildFoundryWarningMessage(
+                    "Foundry CLI conflict detected.",
+                    foundry.Diagnostic,
+                    selectedVersion)
+                : BuildFoundryWarningMessage(
+                    "Older Foundry CLI detected.",
+                    foundry.Diagnostic,
+                    selectedVersion);
             return new ModelProviderProbeWarning(
                 message,
-                BuildCliFolders(foundry.CandidateFileNames));
+                BuildCliFolders(foundry.CandidateFileNames)
+                    .Concat(BuildKnownFoundryAliasFolders())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray());
         }
         catch (Exception ex) {
             return new ModelProviderProbeWarning(
                 $"Unable to verify the Foundry CLI installation: {ex.Message}",
                 Array.Empty<string>());
         }
+    }
+
+    private static string BuildFoundryWarningMessage(
+        string heading,
+        string diagnostic,
+        string selectedVersion) {
+        return string.Join(
+            Environment.NewLine,
+            heading,
+            diagnostic,
+            "",
+            "When conflicts are found, Squad Dash will use the most recent version it can run.",
+            "",
+            $"Selected Foundry CLI version: {selectedVersion}.");
     }
 
     private static IReadOnlyList<string> BuildCliFolders(IReadOnlyList<string> fileNames) {
@@ -2026,6 +2049,25 @@ internal sealed class PreferencesWindow : Window {
             .Cast<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildKnownFoundryAliasFolders() {
+        var localWindowsApps = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Microsoft",
+            "WindowsApps");
+        if (!Directory.Exists(localWindowsApps))
+            return Array.Empty<string>();
+
+        try {
+            return Directory.EnumerateDirectories(localWindowsApps, "Microsoft.FoundryLocal*")
+                .Where(folder => File.Exists(Path.Combine(folder, "foundry.exe")))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
+            return Array.Empty<string>();
+        }
     }
 
     private static bool LooksLikeFoundryProvider(
