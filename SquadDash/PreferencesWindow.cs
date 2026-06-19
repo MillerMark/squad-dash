@@ -2015,10 +2015,7 @@ internal sealed class PreferencesWindow : Window {
                     selectedVersion);
             return new ModelProviderProbeWarning(
                 message,
-                BuildCliFolders(foundry.CandidateFileNames)
-                    .Concat(BuildKnownFoundryAliasFolders())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray());
+                BuildCliFolders(foundry.Locations));
         }
         catch (Exception ex) {
             return new ModelProviderProbeWarning(
@@ -2041,14 +2038,71 @@ internal sealed class PreferencesWindow : Window {
             $"Selected Foundry CLI version: {selectedVersion}.");
     }
 
-    private static IReadOnlyList<string> BuildCliFolders(IReadOnlyList<string> fileNames) {
-        return fileNames
-            .Where(Path.IsPathRooted)
-            .Select(Path.GetDirectoryName)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Cast<string>()
+    private static IReadOnlyList<string> BuildCliFolders(IReadOnlyList<FoundryCliLocation> locations) {
+        var folders = new List<string>();
+        foreach (var location in locations) {
+            AddFolderForFile(folders, location.FileName);
+            if (TryGetFoundryPackageInstallFolder(location, out var installFolder))
+                folders.Add(installFolder);
+        }
+
+        foreach (var aliasFolder in BuildKnownFoundryAliasFolders())
+            folders.Add(aliasFolder);
+
+        return folders
+            .Where(Directory.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static void AddFolderForFile(List<string> folders, string fileName) {
+        if (!Path.IsPathRooted(fileName))
+            return;
+
+        var folder = Path.GetDirectoryName(fileName);
+        if (!string.IsNullOrWhiteSpace(folder))
+            folders.Add(folder);
+    }
+
+    private static bool TryGetFoundryPackageInstallFolder(
+        FoundryCliLocation location,
+        out string folder) {
+        folder = string.Empty;
+        var packageRoot = location.Source.Contains("Foundry Local CLI", StringComparison.OrdinalIgnoreCase)
+            ? "Microsoft.FoundryLocalCLI"
+            : location.Source.Contains("Foundry Local package", StringComparison.OrdinalIgnoreCase)
+                ? "Microsoft.FoundryLocal"
+                : string.Empty;
+        if (string.IsNullOrWhiteSpace(packageRoot) || location.Version is null)
+            return false;
+
+        var windowsApps = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "WindowsApps");
+        var versionText = location.Version.ToString();
+        var candidate = Path.Combine(
+            windowsApps,
+            $"{packageRoot}_{versionText}_x64__8wekyb3d8bbwe");
+        if (Directory.Exists(candidate)) {
+            folder = candidate;
+            return true;
+        }
+
+        try {
+            if (Directory.Exists(windowsApps)) {
+                var pattern = $"{packageRoot}_{versionText}*_x64__8wekyb3d8bbwe";
+                var match = Directory.EnumerateDirectories(windowsApps, pattern).FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(match)) {
+                    folder = match;
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
+            return false;
+        }
+
+        return false;
     }
 
     private static IReadOnlyList<string> BuildKnownFoundryAliasFolders() {

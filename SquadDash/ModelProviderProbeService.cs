@@ -109,13 +109,19 @@ internal sealed record FoundryCliCandidate(
     string FileName,
     string Source);
 
+internal sealed record FoundryCliLocation(
+    string FileName,
+    string Source,
+    Version? Version,
+    bool IsSelected);
+
 internal sealed record FoundryCliResolution(
     string FileName,
     string Diagnostic,
     bool HasConflict,
     bool IsLegacyVersion,
     Version? SelectedVersion,
-    IReadOnlyList<string> CandidateFileNames);
+    IReadOnlyList<FoundryCliLocation> Locations);
 
 internal sealed record FoundryCliInfo(
     FoundryCliCandidate Candidate,
@@ -618,7 +624,13 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 HasConflict: false,
                 IsLegacyVersion: true,
                 SelectedVersion: null,
-                CandidateFileNames: infos.Select(info => info.Candidate.FileName).ToArray());
+                Locations: infos
+                    .Select(info => new FoundryCliLocation(
+                        info.Candidate.FileName,
+                        info.Candidate.Source,
+                        info.Version,
+                        IsSelected: false))
+                    .ToArray());
         }
 
         var hasConflict = HasFoundryCliConflict(selected, infos);
@@ -628,10 +640,15 @@ internal sealed class ModelProviderProbeService : IDisposable {
             HasConflict: hasConflict,
             IsLegacyVersion: IsLegacyFoundryVersion(selected.Version),
             SelectedVersion: selected.Version,
-            CandidateFileNames: infos
+            Locations: infos
                 .Where(info => info.IsUsable)
-                .Select(info => info.Candidate.FileName)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(info => new FoundryCliLocation(
+                    info.Candidate.FileName,
+                    info.Candidate.Source,
+                    info.Version,
+                    IsSelected: string.Equals(info.Candidate.FileName, selected.Candidate.FileName, StringComparison.OrdinalIgnoreCase)))
+                .GroupBy(location => location.FileName, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
                 .ToArray());
     }
 
