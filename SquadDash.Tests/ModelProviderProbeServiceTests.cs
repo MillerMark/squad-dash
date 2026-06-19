@@ -75,9 +75,42 @@ internal sealed class ModelProviderProbeServiceTests {
             "http://provider/v1",
             ChatStatus: ModelProbeCheckStatus.NotLoaded,
             ToolStatus: ModelProbeCheckStatus.NotLoaded,
-            Notes: "Chat probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient.");
+            Notes: "Chat probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient.",
+            CanLoadLocally: true);
 
         Assert.That(result.NoteSummary, Is.EqualTo("Not loaded. Click Load to load this model."));
+    }
+
+    [Test]
+    public void NoteSummary_DoesNotOfferLoadForRemoteUnloadedModels() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.NotLoaded,
+            ToolStatus: ModelProbeCheckStatus.NotLoaded,
+            Notes: "Model 'model' is not loaded. Please load the model before getting a ChatClient.");
+
+        Assert.Multiple(() => {
+            Assert.That(result.NoteSummary, Is.EqualTo("Not loaded by provider. Load it on the provider host, then probe again."));
+            Assert.That(result.RowActionText, Is.EqualTo("Details..."));
+        });
+    }
+
+    [Test]
+    public void NoteSummary_ShowsTransientLoadAndProbeStatus() {
+        var loading = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            ChatStatus: ModelProbeCheckStatus.NotLoaded,
+            ToolStatus: ModelProbeCheckStatus.NotLoaded,
+            Notes: "Loading...",
+            CanLoadLocally: true);
+        var probing = loading with { Notes = "Probing..." };
+
+        Assert.Multiple(() => {
+            Assert.That(loading.NoteSummary, Is.EqualTo("Loading..."));
+            Assert.That(probing.NoteSummary, Is.EqualTo("Probing..."));
+        });
     }
 
     [Test]
@@ -86,9 +119,22 @@ internal sealed class ModelProviderProbeServiceTests {
             "model",
             "http://provider/v1",
             ChatStatus: ModelProbeCheckStatus.NotLoaded,
-            ToolStatus: ModelProbeCheckStatus.NotLoaded);
+            ToolStatus: ModelProbeCheckStatus.NotLoaded,
+            CanLoadLocally: true);
 
         Assert.That(result.RowActionText, Is.EqualTo("Load"));
+    }
+
+    [Test]
+    public void WithoutStaleNotLoadedNotes_RemovesProviderLoadPromptAfterSuccessfulLoad() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            Notes: "Chat probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient.. Tool probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient..");
+
+        var cleaned = result.WithoutStaleNotLoadedNotes();
+
+        Assert.That(cleaned.Notes, Is.Null);
     }
 
     [Test]

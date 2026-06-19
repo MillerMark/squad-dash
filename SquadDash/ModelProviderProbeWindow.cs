@@ -21,6 +21,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly string _providerUrl;
     private readonly string? _apiKey;
     private readonly ObservableCollection<ModelProviderProbeResult> _models;
+    private readonly bool _canLoadFoundryModels;
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
     private readonly TextBlock _statusText;
@@ -39,11 +40,14 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         string? apiKey,
         IReadOnlyList<ModelProviderProbeResult> models,
         ModelProviderProbeWarning? providerWarning = null,
-        string? initialModelId = null) : base(captionHeight: CloseButtonHeight) {
+        string? initialModelId = null,
+        bool canLoadFoundryModels = false) : base(captionHeight: CloseButtonHeight) {
         _probeService = probeService;
         _providerUrl = providerUrl;
         _apiKey = apiKey;
-        _models = new ObservableCollection<ModelProviderProbeResult>(models);
+        _canLoadFoundryModels = canLoadFoundryModels;
+        _models = new ObservableCollection<ModelProviderProbeResult>(
+            models.Select(model => model with { CanLoadLocally = canLoadFoundryModels }));
         _initialModelId = NormalizeModelId(initialModelId);
 
         Title = "Model Probe";
@@ -336,7 +340,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
     private void ExecuteRowAction(ModelProviderProbeResult selected) {
         _modelsGrid.SelectedItem = selected;
-        if (selected.RowActionText == "Load") {
+        if (selected.RowActionText == "Load" && _canLoadFoundryModels) {
             _ = LoadModelAsync(selected, probeAfterLoad: selected.ChatStatus == ModelProbeCheckStatus.NotLoaded ||
                                                     selected.ToolStatus == ModelProbeCheckStatus.NotLoaded);
             return;
@@ -358,6 +362,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         SetActionButtonsEnabled(false);
         _statusText.Text = $"Running live probe for {selected.ModelId}...";
         try {
+            _models[index] = selected with { Notes = "Probing..." };
+            _modelsGrid.SelectedIndex = index;
             var probed = await _probeService.RunLiveProbeAsync(_providerUrl, _apiKey, selected);
             _models[index] = probed;
             _modelsGrid.SelectedItem = probed;
@@ -378,6 +384,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private async Task LoadModelAsync(ModelProviderProbeResult selected, bool probeAfterLoad = false) {
+        if (!_canLoadFoundryModels) {
+            ShowDetails(selected);
+            return;
+        }
+
         var index = _models.IndexOf(selected);
         if (index < 0)
             return;
@@ -385,6 +396,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         SetActionButtonsEnabled(false);
         _statusText.Text = $"Loading {selected.ModelId} with Foundry...";
         try {
+            _models[index] = selected with { Notes = "Loading..." };
+            _modelsGrid.SelectedIndex = index;
             var unloadNote = await UnloadCurrentFoundryModelBeforeLoadAsync(selected.ModelId);
             var result = await _probeService.LoadFoundryModelAsync(selected.ModelId);
             var note = result.Success
@@ -392,14 +405,18 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                 : BuildLoadNote("Load failed", result);
             note = AppendNote(unloadNote, note);
 
-            var loaded = selected with {
+            var source = result.Success
+                ? selected.WithoutStaleNotLoadedNotes()
+                : selected;
+            var loaded = source with {
                 ChatStatus = result.Success && selected.ChatStatus == ModelProbeCheckStatus.NotLoaded
                     ? ModelProbeCheckStatus.NotRun
                     : selected.ChatStatus,
                 ToolStatus = result.Success && selected.ToolStatus == ModelProbeCheckStatus.NotLoaded
                     ? ModelProbeCheckStatus.NotRun
                     : selected.ToolStatus,
-                Notes = AppendNote(selected.Notes, note)
+                Notes = AppendNote(source.Notes, note),
+                CanLoadLocally = _canLoadFoundryModels
             };
             _models[index] = loaded;
             _modelsGrid.SelectedIndex = index;
@@ -466,6 +483,9 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var canClose = true;
 
         try {
+            if (!_canLoadFoundryModels)
+                return;
+
             var desiredModelId = _desiredModelIdOnClose;
             if (!string.IsNullOrWhiteSpace(_loadedFoundryModelId) &&
                 !string.Equals(_loadedFoundryModelId, desiredModelId, StringComparison.OrdinalIgnoreCase)) {

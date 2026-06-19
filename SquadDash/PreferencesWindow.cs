@@ -1960,6 +1960,7 @@ internal sealed class PreferencesWindow : Window {
                 probeService,
                 url,
                 models);
+            var canLoadFoundryModels = LooksLikeLocalFoundryProvider(url, models);
 
             var probeWindow = new ModelProviderProbeWindow(
                 probeService,
@@ -1967,7 +1968,8 @@ internal sealed class PreferencesWindow : Window {
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim(),
                 models,
                 providerWarning,
-                _byokModelBox.Text) {
+                _byokModelBox.Text,
+                canLoadFoundryModels) {
                 Owner = this
             };
 
@@ -2149,6 +2151,15 @@ internal sealed class PreferencesWindow : Window {
                    string.Equals(model.Owner, "Microsoft", StringComparison.OrdinalIgnoreCase) ||
                    model.ModelId.Contains("-cuda-gpu", StringComparison.OrdinalIgnoreCase) ||
                    model.ModelId.Contains("-generic-cpu", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool LooksLikeLocalFoundryProvider(
+        string providerUrl,
+        IReadOnlyList<ModelProviderProbeResult> models) {
+        return LooksLikeFoundryProvider(providerUrl, models) &&
+               Uri.TryCreate(providerUrl, UriKind.Absolute, out var uri) &&
+               (uri.IsLoopback ||
+                string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e) {

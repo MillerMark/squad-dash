@@ -25,7 +25,8 @@ internal sealed record ModelProviderProbeResult(
     string? CatalogNotes = null,
     ModelProbeCheckStatus ChatStatus = ModelProbeCheckStatus.NotRun,
     ModelProbeCheckStatus ToolStatus = ModelProbeCheckStatus.NotRun,
-    string? Notes = null) {
+    string? Notes = null,
+    bool CanLoadLocally = false) {
 
     public string CatalogToolCallingText => CatalogSupportsToolCalling switch {
         true => "Supported",
@@ -38,14 +39,14 @@ internal sealed record ModelProviderProbeResult(
     public string ChatStatusDisplay => StatusDisplay(ChatStatus);
     public string ToolStatusDisplay => StatusDisplay(ToolStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
-    public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes);
+    public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes, CanLoadLocally);
     public string CatalogSummary => SummarizeNote(CatalogNotes);
     public bool HasProbeResult => ChatStatus != ModelProbeCheckStatus.NotRun ||
                                   ToolStatus != ModelProbeCheckStatus.NotRun;
     public string RowActionText =>
         IsLoadFailure
             ? "Details..."
-            : ChatStatus == ModelProbeCheckStatus.NotLoaded || ToolStatus == ModelProbeCheckStatus.NotLoaded
+            : CanLoadLocally && (ChatStatus == ModelProbeCheckStatus.NotLoaded || ToolStatus == ModelProbeCheckStatus.NotLoaded)
                 ? "Load"
                 : IsLoadSuccess && !HasProbeResult
                 ? "Probe"
@@ -76,9 +77,16 @@ internal sealed record ModelProviderProbeResult(
     private static string BuildNoteSummary(
         ModelProbeCheckStatus chatStatus,
         ModelProbeCheckStatus toolStatus,
-        string? note) {
-        if (chatStatus == ModelProbeCheckStatus.NotLoaded || toolStatus == ModelProbeCheckStatus.NotLoaded)
-            return "Not loaded. Click Load to load this model.";
+        string? note,
+        bool canLoadLocally) {
+        if (IsTransientStatusNote(note))
+            return note!.Trim();
+
+        if (chatStatus == ModelProbeCheckStatus.NotLoaded || toolStatus == ModelProbeCheckStatus.NotLoaded) {
+            return canLoadLocally
+                ? "Not loaded. Click Load to load this model."
+                : "Not loaded by provider. Load it on the provider host, then probe again.";
+        }
 
         if (chatStatus == ModelProbeCheckStatus.NotRun &&
             toolStatus == ModelProbeCheckStatus.NotRun &&
@@ -115,6 +123,25 @@ internal sealed record ModelProviderProbeResult(
         }
 
         return builder.ToString().Trim();
+    }
+
+    private static bool IsTransientStatusNote(string? note) {
+        if (string.IsNullOrWhiteSpace(note))
+            return false;
+
+        var trimmed = note.Trim();
+        return string.Equals(trimmed, "Loading...", StringComparison.Ordinal) ||
+               string.Equals(trimmed, "Probing...", StringComparison.Ordinal);
+    }
+
+    public ModelProviderProbeResult WithoutStaleNotLoadedNotes() {
+        if (string.IsNullOrWhiteSpace(Notes))
+            return this;
+
+        return Notes.Contains("not loaded", StringComparison.OrdinalIgnoreCase) &&
+               Notes.Contains("before getting a ChatClient", StringComparison.OrdinalIgnoreCase)
+            ? this with { Notes = null }
+            : this;
     }
 }
 
