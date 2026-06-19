@@ -369,6 +369,40 @@ internal sealed class ByokAndDocsPanelTests {
     }
 
     [Test]
+    public void BuildDefaultStartInfo_ByokDoesNotForceBridgeDiagnosticsByDefault() {
+        var previous = Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS");
+        try {
+            Environment.SetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS", null);
+            var sut = new SquadSdkProcess(new FakeWorkspacePaths());
+            sut.ByokProviderSettings = new ByokProviderSettings(
+                "https://provider.example.com", "qwen3", "openai", null);
+
+            var psi = InvokeBuildDefaultStartInfo(sut);
+
+            Assert.That(psi.EnvironmentVariables.ContainsKey("SQUADDASH_BRIDGE_DIAGNOSTICS"), Is.False);
+        } finally {
+            Environment.SetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS", previous);
+        }
+    }
+
+    [Test]
+    public void BuildDefaultStartInfo_ByokPassesBridgeDiagnosticsWhenOptedIn() {
+        var previous = Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS");
+        try {
+            Environment.SetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS", "true");
+            var sut = new SquadSdkProcess(new FakeWorkspacePaths());
+            sut.ByokProviderSettings = new ByokProviderSettings(
+                "https://provider.example.com", "qwen3", "openai", null);
+
+            var psi = InvokeBuildDefaultStartInfo(sut);
+
+            Assert.That(psi.EnvironmentVariables["SQUADDASH_BRIDGE_DIAGNOSTICS"], Is.EqualTo("true"));
+        } finally {
+            Environment.SetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS", previous);
+        }
+    }
+
+    [Test]
     public void BuildDefaultStartInfo_InjectsSquadDashRestartGuardEnvVars() {
         var workspacePaths = new FakeWorkspacePaths();
         var sut = new SquadSdkProcess(workspacePaths);

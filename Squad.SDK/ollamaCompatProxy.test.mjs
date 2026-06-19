@@ -4,6 +4,7 @@ import test from "node:test";
 import {
     applyCapabilityProfile,
     applyLastUserPrefix,
+    applyPromptProfile,
     convertNonStreamingCompletionToSse,
     LocalModelRequestScheduler,
     normalizeRequestBody,
@@ -109,6 +110,41 @@ test("Last user prefix applies only to the current non-continuation user message
     assert.equal(body.messages[4].content, "/no_think What time is it?");
 });
 
+test("Foundry simple prompt profile keeps only compact system and latest user prompt", () => {
+    const body = {
+        model: "qwen3-8b-cuda-gpu:2",
+        messages: [
+            { role: "system", content: "Copilot-shaped system prompt ".repeat(100) },
+            {
+                role: "user",
+                content: [
+                    "<current_datetime>2026-06-19T08:38:05-04:00</current_datetime>",
+                    "",
+                    "Can you send me an inbox message that says hello?",
+                    "",
+                    "## Open Tasks (from .squad/tasks.md)",
+                    "- [ ] Do not leak this task into simple Foundry prompt"
+                ].join("\n")
+            }
+        ],
+        tools: [
+            { type: "function", function: { name: "view" } }
+        ],
+        tool_choice: "auto"
+    };
+
+    const changed = applyPromptProfile(body, "foundry-simple");
+
+    assert.equal(changed, true);
+    assert.equal(body.messages.length, 2);
+    assert.equal(body.messages[0].role, "system");
+    assert.ok(body.messages[0].content.includes("SquadDash local assistant"));
+    assert.ok(body.messages[0].content.includes("INBOX_MESSAGE_JSON:"));
+    assert.equal(body.messages[1].content, "Can you send me an inbox message that says hello?");
+    assert.equal(body.tools, undefined);
+    assert.equal(body.tool_choice, undefined);
+});
+
 test("Non-streaming completion with tool calls converts to OpenAI SSE", () => {
     const completion = {
         id: "chat.id.1",
@@ -162,6 +198,33 @@ test("Non-streaming text completion drops only empty leading think block", () =>
     assert.equal(converted.normalized, true);
     assert.ok(converted.body.includes("The current time is 8:25 AM."));
     assert.ok(!converted.body.includes("<think>"));
+});
+
+test("Non-streaming text completion repairs one surplus inbox JSON closing brace", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-8b-cuda-gpu:2",
+        choices: [{
+            message: {
+                role: "assistant",
+                content: "INBOX_MESSAGE_JSON:\n{\"subject\":\"Foundry Simple Test\",\"from\":\"coordinator\",\"body\":\"Hello\",\"priority\":\"normal\",\"attachments\":[],\"actions\":[]}}"
+            },
+            finish_reason: "stop"
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {});
+    const streamedJson = converted.body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: {"))
+        .slice("data: ".length);
+    const streamed = JSON.parse(streamedJson);
+    const content = streamed.choices[0].delta.content;
+
+    assert.equal(converted.normalized, true);
+    assert.ok(content.includes("INBOX_MESSAGE_JSON:"));
+    assert.ok(content.includes('"actions":[]}'));
+    assert.ok(!content.includes('"actions":[]}}'));
 });
 
 test("Local provider profile clamps OpenAI output budgets", () => {

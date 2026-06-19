@@ -134,6 +134,7 @@ const firstDataTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FIRST_D
 const upstreamResponseTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_UPSTREAM_RESPONSE_TIMEOUT_MS, 30000);
 const upstreamStreamMode = String(process.env.OLLAMA_COMPAT_UPSTREAM_STREAM_MODE || "passthrough").trim().toLowerCase();
 const lastUserPrefix = process.env.OLLAMA_COMPAT_LAST_USER_PREFIX || "";
+const promptProfile = String(process.env.OLLAMA_COMPAT_PROMPT_PROFILE || "passthrough").trim().toLowerCase();
 const truncationNotice = "\n\n[Local provider profile truncated additional context before sending to the local model.]";
 
 function splitTargetList(value) {
@@ -699,6 +700,78 @@ function applyLastUserPrefix(body, prefix = lastUserPrefix) {
     return true;
 }
 
+function stripInjectedSquadContext(content) {
+    let stripped = normalizeContent(content)
+        .replace(/^\s*\/no_think\s+/i, "")
+        .replace(/^\s*<current_datetime>[\s\S]*?<\/current_datetime>\s*/i, "")
+        .trim();
+
+    const sectionMarkers = [
+        "\n## Open Tasks",
+        "\n## Pending",
+        "\n## Docs",
+        "\n## Queue",
+        "\n## Routing",
+        "\n<host_command",
+        "\n<inbox_instructions",
+        "\n<commit_reporting"
+    ];
+    const lower = stripped.toLowerCase();
+    let cutIndex = -1;
+    for (const marker of sectionMarkers) {
+        const index = lower.indexOf(marker.toLowerCase());
+        if (index >= 0 && (cutIndex < 0 || index < cutIndex))
+            cutIndex = index;
+    }
+
+    if (cutIndex >= 0)
+        stripped = stripped.slice(0, cutIndex).trim();
+
+    return stripped.slice(0, 2500);
+}
+
+function buildFoundrySimpleSystemPrompt(model) {
+    const modelName = typeof model === "string" && model.trim() ? model.trim() : "local Foundry model";
+    return [
+        "You are SquadDash local assistant running through Foundry Local.",
+        "Answer the user's latest message directly and briefly.",
+        `If asked what model you are, say: I'm powered by ${modelName} (model ID: ${modelName}).`,
+        "Only mention the model when the user asks about the model.",
+        "Do not claim to have read files or used tools unless tool results are present in the conversation.",
+        "In SquadDash, sending the user an Inbox message means emitting the marker block below; it does not require external email, network access, or any hidden capability.",
+        "If the user asks you to send an Inbox message, comply by appending a valid JSON block at the very end of your response exactly like this:",
+        "For Inbox-message requests, output only the INBOX_MESSAGE_JSON block and no apology, caveat, or extra prose.",
+        "INBOX_MESSAGE_JSON:",
+        "{\"subject\":\"Short subject\",\"from\":\"coordinator\",\"body\":\"Message body\",\"priority\":\"normal\",\"attachments\":[],\"actions\":[]}",
+        "Do not wrap INBOX_MESSAGE_JSON in a code fence."
+    ].join("\n");
+}
+
+function applyPromptProfile(body, profile = promptProfile) {
+    if (profile !== "foundry-simple" || !Array.isArray(body?.messages))
+        return false;
+
+    const currentUserIndex = getCurrentUserMessageIndex(body.messages);
+    if (currentUserIndex < 0)
+        return false;
+
+    const userContent = stripInjectedSquadContext(body.messages[currentUserIndex].content);
+    body.messages = [
+        {
+            role: "system",
+            content: buildFoundrySimpleSystemPrompt(body.model)
+        },
+        {
+            role: "user",
+            content: userContent
+        }
+    ];
+    delete body.tools;
+    delete body.tool_choice;
+    delete body.parallel_tool_calls;
+    return true;
+}
+
 function normalizeNonStreamingToolCalls(toolCalls) {
     if (!Array.isArray(toolCalls))
         return undefined;
@@ -724,7 +797,42 @@ function sanitizeAssistantContent(content) {
     if (typeof content !== "string")
         return content;
 
-    return content.replace(/^\s*<think>\s*<\/think>\s*/i, "");
+    const withoutEmptyThink = content.replace(/^\s*<think>\s*<\/think>\s*/i, "");
+    return repairInboxMessageJsonBlock(withoutEmptyThink);
+}
+
+function repairInboxMessageJsonBlock(content) {
+    const sentinel = "INBOX_MESSAGE_JSON:";
+    const sentinelIndex = content.indexOf(sentinel);
+    if (sentinelIndex < 0)
+        return content;
+
+    const before = content.slice(0, sentinelIndex + sentinel.length);
+    let after = content.slice(sentinelIndex + sentinel.length);
+    const leadingWhitespace = after.match(/^\s*/)?.[0] ?? "";
+    const candidate = after.trim();
+    if (!candidate.startsWith("{"))
+        return content;
+
+    try {
+        JSON.parse(candidate);
+        return content;
+    } catch {
+        // Continue below and try removing only surplus trailing close braces.
+    }
+
+    let repaired = candidate;
+    while (repaired.endsWith("}")) {
+        repaired = repaired.slice(0, -1).trimEnd();
+        try {
+            JSON.parse(repaired);
+            return `${before}${leadingWhitespace}${repaired}`;
+        } catch {
+            // Keep trying while the only change is dropping one trailing brace.
+        }
+    }
+
+    return content;
 }
 
 function buildStreamingChunkFromCompletion(completion, requestSummary) {
@@ -1089,19 +1197,22 @@ const server = http.createServer(async (req, res) => {
             const before = JSON.stringify(parsed);
             const originalRequestSummary = summarizeRequestBody(parsed);
             const normalizedBody = normalizeRequestBody(parsed);
+            const promptProfileApplied = applyPromptProfile(normalizedBody);
             const prefixed = applyLastUserPrefix(normalizedBody);
             if (shouldUseNonStreamingUpstream(normalizedBody)) {
                 normalizedBody.stream = false;
                 synthesizeStreamFromNonStreaming = true;
             }
             const after = JSON.stringify(normalizedBody);
-            normalized = before !== after || prefixed || synthesizeStreamFromNonStreaming;
+            normalized = before !== after || promptProfileApplied || prefixed || synthesizeStreamFromNonStreaming;
             requestSummary = {
                 ...summarizeRequestBody(normalizedBody),
                 originalToolCount: originalRequestSummary?.toolCount,
                 originalToolsJsonChars: originalRequestSummary?.toolsJsonChars,
                 originalStream: originalRequestSummary?.stream,
                 upstreamStreamMode,
+                promptProfile,
+                promptProfileApplied,
                 appliedLastUserPrefix: prefixed,
                 synthesizeStreamFromNonStreaming
             };
@@ -1395,6 +1506,7 @@ export {
     addGptOssToolingHint,
     applyCapabilityProfile,
     applyLastUserPrefix,
+    applyPromptProfile,
     convertNonStreamingCompletionToSse,
     LocalModelRequestScheduler,
     normalizeRequestBody,

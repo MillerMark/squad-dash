@@ -632,7 +632,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             if (byok.OfflineMode)
                 psi.EnvironmentVariables["COPILOT_OFFLINE"] = "true";
 
-            psi.EnvironmentVariables["SQUADDASH_BRIDGE_DIAGNOSTICS"] = "true";
+            if (string.Equals(
+                    Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS"),
+                    "true",
+                    StringComparison.OrdinalIgnoreCase)) {
+                psi.EnvironmentVariables["SQUADDASH_BRIDGE_DIAGNOSTICS"] = "true";
+            }
 
             SquadDashTrace.Write("Bridge",
                 $"BYOK active — url={providerUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")} offline={byok.OfflineMode}");
