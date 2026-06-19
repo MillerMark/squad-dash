@@ -26,6 +26,7 @@ internal sealed record ModelProviderProbeResult(
     ModelProbeCheckStatus ChatStatus = ModelProbeCheckStatus.NotRun,
     ModelProbeCheckStatus ToolStatus = ModelProbeCheckStatus.NotRun,
     string? Notes = null,
+    string? DiagnosticNotes = null,
     bool CanLoadLocally = false) {
 
     public string CatalogToolCallingText => CatalogSupportsToolCalling switch {
@@ -38,7 +39,8 @@ internal sealed record ModelProviderProbeResult(
     public string ToolStatusText => StatusText(ToolStatus);
     public string ChatStatusDisplay => StatusDisplay(ChatStatus);
     public string ToolStatusDisplay => StatusDisplay(ToolStatus);
-    public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
+    public bool HasNotes => !string.IsNullOrWhiteSpace(Notes) ||
+                            !string.IsNullOrWhiteSpace(DiagnosticNotes);
     public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes, CanLoadLocally);
     public string CatalogSummary => SummarizeNote(CatalogNotes);
     public bool HasProbeResult => ChatStatus != ModelProbeCheckStatus.NotRun ||
@@ -140,8 +142,18 @@ internal sealed record ModelProviderProbeResult(
 
         return Notes.Contains("not loaded", StringComparison.OrdinalIgnoreCase) &&
                Notes.Contains("before getting a ChatClient", StringComparison.OrdinalIgnoreCase)
-            ? this with { Notes = null }
+            ? this with { Notes = null, DiagnosticNotes = AppendDiagnosticNote(DiagnosticNotes, Notes) }
             : this;
+    }
+
+    public static string? AppendDiagnosticNote(string? existing, string? note) {
+        if (string.IsNullOrWhiteSpace(note))
+            return existing;
+
+        if (string.IsNullOrWhiteSpace(existing))
+            return note.Trim();
+
+        return $"{existing.TrimEnd()}{Environment.NewLine}{note.Trim()}";
     }
 }
 
@@ -242,13 +254,19 @@ internal sealed class ModelProviderProbeService : IDisposable {
             : model.ProviderEndpointRoot.TrimEnd('/');
 
         var notes = new List<string>();
-        var chatStatus = await ProbeChatAsync(endpointRoot, apiKey, model.ModelId, notes, cancellationToken).ConfigureAwait(false);
-        var toolStatus = await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, notes, cancellationToken).ConfigureAwait(false);
+        var diagnosticNotes = new List<string>();
+        var chatStatus = await ProbeChatAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
+        var toolStatus = await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
 
         return model with {
             ChatStatus = chatStatus,
             ToolStatus = toolStatus,
-            Notes = notes.Count == 0 ? model.Notes : string.Join(" ", notes)
+            Notes = notes.Count == 0 ? model.Notes : string.Join(" ", notes),
+            DiagnosticNotes = diagnosticNotes.Count == 0
+                ? model.DiagnosticNotes
+                : ModelProviderProbeResult.AppendDiagnosticNote(
+                    model.DiagnosticNotes,
+                    string.Join(Environment.NewLine, diagnosticNotes))
         };
     }
 
@@ -398,6 +416,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         string? apiKey,
         string modelId,
         List<string> notes,
+        List<string> diagnosticNotes,
         CancellationToken cancellationToken) {
         var body = new {
             model = modelId,
@@ -414,7 +433,8 @@ internal sealed class ModelProviderProbeService : IDisposable {
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
                 var errorMessage = ExtractErrorMessage(json);
-                notes.Add($"Chat probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}.");
+                notes.Add($"Chat probe returned {(int)response.StatusCode} {response.ReasonPhrase}.");
+                diagnosticNotes.Add($"Chat probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}.");
                 return IsModelNotLoadedError(errorMessage)
                     ? ModelProbeCheckStatus.NotLoaded
                     : ModelProbeCheckStatus.Failed;
@@ -442,6 +462,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         string? apiKey,
         string modelId,
         List<string> notes,
+        List<string> diagnosticNotes,
         CancellationToken cancellationToken) {
         var body = new {
             model = modelId,
@@ -480,7 +501,8 @@ internal sealed class ModelProviderProbeService : IDisposable {
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
                 var errorMessage = ExtractErrorMessage(json);
-                notes.Add($"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {FormatToolProbeError(errorMessage)}.");
+                notes.Add(FormatToolProbeHttpSummary(response, errorMessage));
+                diagnosticNotes.Add($"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}: {FormatToolProbeError(errorMessage)}.");
                 return IsModelNotLoadedError(errorMessage)
                     ? ModelProbeCheckStatus.NotLoaded
                     : ModelProbeCheckStatus.Failed;
@@ -637,6 +659,18 @@ internal sealed class ModelProviderProbeService : IDisposable {
             return "Provider rejected the structured tool-call request while creating its tool grammar. The provider/model likely does not currently support OpenAI tool calls correctly.";
 
         return message;
+    }
+
+    private static string FormatToolProbeHttpSummary(HttpResponseMessage response, string? message) {
+        var prefix = $"Tool probe returned {(int)response.StatusCode} {response.ReasonPhrase}.";
+        if (string.IsNullOrWhiteSpace(message))
+            return prefix;
+
+        if (message.Contains("Error creating grammar", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("TOOL_CALLS", StringComparison.OrdinalIgnoreCase))
+            return $"{prefix} Provider rejected the structured tool-call request while creating its tool grammar.";
+
+        return prefix;
     }
 
     private static bool ResponseContainsStructuredToolCall(string json) {

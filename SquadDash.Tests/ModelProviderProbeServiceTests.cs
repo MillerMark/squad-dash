@@ -134,7 +134,10 @@ internal sealed class ModelProviderProbeServiceTests {
 
         var cleaned = result.WithoutStaleNotLoadedNotes();
 
-        Assert.That(cleaned.Notes, Is.Null);
+        Assert.Multiple(() => {
+            Assert.That(cleaned.Notes, Is.Null);
+            Assert.That(cleaned.DiagnosticNotes, Does.Contain("Please load the model"));
+        });
     }
 
     [Test]
@@ -355,7 +358,8 @@ internal sealed class ModelProviderProbeServiceTests {
         Assert.Multiple(() => {
             Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.NotLoaded));
             Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.NotLoaded));
-            Assert.That(probed.Notes, Does.Contain("Please load the model"));
+            Assert.That(probed.Notes, Does.Contain("400 Bad Request"));
+            Assert.That(probed.DiagnosticNotes, Does.Contain("Please load the model"));
         });
     }
 
@@ -398,6 +402,7 @@ internal sealed class ModelProviderProbeServiceTests {
             Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
             Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.Failed));
             Assert.That(probed.Notes, Does.Contain("Provider rejected the structured tool-call request"));
+            Assert.That(probed.DiagnosticNotes, Does.Contain("likely does not currently support OpenAI tool calls correctly"));
         });
     }
 

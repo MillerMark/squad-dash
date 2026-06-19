@@ -24,9 +24,11 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly bool _canLoadFoundryModels;
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
+    private readonly Button _closeButton;
     private readonly TextBlock _statusText;
     private readonly string? _initialModelId;
     private string? _loadedFoundryModelId;
+    private bool _isBusy;
     private bool _allowClose;
     private bool _closeFinalizationStarted;
     private bool? _finalDialogResult;
@@ -125,10 +127,10 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
 
-        var closeButton = MakeButton("Close", 86);
-        closeButton.Click += (_, _) => BeginCloseWithModelState(null, false);
-        DockPanel.SetDock(closeButton, Dock.Right);
-        footer.Children.Add(closeButton);
+        _closeButton = MakeButton("Close", 86);
+        _closeButton.Click += (_, _) => BeginCloseWithModelState(null, false);
+        DockPanel.SetDock(_closeButton, Dock.Right);
+        footer.Children.Add(_closeButton);
 
         _useButton = MakeButton("Use Selected Model", 160);
         _useButton.IsEnabled = false;
@@ -315,14 +317,22 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private void SyncButtonState() {
+        _isBusy = false;
         _modelsGrid.IsEnabled = true;
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
+        _closeButton.IsEnabled = true;
     }
 
     protected override void OnClosing(CancelEventArgs e) {
         if (_allowClose) {
             base.OnClosing(e);
+            return;
+        }
+
+        if (_isBusy && !_closeFinalizationStarted) {
+            e.Cancel = true;
+            _statusText.Text = "Wait for the current load or probe to finish.";
             return;
         }
 
@@ -400,10 +410,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _modelsGrid.SelectedIndex = index;
             var unloadNote = await UnloadCurrentFoundryModelBeforeLoadAsync(selected.ModelId);
             var result = await _probeService.LoadFoundryModelAsync(selected.ModelId);
-            var note = result.Success
+            var diagnosticNote = result.Success
                 ? BuildLoadNote("Load succeeded", result)
                 : BuildLoadNote("Load failed", result);
-            note = AppendNote(unloadNote, note);
+            diagnosticNote = AppendDiagnosticNote(unloadNote, diagnosticNote);
+            var displayNote = result.Success
+                ? "Load succeeded."
+                : $"Load failed: exit {result.ExitCode}.";
 
             var source = result.Success
                 ? selected.WithoutStaleNotLoadedNotes()
@@ -415,7 +428,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                 ToolStatus = result.Success && selected.ToolStatus == ModelProbeCheckStatus.NotLoaded
                     ? ModelProbeCheckStatus.NotRun
                     : selected.ToolStatus,
-                Notes = AppendNote(source.Notes, note),
+                Notes = AppendNote(source.Notes, displayNote),
+                DiagnosticNotes = AppendDiagnosticNote(source.DiagnosticNotes, diagnosticNote),
                 CanLoadLocally = _canLoadFoundryModels
             };
             _models[index] = loaded;
@@ -428,7 +442,6 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
                     : $"Loaded {selected.ModelId}. Run Live Probe to test it."
                 : $"Load failed for {selected.ModelId}.";
             if (result.Success && probeAfterLoad) {
-                SyncButtonState();
                 await RunLiveProbeAsync(loaded);
             }
         }
@@ -441,7 +454,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         }
         catch (Exception ex) {
             _models[index] = selected with {
-                Notes = AppendNote(selected.Notes, $"Load failed: {ex.Message}")
+                Notes = AppendNote(selected.Notes, "Load failed."),
+                DiagnosticNotes = AppendDiagnosticNote(selected.DiagnosticNotes, $"Load failed: {ex.Message}")
             };
             _modelsGrid.SelectedIndex = index;
             _statusText.Text = $"Load failed: {ex.Message}";
@@ -540,8 +554,10 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private void SetActionButtonsEnabled(bool enabled) {
+        _isBusy = !enabled;
         _useButton.IsEnabled = enabled;
         _modelsGrid.IsEnabled = enabled;
+        _closeButton.IsEnabled = enabled;
     }
 
     private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {
@@ -568,6 +584,9 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
         return $"{existing} {note}";
     }
+
+    private static string? AppendDiagnosticNote(string? existing, string? note) =>
+        ModelProviderProbeResult.AppendDiagnosticNote(existing, note);
 
     private static string? NormalizeModelId(string? modelId) =>
         string.IsNullOrWhiteSpace(modelId) ? null : modelId.Trim();
@@ -657,10 +676,21 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
             $"Tool probe: {result.ToolStatusText}",
             "",
             "Notes:",
-            string.IsNullOrWhiteSpace(result.Notes) ? "(none)" : result.Notes!
+            BuildNotesText(result)
         };
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildNotesText(ModelProviderProbeResult result) {
+        if (!string.IsNullOrWhiteSpace(result.Notes) &&
+            !string.IsNullOrWhiteSpace(result.DiagnosticNotes))
+            return $"{result.Notes}{Environment.NewLine}{Environment.NewLine}{result.DiagnosticNotes}";
+
+        if (!string.IsNullOrWhiteSpace(result.DiagnosticNotes))
+            return result.DiagnosticNotes;
+
+        return string.IsNullOrWhiteSpace(result.Notes) ? "(none)" : result.Notes!;
     }
 
     private static string InferProviderKind(string providerUrl, ModelProviderProbeResult result) {
