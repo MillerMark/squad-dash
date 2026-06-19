@@ -331,19 +331,21 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     }
 
     private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {
-        var detail = FirstNonEmpty(result.Output, result.Error);
+        var detail = CombineCommandOutput(result.Output, result.Error);
         var suffix = string.IsNullOrWhiteSpace(detail)
             ? $"exit={result.ExitCode}"
             : $"{detail} exit={result.ExitCode}";
         return $"{prefix}: {suffix}";
     }
 
-    private static string? FirstNonEmpty(params string?[] values) {
-        foreach (var value in values) {
-            if (!string.IsNullOrWhiteSpace(value))
-                return value.Trim();
-        }
-        return null;
+    private static string? CombineCommandOutput(string? output, string? error) {
+        var parts = new[] { output, error }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToArray();
+        return parts.Length == 0
+            ? null
+            : string.Join(Environment.NewLine, parts);
     }
 
     private static string AppendNote(string? existing, string note) {
