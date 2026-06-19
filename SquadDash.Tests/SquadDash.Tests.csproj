@@ -95,6 +95,7 @@
     <Compile Include="..\SquadDash\AzureTtsProvider.cs" Link="Source\AzureTtsProvider.cs" />
     <Compile Include="..\SquadDash\OpenAiTtsProvider.cs" Link="Source\OpenAiTtsProvider.cs" />
     <Compile Include="..\SquadDash\ByokProviderSettings.cs" Link="Source\ByokProviderSettings.cs" />
+    <Compile Include="..\SquadDash\ModelProviderProbeService.cs" Link="Source\ModelProviderProbeService.cs" />
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />

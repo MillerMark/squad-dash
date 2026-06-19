@@ -407,8 +407,7 @@ internal sealed class PreferencesWindow : Window {
         _byokModelBox = new TextBox {
             Text = currentSettings.ByokModel ?? string.Empty,
             Padding = new Thickness(6, 4, 6, 4),
-            Height = 30,
-            Margin = new Thickness(0, 0, 0, 12)
+            Height = 30
         };
         _byokModelBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _byokModelBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
@@ -1143,7 +1142,23 @@ internal sealed class PreferencesWindow : Window {
         _customModelProviderPanel.Children.Add(urlHint);
 
         AddLabel(_customModelProviderPanel, "Model:");
-        _customModelProviderPanel.Children.Add(_byokModelBox);
+        var modelRow = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        modelRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        modelRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        modelRow.Children.Add(_byokModelBox);
+
+        var byokProbeButton = new Button {
+            Content = "Probe",
+            Width = 78,
+            Height = 30,
+            Margin = new Thickness(8, 0, 0, 0),
+            Padding = new Thickness(10, 4, 10, 4)
+        };
+        byokProbeButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        byokProbeButton.Click += ByokProbeButton_Click;
+        Grid.SetColumn(byokProbeButton, 1);
+        modelRow.Children.Add(byokProbeButton);
+        _customModelProviderPanel.Children.Add(modelRow);
 
         AddLabel(_customModelProviderPanel, "Provider Type:");
         _customModelProviderPanel.Children.Add(_byokProviderTypeComboBox);
@@ -1920,6 +1935,51 @@ internal sealed class PreferencesWindow : Window {
         }
         catch (Exception ex) {
             _byokTestStatusText.Text = $"❌ {ex.Message}";
+        }
+    }
+
+    private async void ByokProbeButton_Click(object sender, RoutedEventArgs e) {
+        var url = _byokProviderUrlBox.Text.Trim();
+        if (string.IsNullOrEmpty(url)) {
+            _byokTestStatusText.Text = "Enter a Provider URL first.";
+            return;
+        }
+
+        var clickedButton = sender as Button;
+        if (clickedButton is not null)
+            clickedButton.IsEnabled = false;
+
+        _byokTestStatusText.Text = "Discovering models...";
+        try {
+            var apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
+            using var probeService = new ModelProviderProbeService();
+            var models = await probeService.DiscoverModelsAsync(
+                url,
+                string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim());
+
+            var probeWindow = new ModelProviderProbeWindow(
+                probeService,
+                url,
+                string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim(),
+                models) {
+                Owner = this
+            };
+
+            if (probeWindow.ShowDialog() == true &&
+                !string.IsNullOrWhiteSpace(probeWindow.SelectedModelId)) {
+                _byokModelBox.Text = probeWindow.SelectedModelId;
+                _byokTestStatusText.Text = $"Selected {probeWindow.SelectedModelId}.";
+            }
+            else {
+                _byokTestStatusText.Text = $"{models.Count} model(s) discovered.";
+            }
+        }
+        catch (Exception ex) {
+            _byokTestStatusText.Text = $"Probe failed: {ex.Message}";
+        }
+        finally {
+            if (clickedButton is not null)
+                clickedButton.IsEnabled = true;
         }
     }
 
