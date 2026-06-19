@@ -269,9 +269,17 @@ internal sealed class ModelProviderProbeServiceTests {
         using var service = new ModelProviderProbeService(
             http,
             commandRunner: (fileName, arguments, _) => {
+                if (arguments.SequenceEqual(new[] { "--version" }))
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, "0.8.119", ""));
+                if (arguments.SequenceEqual(new[] { "--help" }))
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, "Commands:\n  model\n  service", ""));
+
                 observedFileName = fileName;
                 observedArguments = arguments.ToArray();
                 return Task.FromResult(new ModelProviderCommandResult(true, 0, "loaded", ""));
+            },
+            foundryCliCandidates: () => new[] {
+                new FoundryCliCandidate("foundry", "PATH alias")
             });
 
         var result = await service.LoadFoundryModelAsync("qwen3-8b-cuda-gpu");
@@ -280,6 +288,57 @@ internal sealed class ModelProviderProbeServiceTests {
             Assert.That(result.Success, Is.True);
             Assert.That(observedFileName, Is.EqualTo("foundry"));
             Assert.That(observedArguments, Is.EqualTo(new[] { "model", "load", "qwen3-8b-cuda-gpu" }));
+            Assert.That(result.Output, Does.Contain("Foundry CLI version: 0.8.119"));
+        });
+    }
+
+    [Test]
+    public async Task LoadFoundryModelAsync_PrefersNewFoundryCliWhenPathAliasIsOld() {
+        const string newFoundry = @"C:\Program Files\WindowsApps\Microsoft.FoundryLocalCLI_0.10.0.0_x64__8wekyb3d8bbwe\foundry.exe";
+        string? observedFileName = null;
+        using var http = new HttpClient(new StubHttpHandler(_ => JsonResponse("{}")));
+        using var service = new ModelProviderProbeService(
+            http,
+            commandRunner: (fileName, arguments, _) => {
+                if (arguments.SequenceEqual(new[] { "--version" })) {
+                    var version = string.Equals(fileName, "foundry", StringComparison.OrdinalIgnoreCase)
+                        ? "0.8.119"
+                        : "0.10.0+abc";
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, version, ""));
+                }
+
+                if (arguments.SequenceEqual(new[] { "--help" })) {
+                    var help = string.Equals(fileName, "foundry", StringComparison.OrdinalIgnoreCase)
+                        ? "Commands:\n  model\n  service"
+                        : "Commands:\n  model\n  server";
+                    return Task.FromResult(new ModelProviderCommandResult(true, 0, help, ""));
+                }
+
+                observedFileName = fileName;
+                return Task.FromResult(new ModelProviderCommandResult(true, 0, "loaded", ""));
+            },
+            foundryCliCandidates: () => new[] {
+                new FoundryCliCandidate("foundry", "PATH alias"),
+                new FoundryCliCandidate(newFoundry, "Foundry Local CLI package")
+            });
+
+        var result = await service.LoadFoundryModelAsync("qwen3-8b-cuda-gpu");
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(observedFileName, Is.EqualTo(newFoundry));
+            Assert.That(result.Output, Does.Contain("Foundry CLI version: 0.10.0"));
+            Assert.That(result.Output, Does.Contain("Foundry CLI conflict"));
+            Assert.That(result.Output, Does.Contain("PATH alias resolves to 0.8.119"));
+        });
+    }
+
+    [Test]
+    public void ParseFoundryVersion_ReadsSemverPrefix() {
+        Assert.Multiple(() => {
+            Assert.That(ModelProviderProbeService.ParseFoundryVersion("0.10.0+174be11"), Is.EqualTo(new Version(0, 10, 0)));
+            Assert.That(ModelProviderProbeService.ParseFoundryVersion("0.8.119"), Is.EqualTo(new Version(0, 8, 119)));
+            Assert.That(ModelProviderProbeService.ParseFoundryVersion("not a version"), Is.Null);
         });
     }
 

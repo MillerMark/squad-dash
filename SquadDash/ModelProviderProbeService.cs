@@ -1,8 +1,10 @@
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
@@ -103,10 +105,30 @@ internal sealed record ModelProviderCommandResult(
     string Output,
     string Error);
 
+internal sealed record FoundryCliCandidate(
+    string FileName,
+    string Source);
+
+internal sealed record FoundryCliResolution(
+    string FileName,
+    string Diagnostic);
+
+internal sealed record FoundryCliInfo(
+    FoundryCliCandidate Candidate,
+    bool Success,
+    Version? Version,
+    bool SupportsServerCommand,
+    bool SupportsServiceCommand,
+    string? Error) {
+
+    public bool IsUsable => Success && Version is not null;
+}
+
 internal sealed class ModelProviderProbeService : IDisposable {
     private readonly HttpClient _http;
     private readonly bool _disposeHttp;
     private readonly Func<string, IReadOnlyList<string>, CancellationToken, Task<ModelProviderCommandResult>> _commandRunner;
+    private readonly Func<IReadOnlyList<FoundryCliCandidate>> _foundryCliCandidates;
 
     public ModelProviderProbeService()
         : this(new HttpClient { Timeout = TimeSpan.FromSeconds(12) }, disposeHttp: true) {
@@ -115,10 +137,12 @@ internal sealed class ModelProviderProbeService : IDisposable {
     internal ModelProviderProbeService(
         HttpClient httpClient,
         bool disposeHttp = false,
-        Func<string, IReadOnlyList<string>, CancellationToken, Task<ModelProviderCommandResult>>? commandRunner = null) {
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<ModelProviderCommandResult>>? commandRunner = null,
+        Func<IReadOnlyList<FoundryCliCandidate>>? foundryCliCandidates = null) {
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _disposeHttp = disposeHttp;
         _commandRunner = commandRunner ?? RunCommandAsync;
+        _foundryCliCandidates = foundryCliCandidates ?? BuildFoundryCliCandidates;
     }
 
     public async Task<IReadOnlyList<ModelProviderProbeResult>> DiscoverModelsAsync(
@@ -177,10 +201,12 @@ internal sealed class ModelProviderProbeService : IDisposable {
         if (string.IsNullOrWhiteSpace(modelId))
             throw new ArgumentException("Model id cannot be empty.", nameof(modelId));
 
-        return await _commandRunner(
-            "foundry",
+        var foundry = await ResolveFoundryCliAsync(cancellationToken).ConfigureAwait(false);
+        var result = await _commandRunner(
+            foundry.FileName,
             ["model", "load", modelId.Trim()],
             cancellationToken).ConfigureAwait(false);
+        return AttachDiagnostic(result, foundry.Diagnostic);
     }
 
     internal static IReadOnlyList<string> BuildOpenAiEndpointCandidates(string providerUrl) {
@@ -192,6 +218,51 @@ internal sealed class ModelProviderProbeService : IDisposable {
             return [normalized];
 
         return [$"{normalized}/v1", normalized];
+    }
+
+    internal static IReadOnlyList<FoundryCliCandidate> BuildFoundryCliCandidates() {
+        var candidates = new List<FoundryCliCandidate>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? fileName, string source) {
+            if (string.IsNullOrWhiteSpace(fileName))
+                return;
+
+            var trimmed = fileName.Trim().Trim('"');
+            if (seen.Add(trimmed))
+                candidates.Add(new FoundryCliCandidate(trimmed, source));
+        }
+
+        Add(Environment.GetEnvironmentVariable("SQUADDASH_FOUNDRY_CLI"), "SQUADDASH_FOUNDRY_CLI");
+        Add("foundry", "PATH alias");
+
+        var windowsApps = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "WindowsApps");
+        AddPackageCandidates(windowsApps, "Microsoft.FoundryLocalCLI_*", "Foundry Local CLI package", Add);
+        AddPackageCandidates(windowsApps, "Microsoft.FoundryLocal_*", "Foundry Local package", Add);
+
+        return candidates;
+    }
+
+    private static void AddPackageCandidates(
+        string windowsApps,
+        string pattern,
+        string source,
+        Action<string?, string> add) {
+        try {
+            if (!Directory.Exists(windowsApps))
+                return;
+
+            foreach (var directory in Directory.EnumerateDirectories(windowsApps, pattern)) {
+                var foundry = Path.Combine(directory, "foundry.exe");
+                if (File.Exists(foundry))
+                    add(foundry, source);
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) {
+            // WindowsApps can be locked down. The PATH alias remains as a fallback.
+        }
     }
 
     internal static IReadOnlyList<ModelProviderProbeResult> ParseModelsResponse(string json, string endpointRoot) {
@@ -478,6 +549,141 @@ internal sealed class ModelProviderProbeService : IDisposable {
 
         return message.TryGetProperty("function_call", out var functionCall) &&
                functionCall.ValueKind == JsonValueKind.Object;
+    }
+
+    private async Task<FoundryCliResolution> ResolveFoundryCliAsync(CancellationToken cancellationToken) {
+        var candidates = _foundryCliCandidates();
+        if (candidates.Count == 0)
+            candidates = [new FoundryCliCandidate("foundry", "PATH alias")];
+
+        var infos = new List<FoundryCliInfo>();
+        foreach (var candidate in candidates) {
+            infos.Add(await ProbeFoundryCliAsync(candidate, cancellationToken).ConfigureAwait(false));
+        }
+
+        var overrideInfo = infos.FirstOrDefault(info =>
+            info.IsUsable &&
+            string.Equals(info.Candidate.Source, "SQUADDASH_FOUNDRY_CLI", StringComparison.OrdinalIgnoreCase));
+        var selected = overrideInfo ?? infos
+            .Where(info => info.IsUsable)
+            .OrderByDescending(info => info.SupportsServerCommand)
+            .ThenByDescending(info => info.Version)
+            .ThenBy(info => string.Equals(info.Candidate.Source, "PATH alias", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .FirstOrDefault();
+
+        if (selected is null) {
+            var failures = infos.Count == 0
+                ? "No Foundry CLI candidates were found."
+                : string.Join("; ", infos.Select(info => $"{info.Candidate.Source} ({info.Candidate.FileName}) failed: {info.Error ?? "unknown error"}"));
+            return new FoundryCliResolution(
+                "foundry",
+                $"Foundry CLI discovery failed. Falling back to PATH alias. {failures}");
+        }
+
+        return new FoundryCliResolution(
+            selected.Candidate.FileName,
+            BuildFoundryCliDiagnostic(selected, infos));
+    }
+
+    private async Task<FoundryCliInfo> ProbeFoundryCliAsync(
+        FoundryCliCandidate candidate,
+        CancellationToken cancellationToken) {
+        var versionResult = await _commandRunner(
+            candidate.FileName,
+            ["--version"],
+            cancellationToken).ConfigureAwait(false);
+        if (!versionResult.Success) {
+            return new FoundryCliInfo(
+                candidate,
+                Success: false,
+                Version: null,
+                SupportsServerCommand: false,
+                SupportsServiceCommand: false,
+                Error: FirstNonEmpty(versionResult.Error, versionResult.Output) ?? $"exit={versionResult.ExitCode}");
+        }
+
+        var version = ParseFoundryVersion(FirstNonEmpty(versionResult.Output, versionResult.Error));
+        var helpResult = await _commandRunner(
+            candidate.FileName,
+            ["--help"],
+            cancellationToken).ConfigureAwait(false);
+        var help = $"{helpResult.Output}\n{helpResult.Error}";
+
+        return new FoundryCliInfo(
+            candidate,
+            Success: true,
+            Version: version,
+            SupportsServerCommand: ContainsCommand(help, "server"),
+            SupportsServiceCommand: ContainsCommand(help, "service"),
+            Error: version is null ? "Could not parse Foundry CLI version." : null);
+    }
+
+    internal static Version? ParseFoundryVersion(string? text) {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        var match = Regex.Match(text, @"\d+\.\d+(?:\.\d+)?(?:\.\d+)?");
+        return match.Success && Version.TryParse(match.Value, out var version)
+            ? version
+            : null;
+    }
+
+    private static bool ContainsCommand(string text, string command) {
+        return Regex.IsMatch(
+            text,
+            $@"(^|\s){Regex.Escape(command)}(\s|$)",
+            RegexOptions.IgnoreCase | RegexOptions.Multiline);
+    }
+
+    private static string BuildFoundryCliDiagnostic(FoundryCliInfo selected, IReadOnlyList<FoundryCliInfo> infos) {
+        var lines = new List<string> {
+            $"Foundry CLI: {selected.Candidate.FileName}",
+            $"Foundry CLI source: {selected.Candidate.Source}",
+            $"Foundry CLI version: {selected.Version}",
+            $"Foundry CLI mode: {(selected.SupportsServerCommand ? "server" : selected.SupportsServiceCommand ? "service" : "unknown")}"
+        };
+
+        var alias = infos.FirstOrDefault(info =>
+            info.IsUsable &&
+            string.Equals(info.Candidate.Source, "PATH alias", StringComparison.OrdinalIgnoreCase));
+        if (alias is not null &&
+            !string.Equals(alias.Candidate.FileName, selected.Candidate.FileName, StringComparison.OrdinalIgnoreCase) &&
+            alias.Version != selected.Version) {
+            lines.Add(
+                $"Foundry CLI conflict: PATH alias resolves to {alias.Version} at {alias.Candidate.FileName}, but SquadDash selected {selected.Version} from {selected.Candidate.Source}.");
+        }
+
+        var otherUsable = infos
+            .Where(info => info.IsUsable && !string.Equals(info.Candidate.FileName, selected.Candidate.FileName, StringComparison.OrdinalIgnoreCase))
+            .Select(info => $"{info.Candidate.Source}={info.Version}");
+        var otherText = string.Join(", ", otherUsable);
+        if (!string.IsNullOrWhiteSpace(otherText))
+            lines.Add($"Other Foundry CLIs detected: {otherText}");
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static ModelProviderCommandResult AttachDiagnostic(ModelProviderCommandResult result, string diagnostic) {
+        return result.Success
+            ? result with { Output = AppendLines(diagnostic, result.Output) }
+            : result with { Error = AppendLines(diagnostic, result.Error) };
+    }
+
+    private static string AppendLines(string first, string second) {
+        if (string.IsNullOrWhiteSpace(first))
+            return second.Trim();
+        if (string.IsNullOrWhiteSpace(second))
+            return first.Trim();
+        return $"{first.Trim()}{Environment.NewLine}{second.Trim()}";
+    }
+
+    private static string? FirstNonEmpty(params string?[] values) {
+        foreach (var value in values) {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return null;
     }
 
     private static async Task<ModelProviderCommandResult> RunCommandAsync(
