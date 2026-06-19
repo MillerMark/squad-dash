@@ -259,6 +259,61 @@ test("Non-streaming completion with tool calls converts to OpenAI SSE", () => {
     assert.ok(!converted.body.includes("<tool_call>"));
 });
 
+test("Non-streaming textual tool call converts to OpenAI SSE tool call", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu:2",
+        choices: [{
+            index: 0,
+            message: {
+                role: "assistant",
+                content: "<tool_call>\n{\"name\":\"view\",\"arguments\":{\"path\":\".squad/tasks.md\"}}}\n</tool_call>"
+            },
+            finish_reason: "stop"
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {
+        model: "qwen3-14b-cuda-gpu:2"
+    });
+    const streamedJson = converted.body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: {"))
+        .slice("data: ".length);
+    const streamed = JSON.parse(streamedJson);
+    const toolCall = streamed.choices[0].delta.tool_calls[0];
+
+    assert.equal(converted.normalized, true);
+    assert.equal(streamed.choices[0].finish_reason, "tool_calls");
+    assert.equal(toolCall.function.name, "view");
+    assert.equal(toolCall.function.arguments, "{\"path\":\".squad/tasks.md\"}");
+    assert.ok(!converted.body.includes("<tool_call>"));
+});
+
+test("Non-streaming textual tool call accepts parameters as arguments", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu:2",
+        choices: [{
+            message: {
+                role: "assistant",
+                content: "<tool_call>{\"name\":\"report_probe\",\"parameters\":{\"status\":\"ok\"}}</tool_call>"
+            }
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {});
+    const streamedJson = converted.body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: {"))
+        .slice("data: ".length);
+    const streamed = JSON.parse(streamedJson);
+    const toolCall = streamed.choices[0].delta.tool_calls[0];
+
+    assert.equal(toolCall.function.name, "report_probe");
+    assert.equal(toolCall.function.arguments, "{\"status\":\"ok\"}");
+});
+
 test("Non-streaming text completion drops only empty leading think block", () => {
     const completion = {
         id: "chat.id.1",

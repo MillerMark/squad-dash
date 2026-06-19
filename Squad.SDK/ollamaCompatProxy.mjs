@@ -772,10 +772,18 @@ function normalizeRequestBody(body) {
 }
 
 function shouldUseNonStreamingUpstream(body) {
-    return upstreamStreamMode === "non-stream" &&
-        body &&
-        typeof body === "object" &&
-        body.stream === true;
+    if (!body || typeof body !== "object" || body.stream !== true)
+        return false;
+
+    if (upstreamStreamMode === "non-stream")
+        return true;
+
+    if (upstreamStreamMode === "tools-non-stream" ||
+        upstreamStreamMode === "tool-calls-non-stream") {
+        return Array.isArray(body.tools) && body.tools.length > 0;
+    }
+
+    return false;
 }
 
 function applyLastUserPrefix(body, prefix = lastUserPrefix) {
@@ -888,6 +896,86 @@ function normalizeNonStreamingToolCalls(toolCalls) {
     });
 }
 
+function parseJsonWithTrailingBraceRepair(jsonText) {
+    if (typeof jsonText !== "string")
+        return undefined;
+
+    const trimmed = jsonText.trim();
+    if (!trimmed)
+        return undefined;
+
+    try {
+        return JSON.parse(trimmed);
+    } catch {
+        // Some local models produce one surplus closing brace after a tool-call JSON object.
+    }
+
+    let candidate = trimmed;
+    for (let attempts = 0; attempts < 3 && candidate.endsWith("}"); attempts++) {
+        candidate = candidate.slice(0, -1).trimEnd();
+        try {
+            return JSON.parse(candidate);
+        } catch {
+            // Keep the repair narrow: only trim trailing close braces.
+        }
+    }
+
+    return undefined;
+}
+
+function normalizeTextToolCallObject(toolCall, index) {
+    if (!toolCall || typeof toolCall !== "object")
+        return undefined;
+
+    const func = toolCall.function && typeof toolCall.function === "object"
+        ? toolCall.function
+        : undefined;
+    const name = typeof func?.name === "string"
+        ? func.name
+        : typeof toolCall.name === "string"
+            ? toolCall.name
+            : "";
+    if (!name)
+        return undefined;
+
+    return {
+        index,
+        id: typeof toolCall.id === "string" && toolCall.id.trim()
+            ? toolCall.id
+            : `call_local_text_${index}`,
+        type: "function",
+        function: {
+            name,
+            arguments: func?.arguments ??
+                func?.parameters ??
+                toolCall.arguments ??
+                toolCall.parameters ??
+                {}
+        }
+    };
+}
+
+function parseTextToolCalls(content) {
+    if (typeof content !== "string" || !content.includes("<tool_call>"))
+        return undefined;
+
+    const parsedToolCalls = [];
+    const matches = content.matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi);
+    for (const match of matches) {
+        const parsed = parseJsonWithTrailingBraceRepair(match[1]);
+        const candidates = Array.isArray(parsed) ? parsed : [parsed];
+        for (const candidate of candidates) {
+            const normalized = normalizeTextToolCallObject(candidate, parsedToolCalls.length);
+            if (normalized)
+                parsedToolCalls.push(normalized);
+        }
+    }
+
+    return parsedToolCalls.length > 0
+        ? normalizeNonStreamingToolCalls(parsedToolCalls)
+        : undefined;
+}
+
 function sanitizeAssistantContent(content) {
     if (typeof content !== "string")
         return content;
@@ -945,7 +1033,8 @@ function buildStreamingChunkFromCompletion(completion, requestSummary) {
         object: "chat.completion.chunk",
         choices: choices.map((choice, fallbackIndex) => {
             const message = choice.message ?? choice.delta ?? {};
-            const toolCalls = normalizeNonStreamingToolCalls(message.tool_calls ?? choice.tool_calls);
+            const toolCalls = normalizeNonStreamingToolCalls(message.tool_calls ?? choice.tool_calls) ??
+                parseTextToolCalls(message.content ?? choice.content);
             const delta = {
                 role: message.role || "assistant"
             };
@@ -960,7 +1049,7 @@ function buildStreamingChunkFromCompletion(completion, requestSummary) {
             return {
                 index: choice.index ?? fallbackIndex,
                 delta,
-                finish_reason: choice.finish_reason ?? (toolCalls?.length > 0 ? "tool_calls" : "stop")
+                finish_reason: toolCalls?.length > 0 ? "tool_calls" : choice.finish_reason ?? "stop"
             };
         })
     };
