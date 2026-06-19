@@ -167,7 +167,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
         _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
         _modelsGrid.Columns.Add(MakeStatusColumn("Chat", nameof(ModelProviderProbeResult.ChatStatus), nameof(ModelProviderProbeResult.ChatStatusDisplay), 100));
-        _modelsGrid.Columns.Add(MakeStatusColumn("Tool Probe", nameof(ModelProviderProbeResult.ToolStatus), nameof(ModelProviderProbeResult.ToolStatusDisplay), 120));
+        _modelsGrid.Columns.Add(MakeStatusColumn("Tooling", nameof(ModelProviderProbeResult.ToolStatus), nameof(ModelProviderProbeResult.ToolStatusDisplay), 120));
         _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.NoteSummary), new DataGridLength(1, DataGridLengthUnitType.Star), minWidth: 260));
         _modelsGrid.Columns.Add(MakeActionColumn());
 

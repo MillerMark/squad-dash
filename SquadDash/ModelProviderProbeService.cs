@@ -137,13 +137,19 @@ internal sealed record ModelProviderProbeResult(
     }
 
     public ModelProviderProbeResult WithoutStaleNotLoadedNotes() {
-        if (string.IsNullOrWhiteSpace(Notes))
+        if (string.IsNullOrWhiteSpace(Notes) &&
+            string.IsNullOrWhiteSpace(DiagnosticNotes))
             return this;
 
-        return Notes.Contains("not loaded", StringComparison.OrdinalIgnoreCase) &&
-               Notes.Contains("before getting a ChatClient", StringComparison.OrdinalIgnoreCase)
-            ? this with { Notes = null, DiagnosticNotes = AppendDiagnosticNote(DiagnosticNotes, Notes) }
+        return IsStaleNotLoadedNote(Notes) || IsStaleNotLoadedNote(DiagnosticNotes)
+            ? this with { Notes = null, DiagnosticNotes = null }
             : this;
+    }
+
+    private static bool IsStaleNotLoadedNote(string? note) {
+        return !string.IsNullOrWhiteSpace(note) &&
+               note.Contains("not loaded", StringComparison.OrdinalIgnoreCase) &&
+               note.Contains("before getting a ChatClient", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string? AppendDiagnosticNote(string? existing, string? note) {
@@ -257,11 +263,18 @@ internal sealed class ModelProviderProbeService : IDisposable {
         var diagnosticNotes = new List<string>();
         var chatStatus = await ProbeChatAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
         var toolStatus = await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
+        var probeSucceeded = chatStatus == ModelProbeCheckStatus.Passed &&
+                             toolStatus == ModelProbeCheckStatus.Passed &&
+                             notes.Count == 0;
 
         return model with {
             ChatStatus = chatStatus,
             ToolStatus = toolStatus,
-            Notes = notes.Count == 0 ? model.Notes : string.Join(" ", notes),
+            Notes = probeSucceeded
+                ? "Probe succeeded."
+                : notes.Count == 0
+                    ? model.Notes
+                    : string.Join(" ", notes),
             DiagnosticNotes = diagnosticNotes.Count == 0
                 ? model.DiagnosticNotes
                 : ModelProviderProbeResult.AppendDiagnosticNote(

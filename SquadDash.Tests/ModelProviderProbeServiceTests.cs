@@ -130,13 +130,14 @@ internal sealed class ModelProviderProbeServiceTests {
         var result = new ModelProviderProbeResult(
             "model",
             "http://provider/v1",
-            Notes: "Chat probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient.. Tool probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient..");
+            Notes: "Chat probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient..",
+            DiagnosticNotes: "Tool probe returned 400 Bad Request: Failed to handle OpenAI completion: Model 'model' is not loaded. Please load the model before getting a ChatClient..");
 
         var cleaned = result.WithoutStaleNotLoadedNotes();
 
         Assert.Multiple(() => {
             Assert.That(cleaned.Notes, Is.Null);
-            Assert.That(cleaned.DiagnosticNotes, Does.Contain("Please load the model"));
+            Assert.That(cleaned.DiagnosticNotes, Is.Null);
         });
     }
 
@@ -293,6 +294,7 @@ internal sealed class ModelProviderProbeServiceTests {
         Assert.Multiple(() => {
             Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
             Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
+            Assert.That(probed.Notes, Is.EqualTo("Probe succeeded."));
             Assert.That(toolProbeBody, Does.Contain("\"tool_choice\""));
             Assert.That(toolProbeBody, Does.Contain("\"name\":\"report_probe\""));
         });
