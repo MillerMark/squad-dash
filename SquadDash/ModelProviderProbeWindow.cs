@@ -401,6 +401,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             : string.Join(", ", loadedModels);
 
         var row = new Grid {
+            MinHeight = 30,
             Margin = new Thickness(0, 0, 0, 0)
         };
         row.ColumnDefinitions.Add(new ColumnDefinition {
@@ -419,7 +420,8 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         var line = new TextBlock {
             Margin = new Thickness(0, 0, 8, 0),
             TextWrapping = TextWrapping.Wrap,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
         };
         line.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         line.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
@@ -430,7 +432,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         row.Children.Add(line);
 
         if (_canLoadFoundryModels) {
-            _cleanFoundryButton = MakeButton("Unload Loaded Models", 168);
+            _cleanFoundryButton = MakeButton("Unload Models", 128);
             _cleanFoundryButton.IsEnabled = _loadedFoundryUnloadIds.Count > 0;
             _cleanFoundryButton.Click += (_, _) => _ = UnloadLoadedFoundryModelsAsync();
             Grid.SetColumn(_cleanFoundryButton, 2);
