@@ -1,13 +1,14 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 
 const host = process.env.OLLAMA_COMPAT_HOST || "127.0.0.1";
 const port = Number(process.env.OLLAMA_COMPAT_PORT || 11436);
-const defaultTargetBaseUrl = new URL(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.0.1:11435");
+const defaultTargetBaseUrl = resolveTargetBaseUrl(process.env.OLLAMA_COMPAT_TARGET || "http://127.0.0.1:11435");
 const logPath = path.resolve(
     process.env.OLLAMA_COMPAT_LOG ||
     path.join(process.cwd(), "..", ".squad", "diagnostics", "ollama-compat-proxy.jsonl"));
@@ -132,6 +133,7 @@ const maxInputChars = localProviderProfile.maxInputChars;
 const workerConcurrency = localProviderProfile.maxConcurrent;
 const firstDataTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FIRST_DATA_TIMEOUT_MS, 30000);
 const upstreamResponseTimeoutMs = readPositiveInteger(process.env.OLLAMA_COMPAT_UPSTREAM_RESPONSE_TIMEOUT_MS, 30000);
+const foundryTargetRefreshMs = readPositiveInteger(process.env.OLLAMA_COMPAT_FOUNDRY_TARGET_REFRESH_MS, 5000);
 const upstreamStreamMode = String(process.env.OLLAMA_COMPAT_UPSTREAM_STREAM_MODE || "passthrough").trim().toLowerCase();
 const lastUserPrefix = process.env.OLLAMA_COMPAT_LAST_USER_PREFIX || "";
 const promptProfile = String(process.env.OLLAMA_COMPAT_PROMPT_PROFILE || "passthrough").trim().toLowerCase();
@@ -156,10 +158,56 @@ function parseTargetDescriptor(rawTarget, index) {
     const urlText = hasName
         ? rawTarget.slice(separatorIndex + 1).trim()
         : rawTarget;
+    const target = resolveTargetDescriptor(urlText);
 
     return {
         name: name || `local-${index + 1}`,
-        url: new URL(urlText)
+        ...target
+    };
+}
+
+function isFoundryTarget(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return normalized === "foundry" ||
+        normalized === "foundry-local" ||
+        normalized === "foundry://local";
+}
+
+function parseFoundryServerStatusUrl(statusText) {
+    const parsed = JSON.parse(statusText);
+    if (!Array.isArray(parsed.webUrls) || parsed.webUrls.length === 0)
+        throw new Error("Foundry server status did not include webUrls.");
+
+    const url = String(parsed.webUrls[0] || "").trim();
+    if (!url)
+        throw new Error("Foundry server status included an empty web URL.");
+
+    return url;
+}
+
+function resolveFoundryServerUrl(runner = execFileSync) {
+    const foundryCli = process.env.OLLAMA_COMPAT_FOUNDRY_CLI || "foundry";
+    const output = runner(foundryCli, ["server", "status", "-o", "json"], {
+        encoding: "utf8",
+        timeout: readPositiveInteger(process.env.OLLAMA_COMPAT_FOUNDRY_STATUS_TIMEOUT_MS, 5000),
+        windowsHide: true
+    });
+    return parseFoundryServerStatusUrl(output);
+}
+
+function resolveTargetBaseUrl(value, runner = execFileSync) {
+    if (isFoundryTarget(value))
+        return new URL(resolveFoundryServerUrl(runner));
+
+    return new URL(value);
+}
+
+function resolveTargetDescriptor(value, runner = execFileSync) {
+    const url = resolveTargetBaseUrl(value, runner);
+    return {
+        url,
+        targetKind: isFoundryTarget(value) ? "foundry" : "static",
+        targetResolvedAt: Date.now()
     };
 }
 
@@ -242,6 +290,28 @@ class LocalModelRequestScheduler {
 
 const scheduler = new LocalModelRequestScheduler(
     parseTargetWorkers(process.env.OLLAMA_COMPAT_TARGETS, defaultTargetBaseUrl));
+
+function refreshWorkerTargetUrl(worker) {
+    if (!worker || worker.targetKind !== "foundry")
+        return worker?.url;
+
+    if (Date.now() - (worker.targetResolvedAt || 0) < foundryTargetRefreshMs)
+        return worker.url;
+
+    try {
+        worker.url = resolveTargetBaseUrl("foundry");
+        worker.targetResolvedAt = Date.now();
+    } catch (error) {
+        appendLog({
+            capturedAt: new Date().toISOString(),
+            event: "target:foundry-refresh-failed",
+            worker: worker.name,
+            error: error.message
+        });
+    }
+
+    return worker.url;
+}
 
 function shouldScheduleModelRequest(req) {
     if (req.method !== "POST")
@@ -1164,7 +1234,8 @@ const server = http.createServer(async (req, res) => {
         });
     }
 
-    const targetBaseUrl = lease?.worker.url ?? scheduler.workers[0].url;
+    const targetWorker = lease?.worker ?? scheduler.workers[0];
+    const targetBaseUrl = refreshWorkerTargetUrl(targetWorker);
     appendLog({
         capturedAt: new Date().toISOString(),
         event: "request:body:start",
@@ -1511,9 +1582,12 @@ export {
     LocalModelRequestScheduler,
     normalizeRequestBody,
     normalizeServerSentEvents,
+    parseFoundryServerStatusUrl,
     parseTargetWorkers,
+    resolveFoundryServerUrl,
     resolveLocalCapabilityProfile,
     replaceFailedApplyPatchExchanges,
+    resolveTargetBaseUrl,
     resolveLocalProviderProfile
 };
 

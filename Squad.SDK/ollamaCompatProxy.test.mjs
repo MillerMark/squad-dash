@@ -9,9 +9,12 @@ import {
     LocalModelRequestScheduler,
     normalizeRequestBody,
     normalizeServerSentEvents,
+    parseFoundryServerStatusUrl,
     parseTargetWorkers,
+    resolveFoundryServerUrl,
     resolveLocalCapabilityProfile,
-    resolveLocalProviderProfile
+    resolveLocalProviderProfile,
+    resolveTargetBaseUrl
 } from "./ollamaCompatProxy.mjs";
 
 test("Local provider profile defaults to balanced capacity", () => {
@@ -38,6 +41,33 @@ test("Local provider profile accepts conservative preset and explicit overrides"
         maxOutputTokens: 512,
         maxConcurrent: 2
     });
+});
+
+test("Foundry server status parser reads active web URL", () => {
+    const url = parseFoundryServerStatusUrl(JSON.stringify({
+        running: true,
+        state: "ready",
+        webUrls: ["http://127.0.0.1:55824"]
+    }));
+
+    assert.equal(url, "http://127.0.0.1:55824");
+});
+
+test("Foundry target resolver uses server status URL", () => {
+    const url = resolveFoundryServerUrl((fileName, args) => {
+        assert.equal(fileName, "foundry");
+        assert.deepEqual(args, ["server", "status", "-o", "json"]);
+        return JSON.stringify({ webUrls: ["http://127.0.0.1:55824"] });
+    });
+
+    assert.equal(url, "http://127.0.0.1:55824");
+});
+
+test("Target resolver accepts Foundry local target alias", () => {
+    const url = resolveTargetBaseUrl("foundry", () =>
+        JSON.stringify({ webUrls: ["http://127.0.0.1:55824"] }));
+
+    assert.equal(url.href, "http://127.0.0.1:55824/");
 });
 
 test("Local capability profile defaults to full tool access", () => {
