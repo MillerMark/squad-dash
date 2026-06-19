@@ -32,6 +32,8 @@ internal sealed record ModelProviderProbeResult(
 
     public string ChatStatusText => StatusText(ChatStatus);
     public string ToolStatusText => StatusText(ToolStatus);
+    public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
+    public string NoteSummary => SummarizeNote(Notes);
 
     private static string StatusText(ModelProbeCheckStatus status) => status switch {
         ModelProbeCheckStatus.Passed => "Passed",
@@ -40,6 +42,35 @@ internal sealed record ModelProviderProbeResult(
         ModelProbeCheckStatus.NotLoaded => "Not loaded",
         _ => "Not run"
     };
+
+    private static string SummarizeNote(string? note) {
+        if (string.IsNullOrWhiteSpace(note))
+            return string.Empty;
+
+        var normalized = NormalizeWhitespace(note);
+        const int maxChars = 150;
+        return normalized.Length <= maxChars
+            ? normalized
+            : normalized[..(maxChars - 3)] + "...";
+    }
+
+    private static string NormalizeWhitespace(string value) {
+        var builder = new StringBuilder(value.Length);
+        var previousWasWhitespace = false;
+        foreach (var ch in value) {
+            if (char.IsWhiteSpace(ch)) {
+                if (!previousWasWhitespace)
+                    builder.Append(' ');
+                previousWasWhitespace = true;
+                continue;
+            }
+
+            builder.Append(ch);
+            previousWasWhitespace = false;
+        }
+
+        return builder.ToString().Trim();
+    }
 }
 
 internal sealed record ModelProviderCommandResult(

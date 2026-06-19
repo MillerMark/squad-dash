@@ -105,12 +105,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.MouseDoubleClick += (_, _) => UseSelectedModel();
 
         _modelsGrid.Columns.Add(MakeTextColumn("Model", nameof(ModelProviderProbeResult.ModelId), 260));
-        _modelsGrid.Columns.Add(MakeTextColumn("Parent", nameof(ModelProviderProbeResult.ParentModel), 150));
+        _modelsGrid.Columns.Add(MakeTextColumn("Parent", nameof(ModelProviderProbeResult.ParentModel), 190));
         _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
         _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
         _modelsGrid.Columns.Add(MakeTextColumn("Chat", nameof(ModelProviderProbeResult.ChatStatusText), 90));
         _modelsGrid.Columns.Add(MakeTextColumn("Tool Probe", nameof(ModelProviderProbeResult.ToolStatusText), 100));
-        _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.Notes), 260));
+        _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.NoteSummary), new DataGridLength(1, DataGridLengthUnitType.Star), minWidth: 260));
+        _modelsGrid.Columns.Add(MakeDetailsColumn());
 
         root.Children.Add(_modelsGrid);
     }
@@ -126,17 +127,41 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         return button;
     }
 
-    private static DataGridTextColumn MakeTextColumn(string header, string path, double width) {
+    private static DataGridTextColumn MakeTextColumn(string header, string path, double width) =>
+        MakeTextColumn(header, path, new DataGridLength(width), minWidth: 0);
+
+    private static DataGridTextColumn MakeTextColumn(string header, string path, DataGridLength width, double minWidth) {
         return new DataGridTextColumn {
             Header = header,
             Binding = new Binding(path),
             Width = width,
+            MinWidth = minWidth,
             ElementStyle = new Style(typeof(TextBlock)) {
                 Setters = {
                     new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap),
                     new Setter(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center)
                 }
             }
+        };
+    }
+
+    private static DataGridTemplateColumn MakeDetailsColumn() {
+        var template = new DataTemplate();
+        var button = new FrameworkElementFactory(typeof(Button));
+        button.SetValue(Button.ContentProperty, "Details");
+        button.SetValue(FrameworkElement.HeightProperty, 24.0);
+        button.SetValue(FrameworkElement.MinWidthProperty, 70.0);
+        button.SetValue(Control.PaddingProperty, new Thickness(8, 2, 8, 2));
+        button.SetBinding(UIElement.IsEnabledProperty, new Binding(nameof(ModelProviderProbeResult.HasNotes)));
+        button.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        button.AddHandler(Button.ClickEvent, new RoutedEventHandler(NotesDetailsButton_Click));
+        template.VisualTree = button;
+
+        return new DataGridTemplateColumn {
+            Header = "",
+            CellTemplate = template,
+            Width = 86,
+            MinWidth = 80
         };
     }
 
@@ -162,7 +187,32 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         cellStyle.Setters.Add(new Setter(DataGridCell.BorderBrushProperty, new DynamicResourceExtension("SubtleBorder")));
         cellStyle.Setters.Add(new Setter(DataGridCell.BorderThicknessProperty, new Thickness(0)));
         cellStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6, 4, 6, 4)));
+        var selectedCellTrigger = new Trigger { Property = DataGridCell.IsSelectedProperty, Value = true };
+        selectedCellTrigger.Setters.Add(new Setter(DataGridCell.BackgroundProperty, new DynamicResourceExtension("ActivePanelSurface")));
+        selectedCellTrigger.Setters.Add(new Setter(DataGridCell.ForegroundProperty, new DynamicResourceExtension("ImportantText")));
+        cellStyle.Triggers.Add(selectedCellTrigger);
         grid.CellStyle = cellStyle;
+
+        var rowStyle = new Style(typeof(DataGridRow));
+        rowStyle.Setters.Add(new Setter(DataGridRow.BackgroundProperty, new DynamicResourceExtension("TextBoxBackground")));
+        rowStyle.Setters.Add(new Setter(DataGridRow.ForegroundProperty, new DynamicResourceExtension("LabelText")));
+        var selectedRowTrigger = new Trigger { Property = DataGridRow.IsSelectedProperty, Value = true };
+        selectedRowTrigger.Setters.Add(new Setter(DataGridRow.BackgroundProperty, new DynamicResourceExtension("ActivePanelSurface")));
+        selectedRowTrigger.Setters.Add(new Setter(DataGridRow.ForegroundProperty, new DynamicResourceExtension("ImportantText")));
+        rowStyle.Triggers.Add(selectedRowTrigger);
+        grid.RowStyle = rowStyle;
+    }
+
+    private static void NotesDetailsButton_Click(object sender, RoutedEventArgs e) {
+        if (sender is not FrameworkElement { DataContext: ModelProviderProbeResult { HasNotes: true } result })
+            return;
+
+        var owner = Window.GetWindow((DependencyObject)sender);
+        var window = new ModelProviderProbeNoteWindow(result.ModelId, result.Notes ?? string.Empty) {
+            Owner = owner
+        };
+        window.ShowDialog();
+        e.Handled = true;
     }
 
     private void SyncButtonState() {
@@ -288,5 +338,90 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             return note;
 
         return $"{existing} {note}";
+    }
+}
+
+internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
+    private readonly string _noteText;
+    private readonly TextBlock _statusText;
+
+    public ModelProviderProbeNoteWindow(string modelId, string noteText) : base(captionHeight: CloseButtonHeight) {
+        _noteText = noteText;
+
+        Title = "Probe Details";
+        Width = 780;
+        Height = 520;
+        MinWidth = 560;
+        MinHeight = 360;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        var content = ApplyOuterBorder(titleText: "Probe Details");
+        var root = new DockPanel { Margin = new Thickness(16) };
+        content.Child = root;
+
+        var header = new TextBlock {
+            Text = modelId,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 10),
+            FontWeight = FontWeights.SemiBold
+        };
+        header.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
+
+        var footer = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
+        DockPanel.SetDock(footer, Dock.Bottom);
+        root.Children.Add(footer);
+
+        var closeButton = MakeButton("Close", 86);
+        closeButton.Click += (_, _) => Close();
+        DockPanel.SetDock(closeButton, Dock.Right);
+        footer.Children.Add(closeButton);
+
+        var copyButton = MakeButton("Copy", 86);
+        copyButton.Margin = new Thickness(0, 0, 8, 0);
+        copyButton.Click += (_, _) => CopyNote();
+        DockPanel.SetDock(copyButton, Dock.Right);
+        footer.Children.Add(copyButton);
+
+        _statusText = new TextBlock {
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap
+        };
+        _statusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        footer.Children.Add(_statusText);
+
+        var detailsBox = new TextBox {
+            Text = noteText,
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontFamily = new FontFamily("Consolas"),
+            Padding = new Thickness(8)
+        };
+        detailsBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
+        detailsBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        detailsBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        root.Children.Add(detailsBox);
+    }
+
+    private Button MakeButton(string text, double width) {
+        var button = new Button {
+            Content = text,
+            Width = width,
+            Height = 30,
+            Padding = new Thickness(10, 4, 10, 4)
+        };
+        button.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        return button;
+    }
+
+    private void CopyNote() {
+        Clipboard.SetText(_noteText);
+        _statusText.Text = "Copied.";
     }
 }

@@ -51,6 +51,22 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void NoteSummary_CondensesLongMultilineNotes() {
+        var result = new ModelProviderProbeResult(
+            "model",
+            "http://provider/v1",
+            Notes: "Load failed:\r\n\r\nFirst line\r\nSecond line " + new string('x', 220));
+
+        Assert.Multiple(() => {
+            Assert.That(result.HasNotes, Is.True);
+            Assert.That(result.NoteSummary, Does.Not.Contain("\r"));
+            Assert.That(result.NoteSummary, Does.Not.Contain("\n"));
+            Assert.That(result.NoteSummary.Length, Is.LessThanOrEqualTo(150));
+            Assert.That(result.NoteSummary, Does.EndWith("..."));
+        });
+    }
+
+    [Test]
     public async Task DiscoverModelsAsync_FallsBackToRawProviderUrlWhenV1CandidateFails() {
         var handler = new StubHttpHandler(request => {
             if (request.RequestUri!.AbsoluteUri == "http://provider/v1/models")
