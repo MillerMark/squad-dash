@@ -24,6 +24,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
     private readonly bool _canLoadFoundryModels;
     private readonly DataGrid _modelsGrid;
     private readonly Button _useButton;
+    private readonly Button _copyAllButton;
     private readonly Button _closeButton;
     private readonly TextBlock _statusText;
     private readonly string? _initialModelId;
@@ -138,6 +139,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _useButton.Click += (_, _) => UseSelectedModel();
         DockPanel.SetDock(_useButton, Dock.Right);
         footer.Children.Add(_useButton);
+
+        _copyAllButton = MakeButton("Copy All Details", 140);
+        _copyAllButton.IsEnabled = _models.Count > 0;
+        _copyAllButton.Margin = new Thickness(0, 0, 8, 0);
+        _copyAllButton.Click += (_, _) => CopyAllDetails();
+        DockPanel.SetDock(_copyAllButton, Dock.Right);
+        footer.Children.Add(_copyAllButton);
 
         _statusText = new TextBlock {
             Text = models.Count == 0 ? "No models were returned by the provider." : $"{models.Count} model(s) found.",
@@ -321,6 +329,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _modelsGrid.IsEnabled = false;
             _modelsGrid.IsHitTestVisible = false;
             _useButton.IsEnabled = false;
+            _copyAllButton.IsEnabled = false;
             _closeButton.IsEnabled = false;
             return;
         }
@@ -329,6 +338,7 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.IsHitTestVisible = true;
         var hasSelection = _modelsGrid.SelectedItem is ModelProviderProbeResult;
         _useButton.IsEnabled = hasSelection;
+        _copyAllButton.IsEnabled = _models.Count > 0;
         _closeButton.IsEnabled = true;
     }
 
@@ -571,12 +581,32 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         window.ShowDialog();
     }
 
+    private void CopyAllDetails() {
+        if (_isBusy) {
+            _statusText.Text = "Wait for the current load or probe to finish.";
+            return;
+        }
+
+        if (_models.Count == 0) {
+            _statusText.Text = "No model details to copy.";
+            return;
+        }
+
+        var details = _models
+            .Select(model =>
+                $"```{Environment.NewLine}{ModelProviderProbeNoteWindow.BuildDiagnosticText(_providerUrl, model)}{Environment.NewLine}```")
+            .ToArray();
+        Clipboard.SetText(string.Join($"{Environment.NewLine}{Environment.NewLine}", details));
+        _statusText.Text = $"Copied details for {_models.Count} model(s).";
+    }
+
     private void SetActionButtonsEnabled(bool enabled) {
         _isBusy = !enabled;
         _modelsGrid.IsEnabled = enabled;
         _modelsGrid.IsHitTestVisible = enabled;
         _closeButton.IsEnabled = enabled;
         _useButton.IsEnabled = enabled && _modelsGrid.SelectedItem is ModelProviderProbeResult;
+        _copyAllButton.IsEnabled = enabled && _models.Count > 0;
     }
 
     private static string BuildLoadNote(string prefix, ModelProviderCommandResult result) {
@@ -679,7 +709,7 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
         root.Children.Add(detailsBox);
     }
 
-    private static string BuildDiagnosticText(string providerUrl, ModelProviderProbeResult result) {
+    internal static string BuildDiagnosticText(string providerUrl, ModelProviderProbeResult result) {
         var lines = new List<string> {
             "Model Probe Diagnostics",
             "",

@@ -205,7 +205,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
     private readonly Func<IReadOnlyList<FoundryCliCandidate>> _foundryCliCandidates;
 
     public ModelProviderProbeService()
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(12) }, disposeHttp: true) {
+        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(35) }, disposeHttp: true) {
     }
 
     internal ModelProviderProbeService(
