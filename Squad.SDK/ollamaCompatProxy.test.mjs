@@ -341,6 +341,36 @@ test("Non-streaming textual tool call repairs raw Windows path backslashes", () 
     assert.ok(!converted.body.includes("<tool_call>"));
 });
 
+test("Non-streaming textual tool call is used when provider sends empty tool_calls", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu",
+        choices: [{
+            message: {
+                role: "assistant",
+                tool_calls: [],
+                content: "<think>\nPlanning.\nFirst<tool_call>\n{\"name\":\"view\",\"arguments\":{\"path\":\"D:\\Drive\\Source\\SquadDash-public\\.squad\\tasks.md\"}}}\n</tool_call>"
+            },
+            finish_reason: "stop"
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {});
+    const streamedJson = converted.body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: {"))
+        .slice("data: ".length);
+    const streamed = JSON.parse(streamedJson);
+    const toolCall = streamed.choices[0].delta.tool_calls[0];
+    const args = JSON.parse(toolCall.function.arguments);
+
+    assert.equal(streamed.choices[0].finish_reason, "tool_calls");
+    assert.equal(toolCall.function.name, "view");
+    assert.equal(args.path, "D:\\Drive\\Source\\SquadDash-public\\.squad\\tasks.md");
+    assert.ok(!converted.body.includes("<tool_call>"));
+    assert.ok(!converted.body.includes("Planning."));
+});
+
 test("Non-streaming text completion drops only empty leading think block", () => {
     const completion = {
         id: "chat.id.1",

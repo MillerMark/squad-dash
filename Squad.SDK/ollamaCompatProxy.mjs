@@ -876,7 +876,7 @@ function applyPromptProfile(body, profile = promptProfile) {
 }
 
 function normalizeNonStreamingToolCalls(toolCalls) {
-    if (!Array.isArray(toolCalls))
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0)
         return undefined;
 
     return toolCalls.map((toolCall, index) => {
