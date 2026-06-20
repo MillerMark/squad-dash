@@ -25277,6 +25277,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void UpdateMaximizeRestoreIcon()
     {
         if (MaximizeIconCanvas is null) return;
+        // Close any open tooltip before replacing it to avoid
+        // "ToolTip cannot have a logical or visual parent" when StateChanged
+        // fires while the user is hovering over the button (tooltip is shown
+        // and has a non-null visual parent via its Popup).
+        if (MaximizeRestoreButton.ToolTip is ToolTip openTip)
+            openTip.IsOpen = false;
         if (WindowState == WindowState.Maximized)
         {
             MaximizeIconCanvas.Visibility = Visibility.Collapsed;
