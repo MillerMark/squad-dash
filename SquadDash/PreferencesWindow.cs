@@ -2175,7 +2175,6 @@ internal sealed class PreferencesWindow : Window {
         string providerUrl,
         IReadOnlyList<ModelProviderProbeResult> models) {
         return providerUrl.Contains("5273", StringComparison.OrdinalIgnoreCase) ||
-               providerUrl.Contains("11437", StringComparison.OrdinalIgnoreCase) ||
                models.Any(model =>
                    string.Equals(model.Owner, "Microsoft", StringComparison.OrdinalIgnoreCase) ||
                    model.ModelId.Contains("-cuda-gpu", StringComparison.OrdinalIgnoreCase) ||

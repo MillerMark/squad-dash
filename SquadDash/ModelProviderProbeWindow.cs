@@ -86,7 +86,9 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         summary.Inlines.Add(new Run("Provider: "));
         summary.Inlines.Add(new Run(_providerUrl) { FontWeight = FontWeights.Bold });
         summary.Inlines.Add(new LineBreak());
-        summary.Inlines.Add(new Run("Select one model to run a live chat/tool probe. Live probes can load that model, so run them one at a time."));
+        summary.Inlines.Add(new Run(canLoadFoundryModels
+            ? "Select one model to load or run a live chat/tool probe. Live probes can load that model, so run them one at a time."
+            : "Select one model to run a live chat/tool probe."));
         summary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         DockPanel.SetDock(summary, Dock.Top);
@@ -195,9 +197,12 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         _modelsGrid.MouseDoubleClick += (_, _) => UseSelectedModel();
 
         _modelsGrid.Columns.Add(MakeTextColumn("Model", nameof(ModelProviderProbeResult.ModelId), 260));
-        _modelsGrid.Columns.Add(MakeTextColumn("Parent", nameof(ModelProviderProbeResult.ParentModel), 190));
-        _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
-        _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
+        if (ShouldShowParentColumn(_models))
+            _modelsGrid.Columns.Add(MakeTextColumn("Base", nameof(ModelProviderProbeResult.ParentModel), 190));
+        if (ShouldShowOwnerColumn(_models))
+            _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
+        if (ShouldShowCatalogToolsColumn(_models))
+            _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
         _modelsGrid.Columns.Add(MakeStatusColumn("Chat", nameof(ModelProviderProbeResult.ChatStatus), nameof(ModelProviderProbeResult.ChatStatusDisplay), 100));
         _modelsGrid.Columns.Add(MakeStatusColumn("Tools", nameof(ModelProviderProbeResult.ToolStatus), nameof(ModelProviderProbeResult.ToolStatusDisplay), 120));
         _modelsGrid.Columns.Add(MakeTextColumn("Notes", nameof(ModelProviderProbeResult.NoteSummary), new DataGridLength(1, DataGridLengthUnitType.Star), minWidth: 260));
@@ -205,6 +210,17 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
 
         root.Children.Add(_modelsGrid);
     }
+
+    private static bool ShouldShowParentColumn(IEnumerable<ModelProviderProbeResult> models) =>
+        models.Any(model => !string.IsNullOrWhiteSpace(model.ParentModel));
+
+    private static bool ShouldShowOwnerColumn(IEnumerable<ModelProviderProbeResult> models) =>
+        models.Any(model =>
+            !string.IsNullOrWhiteSpace(model.Owner) &&
+            !string.Equals(model.Owner, "library", StringComparison.OrdinalIgnoreCase));
+
+    private static bool ShouldShowCatalogToolsColumn(IEnumerable<ModelProviderProbeResult> models) =>
+        models.Any(model => model.CatalogSupportsToolCalling.HasValue);
 
     private static string BuildWarningClipboardText(ModelProviderProbeWarning warning) {
         return string.IsNullOrWhiteSpace(warning.Guidance)
