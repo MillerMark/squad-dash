@@ -621,6 +621,13 @@
                 </Setter>
             </Style>
 
+            <!-- Neutralise the default Menu border/padding so the top-level popup has a
+                 stable, DPI-independent reference point (HorizontalOffset="0" below). -->
+            <Style TargetType="Menu">
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+            </Style>
+
             <!-- Issue 5: Top-level menu item style -->
             <Style x:Key="TopLevelMenuItemStyle" TargetType="MenuItem" BasedOn="{StaticResource ThemedMenuItemStyle}">
                 <Setter Property="Template">
@@ -634,7 +641,7 @@
                                     <Popup x:Name="SubMenuPopup"
                                            IsOpen="{TemplateBinding IsSubmenuOpen}"
                                            Placement="Bottom"
-                                           HorizontalOffset="-4"
+                                           HorizontalOffset="0"
                                            AllowsTransparency="True"
                                            Focusable="False"
                                            PopupAnimation="Fade">
