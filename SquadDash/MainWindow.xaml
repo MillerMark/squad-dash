@@ -490,7 +490,8 @@
                   Foreground="{DynamicResource LabelText}"
                   VerticalAlignment="Center"
                   Margin="4,0,0,0"
-                  shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                  MenuItem.SubmenuOpened="MainMenu_TopLevelSubmenuOpened">
                 <MenuItem Header="_File"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">

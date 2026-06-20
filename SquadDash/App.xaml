@@ -633,8 +633,9 @@
                                     <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
                                     <Popup x:Name="SubMenuPopup"
                                            IsOpen="{TemplateBinding IsSubmenuOpen}"
-                                           Placement="Bottom"
-                                           HorizontalOffset="-4"
+                                           Placement="Custom"
+                                           PlacementTarget="{Binding ElementName=Border}"
+                                           HorizontalOffset="0"
                                            AllowsTransparency="True"
                                            Focusable="False"
                                            PopupAnimation="Fade">
