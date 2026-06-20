@@ -1603,6 +1603,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             PromptTextBox.Focus();
             LogMainLayoutPositions();
+            ApplyTopLevelMenuPopupCallbacks();
         }
         catch (Exception ex)
         {
@@ -13338,6 +13339,54 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(PanelsMenuItem_SubmenuOpened), ex); }
+    }
+
+    /// <summary>
+    /// Fires on every top-level menu SubmenuOpened (bubbled from child MenuItems).
+    /// Belt-and-suspenders: ensures the CustomPopupPlacementCallback is set in case
+    /// this item's template was applied after ContentRendered ran.
+    /// </summary>
+    private void MainMenu_TopLevelSubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (e.OriginalSource is not MenuItem mi) return;
+            var popup = FindVisualChild<System.Windows.Controls.Primitives.Popup>(mi);
+            if (popup != null && popup.CustomPopupPlacementCallback == null)
+                popup.CustomPopupPlacementCallback = TopLevelMenuPopupPlacementCallback;
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(MainMenu_TopLevelSubmenuOpened), ex); }
+    }
+
+    /// <summary>
+    /// Sets CustomPopupPlacementCallback on every top-level MenuItem's SubMenuPopup so the
+    /// popup is always positioned flush-left immediately below the item, bypassing WPF's
+    /// broken automatic Bottom placement on maximized+WindowChrome windows.
+    /// Called once from ContentRendered after the initial render (all templates applied).
+    /// </summary>
+    private void ApplyTopLevelMenuPopupCallbacks()
+    {
+        foreach (var item in MainMenu.Items.OfType<MenuItem>())
+        {
+            item.ApplyTemplate();
+            var popup = FindVisualChild<System.Windows.Controls.Primitives.Popup>(item);
+            if (popup != null)
+                popup.CustomPopupPlacementCallback = TopLevelMenuPopupPlacementCallback;
+        }
+    }
+
+    /// <summary>
+    /// Positions the top-level menu popup flush-left directly below the PlacementTarget
+    /// (the MenuItem root Border). Falls back to above the item if below would clip off-screen.
+    /// </summary>
+    private static CustomPopupPlacement[] TopLevelMenuPopupPlacementCallback(
+        Size popupSize, Size targetSize, Point offset)
+    {
+        return
+        [
+            new CustomPopupPlacement(new Point(0, targetSize.Height), PopupPrimaryAxis.Horizontal),
+            new CustomPopupPlacement(new Point(0, -popupSize.Height), PopupPrimaryAxis.Horizontal),
+        ];
     }
 
     private async void RecentFolderMenuItem_Click(object sender, RoutedEventArgs e)
