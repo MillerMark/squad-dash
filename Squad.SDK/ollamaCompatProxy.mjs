@@ -859,25 +859,41 @@ function stripInjectedSquadContext(content) {
     return stripped.slice(0, 2500);
 }
 
-function buildFoundrySimpleSystemPrompt(model) {
+function buildFoundrySimpleSystemPrompt(model, options = {}) {
     const modelName = typeof model === "string" && model.trim() ? model.trim() : "local Foundry model";
-    return [
+    const lines = [
         "You are SquadDash local assistant running through Foundry Local.",
         "Answer the user's latest message directly and briefly.",
         `If asked what model you are, say: I'm powered by ${modelName} (model ID: ${modelName}).`,
         "Only mention the model when the user asks about the model.",
         "Do not claim to have read files or used tools unless tool results are present in the conversation.",
+    ];
+
+    if (options.keepTools) {
+        lines.push(
+            "When tools are available and the user asks you to inspect files, use the appropriate tool instead of guessing.",
+            "Relative paths provided by the user are valid in SquadDash; pass them to tools exactly unless a tool result says otherwise.",
+            "After a tool result is returned, continue from that result and answer the user's request."
+        );
+    }
+
+    lines.push(
         "In SquadDash, sending the user an Inbox message means emitting the marker block below; it does not require external email, network access, or any hidden capability.",
         "If the user asks you to send an Inbox message, comply by appending a valid JSON block at the very end of your response exactly like this:",
         "For Inbox-message requests, output only the INBOX_MESSAGE_JSON block and no apology, caveat, or extra prose.",
         "INBOX_MESSAGE_JSON:",
         "{\"subject\":\"Short subject\",\"from\":\"coordinator\",\"body\":\"Message body\",\"priority\":\"normal\",\"attachments\":[],\"actions\":[]}",
         "Do not wrap INBOX_MESSAGE_JSON in a code fence."
-    ].join("\n");
+    );
+
+    return lines.join("\n");
 }
 
 function applyPromptProfile(body, profile = promptProfile) {
-    if (profile !== "foundry-simple" || !Array.isArray(body?.messages))
+    const normalizedProfile = String(profile || "passthrough").trim().toLowerCase();
+    const isFoundrySimple = normalizedProfile === "foundry-simple";
+    const isFoundryTools = normalizedProfile === "foundry-tools";
+    if ((!isFoundrySimple && !isFoundryTools) || !Array.isArray(body?.messages))
         return false;
 
     const currentUserIndex = getCurrentUserMessageIndex(body.messages);
@@ -888,16 +904,22 @@ function applyPromptProfile(body, profile = promptProfile) {
     body.messages = [
         {
             role: "system",
-            content: buildFoundrySimpleSystemPrompt(body.model)
+            content: buildFoundrySimpleSystemPrompt(body.model, {
+                keepTools: isFoundryTools
+            })
         },
         {
             role: "user",
             content: userContent
         }
     ];
-    delete body.tools;
-    delete body.tool_choice;
-    delete body.parallel_tool_calls;
+
+    if (isFoundrySimple) {
+        delete body.tools;
+        delete body.tool_choice;
+        delete body.parallel_tool_calls;
+    }
+
     return true;
 }
 
@@ -930,13 +952,31 @@ function parseJsonWithTrailingBraceRepair(jsonText) {
     if (!trimmed)
         return undefined;
 
-    for (const candidate of [trimmed, escapeToolCallPathBackslashes(trimmed)]) {
+    for (const candidate of buildToolCallJsonRepairCandidates(trimmed)) {
         const parsed = parseJsonWithOptionalTrailingBraceRepair(candidate);
         if (parsed !== undefined)
             return parsed;
     }
 
     return undefined;
+}
+
+function buildToolCallJsonRepairCandidates(jsonText) {
+    const candidates = [jsonText];
+    const argumentStutterRepaired = jsonText
+        .replace(/("arguments"\s*):\s*"\s*:\s*(\{)/gi, "$1:$2")
+        .replace(/("parameters"\s*):\s*"\s*:\s*(\{)/gi, "$1:$2");
+
+    if (argumentStutterRepaired !== jsonText)
+        candidates.push(argumentStutterRepaired);
+
+    const escapedCandidates = candidates.map(escapeToolCallPathBackslashes);
+    for (const candidate of escapedCandidates) {
+        if (!candidates.includes(candidate))
+            candidates.push(candidate);
+    }
+
+    return candidates;
 }
 
 function parseJsonWithOptionalTrailingBraceRepair(jsonText) {

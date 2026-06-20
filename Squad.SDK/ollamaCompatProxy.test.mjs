@@ -250,6 +250,46 @@ test("Foundry simple prompt profile keeps only compact system and latest user pr
     assert.equal(body.tool_choice, undefined);
 });
 
+test("Foundry tools prompt profile keeps compact prompt and tool declarations", () => {
+    const body = {
+        model: "qwen3-14b-cuda-gpu",
+        messages: [
+            { role: "system", content: "Copilot-shaped system prompt ".repeat(100) },
+            {
+                role: "user",
+                content: [
+                    "<current_datetime>2026-06-20T11:38:05-04:00</current_datetime>",
+                    "",
+                    "Use the view tool to read .squad/tasks.md.",
+                    "",
+                    "## Open Tasks (from .squad/tasks.md)",
+                    "- [ ] Do not leak this task into Foundry tools prompt"
+                ].join("\n")
+            }
+        ],
+        tools: [
+            { type: "function", function: { name: "view" } }
+        ],
+        tool_choice: "auto",
+        parallel_tool_calls: false
+    };
+
+    const changed = applyPromptProfile(body, "foundry-tools");
+
+    assert.equal(changed, true);
+    assert.equal(body.messages.length, 2);
+    assert.equal(body.messages[0].role, "system");
+    assert.ok(body.messages[0].content.includes("When tools are available"));
+    assert.equal(body.messages[1].content, "Use the view tool to read .squad/tasks.md.");
+    assert.deepEqual(
+        body.tools,
+        [
+            { type: "function", function: { name: "view" } }
+        ]);
+    assert.equal(body.tool_choice, "auto");
+    assert.equal(body.parallel_tool_calls, false);
+});
+
 test("Non-streaming completion with tool calls converts to OpenAI SSE", () => {
     const completion = {
         id: "chat.id.1",
@@ -364,6 +404,34 @@ test("Non-streaming textual tool call repairs raw Windows path backslashes", () 
     assert.equal(toolCall.function.name, "view");
     assert.equal(args.path, "D:\\Drive\\Source\\SquadDash-public\\.squad\\tasks.md");
     assert.equal(streamed.choices[0].finish_reason, "tool_calls");
+    assert.ok(!converted.body.includes("<tool_call>"));
+});
+
+test("Non-streaming textual tool call repairs arguments stutter", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu",
+        choices: [{
+            message: {
+                role: "assistant",
+                tool_calls: [],
+                content: '<tool_call>\n{"name":"view","arguments":": {"path": ".squad/tasks.md"}}}\n</tool_call>'
+            },
+            finish_reason: "stop"
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {});
+    const streamedJson = converted.body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: {"))
+        .slice("data: ".length);
+    const streamed = JSON.parse(streamedJson);
+    const toolCall = streamed.choices[0].delta.tool_calls[0];
+
+    assert.equal(streamed.choices[0].finish_reason, "tool_calls");
+    assert.equal(toolCall.function.name, "view");
+    assert.equal(toolCall.function.arguments, "{\"path\":\".squad/tasks.md\"}");
     assert.ok(!converted.body.includes("<tool_call>"));
 });
 
