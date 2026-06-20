@@ -1148,7 +1148,7 @@ internal sealed class PreferencesWindow : Window {
         modelRow.Children.Add(_byokModelBox);
 
         var byokProbeButton = new Button {
-            Content = "Probe...",
+            Content = "Models...",
             Width = 86,
             Height = 30,
             Margin = new Thickness(8, 0, 0, 0),

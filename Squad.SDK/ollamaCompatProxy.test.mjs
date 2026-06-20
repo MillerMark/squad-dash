@@ -43,6 +43,21 @@ test("Local provider profile accepts conservative preset and explicit overrides"
     });
 });
 
+test("Local provider profile exposes named local capacity profiles", () => {
+    assert.deepEqual(resolveLocalProviderProfile("local-balanced", {}), {
+        id: "local-balanced",
+        maxInputChars: 65000,
+        maxOutputTokens: 2048,
+        maxConcurrent: 1
+    });
+    assert.deepEqual(resolveLocalProviderProfile("local-large", {}), {
+        id: "local-large",
+        maxInputChars: 130000,
+        maxOutputTokens: 4096,
+        maxConcurrent: 1
+    });
+});
+
 test("Foundry server status parser reads active web URL", () => {
     const url = parseFoundryServerStatusUrl(JSON.stringify({
         running: true,
@@ -129,6 +144,17 @@ test("Local-lite capability profile keeps only read-only coordination tools", ()
         body.tools.map((tool) => tool.function.name),
         ["view", "grep", "glob", "report_intent", "report_probe"]);
     assert.equal(body.tool_choice, undefined);
+});
+
+test("Named local capability profiles expose read-only and full tool modes", () => {
+    assert.deepEqual(resolveLocalCapabilityProfile("local-readonly", {}), {
+        id: "local-readonly",
+        allowedTools: ["report_intent", "report_probe", "grep", "glob", "view"]
+    });
+    assert.deepEqual(resolveLocalCapabilityProfile("local-full", {}), {
+        id: "local-full",
+        allowedTools: undefined
+    });
 });
 
 test("Local-lite capability profile preserves forced model probe tool choice", () => {

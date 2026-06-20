@@ -233,6 +233,8 @@ internal sealed record FoundryCliInfo(
 internal sealed class ModelProviderProbeService : IDisposable {
     private static readonly TimeSpan FoundryStatusCommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan NvidiaStatusCommandTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan RemoteProbeRequestTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan LocalProbeRequestTimeout = TimeSpan.FromSeconds(60);
 
     private readonly HttpClient _http;
     private readonly bool _disposeHttp;
@@ -240,7 +242,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
     private readonly Func<IReadOnlyList<FoundryCliCandidate>> _foundryCliCandidates;
 
     public ModelProviderProbeService()
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(15) }, disposeHttp: true) {
+        : this(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, disposeHttp: true) {
     }
 
     internal ModelProviderProbeService(
@@ -296,10 +298,11 @@ internal sealed class ModelProviderProbeService : IDisposable {
 
         var notes = new List<string>();
         var diagnosticNotes = new List<string>();
-        var chatStatus = await ProbeChatAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
+        var requestTimeout = ResolveProbeRequestTimeout(endpointRoot);
+        var chatStatus = await ProbeChatAsync(endpointRoot, apiKey, model.ModelId, requestTimeout, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
         var toolStatus = chatStatus == ModelProbeCheckStatus.TimedOut
             ? ModelProbeCheckStatus.TimedOut
-            : await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
+            : await ProbeToolCallingAsync(endpointRoot, apiKey, model.ModelId, requestTimeout, notes, diagnosticNotes, cancellationToken).ConfigureAwait(false);
         if (chatStatus == ModelProbeCheckStatus.TimedOut)
             notes.Add("Tool probe skipped because chat probe timed out.");
         var probeSucceeded = chatStatus == ModelProbeCheckStatus.Passed &&
@@ -320,6 +323,16 @@ internal sealed class ModelProviderProbeService : IDisposable {
                     model.DiagnosticNotes,
                     string.Join(Environment.NewLine, diagnosticNotes))
         };
+    }
+
+    internal static TimeSpan ResolveProbeRequestTimeout(string providerUrl) {
+        if (Uri.TryCreate(providerUrl, UriKind.Absolute, out var uri) &&
+            (uri.IsLoopback ||
+             string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase))) {
+            return LocalProbeRequestTimeout;
+        }
+
+        return RemoteProbeRequestTimeout;
     }
 
     public async Task<ModelProviderCommandResult> LoadFoundryModelAsync(
@@ -563,6 +576,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         string endpointRoot,
         string? apiKey,
         string modelId,
+        TimeSpan requestTimeout,
         List<string> notes,
         List<string> diagnosticNotes,
         CancellationToken cancellationToken) {
@@ -577,8 +591,9 @@ internal sealed class ModelProviderProbeService : IDisposable {
 
         try {
             using var request = CreateJsonRequest($"{endpointRoot}/chat/completions", apiKey, body);
-            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var timeout = CreateStatusTimeout(cancellationToken, requestTimeout);
+            using var response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
                 var errorMessage = ExtractErrorMessage(json);
                 notes.Add($"Chat probe returned {(int)response.StatusCode} {response.ReasonPhrase}.");
@@ -609,6 +624,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         string endpointRoot,
         string? apiKey,
         string modelId,
+        TimeSpan requestTimeout,
         List<string> notes,
         List<string> diagnosticNotes,
         CancellationToken cancellationToken) {
@@ -645,8 +661,9 @@ internal sealed class ModelProviderProbeService : IDisposable {
 
         try {
             using var request = CreateJsonRequest($"{endpointRoot}/chat/completions", apiKey, body);
-            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var timeout = CreateStatusTimeout(cancellationToken, requestTimeout);
+            using var response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
+            var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) {
                 var errorMessage = ExtractErrorMessage(json);
                 notes.Add(FormatToolProbeHttpSummary(response, errorMessage));

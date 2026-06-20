@@ -27,14 +27,32 @@ const profilePresets = {
         maxOutputTokens: 1024,
         maxConcurrent: 1
     },
+    "local-lite": {
+        id: "local-lite",
+        maxInputChars: 24000,
+        maxOutputTokens: 1024,
+        maxConcurrent: 1
+    },
     balanced: {
         id: "balanced",
         maxInputChars: 65000,
         maxOutputTokens: 2048,
         maxConcurrent: 1
     },
+    "local-balanced": {
+        id: "local-balanced",
+        maxInputChars: 65000,
+        maxOutputTokens: 2048,
+        maxConcurrent: 1
+    },
     maximum: {
         id: "maximum",
+        maxInputChars: 130000,
+        maxOutputTokens: 4096,
+        maxConcurrent: 1
+    },
+    "local-large": {
+        id: "local-large",
         maxInputChars: 130000,
         maxOutputTokens: 4096,
         maxConcurrent: 1
@@ -49,6 +67,14 @@ const capabilityProfilePresets = {
     "local-lite": {
         id: "local-lite",
         allowedTools: ["report_intent", "report_probe", "grep", "glob", "view"]
+    },
+    "local-readonly": {
+        id: "local-readonly",
+        allowedTools: ["report_intent", "report_probe", "grep", "glob", "view"]
+    },
+    "local-full": {
+        id: "local-full",
+        allowedTools: undefined
     },
     "read-only": {
         id: "read-only",

@@ -24,6 +24,23 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void ResolveProbeRequestTimeout_UsesLongerTimeoutForLocalProviders() {
+        Assert.That(
+            ModelProviderProbeService.ResolveProbeRequestTimeout("http://127.0.0.1:11437/v1"),
+            Is.EqualTo(TimeSpan.FromSeconds(60)));
+        Assert.That(
+            ModelProviderProbeService.ResolveProbeRequestTimeout("http://localhost:11434/v1"),
+            Is.EqualTo(TimeSpan.FromSeconds(60)));
+    }
+
+    [Test]
+    public void ResolveProbeRequestTimeout_KeepsShortTimeoutForRemoteProviders() {
+        Assert.That(
+            ModelProviderProbeService.ResolveProbeRequestTimeout("https://example.test/v1"),
+            Is.EqualTo(TimeSpan.FromSeconds(15)));
+    }
+
+    [Test]
     public void ParseModelsResponse_ReadsCatalogToolCallingMetadata() {
         var results = ModelProviderProbeService.ParseModelsResponse(
             """
