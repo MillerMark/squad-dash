@@ -904,13 +904,23 @@ function parseJsonWithTrailingBraceRepair(jsonText) {
     if (!trimmed)
         return undefined;
 
+    for (const candidate of [trimmed, escapeToolCallPathBackslashes(trimmed)]) {
+        const parsed = parseJsonWithOptionalTrailingBraceRepair(candidate);
+        if (parsed !== undefined)
+            return parsed;
+    }
+
+    return undefined;
+}
+
+function parseJsonWithOptionalTrailingBraceRepair(jsonText) {
+    let candidate = jsonText;
     try {
-        return JSON.parse(trimmed);
+        return JSON.parse(candidate);
     } catch {
         // Some local models produce one surplus closing brace after a tool-call JSON object.
     }
 
-    let candidate = trimmed;
     for (let attempts = 0; attempts < 3 && candidate.endsWith("}"); attempts++) {
         candidate = candidate.slice(0, -1).trimEnd();
         try {
@@ -921,6 +931,11 @@ function parseJsonWithTrailingBraceRepair(jsonText) {
     }
 
     return undefined;
+}
+
+function escapeToolCallPathBackslashes(jsonText) {
+    return jsonText.replace(/("path"\s*:\s*")([^"]*)(")/gi, (_match, prefix, pathValue, suffix) =>
+        `${prefix}${pathValue.replace(/\\/g, "\\\\")}${suffix}`);
 }
 
 function normalizeTextToolCallObject(toolCall, index) {

@@ -314,6 +314,33 @@ test("Non-streaming textual tool call accepts parameters as arguments", () => {
     assert.equal(toolCall.function.arguments, "{\"status\":\"ok\"}");
 });
 
+test("Non-streaming textual tool call repairs raw Windows path backslashes", () => {
+    const completion = {
+        id: "chat.id.1",
+        model: "qwen3-14b-cuda-gpu:2",
+        choices: [{
+            message: {
+                role: "assistant",
+                content: "<tool_call>\n{\"name\":\"view\",\"arguments\":{\"path\":\"D:\\Drive\\Source\\SquadDash-public\\.squad\\tasks.md\"}}}\n</tool_call>"
+            }
+        }]
+    };
+
+    const converted = convertNonStreamingCompletionToSse(JSON.stringify(completion), {});
+    const streamedJson = converted.body
+        .split(/\r?\n/)
+        .find((line) => line.startsWith("data: {"))
+        .slice("data: ".length);
+    const streamed = JSON.parse(streamedJson);
+    const toolCall = streamed.choices[0].delta.tool_calls[0];
+    const args = JSON.parse(toolCall.function.arguments);
+
+    assert.equal(toolCall.function.name, "view");
+    assert.equal(args.path, "D:\\Drive\\Source\\SquadDash-public\\.squad\\tasks.md");
+    assert.equal(streamed.choices[0].finish_reason, "tool_calls");
+    assert.ok(!converted.body.includes("<tool_call>"));
+});
+
 test("Non-streaming text completion drops only empty leading think block", () => {
     const completion = {
         id: "chat.id.1",
