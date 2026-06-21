@@ -332,9 +332,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         if (!Uri.TryCreate(providerUrl, UriKind.Absolute, out var uri))
             return false;
 
+        var host = uri.Host;
         return string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase);
+               string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase) ||
+               uri.Port == 11434 ||
+               host.Contains("ollama", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task RunPromptOnceAsync(
@@ -670,6 +673,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase) ||
+            uri.Port == 11434 ||
             host.Contains("ollama", StringComparison.OrdinalIgnoreCase)) {
             return "completions";
         }

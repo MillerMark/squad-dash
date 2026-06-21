@@ -113,6 +113,17 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public void ResolveByokWireApi_LanOllamaProvider_UsesCompletionsForOllamaCompatibility() {
+        var settings = new ByokProviderSettings(
+            "http://192.168.1.61:11434/v1",
+            "qwen3.6:latest",
+            "openai",
+            ApiKey: null);
+
+        Assert.That(SquadSdkProcess.ResolveByokWireApi(settings), Is.EqualTo("completions"));
+    }
+
+    [Test]
     public void ResolveByokWireApi_RemoteOpenAiProvider_LeavesSdkDefault() {
         var settings = new ByokProviderSettings(
             "https://api.openai.example/v1",
@@ -155,6 +166,40 @@ internal sealed class SquadSdkProcessTests {
             promptRequest.RootElement.TryGetProperty("sessionId", out _),
             Is.False,
             "Local BYOK prompts should start fresh rather than taking the SDK provider-resume path.");
+    }
+
+    [Test]
+    public async Task RunPromptAsync_LanOllamaByokProvider_DoesNotResumeSavedSession() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"session_ready","sessionId":"fresh-local-session","sessionResumed":false,"requestId":"' + $request.requestId + '"}')
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+        sut.ByokProviderSettings = new ByokProviderSettings(
+            "http://192.168.1.61:11434/v1",
+            "qwen3.6:latest",
+            "openai",
+            ApiKey: null,
+            OfflineMode: true);
+
+        await sut.RunPromptAsync(
+            "hello",
+            _workspace.RootPath,
+            sessionId: "saved-session",
+            configDirectory: Path.Combine(_workspace.RootPath, "sdk-config"));
+
+        var promptRequestLine = FindLoggedRequestLine(requestLogPath, "prompt");
+        using var promptRequest = JsonDocument.Parse(promptRequestLine);
+
+        Assert.That(
+            promptRequest.RootElement.TryGetProperty("sessionId", out _),
+            Is.False,
+            "LAN Ollama BYOK prompts should start fresh rather than taking the SDK provider-resume path.");
     }
 
     [Test]

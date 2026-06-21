@@ -580,14 +580,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         List<string> notes,
         List<string> diagnosticNotes,
         CancellationToken cancellationToken) {
-        var body = new {
-            model = modelId,
-            messages = new[] {
-                new { role = "user", content = "Reply with OK only." }
-            },
-            max_tokens = 16,
-            stream = false
-        };
+        var body = BuildChatProbeBody(endpointRoot, modelId);
 
         try {
             using var request = CreateJsonRequest($"{endpointRoot}/chat/completions", apiKey, body);
@@ -608,6 +601,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 return ModelProbeCheckStatus.Passed;
 
             notes.Add("Chat probe returned no assistant text.");
+            diagnosticNotes.Add($"Chat probe success response had no assistant text. Response preview: {BuildResponsePreview(json)}.");
             return ModelProbeCheckStatus.Failed;
         }
         catch (TaskCanceledException ex) {
@@ -628,36 +622,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
         List<string> notes,
         List<string> diagnosticNotes,
         CancellationToken cancellationToken) {
-        var body = new {
-            model = modelId,
-            messages = new[] {
-                new { role = "user", content = "/no_think Use the report_probe tool with result set to OK. Do not explain." }
-            },
-            tools = new[] {
-                new {
-                    type = "function",
-                    function = new {
-                        name = "report_probe",
-                        description = "Report the model provider probe result.",
-                        parameters = new {
-                            type = "object",
-                            properties = new {
-                                result = new { type = "string" }
-                            },
-                            required = new[] { "result" }
-                        }
-                    }
-                }
-            },
-            tool_choice = new {
-                type = "function",
-                function = new {
-                    name = "report_probe"
-                }
-            },
-            max_tokens = 128,
-            stream = false
-        };
+        var body = BuildToolProbeBody(endpointRoot, modelId);
 
         try {
             using var request = CreateJsonRequest($"{endpointRoot}/chat/completions", apiKey, body);
@@ -683,6 +648,7 @@ internal sealed class ModelProviderProbeService : IDisposable {
             }
 
             notes.Add("Tool probe returned no structured tool call.");
+            diagnosticNotes.Add($"Tool probe success response had no structured tool call. Response preview: {BuildResponsePreview(json)}.");
             return ModelProbeCheckStatus.Failed;
         }
         catch (TaskCanceledException ex) {
@@ -706,6 +672,91 @@ internal sealed class ModelProviderProbeService : IDisposable {
         var request = CreateRequest(HttpMethod.Post, uri, apiKey);
         request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
         return request;
+    }
+
+    private static object BuildChatProbeBody(string endpointRoot, string modelId) {
+        const string content = "/no_think Reply with OK only.";
+
+        if (IsOllamaEndpoint(endpointRoot)) {
+            return new {
+                model = modelId,
+                messages = new[] {
+                    new { role = "user", content }
+                },
+                reasoning_effort = "none",
+                reasoning = new { effort = "none" },
+                think = false,
+                max_tokens = 64,
+                stream = false
+            };
+        }
+
+        return new {
+            model = modelId,
+            messages = new[] {
+                new { role = "user", content }
+            },
+            max_tokens = 64,
+            stream = false
+        };
+    }
+
+    private static object BuildToolProbeBody(string endpointRoot, string modelId) {
+        var tool = new {
+            type = "function",
+            function = new {
+                name = "report_probe",
+                description = "Report the model provider probe result.",
+                parameters = new {
+                    type = "object",
+                    properties = new {
+                        result = new { type = "string" }
+                    },
+                    required = new[] { "result" }
+                }
+            }
+        };
+        var toolChoice = new {
+            type = "function",
+            function = new {
+                name = "report_probe"
+            }
+        };
+
+        if (IsOllamaEndpoint(endpointRoot)) {
+            return new {
+                model = modelId,
+                messages = new[] {
+                    new { role = "user", content = "/no_think Use the report_probe tool with result set to OK. Do not explain." }
+                },
+                tools = new[] { tool },
+                tool_choice = toolChoice,
+                reasoning_effort = "none",
+                reasoning = new { effort = "none" },
+                think = false,
+                max_tokens = 128,
+                stream = false
+            };
+        }
+
+        return new {
+            model = modelId,
+            messages = new[] {
+                new { role = "user", content = "/no_think Use the report_probe tool with result set to OK. Do not explain." }
+            },
+            tools = new[] { tool },
+            tool_choice = toolChoice,
+            max_tokens = 128,
+            stream = false
+        };
+    }
+
+    private static bool IsOllamaEndpoint(string endpointRoot) {
+        if (!Uri.TryCreate(endpointRoot, UriKind.Absolute, out var uri))
+            return endpointRoot.Contains("ollama", StringComparison.OrdinalIgnoreCase);
+
+        return uri.Port == 11434 ||
+               uri.Host.Contains("ollama", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? GetString(JsonElement item, string propertyName) {
@@ -824,6 +875,17 @@ internal sealed class ModelProviderProbeService : IDisposable {
         }
 
         return null;
+    }
+
+    private static string BuildResponsePreview(string json) {
+        if (string.IsNullOrWhiteSpace(json))
+            return "(empty body)";
+
+        var preview = Regex.Replace(json, @"\s+", " ").Trim();
+        const int maxChars = 800;
+        return preview.Length <= maxChars
+            ? preview
+            : preview[..(maxChars - 3)] + "...";
     }
 
     private static bool IsModelNotLoadedError(string? message) {

@@ -328,6 +328,7 @@ internal sealed class ModelProviderProbeServiceTests {
 
     [Test]
     public async Task RunLiveProbeAsync_DetectsStructuredToolCall() {
+        string? chatProbeBody = null;
         string? toolProbeBody = null;
         var handler = new StubHttpHandler(request => {
             if (request.RequestUri!.AbsolutePath.EndsWith("/models", StringComparison.Ordinal))
@@ -357,6 +358,7 @@ internal sealed class ModelProviderProbeServiceTests {
                     """);
             }
 
+            chatProbeBody = body;
             return JsonResponse("""
                 {
                   "choices": [
@@ -367,17 +369,23 @@ internal sealed class ModelProviderProbeServiceTests {
         });
         using var http = new HttpClient(handler);
         using var service = new ModelProviderProbeService(http);
-        var model = new ModelProviderProbeResult("tool-model", "http://provider/v1");
+        var model = new ModelProviderProbeResult("tool-model", "http://localhost:11434/v1");
 
-        var probed = await service.RunLiveProbeAsync("http://provider/v1", null, model);
+        var probed = await service.RunLiveProbeAsync("http://localhost:11434/v1", null, model);
 
         Assert.Multiple(() => {
             Assert.That(probed.ChatStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
             Assert.That(probed.ToolStatus, Is.EqualTo(ModelProbeCheckStatus.Passed));
             Assert.That(probed.Notes, Is.EqualTo("Probe succeeded."));
+            Assert.That(chatProbeBody, Does.Contain("/no_think"));
+            Assert.That(chatProbeBody, Does.Contain("\"reasoning_effort\":\"none\""));
+            Assert.That(chatProbeBody, Does.Contain("\"think\":false"));
+            Assert.That(chatProbeBody, Does.Contain("\"max_tokens\":64"));
             Assert.That(toolProbeBody, Does.Contain("\"tool_choice\""));
             Assert.That(toolProbeBody, Does.Contain("\"name\":\"report_probe\""));
             Assert.That(toolProbeBody, Does.Contain("/no_think"));
+            Assert.That(toolProbeBody, Does.Contain("\"reasoning_effort\":\"none\""));
+            Assert.That(toolProbeBody, Does.Contain("\"think\":false"));
             Assert.That(toolProbeBody, Does.Contain("\"max_tokens\":128"));
         });
     }
