@@ -8767,6 +8767,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         PromptTextBox.FontSize = _promptFontSize;
         IntelliSenseList.FontSize = _promptFontSize;
+        IntelliSenseList.MaxHeight = (_promptFontSize + 4) * 8;
     }
 
     private void ClearPromptTextBoxLogicalBuffer(string reason) =>

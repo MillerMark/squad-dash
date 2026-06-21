@@ -2967,7 +2967,6 @@
                             Effect="{DynamicResource PopupShadow}">
                         <ListBox x:Name="IntelliSenseList"
                                  MinWidth="220"
-                                 MaxHeight="200"
                                  SelectionMode="Single"
                                  BorderThickness="0"
                                  Background="Transparent"
