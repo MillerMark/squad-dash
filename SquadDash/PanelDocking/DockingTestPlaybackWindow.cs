@@ -819,12 +819,14 @@ internal sealed class DockingTestPlaybackWindow : ChromedWindow
             "left 4"  => (DockZone?)DockZone.Left4,
             "left 5"  => (DockZone?)DockZone.Left5,
             "left 6"  => (DockZone?)DockZone.Left6,
+            "left 7"  => (DockZone?)DockZone.Left7,
             "right 1" => (DockZone?)DockZone.Right,
             "right 2" => (DockZone?)DockZone.Right2,
             "right 3" => (DockZone?)DockZone.Right3,
             "right 4" => (DockZone?)DockZone.Right4,
             "right 5" => (DockZone?)DockZone.Right5,
             "right 6" => (DockZone?)DockZone.Right6,
+            "right 7" => (DockZone?)DockZone.Right7,
             _         => null,
         };
         SquadDashTrace.Write("Docking", $"[ParseZoneDisplayName] Output: {(result.HasValue ? result.Value.ToString() : "NULL")}");

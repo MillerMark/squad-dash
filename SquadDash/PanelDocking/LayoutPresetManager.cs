@@ -58,6 +58,8 @@ internal sealed class LayoutPresetManager
             Right5ZoneWidth = layout.Right5ZoneWidth,
             Left6ZoneWidth = layout.Left6ZoneWidth,
             Right6ZoneWidth = layout.Right6ZoneWidth,
+            Left7ZoneWidth = layout.Left7ZoneWidth,
+            Right7ZoneWidth = layout.Right7ZoneWidth,
         };
 
         // Ensure we have enough slots

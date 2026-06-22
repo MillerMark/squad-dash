@@ -351,12 +351,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private double _preFullScreenLeft4ZoneW;
     private double _preFullScreenLeft5ZoneW;
     private double _preFullScreenLeft6ZoneW;
+    private double _preFullScreenLeft7ZoneW;
     private double _preFullScreenRightZoneW;
     private double _preFullScreenRight2ZoneW;
     private double _preFullScreenRight3ZoneW;
     private double _preFullScreenRight4ZoneW;
     private double _preFullScreenRight5ZoneW;
     private double _preFullScreenRight6ZoneW;
+    private double _preFullScreenRight7ZoneW;
     private bool _agentsPanelFocusModeEnabled;
     private WindowState _preFocusModeWindowState;
     private double _preFocusModeHeight;
@@ -776,13 +778,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Left5ZoneSplitter,
             Right5ZoneSplitter,
             Left6ZoneSplitter,
-            Right6ZoneSplitter);
+            Right6ZoneSplitter,
+            Left7ZonePanel,
+            Right7ZonePanel,
+            Left7ZoneColumn,
+            Right7ZoneColumn,
+            Left7SplitterColumn,
+            Right7SplitterColumn,
+            Left7ZoneScrollViewer,
+            Right7ZoneScrollViewer,
+            Left7ZoneSplitter,
+            Right7ZoneSplitter);
         WireGripStripHandlers();
         WireRight2ZoneSplitterDrag();
         WireRight3ZoneSplitterDrag();
         WireRight4ZoneSplitterDrag();
         WireRight5ZoneSplitterDrag();
         WireRight6ZoneSplitterDrag();
+        WireRight7ZoneSplitterDrag();
         _dockingService.InitializeTopZoneSplitters(
             TopZoneSplitter01, TopZoneSplitter12, TopZoneSplitter23,
             TopZoneSplitter34, TopZoneSplitter45, TopZoneSplitter56,
@@ -13701,12 +13714,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _preFullScreenLeft4ZoneW  = Left4ZoneColumn.Width.IsAbsolute  ? Left4ZoneColumn.Width.Value  : 0;
             _preFullScreenLeft5ZoneW  = Left5ZoneColumn.Width.IsAbsolute  ? Left5ZoneColumn.Width.Value  : 0;
             _preFullScreenLeft6ZoneW  = Left6ZoneColumn.Width.IsAbsolute  ? Left6ZoneColumn.Width.Value  : 0;
+            _preFullScreenLeft7ZoneW  = Left7ZoneColumn.Width.IsAbsolute  ? Left7ZoneColumn.Width.Value  : 0;
             _preFullScreenRightZoneW  = RightZoneColumn.Width.IsAbsolute  ? RightZoneColumn.Width.Value  : 0;
             _preFullScreenRight2ZoneW = Right2ZoneColumn.Width.IsAbsolute ? Right2ZoneColumn.Width.Value : 0;
             _preFullScreenRight3ZoneW = Right3ZoneColumn.Width.IsAbsolute ? Right3ZoneColumn.Width.Value : 0;
             _preFullScreenRight4ZoneW = Right4ZoneColumn.Width.IsAbsolute ? Right4ZoneColumn.Width.Value : 0;
             _preFullScreenRight5ZoneW = Right5ZoneColumn.Width.IsAbsolute ? Right5ZoneColumn.Width.Value : 0;
             _preFullScreenRight6ZoneW = Right6ZoneColumn.Width.IsAbsolute ? Right6ZoneColumn.Width.Value : 0;
+            _preFullScreenRight7ZoneW = Right7ZoneColumn.Width.IsAbsolute ? Right7ZoneColumn.Width.Value : 0;
 
             LeftZoneColumn.Width        = new GridLength(0);
             Left2ZoneColumn.Width       = new GridLength(0);
@@ -13714,24 +13729,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Left4ZoneColumn.Width       = new GridLength(0);
             Left5ZoneColumn.Width       = new GridLength(0);
             Left6ZoneColumn.Width       = new GridLength(0);
+            Left7ZoneColumn.Width       = new GridLength(0);
             RightZoneColumn.Width       = new GridLength(0);
             Right2ZoneColumn.Width      = new GridLength(0);
             Right3ZoneColumn.Width      = new GridLength(0);
             Right4ZoneColumn.Width      = new GridLength(0);
             Right5ZoneColumn.Width      = new GridLength(0);
             Right6ZoneColumn.Width      = new GridLength(0);
+            Right7ZoneColumn.Width      = new GridLength(0);
             LeftSplitterColumn.Width    = new GridLength(0);
             Left2SplitterColumn.Width   = new GridLength(0);
             Left3SplitterColumn.Width   = new GridLength(0);
             Left4SplitterColumn.Width   = new GridLength(0);
             Left5SplitterColumn.Width   = new GridLength(0);
             Left6SplitterColumn.Width   = new GridLength(0);
+            Left7SplitterColumn.Width   = new GridLength(0);
             RightSplitterColumn.Width   = new GridLength(0);
             Right2SplitterColumn.Width  = new GridLength(0);
             Right3SplitterColumn.Width  = new GridLength(0);
             Right4SplitterColumn.Width  = new GridLength(0);
             Right5SplitterColumn.Width  = new GridLength(0);
             Right6SplitterColumn.Width  = new GridLength(0);
+            Right7SplitterColumn.Width  = new GridLength(0);
             UpdateMainGridSideMargins();
         }
         else
@@ -13772,14 +13791,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_preFullScreenLeft4ZoneW  > 0) Left4ZoneColumn.Width  = new GridLength(_preFullScreenLeft4ZoneW);
             if (_preFullScreenLeft5ZoneW  > 0) Left5ZoneColumn.Width  = new GridLength(_preFullScreenLeft5ZoneW);
             if (_preFullScreenLeft6ZoneW  > 0) Left6ZoneColumn.Width  = new GridLength(_preFullScreenLeft6ZoneW);
+            if (_preFullScreenLeft7ZoneW  > 0) Left7ZoneColumn.Width  = new GridLength(_preFullScreenLeft7ZoneW);
             if (_preFullScreenRightZoneW  > 0) RightZoneColumn.Width  = new GridLength(_preFullScreenRightZoneW);
             if (_preFullScreenRight2ZoneW > 0) Right2ZoneColumn.Width = new GridLength(_preFullScreenRight2ZoneW);
             if (_preFullScreenRight3ZoneW > 0) Right3ZoneColumn.Width = new GridLength(_preFullScreenRight3ZoneW);
             if (_preFullScreenRight4ZoneW > 0) Right4ZoneColumn.Width = new GridLength(_preFullScreenRight4ZoneW);
             if (_preFullScreenRight5ZoneW > 0) Right5ZoneColumn.Width = new GridLength(_preFullScreenRight5ZoneW);
             if (_preFullScreenRight6ZoneW > 0) Right6ZoneColumn.Width = new GridLength(_preFullScreenRight6ZoneW);
+            if (_preFullScreenRight7ZoneW > 0) Right7ZoneColumn.Width = new GridLength(_preFullScreenRight7ZoneW);
             // Restore splitter columns for each zone that was re-shown.
-            if (_preFullScreenLeftZoneW   > 0 || _preFullScreenLeft2ZoneW  > 0 || _preFullScreenLeft3ZoneW  > 0 || _preFullScreenLeft4ZoneW  > 0 || _preFullScreenLeft5ZoneW  > 0 || _preFullScreenLeft6ZoneW  > 0)
+            if (_preFullScreenLeftZoneW   > 0 || _preFullScreenLeft2ZoneW  > 0 || _preFullScreenLeft3ZoneW  > 0 || _preFullScreenLeft4ZoneW  > 0 || _preFullScreenLeft5ZoneW  > 0 || _preFullScreenLeft6ZoneW  > 0 || _preFullScreenLeft7ZoneW > 0)
             {
                 if (_preFullScreenLeftZoneW   > 0) LeftSplitterColumn.Width   = new GridLength(8);
                 if (_preFullScreenLeft2ZoneW  > 0) Left2SplitterColumn.Width  = new GridLength(8);
@@ -13787,8 +13808,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (_preFullScreenLeft4ZoneW  > 0) Left4SplitterColumn.Width  = new GridLength(8);
                 if (_preFullScreenLeft5ZoneW  > 0) Left5SplitterColumn.Width  = new GridLength(8);
                 if (_preFullScreenLeft6ZoneW  > 0) Left6SplitterColumn.Width  = new GridLength(8);
+                if (_preFullScreenLeft7ZoneW  > 0) Left7SplitterColumn.Width  = new GridLength(8);
             }
-            if (_preFullScreenRightZoneW  > 0 || _preFullScreenRight2ZoneW > 0 || _preFullScreenRight3ZoneW > 0 || _preFullScreenRight4ZoneW > 0 || _preFullScreenRight5ZoneW > 0 || _preFullScreenRight6ZoneW > 0)
+            if (_preFullScreenRightZoneW  > 0 || _preFullScreenRight2ZoneW > 0 || _preFullScreenRight3ZoneW > 0 || _preFullScreenRight4ZoneW > 0 || _preFullScreenRight5ZoneW > 0 || _preFullScreenRight6ZoneW > 0 || _preFullScreenRight7ZoneW > 0)
             {
                 if (_preFullScreenRightZoneW  > 0) RightSplitterColumn.Width  = new GridLength(8);
                 if (_preFullScreenRight2ZoneW > 0) Right2SplitterColumn.Width = new GridLength(8);
@@ -13796,6 +13818,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (_preFullScreenRight4ZoneW > 0) Right4SplitterColumn.Width = new GridLength(8);
                 if (_preFullScreenRight5ZoneW > 0) Right5SplitterColumn.Width = new GridLength(8);
                 if (_preFullScreenRight6ZoneW > 0) Right6SplitterColumn.Width = new GridLength(8);
+                if (_preFullScreenRight7ZoneW > 0) Right7SplitterColumn.Width = new GridLength(8);
             }
             UpdateMainGridSideMargins();
         }
@@ -14165,8 +14188,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void UpdateMainGridSideMargins()
     {
-        bool hasLeft  = LeftZoneColumn.Width.Value  > 0 || Left2ZoneColumn.Width.Value  > 0 || Left3ZoneColumn.Width.Value  > 0 || Left4ZoneColumn.Width.Value  > 0 || Left5ZoneColumn.Width.Value  > 0 || Left6ZoneColumn.Width.Value  > 0;
-        bool hasRight = RightZoneColumn.Width.Value > 0 || Right2ZoneColumn.Width.Value > 0 || Right3ZoneColumn.Width.Value > 0 || Right4ZoneColumn.Width.Value > 0 || Right5ZoneColumn.Width.Value > 0 || Right6ZoneColumn.Width.Value > 0;
+        bool hasLeft  = LeftZoneColumn.Width.Value  > 0 || Left2ZoneColumn.Width.Value  > 0 || Left3ZoneColumn.Width.Value  > 0 || Left4ZoneColumn.Width.Value  > 0 || Left5ZoneColumn.Width.Value  > 0 || Left6ZoneColumn.Width.Value  > 0 || Left7ZoneColumn.Width.Value > 0;
+        bool hasRight = RightZoneColumn.Width.Value > 0 || Right2ZoneColumn.Width.Value > 0 || Right3ZoneColumn.Width.Value > 0 || Right4ZoneColumn.Width.Value > 0 || Right5ZoneColumn.Width.Value > 0 || Right6ZoneColumn.Width.Value > 0 || Right7ZoneColumn.Width.Value > 0;
         var current = MainGrid.Margin;
         MainGrid.Margin = new System.Windows.Thickness(
             hasLeft  ? 4 : 12,
@@ -14496,6 +14519,51 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         };
 
         Right6ZoneSplitter.LostMouseCapture += (_, _) => { isDragging = false; };
+    }
+
+    private void WireRight7ZoneSplitterDrag()
+    {
+        double dragStartX     = 0;
+        double right7Start    = 0;
+        double right6Start    = 0;
+        bool   isDragging     = false;
+
+        Right7ZoneSplitter.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (Right7ZoneSplitter.Visibility != Visibility.Visible) return;
+            dragStartX  = e.GetPosition(ContentZoneGrid).X;
+            right7Start = Right7ZoneColumn.Width.IsAbsolute ? Right7ZoneColumn.Width.Value : 0;
+            right6Start = Right6ZoneColumn.Width.IsAbsolute ? Right6ZoneColumn.Width.Value : 0;
+            isDragging  = true;
+            Right7ZoneSplitter.CaptureMouse();
+            e.Handled = true;
+        };
+
+        Right7ZoneSplitter.MouseMove += (_, e) =>
+        {
+            if (!isDragging || e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+
+            double dx             = e.GetPosition(ContentZoneGrid).X - dragStartX;
+            double newRight7Width = Math.Max(0, right7Start - dx);
+
+            if (right6Start > 0)
+            {
+                double total  = right7Start + right6Start;
+                newRight7Width = Math.Min(total, newRight7Width);
+                Right6ZoneColumn.Width = new GridLength(total - newRight7Width);
+            }
+
+            Right7ZoneColumn.Width = new GridLength(newRight7Width);
+        };
+
+        Right7ZoneSplitter.MouseLeftButtonUp += (_, e) =>
+        {
+            if (!isDragging) return;
+            isDragging = false;
+            Right7ZoneSplitter.ReleaseMouseCapture();
+        };
+
+        Right7ZoneSplitter.LostMouseCapture += (_, _) => { isDragging = false; };
     }
 
     private void ShowDockContextMenu(Border panelBorder, string panelId)
@@ -17397,6 +17465,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (loadedLayout.Right6ZoneWidth is double r6w && r6w > 0
                 && Right6ZoneColumn.Width.Value > 0)
                 Right6ZoneColumn.Width = new System.Windows.GridLength(r6w, System.Windows.GridUnitType.Pixel);
+            if (loadedLayout.Left7ZoneWidth is double l7w && l7w > 0
+                && Left7ZoneColumn.Width.Value > 0)
+                Left7ZoneColumn.Width = new System.Windows.GridLength(l7w, System.Windows.GridUnitType.Pixel);
+            if (loadedLayout.Right7ZoneWidth is double r7w && r7w > 0
+                && Right7ZoneColumn.Width.Value > 0)
+                Right7ZoneColumn.Width = new System.Windows.GridLength(r7w, System.Windows.GridUnitType.Pixel);
             UpdateMainGridSideMargins();
         }
 
@@ -29792,36 +29866,42 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _preFullScreenLeft4ZoneW  = Left4ZoneColumn.Width.IsAbsolute  ? Left4ZoneColumn.Width.Value  : 0;
             _preFullScreenLeft5ZoneW  = Left5ZoneColumn.Width.IsAbsolute  ? Left5ZoneColumn.Width.Value  : 0;
             _preFullScreenLeft6ZoneW  = Left6ZoneColumn.Width.IsAbsolute  ? Left6ZoneColumn.Width.Value  : 0;
+            _preFullScreenLeft7ZoneW  = Left7ZoneColumn.Width.IsAbsolute  ? Left7ZoneColumn.Width.Value  : 0;
             _preFullScreenRightZoneW  = RightZoneColumn.Width.IsAbsolute  ? RightZoneColumn.Width.Value  : 0;
             _preFullScreenRight2ZoneW = Right2ZoneColumn.Width.IsAbsolute ? Right2ZoneColumn.Width.Value : 0;
             _preFullScreenRight3ZoneW = Right3ZoneColumn.Width.IsAbsolute ? Right3ZoneColumn.Width.Value : 0;
             _preFullScreenRight4ZoneW = Right4ZoneColumn.Width.IsAbsolute ? Right4ZoneColumn.Width.Value : 0;
             _preFullScreenRight5ZoneW = Right5ZoneColumn.Width.IsAbsolute ? Right5ZoneColumn.Width.Value : 0;
             _preFullScreenRight6ZoneW = Right6ZoneColumn.Width.IsAbsolute ? Right6ZoneColumn.Width.Value : 0;
+            _preFullScreenRight7ZoneW = Right7ZoneColumn.Width.IsAbsolute ? Right7ZoneColumn.Width.Value : 0;
             LeftZoneColumn.Width        = new GridLength(0);
             Left2ZoneColumn.Width       = new GridLength(0);
             Left3ZoneColumn.Width       = new GridLength(0);
             Left4ZoneColumn.Width       = new GridLength(0);
             Left5ZoneColumn.Width       = new GridLength(0);
             Left6ZoneColumn.Width       = new GridLength(0);
+            Left7ZoneColumn.Width       = new GridLength(0);
             RightZoneColumn.Width       = new GridLength(0);
             Right2ZoneColumn.Width      = new GridLength(0);
             Right3ZoneColumn.Width      = new GridLength(0);
             Right4ZoneColumn.Width      = new GridLength(0);
             Right5ZoneColumn.Width      = new GridLength(0);
             Right6ZoneColumn.Width      = new GridLength(0);
+            Right7ZoneColumn.Width      = new GridLength(0);
             LeftSplitterColumn.Width    = new GridLength(0);
             Left2SplitterColumn.Width   = new GridLength(0);
             Left3SplitterColumn.Width   = new GridLength(0);
             Left4SplitterColumn.Width   = new GridLength(0);
             Left5SplitterColumn.Width   = new GridLength(0);
             Left6SplitterColumn.Width   = new GridLength(0);
+            Left7SplitterColumn.Width   = new GridLength(0);
             RightSplitterColumn.Width   = new GridLength(0);
             Right2SplitterColumn.Width  = new GridLength(0);
             Right3SplitterColumn.Width  = new GridLength(0);
             Right4SplitterColumn.Width  = new GridLength(0);
             Right5SplitterColumn.Width  = new GridLength(0);
             Right6SplitterColumn.Width  = new GridLength(0);
+            Right7SplitterColumn.Width  = new GridLength(0);
             UpdateMainGridSideMargins();
 
             ApplyViewMode();
@@ -35563,6 +35643,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 Left6ZoneColumn.Width = new System.Windows.GridLength(l6w, System.Windows.GridUnitType.Pixel);
             if (preset.Right6ZoneWidth is double r6w && r6w > 0 && Right6ZoneColumn.Width.Value > 0)
                 Right6ZoneColumn.Width = new System.Windows.GridLength(r6w, System.Windows.GridUnitType.Pixel);
+            if (preset.Left7ZoneWidth is double l7w && l7w > 0 && Left7ZoneColumn.Width.Value > 0)
+                Left7ZoneColumn.Width = new System.Windows.GridLength(l7w, System.Windows.GridUnitType.Pixel);
+            if (preset.Right7ZoneWidth is double r7w && r7w > 0 && Right7ZoneColumn.Width.Value > 0)
+                Right7ZoneColumn.Width = new System.Windows.GridLength(r7w, System.Windows.GridUnitType.Pixel);
             
             ShowStatusNotification($"Layout preset {slotIndex + 1} restored (F{7 + slotIndex})", 2000);
         }

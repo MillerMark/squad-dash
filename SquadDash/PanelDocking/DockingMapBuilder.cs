@@ -18,6 +18,7 @@ internal static class DockingMapBuilder
             ["notes"]       = "Notes",
             ["inbox"]       = "Inbox",
             ["maintenance"] = "Maint",
+            ["watch-health"] = "Watch",
         };
 
     // Sizing constants

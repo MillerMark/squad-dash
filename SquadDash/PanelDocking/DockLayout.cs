@@ -49,7 +49,13 @@ public sealed class DockLayout
     /// <summary>Saved width of the outermost-right (Right6) dock zone column; null means use default.</summary>
     public double? Right6ZoneWidth { get; set; }
 
-    /// <summary>Saved absolute pixel widths for each top-zone panel column (index = rank 0..5). Null means equal/auto distribution.</summary>
+    /// <summary>Saved width of the outermost-left (Left7) dock zone column; null means use default.</summary>
+    public double? Left7ZoneWidth { get; set; }
+
+    /// <summary>Saved width of the outermost-right (Right7) dock zone column; null means use default.</summary>
+    public double? Right7ZoneWidth { get; set; }
+
+    /// <summary>Saved absolute pixel widths for each top-zone panel column (index = rank 0..6). Null means equal/auto distribution.</summary>
     public List<double>? TopZonePanelWidths { get; set; }
 
     /// <summary>
@@ -64,11 +70,10 @@ public sealed class DockLayout
             new PanelSlot("loop",        DockZone.Top, 0),
             new PanelSlot("tasks",       DockZone.Top, 1),
             new PanelSlot("approvals",   DockZone.Top, 2),
-            new PanelSlot("inbox",       DockZone.Top, 3),
+            new PanelSlot("notes",       DockZone.Top, 3),
             new PanelSlot("maintenance", DockZone.Top, 4),
-            new PanelSlot("notes",       DockZone.Top, 5),
-            new PanelSlot("health",      DockZone.Top, 6),
-            new PanelSlot("trace",       DockZone.Top, 7),
+            new PanelSlot("inbox",       DockZone.Top, 5),
+            new PanelSlot("watch-health", DockZone.Top, 6),
         ]
     };
 }

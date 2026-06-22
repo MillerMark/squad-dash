@@ -9,52 +9,43 @@ namespace SquadDash.PanelDocking;
 /// </summary>
 internal static class DockingLayoutEngine
 {
+    private static readonly DockZone[] LeftSideZones = BuildSideZones("Left");
+    private static readonly DockZone[] RightSideZones = BuildSideZones("Right");
+
     // ── Zone name helpers ────────────────────────────────────────────────────
 
     public static string GetZoneDisplayName(DockZone zone) => zone switch
     {
-        DockZone.Top    => "Top",
-        DockZone.Left   => "Left 1",
-        DockZone.Left2  => "Left 2",
-        DockZone.Left3  => "Left 3",
-        DockZone.Left4  => "Left 4",
-        DockZone.Right  => "Right 1",
-        DockZone.Right2 => "Right 2",
-        DockZone.Right3 => "Right 3",
-        DockZone.Right4 => "Right 4",
-        _               => zone.ToString()
+        DockZone.Top => "Top",
+        _ when IsLeftSideZone(zone) => $"Left {ZoneTier(zone) + 1}",
+        _ when IsRightSideZone(zone) => $"Right {ZoneTier(zone) + 1}",
+        _ => zone.ToString()
     };
 
     /// <summary>
     /// Parses a zone display name (e.g. "Left 3") into the corresponding <see cref="DockZone"/>.
     /// Returns <see cref="DockZone.Top"/> for unrecognised values.
     /// </summary>
-    public static DockZone ParseZoneDisplayName(string displayName) => displayName switch
+    public static DockZone ParseZoneDisplayName(string displayName)
     {
-        "Top"     => DockZone.Top,
-        "Left 1"  => DockZone.Left,
-        "Left 2"  => DockZone.Left2,
-        "Left 3"  => DockZone.Left3,
-        "Left 4"  => DockZone.Left4,
-        "Right 1" => DockZone.Right,
-        "Right 2" => DockZone.Right2,
-        "Right 3" => DockZone.Right3,
-        "Right 4" => DockZone.Right4,
-        _         => DockZone.Top,
-    };
+        if (string.Equals(displayName, "Top", StringComparison.OrdinalIgnoreCase))
+            return DockZone.Top;
+
+        if (TryParseSideDisplayName(displayName, "Left", LeftSideZones, out var leftZone))
+            return leftZone;
+
+        if (TryParseSideDisplayName(displayName, "Right", RightSideZones, out var rightZone))
+            return rightZone;
+
+        return DockZone.Top;
+    }
 
     public static string GetZoneFileTag(DockZone zone) => zone switch
     {
-        DockZone.Top    => "Top",
-        DockZone.Left   => "Left1",
-        DockZone.Left2  => "Left2",
-        DockZone.Left3  => "Left3",
-        DockZone.Left4  => "Left4",
-        DockZone.Right  => "Right1",
-        DockZone.Right2 => "Right2",
-        DockZone.Right3 => "Right3",
-        DockZone.Right4 => "Right4",
-        _               => zone.ToString()
+        DockZone.Top => "Top",
+        _ when IsLeftSideZone(zone) => $"Left{ZoneTier(zone) + 1}",
+        _ when IsRightSideZone(zone) => $"Right{ZoneTier(zone) + 1}",
+        _ => zone.ToString()
     };
 
     // ── JSON serialization helpers ───────────────────────────────────────────
@@ -66,7 +57,7 @@ internal static class DockingLayoutEngine
         // can actually see.  Health/Trace and other always-hidden panels live in Slots
         // (they have a zone assignment) but must not pollute test-case snapshots.
         bool hasVisibility = layout.VisiblePanelIds.Count > 0;
-        foreach (var zone in new[] { DockZone.Top, DockZone.Left, DockZone.Left2, DockZone.Left3, DockZone.Left4, DockZone.Right, DockZone.Right2, DockZone.Right3, DockZone.Right4 })
+        foreach (var zone in EnumerateSerializableZones())
         {
             result[GetZoneDisplayName(zone)] = layout.Slots
                 .Where(s => s.Zone == zone && (!hasVisibility || layout.VisiblePanelIds.Contains(s.PanelId)))
@@ -79,25 +70,15 @@ internal static class DockingLayoutEngine
 
     public static PanelLayoutData ParseLayoutFromJson(Dictionary<string, List<string>> json)
     {
-        var displayToZone = new Dictionary<string, DockZone>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Top"]     = DockZone.Top,
-            ["Left 1"]  = DockZone.Left,
-            ["Left 2"]  = DockZone.Left2,
-            ["Left 3"]  = DockZone.Left3,
-            ["Left 4"]  = DockZone.Left4,
-            ["Right 1"] = DockZone.Right,
-            ["Right 2"] = DockZone.Right2,
-            ["Right 3"] = DockZone.Right3,
-            ["Right 4"] = DockZone.Right4,
-        };
-
         var slots = new List<PanelSlot>();
         var allPanelIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (zoneName, panelIds) in json)
         {
-            if (!displayToZone.TryGetValue(zoneName, out var zone)) continue;
+            var zone = ParseZoneDisplayName(zoneName);
+            if (zone == DockZone.Top && !string.Equals(zoneName, "Top", StringComparison.OrdinalIgnoreCase))
+                continue;
+
             for (int i = 0; i < panelIds.Count; i++)
             {
                 slots.Add(new PanelSlot(panelIds[i], zone, i));
@@ -122,131 +103,88 @@ internal static class DockingLayoutEngine
     {
         var result = new List<SlotButtonInfo>();
 
-        var topPanels    = FilterZone(PanelsInZone(layout, DockZone.Top),    sourcePanelId, layout.VisiblePanelIds);
-        var leftPanels   = FilterZone(PanelsInZone(layout, DockZone.Left),   sourcePanelId, layout.VisiblePanelIds);
-        var rightPanels  = FilterZone(PanelsInZone(layout, DockZone.Right),  sourcePanelId, layout.VisiblePanelIds);
-        var left2Panels  = FilterZone(PanelsInZone(layout, DockZone.Left2),  sourcePanelId, layout.VisiblePanelIds);
-        var right2Panels = FilterZone(PanelsInZone(layout, DockZone.Right2), sourcePanelId, layout.VisiblePanelIds);
-        var left3Panels  = FilterZone(PanelsInZone(layout, DockZone.Left3),  sourcePanelId, layout.VisiblePanelIds);
-        var right3Panels = FilterZone(PanelsInZone(layout, DockZone.Right3), sourcePanelId, layout.VisiblePanelIds);
-        var left4Panels  = FilterZone(PanelsInZone(layout, DockZone.Left4),  sourcePanelId, layout.VisiblePanelIds);
-        var right4Panels = FilterZone(PanelsInZone(layout, DockZone.Right4), sourcePanelId, layout.VisiblePanelIds);
-        var left5Panels  = FilterZone(PanelsInZone(layout, DockZone.Left5),  sourcePanelId, layout.VisiblePanelIds);
-        var right5Panels = FilterZone(PanelsInZone(layout, DockZone.Right5), sourcePanelId, layout.VisiblePanelIds);
-        var left6Panels  = FilterZone(PanelsInZone(layout, DockZone.Left6),  sourcePanelId, layout.VisiblePanelIds);
-        var right6Panels = FilterZone(PanelsInZone(layout, DockZone.Right6), sourcePanelId, layout.VisiblePanelIds);
+        var topPanels = FilterZone(PanelsInZone(layout, DockZone.Top), sourcePanelId, layout.VisiblePanelIds);
+        bool sourceInTop = topPanels.Any(p => Same(p, sourcePanelId));
 
-        bool sourceInTop    = topPanels.Any(p => Same(p, sourcePanelId));
-        bool sourceInLeft   = leftPanels.Any(p => Same(p, sourcePanelId));
-        bool sourceInRight  = rightPanels.Any(p => Same(p, sourcePanelId));
-        bool sourceInLeft2  = left2Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInRight2 = right2Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInLeft3  = left3Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInRight3 = right3Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInLeft4  = left4Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInRight4 = right4Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInLeft5  = left5Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInRight5 = right5Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInLeft6  = left6Panels.Any(p => Same(p, sourcePanelId));
-        bool sourceInRight6 = right6Panels.Any(p => Same(p, sourcePanelId));
+        var leftStates = BuildSideStates(layout, sourcePanelId, LeftSideZones);
+        var rightStates = BuildSideStates(layout, sourcePanelId, RightSideZones);
+        ApplySideSuppression(leftStates);
+        ApplySideSuppression(rightStates);
 
-        // Mirrors DockingMapBuilder suppression logic exactly:
-        // Case 1: both outer and inner zones are empty — suppress the outer zone.
-        // Case 2: source is the sole occupant of its zone AND the sibling is empty — no-op move.
-        // Bug 1 fix: don't suppress Left2/Right2 when the outer tier has panels.
-        bool suppressLeft2  = (left2Panels.Count == 0 && !sourceInLeft2 && leftPanels.Count  == 0 && !sourceInLeft
-                               && left3Panels.Count == 0 && !sourceInLeft3
-                               && left4Panels.Count == 0 && !sourceInLeft4
-                               && left5Panels.Count == 0 && !sourceInLeft5
-                               && left6Panels.Count == 0 && !sourceInLeft6)
-                           || (sourceInLeft  && leftPanels.Count  == 1 && left2Panels.Count  == 0);
-        bool suppressRight2 = (right2Panels.Count == 0 && !sourceInRight2 && rightPanels.Count == 0 && !sourceInRight
-                               && right3Panels.Count == 0 && !sourceInRight3
-                               && right4Panels.Count == 0 && !sourceInRight4
-                               && right5Panels.Count == 0 && !sourceInRight5
-                               && right6Panels.Count == 0 && !sourceInRight6)
-                           || (sourceInRight && rightPanels.Count == 1 && right2Panels.Count == 0);
-        // Symmetric: source sole in outer zone, inner zone is empty.
-        bool suppressLeft   = sourceInLeft2  && left2Panels.Count  == 1 && leftPanels.Count  == 0;
-        bool suppressRight  = sourceInRight2 && right2Panels.Count == 1 && rightPanels.Count == 0;
-
-        // For the outermost tier, tie suppression to whether the middle tier is suppressed.
-        // Also suppress an empty outer zone when source is the sole occupant of the adjacent
-        // inner zone — dragging there is a no-op (panel moves out, normalization slides it back).
-        bool suppressLeft3  = (left3Panels.Count == 0 && !sourceInLeft3 && suppressLeft2)
-                           || (left3Panels.Count == 0 && !sourceInLeft3
-                               && left2Panels.Count == 0 && !sourceInLeft2
-                               && leftPanels.Count > 0)
-                           || (sourceInLeft2  && left2Panels.Count  == 1 && left3Panels.Count  == 0);
-        bool suppressRight3 = (right3Panels.Count == 0 && !sourceInRight3 && suppressRight2)
-                           || (right3Panels.Count == 0 && !sourceInRight3
-                               && right2Panels.Count == 0 && !sourceInRight2
-                               && rightPanels.Count > 0)
-                           || (sourceInRight2 && right2Panels.Count == 1 && right3Panels.Count == 0);
-
-        // Suppress Left4/Right4 when empty AND Left3/Right3 is also empty,
-        // or when source is the sole occupant of the adjacent inner zone (no-op move).
-        bool suppressLeft4  = (left4Panels.Count == 0 && !sourceInLeft4
-                           && (suppressLeft3 || (left3Panels.Count == 0 && !sourceInLeft3)))
-                           || (sourceInLeft3  && left3Panels.Count  == 1 && left4Panels.Count  == 0);
-        bool suppressRight4 = (right4Panels.Count == 0 && !sourceInRight4
-                           && (suppressRight3 || (right3Panels.Count == 0 && !sourceInRight3)))
-                           || (sourceInRight3 && right3Panels.Count == 1 && right4Panels.Count == 0);
-
-        bool suppressLeft5  = (left5Panels.Count == 0 && !sourceInLeft5
-                           && (suppressLeft4 || (left4Panels.Count == 0 && !sourceInLeft4)))
-                           || (sourceInLeft4  && left4Panels.Count  == 1 && left5Panels.Count  == 0);
-        bool suppressRight5 = (right5Panels.Count == 0 && !sourceInRight5
-                           && (suppressRight4 || (right4Panels.Count == 0 && !sourceInRight4)))
-                           || (sourceInRight4 && right4Panels.Count == 1 && right5Panels.Count == 0);
-
-        bool suppressLeft6  = (left6Panels.Count == 0 && !sourceInLeft6
-                           && (suppressLeft5 || (left5Panels.Count == 0 && !sourceInLeft5)))
-                           || (sourceInLeft5  && left5Panels.Count  == 1 && left6Panels.Count  == 0);
-        bool suppressRight6 = (right6Panels.Count == 0 && !sourceInRight6
-                           && (suppressRight5 || (right5Panels.Count == 0 && !sourceInRight5)))
-                           || (sourceInRight5 && right5Panels.Count == 1 && right6Panels.Count == 0);
-
-        // When source is outside a side, use column-position slots; otherwise use panel-position slots
-        if (!suppressLeft6)
-            AddZoneSlots(result, sourcePanelId, left6Panels, sourceInLeft6, DockZone.Left6);
-
-        if (!suppressLeft5)
-            AddZoneSlots(result, sourcePanelId, left5Panels, sourceInLeft5, DockZone.Left5);
-
-        if (!suppressLeft4)
-            AddZoneSlots(result, sourcePanelId, left4Panels, sourceInLeft4, DockZone.Left4);
-
-        if (!suppressLeft3)
-            AddZoneSlots(result, sourcePanelId, left3Panels, sourceInLeft3, DockZone.Left3);
-
-        if (!suppressLeft2)
-            AddZoneSlots(result, sourcePanelId, left2Panels, sourceInLeft2, DockZone.Left2);
-
-        if (!suppressLeft)
-            AddZoneSlots(result, sourcePanelId, leftPanels, sourceInLeft, DockZone.Left);
-
+        AddSideSlots(result, sourcePanelId, leftStates, isLeft: true);
         AddZoneSlots(result, sourcePanelId, topPanels, sourceInTop, DockZone.Top);
-
-        if (!suppressRight)
-            AddZoneSlots(result, sourcePanelId, rightPanels, sourceInRight, DockZone.Right);
-
-        if (!suppressRight2)
-            AddZoneSlots(result, sourcePanelId, right2Panels, sourceInRight2, DockZone.Right2);
-
-        if (!suppressRight3)
-            AddZoneSlots(result, sourcePanelId, right3Panels, sourceInRight3, DockZone.Right3);
-
-        if (!suppressRight4)
-            AddZoneSlots(result, sourcePanelId, right4Panels, sourceInRight4, DockZone.Right4);
-
-        if (!suppressRight5)
-            AddZoneSlots(result, sourcePanelId, right5Panels, sourceInRight5, DockZone.Right5);
-
-        if (!suppressRight6)
-            AddZoneSlots(result, sourcePanelId, right6Panels, sourceInRight6, DockZone.Right6);
+        AddSideSlots(result, sourcePanelId, rightStates, isLeft: false);
 
         return result;
+    }
+
+    private sealed class SideSlotState
+    {
+        public required DockZone Zone { get; init; }
+        public required List<string> Panels { get; init; }
+        public required bool SourceInZone { get; init; }
+        public bool Suppressed { get; set; }
+        public bool EmptyWithoutSource => Panels.Count == 0 && !SourceInZone;
+    }
+
+    private static List<SideSlotState> BuildSideStates(
+        PanelLayoutData layout,
+        string sourcePanelId,
+        IReadOnlyList<DockZone> sideZones) =>
+        sideZones
+            .Select(zone =>
+            {
+                var panels = FilterZone(PanelsInZone(layout, zone), sourcePanelId, layout.VisiblePanelIds);
+                return new SideSlotState
+                {
+                    Zone = zone,
+                    Panels = panels,
+                    SourceInZone = panels.Any(p => Same(p, sourcePanelId)),
+                };
+            })
+            .ToList();
+
+    private static void ApplySideSuppression(List<SideSlotState> states)
+    {
+        if (states.Count == 0)
+            return;
+
+        if (states.Count > 1)
+        {
+            states[0].Suppressed =
+                states[1].SourceInZone &&
+                states[1].Panels.Count == 1 &&
+                states[0].Panels.Count == 0;
+
+            states[1].Suppressed =
+                (states[1].EmptyWithoutSource &&
+                 states[0].EmptyWithoutSource &&
+                 states.Skip(2).All(s => s.EmptyWithoutSource)) ||
+                (states[0].SourceInZone &&
+                 states[0].Panels.Count == 1 &&
+                 states[1].Panels.Count == 0);
+        }
+
+        for (int i = 2; i < states.Count; i++)
+        {
+            states[i].Suppressed =
+                (states[i].EmptyWithoutSource &&
+                 (states[i - 1].Suppressed || states[i - 1].EmptyWithoutSource)) ||
+                (states[i - 1].SourceInZone &&
+                 states[i - 1].Panels.Count == 1 &&
+                 states[i].Panels.Count == 0);
+        }
+    }
+
+    private static void AddSideSlots(
+        List<SlotButtonInfo> result,
+        string sourcePanelId,
+        IReadOnlyList<SideSlotState> states,
+        bool isLeft)
+    {
+        var visualOrder = isLeft ? states.Reverse() : states;
+        foreach (var state in visualOrder.Where(s => !s.Suppressed))
+            AddZoneSlots(result, sourcePanelId, state.Panels, state.SourceInZone, state.Zone);
     }
 
     private static void AddZoneSlots(
@@ -414,15 +352,15 @@ internal static class DockingLayoutEngine
         DockZone[] sideZones;
         int targetColumnIndex; // 0=innermost, 1=middle, 2=outermost
 
-        if (targetZone == DockZone.Left || targetZone == DockZone.Left2 || targetZone == DockZone.Left3 || targetZone == DockZone.Left4)
+        if (IsLeftSideZone(targetZone))
         {
-            sideZones = new[] { DockZone.Left, DockZone.Left2, DockZone.Left3, DockZone.Left4 };
-            targetColumnIndex = targetZone == DockZone.Left ? 0 : targetZone == DockZone.Left2 ? 1 : targetZone == DockZone.Left3 ? 2 : 3;
+            sideZones = LeftSideZones;
+            targetColumnIndex = Array.IndexOf(sideZones, targetZone);
         }
-        else if (targetZone == DockZone.Right || targetZone == DockZone.Right2 || targetZone == DockZone.Right3 || targetZone == DockZone.Right4)
+        else if (IsRightSideZone(targetZone))
         {
-            sideZones = new[] { DockZone.Right, DockZone.Right2, DockZone.Right3, DockZone.Right4 };
-            targetColumnIndex = targetZone == DockZone.Right ? 0 : targetZone == DockZone.Right2 ? 1 : targetZone == DockZone.Right3 ? 2 : 3;
+            sideZones = RightSideZones;
+            targetColumnIndex = Array.IndexOf(sideZones, targetZone);
         }
         else
         {
@@ -436,8 +374,8 @@ internal static class DockingLayoutEngine
             .ToList();
 
         // Collect panels currently in each column of this side
-        var columnPanels = new List<string>[4];
-        for (int i = 0; i < 4; i++)
+        var columnPanels = new List<string>[sideZones.Length];
+        for (int i = 0; i < sideZones.Length; i++)
         {
             columnPanels[i] = slotsWithoutSource
                 .Where(s => s.Zone == sideZones[i])
@@ -452,7 +390,7 @@ internal static class DockingLayoutEngine
         //   - Left2 panels → Left3
         //   - Left panels → Left2
         //   - Insert incoming at Left
-        for (int i = 3; i > targetColumnIndex; i--)
+        for (int i = sideZones.Length - 1; i > targetColumnIndex; i--)
         {
             // Move panels from column i-1 to column i
             columnPanels[i] = columnPanels[i - 1];
@@ -463,7 +401,7 @@ internal static class DockingLayoutEngine
 
         // Rebuild slots from other zones + the shuffled side columns
         var newSlots = slotsWithoutSource.Where(s => !sideZones.Contains(s.Zone)).ToList();
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < sideZones.Length; i++)
         {
             newSlots.AddRange(columnPanels[i].Select((pid, order) => new PanelSlot(pid, sideZones[i], order)));
         }
@@ -510,8 +448,8 @@ internal static class DockingLayoutEngine
     public static IReadOnlyList<string> ValidateN1RuleOnSlots(IReadOnlyList<SlotButtonInfo> slots, PanelLayoutData layout, string sourcePanelId)
     {
         var violations = new List<string>();
-        CheckSideN1OnSlots(slots, layout, sourcePanelId, new[] { DockZone.Left, DockZone.Left2, DockZone.Left3, DockZone.Left4, DockZone.Left5, DockZone.Left6 }, "Left", violations);
-        CheckSideN1OnSlots(slots, layout, sourcePanelId, new[] { DockZone.Right, DockZone.Right2, DockZone.Right3, DockZone.Right4, DockZone.Right5, DockZone.Right6 }, "Right", violations);
+        CheckSideN1OnSlots(slots, layout, sourcePanelId, LeftSideZones, "Left", violations);
+        CheckSideN1OnSlots(slots, layout, sourcePanelId, RightSideZones, "Right", violations);
         return violations;
     }
 
@@ -567,8 +505,8 @@ internal static class DockingLayoutEngine
         var violations = new List<string>();
 
         // Check each side separately
-        CheckSideN1(layout, sourcePanelId, new[] { DockZone.Left, DockZone.Left2, DockZone.Left3, DockZone.Left4, DockZone.Left5, DockZone.Left6 }, "Left", violations);
-        CheckSideN1(layout, sourcePanelId, new[] { DockZone.Right, DockZone.Right2, DockZone.Right3, DockZone.Right4, DockZone.Right5, DockZone.Right6 }, "Right", violations);
+        CheckSideN1(layout, sourcePanelId, LeftSideZones, "Left", violations);
+        CheckSideN1(layout, sourcePanelId, RightSideZones, "Right", violations);
 
         return violations;
     }
@@ -627,4 +565,54 @@ internal static class DockingLayoutEngine
 
     private static bool Same(string a, string b) =>
         string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<DockZone> EnumerateSerializableZones() =>
+        new[] { DockZone.Top }.Concat(LeftSideZones).Concat(RightSideZones);
+
+    private static DockZone[] BuildSideZones(string prefix) =>
+        Enum.GetValues<DockZone>()
+            .Where(zone => ZoneNameMatchesPrefix(zone, prefix))
+            .OrderBy(ZoneTier)
+            .ToArray();
+
+    private static bool ZoneNameMatchesPrefix(DockZone zone, string prefix)
+    {
+        string name = zone.ToString();
+        if (name == prefix)
+            return true;
+
+        return name.StartsWith(prefix, StringComparison.Ordinal) &&
+               int.TryParse(name[prefix.Length..], out _);
+    }
+
+    private static int ZoneTier(DockZone zone)
+    {
+        string name = zone.ToString();
+        int digitStart = name.TakeWhile(char.IsLetter).Count();
+        return digitStart == name.Length
+            ? 0
+            : int.Parse(name[digitStart..], System.Globalization.CultureInfo.InvariantCulture) - 1;
+    }
+
+    private static bool IsLeftSideZone(DockZone zone) => LeftSideZones.Contains(zone);
+
+    private static bool IsRightSideZone(DockZone zone) => RightSideZones.Contains(zone);
+
+    private static bool TryParseSideDisplayName(
+        string displayName,
+        string sideName,
+        IReadOnlyList<DockZone> zones,
+        out DockZone zone)
+    {
+        zone = DockZone.Top;
+        if (!displayName.StartsWith(sideName + " ", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string suffix = displayName[(sideName.Length + 1)..];
+        if (!int.TryParse(suffix, out int tier) || tier < 1 || tier > zones.Count)
+            return false;
+
+        zone = zones[tier - 1];
+        return true;
+    }
 }

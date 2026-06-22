@@ -246,12 +246,14 @@ public class DockingLayoutEngineTests
         "Left 4"  => DockZone.Left4,
         "Left 5"  => DockZone.Left5,
         "Left 6"  => DockZone.Left6,
+        "Left 7"  => DockZone.Left7,
         "Right 1" => DockZone.Right,
         "Right 2" => DockZone.Right2,
         "Right 3" => DockZone.Right3,
         "Right 4" => DockZone.Right4,
         "Right 5" => DockZone.Right5,
         "Right 6" => DockZone.Right6,
+        "Right 7" => DockZone.Right7,
         _         => throw new ArgumentException($"Unknown zone display name: '{displayName}'"),
     };
 

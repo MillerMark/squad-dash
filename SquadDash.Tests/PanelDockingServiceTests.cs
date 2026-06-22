@@ -450,9 +450,9 @@ internal sealed class PanelDockingServiceTests
     }
 
     [Test]
-    public void MovePanel_InsertBeforeLeft_WithAllSixZonesOccupiedFallsBackToStacking()
+    public void MovePanel_InsertBeforeLeft_WithSixZonesOccupiedCascadesIntoLeft7()
     {
-        // Layout: all 6 left zones occupied → no shift possible → loop stacks in Left@0 (fallback).
+        // Layout: first 6 left zones occupied and Left7 empty → cascade into Left7.
         var svc = new PanelDockingService();
         svc.MovePanel("z6",        DockZone.Left6);
         svc.MovePanel("z5",        DockZone.Left5);
@@ -463,7 +463,9 @@ internal sealed class PanelDockingServiceTests
         svc.MovePanel("loop",      DockZone.Left, targetOrder: 0, insertKind: SyntheticInsertKind.InsertBefore);
 
         var loopSlot = svc.CurrentLayout.Slots.Single(s => s.PanelId == "loop");
-        Assert.That(loopSlot.Zone,  Is.EqualTo(DockZone.Left), "should fall back to stacking in Left");
+        var z6Slot   = svc.CurrentLayout.Slots.Single(s => s.PanelId == "z6");
+        Assert.That(z6Slot.Zone,    Is.EqualTo(DockZone.Left7), "z6 should cascade Left6→Left7");
+        Assert.That(loopSlot.Zone,  Is.EqualTo(DockZone.Left2), "loop should land in Left2 after the outward cascade");
         Assert.That(loopSlot.Order, Is.EqualTo(0),             "should be at order 0");
     }
 

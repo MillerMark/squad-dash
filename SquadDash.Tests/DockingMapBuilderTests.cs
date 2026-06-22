@@ -11,13 +11,13 @@ public class DockingMapBuilderTests
     private static readonly DockZone[] LeftZones =
     [
         DockZone.Left, DockZone.Left2, DockZone.Left3,
-        DockZone.Left4, DockZone.Left5, DockZone.Left6
+        DockZone.Left4, DockZone.Left5, DockZone.Left6, DockZone.Left7
     ];
 
     private static readonly DockZone[] RightZones =
     [
         DockZone.Right, DockZone.Right2, DockZone.Right3,
-        DockZone.Right4, DockZone.Right5, DockZone.Right6
+        DockZone.Right4, DockZone.Right5, DockZone.Right6, DockZone.Right7
     ];
 
     [Test]
@@ -95,10 +95,10 @@ public class DockingMapBuilderTests
         // Total thins targeting left zones >= 7 (N+1 minimum)
         Assert.That(thins.Count, Is.GreaterThanOrEqualTo(7), "Should have at least N+1 left-side thins");
         
-        // Verify the N+1 rule by checking for Left6 InsertBefore and Left InsertAfter (the boundary thins)
-        var left6InsertBefore = thins.FirstOrDefault(t => t.TargetZone == DockZone.Left6 && t.InsertKind == SyntheticInsertKind.InsertBefore);
+        // Verify the N+1 rule by checking for the new empty Left7 target and Left InsertAfter boundary.
+        var left7Target = thins.FirstOrDefault(t => t.TargetZone == DockZone.Left7);
         var leftInsertAfter = thins.FirstOrDefault(t => t.TargetZone == DockZone.Left && t.InsertKind == SyntheticInsertKind.InsertAfter);
-        Assert.That(left6InsertBefore, Is.Not.Null, "Should have Left6 thin with InsertBefore");
+        Assert.That(left7Target, Is.Not.Null, "Should have a Left7 target when six left zones are occupied");
         Assert.That(leftInsertAfter, Is.Not.Null, "Should have Left thin with InsertAfter");
     }
 
@@ -123,11 +123,53 @@ public class DockingMapBuilderTests
         // Total thins targeting right zones >= 7 (N+1 minimum)
         Assert.That(thins.Count, Is.GreaterThanOrEqualTo(7), "Should have at least N+1 right-side thins");
         
-        // Verify the N+1 rule by checking for Right InsertBefore and Right6 InsertAfter (the boundary thins)
+        // Verify the N+1 rule by checking for Right InsertBefore and the new empty Right7 target.
         var rightInsertBefore = thins.FirstOrDefault(t => t.TargetZone == DockZone.Right && t.InsertKind == SyntheticInsertKind.InsertBefore);
-        var right6InsertAfter = thins.FirstOrDefault(t => t.TargetZone == DockZone.Right6 && t.InsertKind == SyntheticInsertKind.InsertAfter);
+        var right7Target = thins.FirstOrDefault(t => t.TargetZone == DockZone.Right7);
         Assert.That(rightInsertBefore, Is.Not.Null, "Should have Right thin with InsertBefore");
-        Assert.That(right6InsertAfter, Is.Not.Null, "Should have Right6 thin with InsertAfter");
+        Assert.That(right7Target, Is.Not.Null, "Should have a Right7 target when six right zones are occupied");
+    }
+
+    [Test]
+    public void BuildDockingMap_WithAllSevenLeftZonesOccupied_StillEmitsNPlusOneThinTargets()
+    {
+        var map = Build(
+            sourcePanelId: "loop",
+            ("loop", DockZone.Top),
+            ("l1", DockZone.Left),
+            ("l2", DockZone.Left2),
+            ("l3", DockZone.Left3),
+            ("l4", DockZone.Left4),
+            ("l5", DockZone.Left5),
+            ("l6", DockZone.Left6),
+            ("l7", DockZone.Left7));
+
+        var thins = ThinSlots(map, LeftZones);
+
+        Assert.That(thins.Count, Is.GreaterThanOrEqualTo(8), "Should have at least N+1 left-side thins");
+        Assert.That(thins.Any(t => t.TargetZone == DockZone.Left7 && t.InsertKind == SyntheticInsertKind.InsertBefore), Is.True);
+        Assert.That(thins.Any(t => t.TargetZone == DockZone.Left && t.InsertKind == SyntheticInsertKind.InsertAfter), Is.True);
+    }
+
+    [Test]
+    public void BuildDockingMap_WithAllSevenRightZonesOccupied_StillEmitsNPlusOneThinTargets()
+    {
+        var map = Build(
+            sourcePanelId: "loop",
+            ("loop", DockZone.Top),
+            ("r1", DockZone.Right),
+            ("r2", DockZone.Right2),
+            ("r3", DockZone.Right3),
+            ("r4", DockZone.Right4),
+            ("r5", DockZone.Right5),
+            ("r6", DockZone.Right6),
+            ("r7", DockZone.Right7));
+
+        var thins = ThinSlots(map, RightZones);
+
+        Assert.That(thins.Count, Is.GreaterThanOrEqualTo(8), "Should have at least N+1 right-side thins");
+        Assert.That(thins.Any(t => t.TargetZone == DockZone.Right && t.InsertKind == SyntheticInsertKind.InsertBefore), Is.True);
+        Assert.That(thins.Any(t => t.TargetZone == DockZone.Right7 && t.InsertKind == SyntheticInsertKind.InsertAfter), Is.True);
     }
 
     [Test]
