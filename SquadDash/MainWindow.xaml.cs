@@ -12590,6 +12590,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _watchHealthPanelVisible = true;
         _watchHealthResult = SquadWatchHealthResult.Checking;
         SyncWatchHealthPanel();
+        PersistWatchHealthPanelVisible();
 
         var result = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
         _watchHealthResult = result;
@@ -12602,6 +12603,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _watchHealthResult = null;
         SyncWatchPanel();
         SyncWatchHealthPanel();
+        PersistWatchHealthPanelVisible();
     }
 
     private void WatchHealthPanelCloseButton_Click(object sender, RoutedEventArgs e) => CloseWatchHealthPanel();
@@ -29952,6 +29954,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ViewInboxMenuItem.IsChecked = true;
         }
 
+        // Restore watch health panel visibility — re-run the health check so content is fresh.
+        if (_docsPanelState.WatchHealthPanelVisible == true)
+        {
+            _ = RefreshWatchHealthPanelAsync();
+            if (ViewWatchHealthMenuItem is not null)
+                ViewWatchHealthMenuItem.IsChecked = true;
+        }
+
         // Restore any inbox viewer windows that were open at last shutdown.
         if (_docsPanelState.OpenInboxMessageIds is { Count: > 0 } openIds)
         {
@@ -32371,6 +32381,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { CodeHealthPanelVisible = _codeHealthPanelVisible };
+        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+    }
+
+    private void PersistWatchHealthPanelVisible()
+    {
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { WatchHealthPanelVisible = _watchHealthPanelVisible };
         _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
     }
 
