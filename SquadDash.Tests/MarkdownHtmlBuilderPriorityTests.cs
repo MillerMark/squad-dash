@@ -10,26 +10,26 @@ internal sealed class MarkdownHtmlBuilderPriorityTests {
     private static string Build(string markdown, bool isDark = false)
         => MarkdownHtmlBuilder.Build(markdown, "Test", isDark: isDark);
 
-    // ── Emoji → pdot span replacements ──────────────────────────────────
+    // ── Emoji → inline SVG replacements ─────────────────────────────────
 
     [Test]
     public void Build_ReplacesRedCircle_WithPdotHighSpan() {
         var html = Build("🔴 critical task");
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-high\"></span>"));
+        Assert.That(html, Does.Contain("viewBox=\"0 0 36 32\""));  // high-priority triangle SVG
         Assert.That(html, Does.Not.Contain("🔴"));
     }
 
     [Test]
     public void Build_ReplacesYellowCircle_WithPdotMidSpan() {
         var html = Build("🟡 medium task");
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-mid\"></span>"));
+        Assert.That(html, Does.Contain("viewBox=\"0 0 10 10\""));  // mid-priority circle SVG
         Assert.That(html, Does.Not.Contain("🟡"));
     }
 
     [Test]
     public void Build_ReplacesGreenCircle_WithPdotLowSpan() {
         var html = Build("🟢 low task");
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-low\"></span>"));
+        Assert.That(html, Does.Contain("viewBox=\"0 0 32 19\""));  // low-priority chevron SVG
         Assert.That(html, Does.Not.Contain("🟢"));
     }
 
@@ -52,8 +52,8 @@ internal sealed class MarkdownHtmlBuilderPriorityTests {
         var html = Build("A&B 🔴 task");
         // Ampersand should be escaped
         Assert.That(html, Does.Contain("A&amp;B"));
-        // Priority dot should still appear
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-high\"></span>"));
+        // Priority icon SVG should still appear
+        Assert.That(html, Does.Contain("viewBox=\"0 0 36 32\""));
     }
 
     // ── All three emojis on one line ──────────────────────────────────────
@@ -61,9 +61,9 @@ internal sealed class MarkdownHtmlBuilderPriorityTests {
     [Test]
     public void Build_AllThreeEmojisOnOneLine_AllReplaced() {
         var html = Build("🔴 high 🟡 mid 🟢 low");
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-high\"></span>"));
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-mid\"></span>"));
-        Assert.That(html, Does.Contain("<span class=\"pdot pdot-low\"></span>"));
+        Assert.That(html, Does.Contain("viewBox=\"0 0 36 32\""));  // high triangle
+        Assert.That(html, Does.Contain("viewBox=\"0 0 10 10\""));  // mid circle
+        Assert.That(html, Does.Contain("viewBox=\"0 0 32 19\""));  // low chevron
         Assert.That(html, Does.Not.Contain("🔴"));
         Assert.That(html, Does.Not.Contain("🟡"));
         Assert.That(html, Does.Not.Contain("🟢"));
@@ -79,17 +79,20 @@ internal sealed class MarkdownHtmlBuilderPriorityTests {
         Assert.That(html, Does.Not.Contain("pdot pdot-"));
     }
 
-    // ── .pdot CSS definition present in both light and dark modes ────────
+    // ── CSS structure present in both light and dark modes ───────────────
+    // (Priority icons are inline SVGs; there is no .pdot CSS class.)
 
     [Test]
     public void Build_LightMode_IncludesPdotCssDefinition() {
         var html = Build("sample", isDark: false);
-        Assert.That(html, Does.Contain(".pdot {"));
+        Assert.That(html, Does.Contain("body {"));
+        Assert.That(html, Does.Contain("background:"));
     }
 
     [Test]
     public void Build_DarkMode_IncludesPdotCssDefinition() {
         var html = Build("sample", isDark: true);
-        Assert.That(html, Does.Contain(".pdot {"));
+        Assert.That(html, Does.Contain("body {"));
+        Assert.That(html, Does.Contain("background:"));
     }
 }
