@@ -24484,6 +24484,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _snapshotThread = null;
         _agentThreadRegistry.ClearAll();
         _backgroundTaskPresenter.ClearState();
+        DismissCodeHealthBanner();
         _routingIssueQuickReplyEntry = null;
         ClearActiveQuickReplyState();
         _directQuickReplyAgentThreadIds.Clear();
@@ -32571,8 +32572,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         int ran     = report.RanTaskIds?.Count  ?? 0;
         int skipped = report.SkippedTaskIds?.Count ?? 0;
         string summary = ran == 1
-            ? $"Maintenance complete — {ran} task ran, {skipped} skipped."
-            : $"Maintenance complete — {ran} tasks ran, {skipped} skipped.";
+            ? $"Code Health complete — {ran} task ran, {skipped} skipped."
+            : $"Code Health complete — {ran} tasks ran, {skipped} skipped.";
 
         if (CodeHealthBannerTextBlock is not null)
             CodeHealthBannerTextBlock.Text = summary;
