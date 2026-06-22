@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -29,6 +30,7 @@ internal sealed class LoopController {
     private CancellationTokenSource? _cts;
     private string? _workspacePath;
     private string? _filterText;
+    private IReadOnlyList<string>? _featureGroups;
 
     internal bool          IsRunning  { get; private set; }
     internal LoopStopState StopState  { get; private set; }
@@ -76,13 +78,14 @@ internal sealed class LoopController {
     /// When resuming after an auto-pause (e.g. queue interrupt), pass the last
     /// completed iteration number so the counter continues rather than restarting at 1.
     /// </param>
-    internal Task StartAsync(LoopMdConfig config, bool continuousContext, string? workspacePath = null, int resumeFromIteration = 0, string? filterText = null) {
+    internal Task StartAsync(LoopMdConfig config, bool continuousContext, string? workspacePath = null, int resumeFromIteration = 0, string? filterText = null, IReadOnlyList<string>? featureGroups = null) {
         if (IsRunning)
             return Task.CompletedTask;
 
         _stopRequested = false;
         _workspacePath = workspacePath;
         _filterText    = filterText;
+        _featureGroups = featureGroups;
         _cts           = new CancellationTokenSource();
         // Fire-and-forget; the loop reports completion via callbacks.
         _ = Task.Run(() => RunLoopAsync(config, continuousContext, _cts.Token, resumeFromIteration));
@@ -136,7 +139,7 @@ internal sealed class LoopController {
                 // agent state does not accumulate across rounds.
                 var sessionId = continuousContext ? null : Guid.NewGuid().ToString("N");
 
-                var expandedInstructions = ExpandVariables(config.Instructions, config, iteration, _workspacePath, _filterText);
+                var expandedInstructions = ExpandVariables(config.Instructions, config, iteration, _workspacePath, _filterText, _featureGroups);
                 var prompt     = BuildAugmentedPrompt(expandedInstructions, config.Commands);
                 var promptTask = _executePromptAsync(prompt, sessionId);
 
@@ -241,7 +244,7 @@ internal sealed class LoopController {
         return sb.ToString().TrimEnd();
     }
 
-    private static string ExpandVariables(string text, LoopMdConfig config, int iteration, string? workspacePath, string? filterText = null) {
+    private static string ExpandVariables(string text, LoopMdConfig config, int iteration, string? workspacePath, string? filterText = null, IReadOnlyList<string>? featureGroups = null) {
         // Conditional blocks must be evaluated before plain substitution so that {{key}}
         // tokens inside included blocks are resolved in the pass below.
         text = LoopMdParser.PreprocessConditionals(text, config.Options);
@@ -260,11 +263,18 @@ internal sealed class LoopController {
         text = text.Replace("{{copilot_trailer}}", "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>", StringComparison.Ordinal);
         text = text.Replace("{{workspace_path}}", workspacePath ?? string.Empty, StringComparison.Ordinal);
         text = text.Replace("{{build_command}}", DetectBuildCommand(workspacePath), StringComparison.Ordinal);
+        text = text.Replace("{{feature_groups}}", BuildFeatureGroupsBlock(featureGroups), StringComparison.Ordinal);
 
         // [**FILTER**] — inject the task-filter instruction (bracket syntax, not {{...}}).
         text = text.Replace("[**FILTER**]", LoopMdParser.BuildFilterInstruction(filterText), StringComparison.Ordinal);
 
         return text;
+    }
+
+    private static string BuildFeatureGroupsBlock(IReadOnlyList<string>? featureGroups) {
+        if (featureGroups is null || featureGroups.Count == 0)
+            return string.Empty;
+        return string.Join("\n", featureGroups.Select(g => $"- {g}"));
     }
 
     private static string DetectBuildCommand(string? workspacePath) {

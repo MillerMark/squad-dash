@@ -170,6 +170,10 @@ internal sealed partial class PushNotificationService {
     [GeneratedRegex(@"(?:commit(?:ted)?)\s*(?:as|:)?\s*[*]*\s*`([0-9a-f]{7,40})`", RegexOptions.IgnoreCase)]
     private static partial Regex AgentCommitRegex();
 
+    // Feature-Group commit trailer: "Feature-Group: UI & UX"
+    [GeneratedRegex(@"^Feature-Group:\s*(.+)$", RegexOptions.Multiline)]
+    private static partial Regex FeatureGroupRegex();
+
     private static readonly IReadOnlyDictionary<string, bool> DefaultEventToggles = new Dictionary<string, bool> {
         ["assistant_turn_complete"] = true,
         ["loop_stopped"] = true,
@@ -359,7 +363,9 @@ internal sealed partial class PushNotificationService {
             if (match.Success) {
                 var sha = match.Groups[1].Value;
                 var message = match.Groups[2].Value.Trim();
-                return new GitCommitInfo(sha, message);
+                var fgMatch = FeatureGroupRegex().Match(output);
+                var featureGroup = fgMatch.Success ? fgMatch.Groups[1].Value.Trim() : null;
+                return new GitCommitInfo(sha, message, featureGroup);
             }
         }
         
@@ -435,4 +441,4 @@ internal sealed record SquadashPayload(string? Command, string? Notification);
 /// Represents extracted git commit information from tool outputs or agent responses.
 /// CommitMessage is populated when git's native output is found (richest source).
 /// </summary>
-internal sealed record GitCommitInfo(string CommitSha, string? CommitMessage);
+internal sealed record GitCommitInfo(string CommitSha, string? CommitMessage, string? FeatureGroup = null);

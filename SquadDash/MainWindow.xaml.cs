@@ -254,6 +254,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
     private System.Windows.Controls.Primitives.Popup? _approvalNotFoundPopup;
+    private FeatureGroupStore? _featureGroupStore;
     private NotesStore? _notesStore;
     private NotesPanelController? _notesPanel;
     private List<NoteItem> _noteItems = [];
@@ -4615,7 +4616,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         var item = CommitApprovalItem.Create(commitInfo.CommitSha, commitUrl, description,
                                                                       turnStartedAt, hint,
                                                                       originalPrompt: doneCurrentTurn?.Prompt?.Trim(),
-                                                                      touchesDecisionsFile: touchesDecisionsFile);
+                                                                      touchesDecisionsFile: touchesDecisionsFile,
+                                                                      featureGroup: commitInfo.FeatureGroup);
+                        if (commitInfo.FeatureGroup is not null)
+                            _featureGroupStore?.EnsureGroup(commitInfo.FeatureGroup);
                         // Guard: never add a duplicate SHA — a stale agent CurrentTurn or context
                         // echo can cause the same SHA to be detected on a subsequent turn.
                         if (!_approvalItems.Any(a => string.Equals(a.CommitSha, item.CommitSha,
@@ -6695,7 +6699,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
             var filterText = TasksFilterBox?.Text?.Trim() ?? "";
-            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext, _currentWorkspace?.FolderPath, resumeFromIteration, filterText);
+            await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext, _currentWorkspace?.FolderPath, resumeFromIteration, filterText, _featureGroupStore?.Load());
         }
         else
         {
@@ -6749,7 +6753,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         BackupAndClearLoopOutput();
         await _loopController.StartAsync(config, continuousContext: true,
-            _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId);
+            _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId, featureGroups: _featureGroupStore?.Load());
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────
@@ -17154,6 +17158,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _approvalItems = _approvalStore.Load();
         _approvalPanel?.ReplaceAllItems(_approvalItems);
 
+        _featureGroupStore = new FeatureGroupStore(workspaceStateDir);
+
         _notesStore = new NotesStore(workspaceStateDir);
         _noteItems  = _notesStore.LoadAll();
         _notesPanel?.Refresh(_noteItems);
@@ -26826,8 +26832,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (string.IsNullOrEmpty(snapshot.ByokProviderUrl))
             return null;
 
+        var providerUrl = ByokProviderSettings.NormalizeProviderUrl(snapshot.ByokProviderUrl);
+        if (string.IsNullOrEmpty(providerUrl))
+            return null;
+
         return new ByokProviderSettings(
-            snapshot.ByokProviderUrl,
+            providerUrl,
             snapshot.ByokModel,
             snapshot.ByokProviderType,
             ApplicationSettingsStore.DecryptSettingValue(snapshot.ByokApiKey),
