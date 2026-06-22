@@ -41,6 +41,14 @@ internal sealed class ThemeColorsWindow : Window
     private readonly RadioButton _darkRadio;
     private readonly RadioButton _lightRadio;
 
+    // Hue filter controls
+    private readonly CheckBox _filterByHueCheckBox;
+    private readonly Slider _hueSlider;
+    private readonly Slider _hueRangeSlider;
+    private readonly TextBlock _hueValueLabel;
+    private readonly TextBlock _hueRangeValueLabel;
+    private Rectangle _hueRangeOverlay;
+
     // Currently selected key
     private string? _selectedKey;
 
@@ -62,7 +70,7 @@ internal sealed class ThemeColorsWindow : Window
         // ── Window properties ─────────────────────────────────────────────
         Title = "Theme Explorer";
         Width = 700;
-        Height = 520;
+        Height = 580;
         ShowInTaskbar = false;
         WindowStyle = WindowStyle.ToolWindow;
         ResizeMode = ResizeMode.CanResize;
@@ -173,6 +181,129 @@ internal sealed class ThemeColorsWindow : Window
         _filterBox.TextChanged += (_, _) => RebuildList();
         filterRow.Children.Add(_filterBox);
 
+        // ── Hue slider row ────────────────────────────────────────────────
+        var hueRow = new DockPanel { Margin = new Thickness(8, 2, 8, 2), LastChildFill = true };
+        DockPanel.SetDock(hueRow, Dock.Top);
+        root.Children.Add(hueRow);
+
+        _filterByHueCheckBox = new CheckBox
+        {
+            Content = "Filter by hue",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        _filterByHueCheckBox.SetResourceReference(ForegroundProperty, "LabelText");
+        DockPanel.SetDock(_filterByHueCheckBox, Dock.Left);
+        hueRow.Children.Add(_filterByHueCheckBox);
+
+        _hueValueLabel = new TextBlock
+        {
+            Text = "0°",
+            Width = 38,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11
+        };
+        _hueValueLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        DockPanel.SetDock(_hueValueLabel, Dock.Right);
+        hueRow.Children.Add(_hueValueLabel);
+
+        // Hue slider layered in a Grid: rainbow background → range overlay → slider
+        var hueSliderGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
+
+        var rainbowRect = new Rectangle
+        {
+            Height = 12,
+            RadiusX = 4,
+            RadiusY = 4,
+            Fill = BuildRainbowGradientBrush(),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+        hueSliderGrid.Children.Add(rainbowRect);
+
+        _hueRangeOverlay = new Rectangle
+        {
+            Height = 12,
+            RadiusX = 4,
+            RadiusY = 4,
+            VerticalAlignment = VerticalAlignment.Center,
+            Fill = Brushes.Transparent,
+            IsHitTestVisible = false
+        };
+        hueSliderGrid.Children.Add(_hueRangeOverlay);
+
+        _hueSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 359,
+            Value = 0,
+            SmallChange = 1,
+            LargeChange = 10,
+            TickFrequency = 30,
+            IsSnapToTickEnabled = false,
+            Background = Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        hueSliderGrid.Children.Add(_hueSlider);
+        hueRow.Children.Add(hueSliderGrid);
+
+        // ── Hue range row ─────────────────────────────────────────────────
+        var hueRangeRow = new DockPanel { Margin = new Thickness(8, 2, 8, 4), LastChildFill = true };
+        DockPanel.SetDock(hueRangeRow, Dock.Top);
+        root.Children.Add(hueRangeRow);
+
+        var hueRangeLabel = new TextBlock
+        {
+            Text = "Range ±:",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0)
+        };
+        hueRangeLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        DockPanel.SetDock(hueRangeLabel, Dock.Left);
+        hueRangeRow.Children.Add(hueRangeLabel);
+
+        _hueRangeValueLabel = new TextBlock
+        {
+            Text = "30°",
+            Width = 38,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11
+        };
+        _hueRangeValueLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        DockPanel.SetDock(_hueRangeValueLabel, Dock.Right);
+        hueRangeRow.Children.Add(_hueRangeValueLabel);
+
+        _hueRangeSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 180,
+            Value = 30,
+            SmallChange = 1,
+            LargeChange = 10,
+            TickFrequency = 10,
+            IsSnapToTickEnabled = false,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        hueRangeRow.Children.Add(_hueRangeSlider);
+
+        // Wire up hue filter events
+        _filterByHueCheckBox.Checked   += (_, _) => RebuildList();
+        _filterByHueCheckBox.Unchecked += (_, _) => RebuildList();
+        _hueSlider.ValueChanged += (_, e) =>
+        {
+            _hueValueLabel.Text = $"{(int)e.NewValue}°";
+            UpdateHueRangeOverlay();
+            if (_filterByHueCheckBox.IsChecked == true) RebuildList();
+        };
+        _hueRangeSlider.ValueChanged += (_, e) =>
+        {
+            _hueRangeValueLabel.Text = $"{(int)e.NewValue}°";
+            UpdateHueRangeOverlay();
+            if (_filterByHueCheckBox.IsChecked == true) RebuildList();
+        };
+
         // ── Body: list + detail ───────────────────────────────────────────
         var body = new Grid();
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40, GridUnitType.Star) });
@@ -282,6 +413,9 @@ internal sealed class ThemeColorsWindow : Window
         }
 
         var filter = _filterBox?.Text?.Trim() ?? string.Empty;
+        var hueFilterActive = _filterByHueCheckBox?.IsChecked == true;
+        var targetHue = hueFilterActive ? _hueSlider?.Value ?? 0.0 : 0.0;
+        var hueRange   = hueFilterActive ? _hueRangeSlider?.Value ?? 30.0 : 30.0;
 
         foreach (var kvp in snapshot.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -290,6 +424,19 @@ internal sealed class ThemeColorsWindow : Window
                 continue;
 
             var color = GetEffectiveColor(currentTheme, key);
+
+            if (hueFilterActive)
+            {
+                ColorUtilities.RgbToHsl(color.R, color.G, color.B, out double h, out double s, out _);
+                // Exclude achromatic colors — they carry no meaningful hue
+                if (s < 0.05)
+                    continue;
+                var colorHue = h * 360.0;
+                var diff = Math.Abs(colorHue - targetHue);
+                if (diff > 180.0) diff = 360.0 - diff;  // wraparound
+                if (diff > hueRange)
+                    continue;
+            }
 
             var row = BuildListRow(key, color);
             row.Tag = key;
@@ -325,6 +472,47 @@ internal sealed class ThemeColorsWindow : Window
         row.Children.Add(label);
 
         return row;
+    }
+
+    private static LinearGradientBrush BuildRainbowGradientBrush()
+    {
+        var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+        brush.GradientStops.Add(new GradientStop(Colors.Red,                    0.0));
+        brush.GradientStops.Add(new GradientStop(Color.FromRgb(255, 165,   0), 30.0  / 360));
+        brush.GradientStops.Add(new GradientStop(Colors.Yellow,                60.0  / 360));
+        brush.GradientStops.Add(new GradientStop(Colors.Lime,                 120.0  / 360));
+        brush.GradientStops.Add(new GradientStop(Colors.Cyan,                 180.0  / 360));
+        brush.GradientStops.Add(new GradientStop(Colors.Blue,                 240.0  / 360));
+        brush.GradientStops.Add(new GradientStop(Color.FromRgb(148,   0, 211), 270.0 / 360));
+        brush.GradientStops.Add(new GradientStop(Colors.Red,                    1.0));
+        return brush;
+    }
+
+    private void UpdateHueRangeOverlay()
+    {
+        if (_hueRangeOverlay is null) return;
+
+        var hue    = _hueSlider.Value;        // 0..359
+        var range  = _hueRangeSlider.Value;   // 0..180
+
+        var center    = hue    / 359.0;
+        var halfRange = range  / 359.0;
+        var lo = Math.Clamp(center - halfRange, 0.0, 1.0);
+        var hi = Math.Clamp(center + halfRange, 0.0, 1.0);
+
+        ColorUtilities.HslToRgb(hue / 360.0, 1.0, 0.5, out byte r, out byte g, out byte b);
+        var tint  = Color.FromArgb(100, r, g, b);
+        var clear = Color.FromArgb(0,   r, g, b);
+
+        var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+        brush.GradientStops.Add(new GradientStop(clear, 0.0));
+        brush.GradientStops.Add(new GradientStop(clear, lo));
+        brush.GradientStops.Add(new GradientStop(tint,  lo));
+        brush.GradientStops.Add(new GradientStop(tint,  hi));
+        brush.GradientStops.Add(new GradientStop(clear, hi));
+        brush.GradientStops.Add(new GradientStop(clear, 1.0));
+
+        _hueRangeOverlay.Fill = brush;
     }
 
     // ── Theme switching ───────────────────────────────────────────────────
