@@ -93,14 +93,15 @@ internal sealed class PanelDockingService
         ["notes"]       = 12,
         ["maintenance"] = 14,
         ["inbox"]       = 16,
+        ["watch-health"] = 18,
     };
 
     // Physical grid columns available for dockable top-zone panels, in left-to-right order.
     // Columns 3,5,7,8,9,11,13,15 are splitter/WatchPanel/buffer columns and are skipped.
-    private static readonly int[] TopZonePhysicalColumns = [5, 7, 11, 13, 15, 17];
+    private static readonly int[] TopZonePhysicalColumns = [5, 7, 11, 13, 15, 17, 19];
 
     // Splitter columns to the left of each panel slot (index i is left of PhysicalColumns[i]).
-    private static readonly int[] TopZoneSplitterColumns = [4, 6, 10, 12, 14, 16];
+    private static readonly int[] TopZoneSplitterColumns = [4, 6, 10, 12, 14, 16, 18];
 
     // Width of the thin insertion-indicator strip used for both top-zone and empty side-zone
     // docking previews, keeping the visual language consistent across all drop targets.
@@ -138,8 +139,9 @@ internal sealed class PanelDockingService
     private GridSplitter? _topZoneSplitter34;
     private GridSplitter? _topZoneSplitter45;
     private GridSplitter? _topZoneSplitter56;
+    private GridSplitter? _topZoneSplitter67;
     private UIElement? _watchPanelElement;
-    private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[6];
+    private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[7];
     // Legacy absorber column retained by the fixed top-zone grid. It is kept collapsed so
     // Roster & History, not a blank column, fills the space up to the leftmost splitter.
     private ColumnDefinition? _topZoneFlexAbsorberColumn;
@@ -345,6 +347,7 @@ internal sealed class PanelDockingService
     public void InitializeTopZoneSplitters(
         GridSplitter splitter01, GridSplitter splitter12, GridSplitter splitter23,
         GridSplitter splitter34, GridSplitter splitter45, GridSplitter splitter56,
+        GridSplitter splitter67,
         UIElement watchPanel,
         ColumnDefinition[] panelColumnDefs,
         ColumnDefinition? flexAbsorberColumn = null,
@@ -356,6 +359,7 @@ internal sealed class PanelDockingService
         _topZoneSplitter34 = splitter34;
         _topZoneSplitter45 = splitter45;
         _topZoneSplitter56 = splitter56;
+        _topZoneSplitter67 = splitter67;
         _watchPanelElement = watchPanel;
         _topZoneFlexAbsorberColumn = flexAbsorberColumn;
         _topZoneLeftBoundaryColumn = leftBoundaryColumn;
@@ -363,7 +367,7 @@ internal sealed class PanelDockingService
         for (int i = 0; i < Math.Min(panelColumnDefs.Length, _topZonePanelColumns.Length); i++)
             _topZonePanelColumns[i] = panelColumnDefs[i];
 
-        foreach (var splitter in new[] { splitter01, splitter12, splitter23, splitter34, splitter45, splitter56 })
+        foreach (var splitter in new[] { splitter01, splitter12, splitter23, splitter34, splitter45, splitter56, splitter67 })
         {
             splitter.PreviewMouseLeftButtonDown += OnTopZoneSplitterMouseLeftButtonDown;
             splitter.MouseMove += OnTopZoneSplitterMouseMove;
@@ -606,6 +610,7 @@ internal sealed class PanelDockingService
         if (ReferenceEquals(splitter, _topZoneSplitter34)) return 3;
         if (ReferenceEquals(splitter, _topZoneSplitter45)) return 4;
         if (ReferenceEquals(splitter, _topZoneSplitter56)) return 5;
+        if (ReferenceEquals(splitter, _topZoneSplitter67)) return 6;
         return -1;
     }
 
@@ -1960,6 +1965,7 @@ internal sealed class PanelDockingService
         bool rank3 = occupiedRanks.Length > 3 && occupiedRanks[3];
         bool rank4 = occupiedRanks.Length > 4 && occupiedRanks[4];
         bool rank5 = occupiedRanks.Length > 5 && occupiedRanks[5];
+        bool rank6 = occupiedRanks.Length > 6 && occupiedRanks[6];
 
         SetSplitterVisibility(_topZoneSplitter01, rank0);
         SetSplitterVisibility(_topZoneSplitter12, rank1);
@@ -1967,6 +1973,7 @@ internal sealed class PanelDockingService
         SetSplitterVisibility(_topZoneSplitter34, rank3);
         SetSplitterVisibility(_topZoneSplitter45, rank4);
         SetSplitterVisibility(_topZoneSplitter56, rank5);
+        SetSplitterVisibility(_topZoneSplitter67, rank6);
     }
 
     private static void SetSplitterVisibility(GridSplitter? splitter, bool visible) =>

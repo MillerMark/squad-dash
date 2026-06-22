@@ -1215,6 +1215,10 @@
                         <ColumnDefinition Width="4" />
                         <!-- col 17: rank-5 panel slot -->
                         <ColumnDefinition Width="Auto" />
+                        <!-- col 18: TopZoneSplitter67 (left of rank-6 panel) -->
+                        <ColumnDefinition Width="4" />
+                        <!-- col 19: rank-6 panel slot -->
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <Border x:Name="ActiveAgentsPanelBorder"
@@ -2203,6 +2207,84 @@
                         </Grid>
                     </panelDocking:GripStripBorder>
 
+                    <!-- Watch Health panel (Column 19) -->
+                    <panelDocking:GripStripBorder x:Name="WatchHealthPanelBorder"
+                            Grid.Column="19"
+                            MinWidth="200"
+                            DockMinimumWidth="200"
+                            DockMaximumUsefulWidth="360"
+                            DockMaximumUsefulHeight="400"
+                            VerticalAlignment="Top"
+                            Padding="12,8,12,12"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Border.Height>
+                            <MultiBinding Converter="{StaticResource MaxValueConverter}">
+                                <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
+                                <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
+                            </MultiBinding>
+                        </Border.Height>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Row 0: Title + Refresh + Copy + close button -->
+                            <DockPanel Grid.Row="0" LastChildFill="False">
+                                <Button x:Name="WatchHealthPanelCloseButton"
+                                        DockPanel.Dock="Right"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeNormal}"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Watch Health panel"
+                                        Click="WatchHealthPanelCloseButton_Click" />
+                                <Button x:Name="WatchHealthCopyButton"
+                                        DockPanel.Dock="Right"
+                                        Content="Copy"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeXSmall}"
+                                        Margin="0,0,6,0"
+                                        Padding="6,0"
+                                        VerticalAlignment="Top"
+                                        ToolTip="Copy health output to clipboard"
+                                        Style="{StaticResource ThemedIconButtonStyle}"
+                                        Click="WatchHealthCopyButton_Click" />
+                                <Button x:Name="WatchHealthRefreshButton"
+                                        DockPanel.Dock="Right"
+                                        Content="↺ Refresh"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeXSmall}"
+                                        Margin="0,0,6,0"
+                                        Padding="6,0"
+                                        VerticalAlignment="Top"
+                                        ToolTip="Re-run watch health check"
+                                        Style="{StaticResource ThemedIconButtonStyle}"
+                                        Click="WatchHealthRefreshButton_Click" />
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="Watch Health"
+                                           FontSize="{DynamicResource FontSizeLarge}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PanelTitle}"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+
+                            <!-- Row 1: Scrollable health output -->
+                            <ScrollViewer Grid.Row="1"
+                                          Margin="0,8,0,0"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="WatchHealthStack" />
+                            </ScrollViewer>
+                        </Grid>
+                    </panelDocking:GripStripBorder>
+
                     <GridSplitter x:Name="TopZoneSplitter01"
                                   Grid.Column="4"
                                   Width="4"
@@ -2256,6 +2338,15 @@
                                   ResizeBehavior="PreviousAndNext"
                                   Background="Transparent"
                                   ToolTip="S6 · col 16 · left of rank-5 panel slot"
+                                  Visibility="Collapsed" />
+                    <GridSplitter x:Name="TopZoneSplitter67"
+                                  Grid.Column="18"
+                                  Width="4"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch"
+                                  ResizeBehavior="PreviousAndNext"
+                                  Background="Transparent"
+                                  ToolTip="S7 · col 18 · left of rank-6 panel slot"
                                   Visibility="Collapsed" />
                 </Grid>
             </Grid>

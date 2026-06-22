@@ -708,12 +708,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _dockingService = new PanelDockingService(
             new Dictionary<string, FrameworkElement>
             {
-                ["loop"]        = LoopPanelBorder,
-                ["tasks"]       = TasksPanelBorder,
-                ["approvals"]   = ApprovalPanelBorder,
-                ["notes"]       = NotesPanelBorder,
-                ["maintenance"] = CodeHealthPanelBorder,
-                ["inbox"]       = InboxPanelBorder,
+                ["loop"]         = LoopPanelBorder,
+                ["tasks"]        = TasksPanelBorder,
+                ["approvals"]    = ApprovalPanelBorder,
+                ["notes"]        = NotesPanelBorder,
+                ["maintenance"]  = CodeHealthPanelBorder,
+                ["inbox"]        = InboxPanelBorder,
+                ["watch-health"] = WatchHealthPanelBorder,
             },
             LeftZonePanel,
             RightZonePanel,
@@ -785,6 +786,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _dockingService.InitializeTopZoneSplitters(
             TopZoneSplitter01, TopZoneSplitter12, TopZoneSplitter23,
             TopZoneSplitter34, TopZoneSplitter45, TopZoneSplitter56,
+            TopZoneSplitter67,
             WatchPanelBorder,
             new[]
             {
@@ -794,6 +796,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 TopZonePanelsGrid.ColumnDefinitions[13],
                 TopZonePanelsGrid.ColumnDefinitions[15],
                 TopZonePanelsGrid.ColumnDefinitions[17],
+                TopZonePanelsGrid.ColumnDefinitions[19],
             },
             TopZonePanelsGrid.ColumnDefinitions[3],
             TopZonePanelsGrid.ColumnDefinitions[1]);
@@ -5664,103 +5667,45 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (WatchPanelBorder is null) return;
 
         bool active = _watchCycleId is not null;
-        bool showHealth = _watchHealthPanelVisible && _watchHealthResult is not null;
-        WatchPanelBorder.Visibility = active || showHealth ? Visibility.Visible : Visibility.Collapsed;
+        WatchPanelBorder.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
 
-        if (!active && !showHealth) return;
+        if (!active) return;
 
         WatchStatusStack.Children.Clear();
 
-        if (active)
-        {
-            if (_watchFleetSize > 0)
-                WatchStatusStack.Children.Add(MakeWatchRow($"Fleet: {_watchFleetSize} agents"));
+        if (_watchFleetSize > 0)
+            WatchStatusStack.Children.Add(MakeWatchRow($"Fleet: {_watchFleetSize} agents"));
 
-            if (_watchWaveCount > 0)
-                WatchStatusStack.Children.Add(MakeWatchRow($"Wave {_watchWaveIndex + 1} of {_watchWaveCount}"));
-            else if (_watchAgentCount > 0)
-                WatchStatusStack.Children.Add(MakeWatchRow($"{_watchAgentCount} agents dispatched"));
+        if (_watchWaveCount > 0)
+            WatchStatusStack.Children.Add(MakeWatchRow($"Wave {_watchWaveIndex + 1} of {_watchWaveCount}"));
+        else if (_watchAgentCount > 0)
+            WatchStatusStack.Children.Add(MakeWatchRow($"{_watchAgentCount} agents dispatched"));
 
-            if (!string.IsNullOrWhiteSpace(_watchPhase))
-                WatchStatusStack.Children.Add(MakeWatchRow($"Phase: {_watchPhase}"));
-        }
-
-        if (showHealth && _watchHealthResult is not null)
-        {
-            if (active)
-            {
-                WatchStatusStack.Children.Add(new Separator
-                {
-                    Margin = new Thickness(0, 8, 0, 6),
-                    Style = (Style)FindResource("ThemedMenuSeparatorStyle")
-                });
-            }
-
-            AddWatchHealthRows(_watchHealthResult);
-        }
+        if (!string.IsNullOrWhiteSpace(_watchPhase))
+            WatchStatusStack.Children.Add(MakeWatchRow($"Phase: {_watchPhase}"));
     }
 
-    private void AddWatchHealthRows(SquadWatchHealthResult health)
+    private void SyncWatchHealthPanel()
     {
-        WatchStatusStack.Children.Add(new TextBlock
-        {
-            Text = "Health",
-            Margin = new Thickness(0, 0, 0, 2),
-            FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)FindResource("ActivePanelTitle")
-        });
+        bool showHealth = _watchHealthPanelVisible && _watchHealthResult is not null;
+        WatchHealthPanelBorder.Visibility = showHealth ? Visibility.Visible : Visibility.Collapsed;
+        _dockingService?.OnPanelVisibilityChanged("watch-health", showHealth);
 
+        WatchHealthStack.Children.Clear();
+
+        if (!showHealth || _watchHealthResult is null) return;
+
+        var health = _watchHealthResult;
         var summaryBrush = health.Success
-            ? (health.IsRunning ? (Brush)FindResource("ActivePanelTitle") : (Brush)FindResource("ActivePanelSubtitle"))
+            ? (health.IsRunning
+                ? (Brush)FindResource("ActivePanelTitle")
+                : (Brush)FindResource("ActivePanelSubtitle"))
             : Brushes.IndianRed;
-        WatchStatusStack.Children.Add(MakeWatchRow(health.Summary, summaryBrush));
 
-        foreach (var line in health.Lines
-                     .Where(line => !string.Equals(line, health.Summary, StringComparison.Ordinal))
-                     .Take(8))
-        {
-            WatchStatusStack.Children.Add(MakeWatchRow(line));
-        }
+        WatchHealthStack.Children.Add(MakeWatchRow(health.Summary, summaryBrush));
 
-        if (health.Lines.Count > 8)
-            WatchStatusStack.Children.Add(MakeWatchRow($"... {health.Lines.Count - 8} more line(s)"));
-
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 10, 0, 0)
-        };
-
-        var refreshButton = new Button
-        {
-            Content = "Refresh",
-            Margin = new Thickness(0, 0, 8, 0),
-            MinWidth = 72
-        };
-        refreshButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        refreshButton.Click += async (_, _) =>
-        {
-            try
-            {
-                await RefreshWatchHealthPanelAsync();
-            }
-            catch (Exception ex)
-            {
-                HandleUiCallbackException("WatchHealthRefreshButton.Click", ex);
-            }
-        };
-
-        var closeButton = new Button
-        {
-            Content = "Close",
-            MinWidth = 64
-        };
-        closeButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        closeButton.Click += (_, _) => CloseWatchHealthPanel();
-
-        buttons.Children.Add(refreshButton);
-        buttons.Children.Add(closeButton);
-        WatchStatusStack.Children.Add(buttons);
+        foreach (var line in health.Lines.Where(l => !string.Equals(l, health.Summary, StringComparison.Ordinal)))
+            WatchHealthStack.Children.Add(MakeWatchRow(line));
     }
 
     private TextBlock MakeWatchRow(string text, Brush? foreground = null) =>
@@ -12616,11 +12561,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _watchHealthPanelVisible = true;
         _watchHealthResult = SquadWatchHealthResult.Checking;
-        SyncWatchPanel();
+        SyncWatchHealthPanel();
 
         var result = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
         _watchHealthResult = result;
-        SyncWatchPanel();
+        SyncWatchHealthPanel();
     }
 
     private void CloseWatchHealthPanel()
@@ -12628,6 +12573,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _watchHealthPanelVisible = false;
         _watchHealthResult = null;
         SyncWatchPanel();
+        SyncWatchHealthPanel();
+    }
+
+    private void WatchHealthPanelCloseButton_Click(object sender, RoutedEventArgs e) => CloseWatchHealthPanel();
+
+    private async void WatchHealthRefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        try { await RefreshWatchHealthPanelAsync(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(WatchHealthRefreshButton_Click), ex); }
+    }
+
+    private void WatchHealthCopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_watchHealthResult is null) return;
+        var text = string.Join(Environment.NewLine, _watchHealthResult.Lines);
+        if (!string.IsNullOrEmpty(text))
+            Clipboard.SetText(text);
     }
 
     private async void DiscoverSquadsMenuItem_Click(object sender, RoutedEventArgs e)
@@ -14201,12 +14163,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var dockable = new[]
         {
-            (Border: TasksPanelBorder,       PanelId: "tasks"),
-            (Border: ApprovalPanelBorder,    PanelId: "approvals"),
-            (Border: NotesPanelBorder,       PanelId: "notes"),
-            (Border: CodeHealthPanelBorder, PanelId: "maintenance"),
-            (Border: InboxPanelBorder,       PanelId: "inbox"),
-            (Border: LoopPanelBorder,        PanelId: "loop"),
+            (Border: TasksPanelBorder,         PanelId: "tasks"),
+            (Border: ApprovalPanelBorder,      PanelId: "approvals"),
+            (Border: NotesPanelBorder,         PanelId: "notes"),
+            (Border: CodeHealthPanelBorder,    PanelId: "maintenance"),
+            (Border: InboxPanelBorder,         PanelId: "inbox"),
+            (Border: LoopPanelBorder,          PanelId: "loop"),
+            (Border: WatchHealthPanelBorder,   PanelId: "watch-health"),
         };
 
         foreach (var (border, panelId) in dockable)
@@ -28196,7 +28159,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             $"model=[{string.Join(", ", topSlots)}] visible=[{string.Join(", ", visibleTopSlots)}]");
 
         var cols = TopZonePanelsGrid.ColumnDefinitions;
-        var interestingColumns = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
+        var interestingColumns = new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 };
         foreach (var index in interestingColumns)
         {
             if (index >= cols.Count)
@@ -28223,6 +28186,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ("maintenance", CodeHealthPanelBorder),
             ("inbox", InboxPanelBorder),
             ("watch", WatchPanelBorder),
+            ("watch-health", WatchHealthPanelBorder),
         };
 
         foreach (var (id, element) in panels)
@@ -28260,6 +28224,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return true;
             case "inbox":
                 element = InboxPanelBorder;
+                return true;
+            case "watch-health":
+                element = WatchHealthPanelBorder;
                 return true;
             default:
                 element = null!;
