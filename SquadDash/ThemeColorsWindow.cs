@@ -276,7 +276,7 @@ internal sealed class ThemeColorsWindow : Window
             RadiusY = 4,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Opacity = 0.5,
+            Opacity = 0.75,
             IsHitTestVisible = false
         };
         _hueLeftOverlay.SetResourceReference(Shape.FillProperty, "AppSurface");
@@ -289,7 +289,7 @@ internal sealed class ThemeColorsWindow : Window
             RadiusY = 4,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Opacity = 0.5,
+            Opacity = 0.75,
             IsHitTestVisible = false
         };
         _hueRightOverlay.SetResourceReference(Shape.FillProperty, "AppSurface");
@@ -349,7 +349,7 @@ internal sealed class ThemeColorsWindow : Window
             IsSnapToTickEnabled = false,
             VerticalAlignment = VerticalAlignment.Center
         };
-        _hueRangeSlider.SetResourceReference(BackgroundProperty, "InputSurface");
+        _hueRangeSlider.Loaded += (_, _) => ThemedSliderTrack(_hueRangeSlider, "InputSurface");
         hueRangeRow.Children.Add(_hueRangeSlider);
 
         hueSliderGrid.SizeChanged += (_, _) => UpdateHueRangeOverlay();
@@ -738,8 +738,8 @@ internal sealed class ThemeColorsWindow : Window
     }
 
     // Walk the visual tree of a Slider after it has loaded and set all Border/Rectangle
-    // backgrounds to Transparent, skipping Thumb descendants so the thumb retains its
-    // default appearance. This makes the hue slider track invisible over the rainbow strip.
+    // backgrounds to Transparent (skipping Thumb), eliminating any unthemed white track.
+    // Used for the hue center slider which overlays the rainbow strip.
     private static void MakeSliderTrackTransparent(DependencyObject parent)
     {
         int count = VisualTreeHelper.GetChildrenCount(parent);
@@ -747,9 +747,32 @@ internal sealed class ThemeColorsWindow : Window
         {
             var child = VisualTreeHelper.GetChild(parent, i);
             if (child is Thumb) continue;
-            if (child is Border b)  b.Background = Brushes.Transparent;
+            if (child is Border b)
+            {
+                b.Background = Brushes.Transparent;
+                b.BorderThickness = new Thickness(0);
+            }
             if (child is Rectangle r) r.Fill = Brushes.Transparent;
             MakeSliderTrackTransparent(child);
+        }
+    }
+
+    // Walk the visual tree of a Slider after it has loaded and apply a themed
+    // resource brush to all track Border backgrounds (skipping Thumb).
+    // Used for the range, brightness, and saturation sliders.
+    private static void ThemedSliderTrack(DependencyObject parent, string resourceKey)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Thumb) continue;
+            if (child is Border b && VisualTreeHelper.GetChildrenCount(b) > 0)
+            {
+                b.SetResourceReference(Border.BackgroundProperty, resourceKey);
+                b.BorderThickness = new Thickness(0);
+            }
+            ThemedSliderTrack(child, resourceKey);
         }
     }
 
@@ -785,6 +808,7 @@ internal sealed class ThemeColorsWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4, 0, 4, 0)
         };
+        slider.Loaded += (_, _) => ThemedSliderTrack(slider, "InputSurface");
         Grid.SetRow(slider, 0);
         Grid.SetColumn(slider, 1);
         container.Children.Add(slider);
