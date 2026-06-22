@@ -6,7 +6,7 @@
     "postinstall": "patch-package"
   },
   "devDependencies": {
-    "@bradygaster/squad-cli": "^0.9.5-insider.1",
+    "@bradygaster/squad-cli": "^0.10.0",
     "patch-package": "^8.0.1"
   },
   "dependencies": {
