@@ -50,6 +50,7 @@ internal sealed class ThemeColorsWindow : Window
     private readonly TextBlock _hueRangeValueLabel;
     private Rectangle _hueLeftOverlay = null!;
     private Rectangle _hueRightOverlay = null!;
+    private Rectangle _hueMiddleOverlay = null!;
     private Grid _hueSliderGrid = null!;
 
     // Currently selected key
@@ -294,6 +295,20 @@ internal sealed class ThemeColorsWindow : Window
         };
         _hueRightOverlay.SetResourceReference(Shape.FillProperty, "AppSurface");
         hueSliderGrid.Children.Add(_hueRightOverlay);
+
+        _hueMiddleOverlay = new Rectangle
+        {
+            Height = 12,
+            RadiusX = 4,
+            RadiusY = 4,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = 0,
+            Opacity = 0.75,
+            IsHitTestVisible = false
+        };
+        _hueMiddleOverlay.SetResourceReference(Shape.FillProperty, "AppSurface");
+        hueSliderGrid.Children.Add(_hueMiddleOverlay);
 
         _hueSlider = new Slider
         {
@@ -585,14 +600,43 @@ internal sealed class ThemeColorsWindow : Window
 
         double center    = hue   / 359.0;
         double halfRange = range / 359.0;
-        double lo = Math.Clamp(center - halfRange, 0.0, 1.0);
-        double hi = Math.Clamp(center + halfRange, 0.0, 1.0);
+        double loRaw = center - halfRange;
+        double hiRaw = center + halfRange;
 
-        double loPx = thumbHalfW + lo * usableWidth;
-        double hiPx = thumbHalfW + hi * usableWidth;
-
-        _hueLeftOverlay.Width  = Math.Max(0, loPx);
-        _hueRightOverlay.Width = Math.Max(0, totalWidth - hiPx);
+        if (loRaw >= 0.0 && hiRaw <= 1.0)
+        {
+            // Normal case — no wrapping
+            double loPx = thumbHalfW + loRaw * usableWidth;
+            double hiPx = thumbHalfW + hiRaw * usableWidth;
+            _hueLeftOverlay.Width   = Math.Max(0, loPx);
+            _hueRightOverlay.Width  = Math.Max(0, totalWidth - hiPx);
+            _hueMiddleOverlay.Width = 0;
+            _hueMiddleOverlay.Margin = new Thickness(0);
+        }
+        else if (loRaw < 0.0)
+        {
+            // Wraps on the low side: visible = [0, hi] ∪ [lo+360, 360)
+            // Hidden middle: [hi, lo+360]
+            double loWrapped    = loRaw + 1.0;
+            double hiPx         = thumbHalfW + hiRaw * usableWidth;
+            double loWrappedPx  = thumbHalfW + loWrapped * usableWidth;
+            _hueLeftOverlay.Width   = 0;
+            _hueRightOverlay.Width  = 0;
+            _hueMiddleOverlay.Margin = new Thickness(hiPx, 0, 0, 0);
+            _hueMiddleOverlay.Width  = Math.Max(0, loWrappedPx - hiPx);
+        }
+        else // hiRaw > 1.0
+        {
+            // Wraps on the high side: visible = [0, hi-360] ∪ [lo, 360)
+            // Hidden middle: [hi-360, lo]
+            double hiWrapped    = hiRaw - 1.0;
+            double loPx         = thumbHalfW + loRaw * usableWidth;
+            double hiWrappedPx  = thumbHalfW + hiWrapped * usableWidth;
+            _hueLeftOverlay.Width   = 0;
+            _hueRightOverlay.Width  = 0;
+            _hueMiddleOverlay.Margin = new Thickness(hiWrappedPx, 0, 0, 0);
+            _hueMiddleOverlay.Width  = Math.Max(0, loPx - hiWrappedPx);
+        }
     }
 
     // ── Theme switching ───────────────────────────────────────────────────
