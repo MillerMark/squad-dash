@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -115,6 +117,7 @@ internal sealed class SquadWatchHealthService {
             }
 
             var processId = process.Id;
+            WriteWatchHealthPidFile(activeDirectory, processId, command);
             return new SquadCommandResult(
                 true,
                 0,
@@ -129,6 +132,86 @@ internal sealed class SquadWatchHealthService {
                 string.Empty,
                 ex.Message,
                 $"Unable to start Squad Watch: {ex.Message}");
+        }
+    }
+
+    internal static string GetWatchHealthPidPath(string teamRoot) {
+        var hash = Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(teamRoot)))
+            .ToLowerInvariant()[..12];
+        return Path.Combine(Path.GetTempPath(), $"squad-watch-{hash}.json");
+    }
+
+    private static void WriteWatchHealthPidFile(
+        string teamRoot,
+        int processId,
+        SquadCliCommandDefinition command) {
+        var pidPath = GetWatchHealthPidPath(teamRoot);
+        var pidInfo = new {
+            pid = processId,
+            startedAt = DateTimeOffset.UtcNow.ToString("O"),
+            user = ProbeCurrentGhUser() ?? "(unknown)",
+            interval = TryParseInterval(command.Arguments) ?? 0,
+            repo = teamRoot,
+            capabilities = BuildCapabilities(command.Arguments)
+        };
+
+        File.WriteAllText(
+            pidPath,
+            JsonSerializer.Serialize(pidInfo, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static int? TryParseInterval(string arguments) {
+        var match = Regex.Match(arguments, @"(?:^|\s)--interval\s+(\d+)\b", RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var interval)
+            ? interval
+            : null;
+    }
+
+    private static string[] BuildCapabilities(string arguments) {
+        var capabilities = new List<string>();
+        if (arguments.Contains("--execute", StringComparison.OrdinalIgnoreCase))
+            capabilities.Add("execute");
+        if (arguments.Contains("--verbose", StringComparison.OrdinalIgnoreCase))
+            capabilities.Add("verbose");
+        var notifyLevelMatch = Regex.Match(arguments, @"(?:^|\s)--notify-level\s+(\S+)\b", RegexOptions.IgnoreCase);
+        if (notifyLevelMatch.Success)
+            capabilities.Add($"notify:{notifyLevelMatch.Groups[1].Value}");
+        return capabilities.ToArray();
+    }
+
+    private static string? ProbeCurrentGhUser() {
+        try {
+            using var process = new Process {
+                StartInfo = new ProcessStartInfo {
+                    FileName = "gh",
+                    Arguments = "api user -q .login",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                }
+            };
+            process.StartInfo.Environment["PATH"] = SquadProcessEnvironment.BuildMergedPathEnvironmentValue();
+
+            if (!process.Start())
+                return null;
+
+            var exited = process.WaitForExit(5000);
+            if (!exited) {
+                try { process.Kill(entireProcessTree: true); }
+                catch { /* best effort */ }
+                return null;
+            }
+
+            var login = process.StandardOutput.ReadToEnd().Trim();
+            return process.ExitCode == 0 && !string.IsNullOrWhiteSpace(login)
+                ? login
+                : null;
+        }
+        catch {
+            return null;
         }
     }
 

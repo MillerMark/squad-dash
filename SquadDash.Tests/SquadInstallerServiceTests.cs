@@ -367,6 +367,16 @@ internal sealed class SquadInstallerServiceTests {
     }
 
     [Test]
+    public void WatchHealthPidPath_UsesSquadTempFileConvention() {
+        var path = SquadWatchHealthService.GetWatchHealthPidPath(@"C:\repo");
+
+        Assert.Multiple(() => {
+            Assert.That(Path.GetDirectoryName(path), Is.EqualTo(Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar)));
+            Assert.That(Path.GetFileName(path), Does.Match(@"^squad-watch-[a-f0-9]{12}\.json$"));
+        });
+    }
+
+    [Test]
     public void WatchHealthResult_ReportsMissingLocalCli() {
         var result = SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
             false,
