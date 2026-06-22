@@ -1134,7 +1134,7 @@ internal sealed class PreferencesWindow : Window {
         _customModelProviderPanel.Children.Add(_byokProviderUrlBox);
 
         var urlHint = new TextBlock {
-            Text = "e.g. http://localhost:11434/v1",
+            Text = "e.g. http://localhost:11434/v1 or http://localhost:11434",
             FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 3, 0, 12)
         };
@@ -1911,23 +1911,23 @@ internal sealed class PreferencesWindow : Window {
     }
 
     private async void ByokTestButton_Click(object sender, RoutedEventArgs e) {
-        var url = _byokProviderUrlBox.Text.Trim().TrimEnd('/');
+        var url = ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text);
         if (string.IsNullOrEmpty(url)) {
             _byokTestStatusText.Text = "Enter a Provider URL first.";
             return;
         }
         _byokTestStatusText.Text = "Testing…";
         try {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             var apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
-            if (!string.IsNullOrWhiteSpace(apiKey))
-                http.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-            var response = await http.GetStringAsync($"{url}/models").ConfigureAwait(true);
-            var ids = System.Text.RegularExpressions.Regex.Matches(response, "\"id\"\\s*:\\s*\"([^\"]+)\"");
-            if (ids.Count > 0) {
-                var names = string.Join(", ", System.Linq.Enumerable.Select(ids.Cast<System.Text.RegularExpressions.Match>(), m => m.Groups[1].Value));
-                _byokTestStatusText.Text = $"✅ Connected — {ids.Count} model(s): {names}";
+            using var probeService = new ModelProviderProbeService();
+            var models = await probeService.DiscoverModelsAsync(
+                url,
+                string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim());
+            _byokProviderUrlBox.Text = url;
+
+            if (models.Count > 0) {
+                var names = string.Join(", ", models.Select(model => model.ModelId));
+                _byokTestStatusText.Text = $"✅ Connected — {models.Count} model(s): {names}";
             }
             else {
                 _byokTestStatusText.Text = "✅ Reachable (no models listed)";
@@ -1939,7 +1939,7 @@ internal sealed class PreferencesWindow : Window {
     }
 
     private async void ByokProbeButton_Click(object sender, RoutedEventArgs e) {
-        var url = _byokProviderUrlBox.Text.Trim();
+        var url = ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text);
         if (string.IsNullOrEmpty(url)) {
             _byokTestStatusText.Text = "Enter a Provider URL first.";
             return;
@@ -1956,6 +1956,7 @@ internal sealed class PreferencesWindow : Window {
             var models = await probeService.DiscoverModelsAsync(
                 url,
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim());
+            _byokProviderUrlBox.Text = url;
             var providerWarning = await BuildModelProbeProviderWarningAsync(
                 probeService,
                 url,
@@ -1990,7 +1991,8 @@ internal sealed class PreferencesWindow : Window {
             _byokTestStatusText.Text = $"Probe failed: {ex.Message}";
             UIErrorHelper.ShowError(
                 "Model Probe",
-                $"Unable to open the model probe.{Environment.NewLine}{Environment.NewLine}{ex.Message}");
+                $"Unable to open the model probe.{Environment.NewLine}{Environment.NewLine}{ex.Message}",
+                owner: this);
         }
         finally {
             if (clickedButton is not null)
@@ -2226,7 +2228,7 @@ internal sealed class PreferencesWindow : Window {
         var byokProviderType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
         var byokApiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
         updated = _settingsStore.SaveByokSettings(
-            string.IsNullOrWhiteSpace(_byokProviderUrlBox.Text.Trim()) ? null : _byokProviderUrlBox.Text.Trim(),
+            ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text),
             string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim(),
             byokProviderType,
             string.IsNullOrWhiteSpace(byokApiKey) ? null : byokApiKey,
