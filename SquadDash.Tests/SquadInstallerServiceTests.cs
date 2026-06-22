@@ -212,6 +212,39 @@ internal sealed class SquadInstallerServiceTests {
     }
 
     [Test]
+    public void EnsureSquadDashUniverseFiles_UsesExternalStateLocationFromSquadConfig() {
+        using var workspace = new TestWorkspace();
+        var originalAppData = Environment.GetEnvironmentVariable("APPDATA");
+        var appData = workspace.GetPath("appdata");
+        Environment.SetEnvironmentVariable("APPDATA", appData);
+
+        try {
+            var externalStateDir = Path.Combine(appData, "squad", "projects", "external-repo");
+            Directory.CreateDirectory(externalStateDir);
+            workspace.CreateFile(Path.Combine(".squad", "config.json"),
+                """
+                {
+                  "version": 1,
+                  "teamRoot": ".",
+                  "projectKey": "external-repo",
+                  "stateLocation": "external"
+                }
+                """);
+
+            SquadInstallerService.EnsureSquadDashUniverseFiles(workspace.RootPath);
+
+            Assert.Multiple(() => {
+                Assert.That(Directory.Exists(Path.Combine(externalStateDir, "templates", "universes")), Is.True);
+                Assert.That(File.Exists(Path.Combine(externalStateDir, "casting", "policy.json")), Is.True);
+                Assert.That(Directory.Exists(workspace.GetPath(".squad", "templates", "universes")), Is.False);
+            });
+        }
+        finally {
+            Environment.SetEnvironmentVariable("APPDATA", originalAppData);
+        }
+    }
+
+    [Test]
     public void SessionWorkspace_SquadFolderPath_UsesRemoteTeamRootFromSquadConfig() {
         using var workspace = new TestWorkspace();
         var remoteTeamRoot = workspace.GetPath("state", ".squad");
@@ -227,6 +260,35 @@ internal sealed class SquadInstallerServiceTests {
         var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
 
         Assert.That(sessionWorkspace.SquadFolderPath, Is.EqualTo(remoteTeamRoot));
+    }
+
+    [Test]
+    public void SessionWorkspace_SquadFolderPath_UsesExternalStateLocationFromSquadConfig() {
+        using var workspace = new TestWorkspace();
+        var originalAppData = Environment.GetEnvironmentVariable("APPDATA");
+        var appData = workspace.GetPath("appdata");
+        Environment.SetEnvironmentVariable("APPDATA", appData);
+
+        try {
+            var externalStateDir = Path.Combine(appData, "squad", "projects", "external-repo");
+            Directory.CreateDirectory(externalStateDir);
+            workspace.CreateFile(Path.Combine(".squad", "config.json"),
+                """
+                {
+                  "version": 1,
+                  "teamRoot": ".",
+                  "projectKey": "external-repo",
+                  "stateLocation": "external"
+                }
+                """);
+
+            var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
+
+            Assert.That(sessionWorkspace.SquadFolderPath, Is.EqualTo(externalStateDir));
+        }
+        finally {
+            Environment.SetEnvironmentVariable("APPDATA", originalAppData);
+        }
     }
 
     [Test]

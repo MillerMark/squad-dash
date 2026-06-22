@@ -12,6 +12,8 @@ internal sealed record SquadWorkspaceLayout(
     string DirectoryName,
     bool IsRemote,
     string? StateBackend,
+    string? StateLocation,
+    string? ProjectKey,
     string ResolutionReason) {
 
     public string TeamFilePath => Path.Combine(TeamSquadFolderPath, "team.md");
@@ -44,12 +46,25 @@ internal static class SquadWorkspaceLayoutResolver {
         var teamRoot = config?.TeamRoot;
         var teamSquadDir = projectSquadDir;
         var isRemote = false;
+        var resolutionReason = reason;
 
-        if (!string.IsNullOrWhiteSpace(teamRoot)) {
+        var isExternalState = config is not null &&
+            string.Equals(config.StateLocation, "external", StringComparison.OrdinalIgnoreCase);
+        if (isExternalState) {
+            var externalStateDir = TryResolveExternalStateDir(config?.ProjectKey);
+            if (!string.IsNullOrWhiteSpace(externalStateDir)) {
+                teamSquadDir = externalStateDir;
+                isRemote = true;
+                resolutionReason = "Resolved external Squad state from .squad/config.json";
+            }
+        }
+
+        if (!isExternalState && !isRemote && !string.IsNullOrWhiteSpace(teamRoot)) {
             var projectRoot = Directory.GetParent(projectSquadDir)?.FullName;
             if (!string.IsNullOrWhiteSpace(projectRoot)) {
                 teamSquadDir = Path.GetFullPath(Path.Combine(projectRoot, teamRoot));
                 isRemote = true;
+                resolutionReason = reason;
             }
         }
 
@@ -60,7 +75,9 @@ internal static class SquadWorkspaceLayoutResolver {
             directoryName,
             isRemote,
             config?.StateBackend,
-            reason);
+            config?.StateLocation,
+            config?.ProjectKey,
+            resolutionReason);
     }
 
     private static (string Path, string DirectoryName, string Reason)? FindSquadDirectory(string startDirectory) {
@@ -144,11 +161,67 @@ internal static class SquadWorkspaceLayoutResolver {
 
             return new SquadDirectoryConfig(
                 TryGetString(root, "teamRoot"),
-                TryGetString(root, "stateBackend"));
+                TryGetString(root, "stateBackend"),
+                TryGetString(root, "stateLocation"),
+                TryGetString(root, "projectKey"));
         }
         catch {
             return null;
         }
+    }
+
+    private static string? TryResolveExternalStateDir(string? projectKey) {
+        var sanitized = SanitizeProjectKey(projectKey);
+        if (string.IsNullOrWhiteSpace(sanitized))
+            return null;
+
+        var globalDir = ResolveGlobalSquadPath();
+        return Path.Combine(globalDir, "projects", sanitized);
+    }
+
+    private static string? SanitizeProjectKey(string? projectKey) {
+        if (string.IsNullOrWhiteSpace(projectKey) || projectKey.Contains("..", StringComparison.Ordinal))
+            return null;
+
+        var builder = new System.Text.StringBuilder(projectKey.Length);
+        foreach (var character in projectKey) {
+            if ((character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') ||
+                (character >= '0' && character <= '9') ||
+                character is '.' or '_' or '-') {
+                builder.Append(character);
+            }
+            else if (character is '/' or '\\') {
+                builder.Append('-');
+            }
+            else {
+                builder.Append('-');
+            }
+        }
+
+        var sanitized = builder.ToString().Trim('-');
+        return string.IsNullOrWhiteSpace(sanitized) ? null : sanitized;
+    }
+
+    private static string ResolveGlobalSquadPath() {
+        var appData = Environment.GetEnvironmentVariable("APPDATA");
+        if (string.IsNullOrWhiteSpace(appData))
+            appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        if (string.IsNullOrWhiteSpace(appData)) {
+            appData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            if (string.IsNullOrWhiteSpace(appData))
+                appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        }
+
+        if (string.IsNullOrWhiteSpace(appData)) {
+            var userProfile = Environment.GetEnvironmentVariable("USERPROFILE");
+            appData = string.IsNullOrWhiteSpace(userProfile)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                : Path.Combine(userProfile, "AppData", "Roaming");
+        }
+
+        return Path.Combine(appData, "squad");
     }
 
     private static string? TryGetString(JsonElement element, string propertyName) {
@@ -165,5 +238,9 @@ internal static class SquadWorkspaceLayoutResolver {
                value.ValueKind == JsonValueKind.Number;
     }
 
-    private sealed record SquadDirectoryConfig(string? TeamRoot, string? StateBackend);
+    private sealed record SquadDirectoryConfig(
+        string? TeamRoot,
+        string? StateBackend,
+        string? StateLocation,
+        string? ProjectKey);
 }

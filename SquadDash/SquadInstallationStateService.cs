@@ -29,6 +29,8 @@ internal sealed class SquadInstallationStateService {
             layout?.TeamSquadFolderPath,
             layout?.IsRemote ?? false,
             layout?.StateBackend,
+            layout?.StateLocation,
+            layout?.ProjectKey,
             layout?.ResolutionReason);
     }
 }
@@ -47,4 +49,6 @@ internal sealed record SquadInstallationState(
     string? TeamSquadFolderPath = null,
     bool UsesRemoteTeamRoot = false,
     string? StateBackend = null,
+    string? StateLocation = null,
+    string? ProjectKey = null,
     string? SquadResolutionReason = null);
