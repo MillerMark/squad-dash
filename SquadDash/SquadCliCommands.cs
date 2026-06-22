@@ -15,6 +15,25 @@ internal static class SquadCliCommands {
     public static SquadCliCommandDefinition WatchHealth { get; } =
         new("node", $"\"{LocalCliEntryPath}\" watch --health", "Check Squad Watch Health");
 
+    public static SquadCliCommandDefinition StartWatch(
+        int intervalMinutes,
+        bool execute,
+        bool verbose,
+        string? notifyLevel) {
+        var interval = Math.Clamp(intervalMinutes, 1, 1440);
+        var arguments = $"\"{LocalCliEntryPath}\" watch --interval {interval}";
+        if (execute)
+            arguments += " --execute";
+        if (verbose)
+            arguments += " --verbose";
+        if (!string.IsNullOrWhiteSpace(notifyLevel) &&
+            notifyLevel is "all" or "important" or "none") {
+            arguments += $" --notify-level {notifyLevel}";
+        }
+
+        return new SquadCliCommandDefinition("node", arguments, "Start Squad Watch");
+    }
+
     public static SquadCliCommandDefinition DiscoverSquads { get; } =
         new("node", $"\"{LocalCliEntryPath}\" discover", "Discover Squads");
 }

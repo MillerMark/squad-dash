@@ -2255,6 +2255,7 @@
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
 
@@ -2300,8 +2301,65 @@
                                            VerticalAlignment="Center" />
                             </DockPanel>
 
-                            <!-- Row 1: Scrollable health output -->
-                            <ScrollViewer Grid.Row="1"
+                            <WrapPanel Grid.Row="1"
+                                       Margin="0,8,0,0"
+                                       VerticalAlignment="Center">
+                                <TextBlock Text="Interval"
+                                           Margin="0,0,4,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="{DynamicResource FontSizeXSmall}"
+                                           Foreground="{DynamicResource ActivePanelSubtitle}" />
+                                <TextBox x:Name="WatchHealthIntervalBox"
+                                         Text="5"
+                                         Width="34"
+                                         Height="22"
+                                         Margin="0,0,8,4"
+                                         Padding="4,1"
+                                         HorizontalContentAlignment="Center"
+                                         VerticalContentAlignment="Center"
+                                         FontSize="{DynamicResource FontSizeXSmall}"
+                                         Background="{DynamicResource TextBoxBackground}"
+                                         Foreground="{DynamicResource AppForeground}"
+                                         BorderBrush="{DynamicResource RosterPanelBorder}" />
+                                <CheckBox x:Name="WatchHealthExecuteCheckBox"
+                                          Content="Execute"
+                                          IsChecked="True"
+                                          Margin="0,0,8,4"
+                                          VerticalAlignment="Center"
+                                          FontSize="{DynamicResource FontSizeXSmall}"
+                                          Foreground="{DynamicResource ActivePanelSubtitle}"
+                                          Style="{StaticResource ThemedCheckBoxStyle}" />
+                                <ComboBox x:Name="WatchHealthNotifyLevelComboBox"
+                                          Width="88"
+                                          Height="22"
+                                          Margin="0,0,8,4"
+                                          SelectedIndex="1"
+                                          FontSize="{DynamicResource FontSizeXSmall}"
+                                          Style="{StaticResource ThemedComboBoxStyle}">
+                                    <ComboBoxItem Content="all" />
+                                    <ComboBoxItem Content="important" />
+                                    <ComboBoxItem Content="none" />
+                                </ComboBox>
+                                <Button x:Name="WatchHealthStartButton"
+                                        Content="Start"
+                                        Height="22"
+                                        Margin="0,0,6,4"
+                                        Padding="8,0"
+                                        FontSize="{DynamicResource FontSizeXSmall}"
+                                        Style="{StaticResource ThemedIconButtonStyle}"
+                                        Click="WatchHealthStartButton_Click" />
+                                <Button x:Name="WatchHealthStopButton"
+                                        Content="Stop"
+                                        Height="22"
+                                        Margin="0,0,0,4"
+                                        Padding="8,0"
+                                        FontSize="{DynamicResource FontSizeXSmall}"
+                                        Style="{StaticResource ThemedIconButtonStyle}"
+                                        Click="WatchHealthStopButton_Click" />
+                            </WrapPanel>
+
+                            <!-- Row 2: Scrollable health output -->
+                            <ScrollViewer Grid.Row="2"
                                           Margin="0,8,0,0"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">

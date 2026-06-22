@@ -308,6 +308,26 @@ internal sealed class SquadInstallerServiceTests {
     }
 
     [Test]
+    public void WatchHealthResult_ParsesRunningPid() {
+        var result = SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
+            true,
+            0,
+            """
+            Watch Instance — RUNNING
+              PID:           12345
+              Uptime:        2m
+              Interval:      5m
+            """,
+            string.Empty,
+            "done"));
+
+        Assert.Multiple(() => {
+            Assert.That(result.IsRunning, Is.True);
+            Assert.That(result.ProcessId, Is.EqualTo(12345));
+        });
+    }
+
+    [Test]
     public void WatchHealthResult_ReportsUnsupportedCliOutput() {
         var result = SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
             false,
@@ -328,6 +348,21 @@ internal sealed class SquadInstallerServiceTests {
             Assert.That(SquadCliCommands.WatchHealth.FileName, Is.EqualTo("node"));
             Assert.That(SquadCliCommands.WatchHealth.Arguments, Does.Contain(SquadCliCommands.LocalCliEntryPath));
             Assert.That(SquadCliCommands.WatchHealth.Arguments, Does.Not.Contain("npx"));
+        });
+    }
+
+    [Test]
+    public void StartWatchCommand_UsesWorkspaceLocalCliEntryAndOptions() {
+        var command = SquadCliCommands.StartWatch(5, execute: true, verbose: true, notifyLevel: "important");
+
+        Assert.Multiple(() => {
+            Assert.That(command.FileName, Is.EqualTo("node"));
+            Assert.That(command.Arguments, Does.Contain(SquadCliCommands.LocalCliEntryPath));
+            Assert.That(command.Arguments, Does.Contain("watch --interval 5"));
+            Assert.That(command.Arguments, Does.Contain("--execute"));
+            Assert.That(command.Arguments, Does.Contain("--verbose"));
+            Assert.That(command.Arguments, Does.Contain("--notify-level important"));
+            Assert.That(command.Arguments, Does.Not.Contain("npx"));
         });
     }
 

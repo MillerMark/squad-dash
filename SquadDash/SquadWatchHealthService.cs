@@ -1,6 +1,9 @@
 using System;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace SquadDash;
@@ -24,6 +27,111 @@ internal sealed class SquadWatchHealthService {
         return SquadWatchHealthResult.FromCommandResult(result);
     }
 
+    public Task<SquadCommandResult> StartWatchAsync(
+        string activeDirectory,
+        int intervalMinutes,
+        bool execute,
+        bool verbose,
+        string? notifyLevel) {
+        var command = SquadCliCommands.StartWatch(intervalMinutes, execute, verbose, notifyLevel);
+        return Task.Run(() => StartLongRunningWatch(command, activeDirectory));
+    }
+
+    public async Task<SquadCommandResult> StopWatchAsync(int processId) {
+        try {
+            using var process = Process.GetProcessById(processId);
+            if (process.HasExited) {
+                return new SquadCommandResult(
+                    true,
+                    0,
+                    string.Empty,
+                    string.Empty,
+                    $"Watch process {processId} has already exited.");
+            }
+
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+            return new SquadCommandResult(
+                true,
+                0,
+                string.Empty,
+                string.Empty,
+                $"Stopped watch process {processId}.");
+        }
+        catch (ArgumentException) {
+            return new SquadCommandResult(
+                true,
+                0,
+                string.Empty,
+                string.Empty,
+                $"Watch process {processId} is not running.");
+        }
+        catch (Exception ex) {
+            return new SquadCommandResult(
+                false,
+                null,
+                string.Empty,
+                ex.Message,
+                $"Unable to stop watch process {processId}: {ex.Message}");
+        }
+    }
+
+    private static SquadCommandResult StartLongRunningWatch(
+        SquadCliCommandDefinition command,
+        string activeDirectory) {
+        try {
+            var localCliPath = Path.Combine(activeDirectory, SquadCliCommands.LocalCliEntryPath);
+            if (!File.Exists(localCliPath)) {
+                return new SquadCommandResult(
+                    false,
+                    null,
+                    string.Empty,
+                    $"Local Squad CLI was not found at {localCliPath}.",
+                    "Local Squad CLI is not installed for this workspace.");
+            }
+
+            using var process = new Process {
+                StartInfo = new ProcessStartInfo {
+                    FileName = command.FileName,
+                    Arguments = command.Arguments,
+                    WorkingDirectory = activeDirectory,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.StartInfo.Environment["PATH"] = SquadProcessEnvironment.BuildMergedPathEnvironmentValue();
+
+            if (!process.Start()) {
+                return new SquadCommandResult(
+                    false,
+                    null,
+                    string.Empty,
+                    string.Empty,
+                    "Failed to start Squad Watch.");
+            }
+
+            var processId = process.Id;
+            return new SquadCommandResult(
+                true,
+                0,
+                $"Started Squad Watch with PID {processId}.",
+                string.Empty,
+                $"Started Squad Watch with PID {processId}.");
+        }
+        catch (Exception ex) {
+            return new SquadCommandResult(
+                false,
+                null,
+                string.Empty,
+                ex.Message,
+                $"Unable to start Squad Watch: {ex.Message}");
+        }
+    }
+
     private sealed class WatchHealthCommandRunner : ISquadCommandRunner {
         public Task<SquadCommandResult> RunAsync(SquadCliCommandDefinition command, string activeDirectory) {
             return new SquadInstallerServiceProcessRunner().RunAsync(command, activeDirectory);
@@ -36,7 +144,8 @@ internal sealed record SquadWatchHealthResult(
     bool IsRunning,
     string Summary,
     IReadOnlyList<string> Lines,
-    string? ErrorText = null) {
+    string? ErrorText = null,
+    int? ProcessId = null) {
 
     public static SquadWatchHealthResult Checking { get; } =
         new(true, false, "Checking watch health...", ["Checking watch health..."]);
@@ -82,6 +191,7 @@ internal sealed record SquadWatchHealthResult(
         var isRunning = lines.Any(line =>
             line.Contains("RUNNING", StringComparison.OrdinalIgnoreCase) ||
             line.Contains("Watch is running", StringComparison.OrdinalIgnoreCase));
+        var processId = TryParseProcessId(lines);
         var summary = lines.FirstOrDefault(line => !string.IsNullOrWhiteSpace(line)) ?? result.Message;
 
         if (lines.Any(line => line.Contains("No watch instance detected", StringComparison.OrdinalIgnoreCase)))
@@ -97,7 +207,18 @@ internal sealed record SquadWatchHealthResult(
             isRunning,
             summary,
             lines,
-            result.Success ? null : combined);
+            result.Success ? null : combined,
+            processId);
+    }
+
+    private static int? TryParseProcessId(IEnumerable<string> lines) {
+        foreach (var line in lines) {
+            var match = Regex.Match(line, @"\bPID:\s*(\d+)\b", RegexOptions.IgnoreCase);
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var processId))
+                return processId;
+        }
+
+        return null;
     }
 
     private static bool LooksLikeUnsupportedWatchHealth(string text) {

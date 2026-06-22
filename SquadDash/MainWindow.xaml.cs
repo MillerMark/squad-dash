@@ -516,6 +516,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly SquadOrchestrationService _squadOrchestrationService = new();
     private bool _watchHealthPanelVisible;
     private SquadWatchHealthResult? _watchHealthResult;
+    private readonly DispatcherTimer _watchHealthAutoRefreshTimer = new();
+    private bool _watchHealthCommandInFlight;
     private bool _remoteAccessActive;
     private bool _rcRegeneratingToken;
     private bool _pendingRcRestartAfterReset;
@@ -704,6 +706,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
+        _watchHealthAutoRefreshTimer.Interval = TimeSpan.FromSeconds(15);
+        _watchHealthAutoRefreshTimer.Tick += WatchHealthAutoRefreshTimer_Tick;
         BranchIndicatorStrip.ToolTip = MakeThemedToolTip("Click for Branch options");
         this.AddHandler(UIElement.GotFocusEvent, new RoutedEventHandler(OnWindowElementGotFocus), true);
         _restartStatusPanelControl = (RestartStatusPanel?)FindName("RestartStatusPanelControl");
@@ -5719,6 +5723,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         foreach (var line in health.Lines.Where(l => !string.Equals(l, health.Summary, StringComparison.Ordinal)))
             WatchHealthStack.Children.Add(MakeWatchRow(line));
+
+        SyncWatchHealthControls();
+    }
+
+    private void SyncWatchHealthControls()
+    {
+        if (WatchHealthStartButton is null || WatchHealthStopButton is null || WatchHealthRefreshButton is null)
+            return;
+
+        var running = _watchHealthResult?.IsRunning == true;
+        var hasProcessId = _watchHealthResult?.ProcessId is not null;
+        var canAct = _currentWorkspace is not null && !_watchHealthCommandInFlight;
+
+        WatchHealthStartButton.IsEnabled = canAct && !running;
+        WatchHealthStopButton.IsEnabled = canAct && running && hasProcessId;
+        WatchHealthRefreshButton.IsEnabled = canAct;
+        WatchHealthIntervalBox.IsEnabled = canAct && !running;
+        WatchHealthExecuteCheckBox.IsEnabled = canAct && !running;
+        WatchHealthNotifyLevelComboBox.IsEnabled = canAct && !running;
     }
 
     private TextBlock MakeWatchRow(string text, Brush? foreground = null) =>
@@ -12588,19 +12611,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
 
         _watchHealthPanelVisible = true;
-        _watchHealthResult = SquadWatchHealthResult.Checking;
-        SyncWatchHealthPanel();
-        PersistWatchHealthPanelVisible();
+        _watchHealthCommandInFlight = true;
+        try
+        {
+            _watchHealthResult = SquadWatchHealthResult.Checking;
+            SyncWatchHealthPanel();
+            PersistWatchHealthPanelVisible();
 
-        var result = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
-        _watchHealthResult = result;
-        SyncWatchHealthPanel();
+            var result = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
+            _watchHealthResult = result;
+        }
+        finally
+        {
+            _watchHealthCommandInFlight = false;
+            SyncWatchHealthPanel();
+            SyncWatchHealthAutoRefresh();
+        }
     }
 
     private void CloseWatchHealthPanel()
     {
         _watchHealthPanelVisible = false;
         _watchHealthResult = null;
+        _watchHealthCommandInFlight = false;
+        SyncWatchHealthAutoRefresh();
         SyncWatchPanel();
         SyncWatchHealthPanel();
         PersistWatchHealthPanelVisible();
@@ -12620,6 +12654,167 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var text = string.Join(Environment.NewLine, _watchHealthResult.Lines);
         if (!string.IsNullOrEmpty(text))
             Clipboard.SetText(text);
+    }
+
+    private async void WatchHealthStartButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await StartWatchFromPanelAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(WatchHealthStartButton_Click), ex);
+        }
+    }
+
+    private async Task StartWatchFromPanelAsync()
+    {
+        if (_currentWorkspace is null || _watchHealthCommandInFlight)
+            return;
+
+        var interval = ReadWatchHealthIntervalMinutes();
+        var execute = WatchHealthExecuteCheckBox.IsChecked == true;
+        var verbose = false;
+        var notifyLevel = ReadWatchHealthNotifyLevel();
+
+        _watchHealthPanelVisible = true;
+        _watchHealthCommandInFlight = true;
+        _watchHealthResult = new SquadWatchHealthResult(
+            true,
+            false,
+            "Starting Squad Watch...",
+            [$"Starting: squad watch{(execute ? " --execute" : string.Empty)} --interval {interval}"]);
+        SyncWatchHealthPanel();
+
+        try
+        {
+            var startResult = await _watchHealthService.StartWatchAsync(
+                _currentWorkspace.FolderPath,
+                interval,
+                execute,
+                verbose,
+                notifyLevel);
+
+            if (!startResult.Success)
+            {
+                _watchHealthResult = SquadWatchHealthResult.FromCommandResult(startResult);
+                return;
+            }
+
+            await Task.Delay(1000);
+            _watchHealthResult = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
+        }
+        finally
+        {
+            _watchHealthCommandInFlight = false;
+            SyncWatchHealthPanel();
+            SyncWatchHealthAutoRefresh();
+            PersistWatchHealthPanelVisible();
+        }
+    }
+
+    private async void WatchHealthStopButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await StopWatchFromPanelAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(WatchHealthStopButton_Click), ex);
+        }
+    }
+
+    private async Task StopWatchFromPanelAsync()
+    {
+        if (_currentWorkspace is null || _watchHealthCommandInFlight)
+            return;
+
+        var processId = _watchHealthResult?.ProcessId;
+        if (processId is null)
+            return;
+
+        _watchHealthCommandInFlight = true;
+        _watchHealthResult = new SquadWatchHealthResult(
+            true,
+            true,
+            $"Stopping Squad Watch PID {processId.Value}...",
+            [$"Stopping Squad Watch PID {processId.Value}..."],
+            ProcessId: processId);
+        SyncWatchHealthPanel();
+
+        try
+        {
+            var stopResult = await _watchHealthService.StopWatchAsync(processId.Value);
+            if (!stopResult.Success)
+            {
+                _watchHealthResult = SquadWatchHealthResult.FromCommandResult(stopResult);
+                return;
+            }
+
+            await Task.Delay(500);
+            _watchHealthResult = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
+        }
+        finally
+        {
+            _watchHealthCommandInFlight = false;
+            SyncWatchHealthPanel();
+            SyncWatchHealthAutoRefresh();
+        }
+    }
+
+    private async void WatchHealthAutoRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_watchHealthPanelVisible || _watchHealthCommandInFlight || _currentWorkspace is null)
+            return;
+
+        try
+        {
+            _watchHealthCommandInFlight = true;
+            SyncWatchHealthControls();
+            var result = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
+            _watchHealthResult = result;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(WatchHealthAutoRefreshTimer_Tick), ex);
+        }
+        finally
+        {
+            _watchHealthCommandInFlight = false;
+            SyncWatchHealthPanel();
+            SyncWatchHealthAutoRefresh();
+        }
+    }
+
+    private void SyncWatchHealthAutoRefresh()
+    {
+        var shouldRun = _watchHealthPanelVisible && _watchHealthResult?.IsRunning == true;
+        if (shouldRun && !_watchHealthAutoRefreshTimer.IsEnabled)
+            _watchHealthAutoRefreshTimer.Start();
+        else if (!shouldRun && _watchHealthAutoRefreshTimer.IsEnabled)
+            _watchHealthAutoRefreshTimer.Stop();
+    }
+
+    private int ReadWatchHealthIntervalMinutes()
+    {
+        if (int.TryParse(WatchHealthIntervalBox.Text, out var interval))
+            return Math.Clamp(interval, 1, 1440);
+
+        WatchHealthIntervalBox.Text = "5";
+        return 5;
+    }
+
+    private string? ReadWatchHealthNotifyLevel()
+    {
+        if (WatchHealthNotifyLevelComboBox.SelectedItem is ComboBoxItem item &&
+            item.Content is string text &&
+            text is "all" or "important" or "none") {
+            return text;
+        }
+
+        return "important";
     }
 
     private async void DiscoverSquadsMenuItem_Click(object sender, RoutedEventArgs e)
