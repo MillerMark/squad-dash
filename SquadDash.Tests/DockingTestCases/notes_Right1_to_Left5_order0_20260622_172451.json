@@ -1,0 +1,566 @@
+{
+  "schemaVersion": 2,
+  "name": "notes_Right1_to_Left5_order0",
+  "sourcePanelId": "notes",
+  "initialLayout": {
+    "Top": [],
+    "Left 1": [
+      "tasks"
+    ],
+    "Left 2": [
+      "maintenance"
+    ],
+    "Left 3": [
+      "watch-health"
+    ],
+    "Left 4": [
+      "inbox"
+    ],
+    "Left 5": [],
+    "Left 6": [],
+    "Left 7": [],
+    "Right 1": [
+      "notes"
+    ],
+    "Right 2": [
+      "loop"
+    ],
+    "Right 3": [
+      "approvals"
+    ],
+    "Right 4": [],
+    "Right 5": [],
+    "Right 6": [],
+    "Right 7": []
+  },
+  "slotButtons": [
+    {
+      "zone": "Left 5",
+      "order": 0,
+      "preview": "Left 5, 1/1"
+    },
+    {
+      "zone": "Left 4",
+      "order": 0,
+      "preview": "Left 4, 1/2"
+    },
+    {
+      "zone": "Left 4",
+      "order": 1,
+      "preview": "Left 4, 2/2"
+    },
+    {
+      "zone": "Left 3",
+      "order": 0,
+      "preview": "Left 3, 1/2"
+    },
+    {
+      "zone": "Left 3",
+      "order": 1,
+      "preview": "Left 3, 2/2"
+    },
+    {
+      "zone": "Left 2",
+      "order": 0,
+      "preview": "Left 2, 1/2"
+    },
+    {
+      "zone": "Left 2",
+      "order": 1,
+      "preview": "Left 2, 2/2"
+    },
+    {
+      "zone": "Left 1",
+      "order": 0,
+      "preview": "Left 1, 1/2"
+    },
+    {
+      "zone": "Left 1",
+      "order": 1,
+      "preview": "Left 1, 2/2"
+    },
+    {
+      "zone": "Top",
+      "order": 0,
+      "preview": "Top, 1/1"
+    },
+    {
+      "zone": "Right 2",
+      "order": 0,
+      "preview": "Right 2, 1/2"
+    },
+    {
+      "zone": "Right 2",
+      "order": 1,
+      "preview": "Right 2, 2/2"
+    },
+    {
+      "zone": "Right 3",
+      "order": 0,
+      "preview": "Right 3, 1/2"
+    },
+    {
+      "zone": "Right 3",
+      "order": 1,
+      "preview": "Right 3, 2/2"
+    },
+    {
+      "zone": "Right 4",
+      "order": 0,
+      "preview": "Right 4, 1/1"
+    }
+  ],
+  "action": {
+    "targetZone": "Left 5",
+    "targetOrder": 0,
+    "insertKind": ""
+  },
+  "chosenPreview": "Left 5, 1/1",
+  "expectedLayout": {
+    "Top": [],
+    "Left 1": [
+      "tasks"
+    ],
+    "Left 2": [
+      "maintenance"
+    ],
+    "Left 3": [
+      "watch-health"
+    ],
+    "Left 4": [
+      "inbox"
+    ],
+    "Left 5": [
+      "notes"
+    ],
+    "Left 6": [],
+    "Left 7": [],
+    "Right 1": [
+      "loop"
+    ],
+    "Right 2": [
+      "approvals"
+    ],
+    "Right 3": [],
+    "Right 4": [],
+    "Right 5": [],
+    "Right 6": [],
+    "Right 7": []
+  },
+  "expectedDockingMap": [
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 8,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 5",
+      "order": 0,
+      "targetZone": "Left5",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "Inbox",
+      "panelId": "Inbox",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 28,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 4",
+      "order": 0,
+      "targetZone": "Left4",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 28,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 4",
+      "order": 1,
+      "targetZone": "Left4",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 80,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 3",
+      "order": 0,
+      "targetZone": "Left3",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Watch",
+      "panelId": "Watch",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 100,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 3",
+      "order": 0,
+      "targetZone": "Left3",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 100,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 3",
+      "order": 1,
+      "targetZone": "Left3",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 152,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 2",
+      "order": 0,
+      "targetZone": "Left2",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Maint",
+      "panelId": "Maint",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 172,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 2",
+      "order": 0,
+      "targetZone": "Left2",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 172,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 2",
+      "order": 1,
+      "targetZone": "Left2",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 224,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 1",
+      "order": 0,
+      "targetZone": "Left",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Tasks",
+      "panelId": "Tasks",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 244,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 1",
+      "order": 0,
+      "targetZone": "Left",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 244,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Left 1",
+      "order": 1,
+      "targetZone": "Left",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 296,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Left 1",
+      "order": 1,
+      "targetZone": "Left",
+      "targetOrder": 1,
+      "insertKind": "InsertAfter",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "",
+      "panelId": "",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 324,
+      "y": 16,
+      "width": 4,
+      "height": 128,
+      "zone": "Top",
+      "order": -1,
+      "targetZone": "Top",
+      "targetOrder": -1,
+      "insertKind": "",
+      "isSeparator": true,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 340,
+      "y": 16,
+      "width": 40,
+      "height": 50,
+      "zone": "Top",
+      "order": 0,
+      "targetZone": "Top",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "",
+      "panelId": "",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 392,
+      "y": 16,
+      "width": 4,
+      "height": 128,
+      "zone": "Top",
+      "order": -2,
+      "targetZone": "Top",
+      "targetOrder": -2,
+      "insertKind": "",
+      "isSeparator": true,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "Notes",
+      "panelId": "Notes",
+      "isSourcePanel": true,
+      "isExpansionButton": false,
+      "x": 408,
+      "y": 16,
+      "width": 48,
+      "height": 128,
+      "zone": "Right 1",
+      "order": 0,
+      "targetZone": "Right",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "Loop",
+      "panelId": "Loop",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 460,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 2",
+      "order": 0,
+      "targetZone": "Right2",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 460,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 2",
+      "order": 1,
+      "targetZone": "Right2",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 512,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Right 3",
+      "order": 0,
+      "targetZone": "Right3",
+      "targetOrder": 0,
+      "insertKind": "InsertBefore",
+      "isSeparator": false,
+      "isSyntheticInsert": true,
+      "isVirtualThin": true
+    },
+    {
+      "label": "Aprvl",
+      "panelId": "Aprvl",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 532,
+      "y": 16,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 3",
+      "order": 0,
+      "targetZone": "Right3",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u002B",
+      "panelId": "\u002B",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 532,
+      "y": 82,
+      "width": 48,
+      "height": 62,
+      "zone": "Right 3",
+      "order": 1,
+      "targetZone": "Right3",
+      "targetOrder": 1,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    },
+    {
+      "label": "\u2014",
+      "panelId": "\u2014",
+      "isSourcePanel": false,
+      "isExpansionButton": false,
+      "x": 584,
+      "y": 16,
+      "width": 16,
+      "height": 128,
+      "zone": "Right 4",
+      "order": 0,
+      "targetZone": "Right4",
+      "targetOrder": 0,
+      "insertKind": "",
+      "isSeparator": false,
+      "isSyntheticInsert": false,
+      "isVirtualThin": false
+    }
+  ]
+}
