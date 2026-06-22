@@ -12554,6 +12554,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private async void ViewWatchHealthMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_watchHealthPanelVisible)
+                CloseWatchHealthPanel();
+            else
+                await RefreshWatchHealthPanelAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(ViewWatchHealthMenuItem_Click), ex);
+        }
+    }
+
     private async Task RefreshWatchHealthPanelAsync()
     {
         if (_currentWorkspace is null)
@@ -13516,6 +13531,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanelVisible;
             if (ViewNotesMenuItem           is not null) ViewNotesMenuItem.IsChecked           = _notesPanelVisible;
             if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
+            if (ViewWatchHealthMenuItem    is not null) ViewWatchHealthMenuItem.IsChecked    = _watchHealthPanelVisible;
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(PanelsMenuItem_SubmenuOpened), ex); }
     }

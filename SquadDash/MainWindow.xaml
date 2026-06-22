@@ -762,6 +762,10 @@
                               Header="Tasks"
                               IsCheckable="True"
                               Click="ViewTasksMenuItem_Click" />
+                    <MenuItem x:Name="ViewWatchHealthMenuItem"
+                              Header="Watch Health"
+                              IsCheckable="True"
+                              Click="ViewWatchHealthMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"

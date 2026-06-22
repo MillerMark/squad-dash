@@ -1768,7 +1768,7 @@ internal sealed class PanelDockingService
     {
         if (_topZoneGrid is null) return;
         var cols = _topZoneGrid.ColumnDefinitions;
-        if (cols.Count < 18) return;
+        if (cols.Count < 20) return;
 
         var sb = new System.Text.StringBuilder();
         sb.Append($"TopZoneWidths  grid.ActualW={_topZoneGrid.ActualWidth:F0}");
@@ -1778,7 +1778,7 @@ internal sealed class PanelDockingService
         sb.Append($"  | col8(WatchPanel)={cols[8].ActualWidth:F0}");
         sb.Append($"  | col9(flexBufAuto)={cols[9].ActualWidth:F0}({cols[9].Width})");
 
-        var slotLabels = new[] { "rank0", "rank1", "rank2", "rank3", "rank4", "rank5" };
+        var slotLabels = new[] { "rank0", "rank1", "rank2", "rank3", "rank4", "rank5", "rank6" };
         for (int i = 0; i < TopZonePhysicalColumns.Length; i++)
         {
             int ci = TopZonePhysicalColumns[i];
