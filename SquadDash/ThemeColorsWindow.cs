@@ -307,7 +307,12 @@ internal sealed class ThemeColorsWindow : Window
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center
         };
-        _hueSlider.Loaded += (_, _) => MakeSliderTrackTransparent(_hueSlider);
+        _hueSlider.Loaded += (_, _) =>
+        {
+            MakeSliderTrackTransparent(_hueSlider);
+            ThemedSliderThumbs(_hueSlider);
+            UpdateHueRangeOverlay();
+        };
         hueSliderGrid.Children.Add(_hueSlider);
         hueRow.Children.Add(hueSliderGrid);
 
@@ -349,7 +354,11 @@ internal sealed class ThemeColorsWindow : Window
             IsSnapToTickEnabled = false,
             VerticalAlignment = VerticalAlignment.Center
         };
-        _hueRangeSlider.Loaded += (_, _) => ThemedSliderTrack(_hueRangeSlider, "InputSurface");
+        _hueRangeSlider.Loaded += (_, _) =>
+        {
+            ThemedSliderTrack(_hueRangeSlider, "InputSurface");
+            ThemedSliderThumbs(_hueRangeSlider);
+        };
         hueRangeRow.Children.Add(_hueRangeSlider);
 
         hueSliderGrid.SizeChanged += (_, _) => UpdateHueRangeOverlay();
@@ -563,6 +572,14 @@ internal sealed class ThemeColorsWindow : Window
         double totalWidth = _hueSliderGrid.ActualWidth;
         if (totalWidth <= 0) return;
 
+        // Account for the thumb's physical width so the overlay edges align with the
+        // thumb center at min/max, not the raw pixel edges of the slider control.
+        var thumb = FindThumb(_hueSlider);
+        double thumbWidth    = thumb?.ActualWidth ?? 10.0;
+        double thumbHalfW    = thumbWidth / 2.0;
+        double usableWidth   = totalWidth - thumbWidth;
+        if (usableWidth <= 0) return;
+
         var hue   = _hueSlider.Value;       // 0..359
         var range = _hueRangeSlider.Value;  // 0..180
 
@@ -571,8 +588,11 @@ internal sealed class ThemeColorsWindow : Window
         double lo = Math.Clamp(center - halfRange, 0.0, 1.0);
         double hi = Math.Clamp(center + halfRange, 0.0, 1.0);
 
-        _hueLeftOverlay.Width  = lo * totalWidth;
-        _hueRightOverlay.Width = (1.0 - hi) * totalWidth;
+        double loPx = thumbHalfW + lo * usableWidth;
+        double hiPx = thumbHalfW + hi * usableWidth;
+
+        _hueLeftOverlay.Width  = Math.Max(0, loPx);
+        _hueRightOverlay.Width = Math.Max(0, totalWidth - hiPx);
     }
 
     // ── Theme switching ───────────────────────────────────────────────────
@@ -776,6 +796,63 @@ internal sealed class ThemeColorsWindow : Window
         }
     }
 
+    // Apply a themed Thumb style (matching scrollbar thumb colors) to every Thumb
+    // found in the visual tree of a slider after it has loaded.
+    private static void ThemedSliderThumbs(DependencyObject parent)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Thumb thumb)
+            {
+                thumb.Style = BuildThemedThumbStyle();
+                continue;
+            }
+            ThemedSliderThumbs(child);
+        }
+    }
+
+    // Find the first Thumb in the visual tree (used to measure its width for overlay math).
+    private static Thumb? FindThumb(DependencyObject parent)
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Thumb t) return t;
+            var found = FindThumb(child);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    // Build a Thumb Style that uses the app's scrollbar thumb color tokens so all
+    // slider thumbs stay visually consistent with the current theme.
+    private static Style BuildThemedThumbStyle()
+    {
+        var thumbBorder = new FrameworkElementFactory(typeof(Border));
+        thumbBorder.Name = "ThumbBorder";
+        thumbBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(3));
+        thumbBorder.SetResourceReference(Border.BackgroundProperty, "ScrollBarThumbBrush");
+
+        var template = new ControlTemplate(typeof(Thumb)) { VisualTree = thumbBorder };
+
+        var hoverTrigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+        hoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty,
+            new DynamicResourceExtension("ScrollBarThumbHoverBrush"), "ThumbBorder"));
+        template.Triggers.Add(hoverTrigger);
+
+        var pressedTrigger = new Trigger { Property = UIElement.IsMouseCapturedProperty, Value = true };
+        pressedTrigger.Setters.Add(new Setter(Border.BackgroundProperty,
+            new DynamicResourceExtension("ScrollBarThumbPressedBrush"), "ThumbBorder"));
+        template.Triggers.Add(pressedTrigger);
+
+        var style = new Style(typeof(Thumb));
+        style.Setters.Add(new Setter(Thumb.TemplateProperty, template));
+        return style;
+    }
+
     private static (Slider slider, TextBlock valueLabel) BuildSliderRow(Panel parent, string labelText)
     {
         var container = new Grid { Margin = new Thickness(0, 0, 0, 12) };
@@ -808,7 +885,11 @@ internal sealed class ThemeColorsWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4, 0, 4, 0)
         };
-        slider.Loaded += (_, _) => ThemedSliderTrack(slider, "InputSurface");
+        slider.Loaded += (_, _) =>
+        {
+            ThemedSliderTrack(slider, "InputSurface");
+            ThemedSliderThumbs(slider);
+        };
         Grid.SetRow(slider, 0);
         Grid.SetColumn(slider, 1);
         container.Children.Add(slider);
