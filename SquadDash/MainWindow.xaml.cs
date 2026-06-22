@@ -35696,18 +35696,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            SquadDashTrace.Write("UI", "ThemeColorsMenuItem_Click: entered, existing window is null=" + (_themeColorsWindow is null));
             if (_themeColorsWindow is not null)
             {
+                SquadDashTrace.Write("UI", "ThemeColorsMenuItem_Click: activating existing window");
                 _themeColorsWindow.Activate();
                 return;
             }
-            _themeColorsWindow = new ThemeColorsWindow(this);
+            SquadDashTrace.Write("UI", "ThemeColorsMenuItem_Click: creating new ThemeColorsWindow");
+            var win = new ThemeColorsWindow(this);
+            SquadDashTrace.Write("UI", "ThemeColorsMenuItem_Click: constructor completed, calling Show");
             if (CanShowOwnedWindow())
-                _themeColorsWindow.Owner = this;
-            _themeColorsWindow.Closed += (_, _) => _themeColorsWindow = null;
-            _themeColorsWindow.Show();
+                win.Owner = this;
+            win.Closed += (_, _) => _themeColorsWindow = null;
+            _themeColorsWindow = win;
+            win.Show();
+            SquadDashTrace.Write("UI", "ThemeColorsMenuItem_Click: Show() returned");
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(ThemeColorsMenuItem_Click), ex); }
+        catch (Exception ex)
+        {
+            _themeColorsWindow = null;
+            HandleUiCallbackException(nameof(ThemeColorsMenuItem_Click), ex);
+        }
     }
 }
 

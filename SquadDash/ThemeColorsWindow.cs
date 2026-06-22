@@ -78,6 +78,7 @@ internal sealed class ThemeColorsWindow : Window
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
         ResizeMode = ResizeMode.CanResize;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var chrome = new WindowChrome
         {
