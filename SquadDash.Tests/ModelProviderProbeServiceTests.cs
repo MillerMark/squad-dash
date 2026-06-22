@@ -24,6 +24,20 @@ internal sealed class ModelProviderProbeServiceTests {
     }
 
     [Test]
+    public void BuildOpenAiEndpointCandidates_NormalizesOllamaVersionEndpoint() {
+        var candidates = ModelProviderProbeService.BuildOpenAiEndpointCandidates("http://100.90.79.23:11434/api/version");
+
+        Assert.That(candidates, Is.EqualTo(new[] { "http://100.90.79.23:11434/v1" }));
+    }
+
+    [Test]
+    public void BuildOllamaEndpointCandidates_UsesProviderRootForKnownOllamaEndpoints() {
+        var candidates = ModelProviderProbeService.BuildOllamaEndpointCandidates("http://100.90.79.23:11434/api/version");
+
+        Assert.That(candidates, Is.EqualTo(new[] { "http://100.90.79.23:11434" }));
+    }
+
+    [Test]
     public void ResolveProbeRequestTimeout_UsesLongerTimeoutForLocalProviders() {
         Assert.That(
             ModelProviderProbeService.ResolveProbeRequestTimeout("http://127.0.0.1:11437/v1"),
@@ -66,6 +80,38 @@ internal sealed class ModelProviderProbeServiceTests {
             Assert.That(results[0].CatalogSupportsToolCalling, Is.True);
             Assert.That(results[0].CatalogNotes, Does.Contain("object=model"));
             Assert.That(results[0].Notes, Is.Null);
+        });
+    }
+
+    [Test]
+    public void ParseOllamaTagsResponse_ReadsNativeOllamaCatalog() {
+        var results = ModelProviderProbeService.ParseOllamaTagsResponse(
+            """
+            {
+              "models": [
+                {
+                  "name": "llama3:latest",
+                  "model": "llama3:latest",
+                  "modified_at": "2026-06-20T12:00:00Z",
+                  "size": 4661224676,
+                  "details": {
+                    "family": "llama",
+                    "parameter_size": "8B",
+                    "quantization_level": "Q4_0"
+                  }
+                }
+              ]
+            }
+            """,
+            "http://100.90.79.23:11434/v1");
+
+        Assert.Multiple(() => {
+            Assert.That(results, Has.Count.EqualTo(1));
+            Assert.That(results[0].ModelId, Is.EqualTo("llama3:latest"));
+            Assert.That(results[0].ProviderEndpointRoot, Is.EqualTo("http://100.90.79.23:11434/v1"));
+            Assert.That(results[0].ParentModel, Is.EqualTo("llama"));
+            Assert.That(results[0].Owner, Is.EqualTo("Ollama"));
+            Assert.That(results[0].CatalogNotes, Does.Contain("parameters=8B"));
         });
     }
 
@@ -303,6 +349,33 @@ internal sealed class ModelProviderProbeServiceTests {
             Assert.That(results, Has.Count.EqualTo(1));
             Assert.That(results[0].ModelId, Is.EqualTo("fallback-model"));
             Assert.That(results[0].ProviderEndpointRoot, Is.EqualTo("http://provider"));
+        });
+    }
+
+    [Test]
+    public async Task DiscoverModelsAsync_FallsBackToNativeOllamaTagsWhenOpenAiCatalogFails() {
+        var handler = new StubHttpHandler(request => {
+            if (request.RequestUri!.AbsoluteUri == "http://100.90.79.23:11434/v1/models")
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            Assert.That(request.RequestUri!.AbsoluteUri, Is.EqualTo("http://100.90.79.23:11434/api/tags"));
+            return JsonResponse("""
+                {
+                  "models": [
+                    { "name": "qwen3:latest", "details": { "family": "qwen3" } }
+                  ]
+                }
+                """);
+        });
+        using var http = new HttpClient(handler);
+        using var service = new ModelProviderProbeService(http);
+
+        var results = await service.DiscoverModelsAsync("http://100.90.79.23:11434/api/version", apiKey: null);
+
+        Assert.Multiple(() => {
+            Assert.That(results, Has.Count.EqualTo(1));
+            Assert.That(results[0].ModelId, Is.EqualTo("qwen3:latest"));
+            Assert.That(results[0].ProviderEndpointRoot, Is.EqualTo("http://100.90.79.23:11434/v1"));
         });
     }
 

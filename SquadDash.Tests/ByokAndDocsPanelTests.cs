@@ -51,6 +51,18 @@ internal sealed class ByokAndDocsPanelTests {
         });
     }
 
+    [TestCase(" http://100.90.79.23:11434/api/version ", "http://100.90.79.23:11434/v1")]
+    [TestCase("http://100.90.79.23:11434/api/tags", "http://100.90.79.23:11434/v1")]
+    [TestCase("http://100.90.79.23:11434/v1/models", "http://100.90.79.23:11434/v1")]
+    [TestCase("http://100.90.79.23:11434", "http://100.90.79.23:11434/v1")]
+    [TestCase("https://provider.example.com/v1/models", "https://provider.example.com/v1")]
+    [TestCase("https://provider.example.com", "https://provider.example.com")]
+    public void ByokProviderSettings_NormalizeProviderUrl_StripsKnownEndpointSuffixes(
+        string input,
+        string expected) {
+        Assert.That(ByokProviderSettings.NormalizeProviderUrl(input), Is.EqualTo(expected));
+    }
+
     // ------------------------------------------------------------------
     // Priority 2 — ApplicationSettingsSnapshot BYOK fields
     // ------------------------------------------------------------------
@@ -163,6 +175,18 @@ internal sealed class ByokAndDocsPanelTests {
             Assert.That(loaded.ByokModel, Is.EqualTo("gpt-4"));
             Assert.That(ApplicationSettingsStore.DecryptSettingValue(loaded.ByokApiKey), Is.EqualTo("sk-key"));
         });
+    }
+
+    [Test]
+    public void SaveByokSettings_NormalizesOllamaHealthEndpointToProviderUrl() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+
+        store.SaveByokSettings("http://100.90.79.23:11434/api/version", "llama3", "openai", null, offlineMode: false);
+        var loaded = store.Load();
+
+        Assert.That(loaded.ByokProviderUrl, Is.EqualTo("http://100.90.79.23:11434/v1"));
     }
 
     [Test]
