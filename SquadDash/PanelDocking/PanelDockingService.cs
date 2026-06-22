@@ -775,6 +775,28 @@ internal sealed class PanelDockingService
 
         int insertAt = targetOrder < 0 ? targetZoneSlots.Count : Math.Clamp(targetOrder, 0, targetZoneSlots.Count);
 
+        // For cross-zone moves into Top, TargetOrder from the docking map is a visible-rank index.
+        // Convert it to an absolute insertion index using visible panel membership.
+        if (targetZone == DockZone.Top && targetOrder >= 0 && !sameZone && _panelRegistry is not null)
+        {
+            var visibleTargetSlots = targetZoneSlots
+                .Where(s => _panelRegistry.TryGetValue(s.PanelId, out var el) && el.Visibility != Visibility.Collapsed)
+                .ToList();
+
+            if (targetOrder >= visibleTargetSlots.Count)
+            {
+                // "+" slot: insert after the last visible panel
+                insertAt = visibleTargetSlots.Count > 0
+                    ? targetZoneSlots.IndexOf(visibleTargetSlots[^1]) + 1
+                    : targetZoneSlots.Count;
+            }
+            else
+            {
+                // Panel slot: insert before the targetOrder-th visible panel
+                insertAt = targetZoneSlots.IndexOf(visibleTargetSlots[targetOrder]);
+            }
+        }
+
         // Build ordered list of target zone panel IDs with the new panel inserted, then renumber.
         var targetIds = targetZoneSlots.Select(s => s.PanelId).ToList();
         targetIds.Insert(insertAt, panelId);
