@@ -8622,7 +8622,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static string ExtractInlineText(InlineCollection inlines) =>
         TranscriptCopyService.ExtractInlineText(inlines);
 
-    private static void SetClipboardTextWithRetry(string text, int retries = 10)
+    private static void SetClipboardTextWithRetry(string text, int retries = 15)
     {
         Exception? lastEx = null;
         for (int i = 0; i < retries; i++)
@@ -8635,11 +8635,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             catch (System.Runtime.InteropServices.COMException ex)
             {
                 lastEx = ex;
-                System.Threading.Thread.Sleep(30 * (i + 1)); // 30, 60, 90... ms — linear backoff
+                System.Threading.Thread.Sleep(50 * (i + 1)); // 50, 100, 150... ms — linear backoff
             }
         }
+        // CLIPBRD_E_CANT_OPEN is transient clipboard contention; swallow silently after exhausting retries.
         if (lastEx != null)
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(lastEx).Throw();
+            SquadDashTrace.Write("UI", $"SetClipboardTextWithRetry: clipboard unavailable after {retries} attempts — {lastEx.Message}");
     }
 
     private void OutputTextBox_CopyExecuted(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
