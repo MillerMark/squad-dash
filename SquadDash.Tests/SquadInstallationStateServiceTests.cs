@@ -143,6 +143,32 @@ internal sealed class SquadInstallationStateServiceTests {
     }
 
     [Test]
+    public void GetState_TreatsDotTeamRootWithLocalSquadStateAsLocalWorkspace() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            """
+            {
+              "version": 1,
+              "teamRoot": "."
+            }
+            """);
+        workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Local Team");
+        workspace.CreateFile(Path.Combine("node_modules", ".bin", "squad.cmd"), "@echo off");
+
+        var service = new SquadInstallationStateService();
+
+        var state = service.GetState(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(state.IsWorkspaceInitialized, Is.True);
+            Assert.That(state.IsSquadInstalledForActiveDirectory, Is.True);
+            Assert.That(state.UsesRemoteTeamRoot, Is.False);
+            Assert.That(state.SquadFolderPath, Is.EqualTo(workspace.GetPath(".squad")));
+            Assert.That(state.TeamFilePath, Is.EqualTo(workspace.GetPath(".squad", "team.md")));
+        });
+    }
+
+    [Test]
     public void GetState_IgnoresRemoteTeamRootConfigWithoutVersion() {
         using var workspace = new TestWorkspace();
         var remoteTeamRoot = workspace.GetPath("remote-state", ".squad");

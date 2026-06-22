@@ -60,10 +60,10 @@ internal static class SquadWorkspaceLayoutResolver {
         }
 
         if (!isExternalState && !isRemote && !string.IsNullOrWhiteSpace(teamRoot)) {
-            var projectRoot = Directory.GetParent(projectSquadDir)?.FullName;
-            if (!string.IsNullOrWhiteSpace(projectRoot)) {
-                teamSquadDir = Path.GetFullPath(Path.Combine(projectRoot, teamRoot));
-                isRemote = true;
+            var resolvedTeamSquadDir = TryResolveTeamSquadDirectory(projectSquadDir, teamRoot);
+            if (!string.IsNullOrWhiteSpace(resolvedTeamSquadDir)) {
+                teamSquadDir = resolvedTeamSquadDir;
+                isRemote = !PathsEqual(teamSquadDir, projectSquadDir);
                 resolutionReason = reason;
             }
         }
@@ -177,6 +177,35 @@ internal static class SquadWorkspaceLayoutResolver {
 
         var globalDir = ResolveGlobalSquadPath();
         return Path.Combine(globalDir, "projects", sanitized);
+    }
+
+    private static string? TryResolveTeamSquadDirectory(string projectSquadDir, string teamRoot) {
+        var projectRoot = Directory.GetParent(projectSquadDir)?.FullName;
+        if (string.IsNullOrWhiteSpace(projectRoot))
+            return null;
+
+        var resolvedTeamRoot = Path.GetFullPath(Path.Combine(projectRoot, teamRoot));
+        var nestedSquadDir = Path.Combine(resolvedTeamRoot, ".squad");
+
+        if (File.Exists(Path.Combine(nestedSquadDir, "team.md")) ||
+            Directory.Exists(nestedSquadDir)) {
+            return Path.GetFullPath(nestedSquadDir);
+        }
+
+        if (File.Exists(Path.Combine(resolvedTeamRoot, "team.md")) ||
+            Directory.Exists(resolvedTeamRoot)) {
+            return resolvedTeamRoot;
+        }
+
+        return resolvedTeamRoot;
+    }
+
+    private static bool PathsEqual(string left, string right) {
+        var normalizedLeft = Path.GetFullPath(left)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRight = Path.GetFullPath(right)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? SanitizeProjectKey(string? projectKey) {
