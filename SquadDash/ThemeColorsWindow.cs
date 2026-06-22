@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Shell;
 
 namespace SquadDash;
 
@@ -77,6 +78,15 @@ internal sealed class ThemeColorsWindow : Window
         WindowStyle = WindowStyle.None;
         AllowsTransparency = false;
         ResizeMode = ResizeMode.CanResize;
+
+        var chrome = new WindowChrome
+        {
+            CaptionHeight = 0,
+            ResizeBorderThickness = new Thickness(4),
+            CornerRadius = new CornerRadius(0),
+            GlassFrameThickness = new Thickness(0)
+        };
+        WindowChrome.SetWindowChrome(this, chrome);
         SetResourceReference(BackgroundProperty, "AppSurface");
 
         // ── Root layout ───────────────────────────────────────────────────
@@ -296,6 +306,7 @@ internal sealed class ThemeColorsWindow : Window
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center
         };
+        _hueSlider.Style = BuildTransparentHueSliderStyle();
         hueSliderGrid.Children.Add(_hueSlider);
         hueRow.Children.Add(hueSliderGrid);
 
@@ -335,9 +346,9 @@ internal sealed class ThemeColorsWindow : Window
             LargeChange = 10,
             TickFrequency = 10,
             IsSnapToTickEnabled = false,
-            Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center
         };
+        _hueRangeSlider.SetResourceReference(BackgroundProperty, "InputSurface");
         hueRangeRow.Children.Add(_hueRangeSlider);
 
         hueSliderGrid.SizeChanged += (_, _) => UpdateHueRangeOverlay();
@@ -349,13 +360,15 @@ internal sealed class ThemeColorsWindow : Window
         {
             _hueValueLabel.Text = $"{(int)e.NewValue}°";
             UpdateHueRangeOverlay();
-            if (_filterByHueCheckBox.IsChecked == true) RebuildList();
+            _filterByHueCheckBox.IsChecked = true;
+            RebuildList();
         };
         _hueRangeSlider.ValueChanged += (_, e) =>
         {
             _hueRangeValueLabel.Text = $"{(int)e.NewValue}°";
             UpdateHueRangeOverlay();
-            if (_filterByHueCheckBox.IsChecked == true) RebuildList();
+            _filterByHueCheckBox.IsChecked = true;
+            RebuildList();
         };
 
         // ── Body: list + detail ───────────────────────────────────────────
@@ -721,6 +734,47 @@ internal sealed class ThemeColorsWindow : Window
                 break;
             }
         }
+    }
+
+    private static Style BuildTransparentHueSliderStyle()
+    {
+        // DecreaseRepeatButton (left of thumb) — invisible
+        var decreaseBtnFactory = new FrameworkElementFactory(typeof(RepeatButton));
+        decreaseBtnFactory.SetValue(RepeatButton.BackgroundProperty, Brushes.Transparent);
+        decreaseBtnFactory.SetValue(RepeatButton.BorderThicknessProperty, new Thickness(0));
+        decreaseBtnFactory.SetValue(RepeatButton.IsTabStopProperty, false);
+        decreaseBtnFactory.SetValue(RepeatButton.FocusableProperty, false);
+        decreaseBtnFactory.SetValue(RepeatButton.OverridesDefaultStyleProperty, true);
+        decreaseBtnFactory.SetValue(RepeatButton.TemplateProperty, new ControlTemplate(typeof(RepeatButton)));
+
+        // IncreaseRepeatButton (right of thumb) — invisible
+        var increaseBtnFactory = new FrameworkElementFactory(typeof(RepeatButton));
+        increaseBtnFactory.SetValue(RepeatButton.BackgroundProperty, Brushes.Transparent);
+        increaseBtnFactory.SetValue(RepeatButton.BorderThicknessProperty, new Thickness(0));
+        increaseBtnFactory.SetValue(RepeatButton.IsTabStopProperty, false);
+        increaseBtnFactory.SetValue(RepeatButton.FocusableProperty, false);
+        increaseBtnFactory.SetValue(RepeatButton.OverridesDefaultStyleProperty, true);
+        increaseBtnFactory.SetValue(RepeatButton.TemplateProperty, new ControlTemplate(typeof(RepeatButton)));
+
+        var thumbFactory = new FrameworkElementFactory(typeof(Thumb));
+
+        var trackFactory = new FrameworkElementFactory(typeof(Track));
+        trackFactory.Name = "PART_Track";
+        trackFactory.SetValue(Track.OrientationProperty, Orientation.Horizontal);
+        trackFactory.AppendChild(decreaseBtnFactory);
+        trackFactory.AppendChild(thumbFactory);
+        trackFactory.AppendChild(increaseBtnFactory);
+
+        var rootFactory = new FrameworkElementFactory(typeof(Border));
+        rootFactory.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        rootFactory.AppendChild(trackFactory);
+
+        var template = new ControlTemplate(typeof(Slider)) { VisualTree = rootFactory };
+
+        var style = new Style(typeof(Slider));
+        style.Setters.Add(new Setter(Slider.TemplateProperty, template));
+        style.Setters.Add(new Setter(Slider.BackgroundProperty, Brushes.Transparent));
+        return style;
     }
 
     private static (Slider slider, TextBlock valueLabel) BuildSliderRow(Panel parent, string labelText)
