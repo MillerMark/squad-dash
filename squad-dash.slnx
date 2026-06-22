@@ -6,6 +6,6 @@
   <Project Path="SquadDash.Tests/SquadDash.Tests.csproj" />
   <Project Path="SquadDash/SquadDash.csproj" />
   <Project Path="VoiceHeuristics/VoiceHeuristics.csproj">
-    <Build Solution="Debug|*" Project="false" />
+    <Build />
   </Project>
 </Solution>
