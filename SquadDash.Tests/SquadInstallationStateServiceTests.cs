@@ -44,4 +44,58 @@ internal sealed class SquadInstallationStateServiceTests {
         Assert.That(state.HasPackageManifest, Is.True);
         Assert.That(state.IsSquadInstalledForActiveDirectory, Is.False);
     }
+
+    [Test]
+    public void GetState_UsesRemoteTeamRootFromSquadConfig() {
+        using var workspace = new TestWorkspace();
+        var remoteTeamRoot = workspace.GetPath("remote-state", ".squad");
+        Directory.CreateDirectory(remoteTeamRoot);
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            $$"""
+              {
+                "version": 1,
+                "teamRoot": "{{Path.GetRelativePath(workspace.RootPath, remoteTeamRoot).Replace('\\', '/')}}",
+                "stateBackend": "orphan"
+              }
+              """);
+        workspace.CreateFile(Path.Combine("remote-state", ".squad", "team.md"), "# Remote Team");
+        workspace.CreateFile(Path.Combine("node_modules", ".bin", "squad.cmd"), "@echo off");
+
+        var service = new SquadInstallationStateService();
+
+        var state = service.GetState(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(state.IsWorkspaceInitialized, Is.True);
+            Assert.That(state.IsSquadInstalledForActiveDirectory, Is.True);
+            Assert.That(state.UsesRemoteTeamRoot, Is.True);
+            Assert.That(state.StateBackend, Is.EqualTo("orphan"));
+            Assert.That(state.SquadFolderPath, Is.EqualTo(remoteTeamRoot));
+            Assert.That(state.TeamFilePath, Is.EqualTo(Path.Combine(remoteTeamRoot, "team.md")));
+        });
+    }
+
+    [Test]
+    public void GetState_IgnoresRemoteTeamRootConfigWithoutVersion() {
+        using var workspace = new TestWorkspace();
+        var remoteTeamRoot = workspace.GetPath("remote-state", ".squad");
+        Directory.CreateDirectory(remoteTeamRoot);
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            $$"""
+              {
+                "teamRoot": "{{Path.GetRelativePath(workspace.RootPath, remoteTeamRoot).Replace('\\', '/')}}"
+              }
+              """);
+        workspace.CreateFile(Path.Combine("remote-state", ".squad", "team.md"), "# Remote Team");
+
+        var service = new SquadInstallationStateService();
+
+        var state = service.GetState(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(state.UsesRemoteTeamRoot, Is.False);
+            Assert.That(state.SquadFolderPath, Is.EqualTo(workspace.GetPath(".squad")));
+            Assert.That(state.IsWorkspaceInitialized, Is.False);
+        });
+    }
 }

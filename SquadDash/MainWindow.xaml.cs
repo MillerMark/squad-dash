@@ -510,6 +510,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private int _watchWaveCount;
     private int _watchAgentCount;
     private string? _watchPhase;
+    private readonly SquadWatchHealthService _watchHealthService = new();
+    private readonly SquadOrchestrationService _squadOrchestrationService = new();
+    private bool _watchHealthPanelVisible;
+    private SquadWatchHealthResult? _watchHealthResult;
     private bool _remoteAccessActive;
     private bool _rcRegeneratingToken;
     private bool _pendingRcRestartAfterReset;
@@ -5660,30 +5664,111 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (WatchPanelBorder is null) return;
 
         bool active = _watchCycleId is not null;
-        WatchPanelBorder.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        bool showHealth = _watchHealthPanelVisible && _watchHealthResult is not null;
+        WatchPanelBorder.Visibility = active || showHealth ? Visibility.Visible : Visibility.Collapsed;
 
-        if (!active) return;
+        if (!active && !showHealth) return;
 
         WatchStatusStack.Children.Clear();
 
-        if (_watchFleetSize > 0)
-            WatchStatusStack.Children.Add(MakeWatchRow($"Fleet: {_watchFleetSize} agents"));
+        if (active)
+        {
+            if (_watchFleetSize > 0)
+                WatchStatusStack.Children.Add(MakeWatchRow($"Fleet: {_watchFleetSize} agents"));
 
-        if (_watchWaveCount > 0)
-            WatchStatusStack.Children.Add(MakeWatchRow($"Wave {_watchWaveIndex + 1} of {_watchWaveCount}"));
-        else if (_watchAgentCount > 0)
-            WatchStatusStack.Children.Add(MakeWatchRow($"{_watchAgentCount} agents dispatched"));
+            if (_watchWaveCount > 0)
+                WatchStatusStack.Children.Add(MakeWatchRow($"Wave {_watchWaveIndex + 1} of {_watchWaveCount}"));
+            else if (_watchAgentCount > 0)
+                WatchStatusStack.Children.Add(MakeWatchRow($"{_watchAgentCount} agents dispatched"));
 
-        if (!string.IsNullOrWhiteSpace(_watchPhase))
-            WatchStatusStack.Children.Add(MakeWatchRow($"Phase: {_watchPhase}"));
+            if (!string.IsNullOrWhiteSpace(_watchPhase))
+                WatchStatusStack.Children.Add(MakeWatchRow($"Phase: {_watchPhase}"));
+        }
+
+        if (showHealth && _watchHealthResult is not null)
+        {
+            if (active)
+            {
+                WatchStatusStack.Children.Add(new Separator
+                {
+                    Margin = new Thickness(0, 8, 0, 6),
+                    Style = (Style)FindResource("ThemedMenuSeparatorStyle")
+                });
+            }
+
+            AddWatchHealthRows(_watchHealthResult);
+        }
     }
 
-    private TextBlock MakeWatchRow(string text) =>
+    private void AddWatchHealthRows(SquadWatchHealthResult health)
+    {
+        WatchStatusStack.Children.Add(new TextBlock
+        {
+            Text = "Health",
+            Margin = new Thickness(0, 0, 0, 2),
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("ActivePanelTitle")
+        });
+
+        var summaryBrush = health.Success
+            ? (health.IsRunning ? (Brush)FindResource("ActivePanelTitle") : (Brush)FindResource("ActivePanelSubtitle"))
+            : Brushes.IndianRed;
+        WatchStatusStack.Children.Add(MakeWatchRow(health.Summary, summaryBrush));
+
+        foreach (var line in health.Lines
+                     .Where(line => !string.Equals(line, health.Summary, StringComparison.Ordinal))
+                     .Take(8))
+        {
+            WatchStatusStack.Children.Add(MakeWatchRow(line));
+        }
+
+        if (health.Lines.Count > 8)
+            WatchStatusStack.Children.Add(MakeWatchRow($"... {health.Lines.Count - 8} more line(s)"));
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 10, 0, 0)
+        };
+
+        var refreshButton = new Button
+        {
+            Content = "Refresh",
+            Margin = new Thickness(0, 0, 8, 0),
+            MinWidth = 72
+        };
+        refreshButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        refreshButton.Click += async (_, _) =>
+        {
+            try
+            {
+                await RefreshWatchHealthPanelAsync();
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException("WatchHealthRefreshButton.Click", ex);
+            }
+        };
+
+        var closeButton = new Button
+        {
+            Content = "Close",
+            MinWidth = 64
+        };
+        closeButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        closeButton.Click += (_, _) => CloseWatchHealthPanel();
+
+        buttons.Children.Add(refreshButton);
+        buttons.Children.Add(closeButton);
+        WatchStatusStack.Children.Add(buttons);
+    }
+
+    private TextBlock MakeWatchRow(string text, Brush? foreground = null) =>
         new TextBlock
         {
             Text = text,
             Margin = new Thickness(0, 2, 0, 0),
-            Foreground = (Brush)FindResource("ActivePanelSubtitle"),
+            Foreground = foreground ?? (Brush)FindResource("ActivePanelSubtitle"),
             TextWrapping = TextWrapping.Wrap
         };
 
@@ -12510,6 +12595,131 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             HandleUiCallbackException(nameof(SquadCliMenuItem_Click), ex);
         }
+    }
+
+    private async void WatchHealthMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await RefreshWatchHealthPanelAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(WatchHealthMenuItem_Click), ex);
+        }
+    }
+
+    private async Task RefreshWatchHealthPanelAsync()
+    {
+        if (_currentWorkspace is null)
+            return;
+
+        _watchHealthPanelVisible = true;
+        _watchHealthResult = SquadWatchHealthResult.Checking;
+        SyncWatchPanel();
+
+        var result = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
+        _watchHealthResult = result;
+        SyncWatchPanel();
+    }
+
+    private void CloseWatchHealthPanel()
+    {
+        _watchHealthPanelVisible = false;
+        _watchHealthResult = null;
+        SyncWatchPanel();
+    }
+
+    private async void DiscoverSquadsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                return;
+
+            var result = await _squadOrchestrationService.DiscoverAsync(_currentWorkspace.FolderPath);
+            var output = BuildCommandOutput(result);
+            var window = new SquadCommandOutputWindow(
+                "Discover Squads",
+                output,
+                showDelegateButton: result.Success && HasDiscoveredSquads(output))
+            {
+                Owner = this
+            };
+
+            var dialogResult = window.ShowDialog();
+            if (dialogResult == true && window.DelegateRequested)
+                await ShowDelegateToSquadDialogAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(DiscoverSquadsMenuItem_Click), ex);
+        }
+    }
+
+    private async void DelegateToSquadMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await ShowDelegateToSquadDialogAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(DelegateToSquadMenuItem_Click), ex);
+        }
+    }
+
+    private async Task ShowDelegateToSquadDialogAsync(string? initialSquadName = null)
+    {
+        if (_currentWorkspace is null)
+            return;
+
+        var dialog = new SquadDelegateWindow(initialSquadName)
+        {
+            Owner = this
+        };
+        if (dialog.ShowDialog() != true)
+            return;
+
+        var result = await _squadOrchestrationService.DelegateAsync(
+            _currentWorkspace.FolderPath,
+            dialog.SquadName,
+            dialog.Description);
+        var output = BuildCommandOutput(result);
+        var outputWindow = new SquadCommandOutputWindow("Delegate to Squad", output)
+        {
+            Owner = this
+        };
+        outputWindow.ShowDialog();
+    }
+
+    private static string BuildCommandOutput(SquadCommandResult result)
+    {
+        var builder = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(result.StandardOutput))
+            builder.AppendLine(result.StandardOutput.TrimEnd());
+        if (!string.IsNullOrWhiteSpace(result.StandardError))
+        {
+            if (builder.Length > 0)
+                builder.AppendLine();
+            builder.AppendLine(result.StandardError.TrimEnd());
+        }
+
+        if (builder.Length == 0)
+            builder.AppendLine(result.Message);
+        else if (!result.Success && !string.IsNullOrWhiteSpace(result.Message))
+        {
+            builder.AppendLine();
+            builder.AppendLine(result.Message);
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    private static bool HasDiscoveredSquads(string output)
+    {
+        return !string.IsNullOrWhiteSpace(output) &&
+               !output.Contains("No squads discovered", StringComparison.OrdinalIgnoreCase);
     }
 
     private void PowerShellMenuItem_Click(object sender, RoutedEventArgs e)
@@ -26161,6 +26371,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         };
         squadCliMenuItem.Click += SquadCliMenuItem_Click;
         WorkspaceMenuItem.Items.Add(squadCliMenuItem);
+
+        var watchHealthMenuItem = new MenuItem
+        {
+            Header = "Watch _Health",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        watchHealthMenuItem.Click += WatchHealthMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(watchHealthMenuItem);
+
+        var discoverSquadsMenuItem = new MenuItem
+        {
+            Header = "Discover S_quads",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        discoverSquadsMenuItem.Click += DiscoverSquadsMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(discoverSquadsMenuItem);
+
+        var delegateToSquadMenuItem = new MenuItem
+        {
+            Header = "_Delegate to Squad...",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        delegateToSquadMenuItem.Click += DelegateToSquadMenuItem_Click;
+        WorkspaceMenuItem.Items.Add(delegateToSquadMenuItem);
 
         _remoteAccessMenuItem = new MenuItem
         {

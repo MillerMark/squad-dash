@@ -18,7 +18,7 @@ internal sealed class CodeHealthReportWriter {
     private readonly string _reportsDir;
 
     internal CodeHealthReportWriter(string workspacePath) {
-        _reportsDir = Path.Combine(workspacePath, ".squad", "code-health-reports");
+        _reportsDir = SquadWorkspaceLayoutResolver.ResolveTeamFilePath(workspacePath, "code-health-reports");
     }
 
     /// <summary>Writes a report and returns the file path.</summary>

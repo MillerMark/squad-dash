@@ -25,7 +25,8 @@ internal sealed class SquadRoutingDocumentService {
             throw new ArgumentException("Workspace folder cannot be empty.", nameof(workspaceFolder));
 
         var normalizedWorkspace = NormalizePath(workspaceFolder);
-        var squadFolderPath = Path.Combine(normalizedWorkspace, ".squad");
+        var layout = SquadWorkspaceLayoutResolver.Resolve(normalizedWorkspace);
+        var squadFolderPath = layout?.TeamSquadFolderPath ?? Path.Combine(normalizedWorkspace, ".squad");
         var routingFilePath = Path.Combine(squadFolderPath, "routing.md");
         if (!Directory.Exists(squadFolderPath)) {
             return CreateAssessment(
@@ -34,7 +35,7 @@ internal sealed class SquadRoutingDocumentService {
                 SquadRoutingDocumentStatus.NotApplicable,
                 Array.Empty<SquadTeamMember>(),
                 null,
-                "This workspace does not have a .squad directory yet.");
+                "This workspace does not have a Squad directory yet.");
         }
 
         var members = _rosterLoader.Load(normalizedWorkspace);
@@ -138,7 +139,9 @@ internal sealed class SquadRoutingDocumentService {
         var builder = new StringBuilder();
         builder.AppendLine(status.ToString());
         builder.AppendLine();
-        AppendFileSnapshot(builder, Path.Combine(workspaceFolder, ".squad", "team.md"));
+        var layout = SquadWorkspaceLayoutResolver.Resolve(workspaceFolder);
+        var squadFolderPath = layout?.TeamSquadFolderPath ?? Path.Combine(workspaceFolder, ".squad");
+        AppendFileSnapshot(builder, Path.Combine(squadFolderPath, "team.md"));
         AppendFileSnapshot(builder, routingFilePath, existingContent);
 
         foreach (var charterPath in teamMembers

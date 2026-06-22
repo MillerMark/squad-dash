@@ -332,7 +332,7 @@ internal sealed class ApplicationSettingsStore {
         using var mutex = AcquireMutex();
         var current = LoadCore();
         var updated = current with {
-            ByokProviderUrl = string.IsNullOrWhiteSpace(providerUrl) ? null : providerUrl.Trim(),
+            ByokProviderUrl = ByokProviderSettings.NormalizeProviderUrl(providerUrl),
             ByokModel = string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
             ByokProviderType = providerType is "openai" or "azure" or "anthropic" ? providerType : null,
             ByokApiKey = EncryptSettingValue(string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim()),
@@ -1669,7 +1669,7 @@ internal sealed record ApplicationSettingsSnapshot(
             NotificationEventToggles = NotificationEventToggles,
             TunnelMode = TunnelMode is "ngrok" or "cloudflare" ? TunnelMode : null,
             TunnelToken = string.IsNullOrWhiteSpace(TunnelToken) ? null : TunnelToken.Trim(),
-            ByokProviderUrl = string.IsNullOrWhiteSpace(ByokProviderUrl) ? null : ByokProviderUrl.Trim(),
+            ByokProviderUrl = ByokProviderSettings.NormalizeProviderUrl(ByokProviderUrl),
             ByokModel = string.IsNullOrWhiteSpace(ByokModel) ? null : ByokModel.Trim(),
             ByokProviderType = ByokProviderType is "openai" or "azure" or "anthropic" ? ByokProviderType : null,
             ByokApiKey = string.IsNullOrWhiteSpace(ByokApiKey) ? null : ByokApiKey.Trim(),

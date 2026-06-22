@@ -9,7 +9,13 @@ internal sealed record SessionWorkspace(
     string? SolutionPath,
     string? SolutionName) {
 
-    public string SquadFolderPath => Path.Combine(FolderPath, ".squad");
+    public string SquadFolderPath =>
+        SquadWorkspaceLayoutResolver.Resolve(FolderPath)?.TeamSquadFolderPath
+        ?? Path.Combine(FolderPath, ".squad");
+
+    public string ProjectSquadFolderPath =>
+        SquadWorkspaceLayoutResolver.Resolve(FolderPath)?.ProjectSquadFolderPath
+        ?? Path.Combine(FolderPath, ".squad");
 
     public static SessionWorkspace Create(string folderPath) {
         var normalizedFolder = Path.GetFullPath(folderPath)

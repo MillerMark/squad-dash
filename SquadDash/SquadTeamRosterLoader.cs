@@ -18,8 +18,8 @@ internal sealed class SquadTeamRosterLoader {
 
         var normalizedWorkspace = Path.GetFullPath(workspaceFolder)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var squadFolder = Path.Combine(normalizedWorkspace, ".squad");
-        var agentsFolder = Path.Combine(normalizedWorkspace, ".squad", "agents");
+        var squadFolder = ResolveSquadFolder(normalizedWorkspace);
+        var agentsFolder = Path.Combine(squadFolder, "agents");
         var listedMembers = LoadFromTeamFile(normalizedWorkspace, Path.Combine(squadFolder, "team.md"));
         var listedUtilityNames = new HashSet<string>(
             listedMembers
@@ -41,7 +41,7 @@ internal sealed class SquadTeamRosterLoader {
 
         var normalizedWorkspace = Path.GetFullPath(workspaceFolder)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var squadFolder = Path.Combine(normalizedWorkspace, ".squad");
+        var squadFolder = ResolveSquadFolder(normalizedWorkspace);
         var agentsFolder = Path.Combine(squadFolder, "agents");
 
         // Read registry.json to get authoritative retirement status (may differ from team.md Status column).
@@ -299,11 +299,17 @@ internal sealed class SquadTeamRosterLoader {
         if (File.Exists(workspaceRelative))
             return workspaceRelative;
 
-        var squadRelative = NormalizePath(Path.Combine(workspaceFolder, ".squad", cleaned));
+        var squadFolder = ResolveSquadFolder(workspaceFolder);
+        var squadRelative = NormalizePath(Path.Combine(squadFolder, cleaned));
         if (File.Exists(squadRelative))
             return squadRelative;
 
         return workspaceRelative;
+    }
+
+    private static string ResolveSquadFolder(string workspaceFolder) {
+        return SquadWorkspaceLayoutResolver.Resolve(workspaceFolder)?.TeamSquadFolderPath
+               ?? Path.Combine(workspaceFolder, ".squad");
     }
 
     private static SquadAgentCharterMetadata ReadCharterMetadata(string? charterPath) {

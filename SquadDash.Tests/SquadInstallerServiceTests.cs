@@ -189,6 +189,98 @@ internal sealed class SquadInstallerServiceTests {
         });
     }
 
+    [Test]
+    public void EnsureSquadDashUniverseFiles_UsesRemoteTeamRootFromSquadConfig() {
+        using var workspace = new TestWorkspace();
+        var remoteTeamRoot = workspace.GetPath("external-state", ".squad");
+        Directory.CreateDirectory(remoteTeamRoot);
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            $$"""
+              {
+                "version": 1,
+                "teamRoot": "{{Path.GetRelativePath(workspace.RootPath, remoteTeamRoot).Replace('\\', '/')}}"
+              }
+              """);
+
+        SquadInstallerService.EnsureSquadDashUniverseFiles(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(Directory.Exists(Path.Combine(remoteTeamRoot, "templates", "universes")), Is.True);
+            Assert.That(File.Exists(Path.Combine(remoteTeamRoot, "casting", "policy.json")), Is.True);
+            Assert.That(Directory.Exists(workspace.GetPath(".squad", "templates", "universes")), Is.False);
+        });
+    }
+
+    [Test]
+    public void SessionWorkspace_SquadFolderPath_UsesRemoteTeamRootFromSquadConfig() {
+        using var workspace = new TestWorkspace();
+        var remoteTeamRoot = workspace.GetPath("state", ".squad");
+        Directory.CreateDirectory(remoteTeamRoot);
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            $$"""
+              {
+                "version": 1,
+                "teamRoot": "{{Path.GetRelativePath(workspace.RootPath, remoteTeamRoot).Replace('\\', '/')}}"
+              }
+              """);
+
+        var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
+
+        Assert.That(sessionWorkspace.SquadFolderPath, Is.EqualTo(remoteTeamRoot));
+    }
+
+    [Test]
+    public void WatchHealthResult_ParsesNoWatchInstanceOutput() {
+        var result = SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
+            true,
+            0,
+            "No watch instance detected. Start one with: squad watch --execute --interval 5",
+            string.Empty,
+            "done"));
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.IsRunning, Is.False);
+            Assert.That(result.Summary, Is.EqualTo("No watch instance detected."));
+        });
+    }
+
+    [Test]
+    public void WatchHealthResult_ReportsUnsupportedCliOutput() {
+        var result = SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
+            false,
+            1,
+            string.Empty,
+            "error: unknown option '--health'",
+            "failed"));
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Summary, Is.EqualTo("Watch health is unavailable with this Squad CLI."));
+        });
+    }
+
+    [Test]
+    public void WatchHealthCommand_UsesWorkspaceLocalCliEntry() {
+        Assert.Multiple(() => {
+            Assert.That(SquadCliCommands.WatchHealth.FileName, Is.EqualTo("node"));
+            Assert.That(SquadCliCommands.WatchHealth.Arguments, Does.Contain(SquadCliCommands.LocalCliEntryPath));
+            Assert.That(SquadCliCommands.WatchHealth.Arguments, Does.Not.Contain("npx"));
+        });
+    }
+
+    [Test]
+    public void WatchHealthResult_ReportsMissingLocalCli() {
+        var result = SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
+            false,
+            1,
+            string.Empty,
+            "Error: Cannot find module 'C:\\repo\\node_modules\\@bradygaster\\squad-cli\\dist\\cli-entry.js'",
+            "failed"));
+
+        Assert.That(result.Summary, Is.EqualTo("Local Squad CLI is not installed for this workspace."));
+    }
+
     private static SquadCommandResult Success(string message) =>
         new(true, 0, string.Empty, string.Empty, message);
 

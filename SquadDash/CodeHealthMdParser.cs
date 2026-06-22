@@ -22,7 +22,7 @@ internal static class CodeHealthMdParser {
     /// Returns the configuration with merged tasks from all sources.
     /// </summary>
     public static CodeHealthMdConfig? ParseWithAllSources(string workspacePath) {
-        var systemPath = Path.Combine(workspacePath, ".squad", "code-health.md");
+        var systemPath = ResolveSquadFilePath(workspacePath, "code-health.md");
         
         // Get base config from system file (for global settings)
         var systemConfig = Parse(systemPath);
@@ -800,7 +800,7 @@ internal static class CodeHealthMdParser {
         var allTasks = new Dictionary<string, CodeHealthTask>(StringComparer.Ordinal);
 
         // 1. Load system tasks first (lowest priority)
-        var systemPath = Path.Combine(workspacePath, ".squad", "code-health.md");
+        var systemPath = ResolveSquadFilePath(workspacePath, "code-health.md");
         var systemConfig = Parse(systemPath);
         if (systemConfig?.Tasks is { Count: > 0 }) {
             foreach (var task in systemConfig.Tasks) {
@@ -809,7 +809,7 @@ internal static class CodeHealthMdParser {
         }
 
         // 2. Load custom tasks (medium priority)
-        var customPath = Path.Combine(workspacePath, ".squad", "code-health-custom.md");
+        var customPath = ResolveSquadFilePath(workspacePath, "code-health-custom.md");
         var customConfig = File.Exists(customPath) ? Parse(customPath) : null;
         if (customConfig?.Tasks is { Count: > 0 }) {
             foreach (var task in customConfig.Tasks) {
@@ -818,7 +818,7 @@ internal static class CodeHealthMdParser {
         }
 
         // 3. Load overrides (highest priority, overwrites system/custom)
-        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+        var overridesPath = ResolveSquadFilePath(workspacePath, "code-health-overrides.md");
         var overridesConfig = File.Exists(overridesPath) ? Parse(overridesPath) : null;
         if (overridesConfig?.Tasks is { Count: > 0 }) {
             foreach (var task in overridesConfig.Tasks) {
@@ -834,7 +834,7 @@ internal static class CodeHealthMdParser {
     /// Returns true if the task exists in the overrides file.
     /// </summary>
     public static bool IsTaskOverridden(string taskId, string workspacePath) {
-        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+        var overridesPath = ResolveSquadFilePath(workspacePath, "code-health-overrides.md");
         if (!File.Exists(overridesPath))
             return false;
 
@@ -855,7 +855,7 @@ internal static class CodeHealthMdParser {
     /// If the task already exists in overrides, it is replaced.
     /// </summary>
     public static void SaveTaskOverride(CodeHealthTask editedTask, string workspacePath) {
-        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+        var overridesPath = ResolveSquadFilePath(workspacePath, "code-health-overrides.md");
 
         // Load existing overrides
         var existingOverrides = File.Exists(overridesPath)
@@ -888,7 +888,7 @@ internal static class CodeHealthMdParser {
     /// If no more overrides exist after removal, deletes the overrides file.
     /// </summary>
     public static void RevertTaskToDefault(string taskId, string workspacePath) {
-        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+        var overridesPath = ResolveSquadFilePath(workspacePath, "code-health-overrides.md");
         if (!File.Exists(overridesPath))
             return;
 
@@ -922,8 +922,8 @@ internal static class CodeHealthMdParser {
     /// then removes it from the overrides file.
     /// </summary>
     public static void PromoteOverrideToSystemFile(string taskId, string workspacePath) {
-        var systemPath    = Path.Combine(workspacePath, ".squad", "code-health.md");
-        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+        var systemPath    = ResolveSquadFilePath(workspacePath, "code-health.md");
+        var overridesPath = ResolveSquadFilePath(workspacePath, "code-health-overrides.md");
 
         if (!File.Exists(overridesPath)) return;
 
@@ -947,8 +947,8 @@ internal static class CodeHealthMdParser {
     /// Only called if migration is needed (user had edited code-health.md directly).
     /// </summary>
     public static void MigrateUserEditsToOverrides(string workspacePath) {
-        var systemPath = Path.Combine(workspacePath, ".squad", "code-health.md");
-        var overridesPath = Path.Combine(workspacePath, ".squad", "code-health-overrides.md");
+        var systemPath = ResolveSquadFilePath(workspacePath, "code-health.md");
+        var overridesPath = ResolveSquadFilePath(workspacePath, "code-health-overrides.md");
 
         // If overrides already exist, skip migration
         if (File.Exists(overridesPath))
@@ -1051,5 +1051,8 @@ internal static class CodeHealthMdParser {
         public string? Tooltip  { get; set; }
         public List<CodeHealthOptionChoice> Choices { get; } = new();
     }
+
+    private static string ResolveSquadFilePath(string workspacePath, params string[] relativeSegments) =>
+        SquadWorkspaceLayoutResolver.ResolveTeamFilePath(workspacePath, relativeSegments);
 }
 

@@ -692,7 +692,24 @@ internal sealed class PanelDockingService
                 .ToList();
             int currentIdx = zoneSlots.IndexOf(
                 zoneSlots.FirstOrDefault(id => string.Equals(id, panelId, StringComparison.OrdinalIgnoreCase)) ?? "");
-            int clampedTarget = targetOrder < 0 ? zoneSlots.Count - 1 : Math.Clamp(targetOrder, 0, zoneSlots.Count - 1);
+
+            // For same-zone reorders in Top, targetOrder from the docking map is a visible-rank index.
+            // Convert it to the absolute insertion index (position within all slots including invisible).
+            int resolvedTargetOrder = targetOrder;
+            if (targetOrder >= 0 && targetZone == DockZone.Top && _panelRegistry is not null)
+            {
+                var visibleSlots = zoneSlots
+                    .Where(id => _panelRegistry.TryGetValue(id, out var el) && el.Visibility != Visibility.Collapsed)
+                    .ToList();
+                if (targetOrder < visibleSlots.Count)
+                    resolvedTargetOrder = zoneSlots.IndexOf(visibleSlots[targetOrder]);
+                else if (visibleSlots.Count > 0)
+                    resolvedTargetOrder = zoneSlots.IndexOf(visibleSlots[^1]) + 1;
+                else
+                    resolvedTargetOrder = zoneSlots.Count;
+            }
+
+            int clampedTarget = resolvedTargetOrder < 0 ? zoneSlots.Count - 1 : Math.Clamp(resolvedTargetOrder, 0, zoneSlots.Count - 1);
             if (currentIdx == clampedTarget && !syntheticColumnShiftChanged) return;
 
             // Capture docking map with PRE-MOVE layout for test recording

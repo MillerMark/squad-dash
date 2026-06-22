@@ -13,7 +13,8 @@ internal static class SquadScribeWorkspaceRepairService {
             throw new ArgumentException("Workspace folder cannot be empty.", nameof(workspaceFolder));
 
         var normalizedWorkspace = Path.GetFullPath(workspaceFolder);
-        var squadFolder = Path.Combine(normalizedWorkspace, ".squad");
+        var layout = SquadWorkspaceLayoutResolver.Resolve(normalizedWorkspace);
+        var squadFolder = layout?.TeamSquadFolderPath ?? Path.Combine(normalizedWorkspace, ".squad");
         if (!Directory.Exists(squadFolder)) {
             return new SquadScribeWorkspaceRepairResult(
                 normalizedWorkspace,
@@ -23,7 +24,7 @@ internal static class SquadScribeWorkspaceRepairService {
                 CreatedDecisionLog: false,
                 CreatedDirectories: 0,
                 RoutingRepaired: false,
-                "No .squad folder was found.");
+                "No Squad folder was found.");
         }
 
         var createdDirectories = 0;

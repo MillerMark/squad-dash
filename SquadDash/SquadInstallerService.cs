@@ -165,16 +165,21 @@ internal sealed class SquadInstallerService {
     }
 
     public static void EnsureSquadDashUniverseFiles(string activeDirectory) {
-        if (!Directory.Exists(Path.Combine(activeDirectory, ".squad")))
+        var layout = SquadWorkspaceLayoutResolver.Resolve(activeDirectory);
+        if (layout is null)
             return;
 
-        WriteSquadDashUniverseFiles(activeDirectory);
+        if (!Directory.Exists(layout.TeamSquadFolderPath))
+            return;
+
+        WriteSquadDashUniverseFiles(activeDirectory, layout.TeamSquadFolderPath);
         SquadScribeWorkspaceRepairService.Repair(activeDirectory);
     }
 
-    private static void WriteSquadDashUniverseFiles(string activeDirectory) {
+    private static void WriteSquadDashUniverseFiles(string activeDirectory, string? squadFolderPath = null) {
         try {
-            var universesDir = Path.Combine(activeDirectory, ".squad", "universes");
+            var squadDir = squadFolderPath ?? Path.Combine(activeDirectory, ".squad");
+            var universesDir = Path.Combine(squadDir, "universes");
             Directory.CreateDirectory(universesDir);
 
             var squadDashMd = LoadEmbeddedSquadDashMd();
@@ -183,14 +188,14 @@ internal sealed class SquadInstallerService {
 
             // Also write to .squad/templates/universes/ so the agent init flow can
             // find the file at the standard templates path without a ⚠ warning.
-            var templateUniversesDir = Path.Combine(activeDirectory, ".squad", "templates", "universes");
+            var templateUniversesDir = Path.Combine(squadDir, "templates", "universes");
             Directory.CreateDirectory(templateUniversesDir);
             EnsureUniverseMarkdown(templateUniversesDir, "squaddash.md", squadDashMd);
 
-            EnsureLoopFiles(activeDirectory);
-            EnsureCodeHealthFile(activeDirectory);
-            EnsureCastingStateFiles(activeDirectory);
-            PatchCastingPolicy(activeDirectory);
+            EnsureLoopFiles(squadDir);
+            EnsureCodeHealthFile(squadDir);
+            EnsureCastingStateFiles(squadDir);
+            PatchCastingPolicy(squadDir);
             EnsureCodeHealthStateInGitIgnore(activeDirectory);
         }
         catch {
@@ -198,15 +203,13 @@ internal sealed class SquadInstallerService {
         }
     }
 
-    private static void EnsureLoopFiles(string activeDirectory) {
-        var squadDir = Path.Combine(activeDirectory, ".squad");
+    private static void EnsureLoopFiles(string squadDir) {
         EnsureLoopFile(squadDir, "loop-filtered-tasks.md");
         EnsureLoopFile(squadDir, "loop-fix-test-failures.md");
         EnsureLoopFile(squadDir, "loop-interactive-repair.md");
     }
 
-    private static void EnsureCodeHealthFile(string activeDirectory) {
-        var squadDir = Path.Combine(activeDirectory, ".squad");
+    private static void EnsureCodeHealthFile(string squadDir) {
         var destPath = Path.Combine(squadDir, "code-health.md");
         if (File.Exists(destPath))
             return;
@@ -261,8 +264,8 @@ internal sealed class SquadInstallerService {
         return reader.ReadToEnd();
     }
 
-    private static void PatchCastingPolicy(string activeDirectory) {
-        var policyPath = Path.Combine(activeDirectory, ".squad", "casting", "policy.json");
+    private static void PatchCastingPolicy(string squadDir) {
+        var policyPath = Path.Combine(squadDir, "casting", "policy.json");
         if (!File.Exists(policyPath))
             return;
 
@@ -346,36 +349,36 @@ internal sealed class SquadInstallerService {
         }
     }
 
-    private static void EnsureCastingStateFiles(string activeDirectory) {
-        var castingDirectory = Path.Combine(activeDirectory, ".squad", "casting");
+    private static void EnsureCastingStateFiles(string squadDir) {
+        var castingDirectory = Path.Combine(squadDir, "casting");
         Directory.CreateDirectory(castingDirectory);
 
         EnsureCastingStateFile(
-            activeDirectory,
+            squadDir,
             Path.Combine(castingDirectory, "policy.json"),
             "casting-policy.json",
             CreateDefaultCastingPolicyJson);
         EnsureCastingStateFile(
-            activeDirectory,
+            squadDir,
             Path.Combine(castingDirectory, "history.json"),
             "casting-history.json",
             () => "{\n  \"universe_usage_history\": [],\n  \"assignment_cast_snapshots\": {}\n}\n");
         EnsureCastingStateFile(
-            activeDirectory,
+            squadDir,
             Path.Combine(castingDirectory, "registry.json"),
             "casting-registry.json",
             () => "{\n  \"agents\": {}\n}\n");
     }
 
     private static void EnsureCastingStateFile(
-        string activeDirectory,
+        string squadDir,
         string destinationPath,
         string templateFileName,
         Func<string> fallbackFactory) {
         if (File.Exists(destinationPath))
             return;
 
-        var templatePath = Path.Combine(activeDirectory, ".squad", "templates", templateFileName);
+        var templatePath = Path.Combine(squadDir, "templates", templateFileName);
         if (File.Exists(templatePath)) {
             File.Copy(templatePath, destinationPath, overwrite: false);
             return;
@@ -400,8 +403,8 @@ internal sealed class SquadInstallerService {
     internal const int SquadDashUniverseCapacity = 30;
 
     private static bool IsWorkspaceInitialized(string activeDirectory) {
-        var teamFilePath = Path.Combine(activeDirectory, ".squad", "team.md");
-        return File.Exists(teamFilePath);
+        var layout = SquadWorkspaceLayoutResolver.Resolve(activeDirectory);
+        return layout is not null && File.Exists(layout.TeamFilePath);
     }
 
     private static string BuildPackageName(string activeDirectory) {

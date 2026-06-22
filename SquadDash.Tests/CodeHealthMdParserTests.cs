@@ -1258,6 +1258,49 @@ internal sealed class CodeHealthMdParserTests {
     }
 
     [Test]
+    public void ParseAllSources_UsesRemoteTeamRootFromSquadConfig() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        var projectSquadDir = Path.Combine(tempDir, ".squad");
+        var remoteSquadDir = Path.Combine(tempDir, "external-state", ".squad");
+        Directory.CreateDirectory(projectSquadDir);
+        Directory.CreateDirectory(remoteSquadDir);
+        File.WriteAllText(
+            Path.Combine(projectSquadDir, "config.json"),
+            $$"""
+              {
+                "version": 1,
+                "teamRoot": "{{Path.GetRelativePath(tempDir, remoteSquadDir).Replace('\\', '/')}}"
+              }
+              """);
+
+        var systemPath = Path.Combine(remoteSquadDir, "code-health.md");
+        var systemContent =
+            """
+            ---
+            configured: true
+            tasks:
+              - id: remote-system-task
+                enabled: true
+                frequency: daily
+                safety: branch
+                title: "Remote System Task"
+                instructions: "This is from the remote team root."
+            ---
+            """;
+        File.WriteAllText(systemPath, systemContent);
+
+        try {
+            var tasks = CodeHealthMdParser.ParseAllSources(tempDir);
+            Assert.That(tasks.Select(t => t.Id), Is.EqualTo(new[] { "remote-system-task" }));
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
     public void ParseAllSources_WithCustomTasks_ReturnsBoth() {
         var tempDir = Path.Combine(
             TestContext.CurrentContext.WorkDirectory,

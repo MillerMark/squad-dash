@@ -15,7 +15,7 @@ internal sealed class CodeHealthPromptLogger {
 
     internal CodeHealthPromptLogger(string workspacePath) {
         _workspacePath = workspacePath;
-        _diagnosticsDir = Path.Combine(workspacePath, ".squad", "diagnostics", "prompts");
+        _diagnosticsDir = SquadWorkspaceLayoutResolver.ResolveTeamFilePath(workspacePath, "diagnostics", "prompts");
     }
 
     /// <summary>

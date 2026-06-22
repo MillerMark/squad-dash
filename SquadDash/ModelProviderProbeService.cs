@@ -281,6 +281,25 @@ internal sealed class ModelProviderProbeService : IDisposable {
             }
         }
 
+        foreach (var ollamaRoot in BuildOllamaEndpointCandidates(providerUrl)) {
+            try {
+                using var request = CreateRequest(HttpMethod.Get, $"{ollamaRoot}/api/tags", apiKey);
+                using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode) {
+                    var errorMessage = ExtractErrorMessage(body);
+                    errors.Add($"{ollamaRoot}/api/tags returned {(int)response.StatusCode} {response.ReasonPhrase}: {errorMessage ?? "no error body"}");
+                    continue;
+                }
+
+                return ParseOllamaTagsResponse(body, $"{ollamaRoot}/v1");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) {
+                errors.Add($"{ollamaRoot}/api/tags failed: {ex.Message}");
+            }
+        }
+
         throw new InvalidOperationException(
             errors.Count == 0
                 ? "No provider endpoint candidates were available."
@@ -417,14 +436,31 @@ internal sealed class ModelProviderProbeService : IDisposable {
     }
 
     internal static IReadOnlyList<string> BuildOpenAiEndpointCandidates(string providerUrl) {
-        if (string.IsNullOrWhiteSpace(providerUrl))
+        var normalized = ByokProviderSettings.NormalizeProviderUrl(providerUrl);
+        if (string.IsNullOrWhiteSpace(normalized))
             return Array.Empty<string>();
 
-        var normalized = providerUrl.Trim().TrimEnd('/');
         if (normalized.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
             return [normalized];
 
         return [$"{normalized}/v1", normalized];
+    }
+
+    internal static IReadOnlyList<string> BuildOllamaEndpointCandidates(string providerUrl) {
+        if (string.IsNullOrWhiteSpace(providerUrl))
+            return Array.Empty<string>();
+
+        var normalized = providerUrl.Trim().TrimEnd('/');
+        var root = ByokProviderSettings.GetProviderRoot(normalized);
+        if (string.IsNullOrWhiteSpace(root))
+            return Array.Empty<string>();
+
+        if (!IsOllamaEndpoint(root) &&
+            !normalized.Contains("/api/version", StringComparison.OrdinalIgnoreCase) &&
+            !normalized.Contains("/api/tags", StringComparison.OrdinalIgnoreCase))
+            return Array.Empty<string>();
+
+        return [root.TrimEnd('/')];
     }
 
     internal static IReadOnlyList<FoundryCliCandidate> BuildFoundryCliCandidates() {
@@ -517,6 +553,30 @@ internal sealed class ModelProviderProbeService : IDisposable {
                 Owner: GetString(item, "owned_by") ?? GetString(item, "publisher"),
                 CatalogSupportsToolCalling: TryGetToolCallingSupport(item),
                 CatalogNotes: BuildCatalogNotes(item)));
+        }
+
+        return results
+            .OrderBy(r => r.ModelId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    internal static IReadOnlyList<ModelProviderProbeResult> ParseOllamaTagsResponse(string json, string endpointRoot) {
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("models", out var models) || models.ValueKind != JsonValueKind.Array)
+            return Array.Empty<ModelProviderProbeResult>();
+
+        var results = new List<ModelProviderProbeResult>();
+        foreach (var item in models.EnumerateArray()) {
+            var id = GetString(item, "name") ?? GetString(item, "model");
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+
+            results.Add(new ModelProviderProbeResult(
+                id,
+                endpointRoot.TrimEnd('/'),
+                ParentModel: ReadOllamaFamily(item),
+                Owner: "Ollama",
+                CatalogNotes: BuildOllamaCatalogNotes(item)));
         }
 
         return results
@@ -828,6 +888,53 @@ internal sealed class ModelProviderProbeService : IDisposable {
             (success.ValueKind == JsonValueKind.True || success.ValueKind == JsonValueKind.False))
             parts.Add($"catalogSuccess={success.GetBoolean()}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
+
+    private static string? ReadOllamaFamily(JsonElement item) {
+        if (item.TryGetProperty("details", out var details) &&
+            details.ValueKind == JsonValueKind.Object &&
+            GetString(details, "family") is { Length: > 0 } family)
+            return family;
+
+        return GetString(item, "model");
+    }
+
+    private static string? BuildOllamaCatalogNotes(JsonElement item) {
+        var parts = new List<string>();
+        if (GetString(item, "modified_at") is { Length: > 0 } modifiedAt)
+            parts.Add($"modified={modifiedAt}");
+
+        if (item.TryGetProperty("size", out var size) &&
+            size.ValueKind == JsonValueKind.Number &&
+            size.TryGetInt64(out var sizeBytes))
+            parts.Add($"size={FormatByteSize(sizeBytes)}");
+
+        if (item.TryGetProperty("details", out var details) &&
+            details.ValueKind == JsonValueKind.Object) {
+            if (GetString(details, "parameter_size") is { Length: > 0 } parameterSize)
+                parts.Add($"parameters={parameterSize}");
+            if (GetString(details, "quantization_level") is { Length: > 0 } quantization)
+                parts.Add($"quantization={quantization}");
+        }
+
+        return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
+
+    private static string FormatByteSize(long bytes) {
+        if (bytes < 0)
+            return bytes.ToString(CultureInfo.InvariantCulture);
+
+        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        double value = bytes;
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1) {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        return unitIndex == 0
+            ? $"{bytes} B"
+            : $"{value:0.##} {units[unitIndex]}";
     }
 
     private static string? ExtractFirstAssistantContent(string json) {

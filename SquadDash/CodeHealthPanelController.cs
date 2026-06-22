@@ -102,7 +102,7 @@ internal sealed class CodeHealthPanelController {
                     "CodeHealthPanelController: workspace path is null; cannot create task");
                 return;
             }
-            var mdPath = Path.Combine(workspacePath, ".squad", "code-health.md");
+            var mdPath = ResolveSquadFilePath(workspacePath, "code-health.md");
             if (!File.Exists(mdPath)) {
                 SquadDashTrace.Write(TraceCategory.General,
                     $"CodeHealthPanelController: CodeHealth file not found at {mdPath}");
@@ -151,7 +151,7 @@ internal sealed class CodeHealthPanelController {
                     "CodeHealthPanelController: workspace path is null; cannot open code health file");
                 return;
             }
-            var mdPath = Path.Combine(workspacePath, ".squad", "code-health.md");
+            var mdPath = ResolveSquadFilePath(workspacePath, "code-health.md");
             if (!File.Exists(mdPath)) {
                 SquadDashTrace.Write(TraceCategory.General,
                     $"CodeHealthPanelController: CodeHealth file not found at {mdPath}");
@@ -236,7 +236,7 @@ internal sealed class CodeHealthPanelController {
 
     private string? GetMaintenanceMdPath() {
         var workspacePath = _getWorkspacePath();
-        return workspacePath is null ? null : Path.Combine(workspacePath, ".squad", "code-health.md");
+        return workspacePath is null ? null : ResolveSquadFilePath(workspacePath, "code-health.md");
     }
 
     private void SetEnabledOnIdle(bool value) {
@@ -254,7 +254,7 @@ internal sealed class CodeHealthPanelController {
         var workspacePath = _getWorkspacePath();
         if (workspacePath is null) return;
 
-        var mdPath = Path.Combine(workspacePath, ".squad", "code-health.md");
+        var mdPath = ResolveSquadFilePath(workspacePath, "code-health.md");
         if (!File.Exists(mdPath)) return;
 
         try {
@@ -352,7 +352,7 @@ internal sealed class CodeHealthPanelController {
         var workspacePath = _getWorkspacePath();
         var reportsDir = workspacePath is null
             ? null
-            : Path.Combine(workspacePath, ".squad", "code-health-reports");
+            : ResolveSquadFilePath(workspacePath, "code-health-reports");
 
         List<string> reportFiles = [];
         if (reportsDir is not null && Directory.Exists(reportsDir)) {
@@ -1260,6 +1260,9 @@ internal sealed class CodeHealthPanelController {
         _viewModel.StateStore?.SetSafetyOverride(taskId, newSafety);
         _reloadPanel();
     }
+
+    private static string ResolveSquadFilePath(string workspacePath, params string[] relativeSegments) =>
+        SquadWorkspaceLayoutResolver.ResolveTeamFilePath(workspacePath, relativeSegments);
 }
 
 

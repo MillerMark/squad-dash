@@ -123,8 +123,11 @@
     <Compile Include="..\SquadDash\PromptInteractionLogic.cs" Link="Source\PromptInteractionLogic.cs" />
     <Compile Include="..\SquadDash\SquadCliAdapter.cs" Link="Source\SquadCliAdapter.cs" />
     <Compile Include="..\SquadDash\IntelliSenseController.cs" Link="Source\IntelliSenseController.cs" />
+    <Compile Include="..\SquadDash\SquadWorkspaceLayout.cs" Link="Source\SquadWorkspaceLayout.cs" />
     <Compile Include="..\SquadDash\SquadInstallationStateService.cs" Link="Source\SquadInstallationStateService.cs" />
     <Compile Include="..\SquadDash\SquadInstallerService.cs" Link="Source\SquadInstallerService.cs" />
+    <Compile Include="..\SquadDash\SquadWatchHealthService.cs" Link="Source\SquadWatchHealthService.cs" />
+    <Compile Include="..\SquadDash\SquadOrchestrationService.cs" Link="Source\SquadOrchestrationService.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
     <Compile Include="..\SquadDash\SquadBridgePromptBuilder.cs" Link="Source\SquadBridgePromptBuilder.cs" />
     <Compile Include="..\SquadDash\ISquadBridgePromptBuilder.cs" Link="Source\ISquadBridgePromptBuilder.cs" />

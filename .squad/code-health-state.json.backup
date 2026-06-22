@@ -11,8 +11,8 @@
       "safetyOverride": ""
     },
     "docs-review": {
-      "lastRunAt": "2026-06-14T00:09:22.5656664Z",
-      "lastCommitSha": "8874428eb7e3a8e96758eacd1c5e3d9c43233b39",
+      "lastRunAt": "2026-06-22T17:28:47.0759670Z",
+      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
       "safetyOverride": ""
     },
     "error-handling-audit": {
@@ -31,18 +31,18 @@
       "safetyOverride": ""
     },
     "commit-review": {
-      "lastRunAt": "2026-06-17T18:29:32.9637356Z",
-      "lastCommitSha": "f3845faf4c7a3487f489d7b1da56d18594bdc72d",
+      "lastRunAt": "2026-06-22T17:25:21.1872739Z",
+      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
       "safetyOverride": ""
     },
     "daily-issue-pr-tracker": {
-      "lastRunAt": "2026-06-18T00:38:47.7236289Z",
-      "lastCommitSha": "72a43f7e41d3bcc8501ab10aa00a41e93cc162be",
+      "lastRunAt": "2026-06-22T17:26:07.6696839Z",
+      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
       "safetyOverride": ""
     },
     "run-tests": {
-      "lastRunAt": "2026-06-18T00:39:23.6322503Z",
-      "lastCommitSha": "72a43f7e41d3bcc8501ab10aa00a41e93cc162be",
+      "lastRunAt": "2026-06-22T17:32:31.4911324Z",
+      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
       "safetyOverride": ""
     },
     "thematic-compliance": {
@@ -56,8 +56,8 @@
       "safetyOverride": ""
     },
     "prune-tasks": {
-      "lastRunAt": "2026-06-18T00:39:16.9777781Z",
-      "lastCommitSha": "72a43f7e41d3bcc8501ab10aa00a41e93cc162be",
+      "lastRunAt": "2026-06-22T17:29:46.8549235Z",
+      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
       "safetyOverride": ""
     }
   }
