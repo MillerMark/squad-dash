@@ -306,7 +306,7 @@ internal sealed class ThemeColorsWindow : Window
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center
         };
-        _hueSlider.Style = BuildTransparentHueSliderStyle();
+        _hueSlider.Loaded += (_, _) => MakeSliderTrackTransparent(_hueSlider);
         hueSliderGrid.Children.Add(_hueSlider);
         hueRow.Children.Add(hueSliderGrid);
 
@@ -736,45 +736,20 @@ internal sealed class ThemeColorsWindow : Window
         }
     }
 
-    private static Style BuildTransparentHueSliderStyle()
+    // Walk the visual tree of a Slider after it has loaded and set all Border/Rectangle
+    // backgrounds to Transparent, skipping Thumb descendants so the thumb retains its
+    // default appearance. This makes the hue slider track invisible over the rainbow strip.
+    private static void MakeSliderTrackTransparent(DependencyObject parent)
     {
-        // DecreaseRepeatButton (left of thumb) — invisible
-        var decreaseBtnFactory = new FrameworkElementFactory(typeof(RepeatButton));
-        decreaseBtnFactory.SetValue(RepeatButton.BackgroundProperty, Brushes.Transparent);
-        decreaseBtnFactory.SetValue(RepeatButton.BorderThicknessProperty, new Thickness(0));
-        decreaseBtnFactory.SetValue(RepeatButton.IsTabStopProperty, false);
-        decreaseBtnFactory.SetValue(RepeatButton.FocusableProperty, false);
-        decreaseBtnFactory.SetValue(RepeatButton.OverridesDefaultStyleProperty, true);
-        decreaseBtnFactory.SetValue(RepeatButton.TemplateProperty, new ControlTemplate(typeof(RepeatButton)));
-
-        // IncreaseRepeatButton (right of thumb) — invisible
-        var increaseBtnFactory = new FrameworkElementFactory(typeof(RepeatButton));
-        increaseBtnFactory.SetValue(RepeatButton.BackgroundProperty, Brushes.Transparent);
-        increaseBtnFactory.SetValue(RepeatButton.BorderThicknessProperty, new Thickness(0));
-        increaseBtnFactory.SetValue(RepeatButton.IsTabStopProperty, false);
-        increaseBtnFactory.SetValue(RepeatButton.FocusableProperty, false);
-        increaseBtnFactory.SetValue(RepeatButton.OverridesDefaultStyleProperty, true);
-        increaseBtnFactory.SetValue(RepeatButton.TemplateProperty, new ControlTemplate(typeof(RepeatButton)));
-
-        var thumbFactory = new FrameworkElementFactory(typeof(Thumb));
-
-        var trackFactory = new FrameworkElementFactory(typeof(Track));
-        trackFactory.Name = "PART_Track";
-        trackFactory.SetValue(Track.OrientationProperty, Orientation.Horizontal);
-        trackFactory.AppendChild(decreaseBtnFactory);
-        trackFactory.AppendChild(thumbFactory);
-        trackFactory.AppendChild(increaseBtnFactory);
-
-        var rootFactory = new FrameworkElementFactory(typeof(Border));
-        rootFactory.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-        rootFactory.AppendChild(trackFactory);
-
-        var template = new ControlTemplate(typeof(Slider)) { VisualTree = rootFactory };
-
-        var style = new Style(typeof(Slider));
-        style.Setters.Add(new Setter(Slider.TemplateProperty, template));
-        style.Setters.Add(new Setter(Slider.BackgroundProperty, Brushes.Transparent));
-        return style;
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Thumb) continue;
+            if (child is Border b)  b.Background = Brushes.Transparent;
+            if (child is Rectangle r) r.Fill = Brushes.Transparent;
+            MakeSliderTrackTransparent(child);
+        }
     }
 
     private static (Slider slider, TextBlock valueLabel) BuildSliderRow(Panel parent, string labelText)
