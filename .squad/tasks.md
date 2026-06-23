@@ -180,11 +180,12 @@
 > Full report: `mainwindow-refactor-review.md` (Orion) + `mainwindow-xaml-review.md` (Lyra).
 > Current file: ~28,687 lines. Goal: extract cohesive domains into separate classes.
 
-- [ ] **[Refactor Phase 1a] Extract `TranscriptSearchController`** *(Owner: Lyra Morn)*
+- [x] **[Refactor Phase 1a] Extract `TranscriptSearchController`** *(Owner: Lyra Morn)*
   ~930 lines of transcript search logic (find-in-transcript, Shift+F3 cycling, highlight adorner
   management). `SearchWalker` is already embedded. Minimal `this` dependencies — easy to inject
   via constructor. Fixes the Shift+F3 duplication that currently exists in 2 separate search paths.
   Full line ranges in `mainwindow-refactor-review.md`.
+  ✅ Completed 2026-06-23 — commit e612ef0
 
 - [ ] **[Refactor Phase 1b] Extract `PromptKeyboardController`** *(Owner: Lyra Morn)*
   ~700 lines of KeyDown/KeyUp handlers for the prompt input area. Pure input routing with no deep
@@ -261,6 +262,18 @@
 ---
 
 ## 🟢 Low Priority
+
+- [ ] **[CompactPickerButton] Extract shared init helper to avoid duplicate fix targets** *(Owner: lyra-morn)*
+  CompactPickerButton.cs has two near-identical initialization blocks for two button variants.
+  The hover-flicker fix (commit 9f0b5fb) had to be applied to both blocks. Extract the shared
+  setup into a helper method so future fixes only need to be applied once. Low-priority refactor.
+
+- [ ] **[CodeHealthTaskEditor] Fix branchName alias drift risk in _optionValues** *(Owner: arjun-sen)*
+  In CodeHealthTaskEditorWindow.cs, `_optionValues["branchName"]` is set at construction time as a
+  one-off alias for `_optionValues["branch"]`. If `branch` is ever updated later in the session,
+  `branchName` will not update, causing subtle template variable bugs ({{branchName}} shows stale value).
+  Either remove the alias and standardize on one key, or introduce a proper aliasing/computed-value
+  mechanism. Found during code health review 2026-06-16 (commit 0778c38).
 
 ---
 
