@@ -711,6 +711,12 @@
                     <MenuItem x:Name="TintMenuItem"
                               Header="_Tint"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}" />
+                    <MenuItem x:Name="SaturationMenuItem"
+                              Header="_Saturation"
+                              Style="{StaticResource ThemedMenuItemStyle}" />
+                    <MenuItem x:Name="ContrastMenuItem"
+                              Header="C_ontrast"
+                              Style="{StaticResource ThemedMenuItemStyle}" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem x:Name="ToolIconGalleryMenuItem"
                               Header="Tool Icon Gallery..."

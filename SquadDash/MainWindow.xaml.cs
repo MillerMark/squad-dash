@@ -476,7 +476,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _loopPausedForQuickReply; // set at startup when loop resume is held for pending quick replies
     private int _activeTintStop;                       // 0 = natural; 1–7 = hue offsets at 45° steps
     private int _activeAccentHueOffset;               // extra hue rotation for ActiveAccent keys, in degrees
+    private double _activeSaturation;                  // -1.0 to +1.0, default 0.0
+    private double _activeContrast;                    // 0.0 to 1.0, default 0.0
     private Dictionary<string, Color>? _tintBaseline; // baseline theme colors per TintKeys.All, refreshed on theme switch
+    private Slider? _saturationSlider;
+    private Slider? _contrastSlider;
     private ResourceDictionary? _themeDict;            // the currently-loaded theme ResourceDictionary (cached to avoid URI-search fragility)
     // Held while a loop iteration is waiting for user follow-up after quick replies.
     // Completed (true) when input arrives; completed (false) on abort.
@@ -26707,6 +26711,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RemoteMenuItem.Items.Add(_remoteAccessMenuItem);
 
         EnsureTintMenuItems();
+        BuildSaturationMenuItem();
+        BuildContrastMenuItem();
 
         AddWorkspaceMenuSeparator();
 
@@ -28943,6 +28949,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 shouldRotate = true;
             }
             var tinted = shouldRotate ? RotateHue(baseColor, delta) : baseColor;
+            tinted = ApplySaturationAdjust(tinted, _activeSaturation);
+            tinted = ApplyContrastAdjust(tinted, _activeContrast);
             var brush = new SolidColorBrush(tinted);
             brush.Freeze();
             resources[key] = brush;
@@ -28956,6 +28964,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ColorUtilities.RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
         h = ((h + hueDeltaDegrees / 360.0) % 1.0 + 1.0) % 1.0;
         ColorUtilities.HslToRgb(h, s, l, out byte r, out byte g, out byte b);
+        return Color.FromArgb(color.A, r, g, b);
+    }
+
+    private static Color ApplySaturationAdjust(Color color, double v)
+    {
+        if (v == 0.0) return color;
+        ColorUtilities.RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
+        double newS = v >= 0 ? s + (1.0 - s) * v : s + s * v;
+        newS = Math.Clamp(newS, 0.0, 1.0);
+        ColorUtilities.HslToRgb(h, newS, l, out byte r, out byte g, out byte b);
+        return Color.FromArgb(color.A, r, g, b);
+    }
+
+    private static Color ApplyContrastAdjust(Color color, double v)
+    {
+        if (v == 0.0) return color;
+        ColorUtilities.RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
+        double newL = l >= 0.5 ? l + (1.0 - l) * v : l - l * v;
+        newL = Math.Clamp(newL, 0.0, 1.0);
+        ColorUtilities.HslToRgb(h, s, newL, out byte r, out byte g, out byte b);
         return Color.FromArgb(color.A, r, g, b);
     }
 
@@ -28984,8 +29012,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         _activeTintStop = _settingsSnapshot.TintStopByWorkspace.TryGetValue(key, out var stop) ? stop : 0;
         _activeAccentHueOffset = _settingsSnapshot.AccentHueOffsetByWorkspace.TryGetValue(key, out var accentOffset) ? accentOffset : 0;
+        _activeSaturation = _settingsSnapshot.SaturationByWorkspace.TryGetValue(key, out var sat) ? sat
+            : (_settingsSnapshot.SaturationByWorkspace.TryGetValue("__default__", out var defSat) ? defSat : 0.0);
+        _activeContrast = _settingsSnapshot.ContrastByWorkspace.TryGetValue(key, out var con) ? con
+            : (_settingsSnapshot.ContrastByWorkspace.TryGetValue("__default__", out var defCon) ? defCon : 0.0);
         ApplyTintStop(_activeTintStop);
         UpdateTintMenuState();
+        SyncSliderValues();
     }
 
     private void SetWorkspaceTintStop(int stop)
@@ -29156,6 +29189,117 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Style  = (Style)FindResource("ThemedMenuItemStyle")
         };
         return sub;
+    }
+
+    private void BuildSaturationMenuItem()
+    {
+        var slider = new Slider
+        {
+            Minimum = -1.0,
+            Maximum = 1.0,
+            Value   = _activeSaturation,
+            Width   = 160,
+            Margin  = new Thickness(8, 4, 8, 4),
+            TickFrequency = 0.25,
+            IsSnapToTickEnabled = false,
+            AutoToolTipPlacement = System.Windows.Controls.Primitives.AutoToolTipPlacement.TopLeft,
+            AutoToolTipPrecision  = 2,
+        };
+        slider.SetResourceReference(Slider.ForegroundProperty, "LabelText");
+        slider.SetResourceReference(Slider.BackgroundProperty, "RosterPanelSurface");
+        _saturationSlider = slider;
+
+        var valueLabel = new TextBlock { Width = 36, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        valueLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        UpdateSliderLabel(valueLabel, slider.Value);
+
+        slider.ValueChanged += (_, e) =>
+        {
+            try
+            {
+                UpdateSliderLabel(valueLabel, e.NewValue);
+                _activeSaturation = e.NewValue;
+                ApplyTintStop(_activeTintStop, notify: true);
+                if (_currentWorkspace is not null)
+                    _settingsSnapshot = _settingsStore.SaveWorkspaceSaturation(_currentWorkspace.FolderPath, e.NewValue);
+            }
+            catch (Exception ex) { HandleUiCallbackException("SaturationSlider_ValueChanged", ex); }
+        };
+
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(slider);
+        panel.Children.Add(valueLabel);
+
+        var sliderItem = new MenuItem
+        {
+            Header           = panel,
+            IsEnabled        = true,
+            StaysOpenOnClick = true,
+        };
+        sliderItem.PreviewMouseDown += (_, e) => e.Handled = false;
+        SaturationMenuItem.Items.Add(sliderItem);
+    }
+
+    private void BuildContrastMenuItem()
+    {
+        var slider = new Slider
+        {
+            Minimum = 0.0,
+            Maximum = 1.0,
+            Value   = _activeContrast,
+            Width   = 160,
+            Margin  = new Thickness(8, 4, 8, 4),
+            TickFrequency = 0.25,
+            IsSnapToTickEnabled = false,
+            AutoToolTipPlacement = System.Windows.Controls.Primitives.AutoToolTipPlacement.TopLeft,
+            AutoToolTipPrecision  = 2,
+        };
+        slider.SetResourceReference(Slider.ForegroundProperty, "LabelText");
+        slider.SetResourceReference(Slider.BackgroundProperty, "RosterPanelSurface");
+        _contrastSlider = slider;
+
+        var valueLabel = new TextBlock { Width = 36, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        valueLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        UpdateSliderLabel(valueLabel, slider.Value);
+
+        slider.ValueChanged += (_, e) =>
+        {
+            try
+            {
+                UpdateSliderLabel(valueLabel, e.NewValue);
+                _activeContrast = e.NewValue;
+                ApplyTintStop(_activeTintStop, notify: true);
+                if (_currentWorkspace is not null)
+                    _settingsSnapshot = _settingsStore.SaveWorkspaceContrast(_currentWorkspace.FolderPath, e.NewValue);
+            }
+            catch (Exception ex) { HandleUiCallbackException("ContrastSlider_ValueChanged", ex); }
+        };
+
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(slider);
+        panel.Children.Add(valueLabel);
+
+        var sliderItem = new MenuItem
+        {
+            Header           = panel,
+            IsEnabled        = true,
+            StaysOpenOnClick = true,
+        };
+        sliderItem.PreviewMouseDown += (_, e) => e.Handled = false;
+        ContrastMenuItem.Items.Add(sliderItem);
+    }
+
+    private void SyncSliderValues()
+    {
+        if (_saturationSlider is not null)
+            _saturationSlider.Value = _activeSaturation;
+        if (_contrastSlider is not null)
+            _contrastSlider.Value = _activeContrast;
+    }
+
+    private static void UpdateSliderLabel(TextBlock label, double value)
+    {
+        label.Text = value >= 0 ? $"+{value:F2}" : $"{value:F2}";
     }
 
     private void RefreshDocumentationViewer()

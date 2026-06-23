@@ -423,6 +423,32 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveWorkspaceSaturation(string workspaceFolder, double saturation) {
+        using var mutex = AcquireMutex();
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        var current = LoadCore();
+        var dict = current.SaturationByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        dict[normalizedWorkspace] = Math.Clamp(saturation, -1.0, 1.0);
+        dict["__default__"] = Math.Clamp(saturation, -1.0, 1.0);
+        var updated = current with { SaturationByWorkspace = dict };
+        SaveCore(updated);
+        return updated;
+    }
+
+    public ApplicationSettingsSnapshot SaveWorkspaceContrast(string workspaceFolder, double contrast) {
+        using var mutex = AcquireMutex();
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        var current = LoadCore();
+        var dict = current.ContrastByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        dict[normalizedWorkspace] = Math.Clamp(contrast, 0.0, 1.0);
+        dict["__default__"] = Math.Clamp(contrast, 0.0, 1.0);
+        var updated = current with { ContrastByWorkspace = dict };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveHomeBranch(string workspaceFolder, string branch) {
         using var mutex = AcquireMutex();
         var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
@@ -1456,6 +1482,20 @@ internal sealed record ApplicationSettingsSnapshot(
     public IReadOnlyDictionary<string, int> AccentHueOffsetByWorkspace { get; init; } =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Per-workspace saturation adjustment (-1.0 = fully desaturated, 0.0 = no change, +1.0 = fully saturated).
+    /// Keyed by normalised workspace folder path. Key "__default__" holds the default for new workspaces.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> SaturationByWorkspace { get; init; } =
+        new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Per-workspace contrast adjustment (0.0 = no change, 1.0 = maximum contrast).
+    /// Keyed by normalised workspace folder path. Key "__default__" holds the default for new workspaces.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> ContrastByWorkspace { get; init; } =
+        new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
     public const string DefaultCopilotModel = "auto";
 
     public static ApplicationSettingsSnapshot Empty{ get; } =
@@ -1594,6 +1634,28 @@ internal sealed record ApplicationSettingsSnapshot(
                 var normalizedWorkspace = Path.GetFullPath(entry.Key)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 normalizedAccentOffsets[normalizedWorkspace] = Math.Clamp(entry.Value, -180, 180);
+            }
+        }
+
+        var normalizedSaturations = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (SaturationByWorkspace is not null) {
+            foreach (var entry in SaturationByWorkspace) {
+                if (string.IsNullOrWhiteSpace(entry.Key)) continue;
+                var normalizedWorkspace = entry.Key.Equals("__default__", StringComparison.OrdinalIgnoreCase)
+                    ? "__default__"
+                    : Path.GetFullPath(entry.Key).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedSaturations[normalizedWorkspace] = Math.Clamp(entry.Value, -1.0, 1.0);
+            }
+        }
+
+        var normalizedContrasts = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (ContrastByWorkspace is not null) {
+            foreach (var entry in ContrastByWorkspace) {
+                if (string.IsNullOrWhiteSpace(entry.Key)) continue;
+                var normalizedWorkspace = entry.Key.Equals("__default__", StringComparison.OrdinalIgnoreCase)
+                    ? "__default__"
+                    : Path.GetFullPath(entry.Key).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedContrasts[normalizedWorkspace] = Math.Clamp(entry.Value, 0.0, 1.0);
             }
         }
 
@@ -1740,6 +1802,8 @@ internal sealed record ApplicationSettingsSnapshot(
             WorkspaceShutdownTimes = normalizedShutdownTimes,
             TintStopByWorkspace = normalizedTintStops,
             AccentHueOffsetByWorkspace = normalizedAccentOffsets,
+            SaturationByWorkspace = normalizedSaturations,
+            ContrastByWorkspace = normalizedContrasts,
             StartupIssueSimulationByWorkspace = normalizedStartupSimulations,
             RuntimeIssueSimulationByWorkspace = normalizedRuntimeSimulations,
             BridgeDiagnosticsEnabled = BridgeDiagnosticsEnabled,
