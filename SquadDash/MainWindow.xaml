@@ -1788,6 +1788,16 @@
                             <!-- Title row with filter box and close button -->
                             <DockPanel Grid.Row="0">
 
+                                <Button x:Name="ApprovalPanelCloseButton"
+                                        DockPanel.Dock="Right"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeNormal}"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Approvals panel"
+                                        Click="ApprovalPanelCloseButton_Click" />
                                 <Button x:Name="ApprovalOrganizeButton"
                                         DockPanel.Dock="Right"
                                         Content="🗂"
@@ -1799,16 +1809,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Organize approvals by feature group (AI)"
                                         Click="ApprovalOrganizeButton_Click" />
-                                <Button x:Name="ApprovalPanelCloseButton"
-                                        DockPanel.Dock="Right"
-                                        Content="×"
-                                        Width="22"
-                                        Height="22"
-                                        FontSize="{DynamicResource FontSizeNormal}"
-                                        VerticalAlignment="Center"
-                                        Style="{StaticResource PanelCloseButtonStyle}"
-                                        ToolTip="Hide Approvals panel"
-                                        Click="ApprovalPanelCloseButton_Click" />
 
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Approvals"
