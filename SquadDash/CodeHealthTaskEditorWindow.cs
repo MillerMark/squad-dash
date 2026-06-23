@@ -1105,7 +1105,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                 groupLabel.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                 groupLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 _optionsPreviewPanel.Children.Add(groupLabel);
-                indentLeft = 40.0;
+                indentLeft = 20.0;
                 continue;
             }
 
