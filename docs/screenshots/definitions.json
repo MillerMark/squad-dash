@@ -1234,5 +1234,78 @@
     },
     "docImagePath": "..\\panels\\images\\code-health-panel-overview.png",
     "elementInventory": null
+  },
+  {
+    "name": "left-zone-scroll-viewer-light",
+    "description": "",
+    "theme": "Light",
+    "replayActionId": null,
+    "fixturePath": null,
+    "top": {
+      "edge": "Top",
+      "elementNames": [
+        "LeftZoneScrollViewer",
+        "LeftZonePanel",
+        "LoopPanelBorder",
+        "LeftZoneSplitter"
+      ],
+      "needsName": false,
+      "elementLeft": 1,
+      "elementTop": 45,
+      "elementWidth": 280,
+      "elementHeight": 1394,
+      "distanceToEdge": 4
+    },
+    "right": {
+      "edge": "Right",
+      "elementNames": [
+        "LeftZoneScrollViewer",
+        "LeftZonePanel",
+        "LoopPanelBorder",
+        "LeftZonePanelRowSplitter0",
+        "TasksPanelBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 1,
+      "elementTop": 45,
+      "elementWidth": 280,
+      "elementHeight": 1394,
+      "distanceToEdge": 3.3333333333333712
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "LeftZonePanelRowSplitter0"
+      ],
+      "needsName": false,
+      "elementLeft": 1,
+      "elementTop": 358.6966666666667,
+      "elementWidth": 280,
+      "elementHeight": 5,
+      "distanceToEdge": 1.3033333333332848
+    },
+    "left": {
+      "edge": "Left",
+      "elementNames": [
+        "RootPanel",
+        "WindowFrameBorder"
+      ],
+      "needsName": false,
+      "elementLeft": 0,
+      "elementTop": 0,
+      "elementWidth": 2560,
+      "elementHeight": 1440,
+      "distanceToEdge": 0
+    },
+    "bounds": {
+      "x": 0,
+      "y": 41,
+      "width": 285,
+      "height": 326.6966666666667,
+      "dpiX": 1,
+      "dpiY": 1
+    },
+    "docImagePath": "..\\panels\\images\\screenshot-41681276.png",
+    "elementInventory": null
   }
 ]

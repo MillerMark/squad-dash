@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "description": "The Code Health panel let\u0027s you specify which code maintenance tasks run during idle time and how frequently they run.",
-  "rawDescription": "The Code Health panel let\u0027s you specify which code maintenance tasks run during idle time and how frequently they run.",
+  "description": "The loop panel allows you to control an iteration of looping tasks.",
+  "rawDescription": "The loop panel allows you to control an iteration of looping tasks.",
   "cursor": null,
   "arrows": []
 }
