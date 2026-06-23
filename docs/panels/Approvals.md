@@ -32,8 +32,8 @@ Entries persist across SquadDash restarts (stored in `commit-approvals.json` in 
 ---
 
 ## Panel Layout
-![Screenshot: The Approvals panel allows you to review work performed by the Squad team](images/descriptive-filename.png)
 
+![Screenshot: The Approvals panel allows you to review work performed by the Squad team](images/descriptive-filename.png)
 
 Each row contains:
 
@@ -41,7 +41,10 @@ Each row contains:
 |---|---|
 | **Checkbox** | Unchecked = Needs Approval; checked = Approved. Toggling moves the row between sections. |
 | **Description** | Short summary derived from the notification or prompt. Click to jump to the transcript turn. |
+| **Feature badge** | Colored label showing the item's feature group. Hidden in grouped view (the group header makes it redundant). |
 | **SHA link** | First 7 characters of the commit SHA, underlined. Click to open the full commit on GitHub. Only shown when a GitHub remote URL is configured. |
+
+> **Grouped view** reorganizes this layout — items appear under bold feature group headers instead of a single flat list. See [Feature Groups](#feature-groups) below.
 
 ---
 
@@ -67,12 +70,118 @@ Click **Clear Approved** in the Approved section to remove all approved entries 
 
 ---
 
+## Feature Groups
+
+Items can be organized into named feature groups and displayed under collapsible section headers.
+
+### Toggling grouped view
+
+Right-click the **panel background** (not a row) to open the panel context menu:
+
+- **"Group by Feature"** — switches to grouped view.
+- **"Ungroup by Feature"** — returns to flat view.
+
+![Screenshot: Panel context menu showing 'Group by Feature' option](images/approvals-group-by-feature-menu.png)
+📸
+> Screenshot needed: right-click context menu on the panel background with "Group by Feature" visible
+
+### Layout in grouped view
+
+- Items are organized under **bold feature group headers**.
+- Groups are sorted **alphabetically**, with **Uncategorized always first**.
+- Items within each group are sorted **most recent first**.
+- The **feature badge** on each row is hidden — the group header already identifies the category.
+
+Both the **Needs Approval** and **Approved** sections display items in grouped layout when grouped view is on.
+
+![Screenshot: Approvals panel in grouped view showing feature group headers](images/approvals-grouped-view.png)
+📸
+> Screenshot needed: the full Approvals panel in grouped view, with at least two named groups and an Uncategorized group visible in both Needs Approval and Approved sections
+
+### Filter in grouped view
+
+The filter text box in the panel header works in both flat and grouped view. Typing filters rows within every group simultaneously.
+
+---
+
+## Organizing Items into Groups
+
+### Organize button (🗂)
+
+The **🗂 Organize** button sits in the panel header, to the left of the **×** close button.
+
+Clicking it:
+
+1. Queues an AI prompt asking the AI to categorize all unorganized pending items.
+2. Attaches the item list as a **context attachment** (paperclip) — it does not appear inline in the transcript.
+3. Passes existing group names to the AI so it can reuse or extend them.
+
+The AI responds with the `organize_approvals` host command, which assigns groups and re-renders the panel.
+
+![Screenshot: Approvals panel header showing the Organize (🗂) button](images/approvals-organize-button.png)
+📸
+> Screenshot needed: the panel header area with the 🗂 button visible to the left of ×
+
+### Categorize these… (right-click Uncategorized header)
+
+When in grouped view, right-click the **Uncategorized** group header to see **"Categorize these…"**.
+
+Clicking it sends the same kind of AI prompt as the Organize button, but scoped to only the uncategorized items. This is useful when you want to organize new arrivals without disturbing already-assigned items.
+
+The AI responds with `organize_approvals` — groups are assigned and the panel re-renders.
+
+### Move to category (right-click any row)
+
+In grouped view, right-clicking any **row** shows a **"Move to category"** submenu listing all known feature groups in alphabetical order.
+
+Selecting a group:
+
+1. Reassigns that item to the chosen group.
+2. Rebuilds the panel.
+3. **Scrolls the item into view and highlights it** in its new group.
+
+![Screenshot: Row right-click context menu showing 'Move to category' submenu](images/approvals-move-to-category.png)
+📸
+> Screenshot needed: right-click context menu on a row in grouped view, with the "Move to category" submenu expanded showing several group names
+
+---
+
+## Group Approval Actions
+
+### Approve all items in a group
+
+Each group header in the **Needs Approval** section has a **checkbox**.
+
+- **Check it** → every item in that group is approved at once. All rows move to the **Approved** section and the group header disappears from Needs Approval.
+
+### Un-approve all items in a group
+
+The Approved section group headers also have checkboxes.
+
+- **Uncheck it** → all items in that group move back to **Needs Approval**. The group header is recreated there automatically.
+
+### Un-approving individual items
+
+Unchecking a single approved row moves it back to Needs Approval:
+
+- If the item's feature group **already has a header** in Needs Approval, the item is inserted under it.
+- If not, the **group header is created automatically**.
+
+![Screenshot: Needs Approval section in grouped view with a group header checkbox checked](images/approvals-group-header-checkbox.png)
+📸
+> Screenshot needed: grouped view Needs Approval section showing a group header with its checkbox, and the same group visible in Approved after checking it
+
+---
+
 ## Tips
 
 - The SHA link only appears when `workspaceGitHubUrl` is configured. If you see no SHA links, check your workspace GitHub URL setting in Preferences.
 - The panel is per-workspace. Switching workspaces replaces the entry list with that workspace's `commit-approvals.json`.
 - Entries survive SquadDash restarts — you can review and approve commits from a previous session.
 - If the panel is cluttered, approve everything you've already reviewed and then use **Clear Approved** to reset it.
+- Use **Group by Feature** when a session produces many commits across multiple features — it's much easier to approve or skip a whole group at once with the group header checkbox.
+- The **🗂 Organize** button is the fastest way to bulk-categorize a large backlog; **Categorize these…** on the Uncategorized header is faster when only new items need labeling.
+- After using **Move to category**, the item scrolls into view and is highlighted so you can confirm it landed in the right place.
 
 ---
 
