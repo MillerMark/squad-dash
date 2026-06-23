@@ -23,7 +23,7 @@ A Windows WPF dashboard for managing AI coding agents powered by the [Squad CLI]
 ```bash
 # 1. Clone the repo
 git clone <repo-url>
-cd SquadDash
+cd squad-dash
 
 # 2. Install root-level npm dependencies (Squad CLI dev tooling)
 npm install
@@ -35,7 +35,13 @@ dotnet build squad-dash.slnx
 dotnet run --project SquadDash
 ```
 
-Or open `squad-dash.slnx` in **Visual Studio 2022+** and press **F5**.
+Or use **Visual Studio 2022+**:
+
+1. Open `squad-dash.slnx`
+2. In **Solution Explorer**, right-click the **`SquadDash`** project → **Set as Startup Project**
+3. Press **F5**
+
+> **Note:** Without setting the startup project, VS defaults to the `Squad.SDK` node project and appears to do nothing.
 
 ---
 
