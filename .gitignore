@@ -393,3 +393,4 @@ Squad.SDK/*.js
 !Squad.SDK/eslint.config.js
 Squad.SDK/*.js.map
 Squad.SDK/tsconfig.tsbuildinfo
+/.squad/ralph-circuit-breaker.json
