@@ -932,9 +932,13 @@ internal static class CodeHealthMdParser {
             t => string.Equals(t.Id, taskId, StringComparison.Ordinal));
         if (overriddenTask is null) return;
 
-        if (File.Exists(systemPath))
-            UpdateTask(systemPath, taskId, overriddenTask);
+        if (!File.Exists(systemPath)) {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"PromoteOverrideToSystemFile: system file not found at '{systemPath}'; aborting promotion of task '{taskId}' to prevent data loss.");
+            return;
+        }
 
+        UpdateTask(systemPath, taskId, overriddenTask);
         RevertTaskToDefault(taskId, workspacePath);
 
         SquadDashTrace.Write(TraceCategory.General,
