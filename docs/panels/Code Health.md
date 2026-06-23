@@ -21,25 +21,13 @@ Close the panel with its **×** button.
 ---
 
 ## What the Panel Shows
+the panel lists available code health, maintenance tasks. You can add your own tasks here or use the existing ones. And you can also edit the existing tasks by right clicking on one and selecting "Edit Task..."
 
-```
-┌─ Maintenance ──────────────────────────────────────── [×] ─┐
-│  Maintenance Tasks: ▾ (run manually)                        │
-│  ● Running — Run Tests…                                     │
-│  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄   │
-│  ☐  Code Smell Cleanup                                      │
-│  ☑  Run Tests                         Daily ▾               │
-│     Last run: 3h ago                                        │
-│  ☑  TODO / FIXME Scanner              Daily ▾  ⚠ direct     │
-│     Last run: yesterday                                     │
-│  ▸ Recent Reports                                           │
-└─────────────────────────────────────────────────────────────┘
-```
 
 ![Screenshot: Code Health panel overview](images/code-health-panel-overview.png)
-> 📸 *Screenshot needed: Code Health panel with two or three tasks, one enabled (showing frequency picker and last-run line), one disabled (grayed). Recent Reports expander visible at the bottom.*
+Tasks are listed in alphabetical order by title.
 
-Tasks are loaded from `.squad/maintenance.md` and any user-owned task files, and listed in alphabetical order by title.
+If you check the check box next to a code health task. You'll see frequency and safety information appear below the task. Frequency determines how often the task is run. Tasks are run either manually or during idle time when those frequency conditions have been satisfied. And safety. Is an indication of what kinds of changes would happen to the repository. If it says report, then no changes would occur. It's just going to create a report, and likely that'll come in the form of a message sent to your inbox. If it is branch, it'll create a brand new branch before making any changes, and if it is direct, that means it will make changes directly to the currently active branch.
 
 ---
 

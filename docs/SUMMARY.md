@@ -40,12 +40,12 @@
 
 * [Panels](panels/README.md)
 
-  * [Tasks](panels/Tasks.md)
-  * [Loop](panels/Loop.md)
   * [Approvals](panels/Approvals.md)
-  * [Notes](panels/Notes.md)
-  * [Maintenance](panels/Maintenance.md)
+  * [Code Health](panels/Code Health.md)
   * [Inbox](panels/Inbox.md)
+  * [Loop](panels/Loop.md)
+  * [Notes](panels/Notes.md)
+  * [Tasks](panels/Tasks.md)
 
 ## Options
 
