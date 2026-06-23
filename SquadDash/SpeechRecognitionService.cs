@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Microsoft.CognitiveServices.Speech;
 using Microsoft.CognitiveServices.Speech.Audio;
@@ -125,18 +127,32 @@ internal sealed class AzureSpeechRecognitionService : ISpeechRecognitionService 
 
     public void Dispose() {
         _stopping = true;
-        try { _waveIn?.Dispose(); } 
-        catch (Exception ex) 
-        { 
-            // NAudio.WinMM may fail to load during app shutdown; suppress these
-            // benign exceptions that occur during finalizer cleanup.
+        // DisposeWaveIn is [NoInlining] so that if NAudio.WinMM fails to load (e.g. missing
+        // in certain deployment configurations), the JIT failure occurs at the call-site here
+        // where the catch can observe it, rather than preventing this entire method from
+        // compiling.
+        try { DisposeWaveIn(); }
+        catch (Exception ex) when (ex is FileNotFoundException or TypeLoadException or BadImageFormatException)
+        {
+            _waveIn = null;
+            System.Diagnostics.Trace.TraceWarning(
+                $"WaveInEvent disposal skipped — NAudio.WinMM unavailable: {ex.GetType().Name}: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            _waveIn = null;
             System.Diagnostics.Debug.WriteLine($"WaveInEvent disposal error (harmless): {ex.GetType().Name}");
         }
         try { _recognizer?.Dispose(); } catch { }
         try { _pushStream?.Dispose(); } catch { }
-        _waveIn = null;
         _recognizer = null;
         _pushStream = null;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void DisposeWaveIn() {
+        _waveIn?.Dispose();
+        _waveIn = null;
     }
 
     private void OnAudioData(object? sender, WaveInEventArgs e) {

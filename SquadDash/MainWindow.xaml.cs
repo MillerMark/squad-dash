@@ -2769,6 +2769,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_isClosing || _restartPending)
         {
             SquadDashTrace.Write("Queue", $"DrainQueueIfNeededAsync: aborted closing={_isClosing} restart={_restartPending} remaining={_promptQueue.Count}");
+            if (IsNativeLoopRunning)
+                _loopController.RequestStop();
             return;
         }
 
@@ -2869,6 +2871,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write("Queue", "Loop paused — dispatched queue item produced quick replies requiring user input; _loopInterruptedByQueue set, loop RequestStop called.");
             _loopController.RequestStop();
             HandleQueuePausedForInput();
+            return;
+        }
+
+        // If a restart or shutdown arrived while we were draining (or was already pending
+        // before we entered), stop the loop so the next iteration never starts.
+        if (_isClosing || _restartPending)
+        {
+            SquadDashTrace.Write("Loop", $"DrainQueueBeforeLoopIterationAsync: stopping loop before next iteration restart={_restartPending} closing={_isClosing}");
+            _loopController.RequestStop();
         }
     }
 
@@ -10252,7 +10263,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 _pttState = PttState.Idle;
                 ClosePttWindow();
-                _speechService?.Dispose();
+                try { _speechService?.Dispose(); } catch { }
                 _speechService = null;
                 SquadDashTrace.Write(TraceCategory.UI, $"PTT_START failed provider={_settingsSnapshot.SpeechProvider}: {ex.Message}");
                 AppendLine("[voice error] " + ex.Message, System.Windows.Media.Brushes.Red);
