@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -447,23 +447,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? OutputTextBox
             : GetOrCreatePrimaryAgentTranscriptHost(_selectedTranscriptThread!).TranscriptBox;
 
-    // ── Transcript search state ─────────────────────────────────────────────────
-    private IReadOnlyList<TurnSearchMatch> _searchMatches = [];
-    private int _searchMatchCursor = -1;
-    private CancellationTokenSource? _searchCts;
-    private DispatcherTimer? _searchDebounceTimer;
-    private SearchHighlightAdorner? _searchAdorner;
-    private ScrollbarMarkerAdorner? _scrollbarAdorner;
-    // Pointer cache — built on first RefreshAdornerHighlights after a search, reused on Next/Prev.
-    private List<(TextPointer Start, TextPointer End, string Text)>? _cachedSearchPointers;
-    // Set true while navigating to a match in a different thread to suppress search-state clear.
-    private bool _searchNavigating;
-    private int[] _cachedMatchToCursor = [];  // match i → index in _cachedSearchPointers, -1 if BUC/skip
-    private TextPointer?[] _cachedMatchScrollPointer = [];  // match i → pointer to scroll to
-    private TextBlock?[] _cachedMatchBucCell = [];  // match i → BUC table cell, null if not a BUC match
-    // TextBlocks inside table cells that currently carry a search-highlight background.
-    private readonly HashSet<TextBlock> _bucHighlightedCells = [];
-    private ScrollBar? _transcriptScrollBar;
+    private TranscriptSearchController _search = null!;
     private string? _lastAgentImageFolder;
     private ScrollViewer? _transcriptScrollViewer;
     private DispatcherTimer? _coordinatorIntentDebounceTimer;
@@ -1202,76 +1186,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         };
 
-        // ── Search box event wiring ────────────────────────────────────────────
-        SearchBox.TextChanged += (_, _) =>
-        {
-            try
+        // ── Search controller ──────────────────────────────────────────────────
+        _search = new TranscriptSearchController(
+            dispatcher: Dispatcher,
+            searchBox: SearchBox,
+            focusPromptTextBox: () => PromptTextBox.Focus(),
+            findPrevButton: FindPrevButton,
+            findNextButton: FindNextButton,
+            searchMatchCountText: SearchMatchCountText,
+            clearSearchButton: ClearSearchButton,
+            outputTextBox: OutputTextBox,
+            conversationManager: _conversationManager,
+            agentThreadRegistry: _agentThreadRegistry,
+            getSelectedThread: () => _selectedTranscriptThread,
+            getCoordinatorThread: () => CoordinatorThread,
+            selectTranscriptThread: t => SelectTranscriptThread(t),
+            getActiveTranscriptBox: () => ActiveTranscriptBox,
+            getActiveScrollController: () => ActiveScrollController,
+            getTranscriptScrollViewer: () => _transcriptScrollViewer,
+            flashGlowHighlightForThread: thread =>
             {
-                _searchDebounceTimer?.Stop();
-                _searchDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-                _searchDebounceTimer.Tick += async (_, _) =>
+                if (ReferenceEquals(thread, CoordinatorThread))
+                    FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
+                else
                 {
-                    try
-                    {
-                        _searchDebounceTimer?.Stop();
-                        _searchDebounceTimer = null;
-                        await ExecuteSearchAsync(SearchBox.Text);
-                    }
-                    catch (Exception ex)
-                    {
-                        HandleUiCallbackException("SearchDebounceTimer.Tick", ex);
-                    }
-                };
-                _searchDebounceTimer.Start();
-            }
-            catch (Exception ex)
-            {
-                HandleUiCallbackException("SearchBox.TextChanged", ex);
-            }
-        };
-        SearchBox.KeyDown += async (_, e) =>
-        {
-            try
-            {
-                if (e.Key == Key.Enter)
-                {
-                    await NavigateToMatchAsync(_searchMatchCursor + 1);
-                    e.Handled = true;
+                    var entry = _secondaryTranscripts.FirstOrDefault(e => ReferenceEquals(e.Thread, thread));
+                    if (entry is not null)
+                        FlashGlowHighlight(entry.PanelBorder, ColorFromHex(entry.Agent.AccentColorHex));
+                    else
+                        FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
                 }
-                else if (e.Key == Key.Escape)
-                {
-                    ClearSearch();
-                    _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () => PromptTextBox.Focus());
-                    e.Handled = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                HandleUiCallbackException("SearchBox.KeyDown", ex);
-            }
-        };
-        FindPrevButton.Click += async (_, _) =>
-        {
-            try
-            {
-                await NavigateToMatchAsync(_searchMatchCursor - 1);
-            }
-            catch (Exception ex)
-            {
-                HandleUiCallbackException("FindPrevButton.Click", ex);
-            }
-        };
-        FindNextButton.Click += async (_, _) =>
-        {
-            try
-            {
-                await NavigateToMatchAsync(_searchMatchCursor + 1);
-            }
-            catch (Exception ex)
-            {
-                HandleUiCallbackException("FindNextButton.Click", ex);
-            }
-        };
+            },
+            syncPromptNavButtons: () => SyncPromptNavButtons(),
+            handleException: (op, ex) => HandleUiCallbackException(op, ex));
+        _search.WireEventHandlers();
 
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
@@ -1698,37 +1646,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DeveloperMenuItem.Visibility = Visibility.Collapsed;
 
             // Wire the search highlight adorner unconditionally (idempotent).
-            if (_searchAdorner is null)
-            {
-                var adornerLayer = AdornerLayer.GetAdornerLayer(OutputTextBox);
-                if (adornerLayer is not null)
-                {
-                    _searchAdorner = new SearchHighlightAdorner(OutputTextBox);
-                    adornerLayer.Add(_searchAdorner);
-                }
-            }
-
-            // Wire the scrollbar marker adorner onto the vertical ScrollBar inside OutputTextBox.
-            if (_scrollbarAdorner is null)
-            {
-                var outputScrollViewer = FindScrollViewer(OutputTextBox);
-                if (outputScrollViewer is not null)
-                {
-                    _transcriptScrollBar =
-                        outputScrollViewer.Template?.FindName("PART_VerticalScrollBar", outputScrollViewer) as ScrollBar
-                        ?? FindVerticalScrollBar(outputScrollViewer);
-
-                    if (_transcriptScrollBar is not null)
-                    {
-                        var sbLayer = AdornerLayer.GetAdornerLayer(_transcriptScrollBar);
-                        if (sbLayer is not null)
-                        {
-                            _scrollbarAdorner = new ScrollbarMarkerAdorner(_transcriptScrollBar);
-                            sbLayer.Add(_scrollbarAdorner);
-                        }
-                    }
-                }
-            }
+            _search.EnsureAdornersInitialized();
             RefreshActiveTranscriptScrollViewer();
 
             // Allow the agent card glow (DropShadowEffect) to render outside the scroll
@@ -8245,7 +8163,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         thread.CurrentTurn?.ResponseTextBuilder.Append(text);
         AppendResponseSegment(thread, text);
         ScrollToEndIfAtBottom(thread);
-        _searchAdorner?.InvalidateHighlights();
+        _search.InvalidateAdornerHighlights();
     }
 
     private static void AppendParagraphText(
@@ -8557,7 +8475,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         // Adorner overlay text uses the RichTextBox FontSize — invalidate so it redraws
         // at the new size without waiting for a layout pass.
-        _searchAdorner?.InvalidateHighlights();
+        _search.InvalidateAdornerHighlights();
     }
 
     private void ApplyTranscriptFontSizeToDocument(FlowDocument document)
@@ -9722,9 +9640,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     return;
 
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-                    _ = NavigateToMatchAsync(_searchMatchCursor - 1);
+                    _search.NavigatePrev();
                 else
-                    _ = NavigateToMatchAsync(_searchMatchCursor + 1);
+                    _search.NavigateNext();
                 e.Handled = true;
                 return;
             }
@@ -19058,15 +18976,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // completion is a deferred rendering step, not a user-initiated thread
             // switch, so clearing _searchMatches (and SearchBox.Text) here would
             // silently discard results the user just requested.
-            var savedNavigating = _searchNavigating;
-            _searchNavigating = true;
+            var savedNavigating = _search.IsSearchNavigating;
+            _search.IsSearchNavigating = true;
             try
             {
                 SelectTranscriptThreadCore(thread, scrollToStart, allowSnapshotFastPath: false, previousThreadOverride: previousThread);
             }
             finally
             {
-                _searchNavigating = savedNavigating;
+                _search.IsSearchNavigating = savedNavigating;
             }
 
             if (ReferenceEquals(_selectedTranscriptThread, thread))
@@ -19095,9 +19013,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var swSelect = System.Diagnostics.Stopwatch.StartNew();
         var previousThread = previousThreadOverride ?? _selectedTranscriptThread;
         if (!scrollToStart &&
-            !_searchNavigating &&
-            string.IsNullOrEmpty(SearchBox.Text) &&
-            _searchMatches.Count == 0 &&
+            !_search.IsSearchNavigating &&
+            !_search.IsSearchActive &&
             ReferenceEquals(previousThread, thread) &&
             !_conversationManager.HasPendingRender(thread) &&
             IsThreadAlreadyVisibleInMainTranscript(thread))
@@ -19114,7 +19031,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         var useSnapshotFastPath = allowSnapshotFastPath
             && !scrollToStart
-            && !_searchNavigating
+            && !_search.IsSearchNavigating
             && !ReferenceEquals(previousThread, thread)
             && TryShowTranscriptSnapshot(thread);
 
@@ -19144,19 +19061,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             $"parent={parentKind} {GetPrimaryAgentHostSummary()}");
 
         // Preserve search state when navigating to a match in a different thread.
-        // When _searchNavigating is set, the caller owns restoring state after the switch.
-        if (!_searchNavigating)
-        {
-            _searchMatches = [];
-            _searchMatchCursor = -1;
-            _searchAdorner?.Clear();
-            _scrollbarAdorner?.Clear();
-            _cachedSearchPointers = null;
-            ClearBucCellHighlights();
-            if (!string.IsNullOrEmpty(SearchBox.Text))
-                SearchBox.Text = string.Empty;
-            UpdateSearchUi();
-        }
+        // When IsSearchNavigating is set, the caller owns restoring state after the switch.
+        _search.ClearSearchStateOnThreadSwitch();
 
         foreach (var candidate in EnumerateTranscriptThreads())
             candidate.IsSelected = ReferenceEquals(candidate, thread);
@@ -23270,14 +23176,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // events when focus is on a sibling panel.  This is the authoritative path that
         // fires for all scroll causes (keyboard, scrollbar drag, touch, programmatic).
         if (e.VerticalChange != 0)
-            _searchAdorner?.InvalidateHighlights();
+            _search.InvalidateAdornerHighlights();
 
         // When the document grows (content streamed in), the scrollbar marker fractions
         // were computed with the old ExtentHeight and are now stale.  Recompute them
         // using the cached pointers so the tick marks stay anchored to the correct
         // document positions without requiring a full adorner rebuild.
         if (e.ExtentHeightChange != 0)
-            RefreshScrollbarMarkerPositions();
+            _search.RefreshScrollbarMarkerPositions();
 
         // Inactive transcript selection is rendered by TranscriptInactiveSelectionAdorner
         // so it can recompute geometry after scroll instead of using WPF's stale cache.
@@ -25609,7 +25515,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Priority 4 — drop third: search panel (only when no search is active)
         if (w < 550)
         {
-            bool searchActive = SearchBox.Text.Length > 0 || FindNextButton.Visibility == Visibility.Visible;
+            bool searchActive = _search.IsSearchActive;
             if (!searchActive)
                 SearchStackPanel.Visibility = Visibility.Collapsed;
         }
@@ -25907,7 +25813,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DisposeDocsWatcher();
             DisposeCodeHealthMdWatcher();
             DisposeGitHeadWatcher();
-            _searchAdorner?.Dispose();
+            _search.Dispose();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
         }
         catch (Exception ex)
@@ -28825,8 +28731,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             InvalidateTranscriptSnapshots("theme-changed");
 
         // Re-render adorners so they pick up the new theme's brush tokens.
-        _searchAdorner?.InvalidateHighlights();
-        _scrollbarAdorner?.InvalidateVisual();
+        _search.InvalidateAdornerHighlights();
+        _search.InvalidateScrollbarAdorner();
 
         var isDark = string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase);
         AgentStatusCard.SetTheme(isDark);
@@ -28936,8 +28842,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void NotifyTintChanged()
     {
-        _searchAdorner?.InvalidateHighlights();
-        _scrollbarAdorner?.InvalidateVisual();
+        _search.InvalidateAdornerHighlights();
+        _search.InvalidateScrollbarAdorner();
         DocSourceFind_RenderHighlights();
         RefreshSessionGapStripes();
         foreach (var thread in _agentThreadRegistry.ThreadOrder)
@@ -34974,756 +34880,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    // ── Transcript search ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Runs a search against the active transcript, updates match state, and
-    /// navigates to the first result.  Cancels any in-flight search first so
-    /// rapid typing does not stack results.
-    /// </summary>
-    private async Task ExecuteSearchAsync(string query)
-    {
-        // Cancel the previous search and dispose before starting a new one.
-        var previous = _searchCts;
-        _searchCts = null;
-        previous?.Cancel();
-        previous?.Dispose();
-
-        if (string.IsNullOrEmpty(query) || query.Length < 3)
-        {
-            _searchMatches = [];
-            _searchMatchCursor = -1;
-            _searchAdorner?.Clear();
-            _scrollbarAdorner?.Clear();
-            _cachedSearchPointers = null;
-            ClearBucCellHighlights();
-            UpdateSearchUi();
-            return;
-        }
-
-        var cts = new CancellationTokenSource();
-        _searchCts = cts;
-        _cachedSearchPointers = null;  // Invalidate stale pointer cache from previous search.
-
-        try
-        {
-            // Always search the coordinator transcript first (async, may be large).
-            var coordinatorMatches = await _conversationManager.SearchTurnsAsync(query, cts.Token);
-            if (cts.IsCancellationRequested) return;
-
-            // Show coordinator results immediately so the user gets fast feedback.
-            _searchMatches = coordinatorMatches;
-            _searchMatchCursor = coordinatorMatches.Count > 0 ? 0 : -1;
-            UpdateSearchUi();
-
-            // Then search all agent threads synchronously (all turns already in memory).
-            var allMatches = new List<TurnSearchMatch>(coordinatorMatches);
-            foreach (var agentThread in _agentThreadRegistry.ThreadOrder)
-            {
-                if (cts.IsCancellationRequested) return;
-                var agentMatches = SearchAgentThread(agentThread, query, agentThread);
-                allMatches.AddRange(agentMatches);
-            }
-
-            if (cts.IsCancellationRequested) return;
-
-            // Sort all matches in document order (oldest/topmost first).
-            // Coordinator matches are already in TurnIndex order, but agent-thread matches
-            // are appended after all coordinator matches even though they render visually
-            // at the thread's launch point — which may be much earlier in the document.
-            // Sorting by each match's turn StartedAt timestamp puts everything in the
-            // correct top-to-bottom order the user expects ("1 of N" = topmost hit).
-            allMatches.Sort((a, b) =>
-            {
-                DateTimeOffset TimestampOf(TurnSearchMatch m)
-                {
-                    if (m.Thread is null)
-                        return _conversationManager.GetCoordinatorTurnStartedAt(m.TurnIndex) ?? DateTimeOffset.MinValue;
-                    var savedTurns = m.Thread.SavedTurns;
-                    return m.TurnIndex >= 0 && m.TurnIndex < savedTurns.Count
-                        ? savedTurns[m.TurnIndex].StartedAt
-                        : m.Thread.StartedAt;
-                }
-                return TimestampOf(a).CompareTo(TimestampOf(b));
-            });
-
-            _searchMatches = allMatches;
-            _searchMatchCursor = allMatches.Count > 0 ? 0 : -1;
-            UpdateSearchUi();
-
-            if (allMatches.Count > 0)
-                await NavigateToMatchAsync(0);
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when superseded by a newer search — safe to ignore.
-        }
-        catch (Exception ex)
-        {
-            SquadDashTrace.Write("Search", $"ExecuteSearchAsync failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Searches <paramref name="thread"/>.SavedTurns for <paramref name="query"/>
-    /// using the same case-insensitive excerpt format as
-    /// <see cref="TranscriptConversationManager.SearchTurnsAsync"/>.
-    /// Agent threads are fully rendered at selection time so no async is needed.
-    /// <paramref name="sourceThread"/> is stored on each match so
-    /// <see cref="NavigateToMatchAsync"/> can switch transcripts when needed.
-    /// </summary>
-    private static IReadOnlyList<TurnSearchMatch> SearchAgentThread(
-        TranscriptThreadState thread, string query, TranscriptThreadState? sourceThread = null)
-    {
-        if (string.IsNullOrEmpty(query))
-            return [];
-
-        var results = new List<TurnSearchMatch>();
-        const StringComparison cmp = StringComparison.OrdinalIgnoreCase;
-        const int MaxExcerptLength = 120;
-        const int ExcerptPad = 40;
-
-        for (var i = 0; i < thread.SavedTurns.Count; i++)
-        {
-            var turn = thread.SavedTurns[i];
-            ScanSearchField(turn.Prompt ?? string.Empty, "user", i, query, cmp, MaxExcerptLength, ExcerptPad, results, sourceThread);
-            ScanSearchField(turn.ResponseText ?? string.Empty, "assistant", i, query, cmp, MaxExcerptLength, ExcerptPad, results, sourceThread);
-        }
-
-        return results;
-    }
-
-    private static void ScanSearchField(
-        string text,
-        string role,
-        int turnIndex,
-        string query,
-        StringComparison cmp,
-        int maxExcerptLength,
-        int excerptPad,
-        List<TurnSearchMatch> results,
-        TranscriptThreadState? thread = null)
-    {
-        var searchFrom = 0;
-        while (searchFrom < text.Length)
-        {
-            var offset = text.IndexOf(query, searchFrom, cmp);
-            if (offset < 0) break;
-
-            var excerptStart = Math.Max(0, offset - excerptPad);
-            var excerptEnd = Math.Min(text.Length, offset + query.Length + excerptPad);
-            var rawExcerpt = text[excerptStart..excerptEnd];
-
-            string excerpt;
-            if (rawExcerpt.Length > maxExcerptLength)
-            {
-                excerpt = rawExcerpt[..maxExcerptLength] + "…";
-            }
-            else
-            {
-                var prefix = excerptStart > 0 ? "…" : string.Empty;
-                var suffix = excerptEnd < text.Length ? "…" : string.Empty;
-                excerpt = prefix + rawExcerpt + suffix;
-            }
-
-            results.Add(new TurnSearchMatch(turnIndex, role, excerpt, offset, thread));
-            searchFrom = offset + query.Length;
-        }
-    }
-
-    /// <summary>
-    /// Navigates to the match at <paramref name="index"/> (wraps around),
-    /// ensuring the turn is rendered and scrolling the match into view.
-    /// Uses a pointer cache to skip the full document re-walk when the turn is
-    /// already rendered, keeping navigation latency well under 100 ms.
-    /// </summary>
-    private async Task NavigateToMatchAsync(int index)
-    {
-        if (_searchMatches.Count == 0) return;
-
-        index = ((index % _searchMatches.Count) + _searchMatches.Count) % _searchMatches.Count;
-        _searchMatchCursor = index;
-        UpdateSearchUi();
-
-        var match = _searchMatches[index];
-        var matchThread = match.Thread;  // null = coordinator
-
-        // If the match is in a different thread than currently displayed, switch to it.
-        // _searchNavigating suppresses the search-state clear inside SelectTranscriptThread.
-        var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-        var targetThread = matchThread ?? CoordinatorThread;
-        if (!ReferenceEquals(activeThread, targetThread))
-        {
-            _searchNavigating = true;
-            try
-            {
-                SelectTranscriptThread(targetThread);
-                _cachedSearchPointers = null;  // Pointers are document-specific; invalidate after switch.
-                // Allow the document assignment and layout to settle before adorner rebuild.
-                await Dispatcher.BeginInvoke(DispatcherPriority.Loaded, static () => { }).Task;
-            }
-            finally
-            {
-                _searchNavigating = false;
-            }
-            activeThread = targetThread;
-
-            // Flash the border of the newly-loaded transcript so the user knows which
-            // panel has become active — mirrors the flash used when opening a secondary panel.
-            if (ReferenceEquals(targetThread, CoordinatorThread))
-            {
-                FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
-            }
-            else
-            {
-                var entry = _secondaryTranscripts.FirstOrDefault(e => ReferenceEquals(e.Thread, targetThread));
-                if (entry is not null)
-                    FlashGlowHighlight(entry.PanelBorder, ColorFromHex(entry.Agent.AccentColorHex));
-                else
-                    FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
-            }
-        }
-
-        // Fast path: pointer cache is valid and the turn is already in the FlowDocument.
-        // Just nudge the adorner cursor — no document walk needed.
-        if (_cachedSearchPointers is not null
-            && (activeThread.Kind != TranscriptThreadKind.Coordinator
-                || _conversationManager.IsTurnRendered(match.TurnIndex)))
-        {
-            var cursorInList = index < _cachedMatchToCursor.Length ? _cachedMatchToCursor[index] : -1;
-            _searchAdorner?.UpdateCurrentIndex(cursorInList);
-            UpdateBucActiveHighlight(index);
-            ScrollToMatchPointerIfNeeded(
-                index < _cachedMatchScrollPointer.Length ? _cachedMatchScrollPointer[index] : null);
-            SyncPromptNavButtons();
-            return;
-        }
-
-        // Slow path: the turn may need to be prepended into the FlowDocument.
-        if (activeThread.Kind == TranscriptThreadKind.Coordinator && matchThread is null)
-        {
-            // Invalidate the cache before prepending so stale pointers aren't used.
-            if (!_conversationManager.IsTurnRendered(match.TurnIndex))
-                _cachedSearchPointers = null;
-
-            // Guard search state during the async prepend: any SelectTranscriptThread
-            // call that fires in this gap (e.g. a pending deferred callback) must not
-            // wipe _searchMatches or SearchBox.Text.
-            var savedNavigating = _searchNavigating;
-            _searchNavigating = true;
-            try
-            {
-                await _conversationManager.EnsureTurnRenderedAsync(match.TurnIndex);
-            }
-            finally
-            {
-                _searchNavigating = savedNavigating;
-            }
-        }
-
-        // Schedule a full adorner rebuild once layout has settled.
-        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, RefreshAdornerHighlights);
-    }
-
-    /// <summary>
-    /// Walks the FlowDocument forward from <paramref name="start"/>, returning a
-    /// <see cref="TextRange"/> spanning the first case-insensitive occurrence of
-    /// <paramref name="searchText"/>, or <c>null</c> if not found.
-    /// </summary>
-    private static TextRange? FindTextFromPointer(TextPointer start, string searchText)
-    {
-        if (string.IsNullOrEmpty(searchText)) return null;
-
-        var navigator = start;
-        while (navigator != null)
-        {
-            if (navigator.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
-            {
-                var runText = navigator.GetTextInRun(LogicalDirection.Forward);
-                var idx = runText.IndexOf(searchText, StringComparison.OrdinalIgnoreCase);
-                if (idx >= 0)
-                {
-                    var matchStart = navigator.GetPositionAtOffset(idx, LogicalDirection.Forward);
-                    var matchEnd = matchStart?.GetPositionAtOffset(searchText.Length, LogicalDirection.Forward);
-                    if (matchStart != null && matchEnd != null)
-                        return new TextRange(matchStart, matchEnd);
-                }
-            }
-            navigator = navigator.GetNextContextPosition(LogicalDirection.Forward);
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Stateful forward-walking search helper that correctly handles
-    /// <see cref="BlockUIContainer"/> elements (rendered code blocks and tables).
-    /// Unlike chained <see cref="FindTextFromPointer"/> calls, this walker counts
-    /// occurrences inside UIElement containers so that skip counts remain accurate
-    /// even when some matches cannot be highlighted.
-    /// </summary>
-    private sealed class SearchWalker
-    {
-        private TextPointer? _cursor;
-        // When a BlockUIContainer holds N occurrences, we return ContentEnd N times
-        // (one per occurrence) so the caller's skip count stays correct.
-        private int _pendingBucCount;
-        private TextPointer? _pendingBucEnd;
-        // Tracks the BUC element and occurrence index of the most-recently returned BUC match.
-        private BlockUIContainer? _lastBucElement;
-        private int _lastBucOccurrenceIndex;
-        private int _lastBucTotalCount;
-
-        public BlockUIContainer? LastBucElement => _lastBucElement;
-        public int LastBucOccurrenceIndex => _lastBucOccurrenceIndex;
-
-        public SearchWalker(TextPointer start) => _cursor = start;
-
-        /// <summary>
-        /// Returns the <see cref="TextRange"/> of the next occurrence of
-        /// <paramref name="searchText"/>, or <c>null</c> when exhausted.
-        /// A <b>zero-length</b> range (Start == End) signals a match inside a
-        /// <see cref="BlockUIContainer"/> — the cursor is advanced correctly
-        /// but the range cannot be drawn by the adorner.
-        /// </summary>
-        public TextRange? FindNext(string searchText)
-        {
-            // Drain remaining occurrences that were inside the last BUC.
-            if (_pendingBucCount > 0)
-            {
-                _pendingBucCount--;
-                _lastBucOccurrenceIndex = _lastBucTotalCount - _pendingBucCount - 1;
-                return _pendingBucEnd is not null
-                    ? new TextRange(_pendingBucEnd, _pendingBucEnd)
-                    : null;
-            }
-
-            if (_cursor is null) return null;
-
-            var nav = _cursor;
-            while (nav is not null)
-            {
-                var ctx = nav.GetPointerContext(LogicalDirection.Forward);
-
-                if (ctx == TextPointerContext.Text)
-                {
-                    var runText = nav.GetTextInRun(LogicalDirection.Forward);
-                    var idx = runText.IndexOf(searchText, StringComparison.OrdinalIgnoreCase);
-                    if (idx >= 0)
-                    {
-                        var matchStart = nav.GetPositionAtOffset(idx, LogicalDirection.Forward);
-                        var matchEnd = matchStart?.GetPositionAtOffset(searchText.Length, LogicalDirection.Forward);
-                        if (matchStart is not null && matchEnd is not null)
-                        {
-                            _cursor = matchEnd;
-                            return new TextRange(matchStart, matchEnd);
-                        }
-                    }
-                }
-                else if (ctx == TextPointerContext.ElementStart)
-                {
-                    // Detect BlockUIContainer (rendered table or code block).
-                    var elem = nav.GetAdjacentElement(LogicalDirection.Forward);
-                    if (elem is BlockUIContainer buc)
-                    {
-                        var bucText = GetBlockUIContainerText(buc);
-                        if (!string.IsNullOrEmpty(bucText))
-                        {
-                            var count = CountOccurrences(bucText, searchText);
-                            if (count > 0)
-                            {
-                                var bucEnd = buc.ContentEnd;
-                                _cursor = bucEnd;
-                                _pendingBucEnd = bucEnd;
-                                _pendingBucCount = count - 1;
-                                _lastBucElement = buc;
-                                _lastBucOccurrenceIndex = 0;
-                                _lastBucTotalCount = count;
-                                // Zero-length range signals "found in UIElement, cannot highlight via adorner".
-                                return new TextRange(bucEnd, bucEnd);
-                            }
-                        }
-                    }
-                }
-
-                nav = nav.GetNextContextPosition(LogicalDirection.Forward);
-            }
-
-            _cursor = null;
-            return null;
-        }
-
-        private static string? GetBlockUIContainerText(BlockUIContainer buc) =>
-            buc.Child switch
-            {
-                StackPanel { Tag: string tableText } => tableText,
-                TextBox tb => tb.Text,
-                _ => null,
-            };
-
-        private static int CountOccurrences(string text, string search)
-        {
-            var count = 0;
-            var from = 0;
-            while (true)
-            {
-                var idx = text.IndexOf(search, from, StringComparison.OrdinalIgnoreCase);
-                if (idx < 0) break;
-                count++;
-                from = idx + search.Length;
-            }
-            return count;
-        }
-    }
-
-    /// <summary>
-    /// Rebuilds the adorner highlight list from all currently-rendered matches and
-    /// updates the current-match index.  Skips matches whose turns are not yet in
-    /// the FlowDocument.  Also highlights matching table cells inside
-    /// <see cref="BlockUIContainer"/> elements by applying a background brush to
-    /// the cell's TextBlock.  Populates the pointer cache used by
-    /// <see cref="NavigateToMatchAsync"/> for fast cursor-update navigation.
-    /// </summary>
-    private void RefreshAdornerHighlights()
-    {
-        if (_searchAdorner is null) return;
-
-        var query = SearchBox.Text;
-        if (_searchMatches.Count == 0 || string.IsNullOrEmpty(query) || query.Length < 3)
-        {
-            _searchAdorner.Clear();
-            _scrollbarAdorner?.Clear();
-            _cachedSearchPointers = null;
-            ClearBucCellHighlights();
-            return;
-        }
-
-        var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-        var pointers = new List<(TextPointer Start, TextPointer End, string Text)>(_searchMatches.Count);
-        var cursorInList = -1;
-
-        // Per-match cache arrays — rebuilt on every full refresh, then reused by the fast path.
-        var matchToCursor = new int[_searchMatches.Count];
-        var matchScrollPointer = new TextPointer?[_searchMatches.Count];
-        var matchBucCell = new TextBlock?[_searchMatches.Count];
-        Array.Fill(matchToCursor, -1);
-
-        // Clear previously-highlighted BUC table cells before re-applying them.
-        ClearBucCellHighlights();
-
-        var walkerByKey = new Dictionary<(int TurnIndex, string Role), SearchWalker>();
-        TextPointer? currentMatchPointer = null;
-
-        for (var i = 0; i < _searchMatches.Count; i++)
-        {
-            var match = _searchMatches[i];
-            var key = (match.TurnIndex, match.TurnRole);
-
-            if (!walkerByKey.TryGetValue(key, out var walker))
-            {
-                // Only highlight matches that belong to the currently visible thread.
-                var matchThread = match.Thread ?? CoordinatorThread;
-                if (!ReferenceEquals(matchThread, activeThread))
-                {
-                    matchToCursor[i] = -1;
-                    continue;
-                }
-                var searchFrom = GetSearchFromPointerSync(match, activeThread);
-                if (searchFrom is null)
-                {
-                    SquadDashTrace.Write(TraceCategory.UI,
-                        $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} SKIPPED(unrendered)");
-                    continue;
-                }
-                walker = new SearchWalker(searchFrom);
-                walkerByKey[key] = walker;
-            }
-
-            var range = walker.FindNext(query);
-            if (range is null)
-            {
-                SquadDashTrace.Write(TraceCategory.UI,
-                    $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} SKIPPED(walker_exhausted) cursor={i == _searchMatchCursor}");
-                continue;
-            }
-
-            matchScrollPointer[i] = range.Start;
-
-            // Zero-length range = match inside a BlockUIContainer (table / code block).
-            // Cannot highlight via the adorner; apply a background brush to the cell instead.
-            if (range.Start.CompareTo(range.End) == 0)
-            {
-                SquadDashTrace.Write(TraceCategory.UI,
-                    $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} BUC_MATCH cursor={i == _searchMatchCursor}");
-                if (walker.LastBucElement is not null)
-                {
-                    var bucCell = GetTableCellByOccurrence(walker.LastBucElement, walker.LastBucOccurrenceIndex, query);
-                    if (bucCell is not null)
-                    {
-                        _bucHighlightedCells.Add(bucCell);
-                        matchBucCell[i] = bucCell;
-                    }
-                }
-                if (i == _searchMatchCursor)
-                    currentMatchPointer = range.Start;
-                continue;
-            }
-
-            if (i == _searchMatchCursor)
-            {
-                cursorInList = pointers.Count;
-                currentMatchPointer = range.Start;
-            }
-
-            matchToCursor[i] = pointers.Count;
-            var actualText = new TextRange(range.Start, range.End).Text;
-            SquadDashTrace.Write(TraceCategory.UI,
-                $"SEARCH_HIGHLIGHT[{i}] turn={match.TurnIndex} role={match.TurnRole} TEXT_MATCH listIdx={pointers.Count} cursor={i == _searchMatchCursor} text='{actualText}'");
-            pointers.Add((range.Start, range.End, string.IsNullOrEmpty(actualText) ? query : actualText));
-        }
-
-        // Apply BUC cell backgrounds + dark text: all inactive first, then the active cell on top.
-        // Read brushes from the current theme resources (same as SearchHighlightAdorner) so
-        // that BUC highlights automatically match the active theme.
-        var bucInactiveBg = GetThemeBrush("SearchHighlight", Color.FromRgb(98, 84, 44));
-        var bucActiveBg = GetThemeBrush("SearchHighlightCurrent", Color.FromRgb(255, 229, 122));
-        var bucInactiveFg = GetThemeBrush("SearchHighlightText", Color.FromRgb(18, 13, 0));
-        var bucActiveFg = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(0, 0, 0));
-        foreach (var cell in _bucHighlightedCells)
-        {
-            cell.Background = bucInactiveBg;
-            cell.Foreground = bucInactiveFg;
-        }
-        if (_searchMatchCursor >= 0 && _searchMatchCursor < matchBucCell.Length
-            && matchBucCell[_searchMatchCursor] is { } activeBucCell)
-        {
-            activeBucCell.Background = bucActiveBg;
-            activeBucCell.Foreground = bucActiveFg;
-        }
-
-        _searchAdorner.SetMatches(pointers, cursorInList);
-
-        // Persist the pointer cache for fast-path navigation.
-        _cachedSearchPointers = pointers;
-        _cachedMatchToCursor = matchToCursor;
-        _cachedMatchScrollPointer = matchScrollPointer;
-        _cachedMatchBucCell = matchBucCell;
-
-        // Compute scrollbar marker positions BEFORE scrolling.  The fractions are
-        // absolute document proportions (independent of the current scroll offset),
-        // so they must be computed while the layout still reflects the pre-scroll
-        // state.  Moving this after ScrollToMatchPointerIfNeeded would mix a stale
-        // GetCharacterRect() (pre-layout-update) with a new VerticalOffset
-        // (updated synchronously by ScrollToVerticalOffset), producing wrong docY values.
-        RefreshScrollbarMarkerPositions();
-
-        // Scroll to the current match.  Fall back to the first rendered match if the
-        // current match is unrendered (handles auto-scroll when typing finds match 0
-        // in an older, not-yet-prepended turn).
-        if (currentMatchPointer is null && pointers.Count > 0)
-            currentMatchPointer = pointers[0].Start;
-        ScrollToMatchPointerIfNeeded(currentMatchPointer);
-
-        SyncPromptNavButtons();
-    }
-
-    // ── Search helper methods ──────────────────────────────────────────────────
-
-    /// <summary>
-    /// Recomputes proportional positions for the scrollbar marker adorner using
-    /// the cached search pointer list and the current <see cref="_transcriptScrollViewer"/>
-    /// extent.  Safe to call whenever <c>ExtentHeight</c> changes (e.g. streaming
-    /// content added) so that tick marks stay anchored to the correct document
-    /// positions without a full adorner rebuild.
-    /// </summary>
-    private void RefreshScrollbarMarkerPositions()
-    {
-        if (_scrollbarAdorner is null || _transcriptScrollViewer is null)
-            return;
-
-        var pointers = _cachedSearchPointers;
-        if (pointers is null || pointers.Count == 0)
-        {
-            _scrollbarAdorner.Clear();
-            return;
-        }
-
-        var totalHeight = _transcriptScrollViewer.ExtentHeight;
-        if (totalHeight <= 0)
-        {
-            _scrollbarAdorner.Clear();
-            return;
-        }
-
-        var positions = new List<double>(pointers.Count);
-        foreach (var (s, _, _) in pointers)
-        {
-            if (s is null) continue;
-            var rect = s.GetCharacterRect(LogicalDirection.Forward);
-            if (rect.IsEmpty) continue;
-            var docY = rect.Top + _transcriptScrollViewer.VerticalOffset;
-            positions.Add(docY / totalHeight);
-        }
-        _scrollbarAdorner.SetPositions(positions);
-    }
-
-    /// <summary>
-    /// Scrolls the transcript so that <paramref name="pointer"/> is visible.
-    /// If the pointer is already fully visible, does nothing.
-    /// </summary>
-    private void ScrollToMatchPointerIfNeeded(TextPointer? pointer)
-    {
-        if (pointer is null) return;
-        var activeBox = ActiveTranscriptBox;
-        var sv = activeBox.Template?.FindName("PART_ContentHost", activeBox) as ScrollViewer;
-        if (sv is null) return;
-
-        var rect = pointer.GetCharacterRect(LogicalDirection.Forward);
-        if (rect.IsEmpty)
-        {
-            var para = pointer.Paragraph;
-            if (para is not null)
-                rect = para.ContentStart.GetCharacterRect(LogicalDirection.Forward);
-        }
-
-        if (rect.IsEmpty) return;
-
-        var isFullyVisible = rect.Top >= 0 && rect.Bottom <= sv.ViewportHeight;
-        SquadDashTrace.Write(TraceCategory.UI,
-            $"SEARCH_SCROLL cursor={_searchMatchCursor} rectTop={rect.Top:F0} rectBottom={rect.Bottom:F0} vp={sv.ViewportHeight:F0} offset={sv.VerticalOffset:F0} fullyVisible={isFullyVisible}");
-        if (!isFullyVisible)
-            ActiveScrollController.ScrollToOffset(sv.VerticalOffset + rect.Top);
-    }
-
-    /// <summary>
-    /// Resets all highlighted BUC table cells to the inactive brush, then marks the
-    /// cell at <paramref name="matchIndex"/> as the active (bright) cell.
-    /// </summary>
-    private void UpdateBucActiveHighlight(int matchIndex)
-    {
-        var bucInactiveBg = GetThemeBrush("SearchHighlight", Color.FromRgb(98, 84, 44));
-        var bucActiveBg = GetThemeBrush("SearchHighlightCurrent", Color.FromRgb(255, 229, 122));
-        var bucInactiveFg = GetThemeBrush("SearchHighlightText", Color.FromRgb(18, 13, 0));
-        var bucActiveFg = GetThemeBrush("SearchHighlightTextCurrent", Color.FromRgb(0, 0, 0));
-        foreach (var cell in _bucHighlightedCells)
-        {
-            cell.Background = bucInactiveBg;
-            cell.Foreground = bucInactiveFg;
-        }
-        if (_cachedMatchBucCell is not null
-            && matchIndex >= 0 && matchIndex < _cachedMatchBucCell.Length
-            && _cachedMatchBucCell[matchIndex] is { } active)
-        {
-            active.Background = bucActiveBg;
-            active.Foreground = bucActiveFg;
-        }
-    }
-
-    /// <summary>
-    /// Removes all BUC cell background highlights and clears the tracked set.
-    /// Also restores each cell's Foreground to the theme-defined value via ClearValue.
-    /// </summary>
-    private void ClearBucCellHighlights()
-    {
-        foreach (var cell in _bucHighlightedCells)
-        {
-            cell.Background = null;
-            cell.ClearValue(TextBlock.ForegroundProperty);
-        }
-        _bucHighlightedCells.Clear();
-    }
-
-    /// <summary>
-    /// Finds the <see cref="TextBlock"/> in <paramref name="buc"/>'s StackPanel whose
-    /// cumulative occurrence of <paramref name="query"/> equals
-    /// <paramref name="occurrenceIndex"/> (0-based across all cells, left→right, top→bottom).
-    /// Returns <c>null</c> if the cell cannot be located.
-    /// </summary>
-    private static TextBlock? GetTableCellByOccurrence(BlockUIContainer buc, int occurrenceIndex, string query)
-    {
-        if (buc.Child is not StackPanel sp) return null;
-        var count = 0;
-        foreach (var rowChild in sp.Children)
-        {
-            if (rowChild is not Grid grid) continue;
-            foreach (var colChild in grid.Children)
-            {
-                if (colChild is not Border border || border.Child is not TextBlock tb) continue;
-                var cellText = GetTextBlockContent(tb);
-                var cellCount = CountSubstringOccurrences(cellText, query);
-                if (count + cellCount > occurrenceIndex)
-                    return tb;  // target occurrence is inside this cell
-                count += cellCount;
-            }
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Returns the text content of a <see cref="TextBlock"/>.  Uses the Inlines tree
-    /// if populated (as done by <c>AppendTextRuns</c>), otherwise falls back to
-    /// <see cref="TextBlock.Text"/>.
-    /// </summary>
-    private static string GetTextBlockContent(TextBlock tb)
-    {
-        if (tb.Inlines.Count == 0)
-            return tb.Text;
-        var sb = new System.Text.StringBuilder();
-        AppendInlineText(tb.Inlines, sb);
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// Recursively appends the plain text of all <see cref="Run"/> and container
-    /// <see cref="Span"/> elements within <paramref name="inlines"/>.
-    /// </summary>
-    private static void AppendInlineText(InlineCollection inlines, System.Text.StringBuilder sb)
-    {
-        foreach (var inline in inlines)
-        {
-            switch (inline)
-            {
-                case Run run:
-                    sb.Append(run.Text);
-                    break;
-                case Span span:
-                    AppendInlineText(span.Inlines, sb);
-                    break;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Counts the number of non-overlapping case-insensitive occurrences of
-    /// <paramref name="query"/> inside <paramref name="text"/>.
-    /// </summary>
-    private static int CountSubstringOccurrences(string text, string query)
-    {
-        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(query)) return 0;
-        var count = 0;
-        var idx = 0;
-        while ((idx = text.IndexOf(query, idx, StringComparison.OrdinalIgnoreCase)) >= 0)
-        {
-            count++;
-            idx += query.Length;
-        }
-        return count;
-    }
-
-    private static SolidColorBrush MakeFrozenBrush(Color c)
-    {
-        var b = new SolidColorBrush(c);
-        b.Freeze();
-        return b;
-    }
-
-    /// <summary>
-    /// Looks up a <see cref="Brush"/> from the current application theme resources by
-    /// <paramref name="key"/>.  Falls back to a new brush with <paramref name="fallback"/>
-    /// if the key is not found (e.g. in tests or before resources load).
-    /// </summary>
-    private static Brush GetThemeBrush(string key, Color fallback)
-        => Application.Current?.Resources[key] as Brush ?? new SolidColorBrush(fallback);
-
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
@@ -35748,96 +34904,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return null;
     }
 
-    /// <summary>
-    /// Returns the TextPointer from which to begin scanning for <paramref name="match"/>,
-    /// using only already-rendered paragraphs (no async rendering).
-    /// Returns <c>null</c> if the turn is not yet in the document.
-    /// </summary>
-    private TextPointer? GetSearchFromPointerSync(TurnSearchMatch match, TranscriptThreadState thread)
-    {
-        if (thread.Kind == TranscriptThreadKind.Coordinator)
-        {
-            var startedAt = _conversationManager.GetCoordinatorTurnStartedAt(match.TurnIndex);
-            if (!startedAt.HasValue) return null;
-            var entry = CoordinatorThread.PromptParagraphs.FirstOrDefault(e => e.Timestamp == startedAt.Value);
-            if (entry is null) return null;
-            return match.TurnRole == "assistant" ? entry.Paragraph.ContentEnd : entry.Paragraph.ContentStart;
-        }
-        else
-        {
-            if (match.TurnIndex < 0 || match.TurnIndex >= thread.PromptParagraphs.Count) return null;
-            var entry = thread.PromptParagraphs[match.TurnIndex];
-            return match.TurnRole == "assistant" ? entry.Paragraph.ContentEnd : entry.Paragraph.ContentStart;
-        }
-    }
-
     private void ClearSearchButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            ClearSearch();
+            _search.ClearSearch();
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(ClearSearchButton_Click), ex);
-        }
-    }
-
-    private void ClearSearch()
-    {
-        _searchCts?.Cancel();
-        _searchDebounceTimer?.Stop();
-        _searchMatches = [];
-        _searchMatchCursor = 0;
-        SearchBox.Text = string.Empty;
-        _searchAdorner?.Clear();
-        _scrollbarAdorner?.Clear();
-        _cachedSearchPointers = null;
-        ClearBucCellHighlights();
-        UpdateSearchUi();
-    }
-
-    /// <summary>
-    /// Updates the visibility and text of the FindPrev / FindNext buttons and the
-    /// match-count label based on current <see cref="_searchMatches"/> state.
-    /// Must be called on the UI thread.
-    /// </summary>
-    private void UpdateSearchUi()
-    {
-        if (string.IsNullOrEmpty(SearchBox.Text))
-        {
-            // No active search — hide all navigation chrome.
-            FindPrevButton.Visibility = Visibility.Collapsed;
-            FindNextButton.Visibility = Visibility.Collapsed;
-            SearchMatchCountText.Visibility = Visibility.Collapsed;
-            ClearSearchButton.Visibility = Visibility.Collapsed;
-        }
-        else if (SearchBox.Text.Length < 3)
-        {
-            // Query too short to search — prompt the user.
-            FindPrevButton.Visibility = Visibility.Collapsed;
-            FindNextButton.Visibility = Visibility.Collapsed;
-            SearchMatchCountText.Visibility = Visibility.Visible;
-            SearchMatchCountText.Text = "Type at least 3 characters";
-            ClearSearchButton.Visibility = Visibility.Visible;
-        }
-        else if (_searchMatches.Count == 0)
-        {
-            // Query entered but no matches found.
-            FindPrevButton.Visibility = Visibility.Collapsed;
-            FindNextButton.Visibility = Visibility.Collapsed;
-            SearchMatchCountText.Visibility = Visibility.Visible;
-            SearchMatchCountText.Text = "No matches";
-            ClearSearchButton.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            // One or more matches — show full navigation chrome.
-            FindPrevButton.Visibility = Visibility.Visible;
-            FindNextButton.Visibility = Visibility.Visible;
-            SearchMatchCountText.Visibility = Visibility.Visible;
-            SearchMatchCountText.Text = $"{_searchMatchCursor + 1} of {_searchMatches.Count}";
-            ClearSearchButton.Visibility = Visibility.Visible;
         }
     }
 
