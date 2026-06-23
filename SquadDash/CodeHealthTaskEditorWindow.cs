@@ -775,6 +775,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                 LoopMdParser.UpdateDescription(_loopMdPath!, _titleBox.Text);
                 LoopMdParser.UpdateSafety(_loopMdPath!, GetSelectedSafety());
                 LoopMdParser.UpdateInstructions(_loopMdPath!, instructionsText);
+                LoopMdParser.UpdateOptions(_loopMdPath!, _optionsYamlBox.Text);
             }
             catch (Exception ex) {
                 SquadDashTrace.Write(TraceCategory.General,

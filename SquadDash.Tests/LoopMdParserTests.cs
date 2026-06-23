@@ -1176,4 +1176,137 @@ internal sealed class LoopMdParserTests {
         }
         finally { DeleteTempFile(path); }
     }
+
+    // ── UpdateOptions round-trip ──────────────────────────────────────────────
+
+    [Test]
+    public void UpdateOptions_RoundTrip_OptionsRestoredFromEditorYaml() {
+        // Start with a loop file that has an options block in loop format
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            description: "Test loop"
+            options:
+              build_verify:
+                value: true
+                type: bool
+                label: "Verify build"
+                hint: "Run a build check after each task"
+              commit_after_task:
+                value: ask
+                type: enum
+                choices: [always, never, ask]
+                label: "Commit after task"
+            ---
+            Body.
+            """);
+        try {
+            // Simulate what the editor does: parse → convert to CodeHealthOption → serialize
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Has.Count.EqualTo(2));
+
+            // Convert LoopOption → editor YAML (mirrors LoopPanelEditLoopMdMenuItem_Click)
+            var sb = new System.Text.StringBuilder();
+            foreach (var opt in config.Options!) {
+                sb.AppendLine($"{opt.Key}:");
+                if (!string.IsNullOrEmpty(opt.Type))   sb.AppendLine($"  type: {opt.Type}");
+                if (!string.IsNullOrEmpty(opt.Label))  sb.AppendLine($"  label: {opt.Label}");
+                if (!string.IsNullOrEmpty(opt.Hint))   sb.AppendLine($"  tooltip: {opt.Hint}");
+                if (!string.IsNullOrEmpty(opt.RawValue)) sb.AppendLine($"  value: {opt.RawValue}");
+                if (opt.Choices is { Count: > 0 }) {
+                    sb.AppendLine("  choices:");
+                    foreach (var c in opt.Choices)
+                        sb.AppendLine($"    - value: {c}");
+                }
+            }
+            var editorYaml = sb.ToString().TrimEnd();
+
+            // Save via UpdateOptions (as OnSave does)
+            LoopMdParser.UpdateOptions(path, editorYaml);
+
+            // Re-parse and verify options survived the round-trip
+            var config2 = LoopMdParser.Parse(path);
+            Assert.That(config2, Is.Not.Null);
+            Assert.That(config2!.Options, Has.Count.EqualTo(2));
+
+            var bv = config2.Options![0];
+            Assert.That(bv.Key,      Is.EqualTo("build_verify"));
+            Assert.That(bv.Type,     Is.EqualTo("bool"));
+            Assert.That(bv.Label,    Is.EqualTo("Verify build"));
+            Assert.That(bv.Hint,     Is.EqualTo("Run a build check after each task"));
+            Assert.That(bv.RawValue, Is.EqualTo("true"));
+
+            var ca = config2.Options[1];
+            Assert.That(ca.Key,      Is.EqualTo("commit_after_task"));
+            Assert.That(ca.Type,     Is.EqualTo("enum"));
+            Assert.That(ca.RawValue, Is.EqualTo("ask"));
+            Assert.That(ca.Choices,  Is.Not.Null);
+            Assert.That(ca.Choices,  Has.Count.EqualTo(3));
+            Assert.That(ca.Choices,  Does.Contain("always"));
+            Assert.That(ca.Choices,  Does.Contain("never"));
+            Assert.That(ca.Choices,  Does.Contain("ask"));
+
+            // Other frontmatter must be unchanged
+            Assert.That(config2.Description, Is.EqualTo("Test loop"));
+            Assert.That(config2.Instructions, Is.EqualTo("Body."));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptions_NullYaml_RemovesOptionsBlock() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            options:
+              interval:
+                value: 5
+                type: int
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateOptions(path, null);
+            var raw = File.ReadAllText(path);
+            Assert.That(raw, Does.Not.Contain("options:"));
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Is.Null.Or.Empty);
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptions_NoExistingOptionsBlock_InsertsNewBlock() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            description: "Simple"
+            ---
+            Body.
+            """);
+        try {
+            var editorYaml = "my_opt:\n  type: bool\n  value: true";
+            LoopMdParser.UpdateOptions(path, editorYaml);
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Options, Is.Not.Null);
+            Assert.That(config.Options, Has.Count.EqualTo(1));
+            Assert.That(config.Options![0].Key,  Is.EqualTo("my_opt"));
+            Assert.That(config.Options[0].Type,  Is.EqualTo("bool"));
+            Assert.That(config.Options[0].RawValue, Is.EqualTo("true"));
+            Assert.That(config.Description, Is.EqualTo("Simple"), "other frontmatter unchanged");
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateOptions_FileNotFound_DoesNotThrow() {
+        Assert.DoesNotThrow(() =>
+            LoopMdParser.UpdateOptions(@"C:\does\not\exist\loop.md", "foo:\n  value: bar"));
+    }
 }

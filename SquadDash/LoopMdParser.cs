@@ -59,6 +59,7 @@ internal static class LoopMdParser {
 
         // Read frontmatter up to the closing ---
         bool inOptionsBlock = false;
+        bool inChoicesList  = false;
         string? currentOptionKey = null;
 
         while (i < lines.Length && lines[i].Trim() != "---") {
@@ -66,7 +67,8 @@ internal static class LoopMdParser {
 
             // Entering/exiting the options: block
             if (line == "options:") {
-                inOptionsBlock = true;
+                inOptionsBlock   = true;
+                inChoicesList    = false;
                 currentOptionKey = null;
                 i++;
                 continue;
@@ -84,12 +86,32 @@ internal static class LoopMdParser {
                             optionKeys.Add(currentOptionKey);
                         }
                     }
+                    inChoicesList = false;
+                    i++;
+                    continue;
+                }
+
+                // 6-space "      - value: x" list item — editor-format choices (list style)
+                if (inChoicesList && line.Length > 8 &&
+                    line[0] == ' ' && line[1] == ' ' && line[2] == ' ' && line[3] == ' ' &&
+                    line[4] == ' ' && line[5] == ' ' && line[6] == '-') {
+                    // Accept "      - value: x" or "      - x"
+                    var item = line[7..].Trim();
+                    if (item.StartsWith("value:", StringComparison.Ordinal))
+                        item = item[6..].Trim();
+                    if (!string.IsNullOrEmpty(item) &&
+                        currentOptionKey != null &&
+                        optionsByKey.TryGetValue(currentOptionKey, out var bldr)) {
+                        bldr.Choices ??= new List<string>();
+                        bldr.Choices.Add(item.Trim('"', '\''));
+                    }
                     i++;
                     continue;
                 }
 
                 // A line with exactly 4 spaces indent = option sub-key
                 if (line.Length > 4 && line[0] == ' ' && line[1] == ' ' && line[2] == ' ' && line[3] == ' ' && line[4] != ' ' && currentOptionKey != null) {
+                    inChoicesList = false;
                     var colonIdx = line.IndexOf(':', 4);
                     if (colonIdx > 4) {
                         var subKey = line[4..colonIdx].Trim();
@@ -99,16 +121,24 @@ internal static class LoopMdParser {
                                 case "value":   builder.RawValue = subVal; break;
                                 case "type":    builder.Type     = subVal.Trim('"', '\''); break;
                                 case "label":   builder.Label    = subVal.Trim('"', '\''); break;
-                                case "hint":    builder.Hint     = subVal.Trim('"', '\''); break;
+                                case "hint":
+                                case "tooltip": builder.Hint     = subVal.Trim('"', '\''); break;
                                 case "choices":
-                                    var choicesRaw = subVal.Trim('[', ']');
-                                    var choiceList = new List<string>();
-                                    foreach (var ch in choicesRaw.Split(',')) {
-                                        var cv = ch.Trim().Trim('"', '\'');
-                                        if (!string.IsNullOrEmpty(cv))
-                                            choiceList.Add(cv);
+                                    if (string.IsNullOrEmpty(subVal)) {
+                                        // List-style choices follow on subsequent lines
+                                        builder.Choices ??= new List<string>();
+                                        inChoicesList = true;
                                     }
-                                    builder.Choices = choiceList;
+                                    else {
+                                        var choicesRaw = subVal.Trim('[', ']');
+                                        var choiceList = new List<string>();
+                                        foreach (var ch in choicesRaw.Split(',')) {
+                                            var cv = ch.Trim().Trim('"', '\'');
+                                            if (!string.IsNullOrEmpty(cv))
+                                                choiceList.Add(cv);
+                                        }
+                                        builder.Choices = choiceList;
+                                    }
                                     break;
                             }
                         }
@@ -120,6 +150,7 @@ internal static class LoopMdParser {
                 // Non-indented line (not ---) exits options mode
                 if (line.Length > 0 && line[0] != ' ') {
                     inOptionsBlock = false;
+                    inChoicesList  = false;
                     currentOptionKey = null;
                     // fall through to flat key parsing below
                 }
@@ -870,6 +901,70 @@ internal static class LoopMdParser {
         for (int k = 0; k < insertions.Count; k++)
             result[closingDash + k] = insertions[k];
         Array.Copy(lines, closingDash, result, closingDash + insertions.Count, lines.Length - closingDash);
+        File.WriteAllText(loopMdPath, string.Join(le, result));
+    }
+
+    /// <summary>
+    /// Replaces the <c>options:</c> block in the frontmatter with the serialized YAML
+    /// from <paramref name="optionsYaml"/>.  If <paramref name="optionsYaml"/> is null or
+    /// empty, the options block is removed entirely.
+    /// The YAML is expected in the editor box format (0-indented option keys, 2-indented
+    /// sub-keys); it is indented by two spaces so the loop parser can read it back.
+    /// Does nothing if the file does not exist or has no frontmatter.
+    /// </summary>
+    public static void UpdateOptions(string loopMdPath, string? optionsYaml) {
+        if (!File.Exists(loopMdPath)) return;
+
+        var raw   = File.ReadAllText(loopMdPath);
+        var le    = raw.Contains("\r\n") ? "\r\n" : "\n";
+        var lines = raw.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+        // Locate frontmatter boundaries
+        bool pastFirst = false;
+        int fmStart = -1, fmEnd = -1;
+        for (int i = 0; i < lines.Length; i++) {
+            if (lines[i].Trim() == "---") {
+                if (!pastFirst) { pastFirst = true; fmStart = i; }
+                else            { fmEnd = i; break; }
+            }
+        }
+        if (fmStart < 0 || fmEnd < 0) return;
+
+        // Find the options: line within the frontmatter
+        int optionsStart = -1;
+        for (int i = fmStart + 1; i < fmEnd; i++) {
+            if (lines[i] == "options:") { optionsStart = i; break; }
+        }
+
+        // Determine where the existing options block ends (first non-indented line or fmEnd)
+        int optionsEnd = optionsStart >= 0 ? optionsStart + 1 : -1;
+        if (optionsStart >= 0) {
+            while (optionsEnd < fmEnd && lines[optionsEnd].Length > 0 && lines[optionsEnd][0] == ' ')
+                optionsEnd++;
+        }
+
+        // Build replacement lines
+        var replacement = new List<string>();
+        if (!string.IsNullOrWhiteSpace(optionsYaml)) {
+            replacement.Add("options:");
+            foreach (var optLine in optionsYaml.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n'))
+                replacement.Add("  " + optLine);
+        }
+
+        // Rebuild: lines before options block + replacement + lines after options block
+        var result = new List<string>();
+        if (optionsStart >= 0) {
+            result.AddRange(lines[..optionsStart]);
+            result.AddRange(replacement);
+            result.AddRange(lines[optionsEnd..]);
+        }
+        else {
+            // No existing options block — insert before closing ---
+            result.AddRange(lines[..fmEnd]);
+            result.AddRange(replacement);
+            result.AddRange(lines[fmEnd..]);
+        }
+
         File.WriteAllText(loopMdPath, string.Join(le, result));
     }
 

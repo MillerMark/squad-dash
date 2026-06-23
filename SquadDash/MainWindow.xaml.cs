@@ -14204,13 +14204,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (!File.Exists(loopMdPath)) { OpenOrCreateLoopMd(loopMdPath); return; }
 
             var config = LoopMdParser.Parse(loopMdPath);
+            var options = config?.Options is null ? null
+                : config.Options
+                    .Select(o => new CodeHealthOption(
+                        o.Key,
+                        o.RawValue,
+                        o.Type,
+                        o.Label,
+                        o.Hint,
+                        o.Choices?.Select(c => new CodeHealthOptionChoice { Value = c }).ToList()))
+                    .ToList();
             var dummyTask = new CodeHealthTask(
                 Id:           "loop",
                 Enabled:      true,
                 Frequency:    "always",
                 Safety:       config?.Safety ?? "branch",
                 Title:        config?.Description ?? "",
-                Instructions: config?.Instructions ?? "");
+                Instructions: config?.Instructions ?? "",
+                Options:      options);
 
             var win = new CodeHealthTaskEditorWindow(
                 owner:            this,
