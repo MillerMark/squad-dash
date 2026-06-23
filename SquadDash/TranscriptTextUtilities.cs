@@ -5,6 +5,17 @@ namespace SquadDash;
 
 internal static class TranscriptTextUtilities
 {
+    private static readonly Regex WhitespaceNormRegex = new(
+        @"\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex WordApostropheRegex = new(
+        @"(?<=\w)\s+'(?=\w)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex SuffixSplitRegex = new(
+        @"(?<=[A-Za-z]{4,})\s+(?=(?:ize|ized|ization|ise|ised|ises|ing|ed|er|ers|ly|ment|ments|tion|tions|able|ible|ality|ality|ities|ity)\b)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex SpaceBeforePunctRegex = new(
+        @"\s+([,.;:!?%\)\]\}])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex SpaceAfterOpenRegex = new(
+        @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
         StripInboxMessageBlock(StripHostCommandBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))).TrimEnd();
 
@@ -23,15 +34,11 @@ internal static class TranscriptTextUtilities
             return string.Empty;
 
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
-        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
-        normalized = Regex.Replace(normalized, @"(?<=\w)\s+'(?=\w)", "'");
-        normalized = Regex.Replace(
-            normalized,
-            @"(?<=[A-Za-z]{4,})\s+(?=(?:ize|ized|ization|ise|ised|ises|ing|ed|er|ers|ly|ment|ments|tion|tions|able|ible|ality|ality|ities|ity)\b)",
-            string.Empty,
-            RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"\s+([,.;:!?%\)\]\}])", "$1");
-        normalized = Regex.Replace(normalized, @"([\(\[\{])\s+", "$1");
+        normalized = WhitespaceNormRegex.Replace(normalized, " ").Trim();
+        normalized = WordApostropheRegex.Replace(normalized, "'");
+        normalized = SuffixSplitRegex.Replace(normalized, string.Empty);
+        normalized = SpaceBeforePunctRegex.Replace(normalized, "$1");
+        normalized = SpaceAfterOpenRegex.Replace(normalized, "$1");
         return normalized;
     }
 

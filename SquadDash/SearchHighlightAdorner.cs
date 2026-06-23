@@ -25,6 +25,18 @@ internal sealed class SearchHighlightAdorner : Adorner, IDisposable
     private ScrollViewer? _subscribedScrollViewer;
     private DispatcherTimer? _debounceTimer;
 
+    // Cached brushes — fetched from the resource dict once and reused every render pass.
+    private Brush? _normalBrush;
+    private Brush? _currentBrush;
+    private Brush? _textBrush;
+    private Brush? _textBrushCurrent;
+
+    // Cached typeface — rebuilt only when the RTB font properties change.
+    private Typeface? _cachedTypeface;
+    private FontFamily? _cachedFontFamily;
+    private FontWeight  _cachedFontWeight;
+    private FontStyle   _cachedFontStyle;
+
     public SearchHighlightAdorner(RichTextBox richTextBox) : base(richTextBox)
     {
         _rtb = richTextBox;
@@ -158,10 +170,11 @@ internal sealed class SearchHighlightAdorner : Adorner, IDisposable
         // Clip all drawing to the adorner's own bounds so nothing bleeds outside the RichTextBox.
         dc.PushClip(new RectangleGeometry(new Rect(RenderSize)));
 
-        var normalBrush      = GetBrush("SearchHighlight",            Color.FromArgb(180, 255, 213,  79));
-        var currentBrush     = GetBrush("SearchHighlightCurrent",     Color.FromArgb(230, 255, 143,   0));
-        var textBrush        = GetBrush("SearchHighlightText",        Color.FromRgb( 18,  13,  0));
-        var textBrushCurrent = GetBrush("SearchHighlightTextCurrent", Color.FromRgb( 49,  34,  0));
+        EnsureBrushes();
+        var normalBrush      = _normalBrush!;
+        var currentBrush     = _currentBrush!;
+        var textBrush        = _textBrush!;
+        var textBrushCurrent = _textBrushCurrent!;
 
         var renderBounds = new Rect(RenderSize);
 
@@ -252,7 +265,18 @@ internal sealed class SearchHighlightAdorner : Adorner, IDisposable
         var fontWeight = _rtb.FontWeight;
         var fontStyle  = _rtb.FontStyle;
 
-        var typeface = new Typeface(fontFamily, fontStyle, fontWeight, FontStretches.Normal);
+        if (_cachedTypeface is null ||
+            !ReferenceEquals(fontFamily, _cachedFontFamily) ||
+            fontWeight != _cachedFontWeight ||
+            fontStyle  != _cachedFontStyle)
+        {
+            _cachedTypeface    = new Typeface(fontFamily, fontStyle, fontWeight, FontStretches.Normal);
+            _cachedFontFamily  = fontFamily;
+            _cachedFontWeight  = fontWeight;
+            _cachedFontStyle   = fontStyle;
+        }
+
+        var typeface = _cachedTypeface;
         var dpi      = VisualTreeHelper.GetDpi(_rtb).PixelsPerDip;
 
         var ft = new FormattedText(
@@ -277,10 +301,20 @@ internal sealed class SearchHighlightAdorner : Adorner, IDisposable
         dc.Pop();
     }
 
+    private void EnsureBrushes()
+    {
+        _normalBrush      ??= GetBrush("SearchHighlight",            Color.FromArgb(180, 255, 213,  79));
+        _currentBrush     ??= GetBrush("SearchHighlightCurrent",     Color.FromArgb(230, 255, 143,   0));
+        _textBrush        ??= GetBrush("SearchHighlightText",        Color.FromRgb( 18,  13,  0));
+        _textBrushCurrent ??= GetBrush("SearchHighlightTextCurrent", Color.FromRgb( 49,  34,  0));
+    }
+
     private static Brush GetBrush(string key, Color fallback)
     {
         if (Application.Current?.Resources[key] is Brush b)
             return b;
-        return new SolidColorBrush(fallback);
+        var brush = new SolidColorBrush(fallback);
+        brush.Freeze();
+        return brush;
     }
 }

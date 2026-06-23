@@ -64,12 +64,30 @@ internal sealed class PromptExecutionController {
     /// </summary>
     internal string? TasksFilePath { get; set; }
 
+    // Cache for tasks.md — avoids re-reading the file on every prompt dispatch.
+    private string?   _tasksFilePathCached;
+    private string[]? _tasksLinesCache;
+    private DateTime  _tasksLastWriteTime;
+
     private string? BuildTasksContextInstruction() {
         if (string.IsNullOrEmpty(TasksFilePath) || !File.Exists(TasksFilePath))
             return null;
         string[] lines;
         try {
-            lines = File.ReadAllLines(TasksFilePath);
+            var lastWrite = File.GetLastWriteTimeUtc(TasksFilePath);
+            if (_tasksLinesCache is not null &&
+                string.Equals(_tasksFilePathCached, TasksFilePath, StringComparison.OrdinalIgnoreCase) &&
+                lastWrite == _tasksLastWriteTime)
+            {
+                lines = _tasksLinesCache;
+            }
+            else
+            {
+                lines = File.ReadAllLines(TasksFilePath);
+                _tasksLinesCache     = lines;
+                _tasksFilePathCached = TasksFilePath;
+                _tasksLastWriteTime  = lastWrite;
+            }
         }
         catch (Exception ex) {
             SquadDashTrace.Write("Tasks", $"BuildTasksContextInstruction: failed to read {TasksFilePath}: {ex.Message}");

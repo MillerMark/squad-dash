@@ -12,6 +12,7 @@ namespace SquadDash;
 internal sealed class ScrollbarMarkerAdorner : Adorner
 {
     private IReadOnlyList<double> _positions = []; // 0.0 .. 1.0 fractions of total doc height
+    private Brush? _markerBrush;
 
     public ScrollbarMarkerAdorner(UIElement adornedElement) : base(adornedElement)
     {
@@ -35,7 +36,7 @@ internal sealed class ScrollbarMarkerAdorner : Adorner
     {
         if (_positions.Count == 0) return;
 
-        var brush = GetBrush("SearchHighlightCurrent", Color.FromArgb(220, 255, 179, 0));
+        var brush = _markerBrush ??= GetBrush("SearchHighlightCurrent", Color.FromArgb(220, 255, 179, 0));
         var h = RenderSize.Height;
 
         foreach (var pos in _positions)
@@ -48,6 +49,8 @@ internal sealed class ScrollbarMarkerAdorner : Adorner
     private static Brush GetBrush(string key, Color fallback)
     {
         if (Application.Current?.Resources[key] is Brush b) return b;
-        return new SolidColorBrush(fallback);
+        var brush = new SolidColorBrush(fallback);
+        brush.Freeze();
+        return brush;
     }
 }
