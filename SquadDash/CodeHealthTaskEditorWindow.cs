@@ -14,10 +14,12 @@ using System.Windows.Threading;
 
 namespace SquadDash;
 
+internal enum TaskEditorMode { CodeHealth, Loop }
+
 /// <summary>
-/// Custom WPF editor for a single <see cref="CodeHealthTask"/>. Shows title, properties,
-/// UI options YAML with live preview, and instructions with syntax highlighting.
-/// Opened via "Edit Task" in the Maintenance panel context menu.
+/// Custom WPF editor for a single <see cref="CodeHealthTask"/> or a loop .md file.
+/// Shows title, properties, UI options YAML with live preview, and instructions with
+/// syntax highlighting. Opened via "Edit Task" or "Edit selected loop" context menu items.
 /// </summary>
 internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
@@ -29,6 +31,8 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly Action                                  _reloadPanel;
     private readonly Action<RichTextBox, string>?            _onReviseWithAi;
     private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
+    private readonly TaskEditorMode                          _mode;
+    private readonly string?                                 _loopMdPath;
 
     // Track if there are unsaved changes
     private bool _hasUnsavedChanges;
@@ -49,6 +53,8 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly FlowDocumentScrollViewer _markdownPreview;
     private readonly MarkdownEditorPanel _instructionsPanel;
     private StackPanel? _weeklyDayPickerPanel;  // Day picker UI for weekly frequency
+    private TextBlock?  _captionLabel;          // Caption text block (for mode-specific retitle)
+    private StackPanel? _propsRow;              // Properties row (hidden in Loop mode)
 
     // ── Voice ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +102,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         Action<RichTextBox, string>?         onReviseWithAi = null,
         Action<RichTextBox, string, string>? onDirectRevise = null,
         CodeHealthStateStore?                stateStore     = null,
-        string?                              workspacePath  = null) : base(captionHeight: 56) {
+        string?                              workspacePath  = null,
+        TaskEditorMode                       mode           = TaskEditorMode.CodeHealth,
+        string?                              loopMdPath     = null) : base(captionHeight: 56) {
 
         _task             = task;
         _settingsProvider = settingsProvider;
@@ -104,9 +112,11 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _reloadPanel      = reloadPanel;
         _onReviseWithAi   = onReviseWithAi;
         _onDirectRevise   = onDirectRevise;
+        _mode             = mode;
+        _loopMdPath       = loopMdPath;
 
         Owner                 = owner;
-        Title                 = "Edit Health Task";
+        Title                 = _mode == TaskEditorMode.Loop ? "Edit Loop Task" : "Edit Health Task";
         Width                 = 800;
         Height                = 700;
         MinWidth              = 500;
@@ -165,6 +175,12 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         }
 
         ApplyOuterBorder().Child = BuildLayout();
+
+        // In Loop mode, hide code-health-specific controls (Enabled, Frequency)
+        if (_mode == TaskEditorMode.Loop) {
+            if (_captionLabel is not null) _captionLabel.Text = "Edit Loop Task";
+            if (_propsRow is not null)     _propsRow.Visibility = Visibility.Collapsed;
+        }
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp   += OnPreviewKeyUp;
@@ -324,16 +340,16 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         var root = new DockPanel { LastChildFill = true };
 
         // ── Window caption ────────────────────────────────────────────────────
-        var captionLabel = new TextBlock {
+        _captionLabel = new TextBlock {
             Text              = "Edit Health Task",
             VerticalAlignment = VerticalAlignment.Center,
             FontWeight        = FontWeights.SemiBold,
             Margin            = new Thickness(12, 8, 50, 4),
         };
-        captionLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        captionLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
-        DockPanel.SetDock(captionLabel, Dock.Top);
-        root.Children.Add(captionLabel);
+        _captionLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        _captionLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
+        DockPanel.SetDock(_captionLabel, Dock.Top);
+        root.Children.Add(_captionLabel);
 
         // ── Title bar row ─────────────────────────────────────────────────────
         var titleRow = new DockPanel { Margin = new Thickness(8, 2, 50, 4), LastChildFill = true };
@@ -348,23 +364,23 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         root.Children.Add(titleRow);
 
         // ── Properties row ────────────────────────────────────────────────────
-        var propsRow = new StackPanel {
+        _propsRow = new StackPanel {
             Orientation = Orientation.Horizontal,
             Margin      = new Thickness(8, 5, 8, 4),
         };
-        propsRow.Children.Add(_enabledCheck);
-        propsRow.Children.Add(BuildLabel("Frequency:"));
-        propsRow.Children.Add(_frequencyCombo);
+        _propsRow.Children.Add(_enabledCheck);
+        _propsRow.Children.Add(BuildLabel("Frequency:"));
+        _propsRow.Children.Add(_frequencyCombo);
         
         // Build the day picker panel for weekly frequency
         _weeklyDayPickerPanel = BuildWeeklyDayPicker();
         _weeklyDayPickerPanel.Visibility = (_frequencyCombo.SelectedItem as string) == "weekly" 
             ? Visibility.Visible 
             : Visibility.Collapsed;
-        propsRow.Children.Add(_weeklyDayPickerPanel);
+        _propsRow.Children.Add(_weeklyDayPickerPanel);
         
-        DockPanel.SetDock(propsRow, Dock.Top);
-        root.Children.Add(propsRow);
+        DockPanel.SetDock(_propsRow, Dock.Top);
+        root.Children.Add(_propsRow);
 
         // ── Safety row ────────────────────────────────────────────────────────
         var safetyRow = new StackPanel {
@@ -752,6 +768,26 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     private void OnSave(object sender, RoutedEventArgs e) {
         var instructionsText = _instructionsPanel.GetText().TrimEnd('\r', '\n');
+
+        // ── Loop mode save ────────────────────────────────────────────────────
+        if (_mode == TaskEditorMode.Loop && !string.IsNullOrEmpty(_loopMdPath)) {
+            try {
+                LoopMdParser.UpdateDescription(_loopMdPath!, _titleBox.Text);
+                LoopMdParser.UpdateSafety(_loopMdPath!, GetSelectedSafety());
+                LoopMdParser.UpdateInstructions(_loopMdPath!, instructionsText);
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"CodeHealthTaskEditorWindow: failed to save loop '{_loopMdPath}': {ex.Message}");
+            }
+            _hasUnsavedChanges = false;
+            _onSaved();
+            _reloadPanel();
+            Close();
+            return;
+        }
+
+        // ── Code-health mode save ─────────────────────────────────────────────
 
         // Build the frequency value: if "weekly" is selected, append the day of week
         var baseFrequency = (_frequencyCombo.SelectedItem as string) ?? _task.Frequency;

@@ -14201,9 +14201,56 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (_currentWorkspace is null) return;
             var loopMdPath = GetEffectiveLoopMdPath();
-            OpenOrCreateLoopMd(loopMdPath);
+            if (!File.Exists(loopMdPath)) { OpenOrCreateLoopMd(loopMdPath); return; }
+
+            var config = LoopMdParser.Parse(loopMdPath);
+            var dummyTask = new CodeHealthTask(
+                Id:           "loop",
+                Enabled:      true,
+                Frequency:    "always",
+                Safety:       config?.Safety ?? "branch",
+                Title:        config?.Description ?? "",
+                Instructions: config?.Instructions ?? "");
+
+            var win = new CodeHealthTaskEditorWindow(
+                owner:            this,
+                task:             dummyTask,
+                settingsProvider: () => new ApplicationSettingsStore().Load(),
+                onSaved:          () => { },
+                reloadPanel:      () => { PopulateLoopFilePicker(); RefreshLoopOptionsPanel(); },
+                mode:             TaskEditorMode.Loop,
+                loopMdPath:       loopMdPath);
+            win.Show();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelEditLoopMdMenuItem_Click), ex); }
+    }
+
+    private void LoopPanelDeleteLoopMdMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null) return;
+            var loopMdPath = GetEffectiveLoopMdPath();
+            if (!File.Exists(loopMdPath)) return;
+
+            var config = LoopMdParser.Parse(loopMdPath);
+            var description = config?.Description ?? Path.GetFileName(loopMdPath);
+
+            var result = MessageBox.Show(
+                $"Are you sure you want to delete '{description}'? This cannot be undone.",
+                "Delete Loop File",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            File.Delete(loopMdPath);
+            _selectedLoopMdPath = null;
+            PopulateLoopFilePicker();
+            RefreshLoopOptionsPanel();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelDeleteLoopMdMenuItem_Click), ex); }
     }
 
     private void LoopPanelLoopSettingsMenuItem_Click(object sender, RoutedEventArgs e)

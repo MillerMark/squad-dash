@@ -1404,6 +1404,9 @@
                                     <MenuItem Header="Edit selected loop"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelEditLoopMdMenuItem_Click" />
+                                    <MenuItem Header="Delete loop file"
+                                              Style="{StaticResource ThemedMenuItemStyle}"
+                                              Click="LoopPanelDeleteLoopMdMenuItem_Click" />
                                     <MenuItem Header="Show selected loop in folder"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelShowInFolderMenuItem_Click" />
