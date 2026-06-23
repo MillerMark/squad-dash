@@ -2358,6 +2358,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _ = DrainQueueIfNeededAsync();
     }
 
+    private void EnqueueRcPrompt(string text, List<FollowUpAttachment> attachments)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        _promptQueue.Enqueue(text, ++_promptQueueSeq, isFromRemote: true);
+        var queued = _promptQueue.Items[^1];
+        queued.QueueNumber = NextQueueNumber();
+        if (attachments.Count > 0)
+            _followUpAttachments[queued.Id] = attachments;
+        SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(queued)} queueCount={_promptQueue.Count}");
+        SyncQueuePanel();
+        if (_loopIsWaiting) _loopController.CancelLoopWait();
+        _ = DrainQueueIfNeededAsync();
+    }
+
     /// <summary>
     /// Ctrl+Enter handler. Moves the active tab to the front of the queue.
     /// If the user is on the Active Draft tab, enqueues the current text at the front.
@@ -31507,7 +31521,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 initialShowRejected: _settingsStore.Load().ApprovalShowRejected,
                 onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show),
                 initialGroupedView: _settingsStore.Load().ApprovalGroupedView,
-                onGroupedViewChanged: grouped => _settingsStore.SaveApprovalGroupedView(grouped));
+                onGroupedViewChanged: grouped => _settingsStore.SaveApprovalGroupedView(grouped),
+                getGroups: () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults).ToList().AsReadOnly());
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width
@@ -33951,23 +33966,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var groups    = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
             var groupList = string.Join(", ", groups);
 
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("Please organize the following pending approval items into feature groups.");
-            sb.AppendLine("Assign a specific, descriptive group name to each item. You may reuse groups from the existing list or invent more specific names that better reflect what the feature actually does.");
-            sb.AppendLine($"Existing groups: {groupList}");
-            sb.AppendLine();
-            sb.AppendLine("Items to organize:");
+            // Build the item list as an attachment content block
+            var itemsSb = new System.Text.StringBuilder();
+            itemsSb.AppendLine("## Items to organize");
             foreach (var item in pending)
             {
                 var current = item.FeatureGroup is not null ? $" [currently: {item.FeatureGroup}]" : string.Empty;
-                sb.AppendLine($"- SHA: {item.CommitSha} | \"{item.Description}\"{current}");
+                itemsSb.AppendLine($"- SHA: {item.CommitSha} | \"{item.Description}\"{current}");
             }
+
+            var attachment = new FollowUpAttachment(
+                CommitSha:      string.Empty,
+                Description:    $"{pending.Count} pending approval items",
+                OriginalPrompt: null,
+                ContentBlock:   itemsSb.ToString());
+
+            // Short instruction prompt — items are in the attachment
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Please organize the attached pending approval items into feature groups.");
+            sb.AppendLine("Assign a specific, descriptive group name to each item. You may reuse groups from the existing list or invent more specific names that better reflect what the feature actually does.");
+            sb.AppendLine($"Existing groups: {groupList}");
             sb.AppendLine();
-            sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from above:");
+            sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from the attached list:");
             sb.AppendLine("HOST_COMMAND_JSON:");
             sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
 
-            EnqueueRcPrompt(sb.ToString());
+            EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalOrganizeButton_Click), ex); }
     }

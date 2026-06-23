@@ -20,6 +20,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<CommitApprovalItem>                   _onFollowUp;
     private readonly Action<CommitApprovalItem>?                _addToNewChat;
     private readonly Action<CommitApprovalItem>?                _addToNotes;
+    private readonly Func<IReadOnlyList<string>>?               _getGroups;
 
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
@@ -63,7 +64,8 @@ internal sealed class CommitApprovalPanel {
         bool                                     initialShowRejected = true,
         Action<bool>?                            onShowRejectedChanged = null,
         bool                                     initialGroupedView = false,
-        Action<bool>?                            onGroupedViewChanged = null) {
+        Action<bool>?                            onGroupedViewChanged = null,
+        Func<IReadOnlyList<string>>?             getGroups            = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -84,6 +86,7 @@ internal sealed class CommitApprovalPanel {
         _onShowRejectedChanged     = onShowRejectedChanged;
         _groupedView               = initialGroupedView;
         _onGroupedViewChanged      = onGroupedViewChanged;
+        _getGroups                 = getGroups;
 
         AttachPanelContextMenu(outerBorder);
         _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
@@ -153,11 +156,11 @@ internal sealed class CommitApprovalPanel {
     private void RenderGroupedPendingItems(List<CommitApprovalItem> pending) {
         var grouped = pending
             .GroupBy(i => i.FeatureGroup ?? "Uncategorized")
-            .OrderBy(g => g.Key == "Uncategorized" ? 1 : 0)
+            .OrderBy(g => g.Key == "Uncategorized" ? 0 : 1)
             .ThenBy(g => g.Key);
 
         foreach (var group in grouped) {
-            var groupItems = group.ToList();
+            var groupItems = group.OrderByDescending(i => i.TurnStartedAt).ToList();
 
             var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 2) };
             var groupCheckBox = new CheckBox { IsThreeState = false, VerticalAlignment = VerticalAlignment.Center };
@@ -207,7 +210,7 @@ internal sealed class CommitApprovalPanel {
     private void RenderGroupedApprovedItems(List<CommitApprovalItem> approved) {
         var grouped = approved
             .GroupBy(i => i.FeatureGroup ?? "Uncategorized")
-            .OrderBy(g => g.Key == "Uncategorized" ? 1 : 0)
+            .OrderBy(g => g.Key == "Uncategorized" ? 0 : 1)
             .ThenBy(g => g.Key);
 
         foreach (var group in grouped) {
@@ -223,7 +226,7 @@ internal sealed class CommitApprovalPanel {
             header.Children.Add(groupLabel);
             _approvedPanel.Children.Add(header);
 
-            foreach (var item in group) {
+            foreach (var item in group.OrderByDescending(i => i.TurnStartedAt)) {
                 var row = BuildRow(item);
                 row.Margin = new Thickness(12, 0, 0, 0);
                 _approvedPanel.Children.Add(row);
@@ -325,6 +328,22 @@ internal sealed class CommitApprovalPanel {
             menu.Items.Add(notesItem);
         }
         menu.Items.Add(MakeSep());
+        if (_groupedView && _getGroups is not null) {
+            var moveToCatItem = MakeItem("Move to category");
+            moveToCatItem.Items.Add(new MenuItem { Header = "..." }); // placeholder so WPF treats as submenu parent
+            moveToCatItem.SubmenuOpened += (_, _) => {
+                moveToCatItem.Items.Clear();
+                var groups = _getGroups.Invoke();
+                foreach (var g in groups.OrderBy(x => x)) {
+                    var groupMenuItem = MakeItem(g);
+                    var capturedGroup = g;
+                    groupMenuItem.Click += (_, _) => MoveItemToGroup(item, capturedGroup);
+                    moveToCatItem.Items.Add(groupMenuItem);
+                }
+            };
+            menu.Items.Add(moveToCatItem);
+            menu.Items.Add(MakeSep());
+        }
         var rejectItem = MakeItem($"Reject {DescriptionPreview(item.Description)}");
         rejectItem.Click += (_, _) => HandleRejectClicked(row, item);
         menu.Items.Add(rejectItem);
@@ -494,6 +513,26 @@ internal sealed class CommitApprovalPanel {
     }
 
     // ── State changes ─────────────────────────────────────────────────────────
+
+    private void MoveItemToGroup(CommitApprovalItem item, string groupName) {
+        var updated = item with { FeatureGroup = groupName };
+        var idx = _mutableItems.FindIndex(x => x.Id == item.Id);
+        if (idx >= 0) _mutableItems[idx] = updated;
+        _onItemChanged(updated);
+        RebuildGroupedPanels();
+        SyncApprovedSectionVisibility();
+        // After layout, scroll to and select the moved row
+        _needsApprovalScrollViewer.Dispatcher.InvokeAsync(() => {
+            foreach (var child in _needsApprovalPanel.Children) {
+                if (child is Border b && b.Tag is CommitApprovalItem ci && ci.Id == item.Id) {
+                    _selectedRow = b;
+                    b.SetResourceReference(Border.BackgroundProperty, "ApprovalSelectedSurface");
+                    b.BringIntoView();
+                    break;
+                }
+            }
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
 
     private void HandleCheckChanged(Border row, CommitApprovalItem item, bool isApproved) {
         if (_selectedRow == row) _selectedRow = null;
