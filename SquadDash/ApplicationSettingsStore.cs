@@ -571,6 +571,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveApprovalGroupedView(bool grouped) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { ApprovalGroupedView = grouped };
+        SaveCore(updated);
+        return updated;
+    }
+
     /// <summary>
     /// Persists the RC session token so the same QR code URL stays valid across restarts.
     /// </summary>
@@ -1337,6 +1345,12 @@ internal sealed record ApplicationSettingsSnapshot(
     public bool ApprovalShowRejected { get; init; } = true;
 
     /// <summary>
+    /// Whether the "Needs Approval" section is rendered in grouped-by-feature view.
+    /// Defaults to false (flat list). Machine-wide setting.
+    /// </summary>
+    public bool ApprovalGroupedView { get; init; } = false;
+
+    /// <summary>
     /// The RC session token from the last successful RC start.
     /// Passed back on the next <c>rc_start</c> so the phone's saved QR link keeps working.
     /// </summary>
@@ -1690,6 +1704,7 @@ internal sealed record ApplicationSettingsSnapshot(
             RcPersistentPort = RcPersistentPort,
             ApprovalShowApproved = ApprovalShowApproved,
             ApprovalShowRejected = ApprovalShowRejected,
+            ApprovalGroupedView  = ApprovalGroupedView,
             CleanupPrompt= string.IsNullOrWhiteSpace(CleanupPrompt)
                 ? "Clean up and clarify this text."
                 : CleanupPrompt,

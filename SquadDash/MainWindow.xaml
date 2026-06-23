@@ -1782,6 +1782,17 @@
                             <!-- Title row with filter box and close button -->
                             <DockPanel Grid.Row="0">
 
+                                <Button x:Name="ApprovalOrganizeButton"
+                                        DockPanel.Dock="Right"
+                                        Content="🗂"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeNormal}"
+                                        VerticalAlignment="Center"
+                                        Margin="0,0,2,0"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Organize approvals by feature group (AI)"
+                                        Click="ApprovalOrganizeButton_Click" />
                                 <Button x:Name="ApprovalPanelCloseButton"
                                         DockPanel.Dock="Right"
                                         Content="×"

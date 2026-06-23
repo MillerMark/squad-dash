@@ -7196,6 +7196,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             _idleDetectionService?.ForceIdle();
         }));
+        _hostCommandExecutor.Register(new Commands.OrganizeApprovalsCommandHandler(assignments =>
+        {
+            bool anyChanged = false;
+            foreach (var (sha, group) in assignments)
+            {
+                var idx = _approvalItems.FindIndex(i =>
+                    i.CommitSha.StartsWith(sha, StringComparison.OrdinalIgnoreCase) ||
+                    sha.StartsWith(i.CommitSha, StringComparison.OrdinalIgnoreCase));
+                if (idx < 0) continue;
+                _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
+                _featureGroupStore?.EnsureGroup(group);
+                anyChanged = true;
+            }
+            if (anyChanged)
+            {
+                _approvalStore?.Save(_approvalItems);
+                _approvalPanel?.ReplaceAllItems(_approvalItems);
+            }
+        }));
 
         _pec.GetHostCommandCatalogInstruction = () =>
             _hostCommandRegistry.BuildCatalogInstruction(_currentWorkspace?.FolderPath);
@@ -31342,7 +31361,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 initialShowApproved: _settingsStore.Load().ApprovalShowApproved,
                 onShowApprovedChanged: show => _settingsStore.SaveApprovalShowApproved(show),
                 initialShowRejected: _settingsStore.Load().ApprovalShowRejected,
-                onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show));
+                onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show),
+                initialGroupedView: _settingsStore.Load().ApprovalGroupedView,
+                onGroupedViewChanged: grouped => _settingsStore.SaveApprovalGroupedView(grouped));
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width
@@ -33769,6 +33790,42 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             PersistApprovalPanelVisible();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalPanelCloseButton_Click), ex); }
+    }
+
+    private void ApprovalOrganizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var pending = _approvalItems.Where(i => !i.IsApproved && !i.IsRejected).ToList();
+            if (pending.Count == 0)
+            {
+                MessageBox.Show("No pending approval items to organize.", "Organize Approvals",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var groups    = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
+            var groupList = string.Join(", ", groups);
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Please organize the following pending approval items into feature groups.");
+            sb.AppendLine("Assign a specific, descriptive group name to each item. You may reuse groups from the existing list or invent more specific names that better reflect what the feature actually does.");
+            sb.AppendLine($"Existing groups: {groupList}");
+            sb.AppendLine();
+            sb.AppendLine("Items to organize:");
+            foreach (var item in pending)
+            {
+                var current = item.FeatureGroup is not null ? $" [currently: {item.FeatureGroup}]" : string.Empty;
+                sb.AppendLine($"- SHA: {item.CommitSha} | \"{item.Description}\"{current}");
+            }
+            sb.AppendLine();
+            sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from above:");
+            sb.AppendLine("HOST_COMMAND_JSON:");
+            sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
+
+            EnqueueRcPrompt(sb.ToString());
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalOrganizeButton_Click), ex); }
     }
 
     private void ApprovalFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)

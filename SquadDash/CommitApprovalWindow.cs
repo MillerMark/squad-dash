@@ -32,10 +32,14 @@ internal sealed class CommitApprovalPanel {
     private Border?    _selectedRow;
     private bool       _showRejected;
     private bool       _showApproved;
+    private bool       _groupedView;
     private MenuItem?  _toggleRejectedItem;
     private MenuItem?  _toggleApprovedItem;
+    private MenuItem?  _toggleGroupedViewItem;
     private readonly Action<bool>? _onShowApprovedChanged;
     private readonly Action<bool>? _onShowRejectedChanged;
+    private readonly Action<bool>? _onGroupedViewChanged;
+    private IReadOnlyList<CommitApprovalItem> _lastItems = [];
 
     public CommitApprovalPanel(
         StackPanel                               needsApprovalPanel,
@@ -56,7 +60,9 @@ internal sealed class CommitApprovalPanel {
         bool                                     initialShowApproved = true,
         Action<bool>?                            onShowApprovedChanged = null,
         bool                                     initialShowRejected = true,
-        Action<bool>?                            onShowRejectedChanged = null) {
+        Action<bool>?                            onShowRejectedChanged = null,
+        bool                                     initialGroupedView = false,
+        Action<bool>?                            onGroupedViewChanged = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -75,6 +81,8 @@ internal sealed class CommitApprovalPanel {
         _onShowApprovedChanged     = onShowApprovedChanged;
         _showRejected              = initialShowRejected;
         _onShowRejectedChanged     = onShowRejectedChanged;
+        _groupedView               = initialGroupedView;
+        _onGroupedViewChanged      = onGroupedViewChanged;
 
         AttachPanelContextMenu(outerBorder);
         _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
@@ -90,6 +98,7 @@ internal sealed class CommitApprovalPanel {
     }
 
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
+        _lastItems   = items;
         _selectedRow = null;
         _needsApprovalPanel.Children.Clear();
         _approvedPanel.Children.Clear();
@@ -100,8 +109,15 @@ internal sealed class CommitApprovalPanel {
                 _rejectedPanel.Children.Add(BuildRejectedRow(item));
             else if (item.IsApproved)
                 _approvedPanel.Children.Add(BuildRow(item));
-            else
+            else if (!_groupedView)
                 _needsApprovalPanel.Children.Add(BuildRow(item));
+        }
+        if (_groupedView) {
+            var pending = items
+                .Where(i => !i.IsRejected && !i.IsApproved)
+                .OrderByDescending(i => i.TurnStartedAt)
+                .ToList();
+            RenderGroupedPendingItems(pending);
         }
         ApplyFilterToPanel(_needsApprovalPanel);
         ApplyFilterToPanel(_approvedPanel);
@@ -119,6 +135,43 @@ internal sealed class CommitApprovalPanel {
         SyncApprovedSectionVisibility();
         if (removed.Count > 0)
             _onItemsRemoved(removed);
+    }
+
+    private void RenderGroupedPendingItems(List<CommitApprovalItem> pending) {
+        var grouped = pending
+            .GroupBy(i => i.FeatureGroup ?? "Uncategorized")
+            .OrderBy(g => g.Key == "Uncategorized" ? 1 : 0)
+            .ThenBy(g => g.Key);
+
+        foreach (var group in grouped) {
+            var groupItems = group.ToList();
+
+            var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 2) };
+            var groupCheckBox = new CheckBox { IsThreeState = false, VerticalAlignment = VerticalAlignment.Center };
+            var groupLabel = new TextBlock {
+                Text              = group.Key,
+                FontWeight        = FontWeights.SemiBold,
+                Margin            = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            groupLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            groupLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            header.Children.Add(groupCheckBox);
+            header.Children.Add(groupLabel);
+            _needsApprovalPanel.Children.Add(header);
+
+            var itemCheckboxes = new List<CheckBox>();
+            foreach (var item in groupItems) {
+                var row = BuildRow(item);
+                row.Margin = new Thickness(12, 0, 0, 0);
+                _needsApprovalPanel.Children.Add(row);
+                if (row.Child is Grid g && g.Children.Count > 0 && g.Children[0] is CheckBox cb)
+                    itemCheckboxes.Add(cb);
+            }
+
+            groupCheckBox.Checked   += (_, _) => { foreach (var cb in itemCheckboxes) cb.IsChecked = true; };
+            groupCheckBox.Unchecked += (_, _) => { foreach (var cb in itemCheckboxes) cb.IsChecked = false; };
+        }
     }
 
     // ── Panel context menu ────────────────────────────────────────────────────
@@ -144,8 +197,9 @@ internal sealed class CommitApprovalPanel {
     private void AttachPanelContextMenu(Border outerBorder) {
         var menu = MakeMenu();
 
-        _toggleRejectedItem = MakeItem(string.Empty);
-        _toggleApprovedItem = MakeItem(string.Empty);
+        _toggleRejectedItem    = MakeItem(string.Empty);
+        _toggleApprovedItem    = MakeItem(string.Empty);
+        _toggleGroupedViewItem = MakeItem(string.Empty);
         UpdateToggleHeaders();
 
         _toggleRejectedItem.Click += (_, _) => {
@@ -162,7 +216,15 @@ internal sealed class CommitApprovalPanel {
             UpdateToggleHeaders();
         };
 
+        _toggleGroupedViewItem.Click += (_, _) => {
+            _groupedView = !_groupedView;
+            _onGroupedViewChanged?.Invoke(_groupedView);
+            UpdateToggleHeaders();
+            ReplaceAllItems(_lastItems);
+        };
+
         menu.Items.Add(MakeSep());
+        menu.Items.Add(_toggleGroupedViewItem);
         menu.Items.Add(_toggleApprovedItem);
         menu.Items.Add(_toggleRejectedItem);
         outerBorder.ContextMenu = menu;
@@ -173,6 +235,8 @@ internal sealed class CommitApprovalPanel {
             _toggleRejectedItem.Header = _showRejected ? "Hide Rejected" : "Show Rejected";
         if (_toggleApprovedItem is not null)
             _toggleApprovedItem.Header = _showApproved ? "Hide Approved" : "Show Approved";
+        if (_toggleGroupedViewItem is not null)
+            _toggleGroupedViewItem.Header = _groupedView ? "Ungroup by Feature" : "Group by Feature";
     }
 
     // ── Row construction ─────────────────────────────────────────────────────
@@ -234,6 +298,7 @@ internal sealed class CommitApprovalPanel {
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var checkBox = new CheckBox {
             IsChecked         = item.IsApproved,
@@ -265,9 +330,29 @@ internal sealed class CommitApprovalPanel {
         Grid.SetColumn(descBlock, 1);
         grid.Children.Add(descBlock);
 
+        if (!string.IsNullOrEmpty(item.FeatureGroup)) {
+            var badge = new Border {
+                CornerRadius      = new CornerRadius(3),
+                Padding           = new Thickness(4, 1, 4, 1),
+                Margin            = new Thickness(0, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            badge.SetResourceReference(Border.BackgroundProperty, "SubtleBorder");
+            var badgeText = new TextBlock {
+                Text         = item.FeatureGroup,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth     = 80,
+            };
+            badgeText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            badgeText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeXSmall");
+            badge.Child = badgeText;
+            Grid.SetColumn(badge, 2);
+            grid.Children.Add(badge);
+        }
+
         if (item.CommitUrl is not null) {
             var sha = BuildShaBlock(item);
-            Grid.SetColumn(sha, 2);
+            Grid.SetColumn(sha, 3);
             grid.Children.Add(sha);
         }
 

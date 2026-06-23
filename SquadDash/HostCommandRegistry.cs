@@ -41,6 +41,11 @@ internal sealed class HostCommandRegistry {
             Description:    "Forces code health mode to start immediately (for testing). Waits for any active prompt/loop to finish first.",
             Parameters:     Array.Empty<HostCommandParameterDescriptor>(),
             ResultBehavior: HostCommandResultBehavior.Silent),
+        new HostCommandDescriptor(
+            Name:           "organize_approvals",
+            Description:    "Assigns feature groups to pending approval items. Use assignments parameter with JSON array: [{\"sha\":\"abc1234\",\"group\":\"Feature Name\"},...]. You may use existing groups or invent specific feature names.",
+            Parameters:     [new HostCommandParameterDescriptor("assignments", "string", Required: true)],
+            ResultBehavior: HostCommandResultBehavior.Silent),
     ];
 
     internal IReadOnlyList<HostCommandDescriptor> GetCommands(string? workspaceFolder) {
