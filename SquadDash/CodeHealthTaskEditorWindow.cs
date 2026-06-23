@@ -41,9 +41,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly TextBox     _titleBox;
     private readonly CheckBox    _enabledCheck;
     private readonly ComboBox    _frequencyCombo;
-    private RadioButton _safetyReportRadio = null!;
-    private RadioButton _safetyBranchRadio = null!;
-    private RadioButton _safetyDirectRadio = null!;
+    private readonly RadioButton _safetyReportRadio;
+    private readonly RadioButton _safetyBranchRadio;
+    private readonly RadioButton _safetyDirectRadio;
     private readonly TextBox     _optionsYamlBox;
     private readonly StackPanel  _optionsPreviewPanel;
     private readonly FlowDocumentScrollViewer _markdownPreview;
@@ -121,7 +121,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _titleBox            = BuildTitleBox();
         _enabledCheck        = BuildEnabledCheck();
         _frequencyCombo      = BuildFrequencyCombo();
-        BuildSafetyRadioButtons();
+        (_safetyReportRadio, _safetyBranchRadio, _safetyDirectRadio) = BuildSafetyRadioButtons();
         _optionsYamlBox      = BuildOptionsYamlBox();
         _optionsPreviewPanel = new StackPanel { Margin = new Thickness(4) };
         _markdownPreview     = BuildMarkdownPreview();
@@ -595,7 +595,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         return cb;
     }
 
-    private void BuildSafetyRadioButtons() {
+    private (RadioButton report, RadioButton branch, RadioButton direct) BuildSafetyRadioButtons() {
         RadioButton MakeRadio(string content, string tag, bool hasMargin) {
             var rb = new RadioButton {
                 Content                  = content,
@@ -610,15 +610,17 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             return rb;
         }
 
-        _safetyReportRadio = MakeRadio("report", "report-only", hasMargin: true);
-        _safetyBranchRadio = MakeRadio("branch", "branch",      hasMargin: true);
-        _safetyDirectRadio = MakeRadio("direct", "direct",      hasMargin: false);
+        var reportRadio = MakeRadio("report", "report-only", hasMargin: true);
+        var branchRadio = MakeRadio("branch", "branch",      hasMargin: true);
+        var directRadio = MakeRadio("direct", "direct",      hasMargin: false);
 
-        _safetyReportRadio.IsChecked = _task.Safety == "report-only";
-        _safetyBranchRadio.IsChecked = _task.Safety == "branch";
-        _safetyDirectRadio.IsChecked = _task.Safety == "direct";
-        if (_safetyReportRadio.IsChecked != true && _safetyBranchRadio.IsChecked != true && _safetyDirectRadio.IsChecked != true)
-            _safetyBranchRadio.IsChecked = true;
+        reportRadio.IsChecked = _task.Safety == "report-only";
+        branchRadio.IsChecked = _task.Safety == "branch";
+        directRadio.IsChecked = _task.Safety == "direct";
+        if (reportRadio.IsChecked != true && branchRadio.IsChecked != true && directRadio.IsChecked != true)
+            branchRadio.IsChecked = true;
+
+        return (reportRadio, branchRadio, directRadio);
     }
 
     private void OnSafetyRadioChecked(object sender, RoutedEventArgs e) {
