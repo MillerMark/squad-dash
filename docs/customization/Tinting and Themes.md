@@ -1,7 +1,7 @@
 ---
 title: Tinting and Themes
 nav_order: 1
-parent: Customization
+parent: Appearance
 ---
 
 # Tinting and Themes
@@ -131,3 +131,4 @@ When you switch workspaces, SquadDash automatically restores the tint and accent
 
 - **[Keyboard Shortcuts](../reference/keyboard-shortcuts.md)** — Full shortcut reference including tint and font scale shortcuts
 - **[Configuration](../reference/configuration.md)** — Application-level settings
+- **[Saturation and Contrast](Saturation and Contrast.md)** — Fine-tune color intensity and contrast

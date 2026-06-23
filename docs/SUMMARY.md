@@ -11,6 +11,7 @@
   * [Squad Team](concepts/squad-team.md)
   * [Hiring Agents](features/hiring-agents.md)
   * [VS Tooling](getting-started/VS Tooling.md)
+  * [Loop](panels/Loop.md)
   * [Windows Taskbar](getting-started/Windows Taskbar.md)
   * [Stand-alone Installer](getting-started/Stand-alone Installer.md)
 
@@ -43,7 +44,6 @@
   * [Approvals](panels/Approvals.md)
   * [Code Health](panels/Code Health.md)
   * [Inbox](panels/Inbox.md)
-  * [Loop](panels/Loop.md)
   * [Notes](panels/Notes.md)
   * [Tasks](panels/Tasks.md)
 
@@ -79,9 +79,12 @@
   * [Cloudflare Tunnel](reference/remote-control/setup-cloudflare.md)
   * [Using Remote Control](reference/remote-control/using-remote-control.md)
 
-## Customization
+## Appearance
 
-* [Tinting and Themes](customization/Tinting and Themes.md)
+* [Appearance](customization/README.md)
+
+  * [Tinting and Themes](customization/Tinting and Themes.md)
+  * [Saturation and Contrast](customization/Saturation and Contrast.md)
 
 ## Reference
 
