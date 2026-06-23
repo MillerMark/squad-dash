@@ -982,6 +982,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             System.Windows.Input.ApplicationCommands.Copy,
             OutputTextBox_CopyExecuted,
             OutputTextBox_CopyCanExecute));
+        InitializeTranscriptSearchController();
         ApplyTranscriptFontSize();
         ApplyPromptFontSize();
         SelectTranscriptThread(CoordinatorThread);
@@ -1186,41 +1187,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         };
 
-        // ── Search controller ──────────────────────────────────────────────────
-        _search = new TranscriptSearchController(
-            dispatcher: Dispatcher,
-            searchBox: SearchBox,
-            focusPromptTextBox: () => PromptTextBox.Focus(),
-            findPrevButton: FindPrevButton,
-            findNextButton: FindNextButton,
-            searchMatchCountText: SearchMatchCountText,
-            clearSearchButton: ClearSearchButton,
-            outputTextBox: OutputTextBox,
-            conversationManager: _conversationManager,
-            agentThreadRegistry: _agentThreadRegistry,
-            getSelectedThread: () => _selectedTranscriptThread,
-            getCoordinatorThread: () => CoordinatorThread,
-            selectTranscriptThread: t => SelectTranscriptThread(t),
-            getActiveTranscriptBox: () => ActiveTranscriptBox,
-            getActiveScrollController: () => ActiveScrollController,
-            getTranscriptScrollViewer: () => _transcriptScrollViewer,
-            flashGlowHighlightForThread: thread =>
-            {
-                if (ReferenceEquals(thread, CoordinatorThread))
-                    FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
-                else
-                {
-                    var entry = _secondaryTranscripts.FirstOrDefault(e => ReferenceEquals(e.Thread, thread));
-                    if (entry is not null)
-                        FlashGlowHighlight(entry.PanelBorder, ColorFromHex(entry.Agent.AccentColorHex));
-                    else
-                        FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
-                }
-            },
-            syncPromptNavButtons: () => SyncPromptNavButtons(),
-            handleException: (op, ex) => HandleUiCallbackException(op, ex));
-        _search.WireEventHandlers();
-
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
@@ -1402,6 +1368,46 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RegisterFixtureLoaders();
         ctorSw.Stop();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: complete {ctorSw.ElapsedMilliseconds}ms total.");
+    }
+
+    private void InitializeTranscriptSearchController()
+    {
+        if (_search is not null)
+            return;
+
+        _search = new TranscriptSearchController(
+            dispatcher: Dispatcher,
+            searchBox: SearchBox,
+            focusPromptTextBox: () => PromptTextBox.Focus(),
+            findPrevButton: FindPrevButton,
+            findNextButton: FindNextButton,
+            searchMatchCountText: SearchMatchCountText,
+            clearSearchButton: ClearSearchButton,
+            outputTextBox: OutputTextBox,
+            conversationManager: _conversationManager,
+            agentThreadRegistry: _agentThreadRegistry,
+            getSelectedThread: () => _selectedTranscriptThread,
+            getCoordinatorThread: () => CoordinatorThread,
+            selectTranscriptThread: t => SelectTranscriptThread(t),
+            getActiveTranscriptBox: () => ActiveTranscriptBox,
+            getActiveScrollController: () => ActiveScrollController,
+            getTranscriptScrollViewer: () => _transcriptScrollViewer,
+            flashGlowHighlightForThread: thread =>
+            {
+                if (ReferenceEquals(thread, CoordinatorThread))
+                    FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
+                else
+                {
+                    var entry = _secondaryTranscripts.FirstOrDefault(e => ReferenceEquals(e.Thread, thread));
+                    if (entry is not null)
+                        FlashGlowHighlight(entry.PanelBorder, ColorFromHex(entry.Agent.AccentColorHex));
+                    else
+                        FlashGlowHighlight(MainTranscriptBorder, Colors.CornflowerBlue);
+                }
+            },
+            syncPromptNavButtons: () => SyncPromptNavButtons(),
+            handleException: (op, ex) => HandleUiCallbackException(op, ex));
+        _search.WireEventHandlers();
     }
 
     // ── Replay action registration ──────────────────────────────────────────
