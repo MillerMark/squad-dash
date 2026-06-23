@@ -52,6 +52,7 @@ internal static class LoopMdParser {
         double intervalMinutes = 10;
         double timeoutMinutes  = 5;
         string description     = "";
+        string safety          = "branch";
         var    commands        = new List<string>();
         var    optionKeys      = new List<string>();
         var    optionsByKey   = new Dictionary<string, LoopOptionBuilder>(StringComparer.Ordinal);
@@ -155,6 +156,9 @@ internal static class LoopMdParser {
                         case "description":
                             description = value.Trim('"', '\'');
                             break;
+                        case "safety":
+                            safety = value.Trim('"', '\'');
+                            break;
                         case "commands":
                             // Accepts: [stop_loop, start_loop] or "stop_loop, start_loop"
                             var raw = value.Trim('[', ']', '"', '\'');
@@ -206,7 +210,7 @@ internal static class LoopMdParser {
 
         // Everything after the closing --- is the instructions body.
         if (i >= lines.Length)
-            return new LoopMdConfig(intervalMinutes, timeoutMinutes, description, "", commands, builtOptions);
+            return new LoopMdConfig(intervalMinutes, timeoutMinutes, description, "", commands, builtOptions, safety);
 
         i++; // move past the closing ---
 
@@ -221,7 +225,8 @@ internal static class LoopMdParser {
             description,
             sb.ToString().Trim(),
             commands,
-            builtOptions);
+            builtOptions,
+            safety);
     }
 
     /// <summary>
@@ -810,6 +815,86 @@ internal static class LoopMdParser {
                 try { File.WriteAllLines(loopMdPath, lines); } catch { /* best-effort */ }
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Rewrites the <c>safety:</c> line in the frontmatter if present, or inserts it before
+    /// the closing <c>---</c> if absent.  Also ensures <c>configured: true</c> is present.
+    /// Does nothing if the file does not exist or has no frontmatter.
+    /// </summary>
+    public static void UpdateSafety(string loopMdPath, string safety) {
+        if (!File.Exists(loopMdPath)) return;
+        var raw   = File.ReadAllText(loopMdPath);
+        var le    = raw.Contains("\r\n") ? "\r\n" : "\n";
+        var lines = raw.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+        // First pass: try to update an existing safety: line
+        bool inFm = false, pastFirst = false;
+        for (int i = 0; i < lines.Length; i++) {
+            var t = lines[i].TrimStart();
+            if (t == "---") {
+                if (!pastFirst) { pastFirst = true; inFm = true; }
+                else            { inFm = false; }
+                continue;
+            }
+            if (!inFm) continue;
+            if (t.StartsWith("safety:")) {
+                lines[i] = "safety: " + safety;
+                File.WriteAllText(loopMdPath, string.Join(le, lines));
+                return;
+            }
+        }
+
+        // Not found — insert before closing ---; also ensure configured: true is present
+        inFm = false; pastFirst = false;
+        bool hasConfigured = false;
+        int  closingDash   = -1;
+        for (int i = 0; i < lines.Length; i++) {
+            var t = lines[i].TrimStart();
+            if (t == "---") {
+                if (!pastFirst) { pastFirst = true; inFm = true; }
+                else if (inFm)  { closingDash = i; inFm = false; }
+                continue;
+            }
+            if (inFm && t.StartsWith("configured:"))
+                hasConfigured = true;
+        }
+        if (closingDash < 0) return;
+
+        var insertions = new System.Collections.Generic.List<string> { "safety: " + safety };
+        if (!hasConfigured) insertions.Insert(0, "configured: true");
+
+        var result = new string[lines.Length + insertions.Count];
+        Array.Copy(lines, 0, result, 0, closingDash);
+        for (int k = 0; k < insertions.Count; k++)
+            result[closingDash + k] = insertions[k];
+        Array.Copy(lines, closingDash, result, closingDash + insertions.Count, lines.Length - closingDash);
+        File.WriteAllText(loopMdPath, string.Join(le, result));
+    }
+
+    /// <summary>
+    /// Replaces everything after the closing <c>---</c> separator with
+    /// <paramref name="instructions"/>.  All frontmatter is preserved unchanged.
+    /// Does nothing if the file does not exist or has no closing frontmatter delimiter.
+    /// </summary>
+    public static void UpdateInstructions(string loopMdPath, string instructions) {
+        if (!File.Exists(loopMdPath)) return;
+        var raw   = File.ReadAllText(loopMdPath);
+        var le    = raw.Contains("\r\n") ? "\r\n" : "\n";
+        var lines = raw.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+
+        bool pastFirst = false;
+        for (int i = 0; i < lines.Length; i++) {
+            if (lines[i].Trim() != "---") continue;
+            if (!pastFirst) { pastFirst = true; continue; }
+            // Found closing ---; rebuild: frontmatter up to and including this line, then new body.
+            var header = string.Join(le, lines, 0, i + 1);
+            var body   = string.IsNullOrEmpty(instructions)
+                ? ""
+                : le + instructions;
+            File.WriteAllText(loopMdPath, header + body);
+            return;
         }
     }
 

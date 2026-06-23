@@ -1057,4 +1057,123 @@ internal sealed class LoopMdParserTests {
         Assert.That(result, Does.Not.Contain("Branch A"), "first branch excluded");
         Assert.That(result, Does.Contain("Branch B"),     "second branch body included");
     }
+
+    // ── Safety field ──────────────────────────────────────────────────────────
+
+    [Test]
+    public void Parse_SafetyDirect_ParsedCorrectly() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            safety: direct
+            ---
+            Do work.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Safety, Is.EqualTo("direct"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void Parse_SafetyAbsent_DefaultsToisBranch() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            ---
+            Do work.
+            """);
+        try {
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Safety, Is.EqualTo("branch"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── UpdateDescription round-trip ─────────────────────────────────────────
+
+    [Test]
+    public void UpdateDescription_ExistingLine_RoundTrip() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            description: Old description
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateDescription(path, "New description");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Description, Is.EqualTo("New description"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── UpdateSafety round-trip ───────────────────────────────────────────────
+
+    [Test]
+    public void UpdateSafety_ExistingLine_RoundTrip() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            safety: branch
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateSafety(path, "direct");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Safety, Is.EqualTo("direct"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    [Test]
+    public void UpdateSafety_AbsentLine_InsertsAndRoundTrips() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            ---
+            Body.
+            """);
+        try {
+            LoopMdParser.UpdateSafety(path, "report-only");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Safety, Is.EqualTo("report-only"));
+        }
+        finally { DeleteTempFile(path); }
+    }
+
+    // ── UpdateInstructions round-trip ─────────────────────────────────────────
+
+    [Test]
+    public void UpdateInstructions_ReplacesBodyAndFrontmatterPreserved() {
+        var path = WriteTempFile(
+            """
+            ---
+            configured: true
+            description: My loop
+            ---
+            Old instructions.
+            """);
+        try {
+            LoopMdParser.UpdateInstructions(path, "Brand new instructions.");
+            var config = LoopMdParser.Parse(path);
+            Assert.That(config, Is.Not.Null);
+            Assert.That(config!.Instructions, Is.EqualTo("Brand new instructions."));
+            Assert.That(config.Description,   Is.EqualTo("My loop"), "frontmatter must be unchanged");
+        }
+        finally { DeleteTempFile(path); }
+    }
 }

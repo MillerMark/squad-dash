@@ -34,5 +34,6 @@ internal sealed record LoopMdConfig(
     string Description,
     string Instructions,
     IReadOnlyList<string>? Commands = null,
-    IReadOnlyList<LoopOption>? Options = null);
+    IReadOnlyList<LoopOption>? Options = null,
+    string Safety = "branch");
 
