@@ -21,6 +21,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<CommitApprovalItem>?                _addToNewChat;
     private readonly Action<CommitApprovalItem>?                _addToNotes;
     private readonly Func<IReadOnlyList<string>>?               _getGroups;
+    private readonly Action<IReadOnlyList<CommitApprovalItem>>? _onCategorizeUncategorized;
 
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
@@ -65,7 +66,8 @@ internal sealed class CommitApprovalPanel {
         Action<bool>?                            onShowRejectedChanged = null,
         bool                                     initialGroupedView = false,
         Action<bool>?                            onGroupedViewChanged = null,
-        Func<IReadOnlyList<string>>?             getGroups            = null) {
+        Func<IReadOnlyList<string>>?             getGroups            = null,
+        Action<IReadOnlyList<CommitApprovalItem>>? onCategorizeUncategorized = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -87,6 +89,7 @@ internal sealed class CommitApprovalPanel {
         _groupedView               = initialGroupedView;
         _onGroupedViewChanged      = onGroupedViewChanged;
         _getGroups                 = getGroups;
+        _onCategorizeUncategorized = onCategorizeUncategorized;
 
         AttachPanelContextMenu(outerBorder);
         _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
@@ -174,6 +177,17 @@ internal sealed class CommitApprovalPanel {
             groupLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             header.Children.Add(groupCheckBox);
             header.Children.Add(groupLabel);
+
+            if (group.Key == "Uncategorized" && _onCategorizeUncategorized is not null) {
+                var capturedItems = groupItems;
+                var ctxMenu = MakeMenu();
+                var categorizeItem = MakeItem("Categorize these…");
+                categorizeItem.Click += (_, _) => _onCategorizeUncategorized(capturedItems.AsReadOnly());
+                ctxMenu.Items.Add(categorizeItem);
+                header.ContextMenu = ctxMenu;
+                header.Cursor = Cursors.Hand;
+            }
+
             _needsApprovalPanel.Children.Add(header);
 
             foreach (var item in groupItems) {

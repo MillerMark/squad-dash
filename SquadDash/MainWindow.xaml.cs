@@ -31540,7 +31540,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onShowRejectedChanged: show => _settingsStore.SaveApprovalShowRejected(show),
                 initialGroupedView: _settingsStore.Load().ApprovalGroupedView,
                 onGroupedViewChanged: grouped => _settingsStore.SaveApprovalGroupedView(grouped),
-                getGroups: () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults).ToList().AsReadOnly());
+                getGroups: () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults).ToList().AsReadOnly(),
+                onCategorizeUncategorized: items => EnqueueOrganizeUncategorizedPrompt(items));
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width
@@ -34012,6 +34013,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalOrganizeButton_Click), ex); }
+    }
+
+    private void EnqueueOrganizeUncategorizedPrompt(IReadOnlyList<CommitApprovalItem> uncategorizedItems)
+    {
+        try
+        {
+            if (uncategorizedItems.Count == 0) return;
+
+            var groups    = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
+            var groupList = string.Join(", ", groups);
+
+            var itemsSb = new System.Text.StringBuilder();
+            itemsSb.AppendLine("## Uncategorized items to organize");
+            foreach (var item in uncategorizedItems)
+                itemsSb.AppendLine($"- SHA: {item.CommitSha} | \"{item.Description}\"");
+
+            var attachment = new FollowUpAttachment(
+                CommitSha:      string.Empty,
+                Description:    $"{uncategorizedItems.Count} uncategorized approval items",
+                OriginalPrompt: null,
+                ContentBlock:   itemsSb.ToString());
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Please categorize the attached uncategorized approval items into feature groups.");
+            sb.AppendLine("Assign a specific, descriptive group name to each item. You may reuse groups from the existing list or invent more specific names that better reflect what the feature actually does.");
+            sb.AppendLine($"Existing groups: {groupList}");
+            sb.AppendLine();
+            sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from the attached list:");
+            sb.AppendLine("HOST_COMMAND_JSON:");
+            sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
+
+            EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(EnqueueOrganizeUncategorizedPrompt), ex); }
     }
 
     private void ApprovalFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
