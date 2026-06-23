@@ -100,6 +100,13 @@ The transcript view shows a **Thinking** block for every tool call an agent make
 
 Paths are made relative to the open workspace root before display so labels stay short regardless of where the workspace lives on disk.
 
+### Branch Indicator
+
+A colored strip is always visible above the prompt input area whenever a workspace is open. It shows a dot and the current Git branch name: a **gray dot with subtle text** means you're on the workspace's designated *home branch* (normal working state), while a **red dot with highlighted text** means you're on any other branch. Branches prefixed with `maintenance/` or `hotfix/` additionally show a **⚠ warning prefix** to signal a high-alert state. Left- or right-clicking the strip opens a context menu to switch to a different local branch or to set the current branch as the home branch for that workspace — each workspace stores this preference independently. The indicator updates automatically via a file watcher on `.git/HEAD`, so no manual refresh is needed.
+
+![Screenshot: Branch indicator strip above the prompt input area](images/branch-indicator.png)
+> 📸 *Screenshot needed: The branch indicator strip above the prompt input area, showing both normal (home branch, gray dot) and off-branch (red dot) states.*
+
 ---
 
 ## Running Tests
