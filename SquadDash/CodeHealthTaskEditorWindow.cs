@@ -1093,12 +1093,30 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             return;
         }
 
+        double indentLeft = 0.0;
         foreach (var opt in opts) {
-            if (!string.IsNullOrEmpty(opt.Label) && !string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+            if (string.Equals(opt.Type, "group", StringComparison.OrdinalIgnoreCase)) {
+                var groupLabel = new TextBlock {
+                    Text         = opt.Label ?? opt.Key,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin       = new Thickness(0, 8, 0, 2),
+                    FontWeight   = FontWeights.SemiBold,
+                };
+                groupLabel.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                groupLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                _optionsPreviewPanel.Children.Add(groupLabel);
+                indentLeft = 40.0;
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(opt.Label)
+                && !string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(opt.Type, "bool", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(opt.Type, "group", StringComparison.OrdinalIgnoreCase)) {
                 var label = new TextBlock {
                     Text         = opt.Label,
                     TextWrapping = TextWrapping.Wrap,
-                    Margin       = new Thickness(0, 4, 0, 2),
+                    Margin       = new Thickness(indentLeft, 4, 0, 2),
                 };
                 label.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                 label.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
@@ -1116,7 +1134,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                         GroupName = $"preview-{opt.Key}",
                         IsChecked = string.Equals(choice.Value, _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? string.Empty),
                             StringComparison.OrdinalIgnoreCase),
-                        Margin    = new Thickness(8, topMargin, 0, 2),
+                        Margin    = new Thickness(8 + indentLeft, topMargin, 0, 2),
                     };
                     rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
                     rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeSmall");
@@ -1128,14 +1146,15 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                     choiceIndex++;
                 }
             }
-            else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase)) {
+            else if (string.Equals(opt.Type, "checkbox", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(opt.Type, "bool", StringComparison.OrdinalIgnoreCase)) {
                 var optKey = opt.Key;
                 var currentValue = _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? "false");
                 var isChecked = IsStringTrueValue(currentValue);
                 var cb = new CheckBox {
                     Content   = opt.Label ?? opt.Key,
                     IsChecked = isChecked,
-                    Margin    = new Thickness(0, 2, 0, 2),
+                    Margin    = new Thickness(indentLeft, 2, 0, 2),
                 };
                 cb.SetResourceReference(CheckBox.ForegroundProperty, "ImportantText");
                 cb.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeSmall");
@@ -1155,7 +1174,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                 var optKey = opt.Key;
                 var tb = new TextBox {
                     Text   = _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? string.Empty),
-                    Margin = new Thickness(0, 2, 0, 2),
+                    Margin = new Thickness(indentLeft, 2, 0, 2),
                 };
                 tb.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
                 tb.SetResourceReference(TextBox.BackgroundProperty,  "RosterPanelSurface");
