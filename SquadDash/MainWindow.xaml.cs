@@ -9638,18 +9638,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     e.Handled = true;
                     return;
                 }
-                // Let Alt+Arrow through for camelCase navigation.
-                var effectiveKeyDoc = e.Key == Key.System ? e.SystemKey : e.Key;
-                if ((effectiveKeyDoc == Key.Left || effectiveKeyDoc == Key.Right)
-                    && (Keyboard.Modifiers & ModifierKeys.Alt) != 0
-                    && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+                // Let Ctrl+Shift+A (Revise) and Ctrl+Shift+C (Cleanup) fall through
+                // so the window-level handlers below can process them.
+                if ((e.Key == Key.A || e.Key == Key.C)
+                    && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                    && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0
+                    && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
                 {
-                    // Fall through to the camelCase nav block below.
+                    // Fall through to the Ctrl+Shift+A / Ctrl+Shift+C handlers below.
                 }
-                // Let bare Ctrl key events fall through so the double-tap PTT state machine
-                // can track them. All other keys are eaten here.
-                else if (!IsCtrlKey(e.Key))
-                    return;
+                // Let Alt+Arrow through for camelCase navigation.
+                else
+                {
+                    var effectiveKeyDoc = e.Key == Key.System ? e.SystemKey : e.Key;
+                    if ((effectiveKeyDoc == Key.Left || effectiveKeyDoc == Key.Right)
+                        && (Keyboard.Modifiers & ModifierKeys.Alt) != 0
+                        && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
+                    {
+                        // Fall through to the camelCase nav block below.
+                    }
+                    // Let bare Ctrl key events fall through so the double-tap PTT state machine
+                    // can track them. All other keys are eaten here.
+                    else if (!IsCtrlKey(e.Key))
+                        return;
+                }
             }
 
             // Also guard the transcript search box and the doc find text box
