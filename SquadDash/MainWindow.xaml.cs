@@ -15125,6 +15125,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (savedItem is not null)
             {
                 savedItem.IsSelected = true;
+                // The WebBrowser's ActiveX host may not be fully initialized during startup,
+                // causing NavigateToString (fired synchronously from SelectedItemChanged above)
+                // to be silently dropped. Schedule a Background-priority re-render to ensure
+                // the content is visible once the control is ready.
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+                {
+                    if (string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath) || DocMarkdownViewer is null)
+                        return;
+                    var selItem = DocTopicsTreeView?.SelectedItem as TreeViewItem;
+                    var rawMd = File.ReadAllText(_currentDocPath);
+                    var md = StripDocFrontMatter(rawMd, out _);
+                    var title = selItem?.Header?.ToString() ?? Path.GetFileNameWithoutExtension(_currentDocPath);
+                    var html = MarkdownHtmlBuilder.Build(md, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
+                    DocMarkdownViewer.NavigateToString(html);
+                });
                 ConfigureDocsWatcher();
                 return;
             }
