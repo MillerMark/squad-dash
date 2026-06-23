@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "left-zone-panel-row-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-06-23T14:01:29.8250276Z",
+  "bounds": {
+    "x": 0,
+    "y": 626.9999999999999,
+    "width": 334,
+    "height": 405.0000000000001,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "LeftZonePanelRowSplitter0"
+    ],
+    "needsName": false,
+    "elementLeft": 1,
+    "elementTop": 630.9999999999999,
+    "elementWidth": 324,
+    "elementHeight": 5,
+    "distanceToEdge": 0.9999999999998863
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "LeftZoneSplitter"
+    ],
+    "needsName": false,
+    "elementLeft": 325,
+    "elementTop": 45,
+    "elementWidth": 5,
+    "elementHeight": 986,
+    "distanceToEdge": 1
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "RootPanel",
+      "WindowFrameBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 0,
+    "elementTop": 0,
+    "elementWidth": 3840,
+    "elementHeight": 1032,
+    "distanceToEdge": 0
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "RootPanel",
+      "WindowFrameBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 0,
+    "elementTop": 0,
+    "elementWidth": 3840,
+    "elementHeight": 1032,
+    "distanceToEdge": 0
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\panels\\images\\code-health-panel-overview.png",
+  "elementInventory": null
+}
