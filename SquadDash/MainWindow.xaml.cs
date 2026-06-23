@@ -34268,6 +34268,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!CanShowOwnedWindow()) return;
         if (string.IsNullOrEmpty(_currentDocPath)) return;
 
+        if (string.IsNullOrWhiteSpace(imagePath))
+        {
+            UIErrorHelper.ShowWarning("Screenshot",
+                "Could not determine the image file path for this placeholder.\n\n" +
+                "Make sure the markdown has an ![alt](path/to/image.png) line immediately before the 📸 blockquote.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(Path.GetExtension(imagePath)))
+        {
+            UIErrorHelper.ShowWarning("Screenshot",
+                $"The image path \"{imagePath}\" has no file extension. Expected a path like images/screenshot.png.");
+            return;
+        }
+
         var saveDir     = Path.Combine(_workspacePaths.ScreenshotsDirectory, "baseline");
         var initialDesc = ExtractDocImageDescription(_currentDocPath, imagePath);
         var overlay     = new ScreenshotOverlayWindow(this, saveDir, _activeThemeName, _settingsSnapshot.SpeechRegion ?? string.Empty, initialDesc);
