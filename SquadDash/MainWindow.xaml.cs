@@ -311,6 +311,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private string? _priorityFeedbackId;        // Id of the recently-prioritized queue item
     private DispatcherTimer? _priorityFeedbackTimer;
+    private DispatcherTimer? _loopCountdownTimer;
 
     // ── Prompt shortcuts hint ────────────────────────────────────────────────
     private static readonly TimeSpan HintCooldown = TimeSpan.FromMinutes(10);
@@ -2309,6 +2310,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             "Queue",
             $"Enqueued prompt {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
+        if (_loopIsWaiting) _loopController.CancelLoopWait();
         _ = DrainQueueIfNeededAsync();
         return item;
     }
@@ -2348,6 +2350,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _promptQueue.Items[^1].QueueNumber = NextQueueNumber();
         SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(_promptQueue.Items[^1])} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
+        if (_loopIsWaiting) _loopController.CancelLoopWait();
         _ = DrainQueueIfNeededAsync();
     }
 
@@ -5446,6 +5449,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopNextIterationAt = nextAt;
         _loopIsWaiting = true;
         SyncLoopPanel();
+
+        if (_loopCountdownTimer == null)
+        {
+            _loopCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _loopCountdownTimer.Tick += (_, _) => {
+                if (!_loopIsWaiting) { _loopCountdownTimer.Stop(); return; }
+                SyncLoopPanel();
+            };
+        }
+        _loopCountdownTimer.Start();
     }
 
     private static readonly Regex AnsiEscapeRegex = new(@"\x1B\[[0-9;]*[A-Za-z]", RegexOptions.Compiled);

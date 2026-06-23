@@ -28,6 +28,7 @@ internal sealed class LoopController {
 
     private volatile bool         _stopRequested;
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _waitCts;
     private string? _workspacePath;
     private string? _filterText;
     private IReadOnlyList<string>? _featureGroups;
@@ -107,6 +108,12 @@ internal sealed class LoopController {
         _cts?.Cancel();
     }
 
+    /// <summary>
+    /// Interrupts the current inter-iteration wait so queued prompts are processed immediately.
+    /// Safe to call from any thread.
+    /// </summary>
+    internal void CancelLoopWait() => _waitCts?.Cancel();
+
     private async Task RunLoopAsync(
         LoopMdConfig      config,
         bool              continuousContext,
@@ -181,7 +188,16 @@ internal sealed class LoopController {
 
                 var nextAt = DateTimeOffset.Now + TimeSpan.FromMinutes(config.IntervalMinutes);
                 _onWaiting(nextAt);
-                await Task.Delay(TimeSpan.FromMinutes(config.IntervalMinutes), ct);
+                var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                _waitCts = waitCts;
+                try {
+                    await Task.Delay(TimeSpan.FromMinutes(config.IntervalMinutes), waitCts.Token);
+                } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+                    // Wait interrupted by CancelLoopWait() — a queue item arrived; proceed to next iteration.
+                } finally {
+                    _waitCts = null;
+                    waitCts.Dispose();
+                }
             }
         }
           finally {
