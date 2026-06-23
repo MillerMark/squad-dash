@@ -481,7 +481,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private Dictionary<string, Color>? _tintBaseline; // baseline theme colors per TintKeys.All, refreshed on theme switch
     private Slider? _saturationSlider;
     private Slider? _contrastSlider;
-    private ResourceDictionary? _themeDict;            // the currently-loaded theme ResourceDictionary (cached to avoid URI-search fragility)
+    private DispatcherTimer? _sliderDebounceTimer;
+    private ResourceDictionary? _themeDict;// the currently-loaded theme ResourceDictionary (cached to avoid URI-search fragility)
     // Held while a loop iteration is waiting for user follow-up after quick replies.
     // Completed (true) when input arrives; completed (false) on abort.
     private TaskCompletionSource<bool>? _loopFollowUpTcs;
@@ -29205,8 +29206,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return sub;
     }
 
+    private void ScheduleSliderApply()
+    {
+        if (_sliderDebounceTimer is null)
+        {
+            _sliderDebounceTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
+            _sliderDebounceTimer.Tick += (_, _) =>
+            {
+                _sliderDebounceTimer.Stop();
+                ApplyTintStop(_activeTintStop, notify: true);
+            };
+        }
+        _sliderDebounceTimer.Stop();
+        _sliderDebounceTimer.Start();
+    }
+
     private void BuildSaturationMenuItem()
     {
+        SaturationMenuItem.Items.Clear();
         var slider = new Slider
         {
             Minimum = -1.0,
@@ -29233,9 +29250,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 UpdateSliderLabel(valueLabel, e.NewValue);
                 _activeSaturation = e.NewValue;
-                ApplyTintStop(_activeTintStop, notify: true);
                 if (_currentWorkspace is not null)
                     _settingsSnapshot = _settingsStore.SaveWorkspaceSaturation(_currentWorkspace.FolderPath, e.NewValue);
+                ScheduleSliderApply();
             }
             catch (Exception ex) { HandleUiCallbackException("SaturationSlider_ValueChanged", ex); }
         };
@@ -29256,6 +29273,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void BuildContrastMenuItem()
     {
+        ContrastMenuItem.Items.Clear();
         var slider = new Slider
         {
             Minimum = 0.0,
@@ -29282,9 +29300,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 UpdateSliderLabel(valueLabel, e.NewValue);
                 _activeContrast = e.NewValue;
-                ApplyTintStop(_activeTintStop, notify: true);
                 if (_currentWorkspace is not null)
                     _settingsSnapshot = _settingsStore.SaveWorkspaceContrast(_currentWorkspace.FolderPath, e.NewValue);
+                ScheduleSliderApply();
             }
             catch (Exception ex) { HandleUiCallbackException("ContrastSlider_ValueChanged", ex); }
         };
