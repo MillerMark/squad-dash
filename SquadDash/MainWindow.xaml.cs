@@ -5397,7 +5397,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
-        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        // Preserve LoopActiveOnExit during a pending restart so the new instance
+        // can auto-resume the loop.  On a normal stop, clear it as usual.
+        if (!_restartPending)
+            _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
 
@@ -17929,8 +17932,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Suppressed when Shift is held on startup.
         if (_settingsSnapshot.LoopActiveOnExit)
         {
+            // Capture before SaveLoopActive(false) resets it to 0.
+            var loopResumeIteration = _settingsSnapshot.LoopLastIteration;
             _settingsSnapshot = _settingsStore.SaveLoopActive(false);
-            if (_startupShiftHeld)
+            if (_loopQueued)
+            {
+                // _loopQueued already arranges queue-drain then loop-start
+                // (and handles Shift-held suppression on its own).  Avoid a
+                // double-start by letting that path own the resume.
+            }
+            else if (_startupShiftHeld)
             {
                 AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
                 SyncLoopPanel();
@@ -17939,6 +17950,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 _ = Dispatcher.InvokeAsync(async () =>
                 {
+                    if (_isClosing || _restartPending) return;
                     if (_lastQuickReplyEntry?.AllowQuickReplies == true)
                     {
                         _loopPausedForQuickReply = true;
@@ -17946,8 +17958,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         SyncLoopPanel();
                         return;
                     }
-                    AppendLoopOutputLine("🔄 Resuming loop from previous session…", LoopLifecycleBrush);
-                    await StartLoopImmediateAsync(resumeFromIteration: _settingsSnapshot.LoopLastIteration);
+                    AppendLoopOutputLine("🔄 Resuming loop after restart…", LoopLifecycleBrush);
+                    await StartLoopImmediateAsync(resumeFromIteration: loopResumeIteration);
                 }, System.Windows.Threading.DispatcherPriority.Background);
             }
         }
