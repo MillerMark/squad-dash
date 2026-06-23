@@ -26726,8 +26726,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RemoteMenuItem.Items.Add(_remoteAccessMenuItem);
 
         EnsureTintMenuItems();
-        BuildSaturationMenuItem();
         BuildContrastMenuItem();
+        BuildSaturationMenuItem();
 
         AddWorkspaceMenuSeparator();
 
