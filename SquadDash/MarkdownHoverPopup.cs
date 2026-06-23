@@ -58,6 +58,16 @@ internal static class MarkdownHoverPopup {
             BorderThickness = new Thickness(1),
             MinWidth        = 440,
             MaxWidth        = maxWidth,
+            Margin          = new Thickness(6),
+        };
+        popupBorder.SetResourceReference(Border.BackgroundProperty,  "PopupSurface");
+        popupBorder.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+        popupBorder.Effect = new System.Windows.Media.Effects.DropShadowEffect {
+            Color       = System.Windows.Media.Colors.Black,
+            Opacity     = 0.22,
+            BlurRadius  = 14,
+            ShadowDepth = 4,
+            Direction   = 270,
         };
 
         var popup = new Popup {
@@ -69,18 +79,6 @@ internal static class MarkdownHoverPopup {
         };
         if (placementCallback is not null)
             popup.CustomPopupPlacementCallback = placementCallback;
-
-        bool brushesResolved = false;
-        void ResolveBrushes() {
-            if (brushesResolved) return;
-            brushesResolved = true;
-            var surface = row.TryFindResource("PopupSurface") as Brush;
-            var border  = row.TryFindResource("ActivePanelBorder") as Brush;
-            popupBorder.Background  = surface
-                                   ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
-            popupBorder.BorderBrush = border
-                                   ?? new SolidColorBrush(Color.FromRgb(0x55, 0x4E, 0x47));
-        }
 
         bool contentBuilt = false;
         void EnsureContentBuilt() {
@@ -96,12 +94,9 @@ internal static class MarkdownHoverPopup {
                 var doc = MarkdownFlowDocumentBuilder.Build(markdown);
                 postProcessDocument?.Invoke(doc);
                 doc.TextAlignment = TextAlignment.Left;
-                var bg = Application.Current.Resources["PopupSurface"] as Brush
-                      ?? new SolidColorBrush(Color.FromRgb(0x30, 0x2C, 0x28));
                 var viewer = new RichTextBox(doc) {
                     IsReadOnly                    = true,
                     IsDocumentEnabled             = true,
-                    Background                    = bg,
                     BorderThickness               = new Thickness(0),
                     MaxWidth                      = maxWidth - 20,
                     MaxHeight                     = EffectiveMaxHeight(),
@@ -109,6 +104,7 @@ internal static class MarkdownHoverPopup {
                     VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 };
+                viewer.SetResourceReference(RichTextBox.BackgroundProperty, "PopupSurface");
                 contentStack.Children.Add(viewer);
             } else if (header is null) {
                 var noContent = new TextBlock { Text = "No content", FontStyle = FontStyles.Italic, Opacity = 0.6 };
@@ -165,7 +161,6 @@ internal static class MarkdownHoverPopup {
 
         void OpenPopup() {
             if (popup.IsOpen || isFading) return;
-            ResolveBrushes();
             EnsureContentBuilt();
             popupBorder.BeginAnimation(UIElement.OpacityProperty, null);
             popupBorder.Opacity = 1.0;
