@@ -310,6 +310,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private int _queuePreEditDraftSelectionStart;
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
+    private FrmUltimateCallout? _categorizationCallout;
     private string? _priorityFeedbackId;        // Id of the recently-prioritized queue item
     private DispatcherTimer? _priorityFeedbackTimer;
     private DispatcherTimer? _loopCountdownTimer;
@@ -3753,6 +3754,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         _promptQueue.Remove(id);
         SyncQueuePanel();
+        if (_categorizationCallout is { IsVisible: true })
+        {
+            _categorizationCallout.Close();
+            _categorizationCallout = null;
+        }
     }
 
     private void OnQueueTabDeleteConfirm(string id, FrameworkElement anchor)
@@ -4028,6 +4034,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _promptQueue.Reorder(draggedId, newIndex);
         _promptQueue.RenumberSequentially();
         SyncQueuePanel();
+        ReattachCategorizationCalloutIfNeeded(draggedId);
     }
 
     /// <summary>Returns the bounding rect of a UI element in screen coordinates.</summary>
@@ -4036,6 +4043,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var topLeft = element.PointToScreen(new Point(0, 0));
         var bottomRight = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
         return new Rect(topLeft, bottomRight);
+    }
+
+    /// <summary>
+    /// After a drag-reorder rebuilds the tab strip, repoints the categorization callout
+    /// at the freshly-created Border for the same queue item.
+    /// </summary>
+    private void ReattachCategorizationCalloutIfNeeded(string draggedId)
+    {
+        if (_categorizationCallout is null || !_categorizationCallout.IsVisible) return;
+
+        var tabBorder = QueueTabStrip.Children
+            .OfType<Border>()
+            .FirstOrDefault(b => b.Tag as string == draggedId);
+
+        if (tabBorder is null)
+        {
+            _categorizationCallout.Close();
+            _categorizationCallout = null;
+            return;
+        }
+
+        _categorizationCallout.Repoint(tabBorder, FrmUltimateCallout.PlacementToAngle(CalloutPlacement.North));
     }
 
     private void SyncSendButton()
@@ -34215,12 +34244,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
         var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
 
-        FrmUltimateCallout.ShowCalloutBesideTarget(
+        _categorizationCallout?.Close();
+        _categorizationCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
             "AI will categorize these approvals when this queue item is processed.",
             tabBorder,
             width: 280,
             theme: theme,
-            fontSize: fontSize);
+            fontSize: fontSize,
+            placement: CalloutPlacement.North);
     }
 
     private void ApprovalFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)

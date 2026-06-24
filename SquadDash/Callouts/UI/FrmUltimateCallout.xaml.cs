@@ -974,21 +974,52 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     /// <summary>
-    /// Creates and shows a callout beside <paramref name="target"/>, placing the body on whichever
-    /// horizontal side has more available screen space so the callout never blocks vertical lists.
+    /// Maps a <see cref="CalloutPlacement"/> to the callout angle convention used internally.
+    /// Angle = direction the tail points (toward the target).
+    /// Returns <c>double.MinValue</c> for <see cref="CalloutPlacement.Auto"/> to trigger auto-selection.
+    /// </summary>
+    internal static double PlacementToAngle(CalloutPlacement placement) => placement switch
+    {
+        CalloutPlacement.North     => 270,  // tail down, body above
+        CalloutPlacement.NorthEast => 225,
+        CalloutPlacement.East      => 180,  // tail left, body right
+        CalloutPlacement.SouthEast => 135,
+        CalloutPlacement.South     =>  90,  // tail up, body below
+        CalloutPlacement.SouthWest =>  45,
+        CalloutPlacement.West      =>   0,  // tail right, body left
+        CalloutPlacement.NorthWest => 315,
+        _                          => double.MinValue,  // Auto
+    };
+
+    /// <summary>
+    /// Creates and shows a callout near <paramref name="target"/>.
+    /// When <paramref name="placement"/> is <see cref="CalloutPlacement.Auto"/> (default), chooses
+    /// the horizontal side with more screen space. Otherwise uses the specified preferred placement.
     /// </summary>
     public static FrmUltimateCallout ShowCalloutBesideTarget(
         string markDownText,
         FrameworkElement target,
         double width = 300,
         CalloutTheme theme = CalloutTheme.Light,
-        double fontSize = 12) {
+        double fontSize = 12,
+        CalloutPlacement placement = CalloutPlacement.Auto) {
         var callout = CreateNewCallout(markDownText, width, theme, fontSize);
         callout.Options.TargetSpacing = fontSize / 2;
         callout.PointTo(target);
-        callout.SetAngle(callout.GetBestSideAngle());
+        double angle = placement == CalloutPlacement.Auto
+            ? callout.GetBestSideAngle()
+            : PlacementToAngle(placement);
+        callout.SetAngle(angle);
         callout.FinalizeAndShow();
         return callout;
+    }
+
+    /// <summary>Moves the callout to point at a new target element.</summary>
+    public void Repoint(FrameworkElement target, double angle = double.MinValue)
+    {
+        PointTo(target);
+        SetAngle(angle);
+        FinalizeAndShow();
     }
 
     private static FrmUltimateCallout CreateNewCallout(string markDownText, double width, CalloutTheme theme, double fontSize = 12, double horizontalPercentOffset = 0) {
