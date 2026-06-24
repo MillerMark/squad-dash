@@ -1019,13 +1019,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// </summary>
     internal static double PlacementToAngle(CalloutPlacement placement) => placement switch
     {
-        CalloutPlacement.North     => 270,  // tail down, body above
-        CalloutPlacement.NorthEast => 225,
-        CalloutPlacement.East      => 180,  // tail left, body right
+        CalloutPlacement.North     =>   0,  // tail from bottom of callout, body above target
+        CalloutPlacement.NorthEast =>  45,
+        CalloutPlacement.East      =>  90,  // tail from left of callout, body right of target
         CalloutPlacement.SouthEast => 135,
-        CalloutPlacement.South     =>  90,  // tail up, body below
-        CalloutPlacement.SouthWest =>  45,
-        CalloutPlacement.West      =>   0,  // tail right, body left
+        CalloutPlacement.South     => 180,  // tail from top of callout, body below target
+        CalloutPlacement.SouthWest => 225,
+        CalloutPlacement.West      => 270,  // tail from right of callout, body left of target
         CalloutPlacement.NorthWest => 315,
         _                          => double.MinValue,  // Auto
     };
@@ -1057,18 +1057,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         switch (placement)
         {
             case CalloutPlacement.South:
-                callout.Options.AnimationOffset = new System.Windows.Vector(0, -50);
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -80); // start near button, drop down into position below
                 break;
             case CalloutPlacement.North:
-                callout.Options.AnimationOffset = new System.Windows.Vector(0, +50);
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -80); // start above final, drop down to above-button position
                 break;
             case CalloutPlacement.SouthEast:
             case CalloutPlacement.SouthWest:
-                callout.Options.AnimationOffset = new System.Windows.Vector(0, -30);
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -40);
                 break;
             case CalloutPlacement.NorthEast:
             case CalloutPlacement.NorthWest:
-                callout.Options.AnimationOffset = new System.Windows.Vector(0, +30);
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -40);
                 break;
         }
         callout.FinalizeAndShow();
