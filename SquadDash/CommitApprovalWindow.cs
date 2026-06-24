@@ -410,7 +410,7 @@ internal sealed class CommitApprovalPanel {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 6, 0),
             Cursor            = Cursors.Hand,
-            ToolTip           = BuildDescriptionTooltip(item),
+            ToolTip           = BuildDescriptionTooltip(item, row),
         };
         if (item.TouchesDecisionsFile)
             descBlock.FontWeight = FontWeights.Bold;
@@ -485,7 +485,7 @@ internal sealed class CommitApprovalPanel {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 6, 0),
             Opacity           = 0.6,
-            ToolTip           = BuildDescriptionTooltip(item),
+            ToolTip           = BuildDescriptionTooltip(item, row),
         };
         if (item.TouchesDecisionsFile)
             descBlock.FontWeight = FontWeights.Bold;
@@ -672,8 +672,9 @@ internal sealed class CommitApprovalPanel {
     }
 
     /// <summary>Builds the tooltip string for an approval list row.
-    /// Shows the full untruncated description, plus the original prompt or prompt hint if available.</summary>
-    private ToolTip BuildDescriptionTooltip(CommitApprovalItem item) {
+    /// Shows the full untruncated description, plus the original prompt or prompt hint if available.
+    /// Placed to whichever side of the row has more available screen space.</summary>
+    private ToolTip BuildDescriptionTooltip(CommitApprovalItem item, Border row) {
         var cleaned = CleanDescription(item.Description);
 
         var container = new StackPanel { Margin = new Thickness(2) };
@@ -725,6 +726,21 @@ internal sealed class CommitApprovalPanel {
         tooltip.Opened += (_, _) => {
             container.MaxWidth = Math.Max(300, _needsApprovalPanel.ActualWidth * 1.5);
             relBlock.Text = StatusTimingPresentation.FormatRelativeTimestamp(item.TurnStartedAt);
+
+            // Place to whichever side of the row has more screen space
+            tooltip.PlacementTarget = row;
+            if (row.IsLoaded) {
+                var rowScreenPos  = row.PointToScreen(new Point(0, 0));
+                var source        = PresentationSource.FromVisual(row);
+                var dpiX          = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                var screenWidthPx = SystemParameters.PrimaryScreenWidth * dpiX;
+                var rowRightPx    = rowScreenPos.X + row.ActualWidth * dpiX;
+                tooltip.Placement = rowRightPx < screenWidthPx / 2
+                    ? System.Windows.Controls.Primitives.PlacementMode.Right
+                    : System.Windows.Controls.Primitives.PlacementMode.Left;
+            } else {
+                tooltip.Placement = System.Windows.Controls.Primitives.PlacementMode.Right;
+            }
         };
         return tooltip;
     }
