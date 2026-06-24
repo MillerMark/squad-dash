@@ -37,31 +37,47 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             WindowStartupLocation = WindowStartupLocation.Manual;
             ContentRendered += (_, _) =>
             {
-                double desiredLeft = anchorScreenRect.Right - ActualWidth;
-                double desiredTop  = anchorScreenRect.Top - ActualHeight - 6;
+                var anchorLogicalRect = ConvertPhysicalScreenRectToLogical(anchorScreenRect);
+
+                double desiredLeft = anchorLogicalRect.Right - ActualWidth;
+                double desiredTop  = anchorLogicalRect.Top - ActualHeight - 6;
 
                 // Clamp within the owner window's screen bounds so the dialog
                 // doesn't appear partially or fully off-screen.
                 if (Owner is Window owner)
                 {
-                    var ownerLeft   = owner.Left;
-                    var ownerTop    = owner.Top;
-                    var ownerRight  = owner.Left + owner.ActualWidth;
-                    var ownerBottom = owner.Top  + owner.ActualHeight;
+                    var ownerBounds = NativeMethods.GetActualWindowBoundsLogical(owner);
+                    if (ownerBounds.IsEmpty || ownerBounds.Width <= 0 || ownerBounds.Height <= 0)
+                    {
+                        ownerBounds = new Rect(
+                            owner.Left,
+                            owner.Top,
+                            owner.ActualWidth > 0 ? owner.ActualWidth : owner.Width,
+                            owner.ActualHeight > 0 ? owner.ActualHeight : owner.Height);
+                    }
 
                     // Prefer above the anchor; fall back to below if it would clip the top.
-                    if (desiredTop < ownerTop + 4)
-                        desiredTop = anchorScreenRect.Bottom + 6;
+                    if (desiredTop < ownerBounds.Top + 4)
+                        desiredTop = anchorLogicalRect.Bottom + 6;
 
                     // Clamp horizontally.
-                    desiredLeft = Math.Max(ownerLeft + 4, Math.Min(desiredLeft, ownerRight - ActualWidth - 4));
+                    desiredLeft = Math.Max(
+                        ownerBounds.Left + 4,
+                        Math.Min(desiredLeft, ownerBounds.Right - ActualWidth - 4));
 
                     // Clamp vertically (bottom edge).
-                    desiredTop = Math.Max(ownerTop + 4, Math.Min(desiredTop, ownerBottom - ActualHeight - 4));
+                    desiredTop = Math.Max(
+                        ownerBounds.Top + 4,
+                        Math.Min(desiredTop, ownerBounds.Bottom - ActualHeight - 4));
                 }
 
                 Left = desiredLeft;
                 Top  = desiredTop;
+                WindowPlacementHelper.EnsureOnScreen(this, Owner);
+                SquadDashTrace.Write(
+                    "UI",
+                    $"Queue delete confirmation placed anchorPhys={FormatRect(anchorScreenRect)} " +
+                    $"anchorLogical={FormatRect(anchorLogicalRect)} final={FormatRect(new Rect(Left, Top, ActualWidth, ActualHeight))}");
             };
         }
 
@@ -195,4 +211,19 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
             if (e.Key == Key.Enter)  { DialogResult = true;  e.Handled = true; }
         };
     }
+
+    private Rect ConvertPhysicalScreenRectToLogical(Rect physicalRect)
+    {
+        var visual = Owner ?? this;
+        var source = PresentationSource.FromVisual(visual);
+        var transform = source?.CompositionTarget?.TransformFromDevice
+                        ?? Matrix.Identity;
+
+        var topLeft = transform.Transform(new Point(physicalRect.Left, physicalRect.Top));
+        var bottomRight = transform.Transform(new Point(physicalRect.Right, physicalRect.Bottom));
+        return new Rect(topLeft, bottomRight);
+    }
+
+    private static string FormatRect(Rect rect) =>
+        $"{rect.Left:0.#},{rect.Top:0.#},{rect.Right:0.#},{rect.Bottom:0.#}";
 }

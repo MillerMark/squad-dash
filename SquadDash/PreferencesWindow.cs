@@ -672,6 +672,7 @@ internal sealed class PreferencesWindow : Window {
         tree.Items.Add(MakeGroup("Sound",          "Sound Alerts", "TTS Provider"));
         tree.Items.Add(MakeGroup("AI",             "Commands", "Model"));
         tree.Items.Add(MakeGroup("Connectivity",   "Remote Access", "Notifications"));
+        tree.Items.Add(MakeGroup("Discoverability", "Hints"));
 
         foreach (var standalone in new[] { "Dev / Diag." })
             if (pageIndex.ContainsKey(standalone))
