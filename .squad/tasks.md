@@ -12,6 +12,9 @@
 
 ## 🟡 Mid Priority
 
+- [x] **[Developer Menu] Fix F11 Theme Reveal conflict with Full Screen Transcript**
+  Moved Theme Reveal to Ctrl+F11. Key handler updated to pass bare F11 through to Full Screen Transcript.
+
 - [ ] **[Docking] Refactor DockingMapBuilderto loop-based zone layout***(Owner: Lyra Morn)*
   DockingMapBuilder.BuildDockingMap currently uses hardcoded per-zone if/else chains for suppression,
   thin generation, and slot layout (Left3/Left2/Left, Right/Right2/Right3). This makes adding a 4th

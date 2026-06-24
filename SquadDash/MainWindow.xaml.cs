@@ -13164,7 +13164,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             if (key != Key.F12 && key != Key.F11 && key != Key.F6) return;
-            if (Keyboard.Modifiers != ModifierKeys.None) return;
+
+            // F6 and F12 require no modifiers; Ctrl+F11 is Theme Reveal
+            bool isCtrl = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            bool noMods  = Keyboard.Modifiers == ModifierKeys.None;
+
+            if (key == Key.F11 && !isCtrl) return;  // bare F11 belongs to Full Screen Transcript
+            if (key != Key.F11 && !noMods) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
             var target = Application.Current.Windows

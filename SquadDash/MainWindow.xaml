@@ -829,7 +829,7 @@
                               InputGestureText="F12"
                               Click="UiRevealMenuItem_Click" />
                     <MenuItem Header="_Theme Reveal"
-                              InputGestureText="F11"
+                              InputGestureText="Ctrl+F11"
                               Click="ThemeRevealMenuItem_Click" />
                     <MenuItem Header="Show _Trace Window"
                               Click="ShowTraceWindowMenuItem_Click" />
