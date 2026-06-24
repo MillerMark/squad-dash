@@ -312,6 +312,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private int _queuePreEditDraftSelectionLength;
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private FrmUltimateCallout? _categorizationCallout;
+    private FrmUltimateCallout? _queuePauseCallout;
     private string? _priorityFeedbackId;        // Id of the recently-prioritized queue item
     private DispatcherTimer? _priorityFeedbackTimer;
     private DispatcherTimer? _loopCountdownTimer;
@@ -3020,7 +3021,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var swFull = Stopwatch.StartNew();
         var items = _promptQueue.Items;
-        QueueTabBorder.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        QueueTabBorder.Visibility = (items.Count > 0 || _queueManuallyPaused) ? Visibility.Visible : Visibility.Collapsed;
         QueueTabStrip.Children.Clear();
 
         if (items.Count > 0)
@@ -3096,6 +3097,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void SetQueuePaused(bool paused)
     {
         _queueManuallyPaused = paused;
+        EditPauseQueueDrainMenuItem.Visibility  = paused ? Visibility.Collapsed : Visibility.Visible;
+        EditResumeQueueDrainMenuItem.Visibility = paused ? Visibility.Visible   : Visibility.Collapsed;
         if (paused && _isPromptRunning)
         {
             // Case 2: Pause requested while a turn is in progress → pending.
@@ -3195,11 +3198,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private void QueuePlayPauseButton_Click(object sender, RoutedEventArgs e)
+    private void ToggleQueueDrain()
     {
         if (_queuePausePending)
         {
             // Case 3: Cancel the pending pause — turn is still running but we resume.
+            _queuePauseCallout?.Close();
+            _queuePauseCallout = null;
             SetQueuePaused(false);
             return;
         }
@@ -3207,6 +3212,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_queueManuallyPaused)
         {
             // Case 5: Resume from fully-paused state.
+            _queuePauseCallout?.Close();
+            _queuePauseCallout = null;
             SetQueuePaused(false);
 
             // If the rightmost tab is holding the queue, resume by submitting it directly.
@@ -3219,8 +3226,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             // Case 1 or 2: Pause (or schedule pause if a turn is active).
             SetQueuePaused(true);
+            if (!_queuePausePending)
+            {
+                var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
+                var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+                var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+                _queuePauseCallout?.Close();
+                _queuePauseCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                    "Queue drain is paused. Press **F5** or click ▶ to resume.",
+                    QueuePlayPauseButton,
+                    width: 260,
+                    theme: theme,
+                    fontSize: fontSize,
+                    placement: CalloutPlacement.North);
+            }
         }
     }
+
+    private void QueuePlayPauseButton_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
+
+    private void EditPauseQueueDrainMenuItem_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
+    private void EditResumeQueueDrainMenuItem_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
 
     /// <summary>
     /// Fast path for Ctrl+Tab cycling: only updates the two tabs whose active/inactive
@@ -13198,7 +13224,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Any key activity in the main window → sweep non-sticky callouts.
             FrmUltimateCallout.CloseAllNonSticky();
 
-            if (key != Key.F12 && key != Key.F11 && key != Key.F6) return;
+            if (key != Key.F12 && key != Key.F11 && key != Key.F6 && key != Key.F5) return;
 
             // F6 and F12 require no modifiers; Ctrl+F11 is Theme Reveal
             bool isCtrl = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
@@ -13213,7 +13239,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                              .FirstOrDefault(w => w.IsActive)
                          ?? this;
 
-            if (key == Key.F6)
+            if (key == Key.F5)
+            {
+                ToggleQueueDrain();
+            }
+            else if (key == Key.F6)
             {
                 // F6: toggle Hint Authoring Mode — developer mode only
                 if (DeveloperMenuItem.IsVisible)

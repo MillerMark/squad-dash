@@ -654,6 +654,15 @@
                               x:Name="EditMoveToFrontMenuItem"
                               InputGestureText="Ctrl+Enter"
                               Click="EditMoveToFrontMenuItem_Click" />
+                    <MenuItem Header="_Pause Queue Drain"
+                              x:Name="EditPauseQueueDrainMenuItem"
+                              InputGestureText="F5"
+                              Click="EditPauseQueueDrainMenuItem_Click" />
+                    <MenuItem Header="_Resume Queue Drain"
+                              x:Name="EditResumeQueueDrainMenuItem"
+                              InputGestureText="F5"
+                              Visibility="Collapsed"
+                              Click="EditResumeQueueDrainMenuItem_Click" />
                     <MenuItem Header="_Delete Queued Prompt"
                               x:Name="EditDeleteQueuedPromptMenuItem"
                               InputGestureText="Ctrl+Del"
