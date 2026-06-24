@@ -814,7 +814,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             // TODO: Add additional style resource loading here.
             return;
         }
-        myResourceDictionary.Source = new Uri($"pack://application:,,,/SquadDash;component/Callouts/Styles/{styleName}.xaml", UriKind.Absolute);
+        var assemblyName = typeof(FrmUltimateCallout).Assembly.GetName().Name;
+        myResourceDictionary.Source = new Uri($"pack://application:,,,/{assemblyName};component/Callouts/Styles/{styleName}.xaml", UriKind.Absolute);
 
         markdownControl.Resources.MergedDictionaries.Add(myResourceDictionary);
     }
