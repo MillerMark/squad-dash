@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Windows;
 using System.Xml.Linq;
@@ -572,8 +572,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         if (positionWindow) {
             if (Options.AnimateAppearance) {
-                Vector vector = screenDanglePoint - targetCenter;
-                Point halfwayPoint = new Point(windowLeft, windowTop) + vector * 0.5;
+                Point halfwayPoint;
+                if (Options.AnimationOffset.HasValue)
+                    halfwayPoint = new Point(windowLeft + Options.AnimationOffset.Value.X,
+                                             windowTop  + Options.AnimationOffset.Value.Y);
+                else {
+                    Vector vector = screenDanglePoint - targetCenter;
+                    halfwayPoint = new Point(windowLeft, windowTop) + vector * 0.5;
+                }
                 AnimateFrom(halfwayPoint.X, halfwayPoint.Y);
                 Left = halfwayPoint.X;
                 Top = halfwayPoint.Y;
@@ -1046,6 +1052,25 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             ? callout.GetBestSideAngle()
             : PlacementToAngle(placement);
         callout.SetAngle(angle);
+        // For vertical placements, override the animation start so the callout drops in from
+        // the correct direction rather than sliding in from the side.
+        switch (placement)
+        {
+            case CalloutPlacement.South:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -50);
+                break;
+            case CalloutPlacement.North:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, +50);
+                break;
+            case CalloutPlacement.SouthEast:
+            case CalloutPlacement.SouthWest:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -30);
+                break;
+            case CalloutPlacement.NorthEast:
+            case CalloutPlacement.NorthWest:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, +30);
+                break;
+        }
         callout.FinalizeAndShow();
         return callout;
     }

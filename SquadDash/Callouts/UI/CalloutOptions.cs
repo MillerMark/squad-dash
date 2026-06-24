@@ -17,6 +17,13 @@ public class CalloutOptions {
     public double AnimationTimeMs { get; set; } = 450;
     public bool AnimateAppearance { get; set; } = true;
 
+    /// <summary>
+    /// When set, overrides the dangle-based animation start offset.
+    /// The callout window starts at (windowLeft + X, windowTop + Y) and animates to (windowLeft, windowTop).
+    /// Use negative Y for "drop in from above", positive Y for "rise in from below".
+    /// </summary>
+    public System.Windows.Vector? AnimationOffset { get; set; } = null;
+
     public CalloutOptions() {
 
     }
