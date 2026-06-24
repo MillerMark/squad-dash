@@ -1,0 +1,16 @@
+﻿<Window x:Class="SquadDash.FrmUltimateCallout"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:SquadDash"
+        mc:Ignorable="d"
+        Title="FrmUltimateCallout" Height="200" Width="200" AllowsTransparency="True" Background="Transparent" 
+        ShowInTaskbar="False" Window.WindowStyle = "None" Visibility="Collapsed" Loaded="Window_Loaded"
+        ShowActivated="False"
+        ResizeMode="NoResize"
+        Closed="Callout_Closed" MouseDown="Window_MouseDown" Topmost="True" Activated="Window_Activated" Deactivated="Window_Deactivated" LocationChanged="Window_LocationChanged">
+    <Canvas x:Name="cvsCallout">
+       
+    </Canvas>
+</Window>
