@@ -2270,6 +2270,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (IsNativeLoopRunning && _loopFollowUpTcs == null)
                     _loopInterruptedByQueue = true;
                 EnqueueCurrentPrompt();
+                if (_queueManuallyPaused)
+                    ShowQueuePausedCallout();
                 return;
             }
 
@@ -3247,24 +3249,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SetQueuePaused(true);
             if (!_queuePausePending)
             {
-                var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
-                var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
-                var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
-                _queuePauseCallout?.Close();
-                _ = Dispatcher.InvokeAsync(() => {
-                    _queuePauseCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
-                        "Queue drain is paused. Press **F5** or click ▶ to resume.",
-                        QueuePlayPauseButton,
-                        width: 260,
-                        theme: theme,
-                        fontSize: fontSize,
-                        placement: CalloutPlacement.North);
-                }, System.Windows.Threading.DispatcherPriority.Loaded);
+                ShowQueuePausedCallout();
             }
         }
     }
 
     private void QueuePlayPauseButton_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
+
+    private void ShowQueuePausedCallout()
+    {
+        var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
+        var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+        var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+        _queuePauseCallout?.Close();
+        _ = Dispatcher.InvokeAsync(() => {
+            _queuePauseCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                "Queue drain is paused. Press **F5** or click ▶ to resume.",
+                QueuePlayPauseButton,
+                width: 260,
+                theme: theme,
+                fontSize: fontSize,
+                placement: CalloutPlacement.North);
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
 
     private void EditPauseQueueDrainMenuItem_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
     private void EditResumeQueueDrainMenuItem_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
