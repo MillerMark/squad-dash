@@ -13,6 +13,7 @@
     <!-- Document styles -->
     <Style TargetType="{x:Type FlowDocument}" x:Key="{x:Static local:Styles.DocumentStyleKey}">
         <Setter Property="FontFamily" Value="Calibri" />
+        <Setter Property="FontSize"   Value="{DynamicResource FontSizeBody}" />
         <Setter Property="TextAlignment" Value="Left" />
         <Setter Property="Foreground" Value="{DynamicResource LabelText}" />
     </Style>
