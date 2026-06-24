@@ -1036,6 +1036,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         CalloutTheme theme = CalloutTheme.Light,
         double fontSize = 12,
         CalloutPlacement placement = CalloutPlacement.Auto) {
+        // Don't show callout against a target that isn't visible/rendered yet
+        if (!target.IsVisible || target.ActualWidth <= 0 || target.ActualHeight <= 0)
+            return null;
         var callout = CreateNewCallout(markDownText, width, theme, fontSize);
         callout.Options.TargetSpacing = fontSize / 2;
         callout.PointTo(target);

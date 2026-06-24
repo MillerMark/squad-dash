@@ -3232,13 +3232,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
                 var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
                 _queuePauseCallout?.Close();
-                _queuePauseCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
-                    "Queue drain is paused. Press **F5** or click ▶ to resume.",
-                    QueuePlayPauseButton,
-                    width: 260,
-                    theme: theme,
-                    fontSize: fontSize,
-                    placement: CalloutPlacement.North);
+                _ = Dispatcher.InvokeAsync(() => {
+                    _queuePauseCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                        "Queue drain is paused. Press **F5** or click ▶ to resume.",
+                        QueuePlayPauseButton,
+                        width: 260,
+                        theme: theme,
+                        fontSize: fontSize,
+                        placement: CalloutPlacement.North);
+                }, System.Windows.Threading.DispatcherPriority.Loaded);
             }
         }
     }
