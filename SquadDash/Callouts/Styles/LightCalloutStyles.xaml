@@ -14,6 +14,7 @@
     <Style TargetType="{x:Type FlowDocument}" x:Key="{x:Static local:Styles.DocumentStyleKey}">
         <Setter Property="FontFamily" Value="Calibri" />
         <Setter Property="TextAlignment" Value="Left" />
+        <Setter Property="Foreground" Value="{DynamicResource LabelText}" />
     </Style>
     <Style TargetType="{x:Type List}" x:Key="{x:Static local:Styles.ListKey}">
         <Setter Property="Margin" Value="{DynamicResource ListMargin}" />

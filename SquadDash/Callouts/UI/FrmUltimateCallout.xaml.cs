@@ -22,9 +22,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     DispatcherTimer waitingForMouseUpTimer;
     DispatcherTimer calloutAnimationTimer;
     private const double indicatorMargin = 10d;
-    SolidColorBrush closeButtonBackgroundBrush;
-    SolidColorBrush closeButtonForegroundBrush;
-    SolidColorBrush closeButtonBorderBrush;
     SolidColorBrush calloutStrokeBrush;
     SolidColorBrush calloutFillBrush;
 
@@ -73,20 +70,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void InitializeColors() {
-        if (Theme == CalloutTheme.Light) {
-            closeButtonBackgroundBrush = GetBrushFromGlow(234, 238);
-            closeButtonForegroundBrush = GetBrushFromGlow(102, 115);
-            closeButtonBorderBrush = GetBrushFromGlow(100, 195);
-            calloutStrokeBrush = GetBrushFromGlow(94, 114);
-            calloutFillBrush = GetBrushFromGlow(192, 250);
-        }
-        else if (Theme == CalloutTheme.Dark) {
-            closeButtonBackgroundBrush = GetBrushFromGlow(27, 52);
-            closeButtonForegroundBrush = GetBrushFromGlow(135, 87);
-            closeButtonBorderBrush = GetBrushFromGlow(98, 79);
-            calloutStrokeBrush = GetBrushFromGlow(glowHsl.Saturation * 255.0, glowHsl.Lightness * 255.0);
-            calloutFillBrush = GetBrushFromGlow(13, 38);
-        }
+        calloutFillBrush   = Application.Current.Resources["CardSurface"]  as SolidColorBrush ?? new SolidColorBrush(Colors.White);
+        calloutStrokeBrush = Application.Current.Resources["InputBorder"]  as SolidColorBrush ?? new SolidColorBrush(Colors.Gray);
     }
 
     void LoadColorsForTheme() {
@@ -118,20 +103,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         layoutValid = false;
     }
 
-    const double closeButtonEdgeSize = 16d;
+    const double closeButtonEdgeSize = 22d;
 
     void PlaceCloseButton() {
-        Button closeButton = new Button();
-        if (closeButtonBackgroundBrush == null)
-            InitializeColors();
-
-        closeButton.Background = closeButtonBackgroundBrush;
-        closeButton.Foreground = closeButtonForegroundBrush;
-        closeButton.BorderBrush = closeButtonBorderBrush;
-        closeButton.Content = "x";
-        closeButton.Padding = new Thickness(0, -6, 0, 0);
-        closeButton.FontSize = closeButtonEdgeSize;
-        closeButton.Width = closeButtonEdgeSize;
+        var closeButton = new Button();
+        closeButton.SetResourceReference(Button.StyleProperty, "PanelCloseButtonStyle");
+        closeButton.Content = "×";
+        closeButton.FontSize = 14;
+        closeButton.Width  = closeButtonEdgeSize;
         closeButton.Height = closeButtonEdgeSize;
         closeButton.Click += CloseButton_Click;
         cvsCallout.Children.Add(closeButton);
@@ -170,12 +149,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void CreateCalloutFrame() {
+        // Subtle drop shadow behind the callout
+        AddCalloutPathToBackOfCanvas(null, 0, new SolidColorBrush(Color.FromArgb(30, 0, 0, 0)), 5, 5);
+        // Main callout shape
         AddCalloutPathToBackOfCanvas(calloutStrokeBrush, 1, calloutFillBrush);
-        if (Theme == CalloutTheme.Light)
-            AddCalloutPathToBackOfCanvas(null, 0, new SolidColorBrush(Color.FromArgb(50, 0, 0, 0)), 5, 5);
-        else if (Theme == CalloutTheme.Dark)
-            for (int i = 1; i <= 8; i += 2)
-                AddCalloutPathToBackOfCanvas(new SolidColorBrush(Color.FromArgb((byte)Math.Round(GlowOpacity * 255), glowColor.R, glowColor.G, glowColor.B)), i, null);
     }
 
     private void AddCalloutPathToBackOfCanvas(SolidColorBrush calloutStrokeBrush, int thickness, SolidColorBrush calloutFillBrush, double offsetX = 0, double offsetY = 0) {
