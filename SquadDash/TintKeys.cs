@@ -93,6 +93,7 @@ internal static class TintKeys
         "TableRule",
         "TranscriptActionBorder",
         "CalloutBorder",
+        "CalloutBackground",
 
         // Text
         "ImportantText",

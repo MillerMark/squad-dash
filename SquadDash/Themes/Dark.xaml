@@ -70,7 +70,8 @@
     <SolidColorBrush x:Key="ChipBorder" Color="#4A3E32"/>
     <SolidColorBrush x:Key="QuoteBorder" Color="#6A5038"/>
     <SolidColorBrush x:Key="AvatarImageBorder" Color="#5A5A5A"/>
-    <SolidColorBrush x:Key="CalloutBorder" Color="#6D6963"/><!-- CardSurface #2E2920 shifted 30% toward white -->
+    <SolidColorBrush x:Key="CalloutBorder"     Color="#6D6963"/><!-- CardSurface #2E2920 shifted 30% toward white -->
+    <SolidColorBrush x:Key="CalloutBackground" Color="#3A362E"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
     <SolidColorBrush x:Key="TableRule" Color="#3A3530"/>
     <SolidColorBrush x:Key="TableHeaderSurface" Color="#2A2520"/>
     <!-- Text Tokens -->
