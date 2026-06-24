@@ -65,7 +65,7 @@ internal sealed class HintEngine {
                         string.Equals(h.ActionId, actionId, StringComparison.OrdinalIgnoreCase))
             .Where(h => {
                 var rec = history.FirstOrDefault(r => r.HintId == h.HintId);
-                return (rec?.SeenCount ?? 0) < h.MaxShowCount;
+                return rec?.UserDismissed != true && (rec?.SeenCount ?? 0) < h.MaxShowCount;
             })
             .ToList();
 
@@ -85,6 +85,19 @@ internal sealed class HintEngine {
         var record = _persistence.GetRecord(hintId) ?? new HintRecord { HintId = hintId };
         record.SeenCount++;
         record.LastSeen = DateTime.UtcNow;
+        _persistence.UpdateRecord(record);
+    }
+
+    /// <summary>
+    /// The hint's target disappeared before the qualifying read duration elapsed.
+    /// Does NOT count as seen; no persistence update.
+    /// </summary>
+    /// <summary>Called when the user explicitly closes the hint via the × button. Permanently suppresses this hint (resets only by ClearHistory).</summary>
+    public void RecordDismissed(string hintId) {
+        var record = _persistence.GetRecord(hintId) ?? new HintRecord { HintId = hintId };
+        record.UserDismissed = true;
+        record.LastSeen      = DateTime.UtcNow;
+        record.SeenCount++;
         _persistence.UpdateRecord(record);
     }
 
@@ -123,7 +136,7 @@ internal sealed class HintEngine {
             .Where(h => h.Trigger == HintTrigger.Idle)
             .Where(h => {
                 var rec = history.FirstOrDefault(r => r.HintId == h.HintId);
-                return (rec?.SeenCount ?? 0) < h.MaxShowCount;
+                return rec?.UserDismissed != true && (rec?.SeenCount ?? 0) < h.MaxShowCount;
             })
             .Where(h => PassesCondition(h.ConditionId))
             .OrderBy(h => h.Priority)
