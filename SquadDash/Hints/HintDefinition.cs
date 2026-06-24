@@ -11,4 +11,5 @@ public class HintDefinition {
     public HintTrigger Trigger         { get; set; } = HintTrigger.Idle;
     public string?     ActionId        { get; set; }
     public string?     ConditionId     { get; set; }
+    public string?     TriggerNotes    { get; set; }
 }

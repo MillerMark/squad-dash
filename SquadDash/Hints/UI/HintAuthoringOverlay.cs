@@ -142,15 +142,12 @@ internal sealed class HintAuthoringOverlay
         DependencyObject? current = start;
         while (current is not null)
         {
-            if (current is Window)
-                break;
-            if (current is FrameworkElement fe)
+            if (current is Window) break;
+            if (current is FrameworkElement fe && fe.TemplatedParent is null)
             {
                 var dc = fe.DataContext;
-                if (dc is IHaveAgentName)
-                    return fe;
-                if (dc is INamedControl)
-                    return fe;
+                if (dc is IHaveAgentName) return fe;
+                if (dc is INamedControl)  return fe;
                 var name = fe.Name;
                 if (!string.IsNullOrEmpty(name) && !name.StartsWith("PART_", StringComparison.Ordinal))
                     return fe;

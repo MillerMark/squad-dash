@@ -74,38 +74,8 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left: markdown source editor -->
+            <!-- Left: live preview -->
             <DockPanel Grid.Column="0">
-                <TextBlock DockPanel.Dock="Top"
-                           Text="Markdown Source"
-                           FontWeight="SemiBold"
-                           FontSize="{DynamicResource FontSizeBody}"
-                           Foreground="{DynamicResource LabelText}"
-                           Margin="0,0,0,4" />
-                <TextBox x:Name="MarkdownEditor"
-                         AcceptsReturn="True"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Disabled"
-                         TextWrapping="Wrap"
-                         Background="{DynamicResource InputSurface}"
-                         Foreground="{DynamicResource LabelText}"
-                         BorderBrush="{DynamicResource InputBorder}"
-                         BorderThickness="1"
-                         Padding="6"
-                         FontFamily="Consolas"
-                         FontSize="{DynamicResource FontSizeBody}"
-                         TextChanged="MarkdownEditor_TextChanged" />
-            </DockPanel>
-
-            <!-- Splitter -->
-            <GridSplitter Grid.Column="1"
-                          Width="5"
-                          HorizontalAlignment="Stretch"
-                          Background="{DynamicResource InputBorder}"
-                          Cursor="SizeWE" />
-
-            <!-- Right: live preview -->
-            <DockPanel Grid.Column="2">
                 <TextBlock DockPanel.Dock="Top"
                            Text="Preview"
                            FontWeight="SemiBold"
@@ -119,6 +89,42 @@
                     <local:SimpleMarkdownViewer x:Name="MarkdownPreview"
                                                 Foreground="{DynamicResource BodyText}" />
                 </Border>
+            </DockPanel>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1"
+                          Width="5"
+                          HorizontalAlignment="Stretch"
+                          Background="{DynamicResource InputBorder}"
+                          Cursor="SizeWE" />
+
+            <!-- Right: markdown source editor -->
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top"
+                           Text="Markdown Source"
+                           FontWeight="SemiBold"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}"
+                           Margin="0,0,0,4" />
+                <local:MarkdownEditorToolbar x:Name="SourceToolbar"
+                                             DockPanel.Dock="Top"
+                                             ShowImageButton="False"
+                                             ShowHrButton="False"
+                                             Margin="0,0,0,4"
+                                             TargetTextBox="{Binding ElementName=MarkdownEditor}" />
+                <TextBox x:Name="MarkdownEditor"
+                         AcceptsReturn="True"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Disabled"
+                         TextWrapping="Wrap"
+                         Background="{DynamicResource InputSurface}"
+                         Foreground="{DynamicResource LabelText}"
+                         BorderBrush="{DynamicResource InputBorder}"
+                         BorderThickness="1"
+                         Padding="6"
+                         FontFamily="Consolas"
+                         FontSize="{DynamicResource FontSizeBody}"
+                         TextChanged="MarkdownEditor_TextChanged" />
             </DockPanel>
         </Grid>
 
@@ -147,93 +153,96 @@
                          Padding="4,3" />
             </DockPanel>
 
-            <!-- Row B: Priority | Max Count | Trigger | Action ID (conditional) | Condition -->
+            <!-- Row B: label-left / value-right stacked rows -->
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="8" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="8" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="8" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="100" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
                 <!-- Priority -->
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Priority"
-                               FontSize="{DynamicResource FontSizeBody}"
-                               Foreground="{DynamicResource LabelText}"
-                               Margin="0,0,0,3" />
-                    <TextBox x:Name="PriorityBox"
-                             Text="100"
-                             Background="{DynamicResource InputSurface}"
-                             Foreground="{DynamicResource LabelText}"
-                             BorderBrush="{DynamicResource InputBorder}"
-                             BorderThickness="1"
-                             Padding="4,3" />
-                </StackPanel>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Priority:"
+                           VerticalAlignment="Center" Margin="0,0,6,6"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}" />
+                <TextBox x:Name="PriorityBox" Grid.Row="0" Grid.Column="1"
+                         Text="100" Margin="0,0,0,6"
+                         Background="{DynamicResource InputSurface}"
+                         Foreground="{DynamicResource LabelText}"
+                         BorderBrush="{DynamicResource InputBorder}"
+                         BorderThickness="1" Padding="4,3" />
 
                 <!-- Max Show Count -->
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="Max Show Count"
-                               FontSize="{DynamicResource FontSizeBody}"
-                               Foreground="{DynamicResource LabelText}"
-                               Margin="0,0,0,3" />
-                    <TextBox x:Name="MaxShowCountBox"
-                             Text="3"
-                             Background="{DynamicResource InputSurface}"
-                             Foreground="{DynamicResource LabelText}"
-                             BorderBrush="{DynamicResource InputBorder}"
-                             BorderThickness="1"
-                             Padding="4,3" />
-                </StackPanel>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Max Show Count:"
+                           VerticalAlignment="Center" Margin="0,0,6,6"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}" />
+                <TextBox x:Name="MaxShowCountBox" Grid.Row="1" Grid.Column="1"
+                         Text="3" Margin="0,0,0,6"
+                         Background="{DynamicResource InputSurface}"
+                         Foreground="{DynamicResource LabelText}"
+                         BorderBrush="{DynamicResource InputBorder}"
+                         BorderThickness="1" Padding="4,3" />
 
                 <!-- Trigger -->
-                <StackPanel Grid.Column="4">
-                    <TextBlock Text="Trigger"
-                               FontSize="{DynamicResource FontSizeBody}"
-                               Foreground="{DynamicResource LabelText}"
-                               Margin="0,0,0,3" />
-                    <ComboBox x:Name="TriggerComboBox"
-                              Background="{DynamicResource InputSurface}"
-                              Foreground="{DynamicResource LabelText}"
-                              BorderBrush="{DynamicResource InputBorder}"
-                              SelectionChanged="TriggerComboBox_SelectionChanged">
-                        <ComboBoxItem Content="Idle" Tag="Idle" IsSelected="True" />
-                        <ComboBoxItem Content="Action" Tag="Action" />
-                    </ComboBox>
-                </StackPanel>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Trigger:"
+                           VerticalAlignment="Center" Margin="0,0,6,6"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}" />
+                <ComboBox x:Name="TriggerComboBox" Grid.Row="2" Grid.Column="1"
+                          Margin="0,0,0,6"
+                          SelectionChanged="TriggerComboBox_SelectionChanged">
+                    <ComboBoxItem Content="Idle" Tag="Idle" IsSelected="True" />
+                    <ComboBoxItem Content="Action" Tag="Action" />
+                </ComboBox>
 
-                <!-- Action ID — hidden when Trigger = Idle -->
-                <StackPanel Grid.Column="6" x:Name="ActionIdPanel" Visibility="Collapsed">
-                    <TextBlock Text="Action ID"
-                               FontSize="{DynamicResource FontSizeBody}"
-                               Foreground="{DynamicResource LabelText}"
-                               Margin="0,0,0,3" />
-                    <TextBox x:Name="ActionIdBox"
-                             Background="{DynamicResource InputSurface}"
-                             Foreground="{DynamicResource LabelText}"
-                             BorderBrush="{DynamicResource InputBorder}"
-                             BorderThickness="1"
-                             Padding="4,3" />
-                </StackPanel>
+                <!-- Trigger Notes (free-form voice/text) -->
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Trigger Notes:"
+                           VerticalAlignment="Top" Margin="0,2,6,6"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}" />
+                <TextBox x:Name="TriggerNotesBox" Grid.Row="3" Grid.Column="1"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         MinHeight="48"
+                         VerticalScrollBarVisibility="Auto"
+                         Margin="0,0,0,6"
+                         Background="{DynamicResource InputSurface}"
+                         Foreground="{DynamicResource LabelText}"
+                         BorderBrush="{DynamicResource InputBorder}"
+                         BorderThickness="1" Padding="4,3" />
+
+                <!-- Action ID (conditional) -->
+                <TextBlock Grid.Row="4" Grid.Column="0" x:Name="ActionIdLabel"
+                           Text="Action ID:" VerticalAlignment="Center"
+                           Margin="0,0,6,6"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}"
+                           Visibility="Collapsed" />
+                <TextBox x:Name="ActionIdBox" Grid.Row="4" Grid.Column="1"
+                         Visibility="Collapsed"
+                         Margin="0,0,0,6"
+                         Background="{DynamicResource InputSurface}"
+                         Foreground="{DynamicResource LabelText}"
+                         BorderBrush="{DynamicResource InputBorder}"
+                         BorderThickness="1" Padding="4,3" />
 
                 <!-- Condition -->
-                <StackPanel Grid.Column="8">
-                    <TextBlock Text="Condition"
-                               FontSize="{DynamicResource FontSizeBody}"
-                               Foreground="{DynamicResource LabelText}"
-                               Margin="0,0,0,3" />
-                    <ComboBox x:Name="ConditionComboBox"
-                              Background="{DynamicResource InputSurface}"
-                              Foreground="{DynamicResource LabelText}"
-                              BorderBrush="{DynamicResource InputBorder}">
-                        <ComboBoxItem Content="Always" Tag="always" IsSelected="True" />
-                    </ComboBox>
-                </StackPanel>
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Condition:"
+                           VerticalAlignment="Center" Margin="0,0,6,0"
+                           FontSize="{DynamicResource FontSizeBody}"
+                           Foreground="{DynamicResource LabelText}" />
+                <ComboBox x:Name="ConditionComboBox" Grid.Row="5" Grid.Column="1">
+                    <ComboBoxItem Content="Always" Tag="always" IsSelected="True" />
+                </ComboBox>
             </Grid>
         </Grid>
 

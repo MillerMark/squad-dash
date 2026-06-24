@@ -27,6 +27,8 @@ internal partial class HintAuthoringWindow : Window
         _debounceTimer.Tick += DebounceTimer_Tick;
 
         Closed += (_, _) => { _previewCallout?.Close(); _previewCallout = null; };
+
+        MarkdownEditor.PreviewKeyDown += MarkdownEditor_PreviewKeyDown;
     }
 
     /// <summary>
@@ -54,6 +56,7 @@ internal partial class HintAuthoringWindow : Window
             }
 
             ActionIdBox.Text = existing.ActionId ?? "";
+            TriggerNotesBox.Text = existing.TriggerNotes ?? "";
 
             foreach (ComboBoxItem item in ConditionComboBox.Items)
             {
@@ -67,6 +70,7 @@ internal partial class HintAuthoringWindow : Window
         else
         {
             MarkdownEditor.Text = DefaultMarkdown;
+            TriggerNotesBox.Text = string.Empty;
         }
 
         MarkdownPreview.Markdown = MarkdownEditor.Text;
@@ -81,8 +85,26 @@ internal partial class HintAuthoringWindow : Window
                      && (bool)Application.Current.Resources["IsDarkTheme"];
         var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
 
+        var fontSize = Application.Current.Resources.Contains("FontSizeBody")
+            ? Convert.ToDouble(Application.Current.Resources["FontSizeBody"])
+            : 13.0;
+
         _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
-            MarkdownEditor.Text, target, theme: theme);
+            MarkdownEditor.Text, target, theme: theme, fontSize: fontSize);
+    }
+
+    private void MarkdownEditor_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            MarkdownEditorCommands.ApplyBold(MarkdownEditor);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.I && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            MarkdownEditorCommands.ApplyItalic(MarkdownEditor);
+            e.Handled = true;
+        }
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -112,13 +134,13 @@ internal partial class HintAuthoringWindow : Window
 
     private void TriggerComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // Guard: fires during InitializeComponent before ActionIdPanel exists
-        if (ActionIdPanel is null) return;
-
+        if (ActionIdBox is null) return;
         if (TriggerComboBox.SelectedItem is ComboBoxItem item)
         {
             bool isAction = item.Tag?.ToString() == "Action";
-            ActionIdPanel.Visibility = isAction ? Visibility.Visible : Visibility.Collapsed;
+            var vis = isAction ? Visibility.Visible : Visibility.Collapsed;
+            ActionIdBox.Visibility = vis;
+            ActionIdLabel.Visibility = vis;
         }
     }
 
@@ -143,7 +165,8 @@ internal partial class HintAuthoringWindow : Window
         if (TriggerComboBox.SelectedItem is ComboBoxItem trigItem)
             hint.Trigger = trigItem.Tag?.ToString() == "Action" ? HintTrigger.Action : HintTrigger.Idle;
 
-        hint.ActionId = ActionIdPanel.Visibility == Visibility.Visible
+        hint.TriggerNotes = TriggerNotesBox.Text.Trim();
+        hint.ActionId = ActionIdBox.Visibility == Visibility.Visible
             ? ActionIdBox.Text.Trim()
             : null;
 
