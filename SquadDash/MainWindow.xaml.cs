@@ -30359,7 +30359,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _bridgeStallShowing = false;
 
             ForceAbortStalledAgentButton.Visibility = Visibility.Collapsed;
-            if (_promptQueue.Items.Count == 0)
+            if (_promptQueue.Items.Count == 0 && !_queueManuallyPaused)
                 QueueTabBorder.Visibility = Visibility.Collapsed;
             else
                 SetQueuePaused(_queueManuallyPaused);
