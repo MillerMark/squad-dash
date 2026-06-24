@@ -863,6 +863,17 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveHintSettings(Hints.HintSettings settings) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            HintsEnabled      = settings.HintsEnabled,
+            HintMinGapMinutes = settings.MinGapMinutes
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     private void SaveCore(ApplicationSettingsSnapshot snapshot) {
         var normalized = snapshot.Normalize();
         JsonFileStorage.AtomicWrite(_settingsPath, normalized);
@@ -1454,6 +1465,14 @@ internal sealed record ApplicationSettingsSnapshot(
     /// <summary>OpenAI TTS model quality: Standard (tts-1) or HD (tts-1-hd).</summary>
     public OpenAiTtsModel Tts_OpenAi_Model { get; init; } = OpenAiTtsModel.Standard;
 
+    // ── Hints (Discoverability) ───────────────────────────────────────────────
+
+    /// <summary>Whether the Discoverability (Hints) system is active. Default: true.</summary>
+    public bool HintsEnabled { get; init; } = true;
+
+    /// <summary>Minimum gap in minutes between idle-triggered hints. Default: 10.</summary>
+    public int HintMinGapMinutes { get; init; } = 10;
+
     /// <summary>Index of the last-visited page in the Preferences dialog (0 = General).</summary>
     public int Preferences_LastPage { get; init; } = 0;
 
@@ -1799,6 +1818,8 @@ internal sealed record ApplicationSettingsSnapshot(
             Tts_OpenAi_Voice = string.IsNullOrWhiteSpace(Tts_OpenAi_Voice) ? "alloy"              : Tts_OpenAi_Voice.Trim(),
             Tts_OpenAi_Model = Tts_OpenAi_Model,
             Preferences_LastPage = Math.Max(0, Preferences_LastPage),
+            HintsEnabled = HintsEnabled,
+            HintMinGapMinutes = Math.Max(1, HintMinGapMinutes),
             WorkspaceShutdownTimes = normalizedShutdownTimes,
             TintStopByWorkspace = normalizedTintStops,
             AccentHueOffsetByWorkspace = normalizedAccentOffsets,

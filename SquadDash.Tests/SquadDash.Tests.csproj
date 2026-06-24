@@ -287,6 +287,16 @@
     <Compile Include="..\SquadDash\ClipboardAnnotationState.cs" Link="Source\ClipboardAnnotationState.cs" />
     <Compile Include="..\SquadDash\ClipboardEditorSessionState.cs" Link="Source\ClipboardEditorSessionState.cs" />
     <Compile Include="..\SquadDash\ClipboardEditorStateStore.cs" Link="Source\ClipboardEditorStateStore.cs" />
+
+    <!-- Hints (Discoverability) -->
+    <Compile Include="..\SquadDash\Hints\HintDefinition.cs" Link="Source\Hints\HintDefinition.cs" />
+    <Compile Include="..\SquadDash\Hints\HintRecord.cs" Link="Source\Hints\HintRecord.cs" />
+    <Compile Include="..\SquadDash\Hints\HintPersistence.cs" Link="Source\Hints\HintPersistence.cs" />
+    <Compile Include="..\SquadDash\Hints\IHaveAgentName.cs" Link="Source\Hints\IHaveAgentName.cs" />
+    <Compile Include="..\SquadDash\Hints\INamedControl.cs" Link="Source\Hints\INamedControl.cs" />
+    <Compile Include="..\SquadDash\Hints\HintControlResolver.cs" Link="Source\Hints\HintControlResolver.cs" />
+    <Compile Include="..\SquadDash\Hints\HintSettings.cs" Link="Source\Hints\HintSettings.cs" />
+    <Compile Include="..\SquadDash\Hints\HintEngine.cs" Link="Source\Hints\HintEngine.cs" />
   </ItemGroup>
 
 </Project>
