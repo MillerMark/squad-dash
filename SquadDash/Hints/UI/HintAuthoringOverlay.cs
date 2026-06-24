@@ -45,6 +45,7 @@ internal sealed class HintAuthoringOverlay
         _setActiveIndicator = setActiveIndicator;
 
         InputManager.Current.PostProcessInput += OnPostProcessInput;
+        owner.PreviewMouseLeftButtonDown += OnOwnerPreviewClick;
         _setActiveIndicator?.Invoke(true);
     }
 
@@ -53,6 +54,7 @@ internal sealed class HintAuthoringOverlay
         if (_owner is null) return;
 
         InputManager.Current.PostProcessInput -= OnPostProcessInput;
+        _owner.PreviewMouseLeftButtonDown -= OnOwnerPreviewClick;
         RemoveAdorner();
         _hoveredElement = null;
 
@@ -85,17 +87,6 @@ internal sealed class HintAuthoringOverlay
                 && mouseArgs.RoutedEvent == Mouse.MouseMoveEvent)
             {
                 UpdateHighlight(mouseArgs);
-                return;
-            }
-
-            // Left click → open authoring window; suppress the click
-            if (e.StagingItem.Input is MouseButtonEventArgs clickArgs
-                && clickArgs.RoutedEvent == UIElement.PreviewMouseLeftButtonDownEvent
-                && clickArgs.LeftButton == MouseButtonState.Pressed
-                && _hoveredElement is not null)
-            {
-                OpenAuthoringWindow(_hoveredElement);
-                clickArgs.Handled = true;
             }
         }
         catch
@@ -180,6 +171,15 @@ internal sealed class HintAuthoringOverlay
         layer?.Remove(_activeAdorner);
         _activeAdorner = null;
         _adornerTarget = null;
+    }
+
+    // ── Click intercept (must be on tunneling Preview event to suppress) ─────
+
+    private void OnOwnerPreviewClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_hoveredElement is null) return;
+        e.Handled = true;
+        OpenAuthoringWindow(_hoveredElement);
     }
 
     // ── Authoring window ─────────────────────────────────────────────────────
