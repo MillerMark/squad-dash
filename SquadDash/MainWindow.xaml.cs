@@ -3099,6 +3099,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _queueManuallyPaused = paused;
         EditPauseQueueDrainMenuItem.Visibility  = paused ? Visibility.Collapsed : Visibility.Visible;
         EditResumeQueueDrainMenuItem.Visibility = paused ? Visibility.Visible   : Visibility.Collapsed;
+        // When pausing with no queued items the border is normally Collapsed;
+        // make it visible so the play ▶ button and status label are shown.
+        if (paused && _promptQueue.Items.Count == 0)
+            QueueTabBorder.Visibility = Visibility.Visible;
+        else if (!paused && _promptQueue.Items.Count == 0)
+            QueueTabBorder.Visibility = Visibility.Collapsed;
         if (paused && _isPromptRunning)
         {
             // Case 2: Pause requested while a turn is in progress → pending.
