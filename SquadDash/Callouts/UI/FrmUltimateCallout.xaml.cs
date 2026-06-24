@@ -97,6 +97,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     public CalloutOptions Options { get; set; } = new CalloutOptions();
     public FrmUltimateCallout() {
         InitializeComponent();
+        InitializeColors();
     }
 
     void InvalidateLayout() {
