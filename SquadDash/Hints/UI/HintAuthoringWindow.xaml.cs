@@ -16,6 +16,8 @@ internal partial class HintAuthoringWindow : Window
     private HintDefinition? _editingHint;
     private string _workspaceRoot = string.Empty;
     private FrmUltimateCallout? _previewCallout;
+    private bool _previewCalloutClosedByUser;
+    private FrameworkElement? _targetElement;
 
     public HintAuthoringWindow()
     {
@@ -41,6 +43,7 @@ internal partial class HintAuthoringWindow : Window
         };
 
         MarkdownEditor.PreviewKeyDown += MarkdownEditor_PreviewKeyDown;
+        TestButton.IsEnabled = false;
     }
 
     private TextBox? GetFocusedPttTextBox()
@@ -57,6 +60,7 @@ internal partial class HintAuthoringWindow : Window
     public void Initialize(string targetControlId, string workspaceRoot, HintDefinition? existing = null, FrameworkElement? target = null)
     {
         _workspaceRoot = workspaceRoot;
+        _targetElement = target;
         TargetBox.Text = targetControlId;
 
         if (existing is not null)
@@ -111,6 +115,20 @@ internal partial class HintAuthoringWindow : Window
 
         _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
             MarkdownEditor.Text, target, theme: theme, fontSize: fontSize);
+        _previewCallout.IsSticky = true;
+        _previewCalloutClosedByUser = false;
+        _previewCallout.Closed += (_, _) =>
+        {
+            _previewCalloutClosedByUser = true;
+            _previewCallout = null;
+            SyncTestButton();
+        };
+        SyncTestButton();
+    }
+
+    private void SyncTestButton()
+    {
+        TestButton.IsEnabled = _previewCallout is null || !_previewCallout.IsVisible;
     }
 
     private void MarkdownEditor_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -236,7 +254,31 @@ internal partial class HintAuthoringWindow : Window
     private void TestButton_Click(object sender, RoutedEventArgs e)
     {
         var hint = BuildHintDefinition();
-        // Show the callout pointing at the Test button so the author can see the rendered markdown
-        FrmUltimateCallout.ShowCallout(hint.MarkdownText, TestButton);
+        var isDark = Application.Current.Resources.Contains("IsDarkTheme")
+                     && (bool)Application.Current.Resources["IsDarkTheme"];
+        var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+        var fontSize = Application.Current.Resources.Contains("FontSizeBody")
+            ? Convert.ToDouble(Application.Current.Resources["FontSizeBody"]) : 13.0;
+
+        if (_targetElement is not null)
+        {
+            _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                hint.MarkdownText, _targetElement,
+                theme: theme, fontSize: fontSize);
+            _previewCallout.IsSticky = true;
+            _previewCalloutClosedByUser = false;
+            _previewCallout.Closed += (_, _) =>
+            {
+                _previewCalloutClosedByUser = true;
+                _previewCallout = null;
+                SyncTestButton();
+            };
+            SyncTestButton();
+        }
+        else
+        {
+            // Fallback: no target element available — point at Test button
+            FrmUltimateCallout.ShowCallout(hint.MarkdownText, TestButton);
+        }
     }
 }

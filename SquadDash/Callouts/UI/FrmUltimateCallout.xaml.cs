@@ -52,6 +52,38 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
+    /// <summary>
+    /// When <c>true</c>, the callout ignores the global "close on activity" sweep and can
+    /// only be dismissed by clicking its own × close button.
+    /// Defaults to <c>false</c>.
+    /// </summary>
+    public bool IsSticky { get; set; }
+
+    // ── Global registry (for auto-close sweep) ──────────────────────────────────
+    private static readonly List<WeakReference<FrmUltimateCallout>> _openCallouts = new();
+
+    /// <summary>Called from FinalizeAndShow to register this instance for auto-close sweeping.</summary>
+    private static void RegisterCallout(FrmUltimateCallout callout)
+    {
+        // Clean up dead references while we're here.
+        _openCallouts.RemoveAll(r => !r.TryGetTarget(out _));
+        _openCallouts.Add(new WeakReference<FrmUltimateCallout>(callout));
+    }
+
+    /// <summary>
+    /// Closes all open non-sticky callouts. Called when user clicks or types in the main window.
+    /// </summary>
+    public static void CloseAllNonSticky()
+    {
+        var toClose = new List<FrmUltimateCallout>();
+        foreach (var r in _openCallouts)
+            if (r.TryGetTarget(out var c) && !c.IsSticky && c.IsVisible)
+                toClose.Add(c);
+        foreach (var c in toClose)
+            c.Close();
+        _openCallouts.RemoveAll(r => !r.TryGetTarget(out _));
+    }
+
     public Color GlowColor {
         get => glowColor;
         set {
@@ -908,6 +940,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         LayoutEverything();
         initializationComplete = true;
         Show();
+        RegisterCallout(this);
     }
 
     void SetAngle(double angle) {

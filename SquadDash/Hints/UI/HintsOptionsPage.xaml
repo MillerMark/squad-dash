@@ -31,8 +31,13 @@
                  LostFocus="MinGapBox_LostFocus" />
 
         <!-- Clear history -->
+        <TextBlock Text="Resetting hint history causes all hints to appear again, as if on a new machine."
+                   FontSize="{DynamicResource FontSizeSmall}"
+                   Foreground="{DynamicResource SubtleText}"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,6" />
         <Button x:Name="ClearHistoryButton"
-                Content="Clear hint history"
+                Content="Reset hint history"
                 Style="{StaticResource ThemedButtonStyle}"
                 HorizontalAlignment="Left"
                 Click="ClearHistoryButton_Click" />

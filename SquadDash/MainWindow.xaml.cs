@@ -1700,6 +1700,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // InputManager.PreProcessInput fires before WPF dispatch for every window on this
             // thread, so the shortcut works even when a floating window has keyboard focus.
             InputManager.Current.PreProcessInput += OnGlobalPreProcessInput;
+            PreviewMouseLeftButtonDown += (_, _) => FrmUltimateCallout.CloseAllNonSticky();
 
             // Capture Shift state once, before any async work, while we're still on the UI thread.
             _startupShiftHeld = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
@@ -13191,6 +13192,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 keyArgs.Handled = true;
                 return;
             }
+
+            // Any key activity in the main window → sweep non-sticky callouts.
+            FrmUltimateCallout.CloseAllNonSticky();
 
             if (key != Key.F12 && key != Key.F11 && key != Key.F6) return;
 

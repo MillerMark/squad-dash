@@ -40,8 +40,8 @@ internal partial class HintsOptionsPage : UserControl
     private void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
     {
         var result = MessageBox.Show(
-            "Clear all hint history? Hints will be eligible to show again from the beginning.",
-            "Clear Hint History",
+            "Reset hint history? All hints will be eligible to appear again, as if this is a new install.",
+            "Reset Hint History",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question);
 
