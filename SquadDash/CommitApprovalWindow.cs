@@ -29,6 +29,7 @@ internal sealed class CommitApprovalPanel {
     private readonly UIElement  _rejectedSection;
     private readonly UIElement  _approvedSection;
     private readonly UIElement  _approvedScrollViewer;
+    private readonly UIElement? _categorizeRow;
     private readonly ScrollViewer _needsApprovalScrollViewer;
 
     private Border?    _selectedRow;
@@ -67,7 +68,8 @@ internal sealed class CommitApprovalPanel {
         bool                                     initialGroupedView = false,
         Action<bool>?                            onGroupedViewChanged = null,
         Func<IReadOnlyList<string>>?             getGroups            = null,
-        Action<IReadOnlyList<CommitApprovalItem>>? onCategorizeUncategorized = null) {
+        Action<IReadOnlyList<CommitApprovalItem>>? onCategorizeUncategorized = null,
+        UIElement?                               categorizeRow = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -90,6 +92,7 @@ internal sealed class CommitApprovalPanel {
         _onGroupedViewChanged      = onGroupedViewChanged;
         _getGroups                 = getGroups;
         _onCategorizeUncategorized = onCategorizeUncategorized;
+        _categorizeRow             = categorizeRow;
 
         AttachPanelContextMenu(outerBorder);
         _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
@@ -102,11 +105,13 @@ internal sealed class CommitApprovalPanel {
         if (_groupedView) {
             RebuildGroupedPanels();
             SyncApprovedSectionVisibility();
+            SyncCategorizeRowVisibility();
             return;
         }
         var row = BuildRow(item);
         row.Visibility = MatchesFilter(item) ? Visibility.Visible : Visibility.Collapsed;
         _needsApprovalPanel.Children.Insert(0, row);
+        SyncCategorizeRowVisibility();
     }
 
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
@@ -140,6 +145,7 @@ internal sealed class CommitApprovalPanel {
         ApplyFilterToPanel(_approvedPanel);
         ApplyFilterToPanel(_rejectedPanel);
         SyncApprovedSectionVisibility();
+        SyncCategorizeRowVisibility();
     }
 
     public void OnClearApprovedClicked() {
@@ -535,6 +541,7 @@ internal sealed class CommitApprovalPanel {
         _onItemChanged(updated);
         RebuildGroupedPanels();
         SyncApprovedSectionVisibility();
+        SyncCategorizeRowVisibility();
         // After layout, scroll to and select the moved row
         _needsApprovalScrollViewer.Dispatcher.InvokeAsync(() => {
             foreach (var child in _needsApprovalPanel.Children) {
@@ -584,6 +591,7 @@ internal sealed class CommitApprovalPanel {
         InsertSorted(targetPanel, BuildRow(updated), updated);
         ApplyFilterToPanel(targetPanel);
         SyncApprovedSectionVisibility();
+        SyncCategorizeRowVisibility();
 
         if (shouldScrollNeedsToBottom) {
             _needsApprovalScrollViewer.Dispatcher.InvokeAsync(
@@ -622,6 +630,7 @@ internal sealed class CommitApprovalPanel {
         InsertSorted(_rejectedPanel, BuildRejectedRow(updated), updated);
         ApplyFilterToPanel(_rejectedPanel);
         SyncApprovedSectionVisibility();
+        SyncCategorizeRowVisibility();
 
         _onItemChanged(updated);
     }
@@ -641,6 +650,7 @@ internal sealed class CommitApprovalPanel {
             InsertSorted(_needsApprovalPanel, BuildRow(updated), updated);
             ApplyFilterToPanel(_needsApprovalPanel);
         }
+        SyncCategorizeRowVisibility();
 
         _onItemChanged(updated);
     }
@@ -651,6 +661,13 @@ internal sealed class CommitApprovalPanel {
             : Visibility.Collapsed;
         _approvedSection.Visibility      = vis;
         _approvedScrollViewer.Visibility = vis;
+    }
+
+    private void SyncCategorizeRowVisibility() {
+        if (_categorizeRow is null || _onCategorizeUncategorized is null) return;
+        var pending = _mutableItems.Where(i => !i.IsApproved && !i.IsRejected).ToList();
+        var isFlat  = pending.Count > 0 && pending.All(i => string.IsNullOrEmpty(i.FeatureGroup));
+        _categorizeRow.Visibility = isFlat ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Builds the tooltip string for an approval list row.

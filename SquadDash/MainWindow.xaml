@@ -1783,6 +1783,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -1802,17 +1803,6 @@
                                         Style="{StaticResource PanelCloseButtonStyle}"
                                         ToolTip="Hide Approvals panel"
                                         Click="ApprovalPanelCloseButton_Click" />
-                                <Button x:Name="ApprovalOrganizeButton"
-                                        DockPanel.Dock="Right"
-                                        Content="🗂"
-                                        Width="22"
-                                        Height="22"
-                                        FontSize="{DynamicResource FontSizeNormal}"
-                                        VerticalAlignment="Center"
-                                        Margin="0,0,2,0"
-                                        Style="{StaticResource PanelCloseButtonStyle}"
-                                        ToolTip="Organize approvals by feature group (AI)"
-                                        Click="ApprovalOrganizeButton_Click" />
 
                                 <TextBlock DockPanel.Dock="Left"
                                            Text="Approvals"
@@ -1854,8 +1844,24 @@
 
                             </DockPanel>
 
+                            <!-- Categorize button — shown only when all items are ungrouped/flat -->
+                            <DockPanel x:Name="ApprovalCategorizeRow"
+                                       Grid.Row="1"
+                                       LastChildFill="False"
+                                       Margin="0,6,0,0"
+                                       Visibility="Collapsed">
+                                <Button x:Name="ApprovalCategorizeButton"
+                                        DockPanel.Dock="Right"
+                                        Content="Categorize"
+                                        Padding="6,2"
+                                        FontSize="{DynamicResource FontSizeSmall}"
+                                        Style="{StaticResource ThemedButtonStyle}"
+                                        ToolTip="Organize approvals into feature groups (AI)"
+                                        Click="ApprovalCategorizeButton_Click" />
+                            </DockPanel>
+
                             <!-- "Needs Approval" header -->
-                            <TextBlock Grid.Row="1"
+                            <TextBlock Grid.Row="2"
                                        Text="Needs Approval"
                                        FontSize="{DynamicResource FontSizeSmall}"
                                        Margin="0,8,0,4"
@@ -1863,7 +1869,7 @@
 
                             <!-- Needs Approval items -->
                             <ScrollViewer x:Name="ApprovalNeedsScrollViewer"
-                                          Grid.Row="2"
+                                          Grid.Row="3"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="ApprovalNeedsPanel" />
@@ -1871,7 +1877,7 @@
 
                             <!-- "Approved" header + Clear Approved button -->
                             <DockPanel x:Name="ApprovalApprovedSection"
-                                       Grid.Row="3"
+                                       Grid.Row="4"
                                        LastChildFill="False"
                                        Margin="0,8,0,4"
                                        Visibility="Collapsed">
@@ -1891,7 +1897,7 @@
 
                             <!-- Approved items -->
                             <ScrollViewer x:Name="ApprovalApprovedScrollViewer"
-                                          Grid.Row="4"
+                                          Grid.Row="5"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           MaxHeight="{Binding ActualHeight, ElementName=ApprovalPanelBorder, Converter={StaticResource FractionConverter}, ConverterParameter=0.5}">
@@ -1899,7 +1905,7 @@
                             </ScrollViewer>
 
                             <!-- Rejected section (hidden until user toggles Show Rejected) -->
-                            <StackPanel Grid.Row="5"
+                            <StackPanel Grid.Row="6"
                                         x:Name="ApprovalRejectedSection"
                                         Visibility="Collapsed">
                                 <TextBlock Text="Rejected"

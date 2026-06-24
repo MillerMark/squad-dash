@@ -31636,7 +31636,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 initialGroupedView: _settingsStore.Load().ApprovalGroupedView,
                 onGroupedViewChanged: grouped => _settingsStore.SaveApprovalGroupedView(grouped),
                 getGroups: () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults).ToList().AsReadOnly(),
-                onCategorizeUncategorized: items => EnqueueOrganizeUncategorizedPrompt(items));
+                onCategorizeUncategorized: items => EnqueueOrganizeUncategorizedPrompt(items),
+                categorizeRow: ApprovalCategorizeRow);
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width
@@ -34065,7 +34066,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalPanelCloseButton_Click), ex); }
     }
 
-    private void ApprovalOrganizeButton_Click(object sender, RoutedEventArgs e)
+    private void ApprovalCategorizeButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -34107,7 +34108,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
         }
-        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalOrganizeButton_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalCategorizeButton_Click), ex); }
     }
 
     private void EnqueueOrganizeUncategorizedPrompt(IReadOnlyList<CommitApprovalItem> uncategorizedItems)
