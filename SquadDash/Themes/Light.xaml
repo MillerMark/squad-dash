@@ -71,6 +71,7 @@
     <SolidColorBrush x:Key="ChipBorder" Color="#C4B8A4"/>
     <SolidColorBrush x:Key="QuoteBorder" Color="#C0A070"/>
     <SolidColorBrush x:Key="AvatarImageBorder" Color="#444444"/>
+    <SolidColorBrush x:Key="CalloutBorder" Color="#999999"/><!-- CardSurface #FFFFFF shifted 40% toward black -->
     <SolidColorBrush x:Key="TableRule" Color="#D8D0C4"/>
     <SolidColorBrush x:Key="TableHeaderSurface" Color="#EDE8E0"/>
     <!-- Text Tokens -->
