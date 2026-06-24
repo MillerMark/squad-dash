@@ -2992,9 +2992,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
             var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
             var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+            FrameworkElement target = GetActiveQueueTabBorder() ?? (FrameworkElement)QueueStatusLabel;
             FrmUltimateCallout.ShowCalloutBesideTarget(
                 "The active queue tab is pausing dispatch.\n\nClick **Send** to submit it now, or select a different tab to drain the queue.",
-                QueueStatusLabel,
+                target,
                 width: 300,
                 theme: theme,
                 fontSize: fontSize,
@@ -3277,6 +3278,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void EditPauseQueueDrainMenuItem_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
     private void EditResumeQueueDrainMenuItem_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
+
+    /// <summary>Returns the Border in QueueTabStrip whose Tag matches _activeTabId, or null.</summary>
+    private Border? GetActiveQueueTabBorder()
+    {
+        if (_activeTabId is null) return null;
+        foreach (UIElement child in QueueTabStrip.Children)
+            if (child is Border b && b.Tag as string == _activeTabId)
+                return b;
+        return null;
+    }
 
     /// <summary>
     /// Fast path for Ctrl+Tab cycling: only updates the two tabs whose active/inactive
