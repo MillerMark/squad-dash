@@ -25,6 +25,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Controls.Primitives;
 using Microsoft.Win32;
+using SquadDash.Hints;
 using SquadDash.PanelDocking;
 using SquadDash.Screenshots;
 using SquadDash.Screenshots.Fixtures;
@@ -1701,6 +1702,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // thread, so the shortcut works even when a floating window has keyboard focus.
             InputManager.Current.PreProcessInput += OnGlobalPreProcessInput;
             PreviewMouseLeftButtonDown += (_, _) => FrmUltimateCallout.CloseAllNonSticky();
+            HintEngine.Instance.HintRequested += OnHintEngineHintRequested;
 
             // Capture Shift state once, before any async work, while we're still on the UI thread.
             _startupShiftHeld = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
@@ -13262,6 +13264,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     active ? Visibility.Visible : Visibility.Collapsed);
     }
 
+    // ── HintEngine — HintRequested subscriber ─────────────────────────────────
+
+    private void OnHintEngineHintRequested(object? sender, HintDefinition hint)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                var target = FindName(hint.TargetControlId) as FrameworkElement ?? PromptBorder;
+                var callout = FrmUltimateCallout.ShowCallout(hint.MarkdownText, target);
+                callout.IsSticky = true;
+                HintEngine.Instance.RecordShown(hint.HintId);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(OnHintEngineHintRequested), ex);
+            }
+        });
+    }
+
+    // ── Developer > Trigger Idle Hint Cycle ───────────────────────────────────
+
+    private void TriggerIdleHintCycleMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            HintEngine.Instance.TriggerIdleCycle();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(TriggerIdleHintCycleMenuItem_Click), ex);
+        }
+    }
+
     // ── Developer > Simulation menu ───────────────────────────────────────────
 
     private void RecordDockingTestMenuItem_Click(object sender, RoutedEventArgs e)
@@ -17793,6 +17829,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
 
         // Load persisted panel layout for this workspace and apply any non-default placements.
+        HintEngine.Instance.Initialize(_currentWorkspace.FolderPath);
         if (_dockingService is not null)
         {
             _layoutPresetManager.Initialize(_currentWorkspace.FolderPath);

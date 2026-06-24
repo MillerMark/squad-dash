@@ -31,9 +31,16 @@ internal sealed class HintEngine {
         _settingsStore = new ApplicationSettingsStore();
         _registry = _persistence.LoadRegistry(workspaceRoot);
         _persistence.LoadHistory();
+        _idleTimer?.Dispose();
         _idleTimer = new Timer(_ => EvaluateIdle(), null,
             TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
     }
+
+    /// <summary>
+    /// Immediately runs the idle evaluation, bypassing the minimum-gap guard.
+    /// Intended for developer use (e.g. a Dev menu trigger) to test hints without waiting.
+    /// </summary>
+    public void TriggerIdleCycle() => EvaluateIdle(force: true);
 
     // ── Action trigger registration ───────────────────────────────────────────
 
@@ -120,17 +127,20 @@ internal sealed class HintEngine {
 
     // ── Idle evaluation loop ──────────────────────────────────────────────────
 
-    private void EvaluateIdle() {
+    private void EvaluateIdle(bool force = false) {
         var settings = GetCurrentSettings();
         if (!settings.HintsEnabled) return;
 
         var history = _persistence.LoadHistory();
-        var minGap = TimeSpan.FromMinutes(settings.MinGapMinutes);
-        var lastShown = history.Count > 0
-            ? history.Max(r => r.LastShown)
-            : DateTime.MinValue;
 
-        if (DateTime.UtcNow - lastShown < minGap) return;
+        if (!force) {
+            var minGap = TimeSpan.FromMinutes(settings.MinGapMinutes);
+            var lastShown = history.Count > 0
+                ? history.Max(r => r.LastShown)
+                : DateTime.MinValue;
+
+            if (DateTime.UtcNow - lastShown < minGap) return;
+        }
 
         var eligible = _registry
             .Where(h => h.Trigger == HintTrigger.Idle)
