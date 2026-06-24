@@ -116,8 +116,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         closeButton.Click += CloseButton_Click;
         cvsCallout.Children.Add(closeButton);
         double rightEdge = calloutLeft + calloutWidth;
-        Canvas.SetLeft(closeButton, rightEdge - Options.CornerRadius - closeButton.Width);
-        Canvas.SetTop(closeButton, calloutTop + Options.CornerRadius);
+        Canvas.SetLeft(closeButton, rightEdge - Options.CornerRadius - closeButton.Width + 3);
+        Canvas.SetTop(closeButton, calloutTop + Options.CornerRadius - 3);
     }
 
     double GetMinHeight() {
