@@ -129,6 +129,8 @@
     <Compile Include="..\SquadDash\SquadWatchHealthService.cs" Link="Source\SquadWatchHealthService.cs" />
     <Compile Include="..\SquadDash\SquadOrchestrationService.cs" Link="Source\SquadOrchestrationService.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
+    <Compile Include="..\SquadDash\SquadTeamRootRepairService.cs" Link="Source\SquadTeamRootRepairService.cs" />
+    <Compile Include="..\SquadDash\SquadTeamRootRepairWorkflow.cs" Link="Source\SquadTeamRootRepairWorkflow.cs" />
     <Compile Include="..\SquadDash\SquadBridgePromptBuilder.cs" Link="Source\SquadBridgePromptBuilder.cs" />
     <Compile Include="..\SquadDash\ISquadBridgePromptBuilder.cs" Link="Source\ISquadBridgePromptBuilder.cs" />
     <Compile Include="..\SquadDash\TasksContextBuilder.cs" Link="Source\TasksContextBuilder.cs" />

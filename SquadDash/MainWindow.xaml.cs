@@ -225,6 +225,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private const int QuickReplyReadWindowMs = 400;
     private TranscriptResponseEntry? _lastQuickReplyEntry;
     private TranscriptResponseEntry? _routingIssueQuickReplyEntry;
+    private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
     private PendingQuickReplyLaunchState? _pendingQuickReplyLaunch;
@@ -17749,6 +17750,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var repairSw = Stopwatch.StartNew();
         SquadScribeWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
+        var teamRootAssessment = SquadTeamRootRepairService.Assess(_currentWorkspace.FolderPath);
+        if (teamRootAssessment.ConfigNeedsRepair)
+        {
+            var fixed_ = SquadTeamRootRepairService.RepairConfig(_currentWorkspace.FolderPath);
+            SquadDashTrace.Write(TraceCategory.Performance,
+                $"TEAM_ROOT_CONFIG_REPAIR: fixed={fixed_} folder={_currentWorkspace.FolderPath}");
+        }
         repairSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"WORKSPACE_REPAIR: {repairSw.ElapsedMilliseconds}ms folder={_currentWorkspace.FolderPath}");
 
@@ -18103,6 +18111,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ScrollToEndIfAtBottom();
         MaybePromptForUniverseSelection();
         MaybePublishMissingUtilityAgentNotice();
+        MaybePublishTeamRootPollutionNotice(teamRootAssessment);
         UpdateRunningInstanceRegistration();
 
         openWsSw.Stop();
@@ -18155,6 +18164,51 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         AppendLine(
             $"[info] Squad checked the team setup and found missing built-in utility agents: {string.Join(", ", missingUtilities)}. Shared workflows like decision merging or backlog monitoring may be incomplete until they are restored.",
             ThemeBrush("SystemInfoText"));
+    }
+
+    private void MaybePublishTeamRootPollutionNotice(SquadTeamRootAssessment assessment)
+    {
+        if (_isClosing || _currentWorkspace is null)
+            return;
+
+        if (!assessment.ConfigNeedsRepair && !assessment.HasPollution)
+            return;
+
+        if (assessment.ConfigNeedsRepair && !assessment.HasPollution)
+        {
+            ShowSystemTranscriptEntry(SquadTeamRootRepairWorkflow.BuildConfigOnlyFixedMessage());
+            return;
+        }
+
+        _teamRootPollutionQuickReplyEntry = ShowSystemTranscriptEntry(
+            SquadTeamRootRepairWorkflow.BuildNoticeEntry(assessment));
+        SquadDashTrace.Write(
+            "TeamRoot",
+            $"Published teamRoot pollution notice items={assessment.PollutionItems.Count} configFixed={assessment.ConfigNeedsRepair}");
+    }
+
+    private void HandleTeamRootCleanQuickReply(TranscriptResponseEntry entry)
+    {
+        _pec.DisableQuickReplies(entry);
+        ClearActiveQuickReplyState(entry);
+        _teamRootPollutionQuickReplyEntry = null;
+
+        if (_currentWorkspace is null)
+            return;
+
+        var result = SquadTeamRootRepairService.CleanRootPollution(_currentWorkspace.FolderPath);
+        SquadDashTrace.Write(
+            "TeamRoot",
+            $"Cleaned root pollution: cleaned={result.CleanedItems.Count} failed={result.FailedItems.Count}");
+        ShowSystemTranscriptEntry(SquadTeamRootRepairWorkflow.BuildCleanupDoneMessage(result));
+    }
+
+    private void HandleTeamRootIgnoreQuickReply(TranscriptResponseEntry entry)
+    {
+        _pec.DisableQuickReplies(entry);
+        ClearActiveQuickReplyState(entry);
+        _teamRootPollutionQuickReplyEntry = null;
+        ShowSystemTranscriptEntry(SquadTeamRootRepairWorkflow.BuildIgnoredMessage());
     }
 
     private WorkspaceOwnershipLease? TakeStartupWorkspaceLease(string folderPath)
@@ -22947,6 +23001,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                ReferenceEquals(payload.Entry, _routingIssueQuickReplyEntry);
     }
 
+    private bool IsTeamRootPollutionQuickReply(QuickReplyButtonPayload payload)
+    {
+        return _teamRootPollutionQuickReplyEntry is not null &&
+               ReferenceEquals(payload.Entry, _teamRootPollutionQuickReplyEntry);
+    }
+
     private void HandleRoutingIgnoreQuickReply(TranscriptResponseEntry entry)
     {
         _pec.DisableQuickReplies(entry);
@@ -23113,6 +23173,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (string.Equals(option, RoutingIssueWorkflow.RepairQuickReply, StringComparison.OrdinalIgnoreCase))
                 {
                     await HandleRoutingRepairQuickReplyAsync(payload.Entry);
+                    return;
+                }
+            }
+
+            if (IsTeamRootPollutionQuickReply(payload))
+            {
+                var option = payload.Option.Trim();
+                if (string.Equals(option, SquadTeamRootRepairWorkflow.CleanQuickReply, StringComparison.OrdinalIgnoreCase))
+                {
+                    HandleTeamRootCleanQuickReply(payload.Entry);
+                    return;
+                }
+
+                if (string.Equals(option, SquadTeamRootRepairWorkflow.IgnoreQuickReply, StringComparison.OrdinalIgnoreCase))
+                {
+                    HandleTeamRootIgnoreQuickReply(payload.Entry);
                     return;
                 }
             }
@@ -25017,6 +25093,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _backgroundTaskPresenter.ClearState();
         DismissCodeHealthBanner();
         _routingIssueQuickReplyEntry = null;
+        _teamRootPollutionQuickReplyEntry = null;
         ClearActiveQuickReplyState();
         _directQuickReplyAgentThreadIds.Clear();
         _announcedRoutingIssueFingerprint = null;
