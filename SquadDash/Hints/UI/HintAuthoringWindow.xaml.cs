@@ -87,6 +87,9 @@ internal partial class HintAuthoringWindow : Window
 
     private void TriggerComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // Guard: fires during InitializeComponent before ActionIdPanel exists
+        if (ActionIdPanel is null) return;
+
         if (TriggerComboBox.SelectedItem is ComboBoxItem item)
         {
             bool isAction = item.Tag?.ToString() == "Action";
