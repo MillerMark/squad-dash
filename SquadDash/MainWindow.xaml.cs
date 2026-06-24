@@ -13346,6 +13346,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var target = FindName(hint.TargetControlId) as FrameworkElement ?? PromptBorder;
                 var callout = FrmUltimateCallout.ShowCallout(hint.MarkdownText, target);
                 HintEngine.Instance.RecordShown(hint.HintId);
+                if (callout is not null)
+                {
+                    bool explicitlyDismissed = false;
+                    callout.UserDismissed += (_, _) => {
+                        explicitlyDismissed = true;
+                        HintEngine.Instance.RecordDismissed(hint.HintId);
+                    };
+                    callout.Closed += (_, _) => {
+                        if (!explicitlyDismissed)
+                            HintEngine.Instance.RecordSeen(hint.HintId);
+                    };
+                }
             }
             catch (Exception ex)
             {

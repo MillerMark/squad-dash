@@ -156,7 +156,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return 2 * Options.CornerRadius + closeButtonEdgeSize;
     }
 
+    /// <summary>
+    /// Raised when the user explicitly clicks the × close button (as opposed to an auto-close sweep).
+    /// Subscribe to record a "dismissed" state for hint tracking.
+    /// </summary>
+    public event EventHandler? UserDismissed;
+
     private void CloseButton_Click(object sender, RoutedEventArgs e) {
+        UserDismissed?.Invoke(this, EventArgs.Empty);
         Close();
     }
 
