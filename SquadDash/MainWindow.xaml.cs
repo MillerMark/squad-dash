@@ -2239,6 +2239,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (_isPromptRunning || IsNativeLoopRunning || _queueManuallyPaused || HasPendingDirectQuickReplyAgentFollowUp())
                 {
                     OnQueueTabClicked(null);
+                    if (_queueManuallyPaused)
+                        ShowQueuePausedCallout();
                     return;
                 }
                 await DispatchQueuedTabAsync(_activeTabId);
