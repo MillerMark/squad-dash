@@ -9,9 +9,12 @@ namespace SquadDash;
 
 internal partial class HintAuthoringWindow : Window
 {
+    private const string DefaultMarkdown = "**This text appears in the callout.**\n\nEdit this hint text.";
+
     private readonly DispatcherTimer _debounceTimer;
     private HintDefinition? _editingHint;
     private string _workspaceRoot = string.Empty;
+    private FrmUltimateCallout? _previewCallout;
 
     public HintAuthoringWindow()
     {
@@ -22,12 +25,14 @@ internal partial class HintAuthoringWindow : Window
             Interval = TimeSpan.FromMilliseconds(300)
         };
         _debounceTimer.Tick += DebounceTimer_Tick;
+
+        Closed += (_, _) => { _previewCallout?.Close(); _previewCallout = null; };
     }
 
     /// <summary>
     /// Pre-fills the window with the target control ID and optionally an existing hint to edit.
     /// </summary>
-    public void Initialize(string targetControlId, string workspaceRoot, HintDefinition? existing = null)
+    public void Initialize(string targetControlId, string workspaceRoot, HintDefinition? existing = null, FrameworkElement? target = null)
     {
         _workspaceRoot = workspaceRoot;
         TargetBox.Text = targetControlId;
@@ -59,8 +64,25 @@ internal partial class HintAuthoringWindow : Window
                 }
             }
         }
+        else
+        {
+            MarkdownEditor.Text = DefaultMarkdown;
+        }
 
         MarkdownPreview.Markdown = MarkdownEditor.Text;
+        ShowPreviewCallout(target);
+    }
+
+    private void ShowPreviewCallout(FrameworkElement? target)
+    {
+        if (target is null) return;
+
+        var isDark = Application.Current.Resources.Contains("IsDarkTheme")
+                     && (bool)Application.Current.Resources["IsDarkTheme"];
+        var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+
+        _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+            MarkdownEditor.Text, target, theme: theme);
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -83,6 +105,9 @@ internal partial class HintAuthoringWindow : Window
     {
         _debounceTimer.Stop();
         MarkdownPreview.Markdown = MarkdownEditor.Text;
+
+        if (_previewCallout is { IsLoaded: true } callout && callout.IsVisible)
+            callout.UpdateMarkdown(MarkdownEditor.Text);
     }
 
     private void TriggerComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -1001,6 +1001,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return frmUltimateCallout;
     }
 
+    /// <summary>Updates the callout text and redraws in place.</summary>
+    public void UpdateMarkdown(string newMarkDownText) {
+        if (this.markDownText == newMarkDownText) return;
+        this.markDownText = newMarkDownText;
+        RefreshLayout();
+    }
+
     public void MoveCallout(string markDownText, double angle, double width) {
         InvalidateLayout();
         lastCalloutAngle = angle;

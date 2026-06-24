@@ -133,22 +133,31 @@ internal sealed class HintAuthoringOverlay
     }
 
     /// <summary>
-    /// Walks up from <paramref name="start"/> to find the nearest named
+    /// Walks up from <paramref name="start"/> to find the nearest resolvable
     /// FrameworkElement, stopping at a Window boundary.
-    /// Falls back to <paramref name="start"/> itself if nothing is named.
+    /// Returns <c>null</c> if no resolvable element is found (no fallback to start).
     /// </summary>
     private static FrameworkElement? FindInterestingElement(FrameworkElement start)
     {
         DependencyObject? current = start;
         while (current is not null)
         {
-            if (current is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
-                return fe;
             if (current is Window)
                 break;
+            if (current is FrameworkElement fe)
+            {
+                var dc = fe.DataContext;
+                if (dc is IHaveAgentName)
+                    return fe;
+                if (dc is INamedControl)
+                    return fe;
+                var name = fe.Name;
+                if (!string.IsNullOrEmpty(name) && !name.StartsWith("PART_", StringComparison.Ordinal))
+                    return fe;
+            }
             current = VisualTreeHelper.GetParent(current);
         }
-        return start;
+        return null;
     }
 
     private void UpdateAdorner(FrameworkElement target, string label)
@@ -186,10 +195,15 @@ internal sealed class HintAuthoringOverlay
 
     private void OpenAuthoringWindow(FrameworkElement target)
     {
-        var controlId = HintControlResolver.ResolveControlId(target) ?? target.GetType().Name;
-        var window    = new HintAuthoringWindow();
-        window.Initialize(controlId, _workspaceRoot);
-        window.Owner = _owner;
+        var controlId     = HintControlResolver.ResolveControlId(target) ?? target.GetType().Name;
+        var workspaceRoot = _workspaceRoot;
+        var owner         = _owner;
+
+        Deactivate();
+
+        var window = new HintAuthoringWindow();
+        window.Initialize(controlId, workspaceRoot, target: target);
+        window.Owner = owner;
         window.Show();
     }
 
