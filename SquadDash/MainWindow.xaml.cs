@@ -2994,7 +2994,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 width: 300,
                 theme: theme,
                 fontSize: fontSize,
-                placement: CalloutPlacement.South);
+                placement: CalloutPlacement.North);
         }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
@@ -3258,7 +3258,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         width: 260,
                         theme: theme,
                         fontSize: fontSize,
-                        placement: CalloutPlacement.South);
+                        placement: CalloutPlacement.North);
                 }, System.Windows.Threading.DispatcherPriority.Loaded);
             }
         }
