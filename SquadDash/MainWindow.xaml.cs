@@ -13064,8 +13064,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private UiRevealOverlay?    _uiRevealOverlay;
-    private ThemeRevealOverlay? _themeRevealOverlay;
+    private UiRevealOverlay?      _uiRevealOverlay;
+    private ThemeRevealOverlay?   _themeRevealOverlay;
+    private HintAuthoringOverlay? _hintAuthoringOverlay;
 
     private void UiRevealMenuItem_Click(object sender, RoutedEventArgs e) =>
         ToggleUiReveal(this);
@@ -13154,7 +13155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            if (key != Key.F12 && key != Key.F11) return;
+            if (key != Key.F12 && key != Key.F11 && key != Key.F6) return;
             if (Keyboard.Modifiers != ModifierKeys.None) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
@@ -13163,7 +13164,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                              .FirstOrDefault(w => w.IsActive)
                          ?? this;
 
-            if (key == Key.F11)
+            if (key == Key.F6)
+            {
+                // F6: toggle Hint Authoring Mode — developer mode only
+                if (DeveloperMenuItem.IsVisible)
+                    ToggleHintAuthoring();
+            }
+            else if (key == Key.F11)
             {
                 _themeRevealOverlay ??= new ThemeRevealOverlay();
                 if (_themeRevealOverlay.IsActive)
@@ -13181,6 +13188,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             HandleUiCallbackException(nameof(OnGlobalPreProcessInput), ex);
         }
+    }
+
+    // ── Developer > Hint Authoring (F6) ──────────────────────────────────────
+
+    private void HintAuthoringMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ToggleHintAuthoring();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(HintAuthoringMenuItem_Click), ex);
+        }
+    }
+
+    private void ToggleHintAuthoring()
+    {
+        _hintAuthoringOverlay ??= new HintAuthoringOverlay();
+        if (_hintAuthoringOverlay.IsActive)
+            _hintAuthoringOverlay.Deactivate();
+        else
+            _hintAuthoringOverlay.Activate(this, _currentWorkspace?.FolderPath ?? "",
+                active => HintAuthoringModeBorder.Visibility =
+                    active ? Visibility.Visible : Visibility.Collapsed);
     }
 
     // ── Developer > Simulation menu ───────────────────────────────────────────

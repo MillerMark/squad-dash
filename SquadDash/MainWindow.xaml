@@ -902,6 +902,11 @@
                     <MenuItem x:Name="TestCallOutMenuItem"
                               Header="Test Call Out"
                               Click="TestCallOutMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem x:Name="HintAuthoringMenuItem"
+                              Header="_Hint Authoring (F6)"
+                              InputGestureText="F6"
+                              Click="HintAuthoringMenuItem_Click" />
                 </MenuItem>
             </Menu>
 
@@ -1059,6 +1064,29 @@
                                VerticalAlignment="Center"
                                FontSize="{DynamicResource FontSizeSmall}"
                                Foreground="{DynamicResource ImportantText}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Hint Authoring Mode indicator — shown while F6 authoring mode is active -->
+            <Border x:Name="HintAuthoringModeBorder"
+                    Grid.Column="2"
+                    Padding="8,0,8,0"
+                    Margin="8,0,0,0"
+                    Background="Transparent"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Ellipse Width="8"
+                             Height="8"
+                             Margin="0,0,6,0"
+                             VerticalAlignment="Center"
+                             Fill="{DynamicResource QueueTabActiveBorder}" />
+                    <TextBlock Text="Hint Authoring Mode — click any control to author a hint (Esc or F6 to exit)"
+                               VerticalAlignment="Center"
+                               FontSize="{DynamicResource FontSizeSmall}"
+                               Foreground="{DynamicResource LabelText}" />
                 </StackPanel>
             </Border>
 

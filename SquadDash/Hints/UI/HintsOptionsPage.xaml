@@ -1,0 +1,41 @@
+<UserControl x:Class="SquadDash.HintsOptionsPage"
+             x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource AppSurface}">
+    <StackPanel Margin="20,16,20,20">
+
+        <!-- Enable hints -->
+        <CheckBox x:Name="HintsEnabledCheckBox"
+                  Content="Enable hints"
+                  FontSize="{DynamicResource FontSizeBody}"
+                  Foreground="{DynamicResource LabelText}"
+                  Margin="0,0,0,20"
+                  Click="HintsEnabledCheckBox_Click" />
+
+        <!-- Minimum gap -->
+        <TextBlock Text="Minimum gap between hints (minutes)"
+                   FontWeight="SemiBold"
+                   FontSize="{DynamicResource FontSizeBody}"
+                   Foreground="{DynamicResource LabelText}"
+                   Margin="0,0,0,4" />
+        <TextBox x:Name="MinGapBox"
+                 Width="80"
+                 HorizontalAlignment="Left"
+                 Background="{DynamicResource InputSurface}"
+                 Foreground="{DynamicResource LabelText}"
+                 BorderBrush="{DynamicResource InputBorder}"
+                 BorderThickness="1"
+                 Padding="4,3"
+                 Margin="0,0,0,20"
+                 LostFocus="MinGapBox_LostFocus" />
+
+        <!-- Clear history -->
+        <Button x:Name="ClearHistoryButton"
+                Content="Clear hint history"
+                Style="{StaticResource ThemedButtonStyle}"
+                HorizontalAlignment="Left"
+                Click="ClearHistoryButton_Click" />
+
+    </StackPanel>
+</UserControl>

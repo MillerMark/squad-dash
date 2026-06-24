@@ -81,6 +81,8 @@ internal sealed class PreferencesWindow : Window {
     private readonly CheckBox _soundQuickRepliesShownCheckBox;
     private readonly TextBox  _soundQuickRepliesShownPathBox;
     private readonly ObservableCollection<VoiceReplacementRuleViewModel> _voiceReplacementRules;
+    // ── Hints page ───────────────────────────────────────────────────────────
+    private readonly HintsOptionsPage _hintsOptionsPage;
 
     private static readonly string[] KnownCopilotModelOptions = {
         ApplicationSettingsSnapshot.DefaultCopilotModel,
@@ -572,6 +574,9 @@ internal sealed class PreferencesWindow : Window {
 
         // ── Build pages ───────────────────────────────────────────────────
 
+        _hintsOptionsPage = new HintsOptionsPage();
+        _hintsOptionsPage.Initialize(currentSettings);
+
         var pageList = new List<(string label, UIElement page)> {
             ("General",           BuildGeneralPage()),
             ("Provider",          BuildSpeechProviderPage()),
@@ -583,6 +588,7 @@ internal sealed class PreferencesWindow : Window {
             ("Sound Alerts",      BuildSoundsPage(currentSettings)),
             ("TTS Provider",      BuildTtsProviderPage(currentSettings)),
             ("Commands",          BuildAiPage()),
+            ("Hints",             WrapInScrollViewer(_hintsOptionsPage)),
         };
 
 
@@ -2235,6 +2241,7 @@ internal sealed class PreferencesWindow : Window {
             _byokOfflineModeCheckBox.IsChecked == true);
         updated = _settingsStore.SaveCleanupPrompt(_cleanupPromptBox.Text.Trim());
         SaveVoiceReplacementsNow();
+        updated = _settingsStore.SaveHintSettings(_hintsOptionsPage.GetCurrentSettings());
         _onSaved(updated);
         Close();
 
