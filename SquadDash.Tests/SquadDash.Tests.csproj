@@ -299,4 +299,31 @@
     <Compile Include="..\SquadDash\Hints\HintEngine.cs" Link="Source\Hints\HintEngine.cs" />
   </ItemGroup>
 
+  <!-- Callouts -->
+  <ItemGroup>
+    <Compile Include="..\SquadDash\Callouts\CalloutPlacement.cs" Link="Source\Callouts\CalloutPlacement.cs" />
+    <Compile Include="..\SquadDash\Callouts\Theme.cs" Link="Source\Callouts\Theme.cs" />
+    <Compile Include="..\SquadDash\Callouts\HueSatLight.cs" Link="Source\Callouts\HueSatLight.cs" />
+    <Compile Include="..\SquadDash\Callouts\ICalloutWindow.cs" Link="Source\Callouts\ICalloutWindow.cs" />
+    <Compile Include="..\SquadDash\Callouts\ICalloutService.cs" Link="Source\Callouts\ICalloutService.cs" />
+    <Compile Include="..\SquadDash\Callouts\FlowDocumentHelper.cs" Link="Source\Callouts\FlowDocumentHelper.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\CalloutOptions.cs" Link="Source\Callouts\UI\CalloutOptions.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\CalloutSide.cs" Link="Source\Callouts\UI\CalloutSide.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\GuidelineIntersectionData.cs" Link="Source\Callouts\UI\GuidelineIntersectionData.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\MathEx.cs" Link="Source\Callouts\UI\MathEx.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\MyLine.cs" Link="Source\Callouts\UI\MyLine.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\SimpleMarkdownViewer.cs" Link="Source\Callouts\UI\SimpleMarkdownViewer.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\Styles.cs" Link="Source\Callouts\UI\Styles.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\WindowHelper.cs" Link="Source\Callouts\UI\WindowHelper.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\FrmUltimateCallout.LayoutPositioning.cs" Link="Source\Callouts\UI\FrmUltimateCallout.LayoutPositioning.cs" />
+    <Page Include="..\SquadDash\Callouts\UI\FrmUltimateCallout.xaml" Link="Source\Callouts\UI\FrmUltimateCallout.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Compile Include="..\SquadDash\Callouts\UI\FrmUltimateCallout.xaml.cs" Link="Source\Callouts\UI\FrmUltimateCallout.xaml.cs">
+      <DependentUpon>FrmUltimateCallout.xaml</DependentUpon>
+    </Compile>
+
+  </ItemGroup>
+
 </Project>
