@@ -898,6 +898,10 @@
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="Theme _Explorer..."
                               Click="ThemeColorsMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem x:Name="TestCallOutMenuItem"
+                              Header="Test Call Out"
+                              Click="TestCallOutMenuItem_Click" />
                 </MenuItem>
             </Menu>
 
