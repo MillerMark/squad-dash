@@ -44,6 +44,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<bool>? _onGroupedViewChanged;
     private IReadOnlyList<CommitApprovalItem> _lastItems = [];
     private List<CommitApprovalItem> _mutableItems = new();
+    private FrmUltimateCallout? _hoverCallout;
 
     public CommitApprovalPanel(
         StackPanel                               needsApprovalPanel,
@@ -323,8 +324,16 @@ internal sealed class CommitApprovalPanel {
 
     private Border BuildRow(CommitApprovalItem item) {
         var row = new Border { Background = Brushes.Transparent, Tag = item };
-        row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        row.MouseEnter += (_, _) => {
+            row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+            _hoverCallout?.Close();
+            var theme = AgentStatusCard.IsDarkTheme ? CalloutTheme.Dark : CalloutTheme.Light;
+            _hoverCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                BuildHoverCalloutMarkdown(item), row, theme: theme);
+        };
         row.MouseLeave += (_, _) => {
+            _hoverCallout?.Close();
+            _hoverCallout = null;
             if (row == _selectedRow)
                 row.SetResourceReference(Border.BackgroundProperty, "ApprovalSelectedSurface");
             else
@@ -726,6 +735,34 @@ internal sealed class CommitApprovalPanel {
             relBlock.Text = StatusTimingPresentation.FormatRelativeTimestamp(item.TurnStartedAt);
         };
         return tooltip;
+    }
+
+    /// <summary>Builds the markdown text shown in the side-callout when hovering an approval row.</summary>
+    private static string BuildHoverCalloutMarkdown(CommitApprovalItem item) {
+        var desc = CleanDescription(item.Description);
+        var relTime = StatusTimingPresentation.FormatRelativeTimestamp(item.TurnStartedAt);
+
+        string? rawPrompt = null;
+        if (!string.IsNullOrWhiteSpace(item.OriginalPrompt))
+            rawPrompt = item.OriginalPrompt.Trim();
+        else if (!string.IsNullOrWhiteSpace(item.TurnPromptHint))
+            rawPrompt = item.TurnPromptHint.Trim();
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**{desc}**");
+        sb.AppendLine();
+        sb.AppendLine($"_{relTime}_");
+
+        if (rawPrompt is not null) {
+            var promptText = DictationAnnotation.Replace(rawPrompt, string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(promptText) &&
+                !promptText.Equals(desc, StringComparison.OrdinalIgnoreCase)) {
+                sb.AppendLine();
+                sb.AppendLine(promptText);
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static readonly Regex DictationAnnotation =

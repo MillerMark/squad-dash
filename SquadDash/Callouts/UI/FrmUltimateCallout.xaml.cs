@@ -938,6 +938,20 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 return 315;     // Below right
     }
 
+    /// <summary>
+    /// Returns the best horizontal angle for side placement, choosing whichever side of the
+    /// target has more available screen space.
+    /// Angle 180: tail points left  → callout body appears to the RIGHT of the target.
+    /// Angle 0:   tail points right → callout body appears to the LEFT  of the target.
+    /// </summary>
+    private double GetBestSideAngle() {
+        var targetCenter = GetTargetCenter();
+        Rect screenRect = NativeMethods.GetMonitorBoundsForPhysicalPoint((int)targetCenter.X, (int)targetCenter.Y);
+        double spaceLeft  = targetCenter.X - screenRect.Left;
+        double spaceRight = screenRect.Right - targetCenter.X;
+        return spaceRight >= spaceLeft ? 180 : 0;
+    }
+
     public static FrmUltimateCallout ShowCallout(string markDownText, FrameworkElement target, double width = 200, double angle = double.MinValue, CalloutTheme theme = CalloutTheme.Light, double fontSize = 12, double horizontalPercentOffset = 0) {
         var frmUltimateCallout = CreateNewCallout(markDownText, width, theme, fontSize, horizontalPercentOffset);
         frmUltimateCallout.Options.TargetSpacing = fontSize / 2;
@@ -957,6 +971,24 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         frmUltimateCallout.FinalizeAndShow();
 
         return frmUltimateCallout;
+    }
+
+    /// <summary>
+    /// Creates and shows a callout beside <paramref name="target"/>, placing the body on whichever
+    /// horizontal side has more available screen space so the callout never blocks vertical lists.
+    /// </summary>
+    public static FrmUltimateCallout ShowCalloutBesideTarget(
+        string markDownText,
+        FrameworkElement target,
+        double width = 300,
+        CalloutTheme theme = CalloutTheme.Light,
+        double fontSize = 12) {
+        var callout = CreateNewCallout(markDownText, width, theme, fontSize);
+        callout.Options.TargetSpacing = fontSize / 2;
+        callout.PointTo(target);
+        callout.SetAngle(callout.GetBestSideAngle());
+        callout.FinalizeAndShow();
+        return callout;
     }
 
     private static FrmUltimateCallout CreateNewCallout(string markDownText, double width, CalloutTheme theme, double fontSize = 12, double horizontalPercentOffset = 0) {
