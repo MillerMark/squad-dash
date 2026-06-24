@@ -2983,6 +2983,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         AppendLine("✋ Queued prompt is active — paused for edits. Click **Send** (or click another tab) to submit immediately.");
 
         SyncSendButton();
+
+        _ = Dispatcher.InvokeAsync(() => {
+            var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
+            var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+            var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+            FrmUltimateCallout.ShowCalloutBesideTarget(
+                "The active queue tab is pausing dispatch.\n\nClick **Send** to submit it now, or select a different tab to drain the queue.",
+                QueueStatusLabel,
+                width: 300,
+                theme: theme,
+                fontSize: fontSize,
+                placement: CalloutPlacement.South);
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
 
