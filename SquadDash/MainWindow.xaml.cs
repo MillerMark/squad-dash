@@ -34153,6 +34153,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
 
             EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
+            ShowCategorizationQueuedCallout();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalCategorizeButton_Click), ex); }
     }
@@ -34187,8 +34188,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
 
             EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
+            ShowCategorizationQueuedCallout();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EnqueueOrganizeUncategorizedPrompt), ex); }
+    }
+
+    /// <summary>
+    /// After enqueuing a categorization prompt, finds the newly-added queue tab
+    /// and shows a callout pointing at it.
+    /// </summary>
+    private void ShowCategorizationQueuedCallout()
+    {
+        // The newly-enqueued item is the last in the queue list.
+        var newItem = _promptQueue.Items.Count > 0 ? _promptQueue.Items[^1] : null;
+        if (newItem is null) return;
+
+        // Queue tabs are rebuilt synchronously by SyncQueuePanel (called inside EnqueueRcPrompt).
+        // Find the Border whose Tag matches the new item's Id.
+        var tabBorder = QueueTabStrip.Children
+            .OfType<Border>()
+            .FirstOrDefault(b => b.Tag as string == newItem.Id);
+
+        if (tabBorder is null) return;
+
+        var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
+        var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+        var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+
+        FrmUltimateCallout.ShowCalloutBesideTarget(
+            "AI will categorize these approvals when this queue item is processed.",
+            tabBorder,
+            width: 280,
+            theme: theme,
+            fontSize: fontSize);
     }
 
     private void ApprovalFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
