@@ -149,10 +149,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void CreateCalloutFrame() {
-        // Subtle drop shadow behind the callout
-        AddCalloutPathToBackOfCanvas(null, 0, new SolidColorBrush(Color.FromArgb(30, 0, 0, 0)), 5, 5);
-        // Main callout shape
+        // Main callout shape — added first, so shadow (inserted after) ends up at index 0 (behind)
         AddCalloutPathToBackOfCanvas(calloutStrokeBrush, 1, calloutFillBrush);
+        // Subtle drop shadow — inserted at 0 last, so it sits behind the main shape
+        AddCalloutPathToBackOfCanvas(null, 0, new SolidColorBrush(Color.FromArgb(30, 0, 0, 0)), 5, 5);
     }
 
     private void AddCalloutPathToBackOfCanvas(SolidColorBrush calloutStrokeBrush, int thickness, SolidColorBrush calloutFillBrush, double offsetX = 0, double offsetY = 0) {
