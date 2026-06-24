@@ -13274,7 +13274,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 var target = FindName(hint.TargetControlId) as FrameworkElement ?? PromptBorder;
                 var callout = FrmUltimateCallout.ShowCallout(hint.MarkdownText, target);
-                callout.IsSticky = true;
                 HintEngine.Instance.RecordShown(hint.HintId);
             }
             catch (Exception ex)
