@@ -198,6 +198,7 @@
                            FontSize="{DynamicResource FontSizeBody}"
                            Foreground="{DynamicResource LabelText}" />
                 <ComboBox x:Name="TriggerComboBox" Grid.Row="2" Grid.Column="1"
+                          Style="{StaticResource ThemedComboBoxStyle}"
                           Margin="0,0,0,6"
                           SelectionChanged="TriggerComboBox_SelectionChanged">
                     <ComboBoxItem Content="Idle" Tag="Idle" IsSelected="True" />
@@ -240,7 +241,8 @@
                            VerticalAlignment="Center" Margin="0,0,6,0"
                            FontSize="{DynamicResource FontSizeBody}"
                            Foreground="{DynamicResource LabelText}" />
-                <ComboBox x:Name="ConditionComboBox" Grid.Row="5" Grid.Column="1">
+                <ComboBox x:Name="ConditionComboBox" Grid.Row="5" Grid.Column="1"
+                          Style="{StaticResource ThemedComboBoxStyle}">
                     <ComboBoxItem Content="Always" Tag="always" IsSelected="True" />
                 </ComboBox>
             </Grid>

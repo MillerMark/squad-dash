@@ -12,6 +12,7 @@ internal partial class HintAuthoringWindow : Window
     private const string DefaultMarkdown = "**This text appears in the callout.**\n\nEdit this hint text.";
 
     private readonly DispatcherTimer _debounceTimer;
+    private readonly PttTextBoxAttachment _pttAttachment;
     private HintDefinition? _editingHint;
     private string _workspaceRoot = string.Empty;
     private FrmUltimateCallout? _previewCallout;
@@ -26,9 +27,28 @@ internal partial class HintAuthoringWindow : Window
         };
         _debounceTimer.Tick += DebounceTimer_Tick;
 
-        Closed += (_, _) => { _previewCallout?.Close(); _previewCallout = null; };
+        _pttAttachment = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
+        Closed += (_, _) => { _previewCallout?.Close(); _previewCallout = null; _pttAttachment.Dispose(); };
+
+        PreviewKeyDown += (_, e) => {
+            var focused = GetFocusedPttTextBox();
+            if (focused is not null && _pttAttachment.HandlePreviewKeyDown(e, focused))
+                e.Handled = true;
+        };
+        PreviewKeyUp += (_, e) => {
+            if (_pttAttachment.HandlePreviewKeyUp(e))
+                e.Handled = true;
+        };
 
         MarkdownEditor.PreviewKeyDown += MarkdownEditor_PreviewKeyDown;
+    }
+
+    private TextBox? GetFocusedPttTextBox()
+    {
+        var focused = Keyboard.FocusedElement as TextBox;
+        if (focused == MarkdownEditor || focused == TriggerNotesBox || focused == ActionIdBox)
+            return focused;
+        return null;
     }
 
     /// <summary>
