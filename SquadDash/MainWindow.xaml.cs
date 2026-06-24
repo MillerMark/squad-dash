@@ -13809,24 +13809,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
 
-    private void TestCallOutMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (_leadAgent is null) return;
-            var container = ActiveAgentItemsControl.ItemContainerGenerator.ContainerFromItem(_leadAgent)
-                         ?? InactiveAgentItemsControl.ItemContainerGenerator.ContainerFromItem(_leadAgent);
-            if (container is null) return;
-            var imageBanner = FindNamedVisualChild<Border>(container, "ImageBanner");
-            if (imageBanner is null) return;
-            FrmUltimateCallout.ShowCallout("**Squad Coordinator** callout test — pointing at the image.", imageBanner);
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(TestCallOutMenuItem_Click), ex);
-        }
-    }
-
     private void ToolIconGalleryMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
