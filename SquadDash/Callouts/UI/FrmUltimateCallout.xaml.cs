@@ -1269,9 +1269,19 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         calloutAnimationTimer?.Stop();
     }
 
+    const double PositionLimit = 2_000_000; // well within Int32 range, generous for any real screen layout
+
+    static bool IsValidPosition(double value) =>
+        !double.IsNaN(value) && !double.IsInfinity(value) && Math.Abs(value) <= PositionLimit;
+
     void MoveWindowToFinalPosition() {
-        Left = originalLeft + deltaLeft;
-        Top = originalTop + deltaTop;
+        var newLeft = originalLeft + deltaLeft;
+        var newTop  = originalTop  + deltaTop;
+        // Guard against overflow: WPF Window.Left/Top must be in Int32 range.
+        if (!IsValidPosition(newLeft) || !IsValidPosition(newTop))
+            return;
+        Left = newLeft;
+        Top  = newTop;
     }
 
     public double LastDragAngle { get => lastDragAngle; }
@@ -1299,8 +1309,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         double percentComplete = InOutQuadBlend(timeSpanSinceAnimationStartMs / Options.AnimationTimeMs);
 
-        Left = originalLeft + deltaLeft * percentComplete;
-        Top = originalTop + deltaTop * percentComplete;
+        var animLeft = originalLeft + deltaLeft * percentComplete;
+        var animTop  = originalTop  + deltaTop  * percentComplete;
+        if (!IsValidPosition(animLeft) || !IsValidPosition(animTop))
+            return;
+        Left = animLeft;
+        Top  = animTop;
     }
 
     double InOutQuadBlend(double t) {
