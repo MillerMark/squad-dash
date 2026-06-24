@@ -9162,10 +9162,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var isShiftIns = e.Key == Key.Insert && (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
             if (isCtrlV || isShiftIns)
             {
-                if (Clipboard.ContainsImage())
+                bool clipboardHasImage;
+                try { clipboardHasImage = Clipboard.ContainsImage(); }
+                catch (System.Runtime.InteropServices.COMException) { clipboardHasImage = false; }
+
+                if (clipboardHasImage)
                 {
                     e.Handled = true;
-                    var bitmap = Clipboard.GetImage();
+                    BitmapSource? bitmap = null;
+                    try { bitmap = Clipboard.GetImage(); }
+                    catch (System.Runtime.InteropServices.COMException) { }
                     if (bitmap is not null)
                         SquadDashTrace.Write("UI",
                             $"[ClipboardPaste] raw clipboard bitmap: " +
@@ -9205,7 +9211,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (isShiftIns)
                 {
                     e.Handled = true;
-                    var text = Clipboard.GetText();
+                    string text = string.Empty;
+                    try { text = Clipboard.GetText() ?? string.Empty; }
+                    catch (System.Runtime.InteropServices.COMException) { }
                     if (!string.IsNullOrEmpty(text))
                     {
                         var tb = sender as System.Windows.Controls.TextBox;
