@@ -13485,7 +13485,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void DocumentationMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        try { Process.Start(new ProcessStartInfo("https://github.com/MillerMark/squad-dash") { UseShellExecute = true }); }
+        try { Process.Start(new ProcessStartInfo("https://millermark.github.io/squad-dash/") { UseShellExecute = true }); }
         catch (Exception ex) { HandleUiCallbackException(nameof(DocumentationMenuItem_Click), ex); }
     }
 
