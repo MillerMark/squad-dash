@@ -29657,6 +29657,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Margin  = new Thickness(8, 4, 8, 4),
             TickFrequency = 0.25,
             IsSnapToTickEnabled = false,
+            SmallChange = 0.1,
+            LargeChange = 0.1,
             AutoToolTipPlacement = System.Windows.Controls.Primitives.AutoToolTipPlacement.TopLeft,
             AutoToolTipPrecision  = 2,
         };
@@ -29707,6 +29709,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Margin  = new Thickness(8, 4, 8, 4),
             TickFrequency = 0.25,
             IsSnapToTickEnabled = false,
+            SmallChange = 0.1,
+            LargeChange = 0.1,
             AutoToolTipPlacement = System.Windows.Controls.Primitives.AutoToolTipPlacement.TopLeft,
             AutoToolTipPrecision  = 2,
         };
