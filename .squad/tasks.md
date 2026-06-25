@@ -12,6 +12,32 @@
 
 ## 🟡 Mid Priority
 
+- [ ] **[Architecture] Shared vs Local data folder convention — ADR** *(Owner: Orion Vale)*
+  SquadDash needs a standard answer for where team-shared vs user-local data lives.
+  Shared data lives in version control (`.squad/shared/` or directly in `.squad/`).
+  Local data lives in AppData. Both paths should be well-defined for every data type:
+  notes, tasks, code-health entries, loop files, guided tour steps.
+  Deliverable: ADR in `.squad/decisions.md` defining the folder contract + a `DataScope`
+  enum (Shared / Local) usable by all data-aware features.
+
+- [ ] **[Notes] Convert inbox message to note via right-click** *(Owner: Lyra Morn)*
+  Right-click on any inbox message → context menu item "Add as Note".
+  Populates a new note with the message subject as the note title and body as content.
+  Depends on: shared/local data convention ADR.
+
+- [ ] **[Notes] Add New Shared Note from notes panel right-click** *(Owner: Lyra Morn)*
+  Right-click in the Notes panel → "Add New Shared Note".
+  Shared notes are stored in `.squad/notes/` (version-controlled).
+  Local notes remain in AppData.
+  Show a 🌐 (or team) icon on shared items to distinguish them from local ones.
+  Depends on: shared/local data convention ADR.
+
+- [ ] **[Shared data] Shared-item indicator icon across panels** *(Owner: Lyra Morn)*
+  Tasks, notes, code-health entries, and loop files that live in `.squad/` (shared/version-controlled)
+  should show a small icon (e.g. 🌐 or a people icon) to indicate they are team-shared.
+  Local items (AppData) show no icon or a different indicator.
+  Depends on: shared/local data convention ADR.
+
 - [ ] **[Guided Tour] Implement Guided Tour feature** *(Owner: Lyra Morn)*
   Full spec finalized 2026-06-24. Key components:
   - `GuidedTourStep` data model: Title, MarkdownText, TargetControlId, CalloutPlacement, PreAction
