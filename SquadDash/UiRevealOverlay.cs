@@ -57,6 +57,11 @@ internal sealed class UiRevealOverlay
     private static readonly string _diagLogPath =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SquadDash_UiReveal_diag.txt");
 
+    private static UiRevealOverlay? _activeInstance;
+
+    /// <summary>True while any overlay instance is active on a window.</summary>
+    public static bool IsAnyRevealActive => _activeInstance is not null;
+
     /// <summary>True while the overlay is active on a window.</summary>
     public bool IsActive => _owner is not null;
 
@@ -73,6 +78,7 @@ internal sealed class UiRevealOverlay
         try { System.IO.File.WriteAllText(_diagLogPath, $"[{DateTime.Now:HH:mm:ss.fff}] Activate() called — owner={owner.GetType().Name}\r\n"); } catch { }
 
         _owner = owner;
+        _activeInstance = this;
         EnsurePopup();
         _lastElement = null;
 
@@ -100,6 +106,7 @@ internal sealed class UiRevealOverlay
             InputManager.Current.PostProcessInput -= OnPostProcessInput;
             InputManager.Current.PreProcessInput -= OnPreProcessInputForKeys;
             _owner = null;
+            if (ReferenceEquals(_activeInstance, this)) _activeInstance = null;
         }
 
         if (_popup is not null)
@@ -440,6 +447,25 @@ internal sealed class UiRevealOverlay
         catch { }
     }
 
+    /// <summary>
+    /// Called from external windows (e.g., FrmUltimateCallout) to reveal an element
+    /// that isn't hit-testable from the normal input pipeline.
+    /// </summary>
+    public static void RevealFromExternalElement(FrameworkElement element, Point screenPos)
+    {
+        var inst = _activeInstance;
+        if (inst is null) return;
+        try
+        {
+            if (ReferenceEquals(element, inst._lastElement)) return;
+            inst._lastElement = element;
+            inst.UpdatePopupContent(element);
+            inst.RemoveHighlight(); // can't highlight in a different HWND
+            inst.PositionPopup(screenPos);
+            inst._popup!.IsOpen = true;
+        }
+        catch { }
+    }
     private void RemoveHighlight()
     {
         try
@@ -543,10 +569,12 @@ internal sealed class UiRevealOverlay
 
         try
         {
-            // Line 1: name + type
+            // Line 1: name + type + fontsize
             var name     = string.IsNullOrEmpty(element.Name) ? "(unnamed)" : element.Name;
             var typeName = element.GetType().Name;
-            _line1.Text  = $"{name} ({typeName})";
+            var fsValue  = element.GetValue(TextBlock.FontSizeProperty);
+            var fsStr    = fsValue is double fs ? $"  fs={fs:F1}" : string.Empty;
+            _line1.Text  = $"{name} ({typeName}){fsStr}";
 
             // Lines 2–4
             if (_line2 is not null)

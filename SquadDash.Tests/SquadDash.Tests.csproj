@@ -146,6 +146,9 @@
     <Compile Include="..\SquadDash\CodeHealthPromptLogger.cs" Link="Source\CodeHealthPromptLogger.cs" />
     <Compile Include="..\SquadDash\SquadTeamRosterLoader.cs" Link="Source\SquadTeamRosterLoader.cs" />
     <Compile Include="..\SquadDash\NativeMethods.cs" Link="Source\NativeMethods.cs" />
+    <Compile Include="..\SquadDash\ClipboardUtilities.cs" Link="Source\ClipboardUtilities.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ILiveElementLocator.cs" Link="Source\ILiveElementLocator.cs" />
+    <Compile Include="..\SquadDash\UiRevealOverlay.cs" Link="Source\UiRevealOverlay.cs" />
     <Compile Include="..\SquadDash\FloatingWindowPositionStore.cs" Link="Source\FloatingWindowPositionStore.cs" />
     <Compile Include="..\SquadDash\DpiHelper.cs" Link="Source\DpiHelper.cs" />
     <Compile Include="..\SquadDash\ToolTipHelper.cs" Link="Source\ToolTipHelper.cs" />

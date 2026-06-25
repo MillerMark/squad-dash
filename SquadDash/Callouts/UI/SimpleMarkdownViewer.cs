@@ -147,8 +147,11 @@ public class SimpleMarkdownViewer : Control {
 
     FlowDocument CreateFlowDocumentFromMarkdown() {
         FlowDocument flowDocument = new FlowDocument();
+        SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateFlowDocumentFromMarkdown: this.FontSize={FontSize:F1} (before assign)");
         flowDocument.FontSize = FontSize;
+        SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateFlowDocumentFromMarkdown: flowDocument.FontSize={flowDocument.FontSize:F1} (after local assign, before SetStyle)");
         SetStyle(flowDocument, Styles.DocumentStyleKey);
+        SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateFlowDocumentFromMarkdown: flowDocument.FontSize={flowDocument.FontSize:F1} (after SetStyle)");
 
         string[] paragraphs = ConvertEscapedCharacters().Split('\n');
         Block lastBlock = null;

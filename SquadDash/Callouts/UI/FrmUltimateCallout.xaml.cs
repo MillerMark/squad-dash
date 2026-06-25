@@ -1414,11 +1414,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         FlowDocument flowDocument = GetDocument(markdownControl);
 
+        if (flowDocument != null)
+            SquadDashTrace.Write(TraceCategory.UI, $"[Callout] MarkdownViewer_Loaded: markdownControl.FontSize={markdownControl.FontSize:F1}, flowDocument.FontSize={flowDocument.FontSize:F1}, doc.Parent={flowDocument.Parent?.GetType().Name ?? "null"}");
+
         if (flowDocument != null) {
             ReserveSpaceForCloseButton(flowDocument);
             if ((string)markdownControl.Tag == STR_TempMarkdown) {
                 calculatedHeight = CalculateFlowDocumentHeight(flowDocument);
                 if (flowDocument.Parent is FlowDocumentScrollViewer flowDocumentScrollViewer) {
+                    SquadDashTrace.Write(TraceCategory.UI, $"[Callout] MarkdownViewer_Loaded: FlowDocumentScrollViewer.FontSize={flowDocumentScrollViewer.FontSize:F1}");
                     double originalMarkdownWidth = markdownViewer.Width;
                     double lastGoodWidth = markdownViewer.Width;
                     int numTries = 0;
@@ -1447,6 +1451,42 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     private void CreateMarkdownViewer() {
         markdownViewer = new SimpleMarkdownViewer();
         markdownViewer.FontSize = FontSize;
+        SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateMarkdownViewer: this.FontSize={FontSize:F1}, markdownViewer.FontSize={markdownViewer.FontSize:F1}");
+    }
+
+    private void Window_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!UiRevealOverlay.IsAnyRevealActive) return;
+        try
+        {
+            var screenPos = NativeMethods.GetCursorScreenPos();
+            var localPos  = e.GetPosition(this);
+
+            FrameworkElement? revealed = null;
+
+            if (markdownViewer is not null)
+            {
+                var mvBounds = new Rect(
+                    Canvas.GetLeft(markdownViewer),
+                    Canvas.GetTop(markdownViewer),
+                    markdownViewer.ActualWidth,
+                    markdownViewer.ActualHeight);
+                if (mvBounds.Contains(localPos))
+                    revealed = markdownViewer;
+            }
+
+            if (revealed is null)
+            {
+                VisualTreeHelper.HitTest(this, null, r => {
+                    if (r.VisualHit is FrameworkElement fe) { revealed = fe; return HitTestResultBehavior.Stop; }
+                    return HitTestResultBehavior.Continue;
+                }, new PointHitTestParameters(localPos));
+            }
+
+            if (revealed is not null)
+                UiRevealOverlay.RevealFromExternalElement(revealed, screenPos);
+        }
+        catch { }
     }
 
     Point TargetClientPointToScreen(Point clientPoint) {
