@@ -133,46 +133,52 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     private void PlaceAtDefaultPosition()
     {
         const double margin = 20;
-        var mainWindow = Application.Current.MainWindow;
-        var hwnd = new WindowInteropHelper(mainWindow).Handle;
+        var owner  = Owner ?? Application.Current.MainWindow;
+        var source = PresentationSource.FromVisual(owner);
+
+        if (source?.CompositionTarget == null)
+        {
+            // Fallback: owner.Left/Top are already WPF logical units
+            Left = owner.Left + owner.ActualWidth  - Width  - margin;
+            Top  = owner.Top  + owner.ActualHeight - Height - margin;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            return;
+        }
+
+        var hwnd     = new WindowInteropHelper(owner).Handle;
         var hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        var mi       = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
         GetMonitorInfo(hMonitor, ref mi);
 
-        (double dpiX, double dpiY) = GetMainWindowDpi(mainWindow);
-        Left = mi.rcWork.right  / (dpiX / 96.0) - Width  - margin;
-        Top  = mi.rcWork.bottom / (dpiY / 96.0) - Height - margin;
+        // TransformFromDevice converts device (physical) pixels → WPF logical units,
+        // correctly handling negative coordinates and per-monitor DPI.
+        var transform   = source.CompositionTarget.TransformFromDevice;
+        var bottomRight = transform.Transform(new System.Windows.Point(mi.rcWork.right, mi.rcWork.bottom));
+
+        Left = bottomRight.X - Width  - margin;
+        Top  = bottomRight.Y - Height - margin;
         WindowStartupLocation = WindowStartupLocation.Manual;
     }
 
     private bool IsFullyOnScreen()
     {
-        var mainWindow = Application.Current.MainWindow;
-        (double dpiX, double dpiY) = GetMainWindowDpi(mainWindow);
+        var owner  = Owner ?? Application.Current.MainWindow;
+        var source = PresentationSource.FromVisual(owner);
+        if (source?.CompositionTarget == null) return false;
+
+        var transform = source.CompositionTarget.TransformFromDevice;
 
         foreach (var screen in GetAllMonitorWorkAreas())
         {
-            double left   = screen.left   / (dpiX / 96.0);
-            double top    = screen.top    / (dpiY / 96.0);
-            double right  = screen.right  / (dpiX / 96.0);
-            double bottom = screen.bottom / (dpiY / 96.0);
-            if (Left >= left && Top >= top &&
-                Left + Width <= right && Top + Height <= bottom)
+            var topLeft     = transform.Transform(new System.Windows.Point(screen.left,  screen.top));
+            var bottomRight = transform.Transform(new System.Windows.Point(screen.right, screen.bottom));
+
+            if (Left >= topLeft.X     && Top >= topLeft.Y &&
+                Left + Width  <= bottomRight.X &&
+                Top  + Height <= bottomRight.Y)
                 return true;
         }
         return false;
-    }
-
-    private static (double dpiX, double dpiY) GetMainWindowDpi(Window mainWindow)
-    {
-        double dpiX = 96.0, dpiY = 96.0;
-        var source = PresentationSource.FromVisual(mainWindow);
-        if (source?.CompositionTarget != null)
-        {
-            dpiX = 96.0 * source.CompositionTarget.TransformToDevice.M11;
-            dpiY = 96.0 * source.CompositionTarget.TransformToDevice.M22;
-        }
-        return (dpiX, dpiY);
     }
 
     // ── Win32 multi-monitor helpers ──────────────────────────────────────────
