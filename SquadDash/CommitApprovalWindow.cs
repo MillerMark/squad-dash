@@ -184,7 +184,7 @@ internal sealed class CommitApprovalPanel {
             header.Children.Add(groupLabel);
 
             if (group.Key == "Uncategorized" && _onCategorizeUncategorized is not null) {
-                var capturedItems = groupItems;
+                var capturedItems = groupItems.Where(i => string.IsNullOrEmpty(i.FeatureGroup)).ToList();
                 var ctxMenu = MakeMenu();
                 var categorizeItem = MakeItem("Categorize these…");
                 categorizeItem.Click += (_, _) => _onCategorizeUncategorized(capturedItems.AsReadOnly());
@@ -667,8 +667,8 @@ internal sealed class CommitApprovalPanel {
     private void SyncCategorizeRowVisibility() {
         if (_categorizeRow is null || _onCategorizeUncategorized is null) return;
         var pending = _mutableItems.Where(i => !i.IsApproved && !i.IsRejected).ToList();
-        var isFlat  = pending.Count > 0 && pending.All(i => string.IsNullOrEmpty(i.FeatureGroup));
-        _categorizeRow.Visibility = isFlat ? Visibility.Visible : Visibility.Collapsed;
+        var hasUncategorized = pending.Any(i => string.IsNullOrEmpty(i.FeatureGroup));
+        _categorizeRow.Visibility = hasUncategorized ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Builds the tooltip string for an approval list row.

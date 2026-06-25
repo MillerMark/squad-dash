@@ -259,6 +259,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private List<CommitApprovalItem> _approvalItems = [];
     private System.Windows.Controls.Primitives.Popup? _approvalNotFoundPopup;
     private FeatureGroupStore? _featureGroupStore;
+    private DispatcherTimer? _categorizationDebounceTimer;
     private NotesStore? _notesStore;
     private NotesPanelController? _notesPanel;
     private List<NoteItem> _noteItems = [];
@@ -4714,6 +4715,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             _approvalItems.Add(item);
                             _approvalStore?.Save(_approvalItems);
                             _approvalPanel?.AddItem(item);
+                            if (commitInfo.FeatureGroup is null)
+                                ScheduleAutoCategorization();
                             SoundNotifications.Play(SoundEvent.ApprovalNeeded);
                         }
                         // ─────────────────────────────────────────────────────────────────
@@ -34436,6 +34439,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ShowCategorizationQueuedCallout();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalCategorizeButton_Click), ex); }
+    }
+
+    private void ScheduleAutoCategorization()
+    {
+        if (_categorizationDebounceTimer is null)
+        {
+            _categorizationDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _categorizationDebounceTimer.Tick += (_, _) =>
+            {
+                _categorizationDebounceTimer.Stop();
+                var uncategorized = _approvalItems
+                    .Where(i => !i.IsApproved && !i.IsRejected && string.IsNullOrEmpty(i.FeatureGroup))
+                    .ToList();
+                if (uncategorized.Count > 0)
+                    EnqueueOrganizeUncategorizedPrompt(uncategorized);
+            };
+        }
+        _categorizationDebounceTimer.Stop();
+        _categorizationDebounceTimer.Start();
     }
 
     private void EnqueueOrganizeUncategorizedPrompt(IReadOnlyList<CommitApprovalItem> uncategorizedItems)
