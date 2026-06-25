@@ -3113,19 +3113,20 @@
                                 </TextBlock>
                                 <!-- Appears after 5 min of bridge silence; force-cancels the stalled prompt. -->
                                 <Button x:Name="ForceAbortStalledAgentButton"
-                                        Height="20"
                                         Style="{StaticResource ThemedChipButtonStyle}"
                                         Background="{DynamicResource DangerButtonBg}"
                                         BorderBrush="{DynamicResource DangerButtonBg}"
                                         BorderThickness="1"
                                         Padding="6,2"
                                         Margin="0,0,6,0"
+                                        VerticalAlignment="Center"
                                         Visibility="Collapsed"
                                         ToolTip="Bridge has been silent for 5+ minutes. Click to cancel the stalled agent and return to Ready."
                                         Click="ForceAbortStalledAgent_Click">
                                     <TextBlock Text="✕ Cancel stalled agent"
                                                Foreground="{DynamicResource DangerButtonFg}"
-                                               FontSize="{DynamicResource FontSizeSmall}" />
+                                               FontSize="{DynamicResource FontSizeSmall}"
+                                               VerticalAlignment="Center" />
                                 </Button>
                                 <Button x:Name="QueuePlayPauseButton"
                                         Width="24"
