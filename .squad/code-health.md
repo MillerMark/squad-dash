@@ -23,12 +23,21 @@
 # {
 #   "subject": "Maintenance Report: <Task Title>",
 #   "from": "argus-weld",
+#   "priority": "<see below>",
 #   "body": "## <Task Title>\n\n<Full findings in Markdown>",
 #   "attachments": []
 # }
 #
 # The body should contain the full structured report so the user can refer back
 # to it without digging through the transcript. Keep the subject concise.
+#
+# INBOX PRIORITY GUIDELINES (apply to all tasks unless the task has its own guidance):
+# - "critical" — build failure, test runner cannot run, or Critical security vulnerabilities (e.g., hard-coded secrets, known CVEs)
+# - "high"     — any test failures, High severity findings, or serious problems likely affecting users
+# - "mid"      — findings exist but are not Critical or High severity; standard reports with items to address
+# - "low"      — clean/no findings: all tests passed, nothing to prune, no issues identified
+# Each task's instructions include specific priority guidance. When in doubt, prefer
+# the task-level guidance over this global default.
 idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
@@ -80,7 +89,10 @@ tasks:
       Do not change any code. Write a structured report of each finding:
       problem description, affected files/layers, and a recommended fix.
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
-      (from: "argus-weld").
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"high"` if Critical or High severity architectural problems are identified
+      - `"mid"` if findings exist but none are Critical or High severity
+      - `"low"` if no significant architectural problems were found
       {{/if}}
 
   - id: code-smells
@@ -104,6 +116,10 @@ tasks:
       Do not change any code. List each smell with file path, structural anchor,
       category, and a brief description of the issue and suggested fix. Send the
       report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+      Set the inbox message priority based on findings:
+      - `"high"` if Critical or High severity smells are found (e.g., missing null checks that could crash, severe complexity)
+      - `"mid"` if smells exist but are moderate in severity
+      - `"low"` if no meaningful code smells were identified
       {{/if}}
 
   - id: commit-review
@@ -122,6 +138,10 @@ tasks:
       
       Write a structured review report. Do not change any code. Send the report
       to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+      Set the inbox message priority based on findings:
+      - `"high"` if potential bugs, regressions, or serious code quality issues are found
+      - `"mid"` if minor issues, style concerns, or improvement opportunities are noted
+      - `"low"` if all commits look clean with no significant concerns
   - id: docs-review
     enabled: true
     frequency: weekly-Sunday
@@ -153,7 +173,10 @@ tasks:
       and a description of each problem found. Include a severity: Warning for
       unpublished-page links and dead links, Info for orphaned pages and accuracy
       concerns. Send the report to the user's Inbox using an `INBOX_MESSAGE_JSON`
-      block (from: "argus-weld").
+      block (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"high"` if dead links, broken references, or significantly inaccurate documentation is found
+      - `"mid"` if minor inaccuracies, orphaned pages, or missing images are found
+      - `"low"` if no documentation issues were identified
       {{/if}}
       {{#if safety == "branch"}}
       Correct accuracy issues and fix broken links where possible (e.g. update a
@@ -189,6 +212,10 @@ tasks:
       Do not change any code. List each duplication instance with file paths,
       structural anchors, and a brief description of the shared logic. Send the
       report to the user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+      Set the inbox message priority based on findings:
+      - `"high"` if significant duplication that risks divergent bug fixes is found
+      - `"mid"` if moderate duplication exists
+      - `"low"` if no meaningful duplication was identified
       {{/if}}
 
   - id: error-handling-audit
@@ -324,7 +351,10 @@ tasks:
       two or three highest-priority items to address first.
 
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
-      (from: "argus-weld").
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"high"` if Critical or High severity findings are present
+      - `"mid"` if only Medium or Low severity findings are present
+      - `"low"` if no error-handling issues were identified
       {{/if}}
       {{#if safety == "branch"}}
       Fix issues that are safe to patch automatically on a maintenance branch named: {{branchName}}:
@@ -355,6 +385,10 @@ tasks:
       {{#if safety == "report-only"}}
       Do not change any code. List each instance with file path, structural anchor
       (e.g. ClassName.MethodName), the literal value, and a suggested constant name.
+      Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"mid"` if magic numbers or hardcoded strings are found
+      - `"low"` if no instances were identified
       {{/if}}
 
   - id: naming-conventions
@@ -379,7 +413,9 @@ tasks:
       Do not change any code. List each inconsistency with file path, structural
       anchor (e.g. ClassName.MethodName), current name, and suggested name.
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
-      (from: "argus-weld").
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"mid"` if naming inconsistencies are found
+      - `"low"` if no inconsistencies were identified
       {{/if}}
 
   - id: speed-improvements
@@ -404,7 +440,11 @@ tasks:
       {{#if safety == "report-only"}}
       Do not change any code. Describe each opportunity, its likely impact, and
       the recommended approach. Send the report to the user's Inbox using an
-      INBOX_MESSAGE_JSON block (from: "argus-weld").
+      INBOX_MESSAGE_JSON block (from: "argus-weld"). Set the inbox message priority
+      based on findings:
+      - `"high"` if significant performance problems likely to affect users in normal use are found
+      - `"mid"` if moderate improvement opportunities exist
+      - `"low"` if no meaningful performance issues were identified
       {{/if}}
 
   - id: prune-tasks
@@ -419,6 +459,12 @@ tasks:
       `.squad/tasks-archive.md` (append, do not overwrite) with a timestamp.
 
       Do not modify any source files.
+
+      After pruning, send a brief summary to the user's Inbox using an
+      INBOX_MESSAGE_JSON block (from: "argus-weld") reporting how many tasks
+      were archived (or that none were found to prune). Set the inbox message priority:
+      - `"low"` if tasks were pruned normally or there was nothing to prune
+      - `"mid"` if anything unexpected was encountered (e.g., malformed entries, file errors)
 
   - id: readme-currency
     enabled: true
@@ -435,7 +481,11 @@ tasks:
       - Missing documentation for significant new features or changed APIs
 
       Write a gap report. Do not change any files. Send the report to the user's
-      Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+      Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld"). Set the inbox
+      message priority based on findings:
+      - `"high"` if build instructions are wrong or significant new features are entirely undocumented
+      - `"mid"` if minor inaccuracies or outdated references are found
+      - `"low"` if the README is current and accurate
 
   - id: run-tests
     enabled: true
@@ -455,6 +505,10 @@ tasks:
       Do not change any code. Write a summary of every failing test, the error
       message, and your diagnosis of the likely cause. Send the report to the
       user's Inbox using an INBOX_MESSAGE_JSON block (from: "argus-weld").
+      Set the inbox message priority based on results:
+      - `"critical"` if the build fails or the test runner cannot complete
+      - `"high"` if any tests fail
+      - `"low"` if all tests pass
       {{/if}}
   - id: security-audit
     enabled: true
@@ -479,7 +533,11 @@ tasks:
       (Critical / High / Medium / Low), listing file path, structural anchor
       (e.g. ClassName.MethodName), and a description of each finding.
       Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
-      (from: "argus-weld").
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"critical"` if Critical severity findings are present (e.g., hard-coded secrets, known CVEs, injection risks)
+      - `"high"` if High severity findings are present
+      - `"mid"` if only Medium or Low severity findings are present
+      - `"low"` if no security issues were identified
       {{/if}}
       {{#if safety == "branch"}}
       Fix issues that are safe to patch automatically (remove hard-coded secrets,
@@ -502,6 +560,12 @@ tasks:
 
       Do not modify any source files. Only append to `.squad/tasks.md`.
 
+      After scanning, send a brief summary to the user's Inbox using an
+      INBOX_MESSAGE_JSON block (from: "argus-weld") reporting how many new task
+      entries were added (or that none were found). Set the inbox message priority:
+      - `"mid"` if new TODO/FIXME/HACK items were added to tasks
+      - `"low"` if no new items were found
+
   - id: unused-dependencies
     enabled: false
     frequency: daily
@@ -516,7 +580,9 @@ tasks:
       Write a report listing each potentially unused dependency, the manifest file
       it appears in, and a note on how to verify and remove it. Do not change any
       files. Send the report to the user's Inbox using an INBOX_MESSAGE_JSON block
-      (from: "argus-weld").
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"mid"` if unused dependencies are found
+      - `"low"` if no unused dependencies were identified
 
   - id: xml-doc-coverage
     enabled: false
@@ -529,7 +595,10 @@ tasks:
       for missing XML doc comments (`<summary>`, `<param>`, `<returns>`).
       Produce a coverage report grouped by file, listing each undocumented member.
       Do not change any code. Send the report to the user's Inbox using an
-      INBOX_MESSAGE_JSON block (from: "argus-weld").
+      INBOX_MESSAGE_JSON block (from: "argus-weld"). Set the inbox message priority
+      based on findings:
+      - `"mid"` if undocumented public members are found
+      - `"low"` if all public members have XML doc comments
 
       If this is not a C# project, adapt to the equivalent docstring convention
       (JSDoc for TypeScript/JavaScript, docstrings for Python, godoc for Go).
@@ -594,7 +663,10 @@ tasks:
       the Settings window, which predates the themed style system").
 
       Send the full report to the user's Inbox using an INBOX_MESSAGE_JSON block
-      (from: "argus-weld").
+      (from: "argus-weld"). Set the inbox message priority based on findings:
+      - `"high"` if High severity violations are present (visible in normal use)
+      - `"mid"` if only Medium or Low severity violations are present
+      - `"low"` if no theme violations were found
 
       **Note:** This task applies to any project with a theme system — WPF apps
       using DynamicResource/named styles, web apps using CSS custom properties or
