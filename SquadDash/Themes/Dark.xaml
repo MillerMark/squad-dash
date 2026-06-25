@@ -90,7 +90,7 @@
     <SolidColorBrush x:Key="ActionLinkText" Color="#6890C8"/>
     <SolidColorBrush x:Key="AlertBodyText" Color="#C08860"/>
     <SolidColorBrush x:Key="ThreadBadgeText" Color="#C8A870"/>
-    <SolidColorBrush x:Key="ToastText" Color="#C09840"/>
+    <SolidColorBrush x:Key="ToastText" Color="#D4B97D"/>
     <SolidColorBrush x:Key="ChipText" Color="#D8C8B0"/>
     <!-- Document Part Tokens -->
     <SolidColorBrush x:Key="TurnDividerText" Color="#C8845A"/>
