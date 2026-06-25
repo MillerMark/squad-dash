@@ -22,6 +22,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly string?           _workspaceFolderPath;
     private readonly Action?           _captureLayout;
 
+    // PTT voice dictation
+    private readonly PttTextBoxAttachment _ptt;
+
     // Form controls
     private readonly TextBox    _titleBox;
     private readonly TextBox    _markdownBox;
@@ -57,6 +60,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Owner                 = owner;
 
         var contentArea = ApplyOuterBorder("AppSurface", Title);
+
+        // PTT voice dictation — uses the same settings store as the rest of the app
+        _ptt = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
+        Closed += (_, _) => _ptt.Dispose();
 
         // ── Form fields ───────────────────────────────────────────────────────
 
@@ -145,9 +152,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         contentArea.Child = layout;
 
-        KeyDown += (_, e) =>
+        PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape) Close();
+            if (e.Key == Key.Escape) { Close(); return; }
+
+            // Route double-tap Ctrl PTT to whichever text box has focus
+            var focused = FocusManager.GetFocusedElement(this) as TextBox;
+            if (focused is not null && _ptt.HandlePreviewKeyDown(e, focused))
+                e.Handled = true;
+        };
+
+        PreviewKeyUp += (_, e) =>
+        {
+            if (_ptt.HandlePreviewKeyUp(e))
+                e.Handled = true;
         };
     }
 
