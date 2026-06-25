@@ -82,6 +82,23 @@ internal static class NativeMethods {
     [DllImport("user32.dll")]
     private static extern bool AllowSetForegroundWindow(uint dwProcessId);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    private const nint HWND_TOPMOST   = -1;
+    private const uint SWP_NOMOVE     = 0x0002;
+    private const uint SWP_NOSIZE     = 0x0001;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    /// <summary>
+    /// Makes the window with the given HWND a topmost window (appears above all non-topmost windows,
+    /// including other topmost windows created earlier).
+    /// </summary>
+    public static void SetTopmost(nint hwnd)
+    {
+        try { SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); } catch { }
+    }
+
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 

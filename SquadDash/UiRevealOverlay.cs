@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -342,6 +343,18 @@ internal sealed class UiRevealOverlay
             StaysOpen          = true,
             Placement          = PlacementMode.AbsolutePoint,
             IsHitTestVisible   = false,
+        };
+
+        // The callout window is Topmost=true, so the popup HWND must also be set topmost
+        // or it will render behind the callout. Do this whenever the popup opens.
+        _popup.Opened += (_, _) =>
+        {
+            try
+            {
+                if (PresentationSource.FromVisual(_popup.Child) is HwndSource hwndSource)
+                    NativeMethods.SetTopmost(hwndSource.Handle);
+            }
+            catch { }
         };
     }
 
