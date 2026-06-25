@@ -12,6 +12,19 @@
 
 ## 🟡 Mid Priority
 
+- [ ] **[Guided Tour] Implement Guided Tour feature** *(Owner: Lyra Morn)*
+  Full spec finalized 2026-06-24. Key components:
+  - `GuidedTourStep` data model: Title, MarkdownText, TargetControlId, CalloutPlacement, PreAction
+  - Steps file: `.squad/guided-tour.json` (workspace override) with embedded-resource fallback
+  - `FrmGuidedTourNavigator`: floating no-titlebar draggable window, ← Prev / Step N of N / Next → / ✕ Close
+  - Navigator position saved to AppData; validated on restore (must be fully on-screen)
+  - Entry: first-launch prompt per machine (AppData flag), Help menu, Options → Discoverability
+  - New Help menu: Start Guided Tour | Documentation (GitHub URL) | About
+  - Layout: auto-save on tour start, silently restore on tour close
+  - Callout closes on Next/Previous; closing callout directly ends tour + points at Help menu
+  - Dev mode: Dev menu item opens guided-tour.json in editor; step-by-step preview navigation
+  - Options → Discoverability: "Start the Tour" button
+
 - [x] **[Developer Menu] Fix F11 Theme Reveal conflict with Full Screen Transcript**
   Moved Theme Reveal to Ctrl+F11. Key handler updated to pass bare F11 through to Full Screen Transcript.
 

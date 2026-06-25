@@ -26,6 +26,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Controls.Primitives;
 using Microsoft.Win32;
 using SquadDash.Hints;
+using SquadDash.GuidedTours;
 using SquadDash.PanelDocking;
 using SquadDash.Screenshots;
 using SquadDash.Screenshots.Fixtures;
@@ -148,6 +149,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly WorkspaceOpenCoordinator _workspaceOpenCoordinator;
     private readonly InstanceActivationChannel _instanceActivationChannel;
     private PreferencesWindow? _preferencesWindow;
+    private GuidedTourController? _guidedTourController;
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -1761,6 +1763,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             loadedSw.Stop();
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: complete {loadedSw.ElapsedMilliseconds}ms total.");
+
+            // First-run guided tour offer (fire-and-forget after a short delay so UI is settled)
+            Dispatcher.BeginInvoke(OfferGuidedTourOnFirstRun, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
             // Screenshot refresh mode: run the automated pass then shut down.
             if (_screenshotRefreshOptions.Mode != ScreenshotRefreshMode.None)
@@ -13380,6 +13385,173 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    // ── Guided Tour (Developer sub-menu) ──────────────────────────────────────
+
+    private void EditGuidedToursMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var toursFile = GetGuidedToursWorkspaceFilePath();
+            if (toursFile is null)
+            {
+                MessageBox.Show("No workspace is open.", "Edit Guided Tours", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (!File.Exists(toursFile))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(toursFile)!);
+                File.WriteAllText(toursFile, "[\n]\n");
+            }
+            Process.Start(new ProcessStartInfo(toursFile) { UseShellExecute = true });
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(EditGuidedToursMenuItem_Click), ex); }
+    }
+
+    private void NewGuidedTourMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var toursFile = GetGuidedToursWorkspaceFilePath();
+            if (toursFile is null)
+            {
+                MessageBox.Show("No workspace is open.", "New Guided Tour", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var name = SimpleInputDialog.Show(this, "Enter a name for the new tour:", "New Guided Tour", "My Tour");
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            if (!File.Exists(toursFile))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(toursFile)!);
+                File.WriteAllText(toursFile, "[\n]\n");
+            }
+
+            var json = File.ReadAllText(toursFile).Trim();
+            var id   = name.ToLowerInvariant().Replace(' ', '-');
+            var newEntry = $"  {{\n    \"id\": \"{id}\",\n    \"name\": \"{name}\",\n    \"description\": \"\",\n    \"steps\": []\n  }}";
+
+            // Insert before the last ']'
+            if (json.EndsWith(']'))
+            {
+                var inner = json[..^1].TrimEnd();
+                json = inner.EndsWith('[') ? $"[\n{newEntry}\n]" : $"{inner},\n{newEntry}\n]";
+            }
+            else
+            {
+                json = $"[\n{newEntry}\n]";
+            }
+
+            File.WriteAllText(toursFile, json);
+            Process.Start(new ProcessStartInfo(toursFile) { UseShellExecute = true });
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(NewGuidedTourMenuItem_Click), ex); }
+    }
+
+    private void PreviewCurrentTourStepMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_guidedTourController is null || !_guidedTourController.IsActive)
+            {
+                MessageBox.Show("No tour is currently active.", "Preview Current Tour Step", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            var step   = _guidedTourController.ActiveTour!.Steps[_guidedTourController.CurrentStepIndex];
+            var target = FindName(step.TargetControlId) as FrameworkElement;
+            if (target is null)
+            {
+                MessageBox.Show($"Control '{step.TargetControlId}' not found.", "Preview", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            FrmUltimateCallout.ShowCalloutBesideTarget(step.MarkdownText, target, width: 320, fontSize: 12, placement: step.ParsedCalloutPlacement);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PreviewCurrentTourStepMenuItem_Click), ex); }
+    }
+
+    private string? GetGuidedToursWorkspaceFilePath()
+    {
+        if (_currentWorkspace is null) return null;
+        return Path.Combine(_currentWorkspace.FolderPath, ".squad", "guided-tours.json");
+    }
+
+    // ── Help menu ─────────────────────────────────────────────────────────────
+
+    private void StartGuidedTourMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { OpenGuidedTourSelector(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(StartGuidedTourMenuItem_Click), ex); }
+    }
+
+    private void DocumentationMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo("https://github.com/MillerMark/squad-dash") { UseShellExecute = true }); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(DocumentationMenuItem_Click), ex); }
+    }
+
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var version = AppVersion.Full;
+            MessageBox.Show(
+                $"SquadDash\nVersion {version}\n\nAI-powered agent coordination for developers.",
+                "About SquadDash",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(AboutMenuItem_Click), ex); }
+    }
+
+    // ── Guided tour core helpers ──────────────────────────────────────────────
+
+    private void OpenGuidedTourSelector()
+    {
+        var tours = GuidedTourLoader.Load(_currentWorkspace?.FolderPath);
+        if (tours.Count == 0)
+        {
+            MessageBox.Show("No guided tours are available.", "Start Guided Tour", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var selected = FrmGuidedTourSelector.ShowForResult(this, tours);
+        if (selected is null) return;
+
+        LaunchTour(selected);
+    }
+
+    private void LaunchTour(GuidedTour tour)
+    {
+        EnsureGuidedTourController();
+        _guidedTourController!.StartTour(tour);
+    }
+
+    private void EnsureGuidedTourController()
+    {
+        if (_guidedTourController is not null) return;
+        _guidedTourController = new GuidedTourController(
+            ownerWindow:          this,
+            elementLocator:       name => FindName(name) as FrameworkElement,
+            savePreTourLayout:    () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
+            restorePreTourLayout: () => { /* Layout restore: reload the active layout from workspace */ },
+            executePreAction:     (kind, arg) => { /* no-op for initial release */ });
+    }
+
+    private void OfferGuidedTourOnFirstRun()
+    {
+        if (GuidedTourStateStore.Shared.Offered) return;
+        GuidedTourStateStore.Shared.Offered = true;
+
+        var result = MessageBox.Show(
+            "Would you like to take a Guided Tour of SquadDash?",
+            "Welcome to SquadDash",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+            OpenGuidedTourSelector();
+    }
+
     // ── Developer > Simulation menu ───────────────────────────────────────────
 
     private void RecordDockingTestMenuItem_Click(object sender, RoutedEventArgs e)
@@ -13905,7 +14077,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _pttState = PttState.Active;
                     _ = StartPushToTalkAsync();
                 },
-                stopPtt: () => _ = StopPushToTalkAsync(send: false));
+                stopPtt: () => _ = StopPushToTalkAsync(send: false),
+                startGuidedTour: () => OpenGuidedTourSelector());
         }
         catch (Exception ex)
         {

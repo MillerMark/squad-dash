@@ -83,6 +83,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly ObservableCollection<VoiceReplacementRuleViewModel> _voiceReplacementRules;
     // ── Hints page ───────────────────────────────────────────────────────────
     private readonly HintsOptionsPage _hintsOptionsPage;
+    private readonly Action?          _startGuidedTour;
 
     private static readonly string[] KnownCopilotModelOptions = {
         ApplicationSettingsSnapshot.DefaultCopilotModel,
@@ -126,13 +127,15 @@ internal sealed class PreferencesWindow : Window {
         Action<ApplicationSettingsSnapshot> onSaved,
         bool showDevOptions = false,
         Action<TextBox>? startPtt = null,
-        Action? stopPtt = null) {
-        _settingsStore = settingsStore;
+        Action? stopPtt = null,
+        Action? startGuidedTour = null) {
+        _settingsStore    = settingsStore;
         _pushNotificationService = pushNotificationService;
-        _workspacePaths = workspacePaths;
-        _onSaved = onSaved;
-        _startPtt = startPtt;
-        _stopPtt  = stopPtt;
+        _workspacePaths   = workspacePaths;
+        _onSaved          = onSaved;
+        _startPtt         = startPtt;
+        _stopPtt          = stopPtt;
+        _startGuidedTour  = startGuidedTour;
 
         Title = "Preferences";
         Width = 640;
@@ -588,7 +591,7 @@ internal sealed class PreferencesWindow : Window {
             ("Sound Alerts",      BuildSoundsPage(currentSettings)),
             ("TTS Provider",      BuildTtsProviderPage(currentSettings)),
             ("Commands",          BuildAiPage()),
-            ("Hints",             WrapInScrollViewer(_hintsOptionsPage)),
+            ("Hints",             WrapInScrollViewer(BuildHintsPage())),
         };
 
 
@@ -2273,8 +2276,9 @@ internal sealed class PreferencesWindow : Window {
         bool showDevOptions,
         Action<ApplicationSettingsSnapshot> onSaved,
         Action<TextBox>? startPtt = null,
-        Action? stopPtt = null) {
-        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt);
+        Action? stopPtt = null,
+        Action? startGuidedTour = null) {
+        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt, startGuidedTour);
         if (owner != null)
             window.Owner = owner;
         window.Show();
@@ -2346,6 +2350,54 @@ internal sealed class PreferencesWindow : Window {
         run.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "ActionLinkText");
         link.Inlines.Add(run);
         return link;
+    }
+
+    private UIElement BuildHintsPage()
+    {
+        var stack = new StackPanel { Margin = new Thickness(0) };
+        stack.Children.Add(_hintsOptionsPage);
+
+        var separator = new System.Windows.Shapes.Rectangle
+        {
+            Height = 1,
+            Margin = new Thickness(20, 12, 20, 12),
+        };
+        separator.SetResourceReference(System.Windows.Shapes.Rectangle.FillProperty, "PanelBorder");
+        stack.Children.Add(separator);
+
+        var tourHeader = new TextBlock
+        {
+            Text       = "Guided Tours",
+            FontWeight = FontWeights.SemiBold,
+            Margin     = new Thickness(20, 0, 20, 6),
+        };
+        tourHeader.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        tourHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        stack.Children.Add(tourHeader);
+
+        var tourDesc = new TextBlock
+        {
+            Text         = "Guided tours walk you through key features of SquadDash.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin       = new Thickness(20, 0, 20, 10),
+        };
+        tourDesc.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        tourDesc.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+        stack.Children.Add(tourDesc);
+
+        var startTourButton = new Button
+        {
+            Content             = "Start a Guided Tour...",
+            Height              = 28,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin              = new Thickness(20, 0, 0, 20),
+            Padding             = new Thickness(10, 2, 10, 2),
+        };
+        startTourButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        startTourButton.Click += (_, _) => _startGuidedTour?.Invoke();
+        stack.Children.Add(startTourButton);
+
+        return stack;
     }
 
     private static ScrollViewer WrapInScrollViewer(UIElement content) => new ScrollViewer {

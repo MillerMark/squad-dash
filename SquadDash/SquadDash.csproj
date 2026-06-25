@@ -68,6 +68,7 @@
     <EmbeddedResource Include="Assets\loop-interactive-repair.md" />
     <EmbeddedResource Include="Assets\loop-decompose.md" />
     <EmbeddedResource Include="Assets\code-health.md" />
+    <EmbeddedResource Include="Assets\guided-tours.json" />
   </ItemGroup>
 
   <ItemGroup>

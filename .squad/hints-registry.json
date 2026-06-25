@@ -1,0 +1,13 @@
+[
+  {
+    "HintId": "PromptTextBox_1782326908",
+    "MarkdownText": "Enter your prompts for AI here.",
+    "TargetControlId": "PromptTextBox",
+    "Priority": 100,
+    "MaxShowCount": 3,
+    "Trigger": 0,
+    "ActionId": null,
+    "ConditionId": "always",
+    "TriggerNotes": ""
+  }
+]

@@ -914,6 +914,26 @@
                               Click="HintAuthoringMenuItem_Click" />
                     <MenuItem Header="Trigger _Idle Hint Cycle"
                               Click="TriggerIdleHintCycleMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="_Edit Guided Tours"
+                              Click="EditGuidedToursMenuItem_Click" />
+                    <MenuItem Header="_New Guided Tour..."
+                              Click="NewGuidedTourMenuItem_Click" />
+                    <MenuItem Header="_Preview Current Tour Step"
+                              Click="PreviewCurrentTourStepMenuItem_Click" />
+                </MenuItem>
+                <MenuItem x:Name="HelpMenuItem"
+                          Header="_Help"
+                          Style="{StaticResource TopLevelMenuItemStyle}"
+                          ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                    <MenuItem Header="_Start Guided Tour..."
+                              Click="StartGuidedTourMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="_Documentation"
+                              Click="DocumentationMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="_About SquadDash..."
+                              Click="AboutMenuItem_Click" />
                 </MenuItem>
             </Menu>
 
