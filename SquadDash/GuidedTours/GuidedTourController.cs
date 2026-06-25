@@ -141,8 +141,8 @@ internal sealed class GuidedTourController
             step.MarkdownText,
             target,
             width:     320,
-            fontSize:  Application.Current.Resources.Contains("FontSizeBody")
-                           ? (double)Application.Current.Resources["FontSizeBody"]
+            fontSize:  Application.Current.Resources.Contains("FontSizeLarge")
+                           ? (double)Application.Current.Resources["FontSizeLarge"]
                            : 13.0,
             placement: step.ParsedCalloutPlacement);
 
@@ -199,8 +199,8 @@ internal sealed class GuidedTourController
                 "You can restart any Guided Tour from **Help → Start Guided Tour**.",
                 helpMenuItem,
                 width:     280,
-                fontSize:  Application.Current.Resources.Contains("FontSizeBody")
-                               ? (double)Application.Current.Resources["FontSizeBody"]
+                fontSize:  Application.Current.Resources.Contains("FontSizeLarge")
+                               ? (double)Application.Current.Resources["FontSizeLarge"]
                                : 13.0,
                 placement: CalloutPlacement.South);
         }
