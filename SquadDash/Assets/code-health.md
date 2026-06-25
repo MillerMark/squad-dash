@@ -31,7 +31,7 @@
 # to it without digging through the transcript. Keep the subject concise.
 idle_timeout: 15
 max_tasks_per_session: 5
-safety: direct
+safety: branch
 enabled_on_idle: true
 configured: false  # ← change to true to activate
 # ─────────────────────────────────────────────
