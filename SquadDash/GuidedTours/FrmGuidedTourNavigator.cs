@@ -1,7 +1,9 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using SquadDash.GuidedTours;
 
 namespace SquadDash;
@@ -112,19 +114,90 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
 
     private void PlaceAtDefaultPosition()
     {
-        var workArea = SystemParameters.WorkArea;
-        Left = workArea.Right  - Width  - 20;
-        Top  = workArea.Bottom - Height - 20;
+        const double margin = 20;
+        var mainWindow = Application.Current.MainWindow;
+        var hwnd = new WindowInteropHelper(mainWindow).Handle;
+        var hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+        GetMonitorInfo(hMonitor, ref mi);
+
+        (double dpiX, double dpiY) = GetMainWindowDpi(mainWindow);
+        Left = mi.rcWork.right  / (dpiX / 96.0) - Width  - margin;
+        Top  = mi.rcWork.bottom / (dpiY / 96.0) - Height - margin;
         WindowStartupLocation = WindowStartupLocation.Manual;
     }
 
     private bool IsFullyOnScreen()
     {
-        var workArea = SystemParameters.WorkArea;
-        return Left >= workArea.Left
-            && Top  >= workArea.Top
-            && Left + Width  <= workArea.Right
-            && Top  + Height <= workArea.Bottom;
+        var mainWindow = Application.Current.MainWindow;
+        (double dpiX, double dpiY) = GetMainWindowDpi(mainWindow);
+
+        foreach (var screen in GetAllMonitorWorkAreas())
+        {
+            double left   = screen.left   / (dpiX / 96.0);
+            double top    = screen.top    / (dpiY / 96.0);
+            double right  = screen.right  / (dpiX / 96.0);
+            double bottom = screen.bottom / (dpiY / 96.0);
+            if (Left >= left && Top >= top &&
+                Left + Width <= right && Top + Height <= bottom)
+                return true;
+        }
+        return false;
+    }
+
+    private static (double dpiX, double dpiY) GetMainWindowDpi(Window mainWindow)
+    {
+        double dpiX = 96.0, dpiY = 96.0;
+        var source = PresentationSource.FromVisual(mainWindow);
+        if (source?.CompositionTarget != null)
+        {
+            dpiX = 96.0 * source.CompositionTarget.TransformToDevice.M11;
+            dpiY = 96.0 * source.CompositionTarget.TransformToDevice.M22;
+        }
+        return (dpiX, dpiY);
+    }
+
+    // ── Win32 multi-monitor helpers ──────────────────────────────────────────
+
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int left, top, right, bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    private delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor,
+        ref RECT lprcMonitor, IntPtr dwData);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip,
+        MonitorEnumProc lpfnEnum, IntPtr dwData);
+
+    private static System.Collections.Generic.List<RECT> GetAllMonitorWorkAreas()
+    {
+        var areas = new System.Collections.Generic.List<RECT>();
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (hMon, _, ref _, _) =>
+        {
+            var mi = new MONITORINFO { cbSize = (uint)Marshal.SizeOf<MONITORINFO>() };
+            if (GetMonitorInfo(hMon, ref mi))
+                areas.Add(mi.rcWork);
+            return true;
+        }, IntPtr.Zero);
+        return areas;
     }
 
     // ── Keyboard ─────────────────────────────────────────────────────────────
