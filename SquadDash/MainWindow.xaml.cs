@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -1535,7 +1535,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     /// <inheritdoc/>
     FrameworkElement? ILiveElementLocator.FindByName(string name) =>
-        FindName(name) as FrameworkElement;
+        VisualTreeSearch.FindByName(this, name);
 
     /// <inheritdoc/>
     Rect ILiveElementLocator.GetBoundsRelativeToWindow(FrameworkElement element)
@@ -12169,25 +12169,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             var container = itemsControl.ItemContainerGenerator.ContainerFromItem(card);
             if (container is null) continue;
-            var border = FindNamedVisualChild<Border>(container, "AgentCardBorder");
+            var border = VisualTreeSearch.FindChildByName<Border>(container, "AgentCardBorder");
             if (border is not null) return border;
         }
         return null;
     }
 
-    private static T? FindNamedVisualChild<T>(DependencyObject parent, string name)
-        where T : FrameworkElement
-    {
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T typedChild && typedChild.Name == name)
-                return typedChild;
-            var result = FindNamedVisualChild<T>(child, name);
-            if (result is not null) return result;
-        }
-        return null;
-    }
 
     // ── Context-menu helpers ───────────────────────────────────────────────────
 
@@ -13531,7 +13518,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_guidedTourController is not null) return;
         _guidedTourController = new GuidedTourController(
             ownerWindow:          this,
-            elementLocator:       name => FindName(name) as FrameworkElement,
+            elementLocator:       name => VisualTreeSearch.FindByName(this, name),
             savePreTourLayout:    () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
             restorePreTourLayout: () => { /* Layout restore: reload the active layout from workspace */ },
             executePreAction:     (kind, arg) => { /* no-op for initial release */ });
@@ -14128,7 +14115,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             if (e.OriginalSource is not MenuItem mi) return;
-            var popup = FindVisualChild<System.Windows.Controls.Primitives.Popup>(mi);
+            var popup = VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(mi);
             if (popup != null && popup.CustomPopupPlacementCallback == null)
                 popup.CustomPopupPlacementCallback = TopLevelMenuPopupPlacementCallback;
         }
@@ -14146,7 +14133,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         foreach (var item in MainMenu.Items.OfType<MenuItem>())
         {
             item.ApplyTemplate();
-            var popup = FindVisualChild<System.Windows.Controls.Primitives.Popup>(item);
+            var popup = VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(item);
             if (popup != null)
                 popup.CustomPopupPlacementCallback = TopLevelMenuPopupPlacementCallback;
         }
@@ -17392,7 +17379,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var rect = textBox.GetRectFromCharacterIndex(charIndex);
-            var sv   = FindVisualChild<ScrollViewer>(textBox);
+            var sv   = VisualTreeSearch.FindChild<ScrollViewer>(textBox);
             if (sv is null) return true;
             return rect.Top    < sv.VerticalOffset + sv.ViewportHeight &&
                    rect.Bottom > sv.VerticalOffset;
@@ -17405,7 +17392,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var rect = textBox.GetRectFromOffset(offset);
-            var sv   = FindVisualChild<ScrollViewer>(textBox);
+            var sv   = VisualTreeSearch.FindChild<ScrollViewer>(textBox);
             if (sv is null) return true;
             return rect.Top    < sv.VerticalOffset + sv.ViewportHeight &&
                    rect.Bottom > sv.VerticalOffset;
@@ -17470,7 +17457,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         grid.Children.Add(_docSourceFindOverlay);
 
         // Re-render highlights whenever the user scrolls the source editor
-        var sv = FindVisualChild<ScrollViewer>(DocSourceTextBox);
+        var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
         if (sv is not null)
             sv.ScrollChanged += DocSourceFind_ScrollChanged;
 
@@ -17554,7 +17541,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Unsubscribe scroll listener
         if (DocSourceTextBox is not null)
         {
-            var sv = FindVisualChild<ScrollViewer>(DocSourceTextBox);
+            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
             if (sv is not null)
                 sv.ScrollChanged -= DocSourceFind_ScrollChanged;
         }
@@ -17691,8 +17678,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Draw scrollbar tick marks proportional to the total text length
         if (DocSourceTextBox.GetTextLength() > 0 && _docSourceFindMatches.Count > 0)
         {
-            var sv = FindVisualChild<ScrollViewer>(DocSourceTextBox);
-            var scrollBar = sv is not null ? FindVisualChild<ScrollBar>(sv) : null;
+            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
+            var scrollBar = sv is not null ? VisualTreeSearch.FindChild<ScrollBar>(sv) : null;
             double trackHeight = scrollBar?.ActualHeight ?? DocSourceTextBox.ActualHeight;
 
             foreach (var pos in _docSourceFindMatches)
@@ -17757,7 +17744,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // (positions changed due to scroll), then return focus to the find box.
         _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
         {
-            var sv = FindVisualChild<ScrollViewer>(DocSourceTextBox);
+            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
             if (sv is not null && DocSourceTextBox is not null && _docSourceFindTextBox is not null)
             {
                 var matchRect = DocSourceTextBox.GetRectFromOffset(pos);
@@ -17775,20 +17762,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DocSourceFind_RenderHighlights();
             _docSourceFindTextBox?.Focus();
         });
-    }
-
-    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
-    {
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T typedChild)
-                return typedChild;
-            var result = FindVisualChild<T>(child);
-            if (result is not null)
-                return result;
-        }
-        return null;
     }
 
     private static bool IsPrintableKey(Key key) =>
@@ -18991,7 +18964,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return null;
         }
 
-        var sv = FindScrollViewer(box);
+        var sv = VisualTreeSearch.FindChild<ScrollViewer>(box);
         if (sv is null || sv.ViewportWidth <= 0 || sv.ViewportHeight <= 0)
             return null;
 
@@ -19058,10 +19031,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (box is null || controller is null || box.Visibility != Visibility.Visible)
             return;
 
-        var sv = FindScrollViewer(box);
+        var sv = VisualTreeSearch.FindChild<ScrollViewer>(box);
         if (sv is null)
             return;
-
         var sw = Stopwatch.StartNew();
         try
         {
@@ -23735,7 +23707,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void RefreshActiveTranscriptScrollViewer()
     {
         var activeBox = ActiveTranscriptBox;
-        var newScrollViewer = FindScrollViewer(activeBox);
+        var newScrollViewer = VisualTreeSearch.FindChild<ScrollViewer>(activeBox);
         if (ReferenceEquals(newScrollViewer, _transcriptScrollViewer))
             return;
 
@@ -32109,7 +32081,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string title = filePath;
         if (treeItem.Header is FrameworkElement fe)
         {
-            var tb = FindVisualChild<TextBlock>(fe);
+            var tb = VisualTreeSearch.FindChild<TextBlock>(fe);
             if (tb is not null && !string.IsNullOrWhiteSpace(tb.Text))
                 title = tb.Text.Trim();
         }
@@ -35739,30 +35711,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Dispatcher.Invoke(() => AppendSystemLineOrDefer($"⚠ Push error: {ex.Message}", ThemeBrush("SystemErrorText")));
             return false;
         }
-    }
-
-    private static ScrollViewer? FindScrollViewer(DependencyObject parent)
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is ScrollViewer sv) return sv;
-            var found = FindScrollViewer(child);
-            if (found is not null) return found;
-        }
-        return null;
-    }
-
-    private static ScrollBar? FindVerticalScrollBar(DependencyObject parent)
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is ScrollBar sb && sb.Orientation == Orientation.Vertical) return sb;
-            var found = FindVerticalScrollBar(child);
-            if (found is not null) return found;
-        }
-        return null;
     }
 
     private void ClearSearchButton_Click(object sender, RoutedEventArgs e)

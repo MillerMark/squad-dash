@@ -181,6 +181,7 @@
 
     <Compile Include="..\SquadDash\CtrlDoubleTapGestureTracker.cs" Link="Source\CtrlDoubleTapGestureTracker.cs" />
     <Compile Include="..\SquadDash\VisualTreeEdgeAnalyzer.cs" Link="Source\VisualTreeEdgeAnalyzer.cs" />
+    <Compile Include="..\SquadDash\VisualTreeSearch.cs" Link="Source\VisualTreeSearch.cs" />
     <Compile Include="..\SquadDash\ICopyable.cs" Link="Source\ICopyable.cs" />
     <Compile Include="..\SquadDash\IHaveUniqueName.cs" Link="Source\IHaveUniqueName.cs" />
     <Compile Include="..\SquadDash\TranscriptCopyService.cs" Link="Source\TranscriptCopyService.cs" />
