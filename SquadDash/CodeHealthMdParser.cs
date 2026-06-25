@@ -76,7 +76,7 @@ internal static class CodeHealthMdParser {
         bool   enabledOnIdle = false;
         double idleTimeout   = 15;
         int    maxTasks      = 5;
-        string safety        = "branch";
+        string safety        = "direct";
 
         var tasks                      = new List<CodeHealthTaskBuilder>();
         bool inTasksList               = false;
@@ -985,7 +985,7 @@ internal static class CodeHealthMdParser {
         lines.Add("enabled_on_idle: false");
         lines.Add("idle_timeout: 15");
         lines.Add("max_tasks_per_session: 5");
-        lines.Add("safety: branch");
+        lines.Add("safety: direct");
 
         if (tasks.Count > 0) {
             lines.Add("tasks:");
