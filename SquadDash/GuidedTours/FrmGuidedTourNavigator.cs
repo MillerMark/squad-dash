@@ -34,7 +34,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         Title         = "Guided Tour";
-        Width         = 300;
+        Width         = 420;
         SizeToContent = SizeToContent.Height;
         ShowInTaskbar = false;
         Topmost       = true;
@@ -59,20 +59,30 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
 
         var closeButton = MakeButton("✕ Close Tour");
         closeButton.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
+        closeButton.Margin = new Thickness(16, 0, 3, 0); // extra left gap before Close
 
         _editStepButton = MakeButton("✎ Edit Step");
         _editStepButton.Click      += (_, _) => EditStepRequested?.Invoke(this, EventArgs.Empty);
         _editStepButton.Visibility  = Visibility.Collapsed;
 
-        var buttonRow = new StackPanel
+        // Button row: [← Prev] [Next →] [✎ Edit Step] ··· spacer ··· [✕ Close Tour]
+        // DockPanel keeps Close Tour pinned right with a natural gap.
+        var buttonRow = new DockPanel
         {
-            Orientation = Orientation.Horizontal,
             Margin      = new Thickness(8, 0, 8, 10),
+            LastChildFill = false,
         };
-        buttonRow.Children.Add(_prevButton);
-        buttonRow.Children.Add(_nextButton);
-        buttonRow.Children.Add(closeButton);
-        buttonRow.Children.Add(_editStepButton);
+
+        DockPanel.SetDock(closeButton,    Dock.Right);
+        DockPanel.SetDock(_editStepButton, Dock.Right);
+
+        buttonRow.Children.Add(closeButton);     // rightmost
+        buttonRow.Children.Add(_editStepButton); // left of close (added after because DockPanel right-docks in reverse order)
+
+        var leftButtons = new StackPanel { Orientation = Orientation.Horizontal };
+        leftButtons.Children.Add(_prevButton);
+        leftButtons.Children.Add(_nextButton);
+        buttonRow.Children.Add(leftButtons);
 
         var stack = new StackPanel();
         stack.Children.Add(_headerLabel);
