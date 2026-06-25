@@ -998,7 +998,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return spaceRight >= spaceLeft ? 180 : 0;
     }
 
-    public static FrmUltimateCallout ShowCallout(string markDownText, FrameworkElement target, double width = 200, double angle = double.MinValue, CalloutTheme theme = CalloutTheme.Light, double fontSize = 12, double horizontalPercentOffset = 0) {
+    public static FrmUltimateCallout ShowCallout(string markDownText, FrameworkElement target, double width = 200, double angle = double.MinValue, CalloutTheme theme = CalloutTheme.Light, double fontSize = 13, double horizontalPercentOffset = 0) {
         var frmUltimateCallout = CreateNewCallout(markDownText, width, theme, fontSize, horizontalPercentOffset);
         frmUltimateCallout.Options.TargetSpacing = fontSize / 2;
         frmUltimateCallout.PointTo(target);
@@ -1008,7 +1008,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return frmUltimateCallout;
     }
 
-    public static FrmUltimateCallout ShowCallout(string markDownText, Rect target, Window parentWindow, double width = 200, double angle = double.MinValue, CalloutTheme theme = CalloutTheme.Light, double fontSize = 12, double horizontalPercentOffset = 0) {
+    public static FrmUltimateCallout ShowCallout(string markDownText, Rect target, Window parentWindow, double width = 200, double angle = double.MinValue, CalloutTheme theme = CalloutTheme.Light, double fontSize = 13, double horizontalPercentOffset = 0) {
         var frmUltimateCallout = CreateNewCallout(markDownText, width, theme, fontSize, horizontalPercentOffset);
         frmUltimateCallout.Options.TargetSpacing = fontSize / 2;
         frmUltimateCallout.PointTo(target);
@@ -1047,7 +1047,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         FrameworkElement target,
         double width = 300,
         CalloutTheme theme = CalloutTheme.Light,
-        double fontSize = 12,
+        double fontSize = 13,
         CalloutPlacement placement = CalloutPlacement.Auto) {
         // Don't show callout against a target that isn't visible/rendered yet
         if (!target.IsVisible || target.ActualWidth <= 0 || target.ActualHeight <= 0)
@@ -1090,7 +1090,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         FinalizeAndShow();
     }
 
-    private static FrmUltimateCallout CreateNewCallout(string markDownText, double width, CalloutTheme theme, double fontSize = 12, double horizontalPercentOffset = 0) {
+    private static FrmUltimateCallout CreateNewCallout(string markDownText, double width, CalloutTheme theme, double fontSize = 13, double horizontalPercentOffset = 0) {
         FrmUltimateCallout frmUltimateCallout = new FrmUltimateCallout();
         frmUltimateCallout.Options.Width = width;
         frmUltimateCallout.markDownText = markDownText;
