@@ -64,10 +64,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static readonly double[] FontScaleFactors = [0.75, 0.875, 1.0, 1.125, 1.25, 1.4, 1.6];
     private static readonly IReadOnlyDictionary<string, double> FontSizeBaseValues =
         new Dictionary<string, double> {
-            ["FontSizeTiny"]     = 7,
-            ["FontSizeXSmall"]   = 10,
-            ["FontSizeSmall"]    = 11,
-            ["FontSizeBody"]     = 12,
+            ["FontSizeTiny"]     = 10,
+            ["FontSizeXSmall"]   = 11,
+            ["FontSizeSmall"]    = 12,
+            ["FontSizeBody"]     = 13,
             ["FontSizeNormal"]   = 13,
             ["FontSizeMedium"]   = 14,
             ["FontSizeLarge"]    = 15,

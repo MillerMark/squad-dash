@@ -19,10 +19,10 @@
 
             <!-- Issue 1: Themed button — applied explicitly, not globally -->
             <!-- Font Size Tokens -->
-            <sys:Double x:Key="FontSizeTiny">7</sys:Double>
-            <sys:Double x:Key="FontSizeXSmall">10</sys:Double>
-            <sys:Double x:Key="FontSizeSmall">11</sys:Double>
-            <sys:Double x:Key="FontSizeBody">12</sys:Double>
+            <sys:Double x:Key="FontSizeTiny">10</sys:Double>
+            <sys:Double x:Key="FontSizeXSmall">11</sys:Double>
+            <sys:Double x:Key="FontSizeSmall">12</sys:Double>
+            <sys:Double x:Key="FontSizeBody">13</sys:Double>
             <sys:Double x:Key="FontSizeNormal">13</sys:Double>
             <sys:Double x:Key="FontSizeMedium">14</sys:Double>
             <sys:Double x:Key="FontSizeLarge">15</sys:Double>
