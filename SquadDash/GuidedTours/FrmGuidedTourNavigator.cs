@@ -19,6 +19,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     private readonly TextBlock _headerLabel;
     private readonly Button    _prevButton;
     private readonly Button    _nextButton;
+    private readonly Button    _editStepButton;
 
     /// <summary>Fired when the user clicks "← Prev" or presses F2.</summary>
     public event EventHandler? PrevRequested;
@@ -26,6 +27,8 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     public event EventHandler? NextRequested;
     /// <summary>Fired when the user clicks "✕ Close Tour".</summary>
     public event EventHandler? CloseRequested;
+    /// <summary>Fired when the user clicks "✎ Edit Step" (developer mode only).</summary>
+    public event EventHandler? EditStepRequested;
 
     public FrmGuidedTourNavigator()
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
@@ -57,6 +60,10 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
         var closeButton = MakeButton("✕ Close Tour");
         closeButton.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
+        _editStepButton = MakeButton("✎ Edit Step");
+        _editStepButton.Click      += (_, _) => EditStepRequested?.Invoke(this, EventArgs.Empty);
+        _editStepButton.Visibility  = Visibility.Collapsed;
+
         var buttonRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -65,6 +72,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
         buttonRow.Children.Add(_prevButton);
         buttonRow.Children.Add(_nextButton);
         buttonRow.Children.Add(closeButton);
+        buttonRow.Children.Add(_editStepButton);
 
         var stack = new StackPanel();
         stack.Children.Add(_headerLabel);
@@ -82,6 +90,16 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Shows or hides the "✎ Edit Step" button.
+    /// Set to <c>true</c> only when the app is in developer mode.
+    /// </summary>
+    public bool IsEditModeVisible
+    {
+        get => _editStepButton.Visibility == Visibility.Visible;
+        set => _editStepButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     /// <summary>Updates the header to "Step N of N: {title}".</summary>
     public void UpdateStep(int stepIndex, int totalSteps, string title)

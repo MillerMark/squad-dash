@@ -13504,24 +13504,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var selected = FrmGuidedTourSelector.ShowForResult(this, tours);
         if (selected is null) return;
 
-        LaunchTour(selected);
+        LaunchTour(selected, tours);
     }
 
-    private void LaunchTour(GuidedTour tour)
+    private void LaunchTour(GuidedTour tour, List<GuidedTour>? allTours = null)
     {
         EnsureGuidedTourController();
-        _guidedTourController!.StartTour(tour);
+        _guidedTourController!.StartTour(tour, allTours);
     }
 
     private void EnsureGuidedTourController()
     {
         if (_guidedTourController is not null) return;
         _guidedTourController = new GuidedTourController(
-            ownerWindow:          this,
-            elementLocator:       name => VisualTreeSearch.FindByName(this, name),
-            savePreTourLayout:    () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
-            restorePreTourLayout: () => { /* Layout restore: reload the active layout from workspace */ },
-            executePreAction:     (kind, arg) => { /* no-op for initial release */ });
+            ownerWindow:             this,
+            elementLocator:          name => VisualTreeSearch.FindByName(this, name),
+            savePreTourLayout:       () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
+            restorePreTourLayout:    () => { /* Layout restore: reload the active layout from workspace */ },
+            executePreAction:        (kind, arg) => { /* no-op for initial release */ },
+            workspaceFolderProvider: () => _currentWorkspace?.FolderPath);
     }
 
     private void OfferGuidedTourOnFirstRun()

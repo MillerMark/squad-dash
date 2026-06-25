@@ -13,6 +13,7 @@ namespace SquadDash;
 internal sealed class GuidedTourController
 {
     private GuidedTour?              _activeTour;
+    private List<GuidedTour>         _allTours = new();
     private int                      _currentStepIndex;
     private FrmUltimateCallout?      _activeCallout;
     private FrmGuidedTourNavigator?  _navigator;
@@ -23,6 +24,10 @@ internal sealed class GuidedTourController
     private readonly Action?                              _restorePreTourLayout;
     private readonly Action<string, string>?              _executePreAction;
     private readonly Window                               _ownerWindow;
+    private readonly Func<string?>?                       _workspaceFolderProvider;
+
+    /// <summary>Fired (on the UI thread) when the Edit Step button is clicked.</summary>
+    public event EventHandler? EditStepRequested;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -35,18 +40,21 @@ internal sealed class GuidedTourController
     /// Called for step preActions other than None/SaveLayout.
     /// First arg = action kind (e.g. "OpenPanel"), second arg = argument (e.g. "Notes").
     /// </param>
+    /// <param name="workspaceFolderProvider">Returns the current workspace folder path, used when saving tours.</param>
     public GuidedTourController(
         Window                          ownerWindow,
         Func<string, FrameworkElement?> elementLocator,
         Action?                         savePreTourLayout    = null,
         Action?                         restorePreTourLayout = null,
-        Action<string, string>?         executePreAction     = null)
+        Action<string, string>?         executePreAction     = null,
+        Func<string?>?                  workspaceFolderProvider = null)
     {
-        _ownerWindow          = ownerWindow;
-        _elementLocator       = elementLocator;
-        _savePreTourLayout    = savePreTourLayout;
-        _restorePreTourLayout = restorePreTourLayout;
-        _executePreAction     = executePreAction;
+        _ownerWindow             = ownerWindow;
+        _elementLocator          = elementLocator;
+        _savePreTourLayout       = savePreTourLayout;
+        _restorePreTourLayout    = restorePreTourLayout;
+        _executePreAction        = executePreAction;
+        _workspaceFolderProvider = workspaceFolderProvider;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -56,18 +64,44 @@ internal sealed class GuidedTourController
     public GuidedTour?  ActiveTour         => _activeTour;
     public int          CurrentStepIndex   => _currentStepIndex;
 
+    /// <summary>The workspace folder path resolved at the moment of the call, or null.</summary>
+    public string? WorkspaceFolderPath => _workspaceFolderProvider?.Invoke();
+
+    /// <summary>All tours in scope for the current session (used when saving edits).</summary>
+    public List<GuidedTour> AllTours => _allTours;
+
+    /// <summary>The element locator callback (used by the step editor for control browsing).</summary>
+    public Func<string, FrameworkElement?> ElementLocator => _elementLocator;
+
+    /// <summary>The owner window (used as dialog owner by the step editor).</summary>
+    public Window OwnerWindow => _ownerWindow;
+
+    /// <summary>The layout-capture callback (used by the step editor's Capture Layout button).</summary>
+    public Action? CaptureLayout => _savePreTourLayout;
+
     /// <summary>Starts the tour at step 0, saving the current layout as a restore point.</summary>
-    public void StartTour(GuidedTour tour)
+    public void StartTour(GuidedTour tour, List<GuidedTour>? allTours = null)
     {
         if (IsActive) StopTourInternal(showHint: false);
 
         _activeTour        = tour;
+        _allTours          = allTours ?? new List<GuidedTour> { tour };
         _currentStepIndex  = 0;
 
         _savePreTourLayout?.Invoke();
 
         OpenNavigator();
         ShowCurrentStep();
+    }
+
+    /// <summary>
+    /// Refreshes the callout and navigator heading after an in-place step edit.
+    /// </summary>
+    public void NotifyStepEdited()
+    {
+        CloseActiveCallout();
+        UpdateNavigator();
+        ShowStepCallout(CurrentStep);
     }
 
     /// <summary>Moves to the next step, or ends the tour if already at the last step.</summary>
@@ -101,10 +135,12 @@ internal sealed class GuidedTourController
     private void OpenNavigator()
     {
         _navigator = new FrmGuidedTourNavigator { Owner = _ownerWindow };
-        _navigator.PrevRequested  += (_, _) => Prev();
-        _navigator.NextRequested  += (_, _) => Next();
-        _navigator.CloseRequested += (_, _) => StopTour();
-        _navigator.Closed         += (_, _) =>
+        _navigator.PrevRequested     += (_, _) => Prev();
+        _navigator.NextRequested     += (_, _) => Next();
+        _navigator.CloseRequested    += (_, _) => StopTour();
+        _navigator.EditStepRequested += (_, _) => HandleEditStep();
+        _navigator.IsEditModeVisible  = SquadDashEnvironment.IsDeveloperMode;
+        _navigator.Closed            += (_, _) =>
         {
             // User closed via OS means (alt-F4) — treat as tour stop
             if (IsActive) StopTourInternal(showHint: true);
@@ -117,6 +153,24 @@ internal sealed class GuidedTourController
     {
         if (_navigator is null || _activeTour is null) return;
         _navigator.UpdateStep(_currentStepIndex, _activeTour.Steps.Count, CurrentStep.Title);
+    }
+
+    private void HandleEditStep()
+    {
+        if (_activeTour is null) return;
+        EditStepRequested?.Invoke(this, EventArgs.Empty);
+
+        var editor = new FrmGuidedTourStepEditor(
+            step:                CurrentStep,
+            stepIndex:           _currentStepIndex,
+            activeTour:          _activeTour,
+            allTours:            _allTours,
+            workspaceFolderPath: WorkspaceFolderPath,
+            owner:               _ownerWindow,
+            captureLayout:       _savePreTourLayout);
+        editor.ShowDialog();
+        if (editor.WasSaved)
+            NotifyStepEdited();
     }
 
     private GuidedTourStep CurrentStep =>
