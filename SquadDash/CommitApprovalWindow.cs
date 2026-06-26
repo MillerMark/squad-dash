@@ -809,8 +809,9 @@ internal sealed class CommitApprovalPanel {
 
         foreach (var panel in new[] { _needsApprovalPanel, _approvedPanel, _rejectedPanel })
         {
-            foreach (Border row in panel.Children)
+            foreach (var child in panel.Children)
             {
+                if (child is not Border row) continue;
                 if (rowsChecked >= maxRows) break;
                 if (row.Tag is not CommitApprovalItem item) continue;
 
