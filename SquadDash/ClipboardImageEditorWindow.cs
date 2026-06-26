@@ -3098,11 +3098,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             IsHitTestVisible = false
         };
         _mlPreviewBadge = new Border {
-            Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
+            Background = new SolidColorBrush(Color.FromArgb(255, 0, 0, 0)),
             CornerRadius = new CornerRadius(3),
             Padding = new Thickness(4, 2, 4, 2),
             Child = _mlPreviewBadgeText,
-            Opacity = 0.7,
             IsHitTestVisible = false
         };
         Panel.SetZIndex(_mlPreviewBadge, 99);
