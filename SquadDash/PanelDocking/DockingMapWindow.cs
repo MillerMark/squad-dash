@@ -355,21 +355,23 @@ internal sealed class DockingMapWindow : Window
         var owner = Owner;
         if (owner is null) return;
 
+        var bounds = GetOwnerLogicalRect(owner);
+
         _dimOverlay = new Window
         {
             WindowStyle           = WindowStyle.None,
             AllowsTransparency    = true,
-            Background            = new SolidColorBrush(Color.FromArgb(230, 0, 0, 0)),
+            Background            = new SolidColorBrush(Color.FromArgb(128, 0, 0, 0)),
             Topmost               = false,
             ShowInTaskbar         = false,
             ResizeMode            = ResizeMode.NoResize,
             ShowActivated         = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Owner                 = owner,
-            Left                  = owner.Left,
-            Top                   = owner.Top,
-            Width                 = owner.ActualWidth,
-            Height                = owner.ActualHeight,
+            Left                  = bounds.Left,
+            Top                   = bounds.Top,
+            Width                 = bounds.Width,
+            Height                = bounds.Height,
         };
 
         owner.LocationChanged += OnOwnerPositionChanged;
@@ -382,16 +384,52 @@ internal sealed class DockingMapWindow : Window
     private void OnOwnerPositionChanged(object? sender, EventArgs e)
     {
         if (_dimOverlay is null || Owner is null) return;
-        _dimOverlay.Left = Owner.Left;
-        _dimOverlay.Top  = Owner.Top;
+        var bounds = GetOwnerLogicalRect(Owner);
+        _dimOverlay.Left   = bounds.Left;
+        _dimOverlay.Top    = bounds.Top;
+        _dimOverlay.Width  = bounds.Width;
+        _dimOverlay.Height = bounds.Height;
     }
 
     private void OnOwnerSizeChanged(object? sender, SizeChangedEventArgs e)
     {
         if (_dimOverlay is null || Owner is null) return;
-        _dimOverlay.Width  = Owner.ActualWidth;
-        _dimOverlay.Height = Owner.ActualHeight;
+        var bounds = GetOwnerLogicalRect(Owner);
+        _dimOverlay.Left   = bounds.Left;
+        _dimOverlay.Top    = bounds.Top;
+        _dimOverlay.Width  = bounds.Width;
+        _dimOverlay.Height = bounds.Height;
     }
+
+    /// <summary>
+    /// Returns the owner window's bounds in WPF logical units (DIPs) by reading the true
+    /// physical rect via Win32 GetWindowRect and converting through the DPI transform.
+    /// This is correct on high-DPI monitors where Window.Left/Top can differ from the
+    /// physical screen position when DPI scaling is active.
+    /// </summary>
+    private static Rect GetOwnerLogicalRect(Window owner)
+    {
+        var helper = new WindowInteropHelper(owner);
+        if (helper.Handle != IntPtr.Zero && GetWindowRect(helper.Handle, out DimOverlayRECT r))
+        {
+            var src = PresentationSource.FromVisual(owner);
+            if (src?.CompositionTarget is { } ct)
+            {
+                var transform   = ct.TransformFromDevice;
+                var topLeft     = transform.Transform(new Point(r.Left, r.Top));
+                var bottomRight = transform.Transform(new Point(r.Right, r.Bottom));
+                return new Rect(topLeft, bottomRight);
+            }
+        }
+        // Fallback: use WPF logical properties directly
+        return new Rect(owner.Left, owner.Top, owner.ActualWidth, owner.ActualHeight);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hwnd, out DimOverlayRECT rect);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct DimOverlayRECT { public int Left, Top, Right, Bottom; }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hwnd, int nIndex);
