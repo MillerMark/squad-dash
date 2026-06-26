@@ -36,10 +36,10 @@ internal sealed class TintKeysTests {
 
     [Test]
     public void TintKeys_CountMatchesKnownTotal() {
-        // 30 surfaces + 2 chrome + 17 borders + 20 text + 4 scrollbar + 2 editor = 75
+        // 30 surfaces + 2 chrome + 19 borders + 20 text + 4 scrollbar + 2 editor = 77
         // A lower count would indicate a duplicate in the source literal (silently dropped by HashSet)
         // or an accidental deletion.
-        Assert.That(TintKeys.All.Count, Is.EqualTo(75));
+        Assert.That(TintKeys.All.Count, Is.EqualTo(77));
     }
 
     [Test]
