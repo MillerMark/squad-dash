@@ -132,11 +132,39 @@ internal sealed class DockingMapWindow : Window
         if (_viewModel.HasRightSection)
             canvas.Children.Add(MakeSectionLabel("Right:", _viewModel.RightSectionCenterX, LabelWidth, polarColor));
 
-        root.Child = canvas;
+        // ── Header label ────────────────────────────────────────────────────
+        var sourcePanelId  = _viewModel.Slots.FirstOrDefault(s => s.IsSourcePanel)?.SourcePanelId
+                          ?? _viewModel.Slots.FirstOrDefault()?.SourcePanelId
+                          ?? string.Empty;
+        var headerLabel = new TextBlock
+        {
+            Text              = $"Dock {GetPanelDisplayName(sourcePanelId)}:",
+            TextAlignment     = TextAlignment.Center,
+            FontWeight        = FontWeights.SemiBold,
+            Height            = HeaderHeight,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 0, 0, 4),
+        };
+        double headerFontSize = Application.Current?.TryFindResource("FontSizeLarge") is double hfs ? hfs : 13.5;
+        headerLabel.FontSize   = headerFontSize;
+        headerLabel.Foreground = new SolidColorBrush(polarColor);
+
+        var layout = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(headerLabel, Dock.Top);
+        layout.Children.Add(headerLabel);
+        layout.Children.Add(canvas);
+
+        root.Child = layout;
         Content    = root;
     }
 
     private const double PopupPadding = 6;
+
+    /// <summary>
+    /// Fixed height of the "Dock {PanelName}:" header row above the canvas.
+    /// Must match the actual layout height so ShowAtScreenPoint can compensate.
+    /// </summary>
+    private const double HeaderHeight = 28;
 
     private UIElement BuildSlotElement(SlotButtonViewModel slot, Color groundingColor, Color polarColor, bool isDark)
     {
@@ -239,6 +267,18 @@ internal sealed class DockingMapWindow : Window
 
     private static SolidColorBrush MakeBrush(Color color, double opacity) =>
         new SolidColorBrush(Color.FromArgb((byte)Math.Round(opacity * 255), color.R, color.G, color.B));
+
+    private static string GetPanelDisplayName(string panelId) => panelId.ToLowerInvariant() switch
+    {
+        "tasks"        => "Tasks",
+        "approvals"    => "Approvals",
+        "notes"        => "Notes",
+        "maintenance"  => "Health",
+        "inbox"        => "Inbox",
+        "loop"         => "Loop",
+        "watch-health" => "Watch Health",
+        _              => panelId.Length > 0 ? char.ToUpper(panelId[0]) + panelId[1..] : panelId,
+    };
 
     private void OnSlotHover(SlotButtonViewModel slot)
     {
@@ -508,7 +548,7 @@ internal sealed class DockingMapWindow : Window
         double logicalY = clickScreenPoint.Y / sy;
 
         Left = logicalX - _viewModel.SourceSlotCenterX;
-        Top  = logicalY - _viewModel.SourceSlotCenterY;
+        Top  = logicalY - _viewModel.SourceSlotCenterY - HeaderHeight;
 
         SquadDashTrace.Write(TraceCategory.Docking,
             $"ShowAtScreenPoint: clickPhys=({clickScreenPoint.X:F0},{clickScreenPoint.Y:F0}) " +
