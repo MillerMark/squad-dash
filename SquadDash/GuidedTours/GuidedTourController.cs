@@ -167,7 +167,8 @@ internal sealed class GuidedTourController
             allTours:            _allTours,
             workspaceFolderPath: WorkspaceFolderPath,
             owner:               _ownerWindow,
-            captureLayout:       _savePreTourLayout);
+            captureLayout:       _savePreTourLayout,
+            livePreviewCallback: NotifyStepEdited);
         editor.ShowDialog();
         if (editor.WasSaved)
             NotifyStepEdited();

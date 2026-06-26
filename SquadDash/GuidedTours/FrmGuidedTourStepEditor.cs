@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using SquadDash.GuidedTours;
 
 namespace SquadDash;
@@ -22,15 +23,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly string?           _workspaceFolderPath;
     private readonly Action?           _captureLayout;
 
+    private readonly Action?           _livePreviewCallback;
+    private readonly string            _originalMarkdown;
+    private readonly string            _originalPlacement;
+    private readonly DispatcherTimer   _debounceTimer;
+
     // PTT voice dictation
     private readonly PttTextBoxAttachment _ptt;
 
     // Form controls
-    private readonly TextBox    _titleBox;
-    private readonly TextBox    _markdownBox;
-    private readonly ComboBox   _placementCombo;
-    private readonly TextBox    _targetControlBox;
-    private readonly TextBlock  _statusLabel;
+    private readonly TextBox       _titleBox;
+    private readonly TextBox       _markdownBox;
+    private readonly RadioButton[] _placementRadios;
+    private readonly TextBox       _targetControlBox;
+    private readonly TextBlock     _statusLabel;
 
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
@@ -42,9 +48,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         List<GuidedTour> allTours,
         string?          workspaceFolderPath,
         Window           owner,
-        Action?          captureLayout = null)
+        Action?          captureLayout        = null,
+        Action?          livePreviewCallback  = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
+        _originalMarkdown    = step.MarkdownText;
+        _originalPlacement   = step.CalloutPlacement;
+        _livePreviewCallback = livePreviewCallback;
+
         _step                = step;
         _stepIndex           = stepIndex;
         _activeTour          = activeTour;
@@ -75,15 +86,30 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _markdownBox.AcceptsReturn = true;
         _markdownBox.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
 
-        _placementCombo = new ComboBox { Height = 26, Margin = new Thickness(0, 0, 0, 0) };
-        _placementCombo.SetResourceReference(ComboBox.BackgroundProperty,  "InputSurface");
-        _placementCombo.SetResourceReference(ComboBox.BorderBrushProperty, "InputBorder");
-        _placementCombo.SetResourceReference(ComboBox.ForegroundProperty,  "LabelText");
-        _placementCombo.SetResourceReference(ComboBox.FontSizeProperty,    "FontSizeBody");
-        foreach (var p in new[] { "Auto", "North", "South", "East", "West" })
-            _placementCombo.Items.Add(p);
-        _placementCombo.SelectedItem = step.CalloutPlacement;
-        if (_placementCombo.SelectedItem is null) _placementCombo.SelectedIndex = 0;
+        var placementRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 0) };
+        _placementRadios = new[] { "Auto", "North", "South", "East", "West" }
+            .Select(p =>
+            {
+                var rb = new RadioButton
+                {
+                    Content                  = p,
+                    GroupName                = "Placement",
+                    IsChecked                = string.Equals(step.CalloutPlacement, p, StringComparison.OrdinalIgnoreCase),
+                    Margin                   = new Thickness(0, 0, 12, 0),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+                rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
+                rb.Checked += (_, _) => PushLivePreview();
+                return rb;
+            })
+            .ToArray();
+
+        if (_placementRadios.All(r => r.IsChecked != true))
+            _placementRadios[0].IsChecked = true;
+
+        foreach (var rb in _placementRadios)
+            placementRow.Children.Add(rb);
 
         _targetControlBox = MakeTextBox(step.TargetControlId, multiLine: false);
 
@@ -119,7 +145,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         formPanel.Children.Add(MakeLabel("Callout Text (Markdown)"));
         formPanel.Children.Add(_markdownBox);
         formPanel.Children.Add(MakeLabel("Callout Placement"));
-        formPanel.Children.Add(_placementCombo);
+        formPanel.Children.Add(placementRow);
         formPanel.Children.Add(MakeLabel("Target Control (x:Name)"));
         formPanel.Children.Add(targetRow);
         formPanel.Children.Add(new Border { Height = 10 });
@@ -152,6 +178,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         contentArea.Child = layout;
 
+        _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); PushLivePreview(); };
+        _markdownBox.TextChanged += (_, _) => { _debounceTimer.Stop(); _debounceTimer.Start(); };
+        Closed += (_, _) => { _debounceTimer.Stop(); if (!WasSaved) RestoreOriginals(); };
+
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape) { Close(); return; }
@@ -175,7 +206,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         _step.Title            = _titleBox.Text.Trim();
         _step.MarkdownText     = _markdownBox.Text;
-        _step.CalloutPlacement = (_placementCombo.SelectedItem as string) ?? "Auto";
+        _step.CalloutPlacement = GetSelectedPlacement();
         _step.TargetControlId  = _targetControlBox.Text.Trim();
 
         if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
@@ -196,6 +227,23 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         WasSaved = true;
         Close();
+    }
+
+    private string GetSelectedPlacement() =>
+        _placementRadios.FirstOrDefault(r => r.IsChecked == true)?.Content as string ?? "Auto";
+
+    private void PushLivePreview()
+    {
+        _step.MarkdownText     = _markdownBox.Text;
+        _step.CalloutPlacement = GetSelectedPlacement();
+        _livePreviewCallback?.Invoke();
+    }
+
+    private void RestoreOriginals()
+    {
+        _step.MarkdownText     = _originalMarkdown;
+        _step.CalloutPlacement = _originalPlacement;
+        _livePreviewCallback?.Invoke();
     }
 
     private void CaptureLayoutForStep()
