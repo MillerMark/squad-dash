@@ -275,13 +275,45 @@ internal sealed class DockingMapWindow : Window
     {
         if (_previewOverlay is not null) return;
 
-        var previewBorder = new Border
+        Color accent = _hoverBrush is SolidColorBrush scb ? scb.Color : Color.FromRgb(100, 160, 255);
+
+        // Layer 1 — outer bloom: large negative margin, very blurry, low opacity
+        Color bloom = BoostColor(accent, targetSaturation: 0.9, targetLightness: 0.50);
+        var outerBloom = new Border
         {
-            Background      = _hoverBrush,
-            BorderBrush     = DeriveBorderBrush(_hoverBrush),
+            BorderThickness = new Thickness(12),
+            BorderBrush     = new SolidColorBrush(Color.FromArgb(100, bloom.R, bloom.G, bloom.B)),
+            CornerRadius    = new CornerRadius(14),
+            Margin          = new Thickness(-18),
+            Effect          = new System.Windows.Media.Effects.BlurEffect { Radius = 18 },
+        };
+
+        // Layer 2 — mid halo: medium border, full saturation, medium blur
+        Color mid = BoostColor(accent, targetSaturation: 1.0, targetLightness: 0.58);
+        var midHalo = new Border
+        {
+            BorderThickness = new Thickness(4),
+            BorderBrush     = new SolidColorBrush(Color.FromArgb(220, mid.R, mid.G, mid.B)),
+            CornerRadius    = new CornerRadius(9),
+            Margin          = new Thickness(-6),
+            Effect          = new System.Windows.Media.Effects.BlurEffect { Radius = 6 },
+        };
+
+        // Layer 3 — inner ring: crisp near-white tinted border, no blur, light accent fill
+        Color hot  = BoostColor(accent, targetSaturation: 0.6, targetLightness: 0.88);
+        Color fill = BoostColor(accent, targetSaturation: 1.0, targetLightness: 0.50);
+        var innerRing = new Border
+        {
             BorderThickness = new Thickness(2),
+            BorderBrush     = new SolidColorBrush(Color.FromArgb(255, hot.R, hot.G, hot.B)),
+            Background      = new SolidColorBrush(Color.FromArgb(60, fill.R, fill.G, fill.B)),
             CornerRadius    = new CornerRadius(6),
         };
+
+        var stack = new Grid { ClipToBounds = false };
+        stack.Children.Add(outerBloom);
+        stack.Children.Add(midHalo);
+        stack.Children.Add(innerRing);
 
         _previewOverlay = new Window
         {
@@ -293,8 +325,14 @@ internal sealed class DockingMapWindow : Window
             ResizeMode            = ResizeMode.NoResize,
             ShowActivated         = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Content               = previewBorder,
+            Content               = stack,
         };
+    }
+
+    private static Color BoostColor(Color c, double targetSaturation = 1.0, double targetLightness = 0.55)
+    {
+        var (h, _, _) = RgbToHsl(c);
+        return HslToRgb(h, targetSaturation, targetLightness, 255);
     }
 
     /// <summary>
