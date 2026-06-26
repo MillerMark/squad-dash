@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 
@@ -16,6 +17,7 @@ internal sealed class DockingMapWindow : Window
     private readonly (DockZone Zone, int Order, SyntheticInsertKind InsertKind)? _targetSlot;
 
     private Window? _previewOverlay;
+    private Window? _dimOverlay;
 
     public DockingMapWindow(
         DockingMapViewModel viewModel,
@@ -51,7 +53,20 @@ internal sealed class DockingMapWindow : Window
         Activated += OnFirstActivated;
 
         // Close the preview overlay whenever this window closes.
-        Closed += (_, _) => { _previewOverlay?.Close(); _previewOverlay = null; };
+        Closed += (_, _) =>
+        {
+            _previewOverlay?.Close();
+            _previewOverlay = null;
+
+            _dimOverlay?.Close();
+            _dimOverlay = null;
+
+            if (Owner is { } closingOwner)
+            {
+                closingOwner.LocationChanged -= OnOwnerPositionChanged;
+                closingOwner.SizeChanged     -= OnOwnerSizeChanged;
+            }
+        };
 
         BuildUI(appResources);
 
@@ -335,6 +350,64 @@ internal sealed class DockingMapWindow : Window
         return p;
     }
 
+    private void ShowDimOverlay()
+    {
+        var owner = Owner;
+        if (owner is null) return;
+
+        _dimOverlay = new Window
+        {
+            WindowStyle           = WindowStyle.None,
+            AllowsTransparency    = true,
+            Background            = new SolidColorBrush(Color.FromArgb(230, 0, 0, 0)),
+            Topmost               = false,
+            ShowInTaskbar         = false,
+            ResizeMode            = ResizeMode.NoResize,
+            ShowActivated         = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Owner                 = owner,
+            Left                  = owner.Left,
+            Top                   = owner.Top,
+            Width                 = owner.ActualWidth,
+            Height                = owner.ActualHeight,
+        };
+
+        owner.LocationChanged += OnOwnerPositionChanged;
+        owner.SizeChanged     += OnOwnerSizeChanged;
+
+        _dimOverlay.Show();
+        MakeDimOverlayClickThrough(_dimOverlay);
+    }
+
+    private void OnOwnerPositionChanged(object? sender, EventArgs e)
+    {
+        if (_dimOverlay is null || Owner is null) return;
+        _dimOverlay.Left = Owner.Left;
+        _dimOverlay.Top  = Owner.Top;
+    }
+
+    private void OnOwnerSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (_dimOverlay is null || Owner is null) return;
+        _dimOverlay.Width  = Owner.ActualWidth;
+        _dimOverlay.Height = Owner.ActualHeight;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int nIndex);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int nIndex, int dwNewLong);
+
+    private static void MakeDimOverlayClickThrough(Window w)
+    {
+        const int GWL_EXSTYLE       = -20;
+        const int WS_EX_TRANSPARENT = 0x00000020;
+        var helper = new WindowInteropHelper(w);
+        helper.EnsureHandle();
+        int style = GetWindowLong(helper.Handle, GWL_EXSTYLE);
+        SetWindowLong(helper.Handle, GWL_EXSTYLE, style | WS_EX_TRANSPARENT);
+    }
+
     /// <summary>
     /// Opens the popup positioned so the source panel slot is centered on the given screen point.
     /// Clamps to keep the window fully within the active monitor's working area.
@@ -367,6 +440,7 @@ internal sealed class DockingMapWindow : Window
             $"srcCenter=({_viewModel.SourceSlotCenterX:F0},{_viewModel.SourceSlotCenterY:F0}) " +
             $"→ Left={Left:F0} Top={Top:F0}");
 
+        ShowDimOverlay();
         Show();
 
         // Clamp to monitor work area using the project's existing helper
@@ -382,6 +456,7 @@ internal sealed class DockingMapWindow : Window
     {
         // Set Top before Show so WPF uses it as the initial position during SizeToContent layout.
         Top  = panelScreenTop + 40;
+        ShowDimOverlay();
         Show();
         // ActualWidth is valid after Show() — center horizontally now.
         Left = panelScreenCenterX - ActualWidth / 2;
