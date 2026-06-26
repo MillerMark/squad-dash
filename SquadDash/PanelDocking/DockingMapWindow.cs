@@ -127,10 +127,10 @@ internal sealed class DockingMapWindow : Window
         // ── Section labels ───────────────────────────────────────────────────
         const double LabelWidth = 60;
         if (_viewModel.HasLeftSection)
-            canvas.Children.Add(MakeSectionLabel("Left:", _viewModel.LeftSectionCenterX, LabelWidth, polarColor));
-        canvas.Children.Add(MakeSectionLabel("Top:", _viewModel.TopSectionCenterX, LabelWidth, polarColor));
+            canvas.Children.Add(MakeSectionLabel("Left:", _viewModel.LeftSectionCenterX, LabelWidth));
+        canvas.Children.Add(MakeSectionLabel("Top:", _viewModel.TopSectionCenterX, LabelWidth));
         if (_viewModel.HasRightSection)
-            canvas.Children.Add(MakeSectionLabel("Right:", _viewModel.RightSectionCenterX, LabelWidth, polarColor));
+            canvas.Children.Add(MakeSectionLabel("Right:", _viewModel.RightSectionCenterX, LabelWidth));
 
         // ── Header label ────────────────────────────────────────────────────
         var sourcePanelId  = _viewModel.Slots.FirstOrDefault(s => s.IsSourcePanel)?.SourcePanelId
@@ -145,9 +145,8 @@ internal sealed class DockingMapWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(0, 0, 0, 4),
         };
-        double headerFontSize = Application.Current?.TryFindResource("FontSizeLarge") is double hfs ? hfs : 13.5;
-        headerLabel.FontSize   = headerFontSize;
-        headerLabel.Foreground = new SolidColorBrush(polarColor);
+        headerLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeLarge");
+        headerLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(headerLabel, Dock.Top);
@@ -249,17 +248,17 @@ internal sealed class DockingMapWindow : Window
         return border;
     }
 
-    private UIElement MakeSectionLabel(string text, double centerX, double width, Color polarColor)
+    private static UIElement MakeSectionLabel(string text, double centerX, double width)
     {
-        double fontSize = Application.Current?.TryFindResource("FontSizeXSmall") is double d ? d : 10.0;
         var lbl = new TextBlock
         {
             Text          = text,
             Width         = width,
             TextAlignment = TextAlignment.Center,
-            FontSize      = fontSize,
-            Foreground    = MakeBrush(polarColor, 0.45),
+            Opacity       = 0.55,
         };
+        lbl.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeXSmall");
+        lbl.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         Canvas.SetLeft(lbl, centerX - width / 2);
         Canvas.SetTop(lbl, 0);
         return lbl;

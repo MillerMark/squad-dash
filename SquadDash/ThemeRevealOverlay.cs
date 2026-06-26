@@ -38,6 +38,12 @@ internal sealed class ThemeRevealOverlay
 
     private static readonly Dictionary<DependencyProperty, string> _dpNames = BuildDpNames();
 
+    private static readonly DependencyProperty[] _fontSizeDps = new[]
+    {
+        TextBlock.FontSizeProperty,
+        Control.FontSizeProperty,
+    };
+
     private static Dictionary<DependencyProperty, string> BuildDpNames()
     {
         var d = new Dictionary<DependencyProperty, string>(ReferenceEqualityComparer.Instance);
@@ -60,8 +66,9 @@ internal sealed class ThemeRevealOverlay
     private StackPanel? _rowsPanel;
     private FrameworkElement? _lastElement;
 
-    // Last-computed token list so Ctrl+C can copy it.
+    // Last-computed token lists so Ctrl+C can copy them.
     private List<(string Prop, string Key, Color Color, string SourceLabel)> _lastTokens = new();
+    private List<(string Prop, string Key, double Size, string SourceLabel)> _lastFontTokens = new();
 
     /// <summary>True while the overlay is active on a window.</summary>
     public bool IsActive => _owner is not null;
@@ -103,7 +110,7 @@ internal sealed class ThemeRevealOverlay
 
     internal void CopyToClipboard()
     {
-        if (_lastTokens.Count == 0) return;
+        if (_lastTokens.Count == 0 && _lastFontTokens.Count == 0) return;
         try
         {
             var sb = new System.Text.StringBuilder();
@@ -113,6 +120,11 @@ internal sealed class ThemeRevealOverlay
                 var hex = $"#{color.R:X2}{color.G:X2}{color.B:X2}";
                 var src = string.IsNullOrEmpty(sourceLabel) ? string.Empty : $"  ({sourceLabel})";
                 sb.AppendLine($"{prop} → {key}  {hex}{src}");
+            }
+            foreach (var (prop, key, size, sourceLabel) in _lastFontTokens)
+            {
+                var src = string.IsNullOrEmpty(sourceLabel) ? string.Empty : $"  ({sourceLabel})";
+                sb.AppendLine($"{prop} → {key}  {size:F1}px{src}");
             }
             System.Windows.Clipboard.SetText(sb.ToString().TrimEnd());
         }
@@ -211,10 +223,12 @@ internal sealed class ThemeRevealOverlay
         if (_rowsPanel is null) return;
         _rowsPanel.Children.Clear();
 
-        var allTokens = CollectAllLevelTokens(element);
-        _lastTokens = allTokens;
+        var allTokens  = CollectAllLevelTokens(element);
+        var fontTokens = CollectAllLevelFontSizeTokens(element);
+        _lastTokens     = allTokens;
+        _lastFontTokens = fontTokens;
 
-        if (allTokens.Count == 0)
+        if (allTokens.Count == 0 && fontTokens.Count == 0)
         {
             var empty = new TextBlock
             {
@@ -252,6 +266,21 @@ internal sealed class ThemeRevealOverlay
                 ? $"{prop} → {key}"
                 : $"{prop} → {key}  ({sourceLabel})";
 
+            row.Children.Add(label);
+            _rowsPanel.Children.Add(row);
+        }
+
+        foreach (var (prop, key, size, sourceLabel) in fontTokens)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
+            var label = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Text = string.IsNullOrEmpty(sourceLabel)
+                    ? $"{prop} → {key}  ({size:F1}px)"
+                    : $"{prop} → {key}  ({size:F1}px)  ({sourceLabel})",
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             row.Children.Add(label);
             _rowsPanel.Children.Add(row);
         }
@@ -328,6 +357,70 @@ internal sealed class ThemeRevealOverlay
         }
 
         return result;
+    }
+
+    private static List<(string Prop, string Key, double Size)> CollectFontSizeTokens(FrameworkElement element)
+    {
+        var result  = new List<(string, string, double)>();
+        var seenDup = new HashSet<string>();
+
+        foreach (var dp in _fontSizeDps)
+        {
+            try
+            {
+                var value = element.ReadLocalValue(dp);
+                if (value == DependencyProperty.UnsetValue) continue;
+                if (!value.GetType().Name.Contains("ResourceReference", System.StringComparison.Ordinal)) continue;
+
+                var keyProp = value.GetType().GetProperty("ResourceKey",
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.Public   |
+                    System.Reflection.BindingFlags.NonPublic);
+
+                if (keyProp?.GetValue(value) is not string key || string.IsNullOrEmpty(key)) continue;
+
+                var dedupKey = $"FontSize:{key}";
+                if (!seenDup.Add(dedupKey)) continue;
+
+                double size = Application.Current.TryFindResource(key) is double d ? d : 0;
+                result.Add(("FontSize", key, size));
+            }
+            catch { }
+        }
+
+        return result;
+    }
+
+    private static List<(string Prop, string Key, double Size, string SourceLabel)> CollectAllLevelFontSizeTokens(
+        FrameworkElement element)
+    {
+        var allTokens = new List<(string Prop, string Key, double Size, string SourceLabel)>();
+        var seenKeys  = new HashSet<string>();
+
+        var current = (DependencyObject)element;
+        int levels  = 0;
+
+        while (current is not null && levels < 20)
+        {
+            if (current is FrameworkElement fe)
+            {
+                var tokens = CollectFontSizeTokens(fe);
+                if (tokens.Count > 0)
+                {
+                    var sourceLabel = levels == 0 ? string.Empty : DescribeElement(fe);
+                    foreach (var t in tokens)
+                    {
+                        if (seenKeys.Add(t.Prop))
+                            allTokens.Add((t.Prop, t.Key, t.Size, sourceLabel));
+                    }
+                    levels++;
+                    if (levels >= 3) break;
+                }
+            }
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return allTokens;
     }
 
     private static Color ResolveColor(string key)
