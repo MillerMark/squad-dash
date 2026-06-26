@@ -415,6 +415,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         else if (minTargetDistance == leftTargetDistance)
             data.TargetDangleSide = CalloutSide.Left;
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"SetCalloutSides: callout distances top={topWindowDistance:F1} right={rightWindowDistance:F1} bottom={bottomWindowDistance:F1} left={leftWindowDistance:F1} → CalloutDangleSide={data.CalloutDangleSide} | " +
+            $"target distances top={topTargetDistance:F1} right={rightTargetDistance:F1} bottom={bottomTargetDistance:F1} left={leftTargetDistance:F1} → TargetDangleSide={data.TargetDangleSide}");
     }
 
     private static double Min(params double[] args) => args.Min();
@@ -453,6 +456,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         guidelineIntersectionData.InnerWindowBottom = MyLine.Horizontal(windowLeft, windowRight, windowBottom - innerWindowMargin);
 
         SetCalloutSides(testLine, guidelineIntersectionData);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetGuidelineIntersectionData: callout=({calloutLeft:F1},{calloutTop:F1})-({calloutRight:F1},{calloutBottom:F1}) " +
+            $"target=({targetLeft:F1},{targetTop:F1})-({targetRight:F1},{targetBottom:F1}) " +
+            $"innerWindow=({windowLeft + indicatorMargin + 10:F1},{windowTop + indicatorMargin + 10:F1})-({windowLeft + calloutWidth + 2*OutsideMargin - indicatorMargin - 10:F1},{windowTop + calloutHeight + 2*OutsideMargin - indicatorMargin - 10:F1})");
 
         return guidelineIntersectionData;
     }
@@ -633,6 +641,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         //RotateCalloutToGetPosition(distance, guidelineIntersectionData.CalloutDangleSide, out windowLeft, out windowTop);
         calloutCenter = new Point(OutsideMargin + calloutWidth / 2, OutsideMargin + calloutHeight / 2);
         GetCalloutPosition(guidelineIntersectionData, out windowLeft, out windowTop);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"CalculateWindowPosition: lastCalloutAngle={lastCalloutAngle:F1}° calloutSize=({calloutWidth:F1}×{calloutHeight:F1}) targetCenter=({targetCenter.X:F1},{targetCenter.Y:F1}) windowPos=({windowLeft:F1},{windowTop:F1}) calloutCenter=({calloutCenter.X:F1},{calloutCenter.Y:F1})");
     }
 
     private Point GetTargetCenter(double verticalOffset = 0) {
@@ -1200,6 +1211,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void GetTrianglePoints(GuidelineIntersectionData data, CalloutSide previousCalloutSide, double windowLeft, double windowTop) {
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetTrianglePoints: entry — CalloutDangleSide={data.CalloutDangleSide} previousCalloutSide={previousCalloutSide} lastCalloutAngle={lastCalloutAngle:F1}° targetCenter=({targetCenter.X:F1},{targetCenter.Y:F1}) calloutScreenCenter=({calloutScreenCenter.X:F1},{calloutScreenCenter.Y:F1}) windowLeft={windowLeft:F1} windowTop={windowTop:F1}");
         MyLine guideline = MathEx.GetRotatedMyLine(targetCenter, lastCalloutAngle);
         Point pt1 = data.CalloutDangleSide switch {
             CalloutSide.Right => guideline.GetSegmentIntersection(data.InnerWindowRight),
@@ -1209,6 +1222,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             _ => throw new Exception($"Come on!!!")
         };
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetTrianglePoints: pt1 (raw, before offset) = ({pt1.X:F1},{pt1.Y:F1}) isNaN={double.IsNaN(pt1.X)||double.IsNaN(pt1.Y)}");
         double border = Options.OuterMargin;
         Point calloutUpperLeft = new Point(calloutScreenCenter.X - calloutWidth / 2 - border, calloutScreenCenter.Y - calloutHeight / 2 - border);
         Point calloutLowerRight = new Point(calloutScreenCenter.X + calloutWidth / 2 + border, calloutScreenCenter.Y + calloutHeight / 2 + border);
@@ -1222,9 +1237,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         pt1 = GetProperLocation(pt1, data);
         pt1.Offset(Left, Top);
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetTrianglePoints: pt1 (after GetProperLocation) = ({pt1.X:F1},{pt1.Y:F1}) distToTarget={(pt1 - targetCenter).Length:F1} indicatorMargin/2={indicatorMargin / 2:F1}");
+
         const double innerMargin = 10;
         if ((pt1 - targetCenter).Length < indicatorMargin / 2 || MathEx.IsBetween(targetCenter, calloutUpperLeft, calloutLowerRight, innerMargin)) {
             // Callout is over the target - no dangle needed!
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"GetTrianglePoints: NO DANGLE — callout is over/adjacent to target. distToTarget={(pt1 - targetCenter).Length:F1} indicatorMargin/2={indicatorMargin / 2:F1} isBetween={MathEx.IsBetween(targetCenter, calloutUpperLeft, calloutLowerRight, innerMargin)} trianglePoints collapsed to calloutScreenCenter=({calloutScreenCenter.X:F1},{calloutScreenCenter.Y:F1})");
             trianglePoint1 = calloutScreenCenter;
             trianglePoint2 = calloutScreenCenter;
             trianglePoint3 = calloutScreenCenter;
@@ -1239,6 +1259,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         trianglePoint1 = ScreenToCanvasPoint(pt1, windowLeft, windowTop);
         trianglePoint2 = ScreenToCanvasPoint(pt2, windowLeft, windowTop);
         trianglePoint3 = ScreenToCanvasPoint(pt3, windowLeft, windowTop);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetTrianglePoints: DANGLE drawn — tp1=({trianglePoint1.X:F1},{trianglePoint1.Y:F1}) tp2=({trianglePoint2.X:F1},{trianglePoint2.Y:F1}) tp3=({trianglePoint3.X:F1},{trianglePoint3.Y:F1})");
     }
 
     void MouseUpCheck(object sender, EventArgs e) {

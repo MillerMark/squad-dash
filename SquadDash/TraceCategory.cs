@@ -19,6 +19,7 @@ internal enum TraceCategory
     Sound,
     Inbox,
     Docking,      // panel docking — slot hover preview geometry, zone rect calculations
+    Callouts,     // callout shape geometry — triangle point calculation, dangle side selection, placement angle
     ImageEditor,  // clipboard image annotation editor — zoom, scroll, layout diagnostics
     General,      // catch-all for unknown sources
 }

@@ -229,6 +229,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
     {
         TraceCategory.AgentCards   => "Agent card panel events — cards added, removed, updated, or synced with active threads.",
         TraceCategory.Bridge       => "TypeScript SDK ↔ C# bridge communication — agent stdin/stdout pipe messages and protocol events.",
+        TraceCategory.Callouts     => "Callout shape geometry — placement angle, dangle-side selection, triangle point calculation, and no-dangle conditions.",
         TraceCategory.Inbox        => "Inbox save pipeline — INBOX_MESSAGE_JSON detection, stripping, parsing, and InboxStore.Save calls.",
         TraceCategory.General      => "Catch-all for trace messages that don't belong to a specific category.",
         TraceCategory.Load         => "Workspace and data loading — conversation store reads, thread restore, and workspace-open lifecycle.",
