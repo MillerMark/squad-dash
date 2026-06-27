@@ -7344,6 +7344,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         }));
 
+        _agentThreadRegistry.OnAgentApprovalGroup = (sha, group) =>
+        {
+            var idx = _approvalItems.FindIndex(i =>
+                i.CommitSha.StartsWith(sha, StringComparison.OrdinalIgnoreCase) ||
+                sha.StartsWith(i.CommitSha, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0) return;
+            _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
+            _featureGroupStore?.EnsureGroup(group);
+            _approvalStore?.Save(_approvalItems);
+            _approvalPanel?.ReplaceAllItems(_approvalItems);
+        };
+
         _pec.GetHostCommandCatalogInstruction = () =>
             _hostCommandRegistry.BuildCatalogInstruction(_currentWorkspace?.FolderPath);
     }

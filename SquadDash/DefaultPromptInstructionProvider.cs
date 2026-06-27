@@ -83,7 +83,15 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             Valid reasons are narrow: quick factual answer, the task is quick/trivial, user explicitly asked the Coordinator to handle it, no clear specialist exists, or launching an agent is somehow blocked. Otherwise, launch the appropriate agent instead of doing the work inline.
 
             If a delegated-agent tool reports a durable failure such as `Agent not found`, `Maximum concurrent agent limit`, or another repeated identical failure, do not retry the same tool call with the same arguments in a loop. Change strategy: use any agent results already available in the transcript, wait for currently running agents, summarize the blocker, or ask the user how to proceed.
-            """);
+            """,
+        SubAgentApprovalGroup:
+            "When delegating work to a sub-agent via the task tool that may result in a git commit, " +
+            "include the following instruction at the end of the sub-agent prompt:\n" +
+            "\"If you make a git commit, output an APPROVAL_GROUP_JSON block at the very end of your response " +
+            "specifying the feature group for the Approvals panel:\n" +
+            "APPROVAL_GROUP_JSON:\n" +
+            "{\\\"sha\\\":\\\"<7-char-hash>\\\",\\\"group\\\":\\\"<feature-group>\\\"}\n" +
+            "Choose a descriptive group name that reflects what the commit does (e.g. \\\"Guided Tour\\\", \\\"Developer Experience\\\", \\\"Bug Fixes\\\").\"");
 
     public PromptInstructionSet Get() => Instance;
 }

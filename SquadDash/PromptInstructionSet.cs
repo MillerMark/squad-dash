@@ -10,4 +10,5 @@ internal sealed record PromptInstructionSet(
     string CommitReporting,
     string InboxMessage,
     string QuickReply,
-    string CoordinatorDelegationAccountability);
+    string CoordinatorDelegationAccountability,
+    string SubAgentApprovalGroup);

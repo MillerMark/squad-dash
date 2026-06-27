@@ -2171,7 +2171,8 @@ internal sealed class PromptExecutionController {
         //   … triggeredCtx, inboxCtx, commitReportingCtx, TurnSummaryInstruction, hostCmdCtx
         var inboxCtx = _instructionProvider.Get().InboxMessage;
         var commitReportingCtx = _instructionProvider.Get().CommitReporting;
-        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, inboxCtx, commitReportingCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
+        var subAgentApprovalGroupCtx = _instructionProvider.Get().SubAgentApprovalGroup;
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, inboxCtx, commitReportingCtx, subAgentApprovalGroupCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = _promptBuilder.Build(
             prompt,
