@@ -122,6 +122,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
             var vis = value ? Visibility.Visible : Visibility.Collapsed;
             _editStepButton.Visibility     = vis;
             _newStepAfterButton.Visibility = vis;
+            Width = value ? 580 : 420;
         }
     }
 
