@@ -425,6 +425,16 @@ internal sealed class ThemeColorsWindow : Window
         Grid.SetColumn(_listBox, 0);
         body.Children.Add(_listBox);
 
+        var cm = new ContextMenu();
+        var copyItem = new MenuItem { Header = "Copy name" };
+        copyItem.Click += (_, _) =>
+        {
+            if (_listBox.SelectedItem is string key)
+                Clipboard.SetText(key);
+        };
+        cm.Items.Add(copyItem);
+        _listBox.ContextMenu = cm;
+
         _listBox.SelectionChanged += ListBox_SelectionChanged;
 
         // ── Detail panel (right) ──────────────────────────────────────────

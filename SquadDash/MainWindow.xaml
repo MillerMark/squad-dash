@@ -907,6 +907,8 @@
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="Theme _Explorer..."
                               Click="ThemeColorsMenuItem_Click" />
+                    <MenuItem Header="_Font Size Explorer..."
+                              Click="FontSizesMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem x:Name="HintAuthoringMenuItem"
                               Header="_Hint Authoring (F6)"

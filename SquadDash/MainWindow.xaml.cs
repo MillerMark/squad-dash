@@ -36185,6 +36185,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             HandleUiCallbackException(nameof(ThemeColorsMenuItem_Click), ex);
         }
     }
+
+    private FontSizesWindow? _fontSizesWindow;
+
+    private void FontSizesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_fontSizesWindow is not null)
+            {
+                _fontSizesWindow.Activate();
+                return;
+            }
+            var win = new FontSizesWindow(this);
+            if (CanShowOwnedWindow())
+                win.Owner = this;
+            win.Closed += (_, _) => _fontSizesWindow = null;
+            _fontSizesWindow = win;
+            win.Show();
+        }
+        catch (Exception ex)
+        {
+            _fontSizesWindow = null;
+            HandleUiCallbackException(nameof(FontSizesMenuItem_Click), ex);
+        }
+    }
 }
 
 /// <summary>
