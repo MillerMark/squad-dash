@@ -2611,7 +2611,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return null;
         for (int i = 0; i < items.Count; i++)
         {
-            if (items[i].Id != _activeTabId)
+            if (items[i].Id != _activeTabId && items[i].SourceTag != "guided-tour-dummy")
                 return items[i];
         }
         return null;
