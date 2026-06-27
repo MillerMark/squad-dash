@@ -1,3 +1,5 @@
+using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,10 +9,13 @@ namespace SquadDash;
 
 /// <summary>
 /// Developer window that displays all named font-size tokens, each rendered
-/// at its own size. Right-click a label to copy its resource key name.
+/// at its own size. Click a key to see which repo files reference it.
+/// Right-click a label to copy its resource key name.
 /// </summary>
 internal sealed class FontSizesWindow : Window
 {
+    private static readonly string RepoRoot = @"D:\Drive\Source\SquadDash-public";
+
     private static readonly string[] FontSizeKeys =
     [
         "FontSizeTiny",
@@ -25,13 +30,16 @@ internal sealed class FontSizesWindow : Window
         "FontSizeTitle",
         "FontSizeHeading",
         "FontSizeHero",
-        "FontSizeDisplay",
     ];
+
+    private readonly ListBox _keyList;
+    private readonly ListBox _fileList;
+    private readonly TextBlock _refHeader;
 
     internal FontSizesWindow(Window owner)
     {
         Title = "Font Size Explorer";
-        Width = 320;
+        Width = 640;
         Height = 500;
         ShowInTaskbar = false;
         WindowStyle = WindowStyle.None;
@@ -83,27 +91,31 @@ internal sealed class FontSizesWindow : Window
         titleText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         titleBar.Children.Add(titleText);
 
-        // ── Scrollable content ────────────────────────────────────────────
-        var scroll = new ScrollViewer
+        // ── Two-column body ───────────────────────────────────────────────
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        root.Children.Add(grid);
+
+        // ── Left panel: key list ──────────────────────────────────────────
+        _keyList = new ListBox
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            SelectionMode = SelectionMode.Single,
+            BorderThickness = new Thickness(0),
         };
-        root.Children.Add(scroll);
+        _keyList.SetResourceReference(BackgroundProperty, "AppSurface");
+        ScrollViewer.SetHorizontalScrollBarVisibility(_keyList, ScrollBarVisibility.Disabled);
+        Grid.SetColumn(_keyList, 0);
+        grid.Children.Add(_keyList);
 
-        var stack = new StackPanel { Margin = new Thickness(0, 6, 0, 12) };
-        scroll.Content = stack;
-
-        for (int i = 0; i < FontSizeKeys.Length; i++)
+        foreach (var key in FontSizeKeys)
         {
-            var key = FontSizeKeys[i];
-            bool isLast = i == FontSizeKeys.Length - 1;
-
             var tb = new TextBlock
             {
                 Text = key,
-                Margin = new Thickness(12, 6, 12, isLast ? 6 : 0),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
+                Margin = new Thickness(4, 3, 4, 3)
             };
             tb.SetResourceReference(TextBlock.FontSizeProperty, key);
             tb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
@@ -112,9 +124,101 @@ internal sealed class FontSizesWindow : Window
             var mi = new MenuItem { Header = "Copy name" };
             mi.Click += (_, _) => Clipboard.SetText(key);
             cm.Items.Add(mi);
-            tb.ContextMenu = cm;
 
-            stack.Children.Add(tb);
+            var item = new ListBoxItem { Content = tb, ContextMenu = cm };
+            _keyList.Items.Add(item);
+        }
+
+        // ── Splitter ──────────────────────────────────────────────────────
+        var splitter = new GridSplitter
+        {
+            Width = 2,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext
+        };
+        Grid.SetColumn(splitter, 1);
+        grid.Children.Add(splitter);
+
+        // ── Right panel: file references ──────────────────────────────────
+        var rightPanel = new DockPanel();
+        Grid.SetColumn(rightPanel, 2);
+        grid.Children.Add(rightPanel);
+
+        _refHeader = new TextBlock
+        {
+            Text = "Select a font size",
+            Margin = new Thickness(8, 6, 8, 4),
+            FontSize = 11
+        };
+        _refHeader.SetResourceReference(ForegroundProperty, "SubtleText");
+        DockPanel.SetDock(_refHeader, Dock.Top);
+        rightPanel.Children.Add(_refHeader);
+
+        _fileList = new ListBox
+        {
+            SelectionMode = SelectionMode.Single,
+            BorderThickness = new Thickness(0),
+        };
+        _fileList.SetResourceReference(BackgroundProperty, "AppSurface");
+        ScrollViewer.SetHorizontalScrollBarVisibility(_fileList, ScrollBarVisibility.Auto);
+        rightPanel.Children.Add(_fileList);
+
+        _keyList.SelectionChanged += OnKeySelected;
+    }
+
+    private void OnKeySelected(object sender, SelectionChangedEventArgs e)
+    {
+        _fileList.Items.Clear();
+
+        if (_keyList.SelectedItem is not ListBoxItem { Content: TextBlock { Text: string key } })
+            return;
+
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".cs", ".xaml", ".md" };
+        var matches = Directory
+            .EnumerateFiles(RepoRoot, "*.*", SearchOption.AllDirectories)
+            .Where(p => extensions.Contains(Path.GetExtension(p)))
+            .Where(p => !p.Contains(@"\bin\") && !p.Contains(@"\obj\") && !p.Contains(@"\node_modules\"))
+            .Where(p => { try { return File.ReadAllText(p).Contains(key, StringComparison.Ordinal); } catch { return false; } })
+            .Select(p => p.Substring(RepoRoot.Length).TrimStart('\\').Replace('\\', '/'))
+            .OrderBy(r => r)
+            .ToList();
+
+        _refHeader.Text = matches.Count > 0
+            ? $"References: {key}  ({matches.Count} files)"
+            : $"References: {key}  (0 files)";
+
+        if (matches.Count == 0)
+        {
+            var none = new TextBlock
+            {
+                Text = "(none found)",
+                FontStyle = FontStyles.Italic,
+                FontSize = 11
+            };
+            none.SetResourceReference(ForegroundProperty, "SubtleText");
+            _fileList.Items.Add(none);
+            return;
+        }
+
+        foreach (var rel in matches)
+        {
+            var fullPath = Path.Combine(RepoRoot, rel.Replace('/', '\\'));
+            var fileTb = new TextBlock
+            {
+                Text = rel,
+                FontSize = 11,
+                Margin = new Thickness(4, 2, 4, 2),
+                ToolTip = fullPath
+            };
+            fileTb.SetResourceReference(ForegroundProperty, "LabelText");
+
+            var fileCm = new ContextMenu();
+            var fileMi = new MenuItem { Header = "Copy path" };
+            fileMi.Click += (_, _) => Clipboard.SetText(rel);
+            fileCm.Items.Add(fileMi);
+
+            _fileList.Items.Add(new ListBoxItem { Content = fileTb, ContextMenu = fileCm });
         }
     }
 }
