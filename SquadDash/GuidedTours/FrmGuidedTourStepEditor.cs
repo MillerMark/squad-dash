@@ -37,6 +37,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly RadioButton[] _placementRadios;
     private readonly TextBox       _targetControlBox;
     private readonly TextBlock     _statusLabel;
+    private readonly ComboBox      _commandBeforeBox;
+    private readonly ComboBox      _commandAfterBox;
 
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
@@ -49,7 +51,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         string?          workspaceFolderPath,
         Window           owner,
         Action?          captureLayout        = null,
-        Action?          livePreviewCallback  = null)
+        Action?          livePreviewCallback  = null,
+        GuidedTourCommandRegistry? commandRegistry = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _originalMarkdown    = step.MarkdownText;
@@ -113,7 +116,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _targetControlBox = MakeTextBox(step.TargetControlId, multiLine: false);
 
-        var browseButton = MakeButton("Browse…");
+        var browseButton = MakeButton("Target...");
         browseButton.Click += (_, _) => BrowseForControl();
 
         var targetRow = new Grid { Margin = new Thickness(0, 0, 0, 0) };
@@ -125,7 +128,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         targetRow.Children.Add(_targetControlBox);
         targetRow.Children.Add(browseButton);
 
-        var captureButton = MakeButton("📷 Capture Layout for This Step");
+        var commandNames = commandRegistry?.CommandNames ?? Array.Empty<string>();
+        var commandItems = new[] { "" }.Concat(commandNames).ToArray();
+
+        _commandBeforeBox = MakeCommandCombo(commandItems, step.CommandBefore);
+        _commandAfterBox  = MakeCommandCombo(commandItems, step.CommandAfter);
+
+        var captureButton = MakeButton("📷 Capture Current Layout for the Step");
         captureButton.HorizontalAlignment = HorizontalAlignment.Left;
         captureButton.Click += (_, _) => CaptureLayoutForStep();
 
@@ -148,6 +157,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         formPanel.Children.Add(placementRow);
         formPanel.Children.Add(MakeLabel("Target Control (x:Name)"));
         formPanel.Children.Add(targetRow);
+        formPanel.Children.Add(MakeLabel("Command Before"));
+        formPanel.Children.Add(_commandBeforeBox);
+        formPanel.Children.Add(MakeLabel("Command After"));
+        formPanel.Children.Add(_commandAfterBox);
         formPanel.Children.Add(new Border { Height = 10 });
         formPanel.Children.Add(captureButton);
         formPanel.Children.Add(_statusLabel);
@@ -208,6 +221,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _step.MarkdownText     = _markdownBox.Text;
         _step.CalloutPlacement = GetSelectedPlacement();
         _step.TargetControlId  = _targetControlBox.Text.Trim();
+        _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
+        _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
 
         if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
         {
@@ -315,6 +330,24 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         btn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         return btn;
     }
+
+    private static ComboBox MakeCommandCombo(IEnumerable<string> items, string currentValue)
+    {
+        var cb = new ComboBox { IsEditable = false, Height = 26 };
+        cb.SetResourceReference(ComboBox.BackgroundProperty,  "InputSurface");
+        cb.SetResourceReference(ComboBox.BorderBrushProperty, "InputBorder");
+        cb.SetResourceReference(ComboBox.ForegroundProperty,  "LabelText");
+        cb.SetResourceReference(ComboBox.FontSizeProperty,    "FontSizeBody");
+        foreach (var item in items)
+            cb.Items.Add(item == "" ? "(none)" : item);
+        var displayValue = string.IsNullOrEmpty(currentValue) ? "(none)" : currentValue;
+        cb.SelectedItem  = cb.Items.Cast<string>().FirstOrDefault(i => i == displayValue)
+                           ?? (cb.Items.Count > 0 ? cb.Items[0] : null);
+        return cb;
+    }
+
+    private static string GetSelectedCommand(ComboBox cb) =>
+        cb.SelectedItem is string s && s != "(none)" ? s : string.Empty;
 }
 
 // ── Control picker ────────────────────────────────────────────────────────────

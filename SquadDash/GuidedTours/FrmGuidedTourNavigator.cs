@@ -20,6 +20,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     private readonly Button    _prevButton;
     private readonly Button    _nextButton;
     private readonly Button    _editStepButton;
+    private readonly Button    _newStepAfterButton;
 
     /// <summary>Fired when the user clicks "← Prev" or presses F2.</summary>
     public event EventHandler? PrevRequested;
@@ -29,6 +30,8 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     public event EventHandler? CloseRequested;
     /// <summary>Fired when the user clicks "✎ Edit Step" (developer mode only).</summary>
     public event EventHandler? EditStepRequested;
+    /// <summary>Fired when the user clicks "⊕ New Step After" (developer mode only).</summary>
+    public event EventHandler? NewStepAfterRequested;
 
     public FrmGuidedTourNavigator()
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
@@ -65,6 +68,10 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
         _editStepButton.Click      += (_, _) => EditStepRequested?.Invoke(this, EventArgs.Empty);
         _editStepButton.Visibility  = Visibility.Collapsed;
 
+        _newStepAfterButton = MakeButton("⊕ New Step After");
+        _newStepAfterButton.Click      += (_, _) => NewStepAfterRequested?.Invoke(this, EventArgs.Empty);
+        _newStepAfterButton.Visibility  = Visibility.Collapsed;
+
         // Button row: [← Prev] [Next →] [✎ Edit Step] ··· spacer ··· [✕ Close Tour]
         // DockPanel keeps Close Tour pinned right with a natural gap.
         var buttonRow = new DockPanel
@@ -73,11 +80,13 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
             LastChildFill = false,
         };
 
-        DockPanel.SetDock(closeButton,    Dock.Right);
-        DockPanel.SetDock(_editStepButton, Dock.Right);
+        DockPanel.SetDock(closeButton,         Dock.Right);
+        DockPanel.SetDock(_newStepAfterButton,  Dock.Right);
+        DockPanel.SetDock(_editStepButton,      Dock.Right);
 
-        buttonRow.Children.Add(closeButton);     // rightmost
-        buttonRow.Children.Add(_editStepButton); // left of close (added after because DockPanel right-docks in reverse order)
+        buttonRow.Children.Add(closeButton);          // rightmost
+        buttonRow.Children.Add(_newStepAfterButton);  // left of close
+        buttonRow.Children.Add(_editStepButton);      // leftmost of the dev buttons (added after because DockPanel right-docks in reverse order)
 
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal };
         leftButtons.Children.Add(_prevButton);
@@ -108,7 +117,12 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     public bool IsEditModeVisible
     {
         get => _editStepButton.Visibility == Visibility.Visible;
-        set => _editStepButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        set
+        {
+            var vis = value ? Visibility.Visible : Visibility.Collapsed;
+            _editStepButton.Visibility     = vis;
+            _newStepAfterButton.Visibility = vis;
+        }
     }
 
     /// <summary>Updates the header to "Step N of N: {title}".</summary>

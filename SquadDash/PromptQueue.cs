@@ -44,7 +44,7 @@ internal sealed class PromptQueue {
 
     /// <summary>Removes and returns the first non-editing item, or null if none exists.</summary>
     public PromptQueueItem? DequeueFirstReady() {
-        var item = _items.FirstOrDefault(i => !i.IsEditing);
+        var item = _items.FirstOrDefault(i => !i.IsEditing && i.SourceTag != "guided-tour-dummy");
         if (item is not null)
         {
             _items.Remove(item);
@@ -102,6 +102,19 @@ internal sealed class PromptQueue {
     public void RenumberSequentially(){
         for (int i = 0; i < _items.Count; i++)
             _items[i].SequenceNumber = i + 1;
+    }
+
+    /// <summary>
+    /// Removes all items whose <see cref="PromptQueueItem.SourceTag"/> matches <paramref name="tag"/>.
+    /// </summary>
+    public void RemoveByTag(string tag)
+    {
+        var toRemove = _items.Where(i => i.SourceTag == tag).ToList();
+        foreach (var item in toRemove)
+        {
+            _items.Remove(item);
+            ItemRemoved?.Invoke(item);
+        }
     }
 
     public bool HasReadyItems => _items.Any(i => !i.IsEditing);

@@ -25,9 +25,13 @@ internal sealed class GuidedTourController
     private readonly Action<string, string>?              _executePreAction;
     private readonly Window                               _ownerWindow;
     private readonly Func<string?>?                       _workspaceFolderProvider;
+    private readonly GuidedTourCommandRegistry?           _commandRegistry;
 
     /// <summary>Fired (on the UI thread) when the Edit Step button is clicked.</summary>
     public event EventHandler? EditStepRequested;
+
+    /// <summary>Fired when the user clicks "⊕ New Step After" (developer mode only).</summary>
+    public event EventHandler? NewStepAfterRequested;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -47,7 +51,8 @@ internal sealed class GuidedTourController
         Action?                         savePreTourLayout    = null,
         Action?                         restorePreTourLayout = null,
         Action<string, string>?         executePreAction     = null,
-        Func<string?>?                  workspaceFolderProvider = null)
+        Func<string?>?                  workspaceFolderProvider = null,
+        GuidedTourCommandRegistry?      commandRegistry      = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -55,6 +60,7 @@ internal sealed class GuidedTourController
         _restorePreTourLayout    = restorePreTourLayout;
         _executePreAction        = executePreAction;
         _workspaceFolderProvider = workspaceFolderProvider;
+        _commandRegistry         = commandRegistry;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -78,6 +84,9 @@ internal sealed class GuidedTourController
 
     /// <summary>The layout-capture callback (used by the step editor's Capture Layout button).</summary>
     public Action? CaptureLayout => _savePreTourLayout;
+
+    /// <summary>The command registry used by this controller.</summary>
+    public GuidedTourCommandRegistry? CommandRegistry => _commandRegistry;
 
     /// <summary>Starts the tour at step 0, saving the current layout as a restore point.</summary>
     public void StartTour(GuidedTour tour, List<GuidedTour>? allTours = null)
@@ -108,6 +117,7 @@ internal sealed class GuidedTourController
     public void Next()
     {
         if (!IsActive) return;
+        _commandRegistry?.Execute(CurrentStep.CommandAfter);
         if (_currentStepIndex >= _activeTour!.Steps.Count - 1)
         {
             StopTourInternal(showHint: true);
@@ -121,6 +131,7 @@ internal sealed class GuidedTourController
     public void Prev()
     {
         if (!IsActive || _currentStepIndex <= 0) return;
+        _commandRegistry?.Execute(CurrentStep.CommandAfter);
         _currentStepIndex--;
         ShowCurrentStep();
     }
@@ -135,12 +146,13 @@ internal sealed class GuidedTourController
     private void OpenNavigator()
     {
         _navigator = new FrmGuidedTourNavigator { Owner = _ownerWindow };
-        _navigator.PrevRequested     += (_, _) => Prev();
-        _navigator.NextRequested     += (_, _) => Next();
-        _navigator.CloseRequested    += (_, _) => StopTour();
-        _navigator.EditStepRequested += (_, _) => HandleEditStep();
-        _navigator.IsEditModeVisible  = SquadDashEnvironment.IsDeveloperMode;
-        _navigator.Closed            += (_, _) =>
+        _navigator.PrevRequested         += (_, _) => Prev();
+        _navigator.NextRequested         += (_, _) => Next();
+        _navigator.CloseRequested        += (_, _) => StopTour();
+        _navigator.EditStepRequested     += (_, _) => HandleEditStep();
+        _navigator.NewStepAfterRequested += (_, _) => HandleNewStepAfter();
+        _navigator.IsEditModeVisible      = SquadDashEnvironment.IsDeveloperMode;
+        _navigator.Closed                += (_, _) =>
         {
             // User closed via OS means (alt-F4) — treat as tour stop
             if (IsActive) StopTourInternal(showHint: true);
@@ -168,7 +180,8 @@ internal sealed class GuidedTourController
             workspaceFolderPath: WorkspaceFolderPath,
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
-            livePreviewCallback: NotifyStepEdited);
+            livePreviewCallback: NotifyStepEdited,
+            commandRegistry:     _commandRegistry);
         editor.ShowDialog();
         if (editor.WasSaved)
             NotifyStepEdited();
@@ -181,6 +194,7 @@ internal sealed class GuidedTourController
     {
         CloseActiveCallout();
         RunPreAction(CurrentStep);
+        _commandRegistry?.Execute(CurrentStep.CommandBefore);
         UpdateNavigator();
         ShowStepCallout(CurrentStep);
     }
@@ -229,6 +243,9 @@ internal sealed class GuidedTourController
     {
         var wasActive = IsActive;
 
+        if (wasActive && _activeTour is not null)
+            _commandRegistry?.Execute(CurrentStep.CommandAfter);
+
         CloseActiveCallout();
         CloseNavigator();
 
@@ -241,6 +258,40 @@ internal sealed class GuidedTourController
 
             if (showHint)
                 ShowRestartHint();
+        }
+    }
+
+    private void HandleNewStepAfter()
+    {
+        if (_activeTour is null) return;
+
+        var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
+        var insertIndex = _currentStepIndex + 1;
+        _activeTour.Steps.Insert(insertIndex, newStep);
+        _currentStepIndex = insertIndex;
+        UpdateNavigator();
+
+        var editor = new FrmGuidedTourStepEditor(
+            step:                newStep,
+            stepIndex:           _currentStepIndex,
+            activeTour:          _activeTour,
+            allTours:            _allTours,
+            workspaceFolderPath: WorkspaceFolderPath,
+            owner:               _ownerWindow,
+            captureLayout:       _savePreTourLayout,
+            livePreviewCallback: NotifyStepEdited,
+            commandRegistry:     _commandRegistry);
+        editor.ShowDialog();
+
+        if (editor.WasSaved)
+        {
+            NotifyStepEdited();
+        }
+        else
+        {
+            _activeTour.Steps.RemoveAt(insertIndex);
+            _currentStepIndex = Math.Max(0, insertIndex - 1);
+            UpdateNavigator();
         }
     }
 

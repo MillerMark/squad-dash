@@ -22,6 +22,14 @@ internal sealed class GuidedTourStep
     [JsonPropertyName("preAction")]
     public string PreAction { get; set; } = "None";
 
+    /// <summary>Name of the registered command to run before this step is shown, or empty.</summary>
+    [JsonPropertyName("commandBefore")]
+    public string CommandBefore { get; set; } = string.Empty;
+
+    /// <summary>Name of the registered command to run after this step is left (navigate away or tour stop).</summary>
+    [JsonPropertyName("commandAfter")]
+    public string CommandAfter { get; set; } = string.Empty;
+
     [JsonIgnore]
     public GuidedTourPreActionDescriptor ParsedPreAction =>
         GuidedTourPreActionDescriptor.Parse(PreAction);

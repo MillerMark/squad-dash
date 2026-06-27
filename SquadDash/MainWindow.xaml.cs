@@ -150,6 +150,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly InstanceActivationChannel _instanceActivationChannel;
     private PreferencesWindow? _preferencesWindow;
     private GuidedTourController? _guidedTourController;
+    private readonly GuidedTourCommandRegistry _tourCommandRegistry = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13519,13 +13520,36 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void EnsureGuidedTourController()
     {
         if (_guidedTourController is not null) return;
+        RegisterTourCommands();
         _guidedTourController = new GuidedTourController(
             ownerWindow:             this,
             elementLocator:          name => VisualTreeSearch.FindByName(this, name),
             savePreTourLayout:       () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
             restorePreTourLayout:    () => { /* Layout restore: reload the active layout from workspace */ },
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
-            workspaceFolderProvider: () => _currentWorkspace?.FolderPath);
+            workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
+            commandRegistry:         _tourCommandRegistry);
+    }
+
+    private void RegisterTourCommands()
+    {
+        const string DummyTag = "guided-tour-dummy";
+
+        _tourCommandRegistry.Register("Add Dummy Queue Items", () =>
+        {
+            for (int i = 1; i <= 3; i++)
+                _promptQueue.Enqueue(
+                    $"[Tour Demo Item {i}]",
+                    ++_promptQueueSeq,
+                    sourceTag: DummyTag);
+            SyncQueuePanel();
+        });
+
+        _tourCommandRegistry.Register("Remove Dummy Queue Items", () =>
+        {
+            _promptQueue.RemoveByTag(DummyTag);
+            SyncQueuePanel();
+        });
     }
 
     private void OfferGuidedTourOnFirstRun()
