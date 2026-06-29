@@ -432,41 +432,43 @@ internal static class AnnotationCursors {
     private static Drawing CreateMeasureLineToolDrawing() {
         var dg = new DrawingGroup();
         using (var dc = dg.Open()) {
-            // Precision crosshair (fine, light grey lines with gap around centre)
-            var crossPen = new Pen(new SolidColorBrush(Color.FromArgb(180, 80, 80, 80)), 1.0);
-            const double gap = 4.0;
-            dc.DrawLine(crossPen, new Point(0, 16), new Point(16 - gap, 16));   // left arm
-            dc.DrawLine(crossPen, new Point(16 + gap, 16), new Point(32, 16));  // right arm
-            dc.DrawLine(crossPen, new Point(16, 0), new Point(16, 16 - gap));   // top arm
-            dc.DrawLine(crossPen, new Point(16, 16 + gap), new Point(16, 32));  // bottom arm
+            // Precision crosshair — white outline + dark line, same pattern as all other cursors.
+            DrawCrosshair(dc, cx: 16, cy: 16);
 
-            // Horizontal double-headed arrow (←→) centred at (16, 16)
-            var arrowPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.5) {
+            // Horizontal double-headed arrow (←→) offset above crosshair centre so it
+            // doesn't overlap.  White outline drawn first for dark-background legibility.
+            var whitePen = new Pen(Brushes.White, 3.0) {
                 StartLineCap = PenLineCap.Round,
                 EndLineCap   = PenLineCap.Round,
             };
-            const double ax1 = 8.0, ax2 = 24.0, ay = 16.0;
+            var darkPen = new Pen(new SolidColorBrush(Color.FromRgb(30, 30, 30)), 1.5) {
+                StartLineCap = PenLineCap.Round,
+                EndLineCap   = PenLineCap.Round,
+            };
+            const double ax1 = 6.0, ax2 = 26.0, ay = 10.0;
             const double headLen = 4.0, headH = 3.0;
 
-            // Shaft
-            dc.DrawLine(arrowPen, new Point(ax1, ay), new Point(ax2, ay));
-
-            // Left arrowhead
             var leftHead = new StreamGeometry();
             using (var sgc = leftHead.Open()) {
                 sgc.BeginFigure(new Point(ax1, ay), true, true);
                 sgc.LineTo(new Point(ax1 + headLen, ay - headH), true, false);
                 sgc.LineTo(new Point(ax1 + headLen, ay + headH), true, false);
             }
-            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(30, 30, 30)), null, leftHead);
-
-            // Right arrowhead
             var rightHead = new StreamGeometry();
             using (var sgc = rightHead.Open()) {
                 sgc.BeginFigure(new Point(ax2, ay), true, true);
                 sgc.LineTo(new Point(ax2 - headLen, ay - headH), true, false);
                 sgc.LineTo(new Point(ax2 - headLen, ay + headH), true, false);
             }
+
+            // White outlines first
+            dc.DrawLine(whitePen, new Point(ax1, ay), new Point(ax2, ay));
+            dc.DrawGeometry(Brushes.White, null, leftHead);
+            dc.DrawGeometry(Brushes.White, null, rightHead);
+
+            // Dark lines on top
+            dc.DrawLine(darkPen, new Point(ax1, ay), new Point(ax2, ay));
+            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(30, 30, 30)), null, leftHead);
             dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(30, 30, 30)), null, rightHead);
         }
         return dg;
