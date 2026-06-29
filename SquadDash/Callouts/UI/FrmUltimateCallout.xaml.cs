@@ -171,6 +171,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     TextBlock? _tourHintBlock;
     TourCalloutNavigationOverlay? _tourOverlay;
     bool _dragInProgress;
+    CalloutSide _lastDangleSide = CalloutSide.Bottom;
 
     /// <summary>Fired when the user presses Enter while the callout is focused in tour mode.</summary>
     public event EventHandler? TourNextRequested;
@@ -240,7 +241,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     {
         if (_tourOverlay is null) return;
         var calloutBounds = new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
-        _tourOverlay.PositionNear(calloutBounds);
+        _tourOverlay.PositionNear(calloutBounds, _lastDangleSide);
         _tourOverlay.FadeIn();
     }
 
@@ -951,6 +952,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         cvsCallout.Children.Clear();
         CalculateBounds();
         GuidelineIntersectionData guidelineIntersectionData = GetGuidelineIntersectionData(true);
+        _lastDangleSide = guidelineIntersectionData.CalloutDangleSide;
         CreateCalloutFrame();
         PlaceCloseButton();
         LayoutText();

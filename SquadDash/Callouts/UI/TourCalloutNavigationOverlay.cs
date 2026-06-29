@@ -136,7 +136,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
     /// candidate that fits entirely on-screen. Falls back to screen-clamping.
     /// Priority: right-aligned below → left-aligned below → right-aligned above → left-aligned above → right side → left side.
     /// </summary>
-    public void PositionNear(Rect calloutScreenRect)
+    public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom)
     {
         double w = ActualWidth  > 0 ? ActualWidth  : 120;
         double h = ActualHeight > 0 ? ActualHeight : 44;
@@ -146,17 +146,47 @@ internal sealed class TourCalloutNavigationOverlay : Window
         var screenBounds = NativeMethods.GetMonitorBoundsForPhysicalPoint(
             (int)calloutScreenRect.X, (int)calloutScreenRect.Y);
 
-        var candidates = new[]
-        {
-            new Point(calloutScreenRect.Right - w,         calloutScreenRect.Bottom + gap),      // right-aligned, below
-            new Point(calloutScreenRect.Left,              calloutScreenRect.Bottom + gap),      // left-aligned, below
-            new Point(calloutScreenRect.Right - w,         calloutScreenRect.Top - h - gap),     // right-aligned, above
-            new Point(calloutScreenRect.Left,              calloutScreenRect.Top - h - gap),     // left-aligned, above
-            new Point(calloutScreenRect.Right + gap,       calloutScreenRect.Top),               // right side, top-aligned
-            new Point(calloutScreenRect.Left - w - gap,   calloutScreenRect.Top),               // left side, top-aligned
+        // Build candidate list: opposite side of dangle first, then fallbacks.
+        Point[] candidates = dangleSide switch {
+            // Pointer exits bottom → buttons go above
+            CalloutSide.Bottom => new[] {
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Top - h - gap),   // right-aligned, above
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Top - h - gap),   // left-aligned, above
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Right + gap, calloutScreenRect.Top),           // right side, top-aligned
+                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Top),        // left side, top-aligned
+            },
+            // Pointer exits top → buttons go below
+            CalloutSide.Top => new[] {
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Top - h - gap),   // right-aligned, above
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Top - h - gap),   // left-aligned, above
+                new Point(calloutScreenRect.Right + gap, calloutScreenRect.Top),           // right side, top-aligned
+                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Top),        // left side, top-aligned
+            },
+            // Pointer exits right → buttons go to the left
+            CalloutSide.Right => new[] {
+                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Top),        // left side, top-aligned
+                new Point(calloutScreenRect.Right + gap, calloutScreenRect.Top),           // right side, top-aligned
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Top - h - gap),   // right-aligned, above
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Top - h - gap),   // left-aligned, above
+            },
+            // Pointer exits left → buttons go to the right
+            _ => new[] {
+                new Point(calloutScreenRect.Right + gap, calloutScreenRect.Top),           // right side, top-aligned
+                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Top),        // left side, top-aligned
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Right - w, calloutScreenRect.Top - h - gap),   // right-aligned, above
+                new Point(calloutScreenRect.Left,      calloutScreenRect.Top - h - gap),   // left-aligned, above
+            },
         };
 
-        var chosen = candidates[candidates.Length - 1]; // fallback: left side, top-aligned
+        var chosen = candidates[candidates.Length - 1]; // fallback: last candidate
         foreach (var c in candidates)
         {
             if (screenBounds.Contains(new Rect(c.X, c.Y, w, h)))
