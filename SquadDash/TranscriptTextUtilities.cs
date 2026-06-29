@@ -17,7 +17,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        StripInboxMessageBlock(StripHostCommandBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))).TrimEnd();
+        StripApprovalGroupBlock(StripInboxMessageBlock(StripHostCommandBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -128,6 +128,20 @@ internal static class TranscriptTextUtilities
         {
             WriteIndented = true
         });
+    }
+
+    private static string StripApprovalGroupBlock(string text)
+    {
+        // Strip any top-level APPROVAL_GROUP_JSON block (label + JSON object on following line).
+        // The AgentThreadRegistry parses these from the raw response before sanitization, so
+        // stripping here only affects display; parsing is unaffected.
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var match = Regex.Match(normalized,
+            @"(?s)^(?<body>.*?)(?:\n|^)\s*APPROVAL_GROUP_JSON:\s*\{[^\}]*\}\s*$",
+            RegexOptions.CultureInvariant);
+        if (match.Success)
+            return match.Groups["body"].Value.TrimEnd();
+        return text;
     }
 
     private static string StripHostCommandBlock(string text)
