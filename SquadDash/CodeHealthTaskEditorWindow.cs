@@ -164,6 +164,9 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _optionValues["branch"]     = $"codehealth/{task.Id}/{DateTimeOffset.Now:yyyyMMdd-HHmmss}";
         _optionValues["branchName"] = _optionValues["branch"]; // same value, Handlebars-style alias
 
+        // Seed uncategorized_approvals with a representative preview value
+        _optionValues["uncategorized_approvals"] = "- SHA: abc1234 | \"Add tour navigation overlay\"\n- SHA: def5678 | \"Fix callout dangle position\"";
+
         if (stateStore is not null) {
             var sha = stateStore.GetLastCommitSha(task.Id);
             _optionValues["last_reviewed_sha"] = string.IsNullOrEmpty(sha) ? "(none yet)" : sha;
@@ -864,37 +867,56 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             if (segStart < 0) segStart = searchFrom;
             searchFrom = segStart + segText.Length;
 
-            var segLines   = searchKey.Split('\n');
-            var resolved   = SubstituteVars(segText);
-            try {
-                var segDoc = MarkdownFlowDocumentBuilder.BuildWithMap(resolved, out var blockLineRanges);
-                var blocks = segDoc.Blocks.ToList();
-                for (int i = 0; i < blocks.Count; i++) {
-                    var block   = blocks[i];
-                    var range   = i < blockLineRanges.Count ? blockLineRanges[i] : (StartLine: 0, EndLine: 0);
-                    var srcRange = ComputeBlockCharRange(segLines, segStart, range);
+            // Split into sub-segments, separating system variable substitution spans
+            // so that substituted values can be highlighted distinctly.
+            int subOffset = 0;
+            foreach (var (origPiece, resolvedPiece, isSystemVar) in SplitOnSystemVars(segText)) {
+                if (string.IsNullOrWhiteSpace(resolvedPiece)) {
+                    subOffset += origPiece.Length;
+                    continue;
+                }
 
-                    segDoc.Blocks.Remove(block);
-                    if (isConditional) {
-                        ApplyForeground(block, conditionalBrush);
-                        ApplyBackground(block, conditionalBgBrush);
+                var pieceAbsStart  = segStart + subOffset;
+                var shouldHighlight = isConditional || isSystemVar;
+
+                try {
+                    var segDoc = MarkdownFlowDocumentBuilder.BuildWithMap(resolvedPiece, out var blockLineRanges);
+                    var blocks = segDoc.Blocks.ToList();
+                    for (int i = 0; i < blocks.Count; i++) {
+                        var block = blocks[i];
+                        (int CharStart, int CharLength) srcRange;
+                        if (isSystemVar) {
+                            // Map all blocks of the substitution back to the token's source position
+                            srcRange = (pieceAbsStart, origPiece.Length);
+                        } else {
+                            var origLines = origPiece.TrimStart('\n').Split('\n');
+                            var range = i < blockLineRanges.Count ? blockLineRanges[i] : (StartLine: 0, EndLine: 0);
+                            srcRange = ComputeBlockCharRange(origLines, pieceAbsStart, range);
+                        }
+
+                        segDoc.Blocks.Remove(block);
+                        if (shouldHighlight) {
+                            ApplyForeground(block, conditionalBrush);
+                            ApplyBackground(block, conditionalBgBrush);
+                        }
+
+                        _previewBlockSrcRanges.Add(srcRange);
+                        _previewBlocks.Add(block);
+                        combined.Blocks.Add(block);
                     }
-
-                    _previewBlockSrcRanges.Add(srcRange);
-                    _previewBlocks.Add(block);
-
-                    combined.Blocks.Add(block);
                 }
-            }
-            catch {
-                var para = new Paragraph(new Run(resolved));
-                if (isConditional) {
-                    para.Foreground = conditionalBrush;
-                    para.Background = conditionalBgBrush;
+                catch {
+                    var para = new Paragraph(new Run(resolvedPiece));
+                    if (shouldHighlight) {
+                        para.Foreground = conditionalBrush;
+                        para.Background = conditionalBgBrush;
+                    }
+                    _previewBlockSrcRanges.Add((pieceAbsStart, origPiece.Length));
+                    _previewBlocks.Add(para);
+                    combined.Blocks.Add(para);
                 }
-                _previewBlockSrcRanges.Add((segStart, segText.Length));
-                _previewBlocks.Add(para);
-                combined.Blocks.Add(para);
+
+                subOffset += origPiece.Length;
             }
         }
 
@@ -1337,6 +1359,28 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             var key = m.Groups[1].Value.Trim();
             return _optionValues.TryGetValue(key, out var val) ? val : m.Value;
         });
+
+    /// <summary>
+    /// Splits <paramref name="text"/> into sub-segments on <c>{{varname}}</c> tokens.
+    /// For each known variable, emits the substituted value with <c>IsSystemVar=true</c>
+    /// so the preview can apply conditional background highlighting to those spans.
+    /// </summary>
+    private IEnumerable<(string OriginalText, string ResolvedText, bool IsSystemVar)> SplitOnSystemVars(string text) {
+        const string pattern = @"\{\{([^}#/][^}]*)\}\}";
+        var offset = 0;
+        foreach (Match m in Regex.Matches(text, pattern)) {
+            if (m.Index > offset)
+                yield return (text[offset..m.Index], text[offset..m.Index], false);
+            var key = m.Groups[1].Value.Trim();
+            if (_optionValues.TryGetValue(key, out var val))
+                yield return (m.Value, val, true);
+            else
+                yield return (m.Value, m.Value, false);
+            offset = m.Index + m.Length;
+        }
+        if (offset < text.Length)
+            yield return (text[offset..], text[offset..], false);
+    }
 
     private bool IsDark() {
         // InputSurface is the actual preview background — reliably present in both theme files.

@@ -4716,8 +4716,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             _approvalItems.Add(item);
                             _approvalStore?.Save(_approvalItems);
                             _approvalPanel?.AddItem(item);
-                            if (commitInfo.FeatureGroup is null)
-                                ScheduleAutoCategorization();
                             SoundNotifications.Play(SoundEvent.ApprovalNeeded);
                         }
                         // ─────────────────────────────────────────────────────────────────
@@ -13559,6 +13557,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.Register("Remove Dummy Queue Items", () =>
         {
+            // If the user clicked into a demo tab, _activeTabId points at a dummy item.
+            // Restore the real pre-edit draft before deleting the dummy items so the
+            // user's text is not lost (same logic as OnQueueTabRemove for the active tab).
+            if (_activeTabId is not null &&
+                _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == DummyTag))
+            {
+                _activeTabId = null;
+                SetPromptTextBoxLogicalBuffer(
+                    _queuePreEditDraft ?? string.Empty,
+                    _queuePreEditDraftCaretIndex,
+                    _queuePreEditDraftSelectionStart,
+                    _queuePreEditDraftSelectionLength,
+                    "tour-cleanup-restore-draft");
+                _queuePreEditDraft = null;
+            }
             _promptQueue.RemoveByTag(DummyTag);
             SyncQueuePanel();
         });
@@ -33957,7 +33970,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 if (!_loopController.IsRunning)
                     _ = StartDecomposeLoopAsync(group.GroupId, group);
-            }));
+            }),
+            getUncategorizedApprovals: () => {
+                var items = _approvalItems
+                    .Where(i => !i.IsApproved && !i.IsRejected && string.IsNullOrEmpty(i.FeatureGroup))
+                    .ToList();
+                if (items.Count == 0) return "(none)";
+                var sb = new System.Text.StringBuilder();
+                foreach (var item in items)
+                    sb.AppendLine($"- SHA: {item.CommitSha} | \"{item.Description}\"");
+                return sb.ToString().TrimEnd();
+            });
 
         _idleDetectionService?.SetRunnerActive(true);
         _codeHealthPanel?.OnRunnerStarted("starting…");

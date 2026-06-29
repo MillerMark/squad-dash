@@ -19,6 +19,7 @@ internal sealed class CodeHealthRunner {
     private readonly Func<string, CancellationToken, Task<string?>> _getCommitShaAsync;
     private readonly Func<DateTimeOffset, bool>?                 _wasInboxSavedSince;
     private readonly Action<DecomposedTaskGroup>?                _onDecomposeGroupReady;
+    private readonly Func<string>?                               _getUncategorizedApprovals;
 
     private volatile bool _isRunning;
 
@@ -33,7 +34,8 @@ internal sealed class CodeHealthRunner {
         Func<string, CancellationToken, Task<string?>>? getCommitShaAsync = null,
         Func<DateTimeOffset, bool>?                     wasInboxSavedSince = null,
         Func<string, CancellationToken, Task<(int, string)>>? executePromptAndCaptureAsync = null,
-        Action<DecomposedTaskGroup>?                                  onDecomposeGroupReady = null) {
+        Action<DecomposedTaskGroup>?                                  onDecomposeGroupReady = null,
+        Func<string>?                                                 getUncategorizedApprovals = null) {
 
         _executePromptAsync            = executePromptAsync;
         _executePromptAndCaptureAsync  = executePromptAndCaptureAsync;
@@ -44,6 +46,7 @@ internal sealed class CodeHealthRunner {
         _getCommitShaAsync             = getCommitShaAsync ?? TryGetCommitShaAsync;
         _wasInboxSavedSince            = wasInboxSavedSince;
         _onDecomposeGroupReady         = onDecomposeGroupReady;
+        _getUncategorizedApprovals     = getUncategorizedApprovals;
     }
 
     /// <summary>
@@ -130,7 +133,8 @@ internal sealed class CodeHealthRunner {
                     var dynamicBranchName = $"codehealth/{task.Id}/{taskStartedAt:yyyyMMdd-HHmmss}";
                     
                     var prompt = BuildPrompt(task, config.Safety, effectiveSafety, dynamicBranchName, 
-                        taskStartedAt, lastReviewedSha, newCommitCount);
+                        taskStartedAt, lastReviewedSha, newCommitCount,
+                        uncategorizedApprovals: _getUncategorizedApprovals?.Invoke() ?? string.Empty);
                     int anchorIndex;
                     string? responseText = null;
 
@@ -304,7 +308,8 @@ internal sealed class CodeHealthRunner {
     }
 
     private static string BuildPrompt(CodeHealthTask task, string globalSafety, string effectiveSafety, 
-        string dynamicBranchName, DateTimeOffset runDate, string? lastReviewedSha = null, int newCommitCount = 0) {
+        string dynamicBranchName, DateTimeOffset runDate, string? lastReviewedSha = null, int newCommitCount = 0,
+        string? uncategorizedApprovals = null) {
 
         string safetyPrefix;
         string suffix;
@@ -340,6 +345,7 @@ internal sealed class CodeHealthRunner {
         // Apply commit-range substitutions for commit-frequency tasks
         instructions = instructions.Replace("{{last_reviewed_sha}}", lastReviewedSha ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{new_commit_count}}", newCommitCount.ToString(), StringComparison.OrdinalIgnoreCase);
+        instructions = instructions.Replace("{{uncategorized_approvals}}", uncategorizedApprovals ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         
         // Render instructions with Handlebars using dynamic variables
         try {
