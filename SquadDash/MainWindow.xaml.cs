@@ -7325,6 +7325,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _hostCommandExecutor.Register(new Commands.OrganizeApprovalsCommandHandler(assignments =>
         {
             bool anyChanged = false;
+            var toAnnotate = new List<(string Sha, string Group)>();
             foreach (var (sha, group) in assignments)
             {
                 var idx = _approvalItems.FindIndex(i =>
@@ -7333,7 +7334,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (idx < 0) continue;
                 _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
                 _featureGroupStore?.EnsureGroup(group);
-                AnnotateCommitInTranscript(sha, group);
+                toAnnotate.Add((sha, group));
                 anyChanged = true;
             }
             if (anyChanged)
@@ -7341,6 +7342,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _approvalStore?.Save(_approvalItems);
                 _approvalPanel?.ReplaceAllItems(_approvalItems);
             }
+            // Defer annotation by one layout pass: the "Committed: sha" paragraph is written
+            // in the same response as this HOST_COMMAND_JSON block, so RenderResponseEntry
+            // may not have added it to Document.Blocks yet when this handler fires.
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                foreach (var (sha, group) in toAnnotate)
+                    AnnotateCommitInTranscript(sha, group);
+            });
         }));
 
         _agentThreadRegistry.OnAgentApprovalGroup = (sha, group) =>
