@@ -217,7 +217,10 @@ internal sealed class GuidedTourController
 
         if (_activeCallout is not null)
         {
-            _activeCallout.IsSticky = true;
+            _activeCallout.IsSticky      = true;
+            _activeCallout.IsTourMode    = true;
+            _activeCallout.TourNextRequested += (_, _) => Next();
+            _activeCallout.TourPrevRequested += (_, _) => Prev();
             _activeCallout.UserDismissed += (_, _) => StopTour();
         }
     }

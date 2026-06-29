@@ -162,6 +162,131 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// </summary>
     public event EventHandler? UserDismissed;
 
+    // ── Tour Mode ────────────────────────────────────────────────────────────────
+    bool _isTourMode;
+    TextBlock? _tourHintBlock;
+    TourCalloutNavigationOverlay? _tourOverlay;
+    bool _dragInProgress;
+
+    /// <summary>Fired when the user presses Enter while the callout is focused in tour mode.</summary>
+    public event EventHandler? TourNextRequested;
+
+    /// <summary>Fired when the tour overlay Prev button is clicked.</summary>
+    public event EventHandler? TourPrevRequested;
+
+    /// <summary>Fired when the callout animation finishes and the window has settled at its target position.</summary>
+    public event EventHandler? Settled;
+
+    /// <summary>Fired once per drag gesture when the user starts dragging the callout.</summary>
+    public event EventHandler? DragStarted;
+
+    /// <summary>
+    /// When <c>true</c>, the callout is part of a guided-tour step.  A hint line is shown inside
+    /// the callout and a floating Prev/Next overlay appears beside it after the callout settles.
+    /// </summary>
+    public bool IsTourMode
+    {
+        get => _isTourMode;
+        set
+        {
+            if (_isTourMode == value) return;
+            _isTourMode = value;
+            if (_isTourMode) OnTourModeEnabled();
+            else             OnTourModeDisabled();
+        }
+    }
+
+    void OnTourModeEnabled()
+    {
+        this.KeyDown += Callout_KeyDown;
+        Settled      += OnSettled_TourOverlay;
+        DragStarted  += OnDragStarted_TourOverlay;
+
+        _tourOverlay = new TourCalloutNavigationOverlay();
+        _tourOverlay.NextClicked += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.PrevClicked += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);
+
+        if (initializationComplete)
+            RefreshLayout();
+    }
+
+    void OnTourModeDisabled()
+    {
+        this.KeyDown -= Callout_KeyDown;
+        Settled      -= OnSettled_TourOverlay;
+        DragStarted  -= OnDragStarted_TourOverlay;
+
+        CloseTourOverlay();
+        _tourHintBlock = null;
+
+        if (initializationComplete)
+            RefreshLayout();
+    }
+
+    void Callout_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            TourNextRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+    }
+
+    void OnSettled_TourOverlay(object sender, EventArgs e)
+    {
+        if (_tourOverlay is null) return;
+        var calloutBounds = new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
+        _tourOverlay.PositionNear(calloutBounds);
+        _tourOverlay.FadeIn();
+    }
+
+    void OnDragStarted_TourOverlay(object sender, EventArgs e) => _tourOverlay?.HideImmediate();
+
+    void CloseTourOverlay()
+    {
+        if (_tourOverlay is null) return;
+        var overlay = _tourOverlay;
+        _tourOverlay = null;
+        try { overlay.Close(); } catch { /* already closed */ }
+    }
+
+    void AddTourHint()
+    {
+        double hintFontSize = FontSize * 0.85;
+        double hintHeight   = hintFontSize * 1.7;
+        double hintTop      = calloutTop + calloutHeight - hintHeight - 4;
+
+        _tourHintBlock = new TextBlock
+        {
+            FontSize         = hintFontSize,
+            Foreground       = new SolidColorBrush(Color.FromArgb(160, 148, 148, 160)),
+            TextWrapping     = TextWrapping.NoWrap,
+            IsHitTestVisible = false,
+        };
+
+        UpdateTourHintText();
+
+        Canvas.SetLeft(_tourHintBlock, calloutLeft + Options.CornerRadius + 4);
+        Canvas.SetTop(_tourHintBlock,  hintTop);
+        cvsCallout.Children.Add(_tourHintBlock);
+    }
+
+    void UpdateTourHintText()
+    {
+        if (_tourHintBlock is null) return;
+        _tourHintBlock.Inlines.Clear();
+        if (IsActive)
+        {
+            _tourHintBlock.Inlines.Add(new Run("Press "));
+            _tourHintBlock.Inlines.Add(new Bold(new Run("enter")));
+            _tourHintBlock.Inlines.Add(new Run(" for next..."));
+        }
+        else
+        {
+            _tourHintBlock.Inlines.Add(new Run("Click ► for next..."));
+        }
+    }
+
     private void CloseButton_Click(object sender, RoutedEventArgs e) {
         UserDismissed?.Invoke(this, EventArgs.Empty);
         Close();
@@ -819,6 +944,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
 
         ShowDiagnosticControls(guidelineIntersectionData);
+
+        if (_isTourMode) AddTourHint();
     }
 
     void RemoveDiagnostics() {
@@ -1134,6 +1261,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     private void Callout_Closed(object sender, EventArgs e) {
         UnhookTargetParentWindowEvents();
+        CloseTourOverlay();
     }
 
 
@@ -1144,10 +1272,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     private void Window_Activated(object sender, EventArgs e) {
         CheckTopMostWindow();
+        UpdateTourHintText();
     }
 
     private void Window_Deactivated(object sender, EventArgs e) {
         CheckTopMostWindow();
+        UpdateTourHintText();
     }
 
     void CheckTopMostWindow() {
@@ -1268,6 +1398,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         if (GetMouseIsDown())
             return;
 
+        _dragInProgress = false;
         waitingForMouseUpTimer.Stop();
         ActivateParentWindow();
         StartAnimatingTowardTarget();
@@ -1308,7 +1439,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         if (GetMouseIsDown()) {
             if (animating)
-                StopAnimationTimer();
+                StopAnimationTimer(fireSettled: false);
+
+            if (!_dragInProgress)
+            {
+                _dragInProgress = true;
+                DragStarted?.Invoke(this, EventArgs.Empty);
+            }
 
             if (Options.AnimateBackAfterDrag)
                 WaitForMouseUp();
@@ -1319,12 +1456,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return System.Windows.Input.Mouse.LeftButton == MouseButtonState.Pressed;
     }
 
-    void StopAnimationTimer() {
+    void StopAnimationTimer(bool fireSettled = true) {
         if (!animating)
             return;
 
         animating = false;
         calloutAnimationTimer?.Stop();
+        if (fireSettled)
+            Settled?.Invoke(this, EventArgs.Empty);
     }
 
     const double PositionLimit = 2_000_000; // well within Int32 range, generous for any real screen layout

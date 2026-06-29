@@ -320,6 +320,7 @@
     <Compile Include="..\SquadDash\Callouts\UI\Styles.cs" Link="Source\Callouts\UI\Styles.cs" />
     <Compile Include="..\SquadDash\Callouts\UI\WindowHelper.cs" Link="Source\Callouts\UI\WindowHelper.cs" />
     <Compile Include="..\SquadDash\Callouts\UI\FrmUltimateCallout.LayoutPositioning.cs" Link="Source\Callouts\UI\FrmUltimateCallout.LayoutPositioning.cs" />
+    <Compile Include="..\SquadDash\Callouts\UI\TourCalloutNavigationOverlay.cs" Link="Source\Callouts\UI\TourCalloutNavigationOverlay.cs" />
     <Page Include="..\SquadDash\Callouts\UI\FrmUltimateCallout.xaml" Link="Source\Callouts\UI\FrmUltimateCallout.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>

@@ -73,6 +73,6 @@ public partial class
     }
 
     double GetExtraBottomMargin() {
-        return 0;
+        return _isTourMode ? FontSize * 1.8 : 0;
     }
 }
