@@ -18,7 +18,6 @@ internal sealed class GuidedTourController
     private List<GuidedTour>         _allTours = new();
     private int                      _currentStepIndex;
     private FrmUltimateCallout?      _activeCallout;
-    private FrmGuidedTourNavigator?  _navigator;
 
     // Callbacks wired by MainWindow
     private readonly Func<string, FrameworkElement?>      _elementLocator;
@@ -28,15 +27,6 @@ internal sealed class GuidedTourController
     private readonly Window                               _ownerWindow;
     private readonly Func<string?>?                       _workspaceFolderProvider;
     private readonly GuidedTourCommandRegistry?           _commandRegistry;
-
-    /// <summary>Fired (on the UI thread) when the Edit Step button is clicked.</summary>
-    public event EventHandler? EditStepRequested;
-
-    /// <summary>Fired when the user clicks "⊕ New Step After" (developer mode only).</summary>
-    public event EventHandler? NewStepAfterRequested;
-
-    /// <summary>Fired when the user Ctrl+clicks the pencil button in the tour overlay (developer mode only).</summary>
-    public event EventHandler? NewStepBeforeRequested;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -104,7 +94,6 @@ internal sealed class GuidedTourController
 
         _savePreTourLayout?.Invoke();
 
-        OpenNavigator();
         ShowCurrentStep();
     }
 
@@ -114,7 +103,6 @@ internal sealed class GuidedTourController
     public void NotifyStepEdited()
     {
         CloseActiveCallout();
-        UpdateNavigator();
         ShowStepCallout(CurrentStep);
     }
 
@@ -165,34 +153,9 @@ internal sealed class GuidedTourController
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    private void OpenNavigator()
-    {
-        _navigator = new FrmGuidedTourNavigator { Owner = _ownerWindow };
-        _navigator.PrevRequested         += (_, _) => Prev();
-        _navigator.NextRequested         += (_, _) => Next();
-        _navigator.CloseRequested        += (_, _) => StopTour();
-        _navigator.EditStepRequested     += (_, _) => HandleEditStep();
-        _navigator.NewStepAfterRequested += (_, _) => HandleNewStepAfter();
-        _navigator.IsEditModeVisible      = SquadDashEnvironment.IsDeveloperMode;
-        _navigator.Closed                += (_, _) =>
-        {
-            // User closed via OS means (alt-F4) — treat as tour stop
-            if (IsActive) StopTourInternal(showHint: true);
-        };
-        _navigator.Show();
-        UpdateNavigator();
-    }
-
-    private void UpdateNavigator()
-    {
-        if (_navigator is null || _activeTour is null) return;
-        _navigator.UpdateStep(_currentStepIndex, _activeTour.Steps.Count, CurrentStep.Title);
-    }
-
     private void HandleEditStep()
     {
         if (_activeTour is null) return;
-        EditStepRequested?.Invoke(this, EventArgs.Empty);
 
         var editor = new FrmGuidedTourStepEditor(
             step:                CurrentStep,
@@ -218,7 +181,6 @@ internal sealed class GuidedTourController
         RunPreAction(CurrentStep);
         var step = CurrentStep;
         _commandRegistry?.Execute(step.CommandBefore);
-        UpdateNavigator();
         // Defer by one layout pass so that any UI changes made by RunPreAction or
         // CommandBefore (e.g. queue items added, panel opened) are fully rendered
         // before ShowStepCallout checks target.IsVisible.  Without this, the callout
@@ -291,7 +253,6 @@ internal sealed class GuidedTourController
         _currentStepIndex = 0;
 
         CloseActiveCallout();
-        CloseNavigator();
 
         if (wasActive)
         {
@@ -313,7 +274,6 @@ internal sealed class GuidedTourController
         var insertIndex = _currentStepIndex + 1;
         _activeTour.Steps.Insert(insertIndex, newStep);
         _currentStepIndex = insertIndex;
-        UpdateNavigator();
 
         var editor = new FrmGuidedTourStepEditor(
             step:                newStep,
@@ -335,7 +295,6 @@ internal sealed class GuidedTourController
         {
             _activeTour.Steps.RemoveAt(insertIndex);
             _currentStepIndex = Math.Max(0, insertIndex - 1);
-            UpdateNavigator();
         }
     }
 
@@ -346,7 +305,6 @@ internal sealed class GuidedTourController
         var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
         var insertIndex = _currentStepIndex;  // Insert BEFORE current step
         _activeTour.Steps.Insert(insertIndex, newStep);
-        UpdateNavigator();
 
         var editor = new FrmGuidedTourStepEditor(
             step:                newStep,
@@ -368,7 +326,6 @@ internal sealed class GuidedTourController
         {
             _activeTour.Steps.RemoveAt(insertIndex);
             // _currentStepIndex stays the same (the original step is back)
-            UpdateNavigator();
         }
     }
 
@@ -394,13 +351,5 @@ internal sealed class GuidedTourController
         if (_activeCallout is null) return;
         try { _activeCallout.Close(); } catch { /* already closed */ }
         _activeCallout = null;
-    }
-
-    private void CloseNavigator()
-    {
-        if (_navigator is null) return;
-        var nav = _navigator;
-        _navigator = null;
-        try { nav.Close(); } catch { /* already closed */ }
     }
 }
