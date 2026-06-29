@@ -3119,12 +3119,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void UpdateMlPreview(Point p1, Point p2, bool isH) {
         const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, arrowGap = 1.0;
+        const double minShaftGap = 6.0;
 
         double span = isH ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
         double innerSpan = Math.Max(0, span - 2 * arrowGap);
-        double arrowScale = (innerSpan < 2 * aLen) ? innerSpan / (2 * aLen) : 1.0;
-        double scaledLen = aLen * arrowScale;
-        double scaledHalf = aHalf * arrowScale;
+        double maxScaledLen = Math.Max(0, (innerSpan - minShaftGap) / 2.0);
+        double arrowScale  = Math.Min(1.0, maxScaledLen / aLen);
+        double scaledLen   = aLen * arrowScale;
+        double scaledHalf  = aHalf * arrowScale;
 
         if (isH) {
             double tip1X = p1.X + arrowGap;
@@ -3418,6 +3420,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void UpdateMeasureLineGeometry(AnnotationMeasureLine ml) {
         const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, arrowGap = 1.0;
+        // Ensure arrowhead bases always leave at least this many pixels of shaft visible between them.
+        const double minShaftGap = 6.0;
 
         var p1 = ml.StartPt;
         var p2 = ml.EndPt;
@@ -3430,9 +3434,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
         double span = ml.IsHorizontal ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
         double innerSpan = Math.Max(0, span - 2 * arrowGap);
-        double arrowScale = (innerSpan < 2 * aLen) ? innerSpan / (2 * aLen) : 1.0;
-        double scaledLen = aLen * arrowScale;
-        double scaledHalf = aHalf * arrowScale;
+        // Scale so 2*scaledLen + minShaftGap <= innerSpan, guaranteeing a visible shaft gap.
+        double maxScaledLen = Math.Max(0, (innerSpan - minShaftGap) / 2.0);
+        double arrowScale  = Math.Min(1.0, maxScaledLen / aLen);
+        double scaledLen   = aLen * arrowScale;
+        double scaledHalf  = aHalf * arrowScale;
 
         if (ml.IsHorizontal) {
             double tip1X = p1.X + arrowGap;
