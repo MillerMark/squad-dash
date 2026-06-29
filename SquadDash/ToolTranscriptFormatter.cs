@@ -209,7 +209,10 @@ internal static class ToolTranscriptFormatter {
             return string.Empty;
 
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
-        var stripped = SystemNotificationRegex.Replace(normalized, string.Empty);
+        // Replace with "\n" rather than "" so that inline tags (placed without surrounding
+        // whitespace) don't fuse adjacent words: "first.<tag>Now" → "first.\nNow" rather
+        // than "first.Now".  Extra consecutive newlines are collapsed in the next step.
+        var stripped = SystemNotificationRegex.Replace(normalized, "\n");
         return Regex.Replace(stripped, @"\n{3,}", "\n\n");
     }
 
