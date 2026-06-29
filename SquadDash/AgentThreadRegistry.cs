@@ -531,7 +531,7 @@ internal sealed class AgentThreadRegistry {
         _beginTranscriptTurn(thread, prompt);
     }
 
-    internal void FinalizeAgentThread(TranscriptThreadState thread) {
+    internal void FinalizeAgentThread(TranscriptThreadState thread, string? rawResponse = null) {
         CompleteOutstandingAgentTools(thread);
         _finalizeCurrentTurnResponse(thread);
         _collapseCurrentTurnThinking(thread);
@@ -540,12 +540,14 @@ internal sealed class AgentThreadRegistry {
         if (IsTerminalBackgroundStatus(thread.StatusText))
             thread.IsCurrentBackgroundRun = false;
         _syncThreadChip(thread);
-        ParseAndApplyApprovalGroups(thread);
+        ParseAndApplyApprovalGroups(thread, rawResponse);
     }
 
-    private void ParseAndApplyApprovalGroups(TranscriptThreadState thread) {
+    private void ParseAndApplyApprovalGroups(TranscriptThreadState thread, string? rawResponse = null) {
         if (OnAgentApprovalGroup is null) return;
-        var response = thread.LatestResponse;
+        // Prefer the raw (unsanitized) response so APPROVAL_GROUP_JSON blocks that are
+        // stripped by SanitizeResponseText can still be found here.
+        var response = rawResponse ?? thread.LatestResponse;
         if (string.IsNullOrWhiteSpace(response)) return;
 
         foreach (Match m in ApprovalGroupJsonPattern.Matches(response)) {
@@ -660,7 +662,9 @@ internal sealed class AgentThreadRegistry {
                 string.Equals(agent.Status, "failed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(agent.Status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(agent.Status, "killed", StringComparison.OrdinalIgnoreCase)) {
-                FinalizeAgentThread(thread);
+                // Pass the raw response before sanitization so ParseAndApplyApprovalGroups can
+                // find APPROVAL_GROUP_JSON blocks that SanitizeResponseText would strip.
+                FinalizeAgentThread(thread, rawResponse: agent.LatestResponse);
                 _observeBackgroundAgentActivity(thread, "background_snapshot");
             }
 

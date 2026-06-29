@@ -170,6 +170,14 @@ internal sealed partial class PushNotificationService {
     [GeneratedRegex(@"(?:commit(?:ted)?)\s*(?:as|:)?\s*[*]*\s*`([0-9a-f]{7,40})`", RegexOptions.IgnoreCase)]
     private static partial Regex AgentCommitRegex();
 
+    // Plain "Committed: abc1234" without backticks (coordinator instruction format)
+    [GeneratedRegex(@"\bCommitted:\s+([0-9a-f]{7,40})\b", RegexOptions.IgnoreCase)]
+    private static partial Regex PlainCommittedRegex();
+
+    // APPROVAL_GROUP_JSON block sha+group extraction: {"sha":"abc1234","group":"Feature Name"}
+    [GeneratedRegex(@"APPROVAL_GROUP_JSON:\s*\{\s*""sha""\s*:\s*""(?<sha>[0-9a-f]{7,40})""\s*,\s*""group""\s*:\s*""(?<group>[^""]+)""\s*\}", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex ApprovalGroupInResponseRegex();
+
     // Feature-Group commit trailer: "Feature-Group: UI & UX"
     [GeneratedRegex(@"^Feature-Group:\s*(.+)$", RegexOptions.Multiline)]
     private static partial Regex FeatureGroupRegex();
@@ -369,11 +377,26 @@ internal sealed partial class PushNotificationService {
             }
         }
         
-        // Priority 2: Try agent-reported pattern in the response text (SHA only)
+        // Priority 2: Try agent-reported backtick pattern in the response text (SHA only)
         if (!string.IsNullOrWhiteSpace(agentResponse)) {
             var match = AgentCommitRegex().Match(agentResponse);
             if (match.Success)
                 return new GitCommitInfo(match.Groups[1].Value, null);
+        }
+
+        // Priority 2b: Plain "Committed: sha" in the response text — coordinator instruction
+        // format. Also extract the feature group from APPROVAL_GROUP_JSON in the same text.
+        if (!string.IsNullOrWhiteSpace(agentResponse)) {
+            var match = PlainCommittedRegex().Match(agentResponse);
+            if (match.Success) {
+                var sha = match.Groups[1].Value;
+                string? featureGroup = null;
+                var fgMatch = ApprovalGroupInResponseRegex().Match(agentResponse);
+                if (fgMatch.Success &&
+                    string.Equals(fgMatch.Groups["sha"].Value, sha, StringComparison.OrdinalIgnoreCase))
+                    featureGroup = fgMatch.Groups["group"].Value.Trim();
+                return new GitCommitInfo(sha, null, featureGroup);
+            }
         }
         
         // Priority 3: Try git native pattern in tool outputs (SHA only)
