@@ -60,11 +60,15 @@ internal sealed class TourCalloutNavigationOverlay : Window
         Content = panel;
     }
 
+    // Width of the panel margin on each side — used by PositionNear to flush the
+    // visible button edge to the callout boundary instead of the window edge.
+    private const double PanelMargin = 4;
+
     private UIElement BuildButton(bool isPrev)
     {
         var border = new Border
         {
-            Width            = isPrev ? 32 : 52,
+            Width            = isPrev ? 32 : 58,
             Height           = 36,
             CornerRadius     = new CornerRadius(4),
             Background       = ButtonNormal,
@@ -87,7 +91,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment   = VerticalAlignment.Center,
             IsHitTestVisible    = false,
-            Margin              = isPrev ? new Thickness(0) : new Thickness(2, 0, 2, 0),
+            Margin              = isPrev ? new Thickness(0) : new Thickness(3, 0, 3, 0),
         };
 
         inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev));
@@ -132,6 +136,20 @@ internal sealed class TourCalloutNavigationOverlay : Window
     }
 
     /// <summary>
+    /// Shows the window off-screen (opacity 0) and forces a layout pass so that
+    /// <see cref="ActualWidth"/> and <see cref="ActualHeight"/> are accurate before
+    /// <see cref="PositionNear"/> is called.  Safe to call multiple times.
+    /// </summary>
+    public void EnsureLayout()
+    {
+        if (!IsVisible)
+        {
+            Show();
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
     /// Positions the overlay near the callout's screen rectangle, choosing the first
     /// candidate that fits entirely on-screen. Falls back to screen-clamping.
     /// Priority: opposite side, edge-aligned → same side → other edges.
@@ -143,6 +161,13 @@ internal sealed class TourCalloutNavigationOverlay : Window
 
         const double gap = 6;
 
+        // The panel has a PanelMargin on each side, so the visible button right edge is
+        // PanelMargin pixels inset from the window right edge.  Add PanelMargin to the
+        // right-aligned X so the button face (not the transparent window edge) is flush
+        // with the callout boundary.
+        double rightAlignX = calloutScreenRect.Right - w + PanelMargin;
+        double leftAlignX  = calloutScreenRect.Left  - PanelMargin;
+
         var screenBounds = NativeMethods.GetMonitorBoundsForPhysicalPoint(
             (int)calloutScreenRect.X, (int)calloutScreenRect.Y);
 
@@ -152,39 +177,39 @@ internal sealed class TourCalloutNavigationOverlay : Window
         Point[] candidates = dangleSide switch {
             // Pointer exits bottom → buttons go above, right- then left-aligned
             CalloutSide.Bottom => new[] {
-                new Point(calloutScreenRect.Right - w, calloutScreenRect.Top - h - gap),   // right-aligned, above
-                new Point(calloutScreenRect.Left,      calloutScreenRect.Top - h - gap),   // left-aligned, above
-                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
-                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
-                new Point(calloutScreenRect.Right + gap, calloutScreenRect.Bottom - h),    // right side, bottom-aligned
-                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Bottom - h), // left side, bottom-aligned
+                new Point(rightAlignX,                                   calloutScreenRect.Top - h - gap),   // right-aligned, above
+                new Point(leftAlignX,                                    calloutScreenRect.Top - h - gap),   // left-aligned, above
+                new Point(rightAlignX,                                   calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(leftAlignX,                                    calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Right + gap,                 calloutScreenRect.Bottom - h),      // right side, bottom-aligned
+                new Point(calloutScreenRect.Left - w - gap,              calloutScreenRect.Bottom - h),      // left side, bottom-aligned
             },
             // Pointer exits top → buttons go below, right- then left-aligned
             CalloutSide.Top => new[] {
-                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
-                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
-                new Point(calloutScreenRect.Right - w, calloutScreenRect.Top - h - gap),   // right-aligned, above
-                new Point(calloutScreenRect.Left,      calloutScreenRect.Top - h - gap),   // left-aligned, above
-                new Point(calloutScreenRect.Right + gap, calloutScreenRect.Bottom - h),    // right side, bottom-aligned
-                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Bottom - h), // left side, bottom-aligned
+                new Point(rightAlignX,                                   calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(leftAlignX,                                    calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(rightAlignX,                                   calloutScreenRect.Top - h - gap),   // right-aligned, above
+                new Point(leftAlignX,                                    calloutScreenRect.Top - h - gap),   // left-aligned, above
+                new Point(calloutScreenRect.Right + gap,                 calloutScreenRect.Bottom - h),      // right side, bottom-aligned
+                new Point(calloutScreenRect.Left - w - gap,              calloutScreenRect.Bottom - h),      // left side, bottom-aligned
             },
             // Pointer exits right → buttons go to the left, bottom- then top-aligned
             CalloutSide.Right => new[] {
-                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Bottom - h), // left side, bottom-aligned
-                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Top),        // left side, top-aligned
-                new Point(calloutScreenRect.Right + gap,    calloutScreenRect.Bottom - h), // right side, bottom-aligned
-                new Point(calloutScreenRect.Right + gap,    calloutScreenRect.Top),        // right side, top-aligned
-                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
-                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Left - w - gap,              calloutScreenRect.Bottom - h),      // left side, bottom-aligned
+                new Point(calloutScreenRect.Left - w - gap,              calloutScreenRect.Top),             // left side, top-aligned
+                new Point(calloutScreenRect.Right + gap,                 calloutScreenRect.Bottom - h),      // right side, bottom-aligned
+                new Point(calloutScreenRect.Right + gap,                 calloutScreenRect.Top),             // right side, top-aligned
+                new Point(rightAlignX,                                   calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(leftAlignX,                                    calloutScreenRect.Bottom + gap),    // left-aligned, below
             },
             // Pointer exits left → buttons go to the right, bottom- then top-aligned
             _ => new[] {
-                new Point(calloutScreenRect.Right + gap,    calloutScreenRect.Bottom - h), // right side, bottom-aligned
-                new Point(calloutScreenRect.Right + gap,    calloutScreenRect.Top),        // right side, top-aligned
-                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Bottom - h), // left side, bottom-aligned
-                new Point(calloutScreenRect.Left - w - gap, calloutScreenRect.Top),        // left side, top-aligned
-                new Point(calloutScreenRect.Right - w, calloutScreenRect.Bottom + gap),    // right-aligned, below
-                new Point(calloutScreenRect.Left,      calloutScreenRect.Bottom + gap),    // left-aligned, below
+                new Point(calloutScreenRect.Right + gap,                 calloutScreenRect.Bottom - h),      // right side, bottom-aligned
+                new Point(calloutScreenRect.Right + gap,                 calloutScreenRect.Top),             // right side, top-aligned
+                new Point(calloutScreenRect.Left - w - gap,              calloutScreenRect.Bottom - h),      // left side, bottom-aligned
+                new Point(calloutScreenRect.Left - w - gap,              calloutScreenRect.Top),             // left side, top-aligned
+                new Point(rightAlignX,                                   calloutScreenRect.Bottom + gap),    // right-aligned, below
+                new Point(leftAlignX,                                    calloutScreenRect.Bottom + gap),    // left-aligned, below
             },
         };
 
@@ -205,7 +230,9 @@ internal sealed class TourCalloutNavigationOverlay : Window
     /// <summary>Shows the overlay and fades it in over 250 ms.</summary>
     public void FadeIn()
     {
-        Show(); // no-op if already shown; ShowActivated=false prevents focus steal
+        // EnsureLayout() should already have been called before PositionNear().
+        // Show() here is a safe no-op if the window is already visible.
+        Show();
         Visibility = Visibility.Visible;
         BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)));
     }

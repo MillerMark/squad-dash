@@ -241,6 +241,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     {
         if (_tourOverlay is null) return;
         var calloutBounds = new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
+        _tourOverlay.EnsureLayout();
         _tourOverlay.PositionNear(calloutBounds, _lastDangleSide);
         _tourOverlay.FadeIn();
     }
