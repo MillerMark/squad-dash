@@ -14224,7 +14224,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            SetTranscriptFullScreen(true);
+            SetTranscriptFullScreen(!_transcriptFullScreenEnabled);
         }
         catch (Exception ex)
         {
