@@ -24514,6 +24514,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!string.IsNullOrWhiteSpace(evt.ProgressMessage))
             entry.ProgressText = evt.ProgressMessage;
 
+        // When the AI uses multiple consecutive tools, the thinking block is reused (not
+        // reallocated for the 2nd+ tool), so GetLatestResponseEntry still finds the
+        // post-previous-tool response entry. Without an explicit paragraph break here, the
+        // post-this-tool streaming text would fuse inline with whatever text already ends
+        // that entry (e.g. "rendered).Committed"). Injecting \n\n closes the paragraph now.
+        if (thread.CurrentTurn is { } turn)
+        {
+            var responseEntry = GetLatestResponseEntry(turn);
+            if (responseEntry is not null)
+            {
+                var sb = responseEntry.RawTextBuilder;
+                if (sb.Length > 0)
+                {
+                    var endsDouble = sb.Length >= 2 && sb[sb.Length - 1] == '\n' && sb[sb.Length - 2] == '\n';
+                    if (!endsDouble)
+                        sb.Append(sb[sb.Length - 1] == '\n' ? "\n" : "\n\n");
+                }
+            }
+        }
+
         EnsureCurrentTurnThinkingVisible(thread);
         RenderToolEntry(entry);
         UpdateToolSpinnerState();
