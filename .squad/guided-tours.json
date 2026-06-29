@@ -1,0 +1,79 @@
+[
+  {
+    "id": "intro-ui",
+    "name": "Introduction to the UI",
+    "description": "A quick walkthrough of the main interface panels.",
+    "steps": [
+      {
+        "title": "The Prompt Box",
+        "markdownText": "**The Prompt Box** is where you type your prompts to the AI agents.\n\nType your instructions here, then press **Enter** (or click the **Run** button) to send them to the active agent.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
+        "title": "The Run Button",
+        "markdownText": "The **Send**/**Queue** button dispatches your prompt to the Squad Coordinator (or queues it if agents are busy).",
+        "targetControlId": "RunButton",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
+        "title": "The Queue Tab Strip",
+        "markdownText": "**The Queue** lets you line up multiple prompts to run sequentially.\n\nClick **\u002B** to add a new queue item, drag items to reorder them, and use the play/pause button to control execution.",
+        "targetControlId": "QueueTabStrip",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "Add Dummy Queue Items",
+        "commandAfter": "Remove Dummy Queue Items"
+      },
+      {
+        "title": "The Help Menu",
+        "markdownText": "You can start guided tours from inside the **Help** menu.",
+        "targetControlId": "HelpMenuItem",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      }
+    ]
+  },
+  {
+    "id": "working-with-loop",
+    "name": "Working with the Loop",
+    "description": "Learn how the Loop panel, queue pausing, and the Health panel work together.",
+    "steps": [
+      {
+        "title": "The Loop Panel",
+        "markdownText": "**The Loop** runs a set of prompts automatically on a schedule or file-watch trigger.\n\nConfigure your loop in \u0060loop.md\u0060 \u2014 the Loop panel shows iteration status and lets you start, stop, or monitor progress.",
+        "targetControlId": "LoopPanelBorder",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
+        "title": "Pausing the Queue",
+        "markdownText": "**Pause the queue** to temporarily hold all pending prompts.\n\nThis is useful when you want to review the current agent\u0027s work before allowing the next queued item to run.",
+        "targetControlId": "QueuePlayPauseButton",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
+        "title": "The Code Health Panel",
+        "markdownText": "**The Code Health panel** runs configured checks against your codebase and reports results.\n\nUse \u0060code-health.md\u0060 to define which checks to run. Green = passing, red = action needed.",
+        "targetControlId": "CodeHealthPanelBorder",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      }
+    ]
+  }
+]

@@ -151,6 +151,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         closeButton.Width  = closeButtonEdgeSize;
         closeButton.Height = closeButtonEdgeSize;
         closeButton.Click += CloseButton_Click;
+        _closeButton = closeButton;
         cvsCallout.Children.Add(closeButton);
         double rightEdge = calloutLeft + calloutWidth;
         Canvas.SetLeft(closeButton, rightEdge - Options.CornerRadius - closeButton.Width + 3);
@@ -170,6 +171,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     // ── Tour Mode ────────────────────────────────────────────────────────────────
     bool _isTourMode;
     TourCalloutNavigationOverlay? _tourOverlay;
+    Button? _closeButton;
     bool _dragInProgress;
     CalloutSide _lastDangleSide = CalloutSide.Bottom;
 
@@ -178,6 +180,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     /// <summary>Fired when the tour overlay Prev button is clicked.</summary>
     public event EventHandler? TourPrevRequested;
+
+    /// <summary>Fired when the user clicks the pencil edit button in the tour overlay (developer mode only).</summary>
+    public event EventHandler? TourEditRequested;
+
+    /// <summary>Fired when the user Alt+clicks the pencil button in the tour overlay (developer mode only).</summary>
+    public event EventHandler? TourNewStepAfterRequested;
+
+    /// <summary>Fired when the user Ctrl+clicks the pencil button in the tour overlay (developer mode only).</summary>
+    public event EventHandler? TourNewStepBeforeRequested;
 
     /// <summary>Fired when the callout animation finishes and the window has settled at its target position.</summary>
     public event EventHandler? Settled;
@@ -201,6 +212,19 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
+    private bool _isTourEditModeVisible;
+
+    public bool IsTourEditModeVisible
+    {
+        get => _isTourEditModeVisible;
+        set
+        {
+            _isTourEditModeVisible = value;
+            if (_tourOverlay is not null)
+                _tourOverlay.IsDevModeVisible = value;
+        }
+    }
+
     void OnTourModeEnabled()
     {
         this.KeyDown += Callout_KeyDown;
@@ -208,8 +232,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         DragStarted  += OnDragStarted_TourOverlay;
 
         _tourOverlay = new TourCalloutNavigationOverlay();
-        _tourOverlay.NextClicked += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
-        _tourOverlay.PrevClicked += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.IsDevModeVisible = _isTourEditModeVisible;
+        _tourOverlay.NextClicked           += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.PrevClicked           += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.EditClicked           += (_, _) => TourEditRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.NewStepAfterClicked   += (_, _) => TourNewStepAfterRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.NewStepBeforeClicked  += (_, _) => TourNewStepBeforeRequested?.Invoke(this, EventArgs.Empty);
+
+        if (_closeButton is not null)
+            _closeButton.ToolTip = "Closes this callout and ends the guided tour.";
 
         if (initializationComplete)
             RefreshLayout();
@@ -220,6 +251,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         this.KeyDown -= Callout_KeyDown;
         Settled      -= OnSettled_TourOverlay;
         DragStarted  -= OnDragStarted_TourOverlay;
+
+        if (_closeButton is not null)
+            _closeButton.ToolTip = null;
 
         CloseTourOverlay();
 
@@ -232,6 +266,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         if (e.Key == Key.Enter)
         {
             TourNextRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Back)
+        {
+            TourPrevRequested?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
         }
     }

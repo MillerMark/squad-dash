@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -33,6 +34,9 @@ internal sealed class GuidedTourController
 
     /// <summary>Fired when the user clicks "⊕ New Step After" (developer mode only).</summary>
     public event EventHandler? NewStepAfterRequested;
+
+    /// <summary>Fired when the user Ctrl+clicks the pencil button in the tour overlay (developer mode only).</summary>
+    public event EventHandler? NewStepBeforeRequested;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -121,7 +125,23 @@ internal sealed class GuidedTourController
         _commandRegistry?.Execute(CurrentStep.CommandAfter);
         if (_currentStepIndex >= _activeTour!.Steps.Count - 1)
         {
-            StopTourInternal(showHint: true);
+            var allToursSnapshot = _allTours;
+            var currentTourId    = _activeTour.Id;
+            StopTourInternal(showHint: false);
+
+            var remaining = allToursSnapshot
+                .Where(t => t.Id != currentTourId && !GuidedTourStateStore.Shared.IsCompleted(t.Id))
+                .ToList();
+
+            if (remaining.Count > 0)
+            {
+                var selected = FrmGuidedTourSelector.ShowForResult(
+                    _ownerWindow,
+                    remaining,
+                    id => GuidedTourStateStore.Shared.IsCompleted(id));
+                if (selected is not null)
+                    StartTour(selected, allToursSnapshot);
+            }
             return;
         }
         FrmUltimateCallout.RecordTourAdvance();
@@ -232,9 +252,13 @@ internal sealed class GuidedTourController
         {
             _activeCallout.IsSticky      = true;
             _activeCallout.IsTourMode    = true;
-            _activeCallout.TourNextRequested += (_, _) => Next();
-            _activeCallout.TourPrevRequested += (_, _) => Prev();
-            _activeCallout.UserDismissed += (_, _) => StopTour();
+            _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
+            _activeCallout.TourNextRequested         += (_, _) => Next();
+            _activeCallout.TourPrevRequested         += (_, _) => Prev();
+            _activeCallout.TourEditRequested         += (_, _) => HandleEditStep();
+            _activeCallout.TourNewStepAfterRequested  += (_, _) => HandleNewStepAfter();
+            _activeCallout.TourNewStepBeforeRequested += (_, _) => HandleNewStepBefore();
+            _activeCallout.UserDismissed             += (_, _) => StopTour();
         }
     }
 
@@ -263,11 +287,11 @@ internal sealed class GuidedTourController
         if (wasActive && _activeTour is not null)
             _commandRegistry?.Execute(CurrentStep.CommandAfter);
 
-        CloseActiveCallout();
-        CloseNavigator();
-
         _activeTour       = null;
         _currentStepIndex = 0;
+
+        CloseActiveCallout();
+        CloseNavigator();
 
         if (wasActive)
         {
@@ -315,6 +339,39 @@ internal sealed class GuidedTourController
         }
     }
 
+    private void HandleNewStepBefore()
+    {
+        if (_activeTour is null) return;
+
+        var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
+        var insertIndex = _currentStepIndex;  // Insert BEFORE current step
+        _activeTour.Steps.Insert(insertIndex, newStep);
+        UpdateNavigator();
+
+        var editor = new FrmGuidedTourStepEditor(
+            step:                newStep,
+            stepIndex:           _currentStepIndex,
+            activeTour:          _activeTour,
+            allTours:            _allTours,
+            workspaceFolderPath: WorkspaceFolderPath,
+            owner:               _ownerWindow,
+            captureLayout:       _savePreTourLayout,
+            livePreviewCallback: NotifyStepEdited,
+            commandRegistry:     _commandRegistry);
+        editor.ShowDialog();
+
+        if (editor.WasSaved)
+        {
+            NotifyStepEdited();
+        }
+        else
+        {
+            _activeTour.Steps.RemoveAt(insertIndex);
+            // _currentStepIndex stays the same (the original step is back)
+            UpdateNavigator();
+        }
+    }
+
     private void ShowRestartHint()
     {
         // Point at the Help menu item if it exists; fall back to top-right of owner window
@@ -322,7 +379,7 @@ internal sealed class GuidedTourController
         if (helpMenuItem is not null && helpMenuItem.IsVisible)
         {
             FrmUltimateCallout.ShowCalloutBesideTarget(
-                "You can restart any Guided Tour from **Help → Start Guided Tour**.",
+                "You can start guided tours from inside the **Help** menu.",
                 helpMenuItem,
                 width:     280,
                 fontSize:  Application.Current.Resources.Contains("FontSizeCallout")

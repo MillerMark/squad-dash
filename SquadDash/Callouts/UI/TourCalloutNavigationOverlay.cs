@@ -16,6 +16,9 @@ internal sealed class TourCalloutNavigationOverlay : Window
 {
     public event EventHandler? PrevClicked;
     public event EventHandler? NextClicked;
+    public event EventHandler? EditClicked;
+    public event EventHandler? NewStepAfterClicked;
+    public event EventHandler? NewStepBeforeClicked;
 
     private TextBlock? _nextLabel;
 
@@ -26,6 +29,19 @@ internal sealed class TourCalloutNavigationOverlay : Window
 
     private Border? _prevButton;
     private Border? _nextButton;
+    private Border? _editButton;
+
+    private bool _isDevModeVisible;
+    public bool IsDevModeVisible
+    {
+        get => _isDevModeVisible;
+        set
+        {
+            _isDevModeVisible = value;
+            if (_editButton is not null)
+                _editButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
 
     // NavRight arrow path — fits a 822×882 viewbox (right-pointing chevron/arrow).
     private const string NavRightPath =
@@ -74,9 +90,12 @@ internal sealed class TourCalloutNavigationOverlay : Window
             Margin      = new Thickness(4),
         };
 
+        _editButton = BuildEditButton();
         _prevButton = BuildButton(isPrev: true);
         _nextButton = BuildButton(isPrev: false);
 
+        panel.Children.Add(_editButton);
+        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
@@ -98,6 +117,9 @@ internal sealed class TourCalloutNavigationOverlay : Window
             BorderThickness  = new Thickness(1),
             IsHitTestVisible = true,
             Cursor           = Cursors.Hand,
+            ToolTip          = isPrev
+                ? "Click or press Backspace to go to the previous step."
+                : "Click or press Enter to go to the next step.",
         };
         border.SetResourceReference(Border.BackgroundProperty,   "InputSurface");
         border.SetResourceReference(Border.BorderBrushProperty,  "CalloutBorder");
@@ -140,6 +162,49 @@ internal sealed class TourCalloutNavigationOverlay : Window
         }
 
         border.Child = inner;
+        return border;
+    }
+
+    private Border BuildEditButton()
+    {
+        var border = new Border
+        {
+            Width            = PrevButtonWidth,
+            Height           = ButtonHeight,
+            CornerRadius     = new CornerRadius(4),
+            BorderThickness  = new Thickness(1),
+            IsHitTestVisible = true,
+            Cursor           = Cursors.Hand,
+            Visibility       = Visibility.Collapsed,
+            ToolTip          = "Click to edit step.\nAlt+Click to add a new step after this one.\nCtrl+Click to add a new step before this step.",
+        };
+        border.SetResourceReference(Border.BackgroundProperty,  "InputSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
+
+        border.MouseEnter        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        border.MouseLeave        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
+                NewStepAfterClicked?.Invoke(this, EventArgs.Empty);
+            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+                NewStepBeforeClicked?.Invoke(this, EventArgs.Empty);
+            else
+                EditClicked?.Invoke(this, EventArgs.Empty);
+        };
+
+        var pencil = new TextBlock
+        {
+            Text                = "✎",
+            FontSize            = 14,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            IsHitTestVisible    = false,
+        };
+        pencil.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        border.Child = pencil;
         return border;
     }
 
@@ -271,6 +336,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
     private Rect GetVisibleButtonBounds()
     {
         Rect? bounds = null;
+        AddButtonBounds(_editButton, ref bounds);
         AddButtonBounds(_prevButton, ref bounds);
         AddButtonBounds(_nextButton, ref bounds);
 
