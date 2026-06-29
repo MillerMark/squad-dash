@@ -73,6 +73,8 @@ public partial class
     }
 
     double GetExtraBottomMargin() {
-        return _isTourMode ? FontSize * 1.8 : 0;
+        // Reserve space for the "Press enter for next..." hint only when it will actually
+        // be rendered. AddTourHint() bails out when the advance count reaches 3.
+        return _isTourMode && _sessionTourHintAdvanceCount < 3 ? FontSize * 1.8 : 0;
     }
 }
