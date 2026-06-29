@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using SquadDash.GuidedTours;
 
 namespace SquadDash;
@@ -195,9 +196,20 @@ internal sealed class GuidedTourController
     {
         CloseActiveCallout();
         RunPreAction(CurrentStep);
-        _commandRegistry?.Execute(CurrentStep.CommandBefore);
+        var step = CurrentStep;
+        _commandRegistry?.Execute(step.CommandBefore);
         UpdateNavigator();
-        ShowStepCallout(CurrentStep);
+        // Defer by one layout pass so that any UI changes made by RunPreAction or
+        // CommandBefore (e.g. queue items added, panel opened) are fully rendered
+        // before ShowStepCallout checks target.IsVisible.  Without this, the callout
+        // is silently skipped on the first visit to a step that changes the UI.
+        // The ReferenceEquals guard ensures we don't show a stale callout if the user
+        // navigates before the deferred callback fires.
+        _ownerWindow.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (IsActive && ReferenceEquals(CurrentStep, step))
+                ShowStepCallout(step);
+        });
     }
 
     private void ShowStepCallout(GuidedTourStep step)
