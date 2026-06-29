@@ -123,6 +123,7 @@ internal sealed class GuidedTourController
             StopTourInternal(showHint: true);
             return;
         }
+        FrmUltimateCallout.RecordTourAdvance();
         _currentStepIndex++;
         ShowCurrentStep();
     }

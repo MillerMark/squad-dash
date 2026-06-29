@@ -64,9 +64,9 @@ internal sealed class TourCalloutNavigationOverlay : Window
     {
         var border = new Border
         {
-            Width            = 52,
+            Width            = isPrev ? 32 : 52,
             Height           = 36,
-            CornerRadius     = new CornerRadius(8),
+            CornerRadius     = new CornerRadius(4),
             Background       = ButtonNormal,
             IsHitTestVisible = true,
             Cursor           = Cursors.Hand,
@@ -87,6 +87,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment   = VerticalAlignment.Center,
             IsHitTestVisible    = false,
+            Margin              = isPrev ? new Thickness(0) : new Thickness(2, 0, 2, 0),
         };
 
         inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev));
@@ -133,7 +134,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
     /// <summary>
     /// Positions the overlay near the callout's screen rectangle, choosing the first
     /// candidate that fits entirely on-screen. Falls back to screen-clamping.
-    /// Priority: bottom-right → upper-left → bottom-left → upper-right.
+    /// Priority: right-aligned below → left-aligned below → right-aligned above → left-aligned above → right side → left side.
     /// </summary>
     public void PositionNear(Rect calloutScreenRect)
     {
@@ -147,13 +148,15 @@ internal sealed class TourCalloutNavigationOverlay : Window
 
         var candidates = new[]
         {
-            new Point(calloutScreenRect.Right  + gap,     calloutScreenRect.Bottom + gap),      // bottom-right
-            new Point(calloutScreenRect.Left   - w - gap, calloutScreenRect.Top    - h - gap),  // upper-left
-            new Point(calloutScreenRect.Left   - w - gap, calloutScreenRect.Bottom + gap),      // bottom-left
-            new Point(calloutScreenRect.Right  + gap,     calloutScreenRect.Top    - h - gap),  // upper-right
+            new Point(calloutScreenRect.Right - w,         calloutScreenRect.Bottom + gap),      // right-aligned, below
+            new Point(calloutScreenRect.Left,              calloutScreenRect.Bottom + gap),      // left-aligned, below
+            new Point(calloutScreenRect.Right - w,         calloutScreenRect.Top - h - gap),     // right-aligned, above
+            new Point(calloutScreenRect.Left,              calloutScreenRect.Top - h - gap),     // left-aligned, above
+            new Point(calloutScreenRect.Right + gap,       calloutScreenRect.Top),               // right side, top-aligned
+            new Point(calloutScreenRect.Left - w - gap,   calloutScreenRect.Top),               // left side, top-aligned
         };
 
-        var chosen = candidates[candidates.Length - 1]; // fallback: upper-right
+        var chosen = candidates[candidates.Length - 1]; // fallback: left side, top-aligned
         foreach (var c in candidates)
         {
             if (screenBounds.Contains(new Rect(c.X, c.Y, w, h)))

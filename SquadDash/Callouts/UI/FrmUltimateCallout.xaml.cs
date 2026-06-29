@@ -25,6 +25,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     SolidColorBrush calloutStrokeBrush;
     SolidColorBrush calloutFillBrush;
 
+    static int _sessionTourHintAdvanceCount;
+
+    public static void RecordTourAdvance() => _sessionTourHintAdvanceCount++;
+
 
     double idealCalloutWidth;
 
@@ -252,6 +256,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void AddTourHint()
     {
+        if (_sessionTourHintAdvanceCount >= 3) return;
         double hintFontSize = FontSize * 0.85;
         double hintHeight   = hintFontSize * 1.7;
         double hintTop      = calloutTop + calloutHeight - hintHeight - 4;
@@ -259,7 +264,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourHintBlock = new TextBlock
         {
             FontSize         = hintFontSize,
-            Foreground       = new SolidColorBrush(Color.FromArgb(160, 148, 148, 160)),
+            Foreground       = new SolidColorBrush(Color.FromArgb(210, 200, 200, 215)),
             TextWrapping     = TextWrapping.NoWrap,
             IsHitTestVisible = false,
         };
@@ -662,8 +667,19 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                     CalloutSide.Top => line.GetSegmentIntersection(guidelineIntersectionData.CalloutInsideLeft),
                     _ => throw new NotImplementedException(),
                 };
-                if (double.IsNaN(intersectionPoint.X))
-                    intersectionPoint = GetClosestConnectionPoint(rotatedScreenPt, guidelineIntersectionData);
+                if (double.IsNaN(intersectionPoint.X)) {
+                    // Segment intersections all failed (pt1 too close to callout edge or inside callout).
+                    // Fall back to full-line intersections before giving up with GetClosestConnectionPoint.
+                    intersectionPoint = guidelineIntersectionData.CalloutDangleSide switch {
+                        CalloutSide.Right => line.GetIntersection(guidelineIntersectionData.CalloutInsideRight),
+                        CalloutSide.Left => line.GetIntersection(guidelineIntersectionData.CalloutInsideLeft),
+                        CalloutSide.Bottom => line.GetIntersection(guidelineIntersectionData.CalloutInsideBottom),
+                        CalloutSide.Top => line.GetIntersection(guidelineIntersectionData.CalloutInsideTop),
+                        _ => throw new NotImplementedException(),
+                    };
+                    if (double.IsNaN(intersectionPoint.X))
+                        intersectionPoint = GetClosestConnectionPoint(rotatedScreenPt, guidelineIntersectionData);
+                }
             }
         }
 
@@ -1305,8 +1321,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         MyLine calloutRightLine = MyLine.Vertical(calloutRight, calloutTop, calloutBottom);
 
         closestIntersectingPoint = danglePointGuideline.GetClosestIntersectingPoint(danglePoint, calloutTopLine, calloutBottomLine, calloutLeftLine, calloutRightLine);
-        if (double.IsNaN(closestIntersectingPoint.X))
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetProperLocation: calloutCenter=({calloutCenter.X:F1},{calloutCenter.Y:F1}) calloutHeight={calloutHeight:F1} " +
+            $"danglePoint=({danglePoint.X:F1},{danglePoint.Y:F1}) " +
+            $"calloutBottom={calloutBottom:F1} closestIntersectingPoint=({closestIntersectingPoint.X:F1},{closestIntersectingPoint.Y:F1})");
+        if (double.IsNaN(closestIntersectingPoint.X)) {
+            SquadDashTrace.Write(TraceCategory.Callouts, "GetProperLocation: closestIntersectingPoint is NaN — returning danglePoint unchanged");
             return danglePoint;
+        }
 
         MyLine guidelineToEdgeOfCallout = new MyLine(calloutCenter, closestIntersectingPoint);
 
@@ -1314,6 +1336,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         double desiredLength = length + Options.OuterMargin;
 
         guidelineToEdgeOfCallout.MatchLength(desiredLength);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetProperLocation: length={length:F1} desiredLength={desiredLength:F1} result=({guidelineToEdgeOfCallout.End.X:F1},{guidelineToEdgeOfCallout.End.Y:F1})");
 
         return guidelineToEdgeOfCallout.End;
     }
@@ -1363,9 +1388,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         Point adjustedCenter = targetCenter;
 
-        pt1.Offset(-Left, -Top);
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GetTrianglePoints: offset — this.Left={Left:F1} this.Top={Top:F1} windowLeft={windowLeft:F1} windowTop={windowTop:F1} deltaLeft={deltaLeft:F1} deltaTop={deltaTop:F1}");
+        // Use windowLeft/windowTop (the calculated final position) rather than this.Left/this.Top
+        // (the current animation position) so that the canvas-to-screen conversion is consistent
+        // with the geometry computed in GetProperLocation and GetGuidelineIntersectionData.
+        pt1.Offset(-windowLeft, -windowTop);
+        SquadDashTrace.Write(TraceCategory.Callouts, $"GetTrianglePoints: pt1 (canvas, before GetProperLocation) = ({pt1.X:F1},{pt1.Y:F1}) calloutCenter=({calloutCenter.X:F1},{calloutCenter.Y:F1}) calloutHeight={calloutHeight:F1}");
         pt1 = GetProperLocation(pt1, data);
-        pt1.Offset(Left, Top);
+        pt1.Offset(windowLeft, windowTop);
 
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GetTrianglePoints: pt1 (after GetProperLocation) = ({pt1.X:F1},{pt1.Y:F1}) distToTarget={(pt1 - targetCenter).Length:F1} indicatorMargin/2={indicatorMargin / 2:F1}");
