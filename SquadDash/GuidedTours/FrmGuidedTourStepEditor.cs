@@ -200,6 +200,25 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             if (e.Key == Key.Escape) { Close(); return; }
 
+            // Ctrl+B / Ctrl+I: markdown bold/italic in the markdown text box
+            if (_markdownBox.IsFocused && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
+            {
+                if (e.Key == Key.B)
+                {
+                    MarkdownEditorCommands.ApplyBold(_markdownBox);
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.I)
+                {
+                    MarkdownEditorCommands.ApplyItalic(_markdownBox);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             // Route double-tap Ctrl PTT to whichever text box has focus
             var focused = FocusManager.GetFocusedElement(this) as TextBox;
             if (focused is not null && _ptt.HandlePreviewKeyDown(e, focused))
