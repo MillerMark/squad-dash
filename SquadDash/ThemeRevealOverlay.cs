@@ -65,6 +65,8 @@ internal sealed class ThemeRevealOverlay
     private Popup?   _popup;
     private StackPanel? _rowsPanel;
     private FrameworkElement? _lastElement;
+    private Window?  _registeredWindowUnderCursor;
+    private Cursor?  _savedRegisteredCursor;
 
     // Last-computed token lists so Ctrl+C can copy them.
     private List<(string Prop, string Key, Color Color, string SourceLabel)> _lastTokens = new();
@@ -100,6 +102,7 @@ internal sealed class ThemeRevealOverlay
             try { _owner.Cursor = _savedCursor; } catch { }
             _owner       = null;
             _savedCursor = null;
+            RestoreRegisteredWindowCursor();
         }
 
         if (_popup is not null)
@@ -174,8 +177,36 @@ internal sealed class ThemeRevealOverlay
             if (ReferenceEquals(element, _lastElement)) return;
 
             _lastElement = element;
+
+            // If the element belongs to a registered floating window, set the eyedropper
+            // cursor there too so the user knows inspection is active.
+            var elementWindow = Window.GetWindow(element);
+            if (elementWindow is not null && !ReferenceEquals(elementWindow, _owner))
+            {
+                var registeredWindows = ThemeRevealWindowRegistry.GetWindows();
+                bool isRegistered = registeredWindows.Any(w => ReferenceEquals(w, elementWindow));
+                if (isRegistered)
+                {
+                    if (!ReferenceEquals(_registeredWindowUnderCursor, elementWindow))
+                    {
+                        RestoreRegisteredWindowCursor();
+                        _registeredWindowUnderCursor = elementWindow;
+                        _savedRegisteredCursor       = elementWindow.Cursor;
+                        elementWindow.Cursor         = AnnotationCursors.EyedropperTool;
+                    }
+                }
+                else
+                {
+                    RestoreRegisteredWindowCursor();
+                }
+            }
+            else
+            {
+                RestoreRegisteredWindowCursor();
+            }
+
             UpdatePopupContent(element);
-            PositionPopup(NativeMethods.GetCursorScreenPos());
+            PositionPopup(NativeMethods.GetCursorScreenPos(), elementWindow ?? _owner);
             _popup!.IsOpen = true;
         }
         catch { /* never throw from overlay */ }
@@ -184,6 +215,16 @@ internal sealed class ThemeRevealOverlay
     // -------------------------------------------------------------------------
     // Popup construction
     // -------------------------------------------------------------------------
+
+    private void RestoreRegisteredWindowCursor()
+    {
+        if (_registeredWindowUnderCursor is not null)
+        {
+            try { _registeredWindowUnderCursor.Cursor = _savedRegisteredCursor; } catch { }
+            _registeredWindowUnderCursor = null;
+            _savedRegisteredCursor       = null;
+        }
+    }
 
     private void EnsurePopup()
     {
@@ -210,10 +251,11 @@ internal sealed class ThemeRevealOverlay
         };
     }
 
-    private void PositionPopup(Point screenPixels)
+    private void PositionPopup(Point screenPixels, Window? context = null)
     {
         if (_popup is null || _owner is null) return;
-        var dpi = VisualTreeHelper.GetDpi(_owner);
+        var dpiSource = (context is not null && context.IsLoaded) ? context : _owner;
+        var dpi = VisualTreeHelper.GetDpi(dpiSource);
         _popup.HorizontalOffset = screenPixels.X / dpi.DpiScaleX + 16;
         _popup.VerticalOffset   = screenPixels.Y / dpi.DpiScaleY + 16;
     }
@@ -350,7 +392,7 @@ internal sealed class ThemeRevealOverlay
                 var dedupKey = $"{propName}:{key}";
                 if (!seenDup.Add(dedupKey)) continue;
 
-                var color = ResolveColor(key);
+                var color = ResolveColor(key, element);
                 result.Add((propName, key, color));
             }
             catch { }
@@ -382,7 +424,9 @@ internal sealed class ThemeRevealOverlay
                 var dedupKey = $"FontSize:{key}";
                 if (!seenDup.Add(dedupKey)) continue;
 
-                double size = Application.Current.TryFindResource(key) is double d ? d : 0;
+                double size = element.TryFindResource(key) is double ld ? ld
+                            : Application.Current.TryFindResource(key) is double d ? d
+                            : 0;
                 result.Add(("FontSize", key, size));
             }
             catch { }
@@ -423,10 +467,14 @@ internal sealed class ThemeRevealOverlay
         return allTokens;
     }
 
-    private static Color ResolveColor(string key)
+    private static Color ResolveColor(string key, FrameworkElement? context = null)
     {
         try
         {
+            // Prefer the element's own resource tree (finds keys in merged dicts loaded
+            // by floating windows such as FrmUltimateCallout's callout style files).
+            if (context?.TryFindResource(key) is SolidColorBrush localBrush)
+                return localBrush.Color;
             if (Application.Current.TryFindResource(key) is SolidColorBrush brush)
                 return brush.Color;
         }

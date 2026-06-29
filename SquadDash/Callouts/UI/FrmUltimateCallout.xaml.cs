@@ -1278,6 +1278,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void Callout_Closed(object sender, EventArgs e) {
+        ThemeRevealWindowRegistry.Unregister(this);
         UnhookTargetParentWindowEvents();
         CloseTourOverlay();
     }
@@ -1306,6 +1307,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     private void Window_Loaded(object sender, RoutedEventArgs e) {
         WindowInteropHelper wndHelper = new WindowInteropHelper(this);
         WindowHelper.HideFromAltTab(this);
+        ThemeRevealWindowRegistry.Register(this);
     }
 
     Point GetProperLocation(Point danglePoint, GuidelineIntersectionData data) {

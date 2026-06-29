@@ -328,6 +328,7 @@
     <Compile Include="..\SquadDash\Callouts\UI\FrmUltimateCallout.xaml.cs" Link="Source\Callouts\UI\FrmUltimateCallout.xaml.cs">
       <DependentUpon>FrmUltimateCallout.xaml</DependentUpon>
     </Compile>
+    <Compile Include="..\SquadDash\ThemeRevealWindowRegistry.cs" Link="Source\ThemeRevealWindowRegistry.cs" />
 
   </ItemGroup>
 

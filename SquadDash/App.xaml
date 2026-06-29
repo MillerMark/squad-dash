@@ -26,6 +26,7 @@
             <sys:Double x:Key="FontSizeNormal">13</sys:Double>
             <sys:Double x:Key="FontSizeMedium">14</sys:Double>
             <sys:Double x:Key="FontSizeLarge">15</sys:Double>
+            <sys:Double x:Key="FontSizeCallout">18</sys:Double>
             <sys:Double x:Key="FontSizeLargePlus">16</sys:Double>
             <sys:Double x:Key="FontSizeSubtitle">18</sys:Double>
             <sys:Double x:Key="FontSizeTitle">20</sys:Double>
