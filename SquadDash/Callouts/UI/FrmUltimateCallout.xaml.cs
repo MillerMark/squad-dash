@@ -240,7 +240,31 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void OnSettled_TourOverlay(object sender, EventArgs e)
     {
         if (_tourOverlay is null) return;
-        var calloutBounds = new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
+
+        // Use PointToScreen on the canvas to get the actual screen coordinates of the
+        // callout rectangle corners.  This is robust to any mismatch between Window.Left
+        // (which may reflect physical-pixel positioning from target.PointToScreen) and the
+        // canvas geometry units (which are WPF logical pixels).
+        Rect calloutBounds;
+        var source = PresentationSource.FromVisual(cvsCallout);
+        if (source?.CompositionTarget is { } ct)
+        {
+            double dpiX = ct.TransformToDevice.M11;
+            double dpiY = ct.TransformToDevice.M22;
+            Point physTL = cvsCallout.PointToScreen(new Point(calloutLeft,              calloutTop));
+            Point physBR = cvsCallout.PointToScreen(new Point(calloutLeft + calloutWidth, calloutTop + calloutHeight));
+            calloutBounds = new Rect(
+                physTL.X / dpiX,
+                physTL.Y / dpiY,
+                (physBR.X - physTL.X) / dpiX,
+                (physBR.Y - physTL.Y) / dpiY);
+        }
+        else
+        {
+            // Fallback when PresentationSource is unavailable (should be rare).
+            calloutBounds = new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
+        }
+
         _tourOverlay.EnsureLayout();
         _tourOverlay.PositionNear(calloutBounds, _lastDangleSide);
         _tourOverlay.FadeIn();

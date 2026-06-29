@@ -24,10 +24,8 @@ internal sealed class TourCalloutNavigationOverlay : Window
         "C95.625,831.0625,82.8125,832.875,69.75,825.1875" +
         "C56.6875,817.5,51.5,802.6875,51.5,785.3125L51.4375,783.75 50,88.0625z";
 
-    private static readonly SolidColorBrush ButtonNormal =
-        new SolidColorBrush(Color.FromArgb(0xCC, 0x1A, 0x2A, 0x3F));
-    private static readonly SolidColorBrush ButtonHover =
-        new SolidColorBrush(Color.FromArgb(0xCC, 0x28, 0x42, 0x62));
+    // Button appearance uses theme resources (InputSurface / HoverSurface / LabelText)
+    // so it adapts to light/dark mode automatically.
 
     public TourCalloutNavigationOverlay()
     {
@@ -71,13 +69,13 @@ internal sealed class TourCalloutNavigationOverlay : Window
             Width            = isPrev ? 32 : 58,
             Height           = 36,
             CornerRadius     = new CornerRadius(4),
-            Background       = ButtonNormal,
             IsHitTestVisible = true,
             Cursor           = Cursors.Hand,
         };
+        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
 
-        border.MouseEnter        += (_, _) => border.Background = ButtonHover;
-        border.MouseLeave        += (_, _) => border.Background = ButtonNormal;
+        border.MouseEnter        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        border.MouseLeave        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
         border.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true;
@@ -98,15 +96,16 @@ internal sealed class TourCalloutNavigationOverlay : Window
 
         if (!isPrev)
         {
-            inner.Children.Add(new TextBlock
+            var label = new TextBlock
             {
                 Text              = "Next",
-                Foreground        = Brushes.White,
                 FontSize          = 12,
                 Margin            = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible  = false,
-            });
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            inner.Children.Add(label);
         }
 
         border.Child = inner;
@@ -119,12 +118,12 @@ internal sealed class TourCalloutNavigationOverlay : Window
         var path = new System.Windows.Shapes.Path
         {
             Data             = geometry,
-            Fill             = Brushes.White,
             Stretch          = Stretch.Uniform,
             Width            = 12,
             Height           = 14,
             IsHitTestVisible = false,
         };
+        path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "LabelText");
 
         if (flipHorizontal)
         {
@@ -146,6 +145,12 @@ internal sealed class TourCalloutNavigationOverlay : Window
         {
             Show();
             UpdateLayout();
+            if (ActualWidth <= 0)
+            {
+                // A second pass is sometimes needed for SizeToContent windows to fully measure.
+                InvalidateMeasure();
+                UpdateLayout();
+            }
         }
     }
 
