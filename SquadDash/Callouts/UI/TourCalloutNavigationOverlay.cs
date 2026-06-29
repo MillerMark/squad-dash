@@ -69,10 +69,12 @@ internal sealed class TourCalloutNavigationOverlay : Window
             Width            = isPrev ? 32 : 58,
             Height           = 36,
             CornerRadius     = new CornerRadius(4),
+            BorderThickness  = new Thickness(1),
             IsHitTestVisible = true,
             Cursor           = Cursors.Hand,
         };
-        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.SetResourceReference(Border.BackgroundProperty,   "InputSurface");
+        border.SetResourceReference(Border.BorderBrushProperty,  "CalloutBorder");
 
         border.MouseEnter        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         border.MouseLeave        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
