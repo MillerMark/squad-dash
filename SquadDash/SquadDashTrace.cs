@@ -99,6 +99,7 @@ internal static class SquadDashTrace {
         "Sound"             => TraceCategory.Sound,
         "Docking"           => TraceCategory.Docking,
         "ImageEditor"       => TraceCategory.ImageEditor,
+        "Transcript"        => TraceCategory.UI,
         _              => TraceCategory.General,
     };
 

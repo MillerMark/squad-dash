@@ -21564,7 +21564,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (startOnNewLine && entry.RawTextBuilder.Length > 0)
             entry.RawTextBuilder.Append('\n');
 
+        // Fusion-boundary probe: if the char ending the buffer before this chunk is
+        // sentence-ending punctuation and this chunk starts with a non-space word character
+        // (no newline between them), the renderer will fuse the two into one inline run.
+        var chunkLen = text.Length;
+        var builderBeforeAppend = entry.RawTextBuilder.Length;
         entry.RawTextBuilder.Append(text);
+
+        if (builderBeforeAppend > 0 && chunkLen > 0)
+        {
+            var prevChar  = entry.RawTextBuilder[builderBeforeAppend - 1];
+            var firstChar = text[0];
+            if (".!?:".IndexOf(prevChar) >= 0 && (char.IsLetterOrDigit(firstChar) || firstChar == '*' || firstChar == '`'))
+                SquadDashTrace.Write("Transcript", $"FUSION_RISK chunk boundary: prev='{prevChar}' nextChunkStart='{text[..Math.Min(30, text.Length)].Replace('\n', '↵').Replace('\r', '↵')}'");
+        }
+
         QueueResponseEntryRender(
             entry,
             flushImmediately: startOnNewLine || ShouldRenderResponseEntryImmediately(entry, text));
@@ -22386,6 +22400,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void RenderResponseEntry(TranscriptResponseEntry entry)
     {
         var rawText = entry.RawTextBuilder.ToString();
+
+        // Scan for fusion patterns: sentence-ending punctuation immediately followed by
+        // a word character with no intervening space or newline.
+        TraceFusionPatternsInRawText(rawText, entry.Sequence);
+
         var sanitizedText = SanitizeResponseText(rawText);
 
         var newBlocks = BuildResponseBlocks(entry, sanitizedText, entry.AllowQuickReplies).ToList();
@@ -22439,6 +22458,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             entry.Section.Blocks.Add(newBlocks[i]);
         for (int i = shared; i < oldBlocks.Count; i++)
             entry.Section.Blocks.Remove(oldBlocks[i]);
+    }
+
+    /// <summary>
+    /// Scans <paramref name="rawText"/> for patterns where sentence-ending punctuation
+    /// (<c>.</c><c>:</c><c>!</c><c>?</c>) is immediately followed by a word character
+    /// with no intervening space or newline — a reliable signature of a fusion bug.
+    /// Writes a Transcript trace entry for each match so they're visible in the Trace panel.
+    /// </summary>
+    private static void TraceFusionPatternsInRawText(string rawText, int entrySequence)
+    {
+        if (string.IsNullOrEmpty(rawText))
+            return;
+
+        for (var i = 0; i < rawText.Length - 1; i++)
+        {
+            var ch = rawText[i];
+            if (ch != '.' && ch != ':' && ch != '!' && ch != '?')
+                continue;
+
+            var next = rawText[i + 1];
+            if (!char.IsLetterOrDigit(next) && next != '*' && next != '`')
+                continue;
+
+            // Give context: up to 40 chars before the fusion point and 30 after
+            var start   = Math.Max(0, i - 40);
+            var snippet = rawText.Substring(start, Math.Min(70, rawText.Length - start))
+                              .Replace('\n', '↵').Replace('\r', '↵');
+            SquadDashTrace.Write("Transcript",
+                $"FUSION_IN_RAW seq={entrySequence} at={i} ctx=«{snippet}»");
+
+            // Advance past this match so we don't log every char of a code block
+            i += 10;
+        }
     }
 
     private Paragraph BuildInboxIndicatorParagraph(string? messageId)
