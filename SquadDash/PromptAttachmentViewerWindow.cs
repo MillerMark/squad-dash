@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -341,6 +342,11 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         if (att.TranscriptQuote is not null)
         {
             text = att.TranscriptQuote;
+            // TRACE: log raw bytes of quote at display time to diagnose missing-space bug
+            var displayBytes = System.Text.Encoding.UTF8.GetBytes(text.Length > 200 ? text[..200] : text);
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[ExcerptTrace] PromptAttachmentViewerWindow — text length={text.Length}, " +
+                $"bytes[0..{Math.Min(displayBytes.Length, 200)}]: {string.Join(",", displayBytes.Select(b => b.ToString()))}");
         }
         else if (!string.IsNullOrWhiteSpace(att.ContentBlock))
         {

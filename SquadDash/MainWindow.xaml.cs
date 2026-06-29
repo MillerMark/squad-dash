@@ -32076,6 +32076,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? new TextRange(precedingEntry.Paragraph.ContentStart, precedingEntry.Paragraph.ContentEnd).Text.Trim()
             : null;
 
+        // TRACE: log raw bytes of quote at build time to diagnose missing-space bug
+        var quoteBytes = System.Text.Encoding.UTF8.GetBytes(quote.Length > 200 ? quote[..200] : quote);
+        SquadDashTrace.Write(TraceCategory.UI,
+            $"[ExcerptTrace] AttachTranscriptFollowUp — quote length={quote.Length}, " +
+            $"bytes[0..{Math.Min(quoteBytes.Length, 200)}]: {string.Join(",", quoteBytes.Select(b => b.ToString()))}");
+
         list.Add(new FollowUpAttachment(
             CommitSha:      string.Empty,
             Description:    title,
