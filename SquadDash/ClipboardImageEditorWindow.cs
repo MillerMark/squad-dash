@@ -3572,50 +3572,74 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         Panel.SetZIndex(_colorPickerPanel, 300);
         _canvas.Children.Add(_colorPickerPanel);
 
-        double midX = (ml.StartPt.X + ml.EndPt.X) / 2;
-        double midY = (ml.StartPt.Y + ml.EndPt.Y) / 2;
         _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
-        double cx, cy;
-        if (ml.IsHorizontal) {
-            // Horizontal line: place picker above the midpoint (original behaviour).
-            cx = Math.Max(0, Math.Min(_canvas.Width  - pw, midX - pw / 2));
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20));
-        } else {
-            // Vertical line: place picker to the left or right, whichever has more space.
-            double spaceRight = _canvas.Width - midX;
-            double spaceLeft  = midX;
-            cx = spaceRight >= spaceLeft
-                ? Math.Min(_canvas.Width  - pw, midX + 20)
-                : Math.Max(0, midX - pw - 20);
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph / 2));
-        }
-        Canvas.SetLeft(_colorPickerPanel, cx);
-        Canvas.SetTop(_colorPickerPanel, cy);
+        const double capHalf = 9.0;
+        Rect annotBounds = ml.IsHorizontal
+            ? new Rect(ml.StartPt.X, ml.StartPt.Y - capHalf, Math.Abs(ml.EndPt.X - ml.StartPt.X), capHalf * 2)
+            : new Rect(ml.StartPt.X - capHalf, ml.StartPt.Y, capHalf * 2, Math.Abs(ml.EndPt.Y - ml.StartPt.Y));
+        var pos = PositionColorPickerAwayFrom(annotBounds, pw, ph);
+        Canvas.SetLeft(_colorPickerPanel, pos.X);
+        Canvas.SetTop(_colorPickerPanel, pos.Y);
     }
 
     /// <summary>Moves the color picker panel to track the current midpoint of <paramref name="ml"/> without rebuilding it.</summary>
     private void RepositionMeasureLineColorPicker(AnnotationMeasureLine ml) {
         if (_colorPickerMeasureLine != ml || _colorPickerPanel == null) return;
-        double midX = (ml.StartPt.X + ml.EndPt.X) / 2;
-        double midY = (ml.StartPt.Y + ml.EndPt.Y) / 2;
+        _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
-        double cx, cy;
-        if (ml.IsHorizontal) {
-            cx = Math.Max(0, Math.Min(_canvas.Width  - pw, midX - pw / 2));
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph - 20));
-        } else {
-            double spaceRight = _canvas.Width - midX;
-            double spaceLeft  = midX;
-            cx = spaceRight >= spaceLeft
-                ? Math.Min(_canvas.Width  - pw, midX + 20)
-                : Math.Max(0, midX - pw - 20);
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, midY - ph / 2));
+        const double capHalf = 9.0;
+        Rect annotBounds = ml.IsHorizontal
+            ? new Rect(ml.StartPt.X, ml.StartPt.Y - capHalf, Math.Abs(ml.EndPt.X - ml.StartPt.X), capHalf * 2)
+            : new Rect(ml.StartPt.X - capHalf, ml.StartPt.Y, capHalf * 2, Math.Abs(ml.EndPt.Y - ml.StartPt.Y));
+        var pos = PositionColorPickerAwayFrom(annotBounds, pw, ph);
+        Canvas.SetLeft(_colorPickerPanel, pos.X);
+        Canvas.SetTop(_colorPickerPanel, pos.Y);
+    }
+
+    /// <summary>
+    /// Returns a canvas (Left, Top) position for a color picker of size (<paramref name="pw"/> ×
+    /// <paramref name="ph"/>) that avoids overlapping <paramref name="annotBounds"/>.
+    /// Tries above → below → right → left; picks the first that fits entirely within the canvas.
+    /// Falls back to the direction with the most clearance, clamped to the canvas boundary.
+    /// </summary>
+    private Point PositionColorPickerAwayFrom(Rect annotBounds, double pw, double ph, double gap = 8) {
+        double cw = _canvas.Width;
+        double ch = _canvas.Height;
+        double midX = annotBounds.Left + annotBounds.Width  / 2;
+        double midY = annotBounds.Top  + annotBounds.Height / 2;
+
+        // Four candidate positions (unclamped): above, below, right, left
+        var above = new Point(midX - pw / 2,        annotBounds.Top    - ph - gap);
+        var below = new Point(midX - pw / 2,        annotBounds.Bottom + gap);
+        var right = new Point(annotBounds.Right + gap, midY - ph / 2);
+        var left  = new Point(annotBounds.Left  - pw - gap, midY - ph / 2);
+
+        // Clearance in each direction (more = better fallback choice)
+        double[] clearances = {
+            annotBounds.Top,           // above
+            ch - annotBounds.Bottom,   // below
+            cw - annotBounds.Right,    // right
+            annotBounds.Left,          // left
+        };
+        Point[] candidates = { above, below, right, left };
+
+        // Pick first that fits entirely on canvas
+        for (int i = 0; i < candidates.Length; i++) {
+            double x = candidates[i].X, y = candidates[i].Y;
+            if (x >= 0 && y >= 0 && x + pw <= cw && y + ph <= ch)
+                return new Point(x, y);
         }
-        Canvas.SetLeft(_colorPickerPanel, cx);
-        Canvas.SetTop(_colorPickerPanel, cy);
+
+        // Nothing fits — use the most spacious direction, clamped
+        int best = 0;
+        for (int i = 1; i < clearances.Length; i++)
+            if (clearances[i] > clearances[best]) best = i;
+        return new Point(
+            Math.Max(0, Math.Min(cw - pw, candidates[best].X)),
+            Math.Max(0, Math.Min(ch - ph, candidates[best].Y)));
     }
     /// <summary>Snaps <paramref name="head"/> to the closest horizontal or vertical line through <paramref name="tail"/>.</summary>
     private static Point SnapArrowToAxis(Point tail, Point head)
@@ -4218,18 +4242,15 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         double tipY  = Canvas.GetTop(arrow.TipHandle)   + 4;
         double tailX = Canvas.GetLeft(arrow.TailHandle) + 4;
         double tailY = Canvas.GetTop(arrow.TailHandle)  + 4;
-        double midX  = (tipX + tailX) / 2;
-        double arrowMinY = Math.Min(tipY, tailY);
-        double arrowMaxY = Math.Max(tipY, tailY);
         _colorPickerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
-        // Prefer above the arrow's topmost point; fall back to below if too close to canvas top.
-        double cy = arrowMinY - ph - 8;
-        if (cy < 0)
-            cy = Math.Min(_canvas.Height - ph, arrowMaxY + 8);
-        Canvas.SetLeft(_colorPickerPanel, Math.Max(0, Math.Min(_canvas.Width - pw, midX - pw / 2)));
-        Canvas.SetTop(_colorPickerPanel, Math.Max(0, cy));
+        var annotBounds = new Rect(
+            Math.Min(tipX, tailX), Math.Min(tipY, tailY),
+            Math.Abs(tipX - tailX), Math.Abs(tipY - tailY));
+        var pos = PositionColorPickerAwayFrom(annotBounds, pw, ph);
+        Canvas.SetLeft(_colorPickerPanel, pos.X);
+        Canvas.SetTop(_colorPickerPanel, pos.Y);
     }
 
     private static string ColorName(Color c) => c switch {
@@ -4709,29 +4730,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
         var b = x.Bounds;
-        double centerX = b.Left + b.Width  / 2;
-        double centerY = b.Top  + b.Height / 2;
-        const double pad = 12;
-        double spaceAbove = b.Top;
-        double spaceBelow = _canvas.Height - b.Bottom;
-        double spaceLeft  = b.Left;
-        double spaceRight = _canvas.Width  - b.Right;
-        double cx, cy;
-        if (spaceAbove >= spaceBelow && spaceAbove >= spaceLeft && spaceAbove >= spaceRight) {
-            cx = Math.Max(0, Math.Min(_canvas.Width - pw, centerX - pw / 2));
-            cy = Math.Max(0, b.Top - ph - pad);
-        } else if (spaceBelow >= spaceLeft && spaceBelow >= spaceRight) {
-            cx = Math.Max(0, Math.Min(_canvas.Width - pw, centerX - pw / 2));
-            cy = Math.Min(_canvas.Height - ph, b.Bottom + pad);
-        } else if (spaceRight >= spaceLeft) {
-            cx = Math.Min(_canvas.Width  - pw, b.Right + pad);
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, centerY - ph / 2));
-        } else {
-            cx = Math.Max(0, b.Left - pw - pad);
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, centerY - ph / 2));
-        }
-        Canvas.SetLeft(_colorPickerPanel, cx);
-        Canvas.SetTop(_colorPickerPanel, cy);
+        var pos = PositionColorPickerAwayFrom(b, pw, ph);
+        Canvas.SetLeft(_colorPickerPanel, pos.X);
+        Canvas.SetTop(_colorPickerPanel, pos.Y);
     }
 
     // ── Rect mode ─────────────────────────────────────────────────────────────
@@ -5293,34 +5294,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         double pw = _colorPickerPanel.DesiredSize.Width;
         double ph = _colorPickerPanel.DesiredSize.Height;
         var b = rect.Bounds;
-        const double Gap = 8;
-
-        // Try above, below, right, left — pick the first that fits fully on canvas.
-        // Fall back to the position with the most clearance if nothing fits cleanly.
-        double cx, cy;
-        if (b.Top - ph - Gap >= 0) {
-            // Above
-            cx = Math.Max(0, Math.Min(_canvas.Width - pw, b.Left + b.Width / 2 - pw / 2));
-            cy = b.Top - ph - Gap;
-        } else if (b.Bottom + ph + Gap <= _canvas.Height) {
-            // Below
-            cx = Math.Max(0, Math.Min(_canvas.Width - pw, b.Left + b.Width / 2 - pw / 2));
-            cy = b.Bottom + Gap;
-        } else if (b.Right + pw + Gap <= _canvas.Width) {
-            // Right
-            cx = b.Right + Gap;
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, b.Top + b.Height / 2 - ph / 2));
-        } else if (b.Left - pw - Gap >= 0) {
-            // Left
-            cx = b.Left - pw - Gap;
-            cy = Math.Max(0, Math.Min(_canvas.Height - ph, b.Top + b.Height / 2 - ph / 2));
-        } else {
-            // Nothing fits cleanly — place above, clamped to canvas
-            cx = Math.Max(0, Math.Min(_canvas.Width - pw, b.Left + b.Width / 2 - pw / 2));
-            cy = Math.Max(0, b.Top - ph - Gap);
-        }
-        Canvas.SetLeft(_colorPickerPanel, cx);
-        Canvas.SetTop(_colorPickerPanel, cy);
+        var pos = PositionColorPickerAwayFrom(b, pw, ph);
+        Canvas.SetLeft(_colorPickerPanel, pos.X);
+        Canvas.SetTop(_colorPickerPanel, pos.Y);
     }
 
     // ── Cursor overlay ────────────────────────────────────────────────────────
@@ -7403,14 +7379,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         outerPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         double pw = outerPanel.DesiredSize.Width;
         double ph = outerPanel.DesiredSize.Height;
-        double cx = annotation.Bounds.Left + Math.Max(annotation.Bounds.Width, 0) / 2;
-        double cy = annotation.Bounds.Top;
-        // Prefer above the annotation; flip below if it would overlap (not enough vertical space).
-        double annotBottom = cy + Math.Max(annotation.Bounds.Height, 20);
-        double topAbove = cy - ph - 8;
-        double pickerTop = topAbove >= 0 ? topAbove : annotBottom + 4;
-        Canvas.SetLeft(outerPanel, Math.Max(0, Math.Min(cx - pw / 2, _canvas.Width - pw - 4)));
-        Canvas.SetTop(outerPanel, Math.Max(0, pickerTop));
+        var annotBounds = annotation.Bounds;
+        if (annotBounds.Width < 1) annotBounds = new Rect(annotBounds.X, annotBounds.Y, 1, Math.Max(1, annotBounds.Height));
+        if (annotBounds.Height < 1) annotBounds = new Rect(annotBounds.X, annotBounds.Y, Math.Max(1, annotBounds.Width), 1);
+        var pos = PositionColorPickerAwayFrom(annotBounds, pw, ph);
+        Canvas.SetLeft(outerPanel, pos.X);
+        Canvas.SetTop(outerPanel, pos.Y);
     }
 
     private static FrameworkElement MakeBgSwatch(Color bgColor, bool isSelected, Action<Color> onPick) {
