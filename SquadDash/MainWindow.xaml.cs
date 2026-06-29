@@ -7333,6 +7333,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (idx < 0) continue;
                 _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
                 _featureGroupStore?.EnsureGroup(group);
+                AnnotateCommitInTranscript(sha, group);
                 anyChanged = true;
             }
             if (anyChanged)
@@ -7350,6 +7351,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (idx < 0) return;
             _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
             _featureGroupStore?.EnsureGroup(group);
+            AnnotateCommitInTranscript(sha, group);
             _approvalStore?.Save(_approvalItems);
             _approvalPanel?.ReplaceAllItems(_approvalItems);
         };
@@ -8385,6 +8387,59 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             paragraph.Inlines.Add(run);
         }
+    }
+
+    /// <summary>
+    /// Walks backward through the coordinator transcript and appends " (group)" to the most
+    /// recent paragraph whose Tag contains <paramref name="sha"/>. No-ops if not found or
+    /// already annotated.
+    /// </summary>
+    private void AnnotateCommitInTranscript(string sha, string group)
+    {
+        if (string.IsNullOrEmpty(sha) || string.IsNullOrEmpty(group))
+            return;
+
+        var annotation = $" ({group})";
+
+        foreach (var block in CoordinatorThread.Document.Blocks.Reverse())
+        {
+            if (TryAnnotateShaInBlock(block, sha, annotation))
+                return;
+        }
+    }
+
+    private static bool TryAnnotateShaInBlock(Block block, string sha, string annotation)
+    {
+        if (block is Paragraph paragraph)
+            return TryAnnotateShaInParagraph(paragraph, sha, annotation);
+
+        if (block is Section section)
+        {
+            foreach (var inner in section.Blocks.Reverse())
+            {
+                if (TryAnnotateShaInBlock(inner, sha, annotation))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryAnnotateShaInParagraph(Paragraph paragraph, string sha, string annotation)
+    {
+        if (paragraph.Tag is not string tag || string.IsNullOrEmpty(tag))
+            return false;
+
+        if (!tag.Contains(sha, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Idempotency: skip if already annotated with this group
+        if (tag.Contains(annotation, StringComparison.Ordinal))
+            return false;
+
+        paragraph.Inlines.Add(new Run(annotation));
+        paragraph.Tag = tag + annotation;
+        return true;
     }
 
     private void OutputTextBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
