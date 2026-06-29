@@ -50,6 +50,21 @@ internal sealed class GuidedTourStateStore
             Flush();
     }
 
+    /// <summary>
+    /// How many times the user has clicked Next across all tours on this machine.
+    /// Used to decide when to hide the "Next" label on the nav overlay button.
+    /// </summary>
+    public int TourNavAdvanceCount => _state.TourNavAdvanceCount;
+
+    /// <summary>
+    /// Increments <see cref="TourNavAdvanceCount"/> and persists the change.
+    /// </summary>
+    public void RecordTourNavAdvance()
+    {
+        _state = _state with { TourNavAdvanceCount = _state.TourNavAdvanceCount + 1 };
+        Flush();
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private GuidedTourState Load()
@@ -79,4 +94,5 @@ internal sealed record GuidedTourState
 {
     public bool Offered { get; set; }
     public HashSet<string> CompletedTourIds { get; set; } = new();
+    public int TourNavAdvanceCount { get; set; }
 }

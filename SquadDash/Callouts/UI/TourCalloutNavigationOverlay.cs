@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using SquadDash.GuidedTours;
 
 namespace SquadDash;
 
@@ -15,6 +16,8 @@ internal sealed class TourCalloutNavigationOverlay : Window
 {
     public event EventHandler? PrevClicked;
     public event EventHandler? NextClicked;
+
+    private TextBlock? _nextLabel;
 
     private const double PrevButtonWidth = 32;
     private const double NextButtonWidth = 58;
@@ -49,6 +52,18 @@ internal sealed class TourCalloutNavigationOverlay : Window
         Title              = string.Empty;
 
         BuildContent();
+
+        // When the user clicks Next, record the advance globally and hide the label
+        // once they've clicked enough times to be considered familiar with the control.
+        NextClicked += (_, _) =>
+        {
+            GuidedTourStateStore.Shared.RecordTourNavAdvance();
+            if (_nextLabel is not null
+                && GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3)
+            {
+                _nextLabel.Visibility = Visibility.Collapsed;
+            }
+        };
     }
 
     private void BuildContent()
@@ -116,8 +131,11 @@ internal sealed class TourCalloutNavigationOverlay : Window
                 Margin            = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible  = false,
+                Visibility        = GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3
+                                        ? Visibility.Collapsed : Visibility.Visible,
             };
             label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            _nextLabel = label;
             inner.Children.Add(label);
         }
 

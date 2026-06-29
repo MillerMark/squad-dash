@@ -27,6 +27,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     static int _sessionTourHintAdvanceCount;
 
+    /// <summary>Records a tour advance for session-level tracking (no-op when hints are disabled).</summary>
     public static void RecordTourAdvance() => _sessionTourHintAdvanceCount++;
 
 
@@ -168,7 +169,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     // ── Tour Mode ────────────────────────────────────────────────────────────────
     bool _isTourMode;
-    TextBlock? _tourHintBlock;
     TourCalloutNavigationOverlay? _tourOverlay;
     bool _dragInProgress;
     CalloutSide _lastDangleSide = CalloutSide.Bottom;
@@ -222,7 +222,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         DragStarted  -= OnDragStarted_TourOverlay;
 
         CloseTourOverlay();
-        _tourHintBlock = null;
 
         if (initializationComplete)
             RefreshLayout();
@@ -237,37 +236,45 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
-    void OnSettled_TourOverlay(object sender, EventArgs e)
+    /// <summary>
+    /// Returns the callout body rectangle in WPF logical-pixel screen coordinates,
+    /// using PointToScreen for accuracy on all DPI settings.
+    /// </summary>
+    Rect GetCalloutScreenBounds()
     {
-        if (_tourOverlay is null) return;
-
-        // Use PointToScreen on the canvas to get the actual screen coordinates of the
-        // callout rectangle corners.  This is robust to any mismatch between Window.Left
-        // (which may reflect physical-pixel positioning from target.PointToScreen) and the
-        // canvas geometry units (which are WPF logical pixels).
-        Rect calloutBounds;
         var source = PresentationSource.FromVisual(cvsCallout);
         if (source?.CompositionTarget is { } ct)
         {
             double dpiX = ct.TransformToDevice.M11;
             double dpiY = ct.TransformToDevice.M22;
-            Point physTL = cvsCallout.PointToScreen(new Point(calloutLeft,              calloutTop));
+            Point physTL = cvsCallout.PointToScreen(new Point(calloutLeft,               calloutTop));
             Point physBR = cvsCallout.PointToScreen(new Point(calloutLeft + calloutWidth, calloutTop + calloutHeight));
-            calloutBounds = new Rect(
+            return new Rect(
                 physTL.X / dpiX,
                 physTL.Y / dpiY,
                 (physBR.X - physTL.X) / dpiX,
                 (physBR.Y - physTL.Y) / dpiY);
         }
-        else
-        {
-            // Fallback when PresentationSource is unavailable (should be rare).
-            calloutBounds = new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
-        }
+        // Fallback when PresentationSource is unavailable (should be rare).
+        return new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
+    }
 
+    void OnSettled_TourOverlay(object sender, EventArgs e)
+    {
+        if (_tourOverlay is null) return;
         _tourOverlay.EnsureLayout();
-        _tourOverlay.PositionNear(calloutBounds, _lastDangleSide);
+        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _lastDangleSide);
         _tourOverlay.FadeIn();
+    }
+
+    /// <summary>
+    /// Repositions the overlay to match the current callout position without animation.
+    /// Called when the callout moves for non-drag reasons (e.g. target element repositioned).
+    /// </summary>
+    void RepositionTourOverlayNow()
+    {
+        if (_tourOverlay is null) return;
+        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _lastDangleSide);
     }
 
     void OnDragStarted_TourOverlay(object sender, EventArgs e) => _tourOverlay?.HideImmediate();
@@ -278,44 +285,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         var overlay = _tourOverlay;
         _tourOverlay = null;
         try { overlay.Close(); } catch { /* already closed */ }
-    }
-
-    void AddTourHint()
-    {
-        if (_sessionTourHintAdvanceCount >= 3) return;
-        double hintFontSize = FontSize * 0.85;
-        double hintHeight   = hintFontSize * 1.7;
-        double hintTop      = calloutTop + calloutHeight - hintHeight - 4;
-
-        _tourHintBlock = new TextBlock
-        {
-            FontSize         = hintFontSize,
-            Foreground       = new SolidColorBrush(Color.FromArgb(210, 200, 200, 215)),
-            TextWrapping     = TextWrapping.NoWrap,
-            IsHitTestVisible = false,
-        };
-
-        UpdateTourHintText();
-
-        Canvas.SetLeft(_tourHintBlock, calloutLeft + Options.CornerRadius + 4);
-        Canvas.SetTop(_tourHintBlock,  hintTop);
-        cvsCallout.Children.Add(_tourHintBlock);
-    }
-
-    void UpdateTourHintText()
-    {
-        if (_tourHintBlock is null) return;
-        _tourHintBlock.Inlines.Clear();
-        if (IsActive)
-        {
-            _tourHintBlock.Inlines.Add(new Run("Press "));
-            _tourHintBlock.Inlines.Add(new Bold(new Run("enter")));
-            _tourHintBlock.Inlines.Add(new Run(" for next..."));
-        }
-        else
-        {
-            _tourHintBlock.Inlines.Add(new Run("Click ► for next..."));
-        }
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) {
@@ -988,7 +957,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         ShowDiagnosticControls(guidelineIntersectionData);
 
-        if (_isTourMode) AddTourHint();
+        if (_isTourMode) { /* hint removed — nav overlay handles tour affordance */ }
     }
 
     void RemoveDiagnostics() {
@@ -1316,12 +1285,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     private void Window_Activated(object sender, EventArgs e) {
         CheckTopMostWindow();
-        UpdateTourHintText();
     }
 
     private void Window_Deactivated(object sender, EventArgs e) {
         CheckTopMostWindow();
-        UpdateTourHintText();
     }
 
     void CheckTopMostWindow() {
@@ -1509,6 +1476,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
             if (Options.AnimateBackAfterDrag)
                 WaitForMouseUp();
+        }
+        else if (_isTourMode && _tourOverlay is { IsVisible: true })
+        {
+            // Non-drag position change (e.g. target element repositioned, window programmatically moved):
+            // keep the overlay pinned to the callout.
+            RepositionTourOverlayNow();
         }
     }
 
