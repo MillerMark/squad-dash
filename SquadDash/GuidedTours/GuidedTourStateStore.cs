@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -38,6 +39,17 @@ internal sealed class GuidedTourStateStore
         }
     }
 
+    /// <summary>Returns <c>true</c> if the tour with the given ID has been completed.</summary>
+    public bool IsCompleted(string tourId) =>
+        _state.CompletedTourIds.Contains(tourId);
+
+    /// <summary>Marks the tour with the given ID as completed and persists the change.</summary>
+    public void MarkCompleted(string tourId)
+    {
+        if (_state.CompletedTourIds.Add(tourId))
+            Flush();
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private GuidedTourState Load()
@@ -66,4 +78,5 @@ internal sealed class GuidedTourStateStore
 internal sealed record GuidedTourState
 {
     public bool Offered { get; set; }
+    public HashSet<string> CompletedTourIds { get; set; } = new();
 }

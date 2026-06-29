@@ -928,8 +928,10 @@
                           Header="_Help"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
-                    <MenuItem Header="_Start Guided Tour..."
+                    <MenuItem Header="_Start Guided Tour"
                               Click="StartGuidedTourMenuItem_Click" />
+                    <MenuItem Header="_More Guided Tours..."
+                              Click="MoreGuidedToursMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Documentation"
                               Click="DocumentationMenuItem_Click" />

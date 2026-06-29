@@ -14,20 +14,22 @@ namespace SquadDash;
 /// </summary>
 internal sealed class FrmGuidedTourSelector : ChromedWindow
 {
-    private readonly List<GuidedTour> _allTours;
-    private readonly ListBox         _tourList;
-    private readonly TextBox         _filterBox;
-    private readonly Button          _startButton;
+    private readonly List<GuidedTour>   _allTours;
+    private readonly Func<string, bool> _isCompleted;
+    private readonly ListBox            _tourList;
+    private readonly TextBox            _filterBox;
+    private readonly Button             _startButton;
 
     /// <summary>
     /// The tour selected by the user, or <c>null</c> if the dialog was cancelled.
     /// </summary>
     public GuidedTour? SelectedTour { get; private set; }
 
-    public FrmGuidedTourSelector(List<GuidedTour> tours)
+    public FrmGuidedTourSelector(List<GuidedTour> tours, Func<string, bool>? isCompleted = null)
         : base(captionHeight: 36, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
-        _allTours = tours;
+        _allTours    = tours;
+        _isCompleted = isCompleted ?? (_ => false);
 
         Title                 = "Select a Guided Tour";
         Width                 = 420;
@@ -130,9 +132,9 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     /// <summary>
     /// Shows the selector as a modal dialog. Returns the chosen tour, or null if cancelled.
     /// </summary>
-    internal static GuidedTour? ShowForResult(Window owner, List<GuidedTour> tours)
+    internal static GuidedTour? ShowForResult(Window owner, List<GuidedTour> tours, Func<string, bool>? isCompleted = null)
     {
-        var dlg = new FrmGuidedTourSelector(tours) { Owner = owner };
+        var dlg = new FrmGuidedTourSelector(tours, isCompleted) { Owner = owner };
         dlg.ShowDialog();
         return dlg.SelectedTour;
     }
@@ -154,7 +156,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     {
         _tourList.Items.Clear();
         foreach (var tour in tours)
-            _tourList.Items.Add(BuildTourItem(tour));
+            _tourList.Items.Add(BuildTourItem(tour, _isCompleted(tour.Id)));
 
         if (_tourList.Items.Count == 1)
             _tourList.SelectedIndex = 0;
@@ -162,8 +164,23 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         UpdateStartButton();
     }
 
-    private static UIElement BuildTourItem(GuidedTour tour)
+    private static UIElement BuildTourItem(GuidedTour tour, bool completed)
     {
+        var nameRow = new StackPanel { Orientation = Orientation.Horizontal };
+
+        if (completed)
+        {
+            var checkMark = new TextBlock
+            {
+                Text              = "✓ ",
+                FontWeight        = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            checkMark.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            checkMark.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
+            nameRow.Children.Add(checkMark);
+        }
+
         var nameBlock = new TextBlock
         {
             Text         = tour.Name,
@@ -172,6 +189,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         };
         nameBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         nameBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        nameRow.Children.Add(nameBlock);
 
         var descBlock = new TextBlock
         {
@@ -183,7 +201,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
         var panel = new StackPanel { Margin = new Thickness(2), Tag = tour };
-        panel.Children.Add(nameBlock);
+        panel.Children.Add(nameRow);
         panel.Children.Add(descBlock);
         return panel;
     }

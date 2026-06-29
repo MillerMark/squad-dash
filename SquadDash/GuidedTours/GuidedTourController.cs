@@ -257,7 +257,8 @@ internal sealed class GuidedTourController
 
     private void StopTourInternal(bool showHint)
     {
-        var wasActive = IsActive;
+        var wasActive  = IsActive;
+        var tourId     = _activeTour?.Id;
 
         if (wasActive && _activeTour is not null)
             _commandRegistry?.Execute(CurrentStep.CommandAfter);
@@ -271,6 +272,9 @@ internal sealed class GuidedTourController
         if (wasActive)
         {
             _restorePreTourLayout?.Invoke();
+
+            if (showHint && tourId is not null)
+                GuidedTourStateStore.Shared.MarkCompleted(tourId);
 
             if (showHint)
                 ShowRestartHint();

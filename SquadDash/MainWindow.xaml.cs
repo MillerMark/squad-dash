@@ -13535,8 +13535,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void StartGuidedTourMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        try { OpenGuidedTourSelector(); }
+        try { StartFirstTour(); }
         catch (Exception ex) { HandleUiCallbackException(nameof(StartGuidedTourMenuItem_Click), ex); }
+    }
+
+    private void MoreGuidedToursMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { OpenGuidedTourSelector(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(MoreGuidedToursMenuItem_Click), ex); }
     }
 
     private void DocumentationMenuItem_Click(object sender, RoutedEventArgs e)
@@ -13561,6 +13567,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     // ── Guided tour core helpers ──────────────────────────────────────────────
 
+    private void StartFirstTour()
+    {
+        var tours = GuidedTourLoader.Load(_currentWorkspace?.FolderPath);
+        if (tours.Count == 0)
+        {
+            MessageBox.Show("No guided tours are available.", "Start Guided Tour", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        LaunchTour(tours[0], tours);
+    }
+
     private void OpenGuidedTourSelector()
     {
         var tours = GuidedTourLoader.Load(_currentWorkspace?.FolderPath);
@@ -13570,7 +13587,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        var selected = FrmGuidedTourSelector.ShowForResult(this, tours);
+        var selected = FrmGuidedTourSelector.ShowForResult(this, tours, GuidedTourStateStore.Shared.IsCompleted);
         if (selected is null) return;
 
         LaunchTour(selected, tours);
