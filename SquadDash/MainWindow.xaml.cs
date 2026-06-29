@@ -5292,7 +5292,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!string.IsNullOrWhiteSpace(evt.LatestResponse))
             ReconcileFinalSubagentResponseText(thread, evt.LatestResponse!);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
-        _agentThreadRegistry.FinalizeAgentThread(thread);
+        // Pass the raw (unsanitized) response so ParseAndApplyApprovalGroups can detect
+        // APPROVAL_GROUP_JSON blocks that SanitizeResponseText strips from display.
+        _agentThreadRegistry.FinalizeAgentThread(thread, rawResponse: evt.LatestResponse);
         UpdateCompletedTimeFooters();
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
