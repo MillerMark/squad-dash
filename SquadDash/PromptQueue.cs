@@ -44,7 +44,7 @@ internal sealed class PromptQueue {
 
     /// <summary>Removes and returns the first non-editing item, or null if none exists.</summary>
     public PromptQueueItem? DequeueFirstReady() {
-        var item = _items.FirstOrDefault(i => !i.IsEditing && i.SourceTag != "guided-tour-dummy");
+        var item = _items.FirstOrDefault(i => !i.IsEditing && i.SourceTag != "guided-tour-dummy" && i.SourceTag != "guided-tour-type");
         if (item is not null)
         {
             _items.Remove(item);

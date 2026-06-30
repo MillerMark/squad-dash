@@ -2614,7 +2614,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return null;
         for (int i = 0; i < items.Count; i++)
         {
-            if (items[i].Id != _activeTabId && items[i].SourceTag != "guided-tour-dummy")
+            if (items[i].Id != _activeTabId && items[i].SourceTag != "guided-tour-dummy" && items[i].SourceTag != "guided-tour-type")
                 return items[i];
         }
         return null;
@@ -13799,18 +13799,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_typeIntoPromptTimer is null) return;
         _typeIntoPromptTimer.Stop();
         _typeIntoPromptTimer = null;
+
+        // If the tour-typed tab is currently active, restore the pre-edit draft before removing it.
+        const string TourTypeTag = "guided-tour-type";
+        if (_activeTabId is not null &&
+            _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == TourTypeTag))
+        {
+            _activeTabId = null;
+            SetPromptTextBoxLogicalBuffer(
+                _queuePreEditDraft ?? string.Empty,
+                _queuePreEditDraftCaretIndex,
+                _queuePreEditDraftSelectionStart,
+                _queuePreEditDraftSelectionLength,
+                "tour-type-cleanup-restore-draft");
+            _queuePreEditDraft = null;
+        }
+        _promptQueue.RemoveByTag(TourTypeTag);
+        SyncQueuePanel();
     }
 
     private void StartTypeIntoPromptAnimation(string text)
     {
-        StopTypeIntoPromptAnimation(); // cancel any in-progress animation
+        StopTypeIntoPromptAnimation(); // cancel any in-progress animation (also removes any prior tour-type item)
 
-        // Only type if the prompt box (or active queue tab) is currently empty.
-        var currentText = _activeTabId is null
-            ? PromptTextBox.Text
-            : (_promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId)?.Text ?? string.Empty);
-        if (!string.IsNullOrEmpty(currentText))
-            return;
+        var item = new PromptQueueItem
+        {
+            Text           = string.Empty,
+            IsEditing      = true,
+            SequenceNumber = ++_promptQueueSeq,
+            QueueNumber    = NextQueueNumber(),
+            SourceTag      = "guided-tour-type"
+        };
+        _promptQueue.EnqueueItemAtFront(item);
+        SyncQueuePanel();
+        OnQueueTabClicked(item.Id);
 
         var charIndex = 0;
         _typeIntoPromptTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
@@ -13818,11 +13840,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (charIndex < text.Length)
             {
-                SetPromptTextBoxLogicalBuffer(text[..++charIndex], charIndex, reason: "tour-type");
+                item.Text = text[..++charIndex];
+                SetPromptTextBoxLogicalBuffer(item.Text, item.Text.Length, reason: "tour-type");
+                SyncQueuePanel();
             }
             else
             {
-                StopTypeIntoPromptAnimation();
+                _typeIntoPromptTimer?.Stop();
+                _typeIntoPromptTimer = null;
             }
         };
         _typeIntoPromptTimer.Start();
