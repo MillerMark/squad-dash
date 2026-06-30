@@ -1247,7 +1247,24 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void TargetParentWindow_StateChanged(object? sender, EventArgs e) {
-        WindowsLocationChanged();
+        // Maximize/restore changes every control's screen position, so a simple
+        // delta-shift (WindowsLocationChanged) produces a wrong result.  Defer until
+        // the new layout has been measured so PointToScreen returns the settled coords.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (!initializationComplete) return;
+            if (frameworkElementTarget is { IsVisible: true })
+            {
+                var screenPosition = frameworkElementTarget.PointToScreen(new Point(0, 0));
+                rectTarget = new Rect(screenPosition.X, screenPosition.Y,
+                    frameworkElementTarget.ActualWidth, frameworkElementTarget.ActualHeight);
+                ResumeCalloutConstruction();
+            }
+            else
+            {
+                WindowsLocationChanged();
+            }
+        });
     }
 
     private void TargetParentWindow_Deactivated(object? sender, EventArgs e) {
