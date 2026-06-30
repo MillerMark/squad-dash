@@ -37,6 +37,20 @@ internal sealed class GuidedTourStep
     [JsonPropertyName("advanceTrigger")]
     public string AdvanceTrigger { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Horizontal offset of the callout arrow attachment point within the target control,
+    /// in 0.0–1.0 space where 0.5 = center (no shift).
+    /// </summary>
+    [JsonPropertyName("targetOffsetX")]
+    public double TargetOffsetX { get; set; } = 0.5;
+
+    /// <summary>
+    /// Vertical offset of the callout arrow attachment point within the target control,
+    /// in 0.0–1.0 space where 0.5 = center (no shift).
+    /// </summary>
+    [JsonPropertyName("targetOffsetY")]
+    public double TargetOffsetY { get; set; } = 0.5;
+
     [JsonIgnore]
     public GuidedTourPreActionDescriptor ParsedPreAction =>
         GuidedTourPreActionDescriptor.Parse(PreAction);

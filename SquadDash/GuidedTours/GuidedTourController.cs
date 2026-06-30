@@ -246,6 +246,8 @@ internal sealed class GuidedTourController
 
         if (_activeCallout is not null)
         {
+            _activeCallout.HorizontalPercentOffset = (step.TargetOffsetX - 0.5) * 2;
+            _activeCallout.VerticalPercentOffset   = (step.TargetOffsetY - 0.5) * 2;
             _activeCallout.IsSticky = true;
             _activeCallout.TourNavAdvanceCountProvider = () => GuidedTourStateStore.Shared.TourNavAdvanceCount;
             _activeCallout.TourNavAdvanceRecorder = GuidedTourStateStore.Shared.RecordTourNavAdvance;

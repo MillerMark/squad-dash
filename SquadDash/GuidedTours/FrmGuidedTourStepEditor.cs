@@ -26,6 +26,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly Action?           _livePreviewCallback;
     private readonly string            _originalMarkdown;
     private readonly string            _originalPlacement;
+    private readonly double            _originalTargetOffsetX;
+    private readonly double            _originalTargetOffsetY;
     private readonly DispatcherTimer   _debounceTimer;
 
     // PTT voice dictation
@@ -40,6 +42,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly ComboBox      _commandBeforeBox;
     private readonly ComboBox      _commandAfterBox;
     private readonly TextBox       _advanceTriggerBox;
+
+    // Crosshair picker
+    private readonly Canvas        _crosshairCanvas;
+    private readonly TextBlock     _crosshairCoordsLabel;
+    private bool                   _crosshairDragging;
 
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
@@ -58,6 +65,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         _originalMarkdown    = step.MarkdownText;
         _originalPlacement   = step.CalloutPlacement;
+        _originalTargetOffsetX = step.TargetOffsetX;
+        _originalTargetOffsetY = step.TargetOffsetY;
         _livePreviewCallback = livePreviewCallback;
 
         _step                = step;
@@ -146,6 +155,35 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _advanceTriggerBox = MakeTextBox(step.AdvanceTrigger, multiLine: false);
 
+        // ── Crosshair picker ──────────────────────────────────────────────────
+
+        _crosshairCanvas = new Canvas { Height = 120, Margin = new Thickness(0, 4, 0, 0) };
+        _crosshairCanvas.SetResourceReference(Canvas.BackgroundProperty, "InputSurface");
+        _crosshairCanvas.Visibility = string.IsNullOrWhiteSpace(step.TargetControlId)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        _crosshairCanvas.MouseLeftButtonDown += (_, e) => { _crosshairDragging = true;  _crosshairCanvas.CaptureMouse(); UpdateCrosshairFromMouse(e.GetPosition(_crosshairCanvas)); };
+        _crosshairCanvas.MouseMove           += (_, e) => { if (_crosshairDragging) UpdateCrosshairFromMouse(e.GetPosition(_crosshairCanvas)); };
+        _crosshairCanvas.MouseLeftButtonUp   += (_, e) => { _crosshairDragging = false; _crosshairCanvas.ReleaseMouseCapture(); };
+        _crosshairCanvas.SizeChanged         += (_, _) => RedrawCrosshair();
+
+        _crosshairCoordsLabel = new TextBlock
+        {
+            Text   = FormatCrosshairCoords(step.TargetOffsetX, step.TargetOffsetY),
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+        _crosshairCoordsLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _crosshairCoordsLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
+
+        _targetControlBox.TextChanged += (_, _) =>
+        {
+            var hasTarget = !string.IsNullOrWhiteSpace(_targetControlBox.Text);
+            _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+            _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
+            if (hasTarget) RedrawCrosshair();
+        };
+
         var captureButton = MakeButton("📷 Capture Current Layout for the Step");
         captureButton.HorizontalAlignment = HorizontalAlignment.Left;
         captureButton.Click += (_, _) => CaptureLayoutForStep();
@@ -169,6 +207,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         formPanel.Children.Add(placementRow);
         formPanel.Children.Add(MakeLabel("Target Control (x:Name)"));
         formPanel.Children.Add(targetRow);
+        formPanel.Children.Add(MakeLabel("Target Offset (click to reposition arrow)"));
+        formPanel.Children.Add(_crosshairCanvas);
+        formPanel.Children.Add(_crosshairCoordsLabel);
         formPanel.Children.Add(MakeLabel("Command Before"));
         formPanel.Children.Add(_commandBeforeBox);
         formPanel.Children.Add(MakeLabel("Command After"));
@@ -259,6 +300,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
             _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
             _step.AdvanceTrigger   = _advanceTriggerBox.Text.Trim();
+            // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
 
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
             {
@@ -303,6 +345,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         _step.MarkdownText     = _originalMarkdown;
         _step.CalloutPlacement = _originalPlacement;
+        _step.TargetOffsetX    = _originalTargetOffsetX;
+        _step.TargetOffsetY    = _originalTargetOffsetY;
         _livePreviewCallback?.Invoke();
     }
 
@@ -426,6 +470,131 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _statusLabel.Text       = message;
         _statusLabel.Visibility = Visibility.Visible;
     }
+
+    // ── Crosshair picker helpers ──────────────────────────────────────────────
+
+    private const double CrosshairPadding = 8.0;
+
+    private Rect GetCrosshairRectBounds()
+    {
+        double canvasW = _crosshairCanvas.ActualWidth;
+        double canvasH = _crosshairCanvas.ActualHeight;
+        if (canvasW <= CrosshairPadding * 2 || canvasH <= CrosshairPadding * 2)
+            return Rect.Empty;
+
+        double availW = canvasW - CrosshairPadding * 2;
+        double availH = canvasH - CrosshairPadding * 2;
+
+        // Determine aspect ratio from the target element, fall back to 4:3
+        double aspectRatio = 4.0 / 3.0;
+        var targetId = _targetControlBox.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(targetId) && Owner is Window ownerWin)
+        {
+            var el = VisualTreeHelper.HitTest(ownerWin, new Point(-9999, -9999))?.VisualHit; // dummy — use name search
+            el = null;
+            // Walk the visual tree to find the element by name
+            el = FindElementByName(ownerWin, targetId);
+            if (el is FrameworkElement fe && fe.ActualWidth > 0 && fe.ActualHeight > 0)
+                aspectRatio = fe.ActualWidth / fe.ActualHeight;
+        }
+
+        // Scale rectangle to fit inside the available area while preserving aspect ratio
+        double rectW, rectH;
+        if (availW / availH > aspectRatio)
+        {
+            rectH = availH;
+            rectW = rectH * aspectRatio;
+        }
+        else
+        {
+            rectW = availW;
+            rectH = rectW / aspectRatio;
+        }
+
+        double left = CrosshairPadding + (availW - rectW) / 2;
+        double top  = CrosshairPadding + (availH - rectH) / 2;
+        return new Rect(left, top, rectW, rectH);
+    }
+
+    private static FrameworkElement? FindElementByName(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement fe && fe.Name == name)
+            return fe;
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            var found = FindElementByName(child, name);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private void RedrawCrosshair()
+    {
+        _crosshairCanvas.Children.Clear();
+
+        var bounds = GetCrosshairRectBounds();
+        if (bounds.IsEmpty) return;
+
+        // Background rectangle
+        var rect = new System.Windows.Shapes.Rectangle
+        {
+            Width           = bounds.Width,
+            Height          = bounds.Height,
+            Fill            = Brushes.Transparent,
+            StrokeThickness = 1,
+        };
+        rect.SetResourceReference(System.Windows.Shapes.Rectangle.StrokeProperty, "InputBorder");
+        Canvas.SetLeft(rect, bounds.Left);
+        Canvas.SetTop(rect, bounds.Top);
+        _crosshairCanvas.Children.Add(rect);
+
+        // Crosshair lines
+        double crossX = bounds.Left + _step.TargetOffsetX * bounds.Width;
+        double crossY = bounds.Top  + _step.TargetOffsetY * bounds.Height;
+
+        var hLine = new System.Windows.Shapes.Line
+        {
+            X1              = bounds.Left,
+            Y1              = crossY,
+            X2              = bounds.Right,
+            Y2              = crossY,
+            StrokeThickness = 1,
+        };
+        hLine.SetResourceReference(System.Windows.Shapes.Line.StrokeProperty, "LabelText");
+        _crosshairCanvas.Children.Add(hLine);
+
+        var vLine = new System.Windows.Shapes.Line
+        {
+            X1              = crossX,
+            Y1              = bounds.Top,
+            X2              = crossX,
+            Y2              = bounds.Bottom,
+            StrokeThickness = 1,
+        };
+        vLine.SetResourceReference(System.Windows.Shapes.Line.StrokeProperty, "LabelText");
+        _crosshairCanvas.Children.Add(vLine);
+    }
+
+    private void UpdateCrosshairFromMouse(Point canvasPos)
+    {
+        var bounds = GetCrosshairRectBounds();
+        if (bounds.IsEmpty) return;
+
+        double offsetX = Math.Max(0, Math.Min(1, (canvasPos.X - bounds.Left) / bounds.Width));
+        double offsetY = Math.Max(0, Math.Min(1, (canvasPos.Y - bounds.Top)  / bounds.Height));
+
+        _step.TargetOffsetX = offsetX;
+        _step.TargetOffsetY = offsetY;
+
+        _crosshairCoordsLabel.Text = FormatCrosshairCoords(offsetX, offsetY);
+        RedrawCrosshair();
+        _livePreviewCallback?.Invoke();
+    }
+
+    private static string FormatCrosshairCoords(double x, double y) =>
+        $"X: {x:F2}  Y: {y:F2}";
 
     // ── UI factory helpers ────────────────────────────────────────────────────
 

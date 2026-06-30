@@ -1030,8 +1030,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private Point GetTargetCenter(double verticalOffset = 0) {
-        double horizontalCenterTargetOffset = HorizontalPercentOffset * TargetWidth / 2;
-        return TargetClientPointToScreen(new Point(TargetWidth / 2 + horizontalCenterTargetOffset, TargetHeight / 2 + verticalOffset));
+        double hOffset = HorizontalPercentOffset * TargetWidth / 2;
+        double vOffset = VerticalPercentOffset * TargetHeight / 2;
+        return TargetClientPointToScreen(new Point(TargetWidth / 2 + hOffset, TargetHeight / 2 + vOffset + verticalOffset));
     }
 
     /// <summary>
@@ -1041,7 +1042,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// </summary>
     private Point GetTargetCenterPhysical() {
         double offset = HorizontalPercentOffset * TargetWidth / 2;
-        var clientCenter = new Point(TargetWidth / 2 + offset, TargetHeight / 2);
+        double vOffset = VerticalPercentOffset * TargetHeight / 2;
+        var clientCenter = new Point(TargetWidth / 2 + offset, TargetHeight / 2 + vOffset);
         if (frameworkElementTarget != null && frameworkElementTarget.IsVisible)
             return frameworkElementTarget.PointToScreen(clientCenter);
         // rectTarget is in logical coords; convert centre to physical
@@ -2132,4 +2134,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// 0 has no shift. 1 shifts the center to the right by half the width, -1 shifts the center target to the left by the same amount.
     /// </summary>
     public double HorizontalPercentOffset { get; set; }
+
+    /// <summary>
+    /// The amount to shift the center of the target up or down (as a percentage of half the height).
+    /// 0 has no shift. 1 shifts the center downward by half the height, -1 shifts upward by the same amount.
+    /// </summary>
+    public double VerticalPercentOffset { get; set; }
 }
