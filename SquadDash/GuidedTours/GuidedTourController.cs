@@ -222,8 +222,10 @@ internal sealed class GuidedTourController
 
         if (_activeCallout is not null)
         {
-            _activeCallout.IsSticky      = true;
-            _activeCallout.IsTourMode    = true;
+            _activeCallout.IsSticky = true;
+            _activeCallout.TourNavAdvanceCountProvider = () => GuidedTourStateStore.Shared.TourNavAdvanceCount;
+            _activeCallout.TourNavAdvanceRecorder = GuidedTourStateStore.Shared.RecordTourNavAdvance;
+            _activeCallout.IsTourMode = true;
             _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
             _activeCallout.TourNextRequested         += (_, _) => Next();
             _activeCallout.TourPrevRequested         += (_, _) => Prev();
@@ -246,8 +248,10 @@ internal sealed class GuidedTourController
 
         if (_activeCallout is not null)
         {
-            _activeCallout.IsSticky      = true;
-            _activeCallout.IsTourMode    = true;
+            _activeCallout.IsSticky = true;
+            _activeCallout.TourNavAdvanceCountProvider = () => GuidedTourStateStore.Shared.TourNavAdvanceCount;
+            _activeCallout.TourNavAdvanceRecorder = GuidedTourStateStore.Shared.RecordTourNavAdvance;
+            _activeCallout.IsTourMode = true;
             _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
             _activeCallout.TourNextRequested         += (_, _) => Next();
             _activeCallout.TourPrevRequested         += (_, _) => Prev();

@@ -4,7 +4,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Controls;
 using System.Windows.Media.Animation;
-using SquadDash.GuidedTours;
 
 namespace SquadDash;
 
@@ -29,6 +28,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private Border? _prevButton;
     private Border? _nextButton;
     private Border? _editButton;
+    private Func<int>? _getNextAdvanceCount;
+    private Action? _recordNextAdvance;
 
     private bool _isDevModeVisible;
     public bool IsDevModeVisible {
@@ -68,12 +69,15 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         // When the user clicks Next, record the advance globally and hide the label
         // once they've clicked enough times to be considered familiar with the control.
         NextClicked += (_, _) => {
-            GuidedTourStateStore.Shared.RecordTourNavAdvance();
-            if (_nextLabel is not null
-                && GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3) {
-                _nextLabel.Visibility = Visibility.Collapsed;
-            }
+            _recordNextAdvance?.Invoke();
+            UpdateNextLabelVisibility();
         };
+    }
+
+    public void ConfigureNextLabelState(Func<int>? getNextAdvanceCount, Action? recordNextAdvance) {
+        _getNextAdvanceCount = getNextAdvanceCount;
+        _recordNextAdvance = recordNextAdvance;
+        UpdateNextLabelVisibility();
     }
 
     private void BuildContent() {
@@ -139,16 +143,23 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 Margin = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
-                Visibility = GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3
-                                        ? Visibility.Collapsed : Visibility.Visible,
             };
             label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             _nextLabel = label;
+            UpdateNextLabelVisibility();
             inner.Children.Add(label);
         }
 
         border.Child = inner;
         return border;
+    }
+
+    private void UpdateNextLabelVisibility() {
+        if (_nextLabel is null) return;
+
+        _nextLabel.Visibility = (_getNextAdvanceCount?.Invoke() ?? 0) >= 3
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 
     private Border BuildEditButton() {
