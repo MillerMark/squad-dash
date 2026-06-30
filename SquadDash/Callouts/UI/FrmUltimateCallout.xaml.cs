@@ -174,6 +174,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     Button? _closeButton;
     bool _dragInProgress;
     CalloutSide _lastDangleSide = CalloutSide.Bottom;
+    Func<int>? _tourNavAdvanceCountProvider;
+    Action? _tourNavAdvanceRecorder;
 
     /// <summary>Fired when the user presses Enter while the callout is focused in tour mode.</summary>
     public event EventHandler? TourNextRequested;
@@ -195,6 +197,26 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     /// <summary>Fired once per drag gesture when the user starts dragging the callout.</summary>
     public event EventHandler? DragStarted;
+
+    public Func<int>? TourNavAdvanceCountProvider
+    {
+        get => _tourNavAdvanceCountProvider;
+        set
+        {
+            _tourNavAdvanceCountProvider = value;
+            ConfigureTourOverlayNextLabelState();
+        }
+    }
+
+    public Action? TourNavAdvanceRecorder
+    {
+        get => _tourNavAdvanceRecorder;
+        set
+        {
+            _tourNavAdvanceRecorder = value;
+            ConfigureTourOverlayNextLabelState();
+        }
+    }
 
     /// <summary>
     /// When <c>true</c>, the callout is part of a guided-tour step.  A hint line is shown inside
@@ -232,6 +254,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         DragStarted  += OnDragStarted_TourOverlay;
 
         _tourOverlay = new TourCalloutNavigationOverlay();
+        ConfigureTourOverlayNextLabelState();
         _tourOverlay.IsDevModeVisible = _isTourEditModeVisible;
         _tourOverlay.NextClicked           += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.PrevClicked           += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);
@@ -244,6 +267,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         if (initializationComplete)
             RefreshLayout();
+    }
+
+    void ConfigureTourOverlayNextLabelState()
+    {
+        _tourOverlay?.ConfigureNextLabelState(_tourNavAdvanceCountProvider, _tourNavAdvanceRecorder);
     }
 
     void OnTourModeDisabled()
@@ -1344,6 +1372,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         // ContentRendered fires after the first full layout pass (including ResumeCalloutConstruction),
         // so ActualWidth/ActualHeight are correct here — unlike Loaded which fires before markdown layout.
+        // We also fire Settled here because AnimateAppearance=false means StopAnimationTimer is never
+        // called, so Settled would never fire otherwise — and Settled is what makes the tour nav overlay appear.
         EventHandler? onRendered = null;
         onRendered = (_, _) =>
         {
@@ -1353,6 +1383,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 callout.Left = cx - callout.ActualWidth  / 2;
                 callout.Top  = cy - callout.ActualHeight / 2;
             }
+            callout.Settled?.Invoke(callout, EventArgs.Empty);
         };
         callout.ContentRendered += onRendered;
 
