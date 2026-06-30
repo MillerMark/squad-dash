@@ -162,11 +162,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     }
 
     private void UpdateNextLabelVisibility() {
-        if (_nextLabel is null) return;
+        if (_nextLabel is null || _nextButton is null) return;
 
-        _nextLabel.Visibility = (_getNextAdvanceCount?.Invoke() ?? 0) >= 3
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        bool showLabel = (_getNextAdvanceCount?.Invoke() ?? 0) < 3;
+        _nextLabel.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
+        _nextButton.Width = showLabel ? NextButtonWidth : PrevButtonWidth;
     }
 
     private Border BuildEditButton() {
