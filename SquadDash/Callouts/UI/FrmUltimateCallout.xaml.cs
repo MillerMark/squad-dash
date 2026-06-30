@@ -1291,7 +1291,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         public uint dwFlags;
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "MonitorFromWindow")]
     private static extern IntPtr MonitorFromWindow_Centered(IntPtr hwnd, uint dwFlags);
 
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
