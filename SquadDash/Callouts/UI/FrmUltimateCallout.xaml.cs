@@ -10,6 +10,8 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Threading;
 using System.Collections.Generic;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 
 
 namespace SquadDash;
@@ -24,6 +26,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     private const double indicatorMargin = 10d;
     SolidColorBrush calloutStrokeBrush;
     SolidColorBrush calloutFillBrush;
+    System.Windows.Shapes.Path? _mainCalloutPath;
 
     static int _sessionTourHintAdvanceCount;
 
@@ -336,6 +339,62 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourOverlay.EnsureLayout();
         _tourOverlay.PositionNear(GetCalloutScreenBounds(), _lastDangleSide);
         _tourOverlay.FadeIn();
+        if (_isTourMode)
+            StartTourEntryAnimation();
+    }
+
+    void StartTourEntryAnimation() {
+        if (_mainCalloutPath is null) return;
+
+        var skyBlue = glowColor;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var duration = new Duration(TimeSpan.FromSeconds(1.8));
+
+        // ── A. Glow layer ────────────────────────────────────────────────────────
+        var glowPath = new System.Windows.Shapes.Path {
+            Fill = null,
+            Stroke = new SolidColorBrush(skyBlue),
+            StrokeThickness = 0,
+            Opacity = 1.0
+        };
+        CreateCalloutGeometry(glowPath);
+        var effect = new DropShadowEffect {
+            Color = skyBlue,
+            ShadowDepth = 0,
+            BlurRadius = 28,
+            Opacity = 1.0,
+            RenderingBias = RenderingBias.Performance
+        };
+        glowPath.Effect = effect;
+        cvsCallout.Children.Insert(0, glowPath);
+
+        var blurAnim = new DoubleAnimation(28, 4, duration) { EasingFunction = ease };
+        effect.BeginAnimation(DropShadowEffect.BlurRadiusProperty, blurAnim);
+
+        var opacityAnim = new DoubleAnimation(1.0, 0.0, duration) {
+            EasingFunction = ease,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        opacityAnim.Completed += (_, _) => {
+            cvsCallout.Children.Remove(glowPath);
+            glowPath.Effect = null;
+        };
+        glowPath.BeginAnimation(UIElement.OpacityProperty, opacityAnim);
+
+        // ── B. Border pulse on main shape ────────────────────────────────────────
+        var localStroke = new SolidColorBrush(skyBlue);
+        _mainCalloutPath.Stroke = localStroke;
+
+        var thicknessAnim = new DoubleAnimation(3, 1, duration) { EasingFunction = ease };
+        thicknessAnim.Completed += (_, _) => {
+            _mainCalloutPath.StrokeThickness = 1;
+            _mainCalloutPath.Stroke = calloutStrokeBrush;
+        };
+        _mainCalloutPath.BeginAnimation(System.Windows.Shapes.Shape.StrokeThicknessProperty, thicknessAnim);
+
+        var normalColor = calloutStrokeBrush.Color;
+        var colorAnim = new ColorAnimation(skyBlue, normalColor, duration) { EasingFunction = ease };
+        localStroke.BeginAnimation(SolidColorBrush.ColorProperty, colorAnim);
     }
 
     /// <summary>
@@ -385,8 +444,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void CreateCalloutFrame() {
+        _mainCalloutPath = null;
         // Main callout shape — added first, so shadow (inserted after) ends up at index 0 (behind)
-        AddCalloutPathToBackOfCanvas(calloutStrokeBrush, 1, calloutFillBrush);
+        _mainCalloutPath = new System.Windows.Shapes.Path() {
+            Stroke = calloutStrokeBrush,
+            StrokeThickness = 1,
+            Fill = calloutFillBrush
+        };
+        CreateCalloutGeometry(_mainCalloutPath);
+        cvsCallout.Children.Insert(0, _mainCalloutPath);
         // Subtle drop shadow — inserted at 0 last, so it sits behind the main shape
         AddCalloutPathToBackOfCanvas(null, 0, new SolidColorBrush(Color.FromArgb(30, 0, 0, 0)), 5, 5);
     }
@@ -1014,6 +1080,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void ResumeCalloutConstruction() {
+        _mainCalloutPath = null;
         cvsCallout.Children.Clear();
         CalculateBounds();
         GuidelineIntersectionData guidelineIntersectionData = GetGuidelineIntersectionData(true);
