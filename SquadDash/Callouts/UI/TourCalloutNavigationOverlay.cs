@@ -17,6 +17,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? EditClicked;
     public event EventHandler? NewStepAfterClicked;
     public event EventHandler? NewStepBeforeClicked;
+    public event EventHandler? DeleteClicked;
 
     private TextBlock? _nextLabel;
 
@@ -28,6 +29,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private Border? _prevButton;
     private Border? _nextButton;
     private Border? _editButton;
+    private Border? _deleteButton;
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
 
@@ -38,6 +40,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             _isDevModeVisible = value;
             if (_editButton is not null)
                 _editButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (_deleteButton is not null)
+                _deleteButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -86,10 +90,13 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Margin = new Thickness(4),
         };
 
+        _deleteButton = BuildDeleteButton();
         _editButton = BuildEditButton();
         _prevButton = BuildButton(isPrev: true);
         _nextButton = BuildButton(isPrev: false);
 
+        panel.Children.Add(_deleteButton);
+        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_editButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_prevButton);
@@ -200,6 +207,40 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         pencil.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
         border.Child = pencil;
+        return border;
+    }
+
+    private Border BuildDeleteButton() {
+        var border = new Border {
+            Width = PrevButtonWidth,
+            Height = ButtonHeight,
+            CornerRadius = new CornerRadius(4),
+            BorderThickness = new Thickness(1),
+            IsHitTestVisible = true,
+            Cursor = Cursors.Hand,
+            Visibility = Visibility.Collapsed,
+            ToolTip = "Click to delete this step.",
+        };
+        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
+
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseLeftButtonUp += (_, e) => {
+            e.Handled = true;
+            DeleteClicked?.Invoke(this, EventArgs.Empty);
+        };
+
+        var icon = new TextBlock {
+            Text = "\uD83D\uDDD1",
+            FontSize = 14,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+        };
+        icon.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        border.Child = icon;
         return border;
     }
 
@@ -321,6 +362,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private Rect GetVisibleButtonBounds() {
         Rect? bounds = null;
+        AddButtonBounds(_deleteButton, ref bounds);
         AddButtonBounds(_editButton, ref bounds);
         AddButtonBounds(_prevButton, ref bounds);
         AddButtonBounds(_nextButton, ref bounds);

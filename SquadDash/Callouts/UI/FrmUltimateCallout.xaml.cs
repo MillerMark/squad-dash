@@ -192,6 +192,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// <summary>Fired when the user Ctrl+clicks the pencil button in the tour overlay (developer mode only).</summary>
     public event EventHandler? TourNewStepBeforeRequested;
 
+    /// <summary>Fired when the user clicks the delete (trash) button in the tour overlay (developer mode only).</summary>
+    public event EventHandler? TourDeleteRequested;
+
     /// <summary>Fired when the callout animation finishes and the window has settled at its target position.</summary>
     public event EventHandler? Settled;
 
@@ -261,6 +264,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourOverlay.EditClicked           += (_, _) => TourEditRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.NewStepAfterClicked   += (_, _) => TourNewStepAfterRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.NewStepBeforeClicked  += (_, _) => TourNewStepBeforeRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.DeleteClicked         += (_, _) => TourDeleteRequested?.Invoke(this, EventArgs.Empty);
 
         if (_closeButton is not null)
             _closeButton.ToolTip = "Closes this callout and ends the guided tour.";
