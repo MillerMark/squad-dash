@@ -2614,7 +2614,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return null;
         for (int i = 0; i < items.Count; i++)
         {
-            if (items[i].Id != _activeTabId && items[i].SourceTag != "guided-tour-dummy" && items[i].SourceTag != "guided-tour-type")
+            if (items[i].Id != _activeTabId && items[i].SourceTag != TourDummyTag && items[i].SourceTag != TourTypeTag)
                 return items[i];
         }
         return null;
@@ -13680,9 +13680,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new MenuOpenedAdvanceTrigger(name => VisualTreeSearch.FindByName(this, name)));
     }
 
+    private const string TourDummyTag = "guided-tour-dummy";
+    private const string TourTypeTag  = "guided-tour-type";
+
     private void RegisterTourCommands()
     {
-        const string DummyTag = "guided-tour-dummy";
+        const string DummyTag = TourDummyTag;
 
         _tourCommandRegistry.Register("Add Dummy Queue Items", () =>
         {
@@ -13706,7 +13709,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Restore the real pre-edit draft before deleting the dummy items so the
             // user's text is not lost (same logic as OnQueueTabRemove for the active tab).
             if (_activeTabId is not null &&
-                _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == DummyTag))
+                _promptQueue.Items.Any(i => i.Id == _activeTabId && (i.SourceTag == DummyTag || i.SourceTag == TourTypeTag)))
             {
                 _activeTabId = null;
                 SetPromptTextBoxLogicalBuffer(
@@ -13717,6 +13720,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     "tour-cleanup-restore-draft");
                 _queuePreEditDraft = null;
             }
+            StopTypeIntoPromptAnimation(); // removes tour-type item + stops timer
             _promptQueue.RemoveByTag(DummyTag);
             SyncQueuePanel();
         });
@@ -13801,7 +13805,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _typeIntoPromptTimer = null;
 
         // If the tour-typed tab is currently active, restore the pre-edit draft before removing it.
-        const string TourTypeTag = "guided-tour-type";
         if (_activeTabId is not null &&
             _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == TourTypeTag))
         {
@@ -13828,7 +13831,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             IsEditing      = true,
             SequenceNumber = ++_promptQueueSeq,
             QueueNumber    = NextQueueNumber(),
-            SourceTag      = "guided-tour-type"
+            SourceTag      = TourTypeTag
         };
         _promptQueue.EnqueueItemAtFront(item);
         SyncQueuePanel();
