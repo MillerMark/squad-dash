@@ -1632,11 +1632,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GetTrianglePoints: entry — CalloutDangleSide={data.CalloutDangleSide} previousCalloutSide={previousCalloutSide} lastCalloutAngle={lastCalloutAngle:F1}° targetCenter=({targetCenter.X:F1},{targetCenter.Y:F1}) calloutScreenCenter=({calloutScreenCenter.X:F1},{calloutScreenCenter.Y:F1}) windowLeft={windowLeft:F1} windowTop={windowTop:F1}");
         MyLine guideline = MathEx.GetRotatedMyLine(targetCenter, lastCalloutAngle);
+        // Use GetIntersection (infinite-line) rather than GetSegmentIntersection so that
+        // corner cases where the guideline crosses the InnerWindow boundary just outside the
+        // segment endpoints (e.g. target nearly level with callout, callout to the right) still
+        // produce a valid pt1. GetProperLocation clamps the result to the callout body.
         Point pt1 = data.CalloutDangleSide switch {
-            CalloutSide.Right => guideline.GetSegmentIntersection(data.InnerWindowRight),
-            CalloutSide.Left => guideline.GetSegmentIntersection(data.InnerWindowLeft),
-            CalloutSide.Bottom => guideline.GetSegmentIntersection(data.InnerWindowBottom),
-            CalloutSide.Top => guideline.GetSegmentIntersection(data.InnerWindowTop),
+            CalloutSide.Right => guideline.GetIntersection(data.InnerWindowRight),
+            CalloutSide.Left => guideline.GetIntersection(data.InnerWindowLeft),
+            CalloutSide.Bottom => guideline.GetIntersection(data.InnerWindowBottom),
+            CalloutSide.Top => guideline.GetIntersection(data.InnerWindowTop),
             _ => throw new Exception($"Come on!!!")
         };
 
