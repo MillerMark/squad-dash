@@ -250,32 +250,43 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private void CommitSave()
     {
-        _step.Title            = _titleBox.Text.Trim();
-        _step.MarkdownText     = _markdownBox.Text;
-        _step.CalloutPlacement = GetSelectedPlacement();
-        _step.TargetControlId  = _targetControlBox.Text.Trim();
-        _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
-        _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
-        _step.AdvanceTrigger   = _advanceTriggerBox.Text.Trim();
-
-        if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+        try
         {
-            try
-            {
-                GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Step updated in memory but could not be saved to disk:\n{ex.Message}",
-                    "Save Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-            }
-        }
+            _step.Title            = _titleBox.Text.Trim();
+            _step.MarkdownText     = _markdownBox.Text;
+            _step.CalloutPlacement = GetSelectedPlacement();
+            _step.TargetControlId  = _targetControlBox.Text.Trim();
+            _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
+            _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
+            _step.AdvanceTrigger   = _advanceTriggerBox.Text.Trim();
 
-        WasSaved = true;
-        Close();
+            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            {
+                try
+                {
+                    GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        $"Step updated in memory but could not be saved to disk:\n{ex.Message}",
+                        "Save Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
+            }
+
+            WasSaved = true;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"An unexpected error occurred while saving the step:\n{ex}",
+                "Save Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     private string GetSelectedPlacement() =>
@@ -347,20 +358,41 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Visibility = Visibility.Visible;
             Activate();
 
-            var hit = VisualTreeHelper.HitTest(mainWindow, pos);
-            if (hit?.VisualHit is DependencyObject hitObj)
+            try
             {
-                DependencyObject? current = hitObj;
-                while (current is not null)
+                var hit = VisualTreeHelper.HitTest(mainWindow, pos);
+                if (hit?.VisualHit is DependencyObject hitObj)
                 {
-                    if (current is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+                    DependencyObject? current = hitObj;
+                    bool found = false;
+                    while (current is not null)
                     {
-                        _targetControlBox.Text = fe.Name;
-                        PushLivePreview();
-                        break;
+                        if (current is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+                        {
+                            _targetControlBox.Text = fe.Name;
+                            PushLivePreview();
+                            found = true;
+                            break;
+                        }
+                        current = VisualTreeHelper.GetParent(current);
                     }
-                    current = VisualTreeHelper.GetParent(current);
+
+                    if (!found)
+                        ShowStatus("⚠ The clicked element has no x:Name — cannot use as a target. " +
+                                   "Assign an x:Name to this element or select a different target.");
                 }
+                else
+                {
+                    ShowStatus("⚠ No element found at that position. Try clicking a different area.");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"An error occurred while picking the target element:\n{ex}",
+                    "Pick Target Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
             }
         };
 
