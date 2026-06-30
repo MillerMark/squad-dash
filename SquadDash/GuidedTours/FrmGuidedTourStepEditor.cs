@@ -435,10 +435,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private static ComboBox MakeCommandCombo(IEnumerable<string> items, string currentValue)
     {
         var cb = new ComboBox { IsEditable = false, Height = 26 };
-        cb.SetResourceReference(ComboBox.BackgroundProperty,  "InputSurface");
-        cb.SetResourceReference(ComboBox.BorderBrushProperty, "InputBorder");
-        cb.SetResourceReference(ComboBox.ForegroundProperty,  "LabelText");
-        cb.SetResourceReference(ComboBox.FontSizeProperty,    "FontSizeBody");
+        cb.SetResourceReference(ComboBox.StyleProperty, "ThemedComboBoxStyle");
         foreach (var item in items)
             cb.Items.Add(item == "" ? "(none)" : item);
         var displayValue = string.IsNullOrEmpty(currentValue) ? "(none)" : currentValue;
