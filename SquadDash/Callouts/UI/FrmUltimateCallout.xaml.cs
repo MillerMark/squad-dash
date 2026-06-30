@@ -27,6 +27,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     SolidColorBrush calloutStrokeBrush;
     SolidColorBrush calloutFillBrush;
     System.Windows.Shapes.Path? _mainCalloutPath;
+    System.Windows.Shapes.Path? _tourGlowPath;
+    DropShadowEffect? _tourGlowEffect;
 
     static int _sessionTourHintAdvanceCount;
 
@@ -344,57 +346,39 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void StartTourEntryAnimation() {
-        if (_mainCalloutPath is null) return;
+        if (_mainCalloutPath is null || _tourGlowPath is null || _tourGlowEffect is null) return;
 
         var skyBlue = glowColor;
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         var duration = new Duration(TimeSpan.FromSeconds(1.8));
 
-        // ── A. Glow layer ────────────────────────────────────────────────────────
-        var glowPath = new System.Windows.Shapes.Path {
-            Fill = null,
-            Stroke = new SolidColorBrush(skyBlue),
-            StrokeThickness = 0,
-            Opacity = 1.0
-        };
-        CreateCalloutGeometry(glowPath);
-        var effect = new DropShadowEffect {
-            Color = skyBlue,
-            ShadowDepth = 0,
-            BlurRadius = 28,
-            Opacity = 1.0,
-            RenderingBias = RenderingBias.Performance
-        };
-        glowPath.Effect = effect;
-        cvsCallout.Children.Insert(0, glowPath);
-
+        // ── A. Glow fade-out ─────────────────────────────────────────────────────
         var blurAnim = new DoubleAnimation(28, 4, duration) { EasingFunction = ease };
-        effect.BeginAnimation(DropShadowEffect.BlurRadiusProperty, blurAnim);
+        _tourGlowEffect.BeginAnimation(DropShadowEffect.BlurRadiusProperty, blurAnim);
 
         var opacityAnim = new DoubleAnimation(1.0, 0.0, duration) {
             EasingFunction = ease,
             FillBehavior = FillBehavior.HoldEnd
         };
+        var capturedGlowPath = _tourGlowPath;
         opacityAnim.Completed += (_, _) => {
-            cvsCallout.Children.Remove(glowPath);
-            glowPath.Effect = null;
+            cvsCallout.Children.Remove(capturedGlowPath);
+            capturedGlowPath.Effect = null;
         };
-        glowPath.BeginAnimation(UIElement.OpacityProperty, opacityAnim);
+        _tourGlowPath.BeginAnimation(UIElement.OpacityProperty, opacityAnim);
 
-        // ── B. Border pulse on main shape ────────────────────────────────────────
-        var localStroke = new SolidColorBrush(skyBlue);
-        _mainCalloutPath.Stroke = localStroke;
-
+        // ── B. Border fade-out ───────────────────────────────────────────────────
+        var normalColor = calloutStrokeBrush.Color;
         var thicknessAnim = new DoubleAnimation(3, 1, duration) { EasingFunction = ease };
+        var capturedPath = _mainCalloutPath;
         thicknessAnim.Completed += (_, _) => {
-            _mainCalloutPath.StrokeThickness = 1;
-            _mainCalloutPath.Stroke = calloutStrokeBrush;
+            capturedPath.StrokeThickness = 1;
+            capturedPath.Stroke = calloutStrokeBrush;
         };
         _mainCalloutPath.BeginAnimation(System.Windows.Shapes.Shape.StrokeThicknessProperty, thicknessAnim);
 
-        var normalColor = calloutStrokeBrush.Color;
         var colorAnim = new ColorAnimation(skyBlue, normalColor, duration) { EasingFunction = ease };
-        localStroke.BeginAnimation(SolidColorBrush.ColorProperty, colorAnim);
+        (_mainCalloutPath.Stroke as SolidColorBrush)?.BeginAnimation(SolidColorBrush.ColorProperty, colorAnim);
     }
 
     /// <summary>
@@ -445,6 +429,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void CreateCalloutFrame() {
         _mainCalloutPath = null;
+        _tourGlowPath = null;
+        _tourGlowEffect = null;
+
         // Main callout shape — added first, so shadow (inserted after) ends up at index 0 (behind)
         _mainCalloutPath = new System.Windows.Shapes.Path() {
             Stroke = calloutStrokeBrush,
@@ -455,6 +442,37 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         cvsCallout.Children.Insert(0, _mainCalloutPath);
         // Subtle drop shadow — inserted at 0 last, so it sits behind the main shape
         AddCalloutPathToBackOfCanvas(null, 0, new SolidColorBrush(Color.FromArgb(30, 0, 0, 0)), 5, 5);
+
+        InitTourGlow();
+    }
+
+    void InitTourGlow() {
+        if (!_isTourMode || _mainCalloutPath is null) return;
+
+        var skyBlue = glowColor;
+
+        // Glow layer — inserted at index 0, behind shadow and main shape
+        _tourGlowPath = new System.Windows.Shapes.Path {
+            Fill = null,
+            Stroke = null,
+            StrokeThickness = 0,
+            Opacity = 1.0
+        };
+        CreateCalloutGeometry(_tourGlowPath);
+        _tourGlowEffect = new DropShadowEffect {
+            Color = skyBlue,
+            ShadowDepth = 0,
+            BlurRadius = 28,
+            Opacity = 1.0,
+            RenderingBias = RenderingBias.Performance
+        };
+        _tourGlowPath.Effect = _tourGlowEffect;
+        cvsCallout.Children.Insert(0, _tourGlowPath);
+
+        // Border — thick blue immediately (no animation yet)
+        var localStroke = new SolidColorBrush(skyBlue);
+        _mainCalloutPath.Stroke = localStroke;
+        _mainCalloutPath.StrokeThickness = 3;
     }
 
     private void AddCalloutPathToBackOfCanvas(SolidColorBrush calloutStrokeBrush, int thickness, SolidColorBrush calloutFillBrush, double offsetX = 0, double offsetY = 0) {
