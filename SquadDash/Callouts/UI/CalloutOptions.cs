@@ -24,6 +24,11 @@ public class CalloutOptions {
     /// </summary>
     public System.Windows.Vector? AnimationOffset { get; set; } = null;
 
+    /// <summary>
+    /// When <c>true</c>, the dangle (pointer triangle) is suppressed regardless of the target position.
+    /// </summary>
+    public bool HideDangle { get; set; } = false;
+
     public CalloutOptions() {
 
     }

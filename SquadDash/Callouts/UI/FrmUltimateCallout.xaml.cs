@@ -1279,6 +1279,77 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         FinalizeAndShow();
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct RECT_Centered { public int left, top, right, bottom; }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MONITORINFO_Centered
+    {
+        public uint cbSize;
+        public RECT_Centered rcMonitor;
+        public RECT_Centered rcWork;
+        public uint dwFlags;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow_Centered(IntPtr hwnd, uint dwFlags);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo_Centered(IntPtr hMonitor, ref MONITORINFO_Centered lpmi);
+
+    /// <summary>
+    /// Creates and shows a callout centered on the primary monitor (or the monitor containing
+    /// <paramref name="ownerWindow"/>), with no dangle pointer.
+    /// </summary>
+    public static FrmUltimateCallout? ShowCalloutCenteredOnScreen(
+        string markdownText,
+        Window ownerWindow,
+        double width    = 320,
+        double fontSize = 15)
+    {
+        var callout = CreateNewCallout(markdownText, width, CalloutTheme.Light, fontSize);
+        callout.Options.HideDangle = true;
+        callout.Options.AnimateAppearance = true;
+
+        var source = PresentationSource.FromVisual(ownerWindow);
+        Rect screenRect;
+        if (source?.CompositionTarget is { } ct)
+        {
+            var hwnd     = new WindowInteropHelper(ownerWindow).Handle;
+            var hMonitor = MonitorFromWindow_Centered(hwnd, 2u /* MONITOR_DEFAULTTONEAREST */);
+            var mi       = new MONITORINFO_Centered { cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO_Centered>() };
+            GetMonitorInfo_Centered(hMonitor, ref mi);
+            var transform   = ct.TransformFromDevice;
+            var topLeft     = transform.Transform(new Point(mi.rcWork.left,  mi.rcWork.top));
+            var bottomRight = transform.Transform(new Point(mi.rcWork.right, mi.rcWork.bottom));
+            screenRect = new Rect(topLeft, bottomRight);
+        }
+        else
+        {
+            screenRect = new Rect(
+                ownerWindow.Left, ownerWindow.Top,
+                ownerWindow.ActualWidth, ownerWindow.ActualHeight);
+        }
+
+        double cx = screenRect.Left + screenRect.Width  / 2;
+        double cy = screenRect.Top  + screenRect.Height / 2;
+        // Virtual 1×1 target at screen center — satisfies internal state; dangle is suppressed.
+        var virtualTarget = new Rect(cx - 0.5, cy - 0.5, 1, 1);
+        callout.PointTo(virtualTarget);
+        callout.SetAngle(double.MinValue);
+        callout.SetParentWindow(ownerWindow);
+
+        callout.Loaded += (_, _) =>
+        {
+            callout.Left = cx - callout.ActualWidth  / 2;
+            callout.Top  = cy - callout.ActualHeight / 2;
+        };
+
+        callout.FinalizeAndShow();
+        return callout;
+    }
+
     private static FrmUltimateCallout CreateNewCallout(string markDownText, double width, CalloutTheme theme, double fontSize = 15, double horizontalPercentOffset = 0) {
         FrmUltimateCallout frmUltimateCallout = new FrmUltimateCallout();
         frmUltimateCallout.Options.Width = width;
@@ -1401,6 +1472,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void GetTrianglePoints(GuidelineIntersectionData data, CalloutSide previousCalloutSide, double windowLeft, double windowTop) {
+        if (Options.HideDangle)
+        {
+            trianglePoint1 = calloutScreenCenter;
+            trianglePoint2 = calloutScreenCenter;
+            trianglePoint3 = calloutScreenCenter;
+            return;
+        }
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GetTrianglePoints: entry — CalloutDangleSide={data.CalloutDangleSide} previousCalloutSide={previousCalloutSide} lastCalloutAngle={lastCalloutAngle:F1}° targetCenter=({targetCenter.X:F1},{targetCenter.Y:F1}) calloutScreenCenter=({calloutScreenCenter.X:F1},{calloutScreenCenter.Y:F1}) windowLeft={windowLeft:F1} windowTop={windowTop:F1}");
         MyLine guideline = MathEx.GetRotatedMyLine(targetCenter, lastCalloutAngle);

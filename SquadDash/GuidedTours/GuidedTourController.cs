@@ -196,10 +196,20 @@ internal sealed class GuidedTourController
 
     private void ShowStepCallout(GuidedTourStep step)
     {
-        if (string.IsNullOrWhiteSpace(step.TargetControlId)) return;
+        if (string.IsNullOrWhiteSpace(step.TargetControlId))
+        {
+            // No target defined — show centered on screen with no dangle
+            ShowCenteredCallout(step);
+            return;
+        }
 
         var target = _elementLocator(step.TargetControlId);
-        if (target is null || !target.IsVisible) return;
+        if (target is null || !target.IsVisible)
+        {
+            // Target not found or not visible — show centered on screen with no dangle
+            ShowCenteredCallout(step);
+            return;
+        }
 
         _activeCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
             step.MarkdownText,
@@ -209,6 +219,30 @@ internal sealed class GuidedTourController
                            ? (double)Application.Current.Resources["FontSizeCallout"]
                            : 18.0,
             placement: step.ParsedCalloutPlacement);
+
+        if (_activeCallout is not null)
+        {
+            _activeCallout.IsSticky      = true;
+            _activeCallout.IsTourMode    = true;
+            _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
+            _activeCallout.TourNextRequested         += (_, _) => Next();
+            _activeCallout.TourPrevRequested         += (_, _) => Prev();
+            _activeCallout.TourEditRequested         += (_, _) => HandleEditStep();
+            _activeCallout.TourNewStepAfterRequested  += (_, _) => HandleNewStepAfter();
+            _activeCallout.TourNewStepBeforeRequested += (_, _) => HandleNewStepBefore();
+            _activeCallout.UserDismissed             += (_, _) => StopTour();
+        }
+    }
+
+    private void ShowCenteredCallout(GuidedTourStep step)
+    {
+        _activeCallout = FrmUltimateCallout.ShowCalloutCenteredOnScreen(
+            step.MarkdownText,
+            _ownerWindow,
+            width:    320,
+            fontSize: Application.Current.Resources.Contains("FontSizeCallout")
+                          ? (double)Application.Current.Resources["FontSizeCallout"]
+                          : 18.0);
 
         if (_activeCallout is not null)
         {
