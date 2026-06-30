@@ -662,21 +662,23 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void SetCalloutSides(MyLine testLine, GuidelineIntersectionData data) {
-        // TODO: Opportunities to refactor here, but it's tricky so be careful.
-        double topWindowDistance = GetDistanceToIntersection(testLine, data.InnerWindowTop);
-        double leftWindowDistance = GetDistanceToIntersection(testLine, data.InnerWindowLeft);
-        double rightWindowDistance = GetDistanceToIntersection(testLine, data.InnerWindowRight);
-        double bottomWindowDistance = GetDistanceToIntersection(testLine, data.InnerWindowBottom);
+        // Use the bounded Callout* sides (not full-window InnerWindow* lines) so that only the
+        // side the testLine actually crosses returns a valid intersection. Window-wide lines can
+        // both intersect the testLine near a corner, causing the wrong side to win by a tiny margin.
+        double topCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutTop);
+        double leftCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutLeft);
+        double rightCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutRight);
+        double bottomCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutBottom);
 
-        double minCalloutDistance = Min(topWindowDistance, leftWindowDistance, rightWindowDistance, bottomWindowDistance);
+        double minCalloutDistance = Min(topCalloutDistance, leftCalloutDistance, rightCalloutDistance, bottomCalloutDistance);
 
-        if (minCalloutDistance == topWindowDistance)
+        if (minCalloutDistance == topCalloutDistance)
             data.CalloutDangleSide = CalloutSide.Top;
-        else if (minCalloutDistance == rightWindowDistance)
+        else if (minCalloutDistance == rightCalloutDistance)
             data.CalloutDangleSide = CalloutSide.Right;
-        else if (minCalloutDistance == bottomWindowDistance)
+        else if (minCalloutDistance == bottomCalloutDistance)
             data.CalloutDangleSide = CalloutSide.Bottom;
-        else if (minCalloutDistance == leftWindowDistance)
+        else if (minCalloutDistance == leftCalloutDistance)
             data.CalloutDangleSide = CalloutSide.Left;
 
         double topTargetDistance = GetDistanceToIntersection(testLine, data.TargetTop);
@@ -696,7 +698,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             data.TargetDangleSide = CalloutSide.Left;
 
         SquadDashTrace.Write(TraceCategory.Callouts,
-            $"SetCalloutSides: callout distances top={topWindowDistance:F1} right={rightWindowDistance:F1} bottom={bottomWindowDistance:F1} left={leftWindowDistance:F1} → CalloutDangleSide={data.CalloutDangleSide} | " +
+            $"SetCalloutSides: callout distances top={topCalloutDistance:F1} right={rightCalloutDistance:F1} bottom={bottomCalloutDistance:F1} left={leftCalloutDistance:F1} → CalloutDangleSide={data.CalloutDangleSide} | " +
             $"target distances top={topTargetDistance:F1} right={rightTargetDistance:F1} bottom={bottomTargetDistance:F1} left={leftTargetDistance:F1} → TargetDangleSide={data.TargetDangleSide}");
     }
 
