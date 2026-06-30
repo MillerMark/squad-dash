@@ -962,6 +962,25 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return TargetClientPointToScreen(new Point(TargetWidth / 2 + horizontalCenterTargetOffset, TargetHeight / 2 + verticalOffset));
     }
 
+    /// <summary>
+    /// Returns the target center in physical screen pixels.
+    /// Use only for Win32/GDI APIs such as <c>GetMonitorBoundsForPhysicalPoint</c> that require
+    /// physical-pixel coordinates.  All WPF geometry should use <see cref="GetTargetCenter"/> instead.
+    /// </summary>
+    private Point GetTargetCenterPhysical() {
+        double offset = HorizontalPercentOffset * TargetWidth / 2;
+        var clientCenter = new Point(TargetWidth / 2 + offset, TargetHeight / 2);
+        if (frameworkElementTarget != null && frameworkElementTarget.IsVisible)
+            return frameworkElementTarget.PointToScreen(clientCenter);
+        // rectTarget is in logical coords; convert centre to physical
+        var logicalCenter = new Point(rectTarget.X + clientCenter.X, rectTarget.Y + clientCenter.Y);
+        var refVisual = (Visual?)targetParentWindow ?? (Visual?)frameworkElementTarget;
+        var src = refVisual != null ? PresentationSource.FromVisual(refVisual) : null;
+        if (src?.CompositionTarget is { } ct)
+            return ct.TransformToDevice.Transform(logicalCenter);
+        return logicalCenter;
+    }
+
     private void RotateCalloutToGetPosition(double distance, out double windowLeft, out double windowTop) {
         Point calloutStartPos = GetTargetCenter(-distance);
         Point calloutCenterPoint = MathEx.RotatePoint(calloutStartPos, targetCenter, lastCalloutAngle);
@@ -1201,9 +1220,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void PointTo(FrameworkElement target) {
         frameworkElementTarget = target;
         if (frameworkElementTarget.IsVisible) {
-            Point screenPosition = frameworkElementTarget.PointToScreen(new Point(0, 0));
-            // In case we lose this element later...
-            rectTarget = new Rect(screenPosition.X, screenPosition.Y, frameworkElementTarget.ActualWidth, frameworkElementTarget.ActualHeight);
+            // Store in logical (DIP) coords so rectTarget is consistent with all other
+            // WPF measurements.  PointToScreen returns physical pixels; convert back.
+            Point physPos = frameworkElementTarget.PointToScreen(new Point(0, 0));
+            Point logPos  = DpiHelper.PhysicalToLogical(frameworkElementTarget, physPos);
+            rectTarget = new Rect(logPos.X, logPos.Y, frameworkElementTarget.ActualWidth, frameworkElementTarget.ActualHeight);
         }
         SetParentWindow(Window.GetWindow(target));
     }
@@ -1255,8 +1276,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             if (!initializationComplete) return;
             if (frameworkElementTarget is { IsVisible: true })
             {
-                var screenPosition = frameworkElementTarget.PointToScreen(new Point(0, 0));
-                rectTarget = new Rect(screenPosition.X, screenPosition.Y,
+                // Convert to logical (DIP) coords — same as PointTo(FrameworkElement).
+                var physPos = frameworkElementTarget.PointToScreen(new Point(0, 0));
+                var logPos  = DpiHelper.PhysicalToLogical(frameworkElementTarget, physPos);
+                rectTarget = new Rect(logPos.X, logPos.Y,
                     frameworkElementTarget.ActualWidth, frameworkElementTarget.ActualHeight);
                 ResumeCalloutConstruction();
             }
@@ -1311,17 +1334,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// Returns the best angle to the specified target, based on the target center position in the screen.
     /// </summary>
     private double GetBestAngleToTarget() {
-        var targetCenter = GetTargetCenter();
-        Rect screenRect = NativeMethods.GetMonitorBoundsForPhysicalPoint((int)targetCenter.X, (int)targetCenter.Y);
+        // GetMonitorBoundsForPhysicalPoint requires physical-pixel coordinates.
+        var physCenter = GetTargetCenterPhysical();
+        Rect screenRect = NativeMethods.GetMonitorBoundsForPhysicalPoint((int)physCenter.X, (int)physCenter.Y);
         Point screenCenter = new Point(screenRect.X + screenRect.Width / 2, screenRect.Y + screenRect.Height / 2);
 
-        if (targetCenter.X < screenCenter.X)  // Target is left of screen center.
-            if (targetCenter.Y < screenCenter.Y)
+        if (physCenter.X < screenCenter.X)  // Target is left of screen center.
+            if (physCenter.Y < screenCenter.Y)
                 return 135;     // Above left
             else
                 return 45;      // Below left
         else  // Target is right of screen center.
-            if (targetCenter.Y < screenCenter.Y)
+            if (physCenter.Y < screenCenter.Y)
                 return 225;     // Above right
             else
                 return 315;     // Below right
@@ -1334,10 +1358,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// Angle 0:   tail points right → callout body appears to the LEFT  of the target.
     /// </summary>
     private double GetBestSideAngle() {
-        var targetCenter = GetTargetCenter();
-        Rect screenRect = NativeMethods.GetMonitorBoundsForPhysicalPoint((int)targetCenter.X, (int)targetCenter.Y);
-        double spaceLeft  = targetCenter.X - screenRect.Left;
-        double spaceRight = screenRect.Right - targetCenter.X;
+        // GetMonitorBoundsForPhysicalPoint requires physical-pixel coordinates.
+        var physCenter = GetTargetCenterPhysical();
+        Rect screenRect = NativeMethods.GetMonitorBoundsForPhysicalPoint((int)physCenter.X, (int)physCenter.Y);
+        double spaceLeft  = physCenter.X - screenRect.Left;
+        double spaceRight = screenRect.Right - physCenter.X;
         return spaceRight >= spaceLeft ? 180 : 0;
     }
 
@@ -1992,8 +2017,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     Point TargetClientPointToScreen(Point clientPoint) {
-        if (frameworkElementTarget != null && frameworkElementTarget.IsVisible)
-            return frameworkElementTarget.PointToScreen(clientPoint);
+        if (frameworkElementTarget != null && frameworkElementTarget.IsVisible) {
+            // PointToScreen returns physical pixels; convert to logical DIPs so that all
+            // geometry (windowLeft/Top, triangle points, guideline intersections) lives in
+            // the same coordinate system as WPF element sizes and Window.Left/Top.
+            Point phys = frameworkElementTarget.PointToScreen(clientPoint);
+            return DpiHelper.PhysicalToLogical(frameworkElementTarget, phys);
+        }
+        // rectTarget is already in logical coords (stored that way in PointTo / StateChanged).
         return new Point(rectTarget.X + clientPoint.X, rectTarget.Y + clientPoint.Y);
     }
 
