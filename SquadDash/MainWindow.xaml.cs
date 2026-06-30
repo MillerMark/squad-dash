@@ -3332,6 +3332,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
+    /// Builds the rich two-line tooltip shown on an active queue tab:
+    /// the base hint text followed by a pause warning paragraph.
+    /// </summary>
+    private ToolTip BuildQueueTabActiveTooltip(string plainTooltip)
+    {
+        var hintBlock = new TextBlock
+        {
+            Text = plainTooltip,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 320,
+        };
+        var pauseBlock = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 320,
+            Margin = new Thickness(0, 4, 0, 0),
+            Opacity = 0.8,
+        };
+        pauseBlock.Inlines.Add(new System.Windows.Documents.Run("Because this tab is active, automatic queuing will pause when this prompt is reached. Select the "));
+        pauseBlock.Inlines.Add(new System.Windows.Documents.Bold(new System.Windows.Documents.Run("Active Draft")));
+        pauseBlock.Inlines.Add(new System.Windows.Documents.Run(" tab for uninterrupted prompt queuing."));
+        var tipPanel = new StackPanel { MaxWidth = 320 };
+        tipPanel.Children.Add(hintBlock);
+        tipPanel.Children.Add(pauseBlock);
+        var tt = new ToolTip { Content = tipPanel };
+        tt.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        tt.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        tt.BorderThickness = new Thickness(1);
+        tt.Padding = new Thickness(6, 4, 6, 4);
+        return tt;
+    }
+
+    /// <summary>
     /// Applies active or inactive visual styling to an existing tab Border element.
     /// Handles TextBlock-only tabs and StackPanel tabs (with optional paperclip/pause icons).
     /// </summary>
@@ -3399,6 +3432,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     panel.Children.Clear(); // detach before reparenting
                     tab.Child = onlyText;
                 }
+            }
+        }
+
+        // Sync the tooltip to match the new active state.
+        // FastSyncQueueTabActiveState skips a full SyncQueuePanel rebuild, so the
+        // tooltip must be updated here or it stays stale (e.g. showing the active-pause
+        // warning on a tab that just became inactive).
+        if (isQueueItem)
+        {
+            var tabId = tab.Tag as string;
+            if (tabId is not null)
+            {
+                var nextReadyId = _promptQueue.Items.FirstOrDefault(i => !i.IsEditing)?.Id;
+                var plainTooltip = tabId == nextReadyId
+                    ? "This prompt is next in the Squad queue."
+                    : "This item is in the Squad queue.";
+                tab.ToolTip = isActive ? BuildQueueTabActiveTooltip(plainTooltip) : (object)plainTooltip;
             }
         }
     }
@@ -3599,43 +3649,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             tabChild = textBlock;
         }
 
-        object? tipContent = null;
-        if (tooltip is not null)
-        {
-            if (isActive && id is not null)
-            {
-                // Rich two-line tooltip: base hint + pause warning with bold inline.
-                var hintBlock = new TextBlock
-                {
-                    Text = tooltip,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 320,
-                };
-                var pauseBlock = new TextBlock
-                {
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 320,
-                    Margin = new Thickness(0, 4, 0, 0),
-                    Opacity = 0.8,
-                };
-                pauseBlock.Inlines.Add(new System.Windows.Documents.Run("Because this tab is active, automatic queuing will pause when this prompt is reached. Select the "));
-                pauseBlock.Inlines.Add(new System.Windows.Documents.Bold(new System.Windows.Documents.Run("Active Draft")));
-                pauseBlock.Inlines.Add(new System.Windows.Documents.Run(" tab for uninterrupted prompt queuing."));
-                var tipPanel = new StackPanel { MaxWidth = 320 };
-                tipPanel.Children.Add(hintBlock);
-                tipPanel.Children.Add(pauseBlock);
-                var tipPanelTt = new ToolTip { Content = tipPanel };
-                tipPanelTt.SetResourceReference(Control.BackgroundProperty, "InputSurface");
-                tipPanelTt.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
-                tipPanelTt.BorderThickness = new Thickness(1);
-                tipPanelTt.Padding = new Thickness(6, 4, 6, 4);
-                tipContent = tipPanelTt;
-            }
-            else
-            {
-                tipContent = tooltip;
-            }
-        }
+        object? tipContent = tooltip is null ? null
+            : (isActive && id is not null) ? BuildQueueTabActiveTooltip(tooltip)
+            : (object)tooltip;
 
         var tab = new Border
         {
