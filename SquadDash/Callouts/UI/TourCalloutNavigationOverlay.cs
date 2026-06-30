@@ -186,9 +186,11 @@ internal sealed class TourCalloutNavigationOverlay : Window
         border.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true;
-            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
+            bool isAlt  = Keyboard.IsKeyDown(Key.LeftAlt)  || Keyboard.IsKeyDown(Key.RightAlt);
+            bool isCtrl = Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
+            if (isAlt)
                 NewStepAfterClicked?.Invoke(this, EventArgs.Empty);
-            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            else if (isCtrl)
                 NewStepBeforeClicked?.Invoke(this, EventArgs.Empty);
             else
                 EditClicked?.Invoke(this, EventArgs.Empty);

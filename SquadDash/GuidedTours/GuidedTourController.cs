@@ -289,12 +289,18 @@ internal sealed class GuidedTourController
 
         if (editor.WasSaved)
         {
-            NotifyStepEdited();
+            if (string.IsNullOrWhiteSpace(CurrentStep.TargetControlId))
+            {
+                // New step has no target yet — stay on the previous step so there's visible context
+                _currentStepIndex = Math.Max(0, _currentStepIndex - 1);
+            }
+            ShowCurrentStep();
         }
         else
         {
             _activeTour.Steps.RemoveAt(insertIndex);
             _currentStepIndex = Math.Max(0, insertIndex - 1);
+            ShowCurrentStep();  // restore callout for original step
         }
     }
 
@@ -320,12 +326,20 @@ internal sealed class GuidedTourController
 
         if (editor.WasSaved)
         {
-            NotifyStepEdited();
+            if (string.IsNullOrWhiteSpace(CurrentStep.TargetControlId))
+            {
+                // New step has no target yet — advance to next step (original step) if available
+                int next = _currentStepIndex + 1;
+                if (next < _activeTour!.Steps.Count)
+                    _currentStepIndex = next;
+            }
+            ShowCurrentStep();
         }
         else
         {
             _activeTour.Steps.RemoveAt(insertIndex);
             // _currentStepIndex stays the same (the original step is back)
+            ShowCurrentStep();  // restore callout for original step
         }
     }
 
