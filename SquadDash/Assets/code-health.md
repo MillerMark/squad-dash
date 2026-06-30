@@ -757,4 +757,80 @@ tasks:
         label: Include Pull Requests
         tooltip: When enabled, report will include PRs in addition to issues
         value: true
+
+  - id: clean-inbox
+    enabled: true
+    frequency: daily
+    safety: direct
+    has_safety_options: false
+    title: Clean Inbox
+    instructions: |
+      Scan the Inbox panel data and archive messages according to the user's
+      configured options below.
+
+      **Definitions:**
+      - "Low-priority with little significant information": messages whose
+        priority is "low" AND whose content is a routine-success report with
+        no actionable findings — e.g., "all tests passed", "no issues found",
+        "nothing to prune", "maintenance completed without findings", or any
+        variant that conveys a clean/empty result.
+      - "Older than N days": compare the message timestamp against today's
+        date (UTC); archive if the message age exceeds the configured threshold.
+
+      **Step 1 — Identify messages to archive**
+
+      {{#if archiveLowPriority}}
+      Collect all Inbox messages where:
+      - priority == "low"  AND  content matches a routine-success pattern
+        (no actionable items, no warnings, no findings, no decisions required)
+      - AND the message is older than {{minAgeDays}} days
+      {{/if}}
+
+      {{#if archiveOlderDuplicates}}
+      Also collect Inbox messages where:
+      - priority is "mid" or "low"
+      - AND there are multiple messages covering the same topic/subject
+      - AND this is NOT the most recent message on that topic
+      - AND the message is older than {{minAgeDays}} days
+      When grouping by topic, compare the `subject` field (case-insensitive)
+      and treat messages with identical or near-identical subjects as the
+      same topic.
+      {{/if}}
+
+      **Step 2 — Archive**
+      For each message identified in Step 1, mark it as archived.
+      Use whatever mechanism is available in the host environment to archive
+      inbox messages (e.g., the SquadDash inbox archival API or command).
+
+      **Step 3 — Report**
+      Send a brief Inbox message (from: "argus-weld") summarising:
+      - How many messages were archived
+      - A short breakdown by reason (low-priority routine, older duplicate)
+      - If nothing was archived, say so and set priority to "low"
+      Set the report priority to "low" if nothing was archived or only
+      low-priority routine messages were cleaned; "mid" otherwise.
+    options:
+      archiveLowPriority:
+        type: checkbox
+        label: Archive unread low-priority items with little significant information
+        tooltip: >
+          Archives low-priority inbox messages whose content is a routine
+          success report (e.g. "all tests passed", "no issues found") and
+          that are older than the minimum age threshold.
+        value: true
+      archiveOlderDuplicates:
+        type: checkbox
+        label: >
+          Keep the most recent of a particular topic — archive older messages
+          even if they are unread (for mid priority or lower)
+        tooltip: >
+          When multiple inbox messages share the same subject/topic, keeps
+          only the newest one and archives the rest, as long as they are
+          mid-priority or lower and older than the minimum age threshold.
+        value: true
+      minAgeDays:
+        type: number
+        label: Only archive messages that are older than (days)
+        tooltip: Messages newer than this many days will never be archived.
+        value: 7
 ---

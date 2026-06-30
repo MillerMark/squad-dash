@@ -320,6 +320,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private string? _priorityFeedbackId;        // Id of the recently-prioritized queue item
     private DispatcherTimer? _priorityFeedbackTimer;
     private DispatcherTimer? _loopCountdownTimer;
+    private DispatcherTimer? _typeIntoPromptTimer;
 
     // ── Prompt shortcuts hint ────────────────────────────────────────────────
     private static readonly TimeSpan HintCooldown = TimeSpan.FromMinutes(10);
@@ -13621,7 +13622,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             restorePreTourLayout:    () => { /* Layout restore: reload the active layout from workspace */ },
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
-            commandRegistry:         _tourCommandRegistry);
+            commandRegistry:         _tourCommandRegistry,
+            onStepChanging:          StopTypeIntoPromptAnimation);
     }
 
     private void RegisterTourCommands()
@@ -13658,6 +13660,57 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _promptQueue.RemoveByTag(DummyTag);
             SyncQueuePanel();
         });
+
+        _tourCommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
+        {
+            // Format: "text to type" or "text to type|Sim"
+            var parts = arg.Split('|', 2);
+            var text  = parts[0];
+            var mode  = parts.Length > 1 && Enum.TryParse<TypeIntoPromptMode>(parts[1].Trim(), ignoreCase: true, out var m)
+                ? m
+                : TypeIntoPromptMode.Draft;
+            StartTypeIntoPromptAnimation(text, mode);
+        });
+    }
+
+    private void StopTypeIntoPromptAnimation()
+    {
+        if (_typeIntoPromptTimer is null) return;
+        _typeIntoPromptTimer.Stop();
+        _typeIntoPromptTimer = null;
+    }
+
+    private void StartTypeIntoPromptAnimation(string text, TypeIntoPromptMode mode)
+    {
+        StopTypeIntoPromptAnimation(); // cancel any in-progress animation
+        SetPromptTextBoxLogicalBuffer(string.Empty, 0, reason: "tour-type-start");
+        var charIndex = 0;
+        _typeIntoPromptTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+        _typeIntoPromptTimer.Tick += (_, _) =>
+        {
+            if (charIndex < text.Length)
+            {
+                SetPromptTextBoxLogicalBuffer(text[..++charIndex], charIndex, reason: "tour-type");
+            }
+            else
+            {
+                StopTypeIntoPromptAnimation();
+                if (mode == TypeIntoPromptMode.Sim)
+                {
+                    var simItem = new PromptQueueItem
+                    {
+                        Text           = text,
+                        SequenceNumber = ++_promptQueueSeq,
+                        IsSimEntry     = true,
+                        SourceTag      = "guided-tour-sim",
+                    };
+                    _promptQueue.EnqueueItem(simItem);
+                    ClearPromptTextBoxLogicalBuffer("tour-type-sim-enqueue");
+                    SyncQueuePanel();
+                }
+            }
+        };
+        _typeIntoPromptTimer.Start();
     }
 
     private void OfferGuidedTourOnFirstRun()
@@ -24575,17 +24628,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // that entry (e.g. "rendered).Committed"). Injecting \n\n closes the paragraph now.
         if (thread.CurrentTurn is { } turn)
         {
+            TranscriptTextUtilities.EnsureResponseParagraphBreak(turn.ResponseTextBuilder);
+
             var responseEntry = GetLatestResponseEntry(turn);
             if (responseEntry is not null)
-            {
-                var sb = responseEntry.RawTextBuilder;
-                if (sb.Length > 0)
-                {
-                    var endsDouble = sb.Length >= 2 && sb[sb.Length - 1] == '\n' && sb[sb.Length - 2] == '\n';
-                    if (!endsDouble)
-                        sb.Append(sb[sb.Length - 1] == '\n' ? "\n" : "\n\n");
-                }
-            }
+                TranscriptTextUtilities.EnsureResponseParagraphBreak(responseEntry.RawTextBuilder);
         }
 
         EnsureCurrentTurnThinkingVisible(thread);

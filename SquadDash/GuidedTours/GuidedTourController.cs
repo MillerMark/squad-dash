@@ -27,6 +27,7 @@ internal sealed class GuidedTourController
     private readonly Window                               _ownerWindow;
     private readonly Func<string?>?                       _workspaceFolderProvider;
     private readonly GuidedTourCommandRegistry?           _commandRegistry;
+    private readonly Action?                              _onStepChanging;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -40,6 +41,7 @@ internal sealed class GuidedTourController
     /// First arg = action kind (e.g. "OpenPanel"), second arg = argument (e.g. "Notes").
     /// </param>
     /// <param name="workspaceFolderProvider">Returns the current workspace folder path, used when saving tours.</param>
+    /// <param name="onStepChanging">Called just before transitioning to a new step or stopping the tour.</param>
     public GuidedTourController(
         Window                          ownerWindow,
         Func<string, FrameworkElement?> elementLocator,
@@ -47,7 +49,8 @@ internal sealed class GuidedTourController
         Action?                         restorePreTourLayout = null,
         Action<string, string>?         executePreAction     = null,
         Func<string?>?                  workspaceFolderProvider = null,
-        GuidedTourCommandRegistry?      commandRegistry      = null)
+        GuidedTourCommandRegistry?      commandRegistry      = null,
+        Action?                         onStepChanging       = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -56,6 +59,7 @@ internal sealed class GuidedTourController
         _executePreAction        = executePreAction;
         _workspaceFolderProvider = workspaceFolderProvider;
         _commandRegistry         = commandRegistry;
+        _onStepChanging          = onStepChanging;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -177,6 +181,7 @@ internal sealed class GuidedTourController
 
     private void ShowCurrentStep()
     {
+        _onStepChanging?.Invoke();
         CloseActiveCallout();
         RunPreAction(CurrentStep);
         var step = CurrentStep;
@@ -285,6 +290,8 @@ internal sealed class GuidedTourController
     {
         var wasActive  = IsActive;
         var tourId     = _activeTour?.Id;
+
+        _onStepChanging?.Invoke();
 
         if (wasActive && _activeTour is not null)
             _commandRegistry?.Execute(CurrentStep.CommandAfter);

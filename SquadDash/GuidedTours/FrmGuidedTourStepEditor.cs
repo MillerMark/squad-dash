@@ -434,18 +434,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private static ComboBox MakeCommandCombo(IEnumerable<string> items, string currentValue)
     {
-        var cb = new ComboBox { IsEditable = false, Height = 26 };
-        cb.SetResourceReference(ComboBox.StyleProperty, "ThemedComboBoxStyle");
+        var cb = new ComboBox { IsEditable = true, Height = 26 };
+        cb.SetResourceReference(ComboBox.StyleProperty, "ThemedEditableComboBoxStyle");
         foreach (var item in items)
             cb.Items.Add(item == "" ? "(none)" : item);
         var displayValue = string.IsNullOrEmpty(currentValue) ? "(none)" : currentValue;
-        cb.SelectedItem  = cb.Items.Cast<string>().FirstOrDefault(i => i == displayValue)
-                           ?? (cb.Items.Count > 0 ? cb.Items[0] : null);
+        cb.Text = displayValue; // use Text (not SelectedItem) since editable combo
         return cb;
     }
 
     private static string GetSelectedCommand(ComboBox cb) =>
-        cb.SelectedItem is string s && s != "(none)" ? s : string.Empty;
+        !string.IsNullOrWhiteSpace(cb.Text) && cb.Text != "(none)" ? cb.Text.Trim() : string.Empty;
 }
 
 // ── Control picker ────────────────────────────────────────────────────────────

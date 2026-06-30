@@ -134,4 +134,50 @@ internal sealed class TranscriptTextUtilitiesTests {
             Assert.That(tail, Is.Null);
         });
     }
+
+    [Test]
+    public void EnsureResponseParagraphBreak_AppendsBlankLineAfterText() {
+        var builder = new System.Text.StringBuilder("Finished a sentence.");
+
+        TranscriptTextUtilities.EnsureResponseParagraphBreak(builder);
+
+        Assert.That(builder.ToString(), Is.EqualTo("Finished a sentence.\n\n"));
+    }
+
+    [Test]
+    public void EnsureResponseParagraphBreak_CompletesSingleTrailingNewline() {
+        var builder = new System.Text.StringBuilder("Finished a sentence.\n");
+
+        TranscriptTextUtilities.EnsureResponseParagraphBreak(builder);
+
+        Assert.That(builder.ToString(), Is.EqualTo("Finished a sentence.\n\n"));
+    }
+
+    [Test, Apartment(System.Threading.ApartmentState.STA)]
+    public void GetSanitizedTurnResponseText_UsesSegmentBreaks_WhenFlatBuilderIsFused() {
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Coordinator",
+            DateTimeOffset.UtcNow);
+        var turn = new TranscriptTurnView(
+            thread,
+            "prompt",
+            DateTimeOffset.UtcNow,
+            new System.Windows.Documents.Section(),
+            Array.Empty<System.Windows.Documents.Block>());
+        var first = new TranscriptResponseEntry(turn, 1, new System.Windows.Documents.Section());
+        first.RawTextBuilder.Append("Doing this myself because it's a quick code fix with a small, well-defined scope.");
+        var second = new TranscriptResponseEntry(turn, 3, new System.Windows.Documents.Section());
+        second.RawTextBuilder.Append("Let me read the relevant lines from all three files:");
+        turn.ResponseEntries.Add(first);
+        turn.ResponseEntries.Add(second);
+        turn.ResponseTextBuilder.Append("Doing this myself because it's a quick code fix with a small, well-defined scope.Let me read the relevant lines from all three files:");
+
+        var sanitized = TranscriptTextUtilities.GetSanitizedTurnResponseText(turn);
+
+        Assert.That(
+            sanitized,
+            Is.EqualTo("Doing this myself because it's a quick code fix with a small, well-defined scope.\n\nLet me read the relevant lines from all three files:"));
+    }
 }

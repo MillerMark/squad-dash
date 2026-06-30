@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -25,8 +26,35 @@ internal static class TranscriptTextUtilities
         return string.IsNullOrWhiteSpace(sanitized) ? null : sanitized;
     }
 
-    internal static string GetSanitizedTurnResponseText(TranscriptTurnView? turn) =>
-        SanitizeResponseText(turn?.ResponseTextBuilder.ToString());
+    internal static string GetSanitizedTurnResponseText(TranscriptTurnView? turn)
+    {
+        if (turn is null)
+            return string.Empty;
+
+        var responseSegments = turn.ResponseEntries
+            .Select(entry => SanitizeResponseText(entry.RawTextBuilder.ToString()).TrimEnd())
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+
+        if (responseSegments.Length > 0)
+            return string.Join("\n\n", responseSegments);
+
+        return SanitizeResponseText(turn.ResponseTextBuilder.ToString());
+    }
+
+    internal static void EnsureResponseParagraphBreak(StringBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (builder.Length == 0)
+            return;
+
+        var lineFeedCount = CountTrailingLineFeeds(builder);
+        if (lineFeedCount >= 2)
+            return;
+
+        builder.Append(lineFeedCount == 1 ? "\n" : "\n\n");
+    }
 
     internal static string FormatThinkingText(string? text)
     {
@@ -221,6 +249,27 @@ internal static class TranscriptTextUtilities
 
     private static string RemoveQuickReplySuffix(string text) =>
         QuickReplyOptionParser.TryExtract(text, out var body, out _) ? body : text;
+
+    private static int CountTrailingLineFeeds(StringBuilder builder)
+    {
+        var count = 0;
+        for (var index = builder.Length - 1; index >= 0; index--)
+        {
+            var ch = builder[index];
+            if (ch == '\n')
+            {
+                count++;
+                continue;
+            }
+
+            if (ch == '\r')
+                continue;
+
+            break;
+        }
+
+        return count;
+    }
 
     private static int FindSuffixPrefixOverlap(string left, string right)
     {

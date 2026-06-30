@@ -51,6 +51,27 @@
   - Dev mode: Dev menu item opens guided-tour.json in editor; step-by-step preview navigation
   - Options → Discoverability: "Start the Tour" button
 
+- [ ] **[Guided Tour] Click-to-pick target in Edit Step dialog** *(Owner: Lyra Morn)*
+  The "Target..." button in FrmGuidedTourStepEditor should launch a click-to-pick mode:
+  the cursor becomes a crosshair/highlight overlay, user clicks any live control in the app,
+  and the target ID field is populated with a resolved identifier for that control.
+  Requires an `ITourTarget` (or `IHaveName`) interface that targetable controls implement
+  to expose their logical tour ID. The Edit Step dialog must be made modeless (use Show()
+  instead of ShowDialog()) so the user can click controls in the main window while the dialog is open.
+  Queue tab items also need to implement ITourTarget so individual queued prompts can be pointed to.
+
+- [ ] **[Guided Tour] Make FrmGuidedTourStepEditor modeless** *(Owner: Lyra Morn)*
+  Currently opened via ShowDialog() making it modal. Switch to Show() so the editor stays open
+  while the user interacts with the rest of the app (required for click-to-pick target flow and
+  for pointing callouts at queue tabs). Requires GuidedTourController to handle the async
+  open/close lifecycle rather than blocking on ShowDialog return.
+
+- [ ] **[Guided Tour] ITourTarget interface for targetable controls** *(Owner: Lyra Morn)*
+  Define ITourTarget interface (single property: string TourTargetId). Implement on queue tab items
+  so they can be individually targeted by callouts. The target registry (used by callout placement)
+  should accept ITourTarget lookups in addition to named FrameworkElements. DataContext of queue
+  tab items should expose ITourTarget when the item has a meaningful tour identity.
+
 - [x] **[Developer Menu] Fix F11 Theme Reveal conflict with Full Screen Transcript**
   Moved Theme Reveal to Ctrl+F11. Key handler updated to pass bare F11 through to Full Screen Transcript.
 
@@ -109,7 +130,7 @@
 
 ## 🔴 High Priority
 
-- [ ] **[Bug] Prompt history cycling(Ctrl+Up/Down) doesn't copy attachments to queued item***(Owner: Lyra Morn)*
+- [x] **[Bug] Prompt history cycling(Ctrl+Up/Down) doesn't copy attachments to queued item***(Owner: Lyra Morn)*
   When a queued prompt item is selected and the user cycles through prompt history with Ctrl+Up/Down,
   only the text content is brought in — attachments from the history entry are not copied to the queued item.
   Attachments appear on the active draft instead. Expected: cycling history into a queued item should

@@ -5,8 +5,35 @@
     "description": "A quick walkthrough of the main interface panels.",
     "steps": [
       {
+        "title": "Welcome to the Guided Tour",
+        "markdownText": "This guided tour will point out key parts of the application.\r\nThe navigation buttons positioned outside this callout move through the tour. ",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
+        "title": "Agent Section",
+        "markdownText": "Active agents are here.",
+        "targetControlId": "ActiveAgentItemsControl",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
+        "title": "Inactive Agents",
+        "markdownText": "Inactive agents are in this panel.",
+        "targetControlId": "InactiveAgentItemsControl[0]",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": ""
+      },
+      {
         "title": "The Prompt Box",
-        "markdownText": "**The Prompt Box** is where you type your prompts to the AI agents.\n\nType your instructions here, then press **Enter** (or click the **Run** button) to send them to the active agent.",
+        "markdownText": "Enter your AI prompts here.\r\n\nPress **Enter** to send/queue them to Squad.",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -15,7 +42,7 @@
       },
       {
         "title": "The Run Button",
-        "markdownText": "The **Send**/**Queue** button dispatches your prompt to the Squad Coordinator (or queues it if agents are busy).",
+        "markdownText": "You can also click the **Send**/**Queue** button to dispatch your prompt to Squad (or queue it automatically if agents are busy).",
         "targetControlId": "RunButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -24,9 +51,9 @@
       },
       {
         "title": "The Queue Tab Strip",
-        "markdownText": "**The Queue** lets you line up multiple prompts to run sequentially.\n\nClick **\u002B** to add a new queue item, drag items to reorder them, and use the play/pause button to control execution.",
-        "targetControlId": "QueueTabStrip",
-        "calloutPlacement": "South",
+        "markdownText": "This is the **Prompt Queue**. \r\nYou can click and drag a tab to change its order in the queue.",
+        "targetControlId": "QueueTabStrip[1]",
+        "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "Add Dummy Queue Items",
         "commandAfter": "Remove Dummy Queue Items"
