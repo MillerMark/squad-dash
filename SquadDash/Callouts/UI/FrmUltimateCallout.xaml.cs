@@ -896,6 +896,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     GuidelineIntersectionData GetGuidelineIntersectionData(bool positionWindow = false) {
         CalculateWindowPosition(out MyLine testLine, out GuidelineIntersectionData guidelineIntersectionData);
 
+        if (positionWindow)
+            AdjustAngleForOnScreenPlacement(ref testLine, ref guidelineIntersectionData);
+
         if (positionWindow) {
             if (Options.AnimateAppearance) {
                 Point halfwayPoint;
@@ -955,6 +958,75 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"CalculateWindowPosition: lastCalloutAngle={lastCalloutAngle:F1}° calloutSize=({calloutWidth:F1}×{calloutHeight:F1}) targetCenter=({targetCenter.X:F1},{targetCenter.Y:F1}) windowPos=({windowLeft:F1},{windowTop:F1}) calloutCenter=({calloutCenter.X:F1},{calloutCenter.Y:F1})");
+    }
+
+    /// <summary>
+    /// After <see cref="CalculateWindowPosition"/> has set <see cref="windowLeft"/>/<see cref="windowTop"/>
+    /// for the current <see cref="lastCalloutAngle"/>, checks whether the callout window fits within the
+    /// monitor work area. If not, sweeps outward from the preferred angle in ±5° steps (up to ±180°)
+    /// until a valid placement is found. Falls back to clamping when no angle keeps the callout on-screen
+    /// (e.g. the target fills most of the screen).
+    /// </summary>
+    private void AdjustAngleForOnScreenPlacement(ref MyLine testLine, ref GuidelineIntersectionData guidelineIntersectionData) {
+        double windowWidth  = Width;
+        double windowHeight = Height;
+        Rect workArea = GetWorkAreaForTargetLogical();
+
+        if (IsCalloutOnScreen(windowLeft, windowTop, windowWidth, windowHeight, workArea))
+            return;
+
+        double requestedAngle = lastCalloutAngle;
+        const double step = 5.0;
+        const int maxSteps = 72;  // 72 × 5° = 360°
+
+        for (int i = 0; i < maxSteps; i++) {
+            double sign   = (i % 2 == 0) ? 1.0 : -1.0;
+            double offset = ((i / 2) + 1) * step;
+            lastCalloutAngle = requestedAngle + sign * offset;
+
+            CalculateWindowPosition(out MyLine candidateLine, out GuidelineIntersectionData candidateData);
+
+            if (IsCalloutOnScreen(windowLeft, windowTop, windowWidth, windowHeight, workArea)) {
+                testLine = candidateLine;
+                guidelineIntersectionData = candidateData;
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"AdjustAngleForOnScreenPlacement: found on-screen angle {lastCalloutAngle:F1}° (requested {requestedAngle:F1}°) windowPos=({windowLeft:F1},{windowTop:F1})");
+                return;
+            }
+        }
+
+        // Fallback: restore the preferred angle, then clamp to keep the callout fully on-screen
+        // even if the triangle tip ends up inside the target rect.
+        lastCalloutAngle = requestedAngle;
+        CalculateWindowPosition(out testLine, out guidelineIntersectionData);
+        double clampedLeft = Math.Clamp(windowLeft, workArea.Left, Math.Max(workArea.Left, workArea.Right  - windowWidth));
+        double clampedTop  = Math.Clamp(windowTop,  workArea.Top,  Math.Max(workArea.Top,  workArea.Bottom - windowHeight));
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"AdjustAngleForOnScreenPlacement: no valid angle found — clamping from ({windowLeft:F1},{windowTop:F1}) to ({clampedLeft:F1},{clampedTop:F1})");
+        windowLeft = clampedLeft;
+        windowTop  = clampedTop;
+    }
+
+    private static bool IsCalloutOnScreen(double left, double top, double width, double height, Rect workArea)
+        => left              >= workArea.Left
+        && top               >= workArea.Top
+        && left + width  <= workArea.Right
+        && top  + height <= workArea.Bottom;
+
+    /// <summary>
+    /// Returns the work area of the monitor that contains the callout target, in logical DIPs.
+    /// Falls back to <see cref="SystemParameters.WorkArea"/> if DPI information is unavailable.
+    /// </summary>
+    private Rect GetWorkAreaForTargetLogical() {
+        var physCenter = GetTargetCenterPhysical();
+        var physWa = NativeMethods.GetWorkAreaForPhysicalPoint((int)physCenter.X, (int)physCenter.Y);
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is { } ct) {
+            var tl = ct.TransformFromDevice.Transform(new Point(physWa.Left, physWa.Top));
+            var br = ct.TransformFromDevice.Transform(new Point(physWa.Right, physWa.Bottom));
+            return new Rect(tl, br);
+        }
+        return SystemParameters.WorkArea;
     }
 
     private Point GetTargetCenter(double verticalOffset = 0) {
