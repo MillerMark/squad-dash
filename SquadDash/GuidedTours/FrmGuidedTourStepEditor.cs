@@ -119,14 +119,23 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var browseButton = MakeButton("Target...");
         browseButton.Click += (_, _) => BrowseForControl();
 
+        var pickButton = MakeButton("⌖");
+        pickButton.FontSize = 14;
+        pickButton.ToolTip  = "Click to pick a target element from the window";
+        pickButton.Click   += (_, _) => StartPickMode();
+
         var targetRow = new Grid { Margin = new Thickness(0, 0, 0, 0) };
         targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(_targetControlBox, 0);
         Grid.SetColumn(browseButton, 1);
+        Grid.SetColumn(pickButton, 2);
         browseButton.Margin = new Thickness(6, 0, 0, 0);
+        pickButton.Margin   = new Thickness(4, 0, 0, 0);
         targetRow.Children.Add(_targetControlBox);
         targetRow.Children.Add(browseButton);
+        targetRow.Children.Add(pickButton);
 
         var commandNames = commandRegistry?.CommandNames ?? Array.Empty<string>();
         var commandItems = new[] { "" }.Concat(commandNames).ToArray();
@@ -288,6 +297,79 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _step.PreAction     = $"LoadLayout:{layoutName}";
 
         ShowStatus($"Layout captured \u2014 PreAction set to \"LoadLayout:{layoutName}\".");
+    }
+
+    private void StartPickMode()
+    {
+        var mainWindow = Owner;
+        if (mainWindow is null) return;
+
+        Visibility = Visibility.Hidden;
+
+        var overlay = new Window
+        {
+            WindowStyle               = WindowStyle.None,
+            AllowsTransparency        = true,
+            Background                = new SolidColorBrush(Color.FromArgb(0x10, 0, 0, 0)),
+            Topmost                   = true,
+            ShowInTaskbar             = false,
+            Cursor                    = Cursors.Cross,
+            Left                      = mainWindow.Left,
+            Top                       = mainWindow.Top,
+            Width                     = mainWindow.ActualWidth,
+            Height                    = mainWindow.ActualHeight,
+            WindowStartupLocation     = WindowStartupLocation.Manual,
+        };
+
+        var hint = new TextBlock
+        {
+            Text                = "Click any element to select it as the tour target · Esc to cancel",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Top,
+            Margin              = new Thickness(0, 12, 0, 0),
+            Padding             = new Thickness(12, 6, 12, 6),
+            Background          = new SolidColorBrush(Color.FromArgb(0xCC, 30, 30, 30)),
+            Foreground          = Brushes.White,
+            FontSize            = 13,
+        };
+        overlay.Content = hint;
+
+        overlay.MouseLeftButtonUp += (_, e) =>
+        {
+            var pos = e.GetPosition(mainWindow);
+            overlay.Close();
+            Visibility = Visibility.Visible;
+            Activate();
+
+            var hit = VisualTreeHelper.HitTest(mainWindow, pos);
+            if (hit?.VisualHit is DependencyObject hitObj)
+            {
+                DependencyObject? current = hitObj;
+                while (current is not null)
+                {
+                    if (current is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+                    {
+                        _targetControlBox.Text = fe.Name;
+                        PushLivePreview();
+                        break;
+                    }
+                    current = VisualTreeHelper.GetParent(current);
+                }
+            }
+        };
+
+        overlay.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                overlay.Close();
+                Visibility = Visibility.Visible;
+                Activate();
+            }
+        };
+
+        overlay.Show();
+        overlay.Focus();
     }
 
     private void BrowseForControl()

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 
@@ -48,14 +49,41 @@ public static class VisualTreeSearch
     /// Returns the first <see cref="FrameworkElement"/> descendant whose
     /// <see cref="FrameworkElement.Name"/> equals <paramref name="name"/>,
     /// found by depth-first visual-tree traversal, or <c>null</c>.
+    /// <para>
+    /// Supports an index-selector suffix: <c>"ControlName[N]"</c> finds the element named
+    /// <c>ControlName</c> and then returns the Nth (0-based) item container (for an
+    /// <see cref="ItemsControl"/>) or the Nth visual child (for a <see cref="Panel"/>).
+    /// </para>
     /// </summary>
     public static FrameworkElement? FindByName(DependencyObject root, string name)
+    {
+        // Index-selector: "SomeName[N]"
+        int bracketOpen = name.IndexOf('[');
+        if (bracketOpen > 0 && name.EndsWith(']'))
+        {
+            var baseName  = name[..bracketOpen];
+            var indexStr  = name[(bracketOpen + 1)..^1];
+            if (int.TryParse(indexStr, out int index) && index >= 0)
+            {
+                var baseElement = FindByNameCore(root, baseName);
+                if (baseElement is ItemsControl ic)
+                    return ic.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
+                if (baseElement is Panel panel && index < panel.Children.Count)
+                    return panel.Children[index] as FrameworkElement;
+            }
+            return null;
+        }
+
+        return FindByNameCore(root, name);
+    }
+
+    private static FrameworkElement? FindByNameCore(DependencyObject root, string name)
     {
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {
             var child = VisualTreeHelper.GetChild(root, i);
             if (child is FrameworkElement fe && fe.Name == name) return fe;
-            var result = FindByName(child, name);
+            var result = FindByNameCore(child, name);
             if (result is not null) return result;
         }
         return null;
