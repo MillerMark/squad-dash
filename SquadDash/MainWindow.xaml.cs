@@ -13686,10 +13686,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourCommandRegistry.Register("Add Dummy Queue Items", () =>
         {
             for (int i = 1; i <= 3; i++)
-                _promptQueue.Enqueue(
-                    $"[Tour Demo Item {i}]",
-                    ++_promptQueueSeq,
-                    sourceTag: DummyTag);
+            {
+                var dummyItem = new PromptQueueItem
+                {
+                    Text           = $"[Tour Demo Item {i}]",
+                    SequenceNumber = ++_promptQueueSeq,
+                    QueueNumber    = NextQueueNumber(),
+                    SourceTag      = DummyTag
+                };
+                _promptQueue.EnqueueItem(dummyItem);
+            }
             SyncQueuePanel();
         });
 
