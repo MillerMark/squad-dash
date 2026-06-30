@@ -18,7 +18,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        StripInboxMessageBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))).TrimEnd();
+        RepairFusedProseBoundaries(StripInboxMessageBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -54,6 +54,51 @@ internal static class TranscriptTextUtilities
             return;
 
         builder.Append(lineFeedCount == 1 ? "\n" : "\n\n");
+    }
+
+    internal static string RepairFusedProseBoundaries(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+
+        StringBuilder? builder = null;
+        var inFence = false;
+        var inlineCodeTicks = 0;
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (text[index] == '`')
+            {
+                var tickCount = CountBacktickRun(text, index);
+                if (tickCount >= 3 && IsFenceDelimiterAt(text, index))
+                {
+                    AppendRange(ref builder, text, index, tickCount);
+                    inFence = !inFence;
+                    index += tickCount - 1;
+                    continue;
+                }
+
+                if (!inFence)
+                    inlineCodeTicks = inlineCodeTicks == tickCount ? 0 : inlineCodeTicks == 0 ? tickCount : inlineCodeTicks;
+
+                AppendRange(ref builder, text, index, tickCount);
+                index += tickCount - 1;
+                continue;
+            }
+
+            builder?.Append(text[index]);
+
+            if (inFence || inlineCodeTicks > 0 || !IsFusionPunctuation(text[index]))
+                continue;
+
+            if (!ShouldRepairFusedBoundary(text, index))
+                continue;
+
+            builder ??= new StringBuilder(text.Length + 8).Append(text, 0, index + 1);
+            builder.Append(' ');
+        }
+
+        return builder?.ToString() ?? text;
     }
 
     internal static string FormatThinkingText(string? text)
@@ -249,6 +294,101 @@ internal static class TranscriptTextUtilities
 
     private static string RemoveQuickReplySuffix(string text) =>
         QuickReplyOptionParser.TryExtract(text, out var body, out _) ? body : text;
+
+    private static bool ShouldRepairFusedBoundary(string text, int punctuationIndex)
+    {
+        if (punctuationIndex <= 0 || punctuationIndex >= text.Length - 1)
+            return false;
+
+        var punctuation = text[punctuationIndex];
+        var previous = text[punctuationIndex - 1];
+        var next = text[punctuationIndex + 1];
+
+        if (char.IsWhiteSpace(next))
+            return false;
+
+        if (!char.IsLetterOrDigit(previous) && previous is not ')' and not ']' and not '}' and not '"' and not '\'' and not '`')
+            return false;
+
+        if ((punctuation == '.' || punctuation == ':') &&
+            (char.IsDigit(previous) || char.IsDigit(next)))
+            return false;
+
+        if (punctuation == '.' && (previous == '.' || next == '.'))
+            return false;
+
+        if (punctuation == ':' && (next == '/' || next == '\\'))
+            return false;
+
+        if (IsInsideUrlToken(text, punctuationIndex))
+            return false;
+
+        var nextLetter = FindNextBoundaryLetter(text, punctuationIndex + 1);
+        if (nextLetter is null)
+            return false;
+
+        return char.IsUpper(nextLetter.Value);
+    }
+
+    private static bool IsInsideUrlToken(string text, int index)
+    {
+        var tokenStart = index;
+        while (tokenStart > 0 && !char.IsWhiteSpace(text[tokenStart - 1]))
+            tokenStart--;
+
+        var tokenEnd = index + 1;
+        while (tokenEnd < text.Length && !char.IsWhiteSpace(text[tokenEnd]))
+            tokenEnd++;
+
+        var token = text.AsSpan(tokenStart, tokenEnd - tokenStart);
+        return token.Contains("://".AsSpan(), StringComparison.Ordinal);
+    }
+
+    private static char? FindNextBoundaryLetter(string text, int start)
+    {
+        for (var index = start; index < text.Length; index++)
+        {
+            var ch = text[index];
+            if (ch is '*' or '_' or '~' or '`')
+                continue;
+
+            return char.IsLetter(ch) ? ch : null;
+        }
+
+        return null;
+    }
+
+    private static bool IsFusionPunctuation(char ch) =>
+        ch is '.' or ':' or '!' or '?';
+
+    private static int CountBacktickRun(string text, int start)
+    {
+        var index = start;
+        while (index < text.Length && text[index] == '`')
+            index++;
+
+        return index - start;
+    }
+
+    private static bool IsFenceDelimiterAt(string text, int index)
+    {
+        var lineStart = text.LastIndexOf('\n', Math.Max(0, index - 1));
+        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+
+        for (var cursor = lineStart; cursor < index; cursor++)
+            if (!char.IsWhiteSpace(text[cursor]))
+                return false;
+
+        return true;
+    }
+
+    private static void AppendRange(ref StringBuilder? builder, string text, int start, int length)
+    {
+        if (builder is null)
+            return;
+
+        builder.Append(text, start, length);
+    }
 
     private static int CountTrailingLineFeeds(StringBuilder builder)
     {

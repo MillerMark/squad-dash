@@ -151,6 +151,44 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RepairsFusedResponseTextAndSegments() {
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var finishedAt = DateTimeOffset.UtcNow;
+
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-123",
+                finishedAt,
+                null,
+                Array.Empty<string>(),
+                [
+                    new TranscriptTurnRecord(
+                        startedAt,
+                        finishedAt,
+                        "fix transcript",
+                        string.Empty,
+                        "The fix: update the helper.Now run tests.",
+                        true,
+                        Array.Empty<TranscriptToolRecord>(),
+                        ResponseSegments: [
+                            new TranscriptResponseSegmentRecord("ApplyQueueTabActiveState:Now add the helper method:Committed") {
+                                Sequence = 1
+                            }
+                        ])
+                ]));
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.Turns[0].ResponseText, Is.EqualTo("The fix: update the helper. Now run tests."));
+            Assert.That(
+                loaded.Turns[0].GetResponseSegments()[0].Text,
+                Is.EqualTo("ApplyQueueTabActiveState: Now add the helper method: Committed"));
+        });
+    }
+
+    [Test]
     public void Save_PrunesTurnsOlderThanRetentionAndKeepsNewestTwoHundred() {
         var now = DateTimeOffset.UtcNow;
         var turns = Enumerable.Range(0, 205)

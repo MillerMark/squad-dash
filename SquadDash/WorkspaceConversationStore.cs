@@ -423,7 +423,8 @@ internal sealed class WorkspaceConversationStore {
             .Select(NormalizeThought)
             .ToArray();
         var responseSegments = turn.GetResponseSegments()
-            .Select(segment => new TranscriptResponseSegmentRecord(segment.Text.TrimEnd()) {
+            .Select(segment => new TranscriptResponseSegmentRecord(
+                TranscriptTextUtilities.RepairFusedProseBoundaries(segment.Text).TrimEnd()) {
                 Sequence = NormalizeSequence(segment.Sequence)
             })
             .ToArray();
@@ -513,7 +514,7 @@ internal sealed class WorkspaceConversationStore {
             turn.CompletedAt?.ToUniversalTime(),
             turn.Prompt.Trim(),
             turn.ThinkingText.Trim(),
-            turn.ResponseText.TrimEnd(),
+            TranscriptTextUtilities.RepairFusedProseBoundaries(turn.ResponseText).TrimEnd(),
             turn.ThinkingCollapsed,
             tools,
             thoughts,

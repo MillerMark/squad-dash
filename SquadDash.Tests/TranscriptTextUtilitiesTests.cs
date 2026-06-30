@@ -180,4 +180,45 @@ internal sealed class TranscriptTextUtilitiesTests {
             sanitized,
             Is.EqualTo("Doing this myself because it's a quick code fix with a small, well-defined scope.\n\nLet me read the relevant lines from all three files:"));
     }
+
+    [Test]
+    public void SanitizeResponseText_RepairsObviousFusedProseBoundaries() {
+        const string text = "The fix: update the helper.Now I'll run tests.ApplyQueueTabActiveState:Now add the helper method:Committed";
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(
+            sanitized,
+            Is.EqualTo("The fix: update the helper. Now I'll run tests. ApplyQueueTabActiveState: Now add the helper method: Committed"));
+    }
+
+    [Test]
+    public void SanitizeResponseText_DoesNotRepairInsideInlineCodeOrFencedCode() {
+        const string text = """
+            Keep `helper.Now` unchanged.
+
+            ```
+            ApplyQueueTabActiveState:Now
+            ```
+
+            But repair outside:Now.
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Does.Contain("`helper.Now`"));
+        Assert.That(sanitized, Does.Contain("ApplyQueueTabActiveState:Now"));
+        Assert.That(sanitized, Does.Contain("outside: Now."));
+    }
+
+    [Test]
+    public void SanitizeResponseText_DoesNotRepairUrlsPathsOrNumbers() {
+        const string text = "Open https://example.com/a.B and C:\\Temp\\file. Version 1.2:3 stays. Then fix:Now.";
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(
+            sanitized,
+            Is.EqualTo("Open https://example.com/a.B and C:\\Temp\\file. Version 1.2:3 stays. Then fix: Now."));
+    }
 }

@@ -13801,7 +13801,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void StartTypeIntoPromptAnimation(string text, TypeIntoPromptMode mode)
     {
         StopTypeIntoPromptAnimation(); // cancel any in-progress animation
-        SetPromptTextBoxLogicalBuffer(string.Empty, 0, reason: "tour-type-start");
+
+        // Only type if the prompt box (or active queue tab) is currently empty.
+        var currentText = _activeTabId is null
+            ? PromptTextBox.Text
+            : (_promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId)?.Text ?? string.Empty);
+        if (!string.IsNullOrEmpty(currentText))
+            return;
+
         var charIndex = 0;
         _typeIntoPromptTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _typeIntoPromptTimer.Tick += (_, _) =>
