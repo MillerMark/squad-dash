@@ -13716,13 +13716,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
         {
-            // Format: "text to type" or "text to type|Sim"
-            var parts = arg.Split('|', 2);
-            var text  = parts[0];
-            var mode  = parts.Length > 1 && Enum.TryParse<TypeIntoPromptMode>(parts[1].Trim(), ignoreCase: true, out var m)
-                ? m
-                : TypeIntoPromptMode.Draft;
-            StartTypeIntoPromptAnimation(text, mode);
+            // Format: "text to type" (mode parameter is accepted but ignored — always Draft)
+            var text = arg.Split('|', 2)[0];
+            StartTypeIntoPromptAnimation(text);
         });
 
         _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
@@ -13798,7 +13794,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _typeIntoPromptTimer = null;
     }
 
-    private void StartTypeIntoPromptAnimation(string text, TypeIntoPromptMode mode)
+    private void StartTypeIntoPromptAnimation(string text)
     {
         StopTypeIntoPromptAnimation(); // cancel any in-progress animation
 
@@ -13820,19 +13816,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             else
             {
                 StopTypeIntoPromptAnimation();
-                if (mode == TypeIntoPromptMode.Sim)
-                {
-                    var simItem = new PromptQueueItem
-                    {
-                        Text           = text,
-                        SequenceNumber = ++_promptQueueSeq,
-                        IsSimEntry     = true,
-                        SourceTag      = "guided-tour-sim",
-                    };
-                    _promptQueue.EnqueueItem(simItem);
-                    ClearPromptTextBoxLogicalBuffer("tour-type-sim-enqueue");
-                    SyncQueuePanel();
-                }
             }
         };
         _typeIntoPromptTimer.Start();
