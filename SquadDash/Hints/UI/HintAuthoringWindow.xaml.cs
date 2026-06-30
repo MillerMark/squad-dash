@@ -115,6 +115,7 @@ internal partial class HintAuthoringWindow : Window
 
         _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
             MarkdownEditor.Text, target, theme: theme, fontSize: fontSize);
+        if (_previewCallout is null) return;
         _previewCallout.IsSticky = true;
         _previewCalloutClosedByUser = false;
         _previewCallout.Closed += (_, _) =>
@@ -265,6 +266,7 @@ internal partial class HintAuthoringWindow : Window
             _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
                 hint.MarkdownText, _targetElement,
                 theme: theme, fontSize: fontSize);
+            if (_previewCallout is null) { SyncTestButton(); return; }
             _previewCallout.IsSticky = true;
             _previewCalloutClosedByUser = false;
             _previewCallout.Closed += (_, _) =>

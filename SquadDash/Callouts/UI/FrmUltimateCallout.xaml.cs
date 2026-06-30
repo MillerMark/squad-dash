@@ -19,13 +19,13 @@ namespace SquadDash;
 /// Interaction logic for FrmUltimateCallout.xaml
 /// </summary>
 public partial class FrmUltimateCallout : Window, ICalloutWindow {
-    public event EventHandler RefreshTargetRect;
-    public event EventHandler AngleChanged;
-    DispatcherTimer waitingForMouseUpTimer;
-    DispatcherTimer calloutAnimationTimer;
+    public event EventHandler? RefreshTargetRect;
+    public event EventHandler? AngleChanged;
+    DispatcherTimer? waitingForMouseUpTimer;
+    DispatcherTimer? calloutAnimationTimer;
     private const double indicatorMargin = 10d;
-    SolidColorBrush calloutStrokeBrush;
-    SolidColorBrush calloutFillBrush;
+    SolidColorBrush calloutStrokeBrush = null!;
+    SolidColorBrush calloutFillBrush = null!;
     System.Windows.Shapes.Path? _mainCalloutPath;
     System.Windows.Shapes.Path? _tourGlowPath;
     DropShadowEffect? _tourGlowEffect;
@@ -335,7 +335,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
     }
 
-    void OnSettled_TourOverlay(object sender, EventArgs e)
+    void OnSettled_TourOverlay(object? sender, EventArgs e)
     {
         if (_tourOverlay is null) return;
         _tourOverlay.EnsureLayout();
@@ -391,7 +391,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourOverlay.PositionNear(GetCalloutScreenBounds(), _lastDangleSide);
     }
 
-    void OnDragStarted_TourOverlay(object sender, EventArgs e) => _tourOverlay?.HideImmediate();
+    void OnDragStarted_TourOverlay(object? sender, EventArgs e) => _tourOverlay?.HideImmediate();
 
     void CloseTourOverlay()
     {
@@ -475,7 +475,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _mainCalloutPath.StrokeThickness = 3;
     }
 
-    private void AddCalloutPathToBackOfCanvas(SolidColorBrush calloutStrokeBrush, int thickness, SolidColorBrush calloutFillBrush, double offsetX = 0, double offsetY = 0) {
+    private void AddCalloutPathToBackOfCanvas(SolidColorBrush? calloutStrokeBrush, int thickness, SolidColorBrush calloutFillBrush, double offsetX = 0, double offsetY = 0) {
         System.Windows.Shapes.Path calloutPath = new System.Windows.Shapes.Path() {
             Stroke = calloutStrokeBrush,
             StrokeThickness = thickness,
@@ -528,13 +528,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void LayoutText() {
         UnloadMarkdownViewer(markdownViewer);
-        markdownViewer.Height = topExtension + calloutHeight + bottomExtension;
+        markdownViewer!.Height = topExtension + calloutHeight + bottomExtension;
         Canvas.SetLeft(markdownViewer, GetMarkdownLeft());
         Canvas.SetTop(markdownViewer, GetMarkdownTop());
         cvsCallout.Children.Add(markdownViewer);
     }
 
-    private void UnloadMarkdownViewer(Control markdownControl) {
+    private void UnloadMarkdownViewer(Control? markdownControl) {
         if (markdownControl != null)
             markdownControl.Loaded -= MarkdownViewer_Loaded;
     }
@@ -548,9 +548,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     private Control LoadMarkdownViewer() {
         CreateMarkdownViewer();
+        markdownViewer!.Padding = new Thickness(0);
         LoadStyles(markdownViewer);
         SetMarkDown(markdownViewer, markDownText);
-        markdownViewer.Padding = new Thickness(0);
         markdownViewer.Margin = new Thickness(GetMarkdownMargin());
         markdownViewer.IsHitTestVisible = false;
         markdownViewer.Width = leftExtension + calloutWidth + rightExtension + GetMarkdownWidthAdjust();
@@ -574,7 +574,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         return calloutLeft + Options.CornerRadius - leftExtension + GetMarkdownHorizontalOffset();
     }
 
-    void ShowFlowDocumentDiagnostics(FlowDocument flowDocument) {
+    void ShowFlowDocumentDiagnostics(FlowDocument? flowDocument) {
         if (markdownViewer == null)
             return;
 
@@ -1127,7 +1127,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         PlaceCloseButton();
         LayoutText();
 
-        if (showDiagnostics) {
+        if (showDiagnostics && markdownViewer is not null) {
             ShowFlowDocumentDiagnostics(GetDocument(markdownViewer));
         }
 
@@ -1169,14 +1169,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         markdownControl.Resources.MergedDictionaries.Add(myResourceDictionary);
     }
 
-    Window targetParentWindow;
+    Window? targetParentWindow;
     bool layoutValid;
     double calloutWidth;
     double calloutHeight;
     double calloutLeft;
     double calloutTop;
-    string markDownText;
-    FrameworkElement frameworkElementTarget;
+    string markDownText = string.Empty;
+    FrameworkElement? frameworkElementTarget;
     Point targetCenter;
     Point trianglePoint1;
     Point trianglePoint2;
@@ -1185,7 +1185,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     Point calloutCenter;
     double lastCalloutAngle;
     Point closestIntersectingPoint;
-    Control markdownViewer;
+    Control? markdownViewer;
     double calculatedHeight;
     double targetParentLeft;
     double targetParentTop;
@@ -1220,7 +1220,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         rectTarget = targetRect;
     }
 
-    private void TargetParentWindow_LocationChanged(object sender, EventArgs e) {
+    private void TargetParentWindow_LocationChanged(object? sender, EventArgs e) {
         WindowsLocationChanged();
     }
 
@@ -1246,15 +1246,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         targetParentWindow.StateChanged += TargetParentWindow_StateChanged;
     }
 
-    private void TargetParentWindow_StateChanged(object sender, EventArgs e) {
+    private void TargetParentWindow_StateChanged(object? sender, EventArgs e) {
         WindowsLocationChanged();
     }
 
-    private void TargetParentWindow_Deactivated(object sender, EventArgs e) {
+    private void TargetParentWindow_Deactivated(object? sender, EventArgs e) {
         CheckTopMostWindow();
     }
 
-    private void TargetParentWindow_Activated(object sender, EventArgs e) {
+    private void TargetParentWindow_Activated(object? sender, EventArgs e) {
         CheckTopMostWindow();
     }
 
@@ -1368,7 +1368,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// When <paramref name="placement"/> is <see cref="CalloutPlacement.Auto"/> (default), chooses
     /// the horizontal side with more screen space. Otherwise uses the specified preferred placement.
     /// </summary>
-    public static FrmUltimateCallout ShowCalloutBesideTarget(
+    public static FrmUltimateCallout? ShowCalloutBesideTarget(
         string markDownText,
         FrameworkElement target,
         double width = 300,
@@ -1379,7 +1379,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         if (!target.IsVisible || target.ActualWidth <= 0 || target.ActualHeight <= 0)
             return null;
         var callout = CreateNewCallout(markDownText, width, theme, fontSize);
-        callout.Options.TargetSpacing = fontSize / 2;
         callout.PointTo(target);
         double angle = placement == CalloutPlacement.Auto
             ? callout.GetBestSideAngle()
@@ -1527,7 +1526,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         LayoutEverything();
     }
 
-    private void ParentWindow_Closed(object sender, EventArgs e) {
+    private void ParentWindow_Closed(object? sender, EventArgs e) {
         Close();
     }
 
@@ -1712,12 +1711,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             $"GetTrianglePoints: DANGLE drawn — tp1=({trianglePoint1.X:F1},{trianglePoint1.Y:F1}) tp2=({trianglePoint2.X:F1},{trianglePoint2.Y:F1}) tp3=({trianglePoint3.X:F1},{trianglePoint3.Y:F1})");
     }
 
-    void MouseUpCheck(object sender, EventArgs e) {
+    void MouseUpCheck(object? sender, EventArgs e) {
         if (GetMouseIsDown())
             return;
 
         _dragInProgress = false;
-        waitingForMouseUpTimer.Stop();
+        waitingForMouseUpTimer?.Stop();
         ActivateParentWindow();
         StartAnimatingTowardTarget();
     }
@@ -1816,7 +1815,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 OnAngleChanged(this, EventArgs.Empty);
         }
     }
-    void MoveTheCallout(object sender, EventArgs e) {
+    void MoveTheCallout(object? sender, EventArgs e) {
         double timeSpanSinceAnimationStartMs = (DateTime.Now - animationStartTime).TotalMilliseconds;
 
         bool reachedEndOfAnimation = timeSpanSinceAnimationStartMs > Options.AnimationTimeMs;
@@ -1885,7 +1884,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     }
 
-    FlowDocument GetDocument(Control control) {
+    FlowDocument? GetDocument(Control control) {
         if (control is SimpleMarkdownViewer simpleMarkdownViewer)
             return simpleMarkdownViewer.Document;
 
@@ -1894,11 +1893,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void MarkdownViewer_Loaded(object sender, RoutedEventArgs e) {
-        Control markdownControl = sender as Control;
+        Control? markdownControl = sender as Control;
         if (markdownControl == null)
             return;
 
-        FlowDocument flowDocument = GetDocument(markdownControl);
+        FlowDocument? flowDocument = GetDocument(markdownControl);
 
         if (flowDocument != null)
             SquadDashTrace.Write(TraceCategory.UI, $"[Callout] MarkdownViewer_Loaded: markdownControl.FontSize={markdownControl.FontSize:F1}, flowDocument.FontSize={flowDocument.FontSize:F1}, doc.Parent={flowDocument.Parent?.GetType().Name ?? "null"}");
@@ -1909,7 +1908,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 calculatedHeight = CalculateFlowDocumentHeight(flowDocument);
                 if (flowDocument.Parent is FlowDocumentScrollViewer flowDocumentScrollViewer) {
                     SquadDashTrace.Write(TraceCategory.UI, $"[Callout] MarkdownViewer_Loaded: FlowDocumentScrollViewer.FontSize={flowDocumentScrollViewer.FontSize:F1}");
-                    double originalMarkdownWidth = markdownViewer.Width;
+                    double originalMarkdownWidth = markdownViewer!.Width;
                     double lastGoodWidth = markdownViewer.Width;
                     int numTries = 0;
                     while (numTries < 300 && markdownViewer.Width > 10) {

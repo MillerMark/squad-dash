@@ -92,7 +92,7 @@ public class SimpleMarkdownViewer : Control {
         }
     }
 
-    Block AddParagraph(FlowDocument flowDocument, string paragraphText, Block lastBlock) {
+    Block? AddParagraph(FlowDocument flowDocument, string paragraphText, Block? lastBlock) {
         string cleanParagraphText = paragraphText.Trim();
         if (string.IsNullOrWhiteSpace(cleanParagraphText))
             return lastBlock;
@@ -100,7 +100,7 @@ public class SimpleMarkdownViewer : Control {
         const string listItemStart = "* ";
         if (paragraphText.StartsWith(listItemStart)) {
             string listItemStr = paragraphText.Substring(listItemStart.Length);
-            Block listItemContents = AddParagraph(flowDocument, listItemStr, null);
+            Block? listItemContents = AddParagraph(flowDocument, listItemStr, null);
             if (listItemContents is Paragraph paragraphContents) {
                 ListItem listItem = new ListItem(paragraphContents);
                 SetStyle(listItem, Styles.ListItemKey);
@@ -154,7 +154,7 @@ public class SimpleMarkdownViewer : Control {
         SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateFlowDocumentFromMarkdown: flowDocument.FontSize={flowDocument.FontSize:F1} (after SetStyle)");
 
         string[] paragraphs = ConvertEscapedCharacters().Split('\n');
-        Block lastBlock = null;
+        Block? lastBlock = null;
         foreach (string paragraph in paragraphs)
             lastBlock = AddParagraph(flowDocument, paragraph, lastBlock);
 

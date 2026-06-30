@@ -3,8 +3,8 @@ using System.Windows;
 
 namespace SquadDash;
 public interface ICalloutWindow {
-    event EventHandler RefreshTargetRect;
-    event EventHandler AngleChanged;
+    event EventHandler? RefreshTargetRect;
+    event EventHandler? AngleChanged;
     bool ShowDiagnostics { get; set; }
     void UpdateTargetRect(Rect rect);
     void TargetMoved();
