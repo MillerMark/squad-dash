@@ -73,6 +73,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ["FontSizeLarge"]    = 15,
             ["FontSizeLargePlus"]= 16,
             ["FontSizeSubtitle"] = 18,
+            ["FontSizeCallout"]  = 18,
             ["FontSizeTitle"]    = 20,
             ["FontSizeHeading"]  = 22,
             ["FontSizeHero"]     = 52,
