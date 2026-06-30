@@ -1310,7 +1310,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     {
         var callout = CreateNewCallout(markdownText, width, CalloutTheme.Light, fontSize);
         callout.Options.HideDangle = true;
-        callout.Options.AnimateAppearance = true;
+        // No slide animation — we override position after layout (ContentRendered), and an
+        // animation timer would fight the override if AnimateAppearance were true.
+        callout.Options.AnimateAppearance = false;
 
         var source = PresentationSource.FromVisual(ownerWindow);
         Rect screenRect;
@@ -1337,14 +1339,22 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         // Virtual 1×1 target at screen center — satisfies internal state; dangle is suppressed.
         var virtualTarget = new Rect(cx - 0.5, cy - 0.5, 1, 1);
         callout.PointTo(virtualTarget);
-        callout.SetAngle(double.MinValue);
+        callout.SetAngle(135);  // Fixed angle avoids DPI-sensitive GetBestAngleToTarget (angle irrelevant since dangle is hidden)
         callout.SetParentWindow(ownerWindow);
 
-        callout.Loaded += (_, _) =>
+        // ContentRendered fires after the first full layout pass (including ResumeCalloutConstruction),
+        // so ActualWidth/ActualHeight are correct here — unlike Loaded which fires before markdown layout.
+        EventHandler? onRendered = null;
+        onRendered = (_, _) =>
         {
-            callout.Left = cx - callout.ActualWidth  / 2;
-            callout.Top  = cy - callout.ActualHeight / 2;
+            callout.ContentRendered -= onRendered;
+            if (callout.ActualWidth > 0)
+            {
+                callout.Left = cx - callout.ActualWidth  / 2;
+                callout.Top  = cy - callout.ActualHeight / 2;
+            }
         };
+        callout.ContentRendered += onRendered;
 
         callout.FinalizeAndShow();
         return callout;

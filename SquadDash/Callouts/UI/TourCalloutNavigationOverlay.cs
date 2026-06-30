@@ -1,8 +1,8 @@
 using System;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Controls;
 using System.Windows.Media.Animation;
 using SquadDash.GuidedTours;
 
@@ -12,8 +12,7 @@ namespace SquadDash;
 /// A floating, chrome-less navigation overlay that sits near the active tour callout.
 /// Fires <see cref="PrevClicked"/> and <see cref="NextClicked"/> so the controller can advance the tour.
 /// </summary>
-internal sealed class TourCalloutNavigationOverlay : Window
-{
+internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? PrevClicked;
     public event EventHandler? NextClicked;
     public event EventHandler? EditClicked;
@@ -32,11 +31,9 @@ internal sealed class TourCalloutNavigationOverlay : Window
     private Border? _editButton;
 
     private bool _isDevModeVisible;
-    public bool IsDevModeVisible
-    {
+    public bool IsDevModeVisible {
         get => _isDevModeVisible;
-        set
-        {
+        set {
             _isDevModeVisible = value;
             if (_editButton is not null)
                 _editButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
@@ -54,40 +51,35 @@ internal sealed class TourCalloutNavigationOverlay : Window
     // Button appearance uses theme resources (InputSurface / HoverSurface / LabelText)
     // so it adapts to light/dark mode automatically.
 
-    public TourCalloutNavigationOverlay()
-    {
-        WindowStyle        = WindowStyle.None;
+    public TourCalloutNavigationOverlay() {
+        WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
-        Background         = Brushes.Transparent;
-        ShowInTaskbar      = false;
-        Topmost            = true;
-        ShowActivated      = false;
-        ResizeMode         = ResizeMode.NoResize;
-        SizeToContent      = SizeToContent.WidthAndHeight;
-        Opacity            = 0;
-        Title              = string.Empty;
+        Background = Brushes.Transparent;
+        ShowInTaskbar = false;
+        Topmost = true;
+        ShowActivated = false;
+        ResizeMode = ResizeMode.NoResize;
+        SizeToContent = SizeToContent.WidthAndHeight;
+        Opacity = 0;
+        Title = string.Empty;
 
         BuildContent();
 
         // When the user clicks Next, record the advance globally and hide the label
         // once they've clicked enough times to be considered familiar with the control.
-        NextClicked += (_, _) =>
-        {
+        NextClicked += (_, _) => {
             GuidedTourStateStore.Shared.RecordTourNavAdvance();
             if (_nextLabel is not null
-                && GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3)
-            {
+                && GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3) {
                 _nextLabel.Visibility = Visibility.Collapsed;
             }
         };
     }
 
-    private void BuildContent()
-    {
-        var panel = new StackPanel
-        {
+    private void BuildContent() {
+        var panel = new StackPanel {
             Orientation = Orientation.Horizontal,
-            Margin      = new Thickness(4),
+            Margin = new Thickness(4),
         };
 
         _editButton = BuildEditButton();
@@ -107,53 +99,47 @@ internal sealed class TourCalloutNavigationOverlay : Window
     // visible button edge to the callout boundary instead of the window edge.
     private const double PanelMargin = 4;
 
-    private Border BuildButton(bool isPrev)
-    {
-        var border = new Border
-        {
-            Width            = isPrev ? PrevButtonWidth : NextButtonWidth,
-            Height           = ButtonHeight,
-            CornerRadius     = new CornerRadius(4),
-            BorderThickness  = new Thickness(1),
+    private Border BuildButton(bool isPrev) {
+        var border = new Border {
+            Width = isPrev ? PrevButtonWidth : NextButtonWidth,
+            Height = ButtonHeight,
+            CornerRadius = new CornerRadius(4),
+            BorderThickness = new Thickness(1),
             IsHitTestVisible = true,
-            Cursor           = Cursors.Hand,
-            ToolTip          = isPrev
+            Cursor = Cursors.Hand,
+            ToolTip = isPrev
                 ? "Click or press Backspace to go to the previous step."
                 : "Click or press Enter to go to the next step.",
         };
-        border.SetResourceReference(Border.BackgroundProperty,   "InputSurface");
-        border.SetResourceReference(Border.BorderBrushProperty,  "CalloutBorder");
+        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
-        border.MouseEnter        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        border.MouseLeave        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
-        border.MouseLeftButtonUp += (_, e) =>
-        {
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
             if (isPrev) PrevClicked?.Invoke(this, EventArgs.Empty);
-            else        NextClicked?.Invoke(this, EventArgs.Empty);
+            else NextClicked?.Invoke(this, EventArgs.Empty);
         };
 
-        var inner = new StackPanel
-        {
-            Orientation         = Orientation.Horizontal,
+        var inner = new StackPanel {
+            Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment   = VerticalAlignment.Center,
-            IsHitTestVisible    = false,
-            Margin              = isPrev ? new Thickness(0) : new Thickness(3, 0, 3, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Margin = isPrev ? new Thickness(0) : new Thickness(3, 0, 3, 0),
         };
 
         inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev));
 
-        if (!isPrev)
-        {
-            var label = new TextBlock
-            {
-                Text              = "Next",
-                FontSize          = 12,
-                Margin            = new Thickness(4, 0, 0, 0),
+        if (!isPrev) {
+            var label = new TextBlock {
+                Text = "Next",
+                FontSize = 12,
+                Margin = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                IsHitTestVisible  = false,
-                Visibility        = GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3
+                IsHitTestVisible = false,
+                Visibility = GuidedTourStateStore.Shared.TourNavAdvanceCount >= 3
                                         ? Visibility.Collapsed : Visibility.Visible,
             };
             label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
@@ -165,28 +151,25 @@ internal sealed class TourCalloutNavigationOverlay : Window
         return border;
     }
 
-    private Border BuildEditButton()
-    {
-        var border = new Border
-        {
-            Width            = PrevButtonWidth,
-            Height           = ButtonHeight,
-            CornerRadius     = new CornerRadius(4),
-            BorderThickness  = new Thickness(1),
+    private Border BuildEditButton() {
+        var border = new Border {
+            Width = PrevButtonWidth,
+            Height = ButtonHeight,
+            CornerRadius = new CornerRadius(4),
+            BorderThickness = new Thickness(1),
             IsHitTestVisible = true,
-            Cursor           = Cursors.Hand,
-            Visibility       = Visibility.Collapsed,
-            ToolTip          = "Click to edit step.\nAlt+Click to add a new step after this one.\nCtrl+Click to add a new step before this step.",
+            Cursor = Cursors.Hand,
+            Visibility = Visibility.Collapsed,
+            ToolTip = "Click to edit step.\nAlt+Click to add a new step after this one.\nCtrl+Click to add a new step before this step.",
         };
-        border.SetResourceReference(Border.BackgroundProperty,  "InputSurface");
+        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
-        border.MouseEnter        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        border.MouseLeave        += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
-        border.MouseLeftButtonUp += (_, e) =>
-        {
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
-            bool isAlt  = Keyboard.IsKeyDown(Key.LeftAlt)  || Keyboard.IsKeyDown(Key.RightAlt);
+            bool isAlt = Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt);
             bool isCtrl = Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
             if (isAlt)
                 NewStepAfterClicked?.Invoke(this, EventArgs.Empty);
@@ -196,13 +179,12 @@ internal sealed class TourCalloutNavigationOverlay : Window
                 EditClicked?.Invoke(this, EventArgs.Empty);
         };
 
-        var pencil = new TextBlock
-        {
-            Text                = "✎",
-            FontSize            = 14,
+        var pencil = new TextBlock {
+            Text = "✎",
+            FontSize = 14,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment   = VerticalAlignment.Center,
-            IsHitTestVisible    = false,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
         };
         pencil.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
@@ -210,23 +192,20 @@ internal sealed class TourCalloutNavigationOverlay : Window
         return border;
     }
 
-    private static UIElement BuildArrowIcon(bool flipHorizontal)
-    {
+    private static UIElement BuildArrowIcon(bool flipHorizontal) {
         var geometry = Geometry.Parse(NavRightPath);
-        var path = new System.Windows.Shapes.Path
-        {
-            Data             = geometry,
-            Stretch          = Stretch.Uniform,
-            Width            = 12,
-            Height           = 14,
+        var path = new System.Windows.Shapes.Path {
+            Data = geometry,
+            Stretch = Stretch.Uniform,
+            Width = 12,
+            Height = 14,
             IsHitTestVisible = false,
         };
         path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "LabelText");
 
-        if (flipHorizontal)
-        {
+        if (flipHorizontal) {
             path.RenderTransformOrigin = new Point(0.5, 0.5);
-            path.RenderTransform       = new ScaleTransform(-1, 1);
+            path.RenderTransform = new ScaleTransform(-1, 1);
         }
 
         return path;
@@ -237,14 +216,11 @@ internal sealed class TourCalloutNavigationOverlay : Window
     /// <see cref="ActualWidth"/> and <see cref="ActualHeight"/> are accurate before
     /// <see cref="PositionNear"/> is called.  Safe to call multiple times.
     /// </summary>
-    public void EnsureLayout()
-    {
-        if (!IsVisible)
-        {
+    public void EnsureLayout() {
+        if (!IsVisible) {
             Show();
             UpdateLayout();
-            if (ActualWidth <= 0)
-            {
+            if (ActualWidth <= 0) {
                 // A second pass is sometimes needed for SizeToContent windows to fully measure.
                 InvalidateMeasure();
                 UpdateLayout();
@@ -257,8 +233,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
     /// candidate that fits entirely on-screen. Falls back to screen-clamping.
     /// Priority: opposite side, edge-aligned → same side → other edges.
     /// </summary>
-    public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom)
-    {
+    public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom) {
         Rect visibleBounds = GetVisibleButtonBounds();
 
         const double gap = 6;
@@ -267,13 +242,13 @@ internal sealed class TourCalloutNavigationOverlay : Window
         // Some layered WPF windows can report extra non-visible width; using that width
         // here puts the Next button short of the callout edge by exactly that phantom space.
         double rightAlignX = calloutScreenRect.Right - visibleBounds.Right;
-        double leftAlignX  = calloutScreenRect.Left  - visibleBounds.Left;
-        double aboveY      = calloutScreenRect.Top    - gap - visibleBounds.Bottom;
-        double belowY      = calloutScreenRect.Bottom + gap - visibleBounds.Top;
-        double topAlignY   = calloutScreenRect.Top    - visibleBounds.Top;
+        double leftAlignX = calloutScreenRect.Left - visibleBounds.Left;
+        double aboveY = calloutScreenRect.Top - gap - visibleBounds.Bottom;
+        double belowY = calloutScreenRect.Bottom + gap - visibleBounds.Top;
+        double topAlignY = calloutScreenRect.Top - visibleBounds.Top;
         double bottomAlignY = calloutScreenRect.Bottom - visibleBounds.Bottom;
-        double rightSideX  = calloutScreenRect.Right + gap - visibleBounds.Left;
-        double leftSideX   = calloutScreenRect.Left  - gap - visibleBounds.Right;
+        double rightSideX = calloutScreenRect.Right + gap - visibleBounds.Left;
+        double leftSideX = calloutScreenRect.Left - gap - visibleBounds.Right;
 
         var screenBounds = GetMonitorBoundsForLogicalPoint(calloutScreenRect.TopLeft);
 
@@ -320,10 +295,8 @@ internal sealed class TourCalloutNavigationOverlay : Window
         };
 
         var chosen = candidates[candidates.Length - 1]; // fallback: last candidate
-        foreach (var c in candidates)
-        {
-            if (screenBounds.Contains(GetVisibleScreenRect(c, visibleBounds)))
-            {
+        foreach (var c in candidates) {
+            if (screenBounds.Contains(GetVisibleScreenRect(c, visibleBounds))) {
                 chosen = c;
                 break;
             }
@@ -335,8 +308,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
             chosen.Y, visibleBounds.Top, visibleBounds.Bottom, screenBounds.Top, screenBounds.Bottom);
     }
 
-    private Rect GetVisibleButtonBounds()
-    {
+    private Rect GetVisibleButtonBounds() {
         Rect? bounds = null;
         AddButtonBounds(_editButton, ref bounds);
         AddButtonBounds(_prevButton, ref bounds);
@@ -349,28 +321,23 @@ internal sealed class TourCalloutNavigationOverlay : Window
             ButtonHeight);
     }
 
-    private void AddButtonBounds(FrameworkElement? button, ref Rect? bounds)
-    {
+    private void AddButtonBounds(FrameworkElement? button, ref Rect? bounds) {
         if (button is null || button.ActualWidth <= 0 || button.ActualHeight <= 0)
             return;
 
-        try
-        {
+        try {
             Point topLeft = button.TranslatePoint(new Point(0, 0), this);
             Point bottomRight = button.TranslatePoint(new Point(button.ActualWidth, button.ActualHeight), this);
             Rect buttonBounds = new Rect(topLeft, bottomRight);
-            if (bounds is { } existing)
-            {
+            if (bounds is { } existing) {
                 existing.Union(buttonBounds);
                 bounds = existing;
             }
-            else
-            {
+            else {
                 bounds = buttonBounds;
             }
         }
-        catch (InvalidOperationException)
-        {
+        catch (InvalidOperationException) {
             // The fallback constants match BuildContent/BuildButton and cover pre-layout calls.
         }
     }
@@ -382,18 +349,15 @@ internal sealed class TourCalloutNavigationOverlay : Window
             visibleBounds.Width,
             visibleBounds.Height);
 
-    private Rect GetMonitorBoundsForLogicalPoint(Point logicalPoint)
-    {
+    private Rect GetMonitorBoundsForLogicalPoint(Point logicalPoint) {
         var source = PresentationSource.FromVisual(this);
-        if (source?.CompositionTarget is { } ct)
-        {
+        if (source?.CompositionTarget is { } ct) {
             Point physicalPoint = ct.TransformToDevice.Transform(logicalPoint);
             Rect physicalBounds = NativeMethods.GetMonitorBoundsForPhysicalPoint(
                 (int)physicalPoint.X,
                 (int)physicalPoint.Y);
 
-            if (!physicalBounds.IsEmpty)
-            {
+            if (!physicalBounds.IsEmpty) {
                 Point topLeft = ct.TransformFromDevice.Transform(
                     new Point(physicalBounds.Left, physicalBounds.Top));
                 Point bottomRight = ct.TransformFromDevice.Transform(
@@ -414,8 +378,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
         double visibleStart,
         double visibleEnd,
         double screenStart,
-        double screenEnd)
-    {
+        double screenEnd) {
         double min = screenStart - visibleStart;
         double max = screenEnd - visibleEnd;
         if (max < min)
@@ -425,8 +388,7 @@ internal sealed class TourCalloutNavigationOverlay : Window
     }
 
     /// <summary>Shows the overlay and fades it in over 250 ms.</summary>
-    public void FadeIn()
-    {
+    public void FadeIn() {
         // EnsureLayout() should already have been called before PositionNear().
         // Show() here is a safe no-op if the window is already visible.
         Show();
@@ -435,10 +397,9 @@ internal sealed class TourCalloutNavigationOverlay : Window
     }
 
     /// <summary>Instantly hides the overlay without animation.</summary>
-    public void HideImmediate()
-    {
+    public void HideImmediate() {
         BeginAnimation(OpacityProperty, null);
-        Opacity    = 0;
+        Opacity = 0;
         Visibility = Visibility.Hidden;
     }
 }
