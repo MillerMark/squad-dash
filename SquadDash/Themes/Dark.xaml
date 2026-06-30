@@ -85,7 +85,7 @@
     <SolidColorBrush x:Key="AgentStatusText" Color="#CCA070"/>
     <SolidColorBrush x:Key="AgentDetailText" Color="#8A7868"/>
     <SolidColorBrush x:Key="ActivePanelTitle" Color="#8AB0D0"/>
-    <SolidColorBrush x:Key="ActivePanelSubtitle" Color="#5A8098"/>
+    <SolidColorBrush x:Key="ActivePanelSubtitle" Color="#7A9BB0"/>
     <SolidColorBrush x:Key="PanelTitle" Color="#C0A080"/>
     <SolidColorBrush x:Key="ActionLinkText" Color="#6890C8"/>
     <SolidColorBrush x:Key="AlertBodyText" Color="#C08860"/>

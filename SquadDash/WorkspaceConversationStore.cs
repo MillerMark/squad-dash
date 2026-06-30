@@ -348,7 +348,7 @@ internal sealed class WorkspaceConversationStore {
         var cutoff = now - RetentionPeriod;
 
         var turns = state.Turns
-            .Where(turn => turn.Timestamp >= cutoff)
+            .Where(turn => turn.Timestamp >= cutoff && !turn.IsTourInjected)
             .Select(turn => NormalizeTurn(turn, now))
             .OrderBy(turn => turn.StartedAt)
             .ThenBy(turn => turn.Timestamp)
@@ -838,6 +838,12 @@ internal sealed record TranscriptTurnRecord(
     /// "↩ Following up…" notice instead of the user name and full prompt text.
     /// </summary>
     public bool IsSystemInjected { get; init; }
+
+    /// <summary>
+    /// When <c>true</c>, this turn was injected by a guided tour step and is not a real
+    /// AI response. It must never be persisted or included in AI conversation context.
+    /// </summary>
+    public bool IsTourInjected { get; init; }
 
     public IReadOnlyList<TranscriptThoughtRecord> GetThoughts() {
         if (Thoughts is { Count: > 0 })

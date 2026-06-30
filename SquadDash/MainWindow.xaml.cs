@@ -13637,12 +13637,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ownerWindow:             this,
             elementLocator:          name => VisualTreeSearch.FindByName(this, name),
             savePreTourLayout:       () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
-            restorePreTourLayout:    () => { /* Layout restore: reload the active layout from workspace */ },
+            restorePreTourLayout:    () =>
+            {
+                // Layout restore: reload the active layout from workspace
+                CleanUpTourInjectedThreads();
+            },
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
             commandRegistry:         _tourCommandRegistry,
             onStepChanging:          StopTypeIntoPromptAnimation,
             triggerRegistry:         _tourAdvanceTriggerRegistry);
+    }
+
+    private void CleanUpTourInjectedThreads()
+    {
+        if (_guidedTourController is null) return;
+        var injectedIds = _guidedTourController.InjectedThreadIds.ToArray();
+        if (injectedIds.Length == 0) return;
+
+        var threadsToRemove = _agentThreadRegistry.ThreadOrder
+            .Where(t => injectedIds.Contains(t.ThreadId))
+            .ToArray();
+        if (threadsToRemove.Length == 0) return;
+
+        var removedSelected = _selectedTranscriptThread is not null &&
+            threadsToRemove.Any(t => ReferenceEquals(t, _selectedTranscriptThread));
+
+        RemovePrimaryAgentTranscriptHosts(threadsToRemove);
+        _agentThreadRegistry.RemoveThreads(threadsToRemove);
+
+        if (removedSelected)
+            SelectTranscriptThread(CoordinatorThread);
+
+        SyncAgentCardsWithThreads();
     }
 
     private void RegisterTourAdvanceTriggers()
@@ -13697,6 +13724,71 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 : TypeIntoPromptMode.Draft;
             StartTypeIntoPromptAnimation(text, mode);
         });
+
+        _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
+        {
+            // Format: "markdown text" or "markdown text|agentName"
+            var sep       = arg.IndexOf('|');
+            var text      = sep >= 0 ? arg[..sep] : arg;
+            var agentName = sep >= 0 ? arg[(sep + 1)..].Trim() : null;
+            text = text.Replace(@"\n", "\n");
+            InjectTourTranscriptText(text, string.IsNullOrWhiteSpace(agentName) ? null : agentName);
+        });
+    }
+
+    /// <summary>
+    /// Injects a synthetic markdown turn into the specified transcript thread for a guided tour step.
+    /// Creates a temporary thread if <paramref name="agentName"/> is specified but not found.
+    /// </summary>
+    private void InjectTourTranscriptText(string markdownText, string? agentName)
+    {
+        TranscriptThreadState targetThread;
+
+        if (string.IsNullOrWhiteSpace(agentName))
+        {
+            targetThread = CoordinatorThread;
+        }
+        else
+        {
+            var existing = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+                string.Equals(t.AgentName, agentName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.AgentDisplayName, agentName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.Title, agentName, StringComparison.OrdinalIgnoreCase));
+
+            if (existing is not null)
+            {
+                targetThread = existing;
+            }
+            else
+            {
+                var agentId = "tour-demo-" + agentName.ToLowerInvariant().Replace(" ", "-");
+                targetThread = _agentThreadRegistry.GetOrCreateAgentThread(
+                    toolCallId:       null,
+                    agentId:          agentId,
+                    agentName:        agentId,
+                    agentDisplayName: agentName,
+                    agentDescription: null,
+                    status:           null,
+                    prompt:           null,
+                    startedAt:        null);
+                _guidedTourController?.TrackInjectedThread(targetThread.ThreadId);
+            }
+        }
+
+        var syntheticTurn = new TranscriptTurnRecord(
+            StartedAt:        DateTimeOffset.UtcNow,
+            CompletedAt:      DateTimeOffset.UtcNow,
+            Prompt:           string.Empty,
+            ThinkingText:     string.Empty,
+            ResponseText:     markdownText,
+            ThinkingCollapsed: true,
+            Tools:            Array.Empty<TranscriptToolRecord>())
+        {
+            IsTourInjected = true,
+        };
+
+        RenderPersistedTurn(targetThread, syntheticTurn, isLastTurn: true);
+        SelectTranscriptThread(targetThread);
     }
 
     private void StopTypeIntoPromptAnimation()
@@ -30880,7 +30972,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var turns = transcriptThread.SavedTurns
-                .Where(t => !t.IsSessionBoundary)
+                .Where(t => !t.IsSessionBoundary && !t.IsTourInjected)
                 .TakeLast(20)
                 .ToList();
             if (turns.Count == 0)

@@ -18,6 +18,7 @@ internal sealed class GuidedTourController
     private List<GuidedTour>         _allTours = new();
     private int                      _currentStepIndex;
     private FrmUltimateCallout?      _activeCallout;
+    private readonly List<string>    _tourInjectedThreadIds = new();
 
     // Callbacks wired by MainWindow
     private readonly Func<string, FrameworkElement?>      _elementLocator;
@@ -90,6 +91,13 @@ internal sealed class GuidedTourController
 
     /// <summary>The command registry used by this controller.</summary>
     public GuidedTourCommandRegistry? CommandRegistry => _commandRegistry;
+
+    /// <summary>Read-only list of thread IDs created by <c>InjectTranscriptText</c> tour commands.</summary>
+    public IReadOnlyList<string> InjectedThreadIds => _tourInjectedThreadIds;
+
+    /// <summary>Registers a thread ID that was created by a tour injection command and should be finalized when the tour ends.</summary>
+    public void TrackInjectedThread(string threadId) =>
+        _tourInjectedThreadIds.Add(threadId);
 
     /// <summary>Starts the tour at step 0, saving the current layout as a restore point.</summary>
     public void StartTour(GuidedTour tour, List<GuidedTour>? allTours = null)
@@ -312,6 +320,7 @@ internal sealed class GuidedTourController
 
         _activeTour       = null;
         _currentStepIndex = 0;
+        _tourInjectedThreadIds.Clear();
 
         CloseActiveCallout();
 
