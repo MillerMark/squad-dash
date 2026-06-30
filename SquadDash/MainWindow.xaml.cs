@@ -232,6 +232,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptResponseEntry? _lastQuickReplyEntry;
     private TranscriptResponseEntry? _routingIssueQuickReplyEntry;
     private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
+    private event Action? _tourQuickReplySelected;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
     private PendingQuickReplyLaunchState? _pendingQuickReplyLaunch;
@@ -13678,6 +13679,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourAdvanceTriggerRegistry.Register(
             "MenuOpened",
             new MenuOpenedAdvanceTrigger(name => VisualTreeSearch.FindByName(this, name)));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "QuickReplySelected",
+            new QuickReplySelectedAdvanceTrigger(
+                addHandler:    h => _tourQuickReplySelected += h,
+                removeHandler: h => _tourQuickReplySelected -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -13741,6 +13748,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             text = text.Replace(@"\n", "\n");
             InjectTourTranscriptText(text, string.IsNullOrWhiteSpace(agentName) ? null : agentName);
         });
+
+        _tourCommandRegistry.RegisterParameterizedAsync("InjectTranscriptTextWithReplies", async arg =>
+        {
+            // Format: "message text|Button Label 1|Button Label 2|..."
+            var parts        = arg.Split('|');
+            var text         = parts[0].Replace(@"\n", "\n");
+            var buttonLabels = parts.Length > 1 ? parts[1..] : Array.Empty<string>();
+            await InjectTourTranscriptTextWithReplies(text, buttonLabels);
+        });
     }
 
     /// <summary>
@@ -13796,6 +13812,75 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         RenderPersistedTurn(targetThread, syntheticTurn, isLastTurn: true);
         SelectTranscriptThread(targetThread);
+    }
+
+    /// <summary>
+    /// Injects a simulated agent response with real quick reply buttons into the coordinator
+    /// transcript and waits until those buttons are rendered in the visual tree.
+    /// </summary>
+    private async Task InjectTourTranscriptTextWithReplies(string messageText, string[] buttonLabels)
+    {
+        var badgedText = $"*🎓 Tour simulation — not a real agent response.*\n\n{messageText}";
+        InjectTourTranscriptText(badgedText, null);
+
+        var panel = new System.Windows.Controls.WrapPanel
+        {
+            Name        = "TourQuickReplyPanel",
+            Margin      = new System.Windows.Thickness(0, 2, 0, 0),
+            Orientation = System.Windows.Controls.Orientation.Horizontal
+        };
+
+        foreach (var label in buttonLabels)
+        {
+            var button = new System.Windows.Controls.Button
+            {
+                Content         = label,
+                Tag             = new TourQuickReplyPayload(label),
+                Margin          = new System.Windows.Thickness(0, 0, 8, 8),
+                Padding         = new System.Windows.Thickness(10, 4, 10, 4),
+                BorderThickness = new System.Windows.Thickness(1),
+                Cursor          = System.Windows.Input.Cursors.Hand,
+                MinHeight       = 28,
+            };
+            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is System.Windows.Style style)
+                button.Style = style;
+            button.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "QuickReplySurface");
+            button.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "QuickReplyText");
+            button.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "QuickReplyBorder");
+            button.Click += TourQuickReplyButton_Click;
+            panel.Children.Add(button);
+        }
+
+        var block = new System.Windows.Documents.BlockUIContainer(panel)
+        {
+            Margin = new System.Windows.Thickness(0, 2, 0, 10)
+        };
+        CoordinatorThread.Document.Blocks.Add(block);
+        ScrollToEndIfAtBottom(CoordinatorThread);
+
+        // Poll until the panel is present in the visual tree (up to 2 s).
+        var timeout = System.Threading.Tasks.Task.Delay(2000);
+        while (!timeout.IsCompleted)
+        {
+            await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            if (VisualTreeSearch.FindByName(this, "TourQuickReplyPanel") is not null)
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Handles a click on a tour-injected quick reply button: injects a simulated user
+    /// selection into the transcript and fires the <c>_tourQuickReplySelected</c> event
+    /// so that a <c>QuickReplySelected</c> advance trigger can advance the tour step.
+    /// </summary>
+    private void TourQuickReplyButton_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.FrameworkElement { Tag: TourQuickReplyPayload payload })
+            return;
+
+        SquadDashTrace.Write("Tour", $"Tour quick reply selected: '{payload.Option}'");
+        InjectTourTranscriptText($"*🎓 (Tour) You selected: {payload.Option}*", null);
+        _tourQuickReplySelected?.Invoke();
     }
 
     private void StopTypeIntoPromptAnimation()
@@ -23023,6 +23108,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string? TargetAgentHandle,
         string? DraftPrompt = null);
 
+    /// <summary>Tag type for tour-injected quick reply buttons.</summary>
+    private sealed record TourQuickReplyPayload(string Option);
+
     private sealed class PendingQuickReplyLaunchState
     {
         public PendingQuickReplyLaunchState(
@@ -23939,7 +24027,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Sim quick replies (routeMode="sim") exercise the quick reply UI without
-            // dispatching a real prompt to the AI — used by /test-queue.
+            // dispatching a real prompt to the AI — used by /test-queue and guided tours.
             if (string.Equals(payload.RouteMode, "sim", StringComparison.OrdinalIgnoreCase))
             {
                 _pec.DisableQuickReplies(payload.Entry);

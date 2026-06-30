@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -191,7 +192,7 @@ internal sealed class GuidedTourController
     private GuidedTourStep CurrentStep =>
         _activeTour!.Steps[_currentStepIndex];
 
-    private void ShowCurrentStep()
+    private async void ShowCurrentStep()
     {
         _activeTriggerSubscription?.Dispose();
         _activeTriggerSubscription = null;
@@ -199,23 +200,21 @@ internal sealed class GuidedTourController
         CloseActiveCallout();
         RunPreAction(CurrentStep);
         var step = CurrentStep;
-        _commandRegistry?.Execute(step.CommandBefore);
+        await (_commandRegistry?.ExecuteAsync(step.CommandBefore) ?? Task.CompletedTask);
         // Defer by one layout pass so that any UI changes made by RunPreAction or
         // CommandBefore (e.g. queue items added, panel opened) are fully rendered
         // before ShowStepCallout checks target.IsVisible.  Without this, the callout
         // is silently skipped on the first visit to a step that changes the UI.
         // The ReferenceEquals guard ensures we don't show a stale callout if the user
         // navigates before the deferred callback fires.
-        _ownerWindow.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        await _ownerWindow.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        if (IsActive && ReferenceEquals(CurrentStep, step))
         {
-            if (IsActive && ReferenceEquals(CurrentStep, step))
-            {
-                ShowStepCallout(step);
-                _activeTriggerSubscription?.Dispose();
-                _activeTriggerSubscription = _triggerRegistry?.Subscribe(step.AdvanceTrigger, () =>
-                    _ownerWindow.Dispatcher.InvokeAsync(Next));
-            }
-        });
+            ShowStepCallout(step);
+            _activeTriggerSubscription?.Dispose();
+            _activeTriggerSubscription = _triggerRegistry?.Subscribe(step.AdvanceTrigger, () =>
+                _ownerWindow.Dispatcher.InvokeAsync(Next));
+        }
     }
 
     private void ShowStepCallout(GuidedTourStep step)
