@@ -665,21 +665,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         // Use the bounded Callout* sides (not full-window InnerWindow* lines) so that only the
         // side the testLine actually crosses returns a valid intersection. Window-wide lines can
         // both intersect the testLine near a corner, causing the wrong side to win by a tiny margin.
-        double topCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutTop);
-        double leftCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutLeft);
-        double rightCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutRight);
+        data.CalloutDangleSide = SelectCalloutDangleSide(
+            testLine, targetCenter,
+            data.CalloutTop, data.CalloutLeft, data.CalloutRight, data.CalloutBottom);
+
+        double topCalloutDistance    = GetDistanceToIntersection(testLine, data.CalloutTop);
+        double leftCalloutDistance   = GetDistanceToIntersection(testLine, data.CalloutLeft);
+        double rightCalloutDistance  = GetDistanceToIntersection(testLine, data.CalloutRight);
         double bottomCalloutDistance = GetDistanceToIntersection(testLine, data.CalloutBottom);
-
-        double minCalloutDistance = Min(topCalloutDistance, leftCalloutDistance, rightCalloutDistance, bottomCalloutDistance);
-
-        if (minCalloutDistance == topCalloutDistance)
-            data.CalloutDangleSide = CalloutSide.Top;
-        else if (minCalloutDistance == rightCalloutDistance)
-            data.CalloutDangleSide = CalloutSide.Right;
-        else if (minCalloutDistance == bottomCalloutDistance)
-            data.CalloutDangleSide = CalloutSide.Bottom;
-        else if (minCalloutDistance == leftCalloutDistance)
-            data.CalloutDangleSide = CalloutSide.Left;
 
         double topTargetDistance = GetDistanceToIntersection(testLine, data.TargetTop);
         double leftTargetDistance = GetDistanceToIntersection(testLine, data.TargetLeft);
@@ -703,6 +696,31 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private static double Min(params double[] args) => args.Min();
+
+    /// <summary>
+    /// Pure, testable side-selection logic. Returns the callout side whose bounded edge segment
+    /// is closest to <paramref name="targetCenter"/> along <paramref name="testLine"/>.
+    /// </summary>
+    internal static CalloutSide SelectCalloutDangleSide(
+        MyLine testLine, Point targetCenter,
+        MyLine calloutTop, MyLine calloutLeft, MyLine calloutRight, MyLine calloutBottom)
+    {
+        static double dist(MyLine line, MyLine edge, Point origin) {
+            Point pt = line.GetSegmentIntersection(edge);
+            if (double.IsNaN(pt.X)) return double.MaxValue;
+            double dx = pt.X - origin.X, dy = pt.Y - origin.Y;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+        double topDist    = dist(testLine, calloutTop,    targetCenter);
+        double leftDist   = dist(testLine, calloutLeft,   targetCenter);
+        double rightDist  = dist(testLine, calloutRight,  targetCenter);
+        double bottomDist = dist(testLine, calloutBottom, targetCenter);
+        double min = Min(topDist, leftDist, rightDist, bottomDist);
+        if (min == topDist)    return CalloutSide.Top;
+        if (min == rightDist)  return CalloutSide.Right;
+        if (min == bottomDist) return CalloutSide.Bottom;
+        return CalloutSide.Left;
+    }
 
     GuidelineIntersectionData GetGuidelineIntersectionData(MyLine testLine, double windowLeft, double windowTop) {
         double calloutLeft = windowLeft + OutsideMargin;
@@ -1665,6 +1683,26 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         trianglePoint1 = ScreenToCanvasPoint(pt1, windowLeft, windowTop);
         trianglePoint2 = ScreenToCanvasPoint(pt2, windowLeft, windowTop);
         trianglePoint3 = ScreenToCanvasPoint(pt3, windowLeft, windowTop);
+
+        // Clamp the base points (tp2, tp3) to the callout body. When the dangle tip is far
+        // off-screen the fallback full-line intersection in GetTriangleScreenPoint can return
+        // a point well outside the callout rectangle; clamping keeps the triangle visible.
+        double cbLeft   = OutsideMargin;
+        double cbRight  = OutsideMargin + calloutWidth;
+        double cbTop    = OutsideMargin;
+        double cbBottom = OutsideMargin + calloutHeight;
+        switch (data.CalloutDangleSide) {
+            case CalloutSide.Top:
+            case CalloutSide.Bottom:
+                trianglePoint2 = new Point(Math.Clamp(trianglePoint2.X, cbLeft, cbRight), trianglePoint2.Y);
+                trianglePoint3 = new Point(Math.Clamp(trianglePoint3.X, cbLeft, cbRight), trianglePoint3.Y);
+                break;
+            case CalloutSide.Left:
+            case CalloutSide.Right:
+                trianglePoint2 = new Point(trianglePoint2.X, Math.Clamp(trianglePoint2.Y, cbTop, cbBottom));
+                trianglePoint3 = new Point(trianglePoint3.X, Math.Clamp(trianglePoint3.Y, cbTop, cbBottom));
+                break;
+        }
 
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GetTrianglePoints: DANGLE drawn — tp1=({trianglePoint1.X:F1},{trianglePoint1.Y:F1}) tp2=({trianglePoint2.X:F1},{trianglePoint2.Y:F1}) tp3=({trianglePoint3.X:F1},{trianglePoint3.Y:F1})");
