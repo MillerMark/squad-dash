@@ -28,6 +28,8 @@ internal sealed class GuidedTourController
     private readonly Func<string?>?                       _workspaceFolderProvider;
     private readonly GuidedTourCommandRegistry?           _commandRegistry;
     private readonly Action?                              _onStepChanging;
+    private readonly GuidedTourAdvanceTriggerRegistry?    _triggerRegistry;
+    private IDisposable?                                  _activeTriggerSubscription;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -50,7 +52,8 @@ internal sealed class GuidedTourController
         Action<string, string>?         executePreAction     = null,
         Func<string?>?                  workspaceFolderProvider = null,
         GuidedTourCommandRegistry?      commandRegistry      = null,
-        Action?                         onStepChanging       = null)
+        Action?                         onStepChanging       = null,
+        GuidedTourAdvanceTriggerRegistry? triggerRegistry    = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -60,6 +63,7 @@ internal sealed class GuidedTourController
         _workspaceFolderProvider = workspaceFolderProvider;
         _commandRegistry         = commandRegistry;
         _onStepChanging          = onStepChanging;
+        _triggerRegistry         = triggerRegistry;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -181,6 +185,8 @@ internal sealed class GuidedTourController
 
     private void ShowCurrentStep()
     {
+        _activeTriggerSubscription?.Dispose();
+        _activeTriggerSubscription = null;
         _onStepChanging?.Invoke();
         CloseActiveCallout();
         RunPreAction(CurrentStep);
@@ -195,7 +201,12 @@ internal sealed class GuidedTourController
         _ownerWindow.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
             if (IsActive && ReferenceEquals(CurrentStep, step))
+            {
                 ShowStepCallout(step);
+                _activeTriggerSubscription?.Dispose();
+                _activeTriggerSubscription = _triggerRegistry?.Subscribe(step.AdvanceTrigger, () =>
+                    _ownerWindow.Dispatcher.InvokeAsync(Next));
+            }
         });
     }
 
@@ -292,6 +303,9 @@ internal sealed class GuidedTourController
         var tourId     = _activeTour?.Id;
 
         _onStepChanging?.Invoke();
+
+        _activeTriggerSubscription?.Dispose();
+        _activeTriggerSubscription = null;
 
         if (wasActive && _activeTour is not null)
             _commandRegistry?.Execute(CurrentStep.CommandAfter);

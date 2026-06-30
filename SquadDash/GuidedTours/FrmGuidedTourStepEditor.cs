@@ -39,6 +39,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly TextBlock     _statusLabel;
     private readonly ComboBox      _commandBeforeBox;
     private readonly ComboBox      _commandAfterBox;
+    private readonly TextBox       _advanceTriggerBox;
 
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
@@ -143,6 +144,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _commandBeforeBox = MakeCommandCombo(commandItems, step.CommandBefore);
         _commandAfterBox  = MakeCommandCombo(commandItems, step.CommandAfter);
 
+        _advanceTriggerBox = MakeTextBox(step.AdvanceTrigger, multiLine: false);
+
         var captureButton = MakeButton("📷 Capture Current Layout for the Step");
         captureButton.HorizontalAlignment = HorizontalAlignment.Left;
         captureButton.Click += (_, _) => CaptureLayoutForStep();
@@ -170,6 +173,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         formPanel.Children.Add(_commandBeforeBox);
         formPanel.Children.Add(MakeLabel("Command After"));
         formPanel.Children.Add(_commandAfterBox);
+        formPanel.Children.Add(MakeLabel("Advance Trigger"));
+        formPanel.Children.Add(_advanceTriggerBox);
         formPanel.Children.Add(new Border { Height = 10 });
         formPanel.Children.Add(captureButton);
         formPanel.Children.Add(_statusLabel);
@@ -251,6 +256,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _step.TargetControlId  = _targetControlBox.Text.Trim();
         _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
         _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
+        _step.AdvanceTrigger   = _advanceTriggerBox.Text.Trim();
 
         if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
         {

@@ -151,6 +151,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private PreferencesWindow? _preferencesWindow;
     private GuidedTourController? _guidedTourController;
     private readonly GuidedTourCommandRegistry _tourCommandRegistry = new();
+    private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13615,6 +13616,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_guidedTourController is not null) return;
         RegisterTourCommands();
+        RegisterTourAdvanceTriggers();
         _guidedTourController = new GuidedTourController(
             ownerWindow:             this,
             elementLocator:          name => VisualTreeSearch.FindByName(this, name),
@@ -13623,7 +13625,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
             commandRegistry:         _tourCommandRegistry,
-            onStepChanging:          StopTypeIntoPromptAnimation);
+            onStepChanging:          StopTypeIntoPromptAnimation,
+            triggerRegistry:         _tourAdvanceTriggerRegistry);
+    }
+
+    private void RegisterTourAdvanceTriggers()
+    {
+        _tourAdvanceTriggerRegistry.Register(
+            "MenuOpened",
+            new MenuOpenedAdvanceTrigger(name => VisualTreeSearch.FindByName(this, name)));
     }
 
     private void RegisterTourCommands()

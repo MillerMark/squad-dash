@@ -30,6 +30,13 @@ internal sealed class GuidedTourStep
     [JsonPropertyName("commandAfter")]
     public string CommandAfter { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Optional trigger spec that auto-advances to the next step when the named event fires.
+    /// Format: "TriggerType:Argument" (e.g. "MenuOpened:HelpMenuItem") or empty for manual-only.
+    /// </summary>
+    [JsonPropertyName("advanceTrigger")]
+    public string AdvanceTrigger { get; set; } = string.Empty;
+
     [JsonIgnore]
     public GuidedTourPreActionDescriptor ParsedPreAction =>
         GuidedTourPreActionDescriptor.Parse(PreAction);
