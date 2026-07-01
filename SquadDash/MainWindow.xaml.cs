@@ -228,6 +228,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private string[] _tasksAgentSuggestions = [];
     private string[] _inboxAgentSuggestions = [];
     private string[] _currentQuickReplyOptions = [];
+    private QuickReplyButtonPayload[] _currentQuickReplyPayloads = [];
     private DateTime _quickRepliesShownAt = DateTime.MinValue;
     private const int QuickReplyReadWindowMs = 400;
     private TranscriptResponseEntry? _lastQuickReplyEntry;
@@ -11583,6 +11584,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var (newText, newCaret) = IntelliSenseController.Accept(
             _intelliSenseState, targetBox.Text, targetBox.CaretIndex);
 
+        // Capture trigger char and selected label before state is cleared below.
+        var triggerChar = _intelliSenseState.TriggerChar;
+        var selectedLabel = _intelliSenseState.FilteredSuggestions[_intelliSenseState.SelectedIndex];
+
         // For @ trigger: replace accepted display name with @handle + trailing space.
         // Never submit on @ accept — the user is mentioning an agent mid-prompt.
         if (_intelliSenseState.TriggerChar == '@')
@@ -11628,7 +11633,52 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         UpdateIntelliSensePopup();
         if (andSubmit && ownerBox is null)
+        {
+            // For [ trigger: route through the quick reply button click handler so that
+            // routing metadata (including sim mode) is respected, exactly as if the user
+            // had clicked the button directly.
+            if (triggerChar == '[')
+                SimulateQuickReplyIntelliSenseAccept(selectedLabel, targetBox);
+            else
+                RunButton_Click(this, new RoutedEventArgs());
+        }
+    }
+
+    /// <summary>
+    /// Called when a quick reply option is accepted via IntelliSense ([ trigger).
+    /// Routes the selection through the appropriate click handler so that routing
+    /// metadata — including sim mode — is honoured, just as if the button were clicked.
+    /// </summary>
+    private void SimulateQuickReplyIntelliSenseAccept(string optionLabel, TextBox targetBox)
+    {
+        // Look up the full routing payload for this label (populated when quick reply
+        // buttons are built).  A match means this is a regular AI-routed quick reply.
+        var payload = _currentQuickReplyPayloads
+            .FirstOrDefault(p => string.Equals(p.Option, optionLabel, StringComparison.OrdinalIgnoreCase));
+
+        if (payload is not null)
+        {
+            // Clear the accepted text — the button handler owns the submission.
+            _isApplyingIntelliSenseAccept = true;
+            try { targetBox.Text = string.Empty; }
+            finally { _isApplyingIntelliSenseAccept = false; }
+            var syntheticSender = new FrameworkElement { Tag = payload };
+            QuickReplyButton_Click(syntheticSender, new RoutedEventArgs());
+        }
+        else if (_currentQuickReplyOptions.Length > 0)
+        {
+            // No routing payload = tour-injected quick reply.  Route through the tour handler.
+            _isApplyingIntelliSenseAccept = true;
+            try { targetBox.Text = string.Empty; }
+            finally { _isApplyingIntelliSenseAccept = false; }
+            var syntheticSender = new FrameworkElement { Tag = new TourQuickReplyPayload(optionLabel) };
+            TourQuickReplyButton_Click(syntheticSender, new RoutedEventArgs());
+        }
+        else
+        {
+            // No quick reply state available — fall back to normal submission.
             RunButton_Click(this, new RoutedEventArgs());
+        }
     }
 
     private void AgentCardBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -13711,6 +13761,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 try { doc.Blocks.Remove(blocks[i]); } catch { /* already gone */ }
                 _tourInjectedCoordinatorBlocks.Remove(blocks[i]);
                 _currentQuickReplyOptions = [];
+                _currentQuickReplyPayloads = [];
                 return;
             }
         }
@@ -14103,7 +14154,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         // Expose labels in intellisense so [ in the prompt box offers the same options.
+        // Tour buttons use TourQuickReplyPayload, so there are no routing payloads.
         _currentQuickReplyOptions = buttonLabels;
+        _currentQuickReplyPayloads = [];
 
         // Poll until the panel is present in the visual tree (up to 2 s).
         var timeout = System.Threading.Tasks.Task.Delay(2000);
@@ -14126,6 +14179,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
 
         _currentQuickReplyOptions = [];
+        _currentQuickReplyPayloads = [];
         SquadDashTrace.Write("Tour", $"Tour quick reply selected: '{payload.Option}'");
         InjectTourTranscriptText($"*🎓 (Tour) You selected: {payload.Option}*", null);
         _tourQuickReplySelected?.Invoke();
@@ -23431,6 +23485,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var routeDecisions = options
             .Select(option => (Option: option, Decision: BuildQuickReplyRouting(entry, option)))
             .ToArray();
+        _currentQuickReplyPayloads = routeDecisions
+            .Select(rd => new QuickReplyButtonPayload(
+                entry,
+                rd.Option.Label,
+                rd.Decision.RoutingInstruction,
+                rd.Decision.ContinuationAgentLabel,
+                rd.Decision.RouteMode,
+                rd.Decision.TargetAgentHandle,
+                rd.Option.Prompt))
+            .ToArray();
         var captionText = QuickReplyRoutePresentation.BuildCaption(
             routeDecisions.Select(item => new QuickReplyRoutePresentation.RouteInfo(
                 item.Decision.RouteMode,
@@ -24217,6 +24281,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _lastQuickReplyEntry = null;
         _currentQuickReplyOptions = [];
+        _currentQuickReplyPayloads = [];
         _quickRepliesShownAt = DateTime.MinValue;
     }
 
