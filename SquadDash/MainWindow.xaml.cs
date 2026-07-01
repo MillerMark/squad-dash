@@ -13763,6 +13763,127 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var buttonLabels = parts.Length > 1 ? parts[1..] : Array.Empty<string>();
             await InjectTourTranscriptTextWithReplies(text, buttonLabels);
         });
+
+        _tourCommandRegistry.RegisterParameterizedAsync("InjectTranscriptTurn", async arg =>
+        {
+            // Format: "user prompt text|agent response text|AgentName"
+            // AgentName is optional; \n in either text field is expanded to real newlines.
+            var parts      = arg.Split('|');
+            var userText   = (parts.Length > 0 ? parts[0] : string.Empty).Replace(@"\n", "\n");
+            var agentText  = (parts.Length > 1 ? parts[1] : string.Empty).Replace(@"\n", "\n");
+            var agentName  = parts.Length > 2 ? parts[2].Trim() : null;
+
+            var idleDeadline = Environment.TickCount64 + 10_000;
+            while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
+                await Task.Delay(100);
+
+            TranscriptThreadState targetThread;
+            if (string.IsNullOrWhiteSpace(agentName))
+            {
+                targetThread = CoordinatorThread;
+            }
+            else
+            {
+                var existing = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+                    string.Equals(t.AgentName, agentName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.AgentDisplayName, agentName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.Title, agentName, StringComparison.OrdinalIgnoreCase));
+
+                if (existing is not null)
+                {
+                    targetThread = existing;
+                }
+                else
+                {
+                    var agentId = "tour-demo-" + agentName.ToLowerInvariant().Replace(" ", "-");
+                    targetThread = _agentThreadRegistry.GetOrCreateAgentThread(
+                        toolCallId:       null,
+                        agentId:          agentId,
+                        agentName:        agentId,
+                        agentDisplayName: agentName,
+                        agentDescription: null,
+                        status:           null,
+                        prompt:           null,
+                        startedAt:        null);
+                    _guidedTourController?.TrackInjectedThread(targetThread.ThreadId);
+                }
+            }
+
+            BeginTranscriptTurn(targetThread, userText);
+            SelectTranscriptThread(targetThread);
+
+            var rng = new Random();
+            foreach (var chunk in SplitIntoWordChunks(agentText))
+            {
+                if (_isPromptRunning) break;
+                await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                AppendText(targetThread, chunk);
+                await Task.Delay(rng.Next(70, 111));
+            }
+
+            targetThread.CurrentTurn = null;
+            ScrollToEndIfAtBottom(targetThread);
+        });
+
+        _tourCommandRegistry.RegisterParameterizedAsync("InjectAgentResponse", async arg =>
+        {
+            // Format: "agent response text|AgentName"
+            // Response only (no user prompt bubble). \n is expanded to real newlines.
+            var sep       = arg.IndexOf('|');
+            var agentText = (sep >= 0 ? arg[..sep] : arg).Replace(@"\n", "\n");
+            var agentName = sep >= 0 ? arg[(sep + 1)..].Trim() : null;
+
+            var idleDeadline = Environment.TickCount64 + 10_000;
+            while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
+                await Task.Delay(100);
+
+            TranscriptThreadState targetThread;
+            if (string.IsNullOrWhiteSpace(agentName))
+            {
+                targetThread = CoordinatorThread;
+            }
+            else
+            {
+                var existing = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+                    string.Equals(t.AgentName, agentName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.AgentDisplayName, agentName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.Title, agentName, StringComparison.OrdinalIgnoreCase));
+
+                if (existing is not null)
+                {
+                    targetThread = existing;
+                }
+                else
+                {
+                    var agentId = "tour-demo-" + agentName.ToLowerInvariant().Replace(" ", "-");
+                    targetThread = _agentThreadRegistry.GetOrCreateAgentThread(
+                        toolCallId:       null,
+                        agentId:          agentId,
+                        agentName:        agentId,
+                        agentDisplayName: agentName,
+                        agentDescription: null,
+                        status:           null,
+                        prompt:           null,
+                        startedAt:        null);
+                    _guidedTourController?.TrackInjectedThread(targetThread.ThreadId);
+                }
+            }
+
+            BeginTranscriptTurn(targetThread, string.Empty);
+            SelectTranscriptThread(targetThread);
+
+            var rng = new Random();
+            foreach (var chunk in SplitIntoWordChunks(agentText))
+            {
+                if (_isPromptRunning) break;
+                await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                AppendText(targetThread, chunk);
+                await Task.Delay(rng.Next(70, 111));
+            }
+
+            targetThread.CurrentTurn = null;
+            ScrollToEndIfAtBottom(targetThread);
+        });
     }
 
     /// <summary>
