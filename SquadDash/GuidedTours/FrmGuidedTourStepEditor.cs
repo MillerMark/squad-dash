@@ -212,9 +212,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         formPanel.Children.Add(_crosshairCanvas);
         formPanel.Children.Add(_crosshairCoordsLabel);
         formPanel.Children.Add(MakeLabel("Command Before"));
-        formPanel.Children.Add(_commandBeforeBox);
+        formPanel.Children.Add(MakeCommandRow(_commandBeforeBox));
         formPanel.Children.Add(MakeLabel("Command After"));
-        formPanel.Children.Add(_commandAfterBox);
+        formPanel.Children.Add(MakeCommandRow(_commandAfterBox));
         formPanel.Children.Add(MakeLabel("Advance Trigger"));
         formPanel.Children.Add(_advanceTriggerBox);
         formPanel.Children.Add(new Border { Height = 10 });
@@ -674,6 +674,35 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private static string GetSelectedCommand(ComboBox cb) =>
         !string.IsNullOrWhiteSpace(cb.Text) && cb.Text != "(none)" ? cb.Text.Trim() : string.Empty;
+
+    private Grid MakeCommandRow(ComboBox comboBox)
+    {
+        var ellipsisBtn = MakeButton("…");
+        ellipsisBtn.Width   = 32;
+        ellipsisBtn.Margin  = new Thickness(4, 0, 0, 0);
+        ellipsisBtn.Padding = new Thickness(0);
+        ellipsisBtn.ToolTip = "Edit as multi-line text (\\n = new line)";
+        ellipsisBtn.Click  += (_, _) => OpenCommandEditor(comboBox);
+
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(comboBox,    0);
+        Grid.SetColumn(ellipsisBtn, 1);
+        row.Children.Add(comboBox);
+        row.Children.Add(ellipsisBtn);
+        return row;
+    }
+
+    private void OpenCommandEditor(ComboBox comboBox)
+    {
+        var editor = new FrmCommandTextEditor(GetSelectedCommand(comboBox)) { Owner = this };
+        if (editor.ShowDialog() == true)
+        {
+            comboBox.Text = string.IsNullOrEmpty(editor.ResultText) ? "(none)" : editor.ResultText;
+            PushLivePreview();
+        }
+    }
 }
 
 // ── Control picker ────────────────────────────────────────────────────────────
@@ -816,5 +845,99 @@ internal sealed class FrmControlPicker : ChromedWindow
             foreach (var name in CollectNamedElements(child))
                 yield return name;
         }
+    }
+}
+
+// ── Command text editor ───────────────────────────────────────────────────────
+
+/// <summary>
+/// Small modal dialog for editing a command string that may contain literal
+/// <c>\n</c> escape sequences.  Expands them to real newlines for comfortable
+/// editing, then collapses them back on OK.
+/// </summary>
+internal sealed class FrmCommandTextEditor : ChromedWindow
+{
+    private readonly TextBox _textBox;
+
+    /// <summary>
+    /// The edited command text on successful OK, with newlines encoded back as
+    /// literal <c>\n</c>.  <c>null</c> if the dialog was cancelled.
+    /// </summary>
+    public string? ResultText { get; private set; }
+
+    public FrmCommandTextEditor(string initialText)
+        : base(captionHeight: 34, resizeMode: ResizeMode.CanResizeWithGrip, resizeBorderThickness: 6)
+    {
+        Title                 = "Edit Command";
+        Width                 = 520;
+        Height                = 340;
+        ShowInTaskbar         = false;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        var contentArea = ApplyOuterBorder("AppSurface", "Edit Command");
+
+        _textBox = new TextBox
+        {
+            AcceptsReturn               = true,
+            TextWrapping                = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding                     = new Thickness(5, 4, 5, 4),
+            Margin                      = new Thickness(10, 10, 10, 6),
+            Text                        = initialText.Replace("\\n", Environment.NewLine),
+        };
+        _textBox.SetResourceReference(TextBox.BackgroundProperty,  "InputSurface");
+        _textBox.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
+        _textBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        _textBox.SetResourceReference(TextBox.FontSizeProperty,    "FontSizeBody");
+
+        var okButton = new Button
+        {
+            Content   = "OK",
+            IsDefault = true,
+            Height    = 26,
+            Margin    = new Thickness(3, 0, 3, 0),
+            Padding   = new Thickness(10, 2, 10, 2),
+        };
+        okButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        okButton.Click += (_, _) => CommitOk();
+
+        var cancelButton = new Button
+        {
+            Content  = "Cancel",
+            IsCancel = true,
+            Height   = 26,
+            Margin   = new Thickness(3, 0, 3, 0),
+            Padding  = new Thickness(10, 2, 10, 2),
+        };
+        cancelButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        cancelButton.Click += (_, _) => { DialogResult = false; };
+
+        var buttonRow = new StackPanel
+        {
+            Orientation         = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin              = new Thickness(10, 4, 10, 10),
+        };
+        buttonRow.Children.Add(okButton);
+        buttonRow.Children.Add(cancelButton);
+
+        var layout = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(buttonRow, Dock.Bottom);
+        layout.Children.Add(buttonRow);
+        layout.Children.Add(_textBox);
+
+        contentArea.Child = layout;
+
+        Loaded += (_, _) =>
+        {
+            _textBox.Focus();
+            _textBox.CaretIndex = _textBox.Text.Length;
+        };
+    }
+
+    private void CommitOk()
+    {
+        ResultText   = _textBox.Text.Replace("\r\n", "\\n").Replace("\n", "\\n");
+        DialogResult = true;
     }
 }
