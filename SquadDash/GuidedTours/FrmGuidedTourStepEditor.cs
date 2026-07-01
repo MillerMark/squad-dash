@@ -43,7 +43,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly TextBlock     _statusLabel;
     private readonly ComboBox      _commandBeforeBox;
     private readonly ComboBox      _commandAfterBox;
-    private readonly TextBox       _advanceTriggerBox;
+    private readonly ComboBox      _advanceTriggerBox;
 
     // Crosshair picker
     private readonly Canvas        _crosshairCanvas;
@@ -67,7 +67,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Window           owner,
         Action?          captureLayout        = null,
         Action?          livePreviewCallback  = null,
-        GuidedTourCommandRegistry? commandRegistry = null)
+        GuidedTourCommandRegistry? commandRegistry = null,
+        GuidedTourAdvanceTriggerRegistry? triggerRegistry = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _originalMarkdown    = step.MarkdownText;
@@ -160,7 +161,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _commandBeforeBox = MakeCommandCombo(commandItems, step.CommandBefore);
         _commandAfterBox  = MakeCommandCombo(commandItems, step.CommandAfter);
 
-        _advanceTriggerBox = MakeTextBox(step.AdvanceTrigger, multiLine: false);
+        var triggerNames = triggerRegistry?.TriggerNames ?? Array.Empty<string>();
+        var triggerItems = new[] { "" }.Concat(triggerNames).ToArray();
+        _advanceTriggerBox = MakeCommandCombo(triggerItems, step.AdvanceTrigger);
 
         // ── Crosshair picker ──────────────────────────────────────────────────
 
@@ -306,7 +309,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _step.TargetControlId  = _targetControlBox.Text.Trim();
             _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
             _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
-            _step.AdvanceTrigger   = _advanceTriggerBox.Text.Trim();
+            _step.AdvanceTrigger   = GetSelectedCommand(_advanceTriggerBox);
             // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
 
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))

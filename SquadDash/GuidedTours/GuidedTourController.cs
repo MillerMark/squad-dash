@@ -183,10 +183,8 @@ internal sealed class GuidedTourController
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
             livePreviewCallback: NotifyStepEdited,
-            commandRegistry:     _commandRegistry);
-        editor.ShowDialog();
-        if (editor.WasSaved)
-            NotifyStepEdited();
+            commandRegistry:     _commandRegistry,
+            triggerRegistry:     _triggerRegistry);
     }
 
     private GuidedTourStep CurrentStep =>
@@ -355,7 +353,8 @@ internal sealed class GuidedTourController
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
             livePreviewCallback: NotifyStepEdited,
-            commandRegistry:     _commandRegistry);
+            commandRegistry:     _commandRegistry,
+            triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();
 
         if (editor.WasSaved)
@@ -387,7 +386,8 @@ internal sealed class GuidedTourController
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
             livePreviewCallback: NotifyStepEdited,
-            commandRegistry:     _commandRegistry);
+            commandRegistry:     _commandRegistry,
+            triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();
 
         if (editor.WasSaved)
