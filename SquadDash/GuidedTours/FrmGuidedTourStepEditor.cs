@@ -86,6 +86,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
 
+    private readonly Action<bool>? _onClosed;
+
     public FrmGuidedTourStepEditor(
         GuidedTourStep   step,
         int              stepIndex,
@@ -97,9 +99,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action?          livePreviewCallback  = null,
         Action<int>?     jumpToStepCallback   = null,
         GuidedTourCommandRegistry? commandRegistry = null,
-        GuidedTourAdvanceTriggerRegistry? triggerRegistry = null)
+        GuidedTourAdvanceTriggerRegistry? triggerRegistry = null,
+        Action<bool>?    onClosed             = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
+        _onClosed            = onClosed;
         _originalMarkdown    = step.MarkdownText;
         _originalPlacement   = step.CalloutPlacement;
         _originalTargetOffsetX = step.TargetOffsetX;
@@ -362,7 +366,15 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); PushLivePreview(); };
         _markdownBox.TextChanged += (_, _) => { if (_isLoadingStep) return; _debounceTimer.Stop(); _debounceTimer.Start(); };
-        Closed += (_, _) => { _debounceTimer.Stop(); CloseTargetOverlay(); if (!WasSaved) RestoreOriginals(); };
+        Closed += (_, _) => { _debounceTimer.Stop(); CloseTargetOverlay(); if (!WasSaved) RestoreOriginals(); _onClosed?.Invoke(WasSaved); };
+
+        _titleBox.TextChanged += (_, _) =>
+        {
+            if (_isLoadingStep) return;
+            var newLabel = $"{_stepIndex + 1}. {_titleBox.Text.Trim()}";
+            if (_stepListBox.SelectedIndex >= 0 && _stepListBox.SelectedIndex < _stepListBox.Items.Count)
+                _stepListBox.Items[_stepListBox.SelectedIndex] = newLabel;
+        };
 
         SnapshotCurrentValues();
 

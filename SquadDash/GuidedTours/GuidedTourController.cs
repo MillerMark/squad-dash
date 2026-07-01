@@ -19,6 +19,7 @@ internal sealed class GuidedTourController
     private List<GuidedTour>         _allTours = new();
     private int                      _currentStepIndex;
     private FrmUltimateCallout?      _activeCallout;
+    private FrmGuidedTourStepEditor? _activeEditor;
     private readonly List<string>    _tourInjectedThreadIds = new();
 
     // Callbacks wired by MainWindow
@@ -187,6 +188,7 @@ internal sealed class GuidedTourController
     private void HandleEditStep()
     {
         if (_activeTour is null) return;
+        if (_activeEditor is { IsLoaded: true }) { _activeEditor.Activate(); return; }
 
         var editor = new FrmGuidedTourStepEditor(
             step:                CurrentStep,
@@ -199,10 +201,10 @@ internal sealed class GuidedTourController
             livePreviewCallback: NotifyStepEdited,
             jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
-            triggerRegistry:     _triggerRegistry);
-        editor.ShowDialog();
-        if (editor.WasSaved)
-            NotifyStepEdited();
+            triggerRegistry:     _triggerRegistry,
+            onClosed:            wasSaved => { _activeEditor = null; if (wasSaved) NotifyStepEdited(); });
+        _activeEditor = editor;
+        editor.Show();
     }
 
     private GuidedTourStep CurrentStep =>
@@ -378,6 +380,7 @@ internal sealed class GuidedTourController
     private void HandleNewStepAfter()
     {
         if (_activeTour is null) return;
+        if (_activeEditor is { IsLoaded: true }) { _activeEditor.Activate(); return; }
 
         var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
         var insertIndex = _currentStepIndex + 1;
@@ -397,31 +400,35 @@ internal sealed class GuidedTourController
             livePreviewCallback: NotifyStepEdited,
             jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
-            triggerRegistry:     _triggerRegistry);
-        editor.ShowDialog();
-
-        SquadDashTrace.Write(TraceCategory.Callouts,
-            $"HandleNewStepAfter: editor closed — WasSaved={editor.WasSaved}, stepIndex={_currentStepIndex}, stepCount={_activeTour.Steps.Count}");
-
-        if (editor.WasSaved)
-        {
-            SquadDashTrace.Write(TraceCategory.Callouts,
-                $"HandleNewStepAfter: save confirmed — title=\"{_activeTour.Steps[_currentStepIndex].Title}\", target=\"{_activeTour.Steps[_currentStepIndex].TargetControlId}\", markdown length={_activeTour.Steps[_currentStepIndex].MarkdownText.Length}");
-            ShowCurrentStep();
-        }
-        else
-        {
-            SquadDashTrace.Write(TraceCategory.Callouts,
-                $"HandleNewStepAfter: cancelled — removing step at {insertIndex}, reverting to {Math.Max(0, insertIndex - 1)}");
-            _activeTour.Steps.RemoveAt(insertIndex);
-            _currentStepIndex = Math.Max(0, insertIndex - 1);
-            ShowCurrentStep();  // restore callout for original step
-        }
+            triggerRegistry:     _triggerRegistry,
+            onClosed:            wasSaved =>
+            {
+                _activeEditor = null;
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"HandleNewStepAfter: editor closed — WasSaved={wasSaved}, stepIndex={_currentStepIndex}, stepCount={_activeTour.Steps.Count}");
+                if (wasSaved)
+                {
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"HandleNewStepAfter: save confirmed — title=\"{_activeTour.Steps[_currentStepIndex].Title}\", target=\"{_activeTour.Steps[_currentStepIndex].TargetControlId}\", markdown length={_activeTour.Steps[_currentStepIndex].MarkdownText.Length}");
+                    ShowCurrentStep();
+                }
+                else
+                {
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"HandleNewStepAfter: cancelled — removing step at {insertIndex}, reverting to {Math.Max(0, insertIndex - 1)}");
+                    _activeTour.Steps.RemoveAt(insertIndex);
+                    _currentStepIndex = Math.Max(0, insertIndex - 1);
+                    ShowCurrentStep();
+                }
+            });
+        _activeEditor = editor;
+        editor.Show();
     }
 
     private void HandleNewStepBefore()
     {
         if (_activeTour is null) return;
+        if (_activeEditor is { IsLoaded: true }) { _activeEditor.Activate(); return; }
 
         var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
         var insertIndex = _currentStepIndex;  // Insert BEFORE current step
@@ -440,31 +447,35 @@ internal sealed class GuidedTourController
             livePreviewCallback: NotifyStepEdited,
             jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
-            triggerRegistry:     _triggerRegistry);
-        editor.ShowDialog();
-
-        SquadDashTrace.Write(TraceCategory.Callouts,
-            $"HandleNewStepBefore: editor closed — WasSaved={editor.WasSaved}, stepIndex={_currentStepIndex}, stepCount={_activeTour.Steps.Count}");
-
-        if (editor.WasSaved)
-        {
-            SquadDashTrace.Write(TraceCategory.Callouts,
-                $"HandleNewStepBefore: save confirmed — title=\"{_activeTour.Steps[_currentStepIndex].Title}\", target=\"{_activeTour.Steps[_currentStepIndex].TargetControlId}\", markdown length={_activeTour.Steps[_currentStepIndex].MarkdownText.Length}");
-            ShowCurrentStep();
-        }
-        else
-        {
-            SquadDashTrace.Write(TraceCategory.Callouts,
-                $"HandleNewStepBefore: cancelled — removing step at {insertIndex}");
-            _activeTour.Steps.RemoveAt(insertIndex);
-            // _currentStepIndex stays the same (the original step is back)
-            ShowCurrentStep();  // restore callout for original step
-        }
+            triggerRegistry:     _triggerRegistry,
+            onClosed:            wasSaved =>
+            {
+                _activeEditor = null;
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"HandleNewStepBefore: editor closed — WasSaved={wasSaved}, stepIndex={_currentStepIndex}, stepCount={_activeTour.Steps.Count}");
+                if (wasSaved)
+                {
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"HandleNewStepBefore: save confirmed — title=\"{_activeTour.Steps[_currentStepIndex].Title}\", target=\"{_activeTour.Steps[_currentStepIndex].TargetControlId}\", markdown length={_activeTour.Steps[_currentStepIndex].MarkdownText.Length}");
+                    ShowCurrentStep();
+                }
+                else
+                {
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"HandleNewStepBefore: cancelled — removing step at {insertIndex}");
+                    _activeTour.Steps.RemoveAt(insertIndex);
+                    // _currentStepIndex stays the same (the original step is back)
+                    ShowCurrentStep();
+                }
+            });
+        _activeEditor = editor;
+        editor.Show();
     }
 
     private void HandleDeleteStep()
     {
         if (_activeTour is null || _activeTour.Steps.Count == 0) return;
+        _activeEditor?.Close();
 
         var result = MessageBox.Show(
             $"Delete step {_currentStepIndex + 1} of {_activeTour.Steps.Count}?\n\n\"{CurrentStep.Title}\"",
