@@ -20,7 +20,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 {
     private GuidedTourStep             _step;
     private int                        _stepIndex;
-    private readonly GuidedTour        _activeTour;
+    private GuidedTour                 _activeTour;
     private readonly List<GuidedTour>  _allTours;
     private readonly string?           _workspaceFolderPath;
     private readonly Action?           _captureLayout;
@@ -95,6 +95,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private readonly Action<bool>? _onClosed;
 
+    private ListBox                    _tourListBox = null!;
+    private readonly Action<int>?      _switchTourCallback;
+    private readonly Action?           _addTourCallback;
+    private readonly Action?           _deleteTourCallback;
+
     public FrmGuidedTourStepEditor(
         GuidedTourStep   step,
         int              stepIndex,
@@ -109,7 +114,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         GuidedTourAdvanceTriggerRegistry? triggerRegistry = null,
         Action<bool>?    onClosed             = null,
         Action?          addStepAfterCallback = null,
-        Action?          deleteStepCallback   = null)
+        Action?          deleteStepCallback   = null,
+        Action<int>?     switchTourCallback   = null,
+        Action?          addTourCallback      = null,
+        Action?          deleteTourCallback   = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -121,6 +129,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _jumpToStepCallback  = jumpToStepCallback;
         _addStepAfterCallback = addStepAfterCallback;
         _deleteStepCallback   = deleteStepCallback;
+        _switchTourCallback   = switchTourCallback;
+        _addTourCallback      = addTourCallback;
+        _deleteTourCallback   = deleteTourCallback;
 
         _step                = step;
         _stepIndex           = stepIndex;
@@ -430,11 +441,44 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Content                       = formPanel,
         };
 
+        // ── Tour list (leftmost sidebar) ─────────────────────────────────────
+
+        _tourListBox = new ListBox { Width = 150 };
+        ScrollViewer.SetHorizontalScrollBarVisibility(_tourListBox, ScrollBarVisibility.Disabled);
+        _tourListBox.SetResourceReference(ListBox.BackgroundProperty, "InputSurface");
+        _tourListBox.SetResourceReference(ListBox.ForegroundProperty, "LabelText");
+        _tourListBox.SetResourceReference(ListBox.FontSizeProperty,   "FontSizeBody");
+
+        for (int i = 0; i < allTours.Count; i++)
+            _tourListBox.Items.Add(allTours[i].Name);
+
+        _tourListBox.SelectedIndex = allTours.IndexOf(activeTour);
+        _tourListBox.SelectionChanged += OnTourListSelectionChanged;
+
+        var addTourBtn    = MakeButton("+");
+        var deleteTourBtn = MakeButton("🗑");
+        addTourBtn.Margin    = new Thickness(0, 0, 2, 0);
+        deleteTourBtn.Margin = new Thickness(0);
+        addTourBtn.Click    += (_, _) => _addTourCallback?.Invoke();
+        deleteTourBtn.Click += (_, _) => _deleteTourCallback?.Invoke();
+
+        var tourSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
+        tourSidebarButtons.Children.Add(addTourBtn);
+        tourSidebarButtons.Children.Add(deleteTourBtn);
+
+        var tourSidebarPanel = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(tourSidebarButtons, Dock.Top);
+        tourSidebarPanel.Children.Add(tourSidebarButtons);
+        tourSidebarPanel.Children.Add(_tourListBox);
+
         var contentSplit = new Grid();
+        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150, GridUnitType.Pixel) });
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170, GridUnitType.Pixel) });
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,   GridUnitType.Star)  });
-        Grid.SetColumn(sidebarPanel,    0);
-        Grid.SetColumn(formScrollViewer, 1);
+        Grid.SetColumn(tourSidebarPanel,  0);
+        Grid.SetColumn(sidebarPanel,      1);
+        Grid.SetColumn(formScrollViewer,  2);
+        contentSplit.Children.Add(tourSidebarPanel);
         contentSplit.Children.Add(sidebarPanel);
         contentSplit.Children.Add(formScrollViewer);
 
@@ -591,6 +635,33 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         LoadStep(selectIndex);
     }
 
+    /// <summary>
+    /// Rebuilds the tour list and selects the given index.
+    /// Called by the controller after adding or deleting a tour.
+    /// </summary>
+    public void RefreshTourList(int selectTourIndex)
+    {
+        _isLoadingStep = true;
+        try
+        {
+            _tourListBox.Items.Clear();
+            for (int i = 0; i < _allTours.Count; i++)
+                _tourListBox.Items.Add(_allTours[i].Name);
+            _tourListBox.SelectedIndex = Math.Clamp(selectTourIndex, 0, Math.Max(0, _allTours.Count - 1));
+        }
+        finally { _isLoadingStep = false; }
+    }
+
+    /// <summary>
+    /// Switches the active tour shown by the editor and rebuilds the step list.
+    /// Called by the controller when the user selects a different tour.
+    /// </summary>
+    public void SwitchActiveTour(GuidedTour newTour, int selectStepIndex)
+    {
+        _activeTour = newTour;
+        RefreshStepList(selectStepIndex);
+    }
+
     private static int GetListBoxItemIndexAtPoint(ListBox listBox, Point point)
     {
         for (int i = 0; i < listBox.Items.Count; i++)
@@ -736,6 +807,48 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
+    }
+
+    private void OnTourListSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingStep) return;
+        int newIndex = _tourListBox.SelectedIndex;
+        if (newIndex < 0 || newIndex >= _allTours.Count) return;
+        if (ReferenceEquals(_allTours[newIndex], _activeTour)) return;
+
+        if (HasUnsavedChanges())
+        {
+            var result = MessageBox.Show(
+                "Save changes to this step before switching tours?",
+                "Unsaved Changes",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+
+            if (result == MessageBoxResult.Cancel)
+            {
+                _isLoadingStep = true;
+                try { _tourListBox.SelectedIndex = _allTours.IndexOf(_activeTour); }
+                finally { _isLoadingStep = false; }
+                return;
+            }
+            if (result == MessageBoxResult.Yes)
+            {
+                if (!PerformSave())
+                {
+                    _isLoadingStep = true;
+                    try { _tourListBox.SelectedIndex = _allTours.IndexOf(_activeTour); }
+                    finally { _isLoadingStep = false; }
+                    return;
+                }
+            }
+            else
+            {
+                RestoreOriginals();
+            }
+        }
+
+        _switchTourCallback?.Invoke(newIndex);
     }
 
     private void SnapshotCurrentValues()

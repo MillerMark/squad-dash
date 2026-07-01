@@ -205,7 +205,10 @@ internal sealed class GuidedTourController
             triggerRegistry:     _triggerRegistry,
             onClosed:            wasSaved => { _activeEditor = null; if (wasSaved) NotifyStepEdited(); },
             addStepAfterCallback: HandleNewStepAfterFromEditor,
-            deleteStepCallback:   HandleDeleteStepFromEditor);
+            deleteStepCallback:   HandleDeleteStepFromEditor,
+            switchTourCallback:   HandleSwitchTourFromEditor,
+            addTourCallback:      HandleAddTourFromEditor,
+            deleteTourCallback:   HandleDeleteTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -425,7 +428,10 @@ internal sealed class GuidedTourController
                 }
             },
             addStepAfterCallback: HandleNewStepAfterFromEditor,
-            deleteStepCallback:   HandleDeleteStepFromEditor);
+            deleteStepCallback:   HandleDeleteStepFromEditor,
+            switchTourCallback:   HandleSwitchTourFromEditor,
+            addTourCallback:      HandleAddTourFromEditor,
+            deleteTourCallback:   HandleDeleteTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -474,7 +480,10 @@ internal sealed class GuidedTourController
                 }
             },
             addStepAfterCallback: HandleNewStepAfterFromEditor,
-            deleteStepCallback:   HandleDeleteStepFromEditor);
+            deleteStepCallback:   HandleDeleteStepFromEditor,
+            switchTourCallback:   HandleSwitchTourFromEditor,
+            addTourCallback:      HandleAddTourFromEditor,
+            deleteTourCallback:   HandleDeleteTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -595,5 +604,82 @@ internal sealed class GuidedTourController
         if (_activeCallout is null) return;
         try { _activeCallout.Close(); } catch { /* already closed */ }
         _activeCallout = null;
+    }
+
+    private void HandleSwitchTourFromEditor(int tourIndex)
+    {
+        if (tourIndex < 0 || tourIndex >= _allTours.Count) return;
+        var newTour = _allTours[tourIndex];
+        if (ReferenceEquals(newTour, _activeTour)) return;
+
+        _activeTour       = newTour;
+        _currentStepIndex = 0;
+
+        _activeEditor?.SwitchActiveTour(newTour, 0);
+        ShowCurrentStep();
+    }
+
+    private void HandleAddTourFromEditor()
+    {
+        var newTour = new GuidedTour
+        {
+            Id    = Guid.NewGuid().ToString("N")[..8],
+            Name  = "New Tour",
+            Steps = new List<GuidedTourStep> { new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" } }
+        };
+        _allTours.Add(newTour);
+
+        if (!string.IsNullOrWhiteSpace(WorkspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, WorkspaceFolderPath); }
+            catch { /* ignore */ }
+        }
+
+        _activeTour       = newTour;
+        _currentStepIndex = 0;
+
+        _activeEditor?.RefreshTourList(_allTours.Count - 1);
+        _activeEditor?.SwitchActiveTour(newTour, 0);
+        ShowCurrentStep();
+    }
+
+    private void HandleDeleteTourFromEditor()
+    {
+        if (_activeTour is null || _allTours.Count <= 1)
+        {
+            MessageBox.Show("Cannot delete the only tour.", "Delete Tour", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Delete tour \"{_activeTour.Name}\"? This will remove all {_activeTour.Steps.Count} step(s).",
+            "Delete Tour",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        var deleteIndex = _allTours.IndexOf(_activeTour);
+        _allTours.Remove(_activeTour);
+
+        if (!string.IsNullOrWhiteSpace(WorkspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, WorkspaceFolderPath); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Tour deleted from memory but could not be saved to disk:\n{ex.Message}",
+                    "Save Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        var newTourIndex  = Math.Min(deleteIndex, _allTours.Count - 1);
+        _activeTour       = _allTours[newTourIndex];
+        _currentStepIndex = 0;
+
+        _activeEditor?.RefreshTourList(newTourIndex);
+        _activeEditor?.SwitchActiveTour(_activeTour, 0);
+        ShowCurrentStep();
     }
 }
