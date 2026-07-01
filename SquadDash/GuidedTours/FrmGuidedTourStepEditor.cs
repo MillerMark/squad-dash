@@ -367,9 +367,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _stepListBox.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            _listDragStart       = e.GetPosition(_stepListBox);
+            // Only initiate a drag when the press lands directly on a ListBoxItem.
+            // Clicks originating from text boxes or other controls outside the list
+            // bubble up as Preview events and must be ignored here.
+            var hit = e.OriginalSource as DependencyObject;
+            var overItem = hit != null && GetListBoxItemAncestor(_stepListBox, hit) != null;
+            _listDragStart       = overItem ? e.GetPosition(_stepListBox) : new Point(double.NaN, double.NaN);
             _listDragInProgress  = false;
-            _listDragSourceIndex = _stepListBox.SelectedIndex;
+            _listDragSourceIndex = overItem ? _stepListBox.SelectedIndex : -1;
         };
 
         _stepListBox.PreviewMouseMove += (_, e) =>
@@ -674,6 +679,25 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
         }
         return -1;
+    }
+
+    /// <summary>
+    /// Walks up the visual tree from <paramref name="element"/> to find a <see cref="ListBoxItem"/>
+    /// that is a direct container of <paramref name="listBox"/>. Returns null if the element is not
+    /// inside any of the list's items — e.g. it originates from a control outside the list.
+    /// </summary>
+    private static ListBoxItem? GetListBoxItemAncestor(ListBox listBox, DependencyObject element)
+    {
+        var current = element;
+        while (current is not null)
+        {
+            if (current is ListBoxItem lbi &&
+                listBox.ItemContainerGenerator.IndexFromContainer(lbi) >= 0)
+                return lbi;
+            current = System.Windows.Media.VisualTreeHelper.GetParent(current)
+                   ?? (current is System.Windows.FrameworkContentElement fce ? fce.Parent : null);
+        }
+        return null;
     }
 
     private void TryNavigate(int newIndex)
