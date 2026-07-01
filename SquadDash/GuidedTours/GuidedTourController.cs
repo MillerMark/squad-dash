@@ -127,12 +127,12 @@ internal sealed class GuidedTourController
     public void Next()
     {
         if (!IsActive) return;
-        _commandRegistry?.Execute(CurrentStep.CommandAfter);
+        var commandAfter = CurrentStep.CommandAfter;
         if (_currentStepIndex >= _activeTour!.Steps.Count - 1)
         {
             var allToursSnapshot = _allTours;
             var currentTourId    = _activeTour.Id;
-            StopTourInternal(showHint: false);
+            StopTourInternal(showHint: false, commandAfter: commandAfter);
 
             var remaining = allToursSnapshot
                 .Where(t => t.Id != currentTourId && !GuidedTourStateStore.Shared.IsCompleted(t.Id))
@@ -151,22 +151,26 @@ internal sealed class GuidedTourController
         }
         FrmUltimateCallout.RecordTourAdvance();
         _currentStepIndex++;
-        ShowCurrentStep();
+        ShowCurrentStep(prevCommandAfter: commandAfter);
     }
 
     /// <summary>Moves to the previous step.</summary>
     public void Prev()
     {
         if (!IsActive || _currentStepIndex <= 0) return;
-        _commandRegistry?.Execute(CurrentStep.CommandAfter);
+        var commandAfter = CurrentStep.CommandAfter;
         _currentStepIndex--;
-        ShowCurrentStep();
+        ShowCurrentStep(prevCommandAfter: commandAfter);
     }
 
     /// <summary>
     /// Stops the tour, shows the "restart from Help" callout, and restores the pre-tour layout.
     /// </summary>
-    public void StopTour() => StopTourInternal(showHint: true);
+    public void StopTour()
+    {
+        var commandAfter = IsActive ? CurrentStep.CommandAfter : null;
+        StopTourInternal(showHint: true, commandAfter: commandAfter);
+    }
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
@@ -193,12 +197,15 @@ internal sealed class GuidedTourController
     private GuidedTourStep CurrentStep =>
         _activeTour!.Steps[_currentStepIndex];
 
-    private async void ShowCurrentStep()
+    private async void ShowCurrentStep(string? prevCommandAfter = null)
     {
         _activeTriggerSubscription?.Dispose();
         _activeTriggerSubscription = null;
         _onStepChanging?.Invoke();
         CloseActiveCallout();
+        // Run the previous step's CommandAfter now that its callout is closed,
+        // before showing the new step. This supports async commands (e.g. InjectTranscriptTextWithReplies).
+        await (_commandRegistry?.ExecuteAsync(prevCommandAfter ?? string.Empty) ?? Task.CompletedTask);
         RunPreAction(CurrentStep);
         var step = CurrentStep;
         await (_commandRegistry?.ExecuteAsync(step.CommandBefore) ?? Task.CompletedTask);
@@ -307,7 +314,7 @@ internal sealed class GuidedTourController
         }
     }
 
-    private void StopTourInternal(bool showHint)
+    private async void StopTourInternal(bool showHint, string? commandAfter = null)
     {
         var wasActive  = IsActive;
         var tourId     = _activeTour?.Id;
@@ -317,14 +324,15 @@ internal sealed class GuidedTourController
         _activeTriggerSubscription?.Dispose();
         _activeTriggerSubscription = null;
 
-        if (wasActive && _activeTour is not null)
-            _commandRegistry?.Execute(CurrentStep.CommandAfter);
-
         _activeTour       = null;
         _currentStepIndex = 0;
         _tourInjectedThreadIds.Clear();
 
         CloseActiveCallout();
+
+        // Run CommandAfter after the callout is closed, supporting async commands.
+        if (wasActive && !string.IsNullOrWhiteSpace(commandAfter))
+            await (_commandRegistry?.ExecuteAsync(commandAfter) ?? Task.CompletedTask);
 
         if (wasActive)
         {
