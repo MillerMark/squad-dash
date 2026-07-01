@@ -153,6 +153,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private GuidedTourController? _guidedTourController;
     private readonly GuidedTourCommandRegistry _tourCommandRegistry = new();
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
+    private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13630,6 +13631,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void LaunchTour(GuidedTour tour, List<GuidedTour>? allTours = null)
     {
         EnsureGuidedTourController();
+        _tourInjectedCoordinatorBlocks.Clear();
         _guidedTourController!.StartTour(tour, allTours);
     }
 
@@ -13646,6 +13648,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 // Layout restore: reload the active layout from workspace
                 CleanUpTourInjectedThreads();
+                CleanUpTourInjectedCoordinatorBlocks();
             },
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
@@ -13675,6 +13678,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SelectTranscriptThread(CoordinatorThread);
 
         SyncAgentCardsWithThreads();
+    }
+
+    private void CleanUpTourInjectedCoordinatorBlocks()
+    {
+        if (_tourInjectedCoordinatorBlocks.Count == 0) return;
+
+        var doc = CoordinatorThread.Document;
+        foreach (var block in _tourInjectedCoordinatorBlocks)
+        {
+            try { doc.Blocks.Remove(block); } catch { /* block may have already been removed */ }
+        }
+        _tourInjectedCoordinatorBlocks.Clear();
     }
 
     private void RegisterTourAdvanceTriggers()
@@ -13809,6 +13824,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
 
+            int blocksBefore = ReferenceEquals(targetThread, CoordinatorThread)
+                ? CoordinatorThread.Document.Blocks.Count : -1;
+
             BeginTranscriptTurn(targetThread, userText);
             SelectTranscriptThread(targetThread);
 
@@ -13822,6 +13840,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             targetThread.CurrentTurn = null;
+
+            if (blocksBefore >= 0)
+                TrackNewCoordinatorBlocks(blocksBefore);
+
             ScrollToEndIfAtBottom(targetThread);
         });
 
@@ -13869,6 +13891,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
 
+            int blocksBefore = ReferenceEquals(targetThread, CoordinatorThread)
+                ? CoordinatorThread.Document.Blocks.Count : -1;
+
             BeginTranscriptTurn(targetThread, string.Empty);
             SelectTranscriptThread(targetThread);
 
@@ -13882,6 +13907,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             targetThread.CurrentTurn = null;
+
+            if (blocksBefore >= 0)
+                TrackNewCoordinatorBlocks(blocksBefore);
+
             ScrollToEndIfAtBottom(targetThread);
         });
     }
@@ -13937,8 +13966,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             IsTourInjected = true,
         };
 
+        int blocksBefore = ReferenceEquals(targetThread, CoordinatorThread)
+            ? CoordinatorThread.Document.Blocks.Count : -1;
+
         RenderPersistedTurn(targetThread, syntheticTurn, isLastTurn: true);
         SelectTranscriptThread(targetThread);
+
+        if (blocksBefore >= 0)
+            TrackNewCoordinatorBlocks(blocksBefore);
+    }
+
+    /// <summary>
+    /// Records any blocks added to the coordinator thread's document since
+    /// <paramref name="previousCount"/> so they can be removed when the tour ends.
+    /// </summary>
+    private void TrackNewCoordinatorBlocks(int previousCount)
+    {
+        var allBlocks = CoordinatorThread.Document.Blocks.ToList();
+        for (int i = previousCount; i < allBlocks.Count; i++)
+            _tourInjectedCoordinatorBlocks.Add(allBlocks[i]);
     }
 
     private static IEnumerable<string> SplitIntoWordChunks(string text, int minWords = 3, int maxWords = 5)
@@ -13966,6 +14012,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var idleDeadline = Environment.TickCount64 + 10_000;
         while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
             await Task.Delay(100);
+
+        int blocksBefore = CoordinatorThread.Document.Blocks.Count;
 
         // Create a streaming turn that mimics a real agent response.
         BeginTranscriptTurn(CoordinatorThread, string.Empty);
@@ -14020,6 +14068,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Margin = new System.Windows.Thickness(0, 2, 0, 10)
         };
         CoordinatorThread.Document.Blocks.Add(block);
+        TrackNewCoordinatorBlocks(blocksBefore);
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         // Poll until the panel is present in the visual tree (up to 2 s).
