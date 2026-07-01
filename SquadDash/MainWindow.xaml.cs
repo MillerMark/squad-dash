@@ -13850,6 +13850,43 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             StartTypeIntoPromptAnimation(text);
         });
 
+        _tourCommandRegistry.RegisterParameterizedAsync("OpenMenu", async arg =>
+        {
+            // Format: "MenuItemName" or "MenuItemName|SubMenuItemName|..."
+            // Opens each named MenuItem in sequence so a callout can point at it / its children.
+            var names = arg.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var name in names)
+            {
+                var el = _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
+                       : VisualTreeSearch.FindByName(this, name);
+                if (el is MenuItem mi)
+                {
+                    mi.IsSubmenuOpen = true;
+                    await Task.Delay(120); // let WPF render the submenu before opening the next level
+                }
+            }
+        });
+
+        _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
+        {
+            // Format: "text to show" — puts text in the prompt box and selects all of it.
+            // Format: "text to show|substring to select" — puts the full text in, then selects
+            //   the first occurrence of the substring (selects all if not found).
+            var sep      = arg.IndexOf('|');
+            var fullText = (sep >= 0 ? arg[..sep] : arg).Replace(@"\n", "\n");
+            var toSelect = sep >= 0 ? arg[(sep + 1)..] : string.Empty;
+
+            var selStart  = 0;
+            var selLength = fullText.Length;
+            if (!string.IsNullOrEmpty(toSelect))
+            {
+                var idx = fullText.IndexOf(toSelect, StringComparison.Ordinal);
+                if (idx >= 0) { selStart = idx; selLength = toSelect.Length; }
+            }
+            SetPromptTextBoxLogicalBuffer(fullText, selStart + selLength, selStart, selLength, reason: "tour-select");
+            PromptTextBox.Focus();
+        });
+
         _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
         {
             // Format: "markdown text" or "markdown text|agentName"
