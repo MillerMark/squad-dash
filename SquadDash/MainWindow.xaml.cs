@@ -14032,6 +14032,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var thinkingBlock = CreateThinkingBlock(turn, isExpanded: true);
         thinkingBlock.Expander.Name                = "TourInjectedToolingBlock";
         thinkingBlock.Expander.HorizontalAlignment = HorizontalAlignment.Left;
+        thinkingBlock.HeaderTextBlock.Inlines.Clear();
+        thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("Tooling... ") { FontWeight = FontWeights.SemiBold });
+        thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("(simulated)") { FontStyle = FontStyles.Italic, FontWeight = FontWeights.Normal });
         _tourNamedElements["TourInjectedToolingBlock"] = thinkingBlock.Expander;
 
         foreach (var spec in specs)
