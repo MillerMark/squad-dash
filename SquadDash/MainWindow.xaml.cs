@@ -13875,12 +13875,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     $"OpenMenu: looking for \"{name}\" → found={el is not null}, type={el?.GetType().Name ?? "null"}");
                 if (el is MenuItem mi)
                 {
+                    mi.ApplyTemplate();
                     mi.IsSubmenuOpen = true;
                     await Task.Delay(180); // let WPF render the submenu before opening the next level
 
                     // Register the submenu popup child as "{Name}_Popup" so a callout can
                     // point at the open dropdown panel rather than the small menu-bar header.
-                    var popup = mi.Template?.FindName("PART_Popup", mi) as System.Windows.Controls.Primitives.Popup;
+                    // The custom TopLevelMenuItemStyle uses "SubMenuPopup"; standard WPF uses
+                    // "PART_Popup". Try both, then fall back to a visual tree search.
+                    System.Windows.Controls.Primitives.Popup? popup =
+                        mi.Template?.FindName("SubMenuPopup", mi) as System.Windows.Controls.Primitives.Popup
+                        ?? mi.Template?.FindName("PART_Popup",   mi) as System.Windows.Controls.Primitives.Popup
+                        ?? VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(mi);
+
                     var child = popup?.Child as FrameworkElement;
                     SquadDashTrace.Write(TraceCategory.Callouts,
                         $"OpenMenu: \"{name}\" → popup={popup is not null}, child={child is not null}, "
