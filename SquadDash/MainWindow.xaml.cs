@@ -13542,11 +13542,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // Load (or create) the tours file so the editor has something to work with
+            // Load (or create) the tours file so the editor has something to work with.
+            // GuidedTourLoader.Load() expects the workspace folder path (not the file path itself).
+            var workspaceFolderPath = Path.GetDirectoryName(Path.GetDirectoryName(toursFile))!;
             List<GuidedTour> allTours;
             if (File.Exists(toursFile))
             {
-                allTours = GuidedTourLoader.Load(toursFile) ?? new List<GuidedTour>();
+                allTours = GuidedTourLoader.Load(workspaceFolderPath) ?? new List<GuidedTour>();
             }
             else
             {
