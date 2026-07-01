@@ -379,11 +379,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             // Override the window-level reset: allow drag only when the press lands
             // directly on a ListBoxItem within this list.
+            // IMPORTANT: use the hit-tested item's index, not SelectedIndex — at the time
+            // PreviewMouseLeftButtonDown fires, selection hasn't changed yet, so SelectedIndex
+            // still points to the previously selected item, causing accidental drags.
             var hit = e.OriginalSource as DependencyObject;
-            var overItem = hit != null && GetListBoxItemAncestor(_stepListBox, hit) != null;
-            _listDragStart       = overItem ? e.GetPosition(_stepListBox) : new Point(double.NaN, double.NaN);
+            var lbi = hit != null ? GetListBoxItemAncestor(_stepListBox, hit) : null;
+            int hitIndex = lbi != null
+                ? _stepListBox.ItemContainerGenerator.IndexFromContainer(lbi)
+                : -1;
+            _listDragStart       = hitIndex >= 0 ? e.GetPosition(_stepListBox) : new Point(double.NaN, double.NaN);
             _listDragInProgress  = false;
-            _listDragSourceIndex = overItem ? _stepListBox.SelectedIndex : -1;
+            _listDragSourceIndex = hitIndex;
         };
 
         _stepListBox.PreviewMouseMove += (_, e) =>
