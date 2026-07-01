@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using SquadDash.GuidedTours;
+using SquadDash.Hints;
 
 namespace SquadDash;
 
@@ -411,12 +412,33 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                     bool found = false;
                     while (current is not null)
                     {
-                        if (current is FrameworkElement fe && !string.IsNullOrEmpty(fe.Name))
+                        if (current is FrameworkElement fe)
                         {
-                            _targetControlBox.Text = fe.Name;
-                            PushLivePreview();
-                            found = true;
-                            break;
+                            // Skip WPF internal template parts (PART_xxx) — unreliable for targeting
+                            var name = fe.Name;
+                            if (!string.IsNullOrEmpty(name) && !name.StartsWith("PART_", StringComparison.Ordinal))
+                            {
+                                _targetControlBox.Text = name;
+                                PushLivePreview();
+                                found = true;
+                                break;
+                            }
+
+                            // Check DataContext for IHaveAgentName or INamedControl
+                            if (fe.DataContext is IHaveAgentName agentNamed && !string.IsNullOrEmpty(agentNamed.AgentName))
+                            {
+                                _targetControlBox.Text = agentNamed.AgentName;
+                                PushLivePreview();
+                                found = true;
+                                break;
+                            }
+                            if (fe.DataContext is INamedControl namedControl && !string.IsNullOrEmpty(namedControl.ControlName))
+                            {
+                                _targetControlBox.Text = namedControl.ControlName;
+                                PushLivePreview();
+                                found = true;
+                                break;
+                            }
                         }
                         current = VisualTreeHelper.GetParent(current);
                     }
