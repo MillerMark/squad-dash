@@ -116,6 +116,61 @@ internal sealed class GuidedTourController
     }
 
     /// <summary>
+    /// Opens the guided tour step editor in standalone mode (no active tour required).
+    /// If an editor is already open, activates it. Loads all tours from the workspace;
+    /// opens to the first tour's first step, or shows a message if no tours exist.
+    /// </summary>
+    public void OpenEditorStandalone(List<GuidedTour> allTours)
+    {
+        if (_activeEditor is { IsLoaded: true }) { _activeEditor.Activate(); return; }
+
+        _allTours = allTours;
+        var tour  = _allTours.FirstOrDefault();
+        if (tour is null)
+        {
+            MessageBox.Show(
+                "No tours found in the workspace.\nUse Developer > New Guided Tour... to create one first.",
+                "Guided Tour Editor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        if (!IsActive)
+        {
+            _activeTour       = tour;
+            _currentStepIndex = 0;
+        }
+
+        if (_activeTour!.Steps.Count == 0)
+        {
+            _activeTour.Steps.Add(new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" });
+            _currentStepIndex = 0;
+        }
+
+        var editor = new FrmGuidedTourStepEditor(
+            step:                _activeTour.Steps[_currentStepIndex],
+            stepIndex:           _currentStepIndex,
+            activeTour:          _activeTour,
+            allTours:            _allTours,
+            workspaceFolderPath: WorkspaceFolderPath,
+            owner:               _ownerWindow,
+            captureLayout:       _savePreTourLayout,
+            livePreviewCallback: IsActive ? NotifyStepEdited : null,
+            jumpToStepCallback:  IsActive ? JumpToStep : null,
+            commandRegistry:     _commandRegistry,
+            triggerRegistry:     _triggerRegistry,
+            onClosed:            _ => { _activeEditor = null; },
+            addStepAfterCallback: HandleNewStepAfterFromEditor,
+            deleteStepCallback:   HandleDeleteStepFromEditor,
+            switchTourCallback:   HandleSwitchTourFromEditor,
+            addTourCallback:      HandleAddTourFromEditor,
+            deleteTourCallback:   HandleDeleteTourFromEditor);
+        _activeEditor = editor;
+        editor.Show();
+    }
+
+    /// <summary>
     /// Refreshes the callout and navigator heading after an in-place step edit.
     /// </summary>
     public void NotifyStepEdited()

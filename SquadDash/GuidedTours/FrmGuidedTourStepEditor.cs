@@ -140,7 +140,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _workspaceFolderPath = workspaceFolderPath;
         _captureLayout       = captureLayout;
 
-        Title                 = $"Edit Step {stepIndex + 1} — {activeTour.Name}";
+        Title                 = BuildEditorTitle(activeTour.Name, stepIndex, step.Title);
         Width                 = 1300;
         SizeToContent         = SizeToContent.Height;
         ShowInTaskbar         = false;
@@ -505,6 +505,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             var newLabel = $"{_stepIndex + 1}. {_titleBox.Text.Trim()}";
             if (_stepListBox.SelectedIndex >= 0 && _stepListBox.SelectedIndex < _stepListBox.Items.Count)
                 _stepListBox.Items[_stepListBox.SelectedIndex] = newLabel;
+            Title = BuildEditorTitle(_activeTour.Name, _stepIndex, _titleBox.Text.Trim());
         };
 
         SnapshotCurrentValues();
@@ -667,6 +668,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         RefreshStepList(selectStepIndex);
     }
 
+    private static string BuildEditorTitle(string tourName, int stepIndex, string stepTitle) =>
+        $"Guided Tour Editor — {tourName} — Step {stepIndex + 1}: {stepTitle}";
+
     private static int GetListBoxItemIndexAtPoint(ListBox listBox, Point point)
     {
         for (int i = 0; i < listBox.Items.Count; i++)
@@ -769,7 +773,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _statusLabel.Visibility = Visibility.Collapsed;
 
-        Title                = $"Edit Step {index + 1} — {_activeTour.Name}";
+        Title                = BuildEditorTitle(_activeTour.Name, index, _activeTour.Steps[index].Title);
         _stepCountLabel.Text = $"Step {index + 1} of {_activeTour.Steps.Count}";
         UpdateNavigationState();
         SnapshotCurrentValues();

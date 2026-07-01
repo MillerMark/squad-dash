@@ -13541,12 +13541,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 MessageBox.Show("No workspace is open.", "Edit Guided Tours", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            if (!File.Exists(toursFile))
+
+            // Load (or create) the tours file so the editor has something to work with
+            List<GuidedTour> allTours;
+            if (File.Exists(toursFile))
+            {
+                allTours = GuidedTourLoader.Load(toursFile) ?? new List<GuidedTour>();
+            }
+            else
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(toursFile)!);
                 File.WriteAllText(toursFile, "[\n]\n");
+                allTours = new List<GuidedTour>();
             }
-            Process.Start(new ProcessStartInfo(toursFile) { UseShellExecute = true });
+
+            EnsureGuidedTourController();
+            _guidedTourController!.OpenEditorStandalone(allTours);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EditGuidedToursMenuItem_Click), ex); }
     }
