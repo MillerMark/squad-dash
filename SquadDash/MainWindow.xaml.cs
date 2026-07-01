@@ -13928,9 +13928,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void StopTypeIntoPromptAnimation()
     {
-        if (_typeIntoPromptTimer is null) return;
-        _typeIntoPromptTimer.Stop();
-        _typeIntoPromptTimer = null;
+        // Stop the timer if it's still running (it self-nulls when the text is fully typed,
+        // but TourTypeTag items may still be in the queue after that — handle both cases).
+        if (_typeIntoPromptTimer is not null)
+        {
+            _typeIntoPromptTimer.Stop();
+            _typeIntoPromptTimer = null;
+        }
+
+        // Nothing to clean up if no tour-type items remain.
+        if (!_promptQueue.Items.Any(i => i.SourceTag == TourTypeTag))
+            return;
 
         // If the tour-typed tab is currently active, restore the pre-edit draft before removing it.
         if (_activeTabId is not null &&
