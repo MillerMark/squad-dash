@@ -1542,7 +1542,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     /// <inheritdoc/>
     FrameworkElement? ILiveElementLocator.FindByName(string name) =>
-        VisualTreeSearch.FindByName(this, name);
+        name == "TourQuickReplyPanel"
+            ? VisualTreeSearch.FindLastByName(this, name)
+            : VisualTreeSearch.FindByName(this, name);
 
     /// <inheritdoc/>
     Rect ILiveElementLocator.GetBoundsRelativeToWindow(FrameworkElement element)
@@ -13692,6 +13694,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourInjectedCoordinatorBlocks.Clear();
     }
 
+    /// <summary>
+    /// Removes the last <c>TourQuickReplyPanel</c> block from the coordinator transcript,
+    /// so that consecutive tour text injections don't accumulate stale quick-reply panels.
+    /// </summary>
+    private void RemoveLastTourQuickReplyPanel()
+    {
+        var doc    = CoordinatorThread.Document;
+        var blocks = doc.Blocks.ToList();
+        for (int i = blocks.Count - 1; i >= 0; i--)
+        {
+            if (blocks[i] is System.Windows.Documents.BlockUIContainer buc &&
+                buc.Child is System.Windows.Controls.WrapPanel wp &&
+                wp.Name == "TourQuickReplyPanel")
+            {
+                try { doc.Blocks.Remove(blocks[i]); } catch { /* already gone */ }
+                _tourInjectedCoordinatorBlocks.Remove(blocks[i]);
+                return;
+            }
+        }
+    }
+
     private void RegisterTourAdvanceTriggers()
     {
         _tourAdvanceTriggerRegistry.Register(
@@ -13921,6 +13944,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private void InjectTourTranscriptText(string markdownText, string? agentName)
     {
+        // Remove any existing quick-reply panel before adding new text.
+        if (string.IsNullOrWhiteSpace(agentName))
+            RemoveLastTourQuickReplyPanel();
         TranscriptThreadState targetThread;
 
         if (string.IsNullOrWhiteSpace(agentName))
@@ -14008,10 +14034,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private async Task InjectTourTranscriptTextWithReplies(string messageText, string[] buttonLabels)
     {
+        // Remove any existing quick-reply panel before injecting a replacement.
         // Wait for coordinator to finish before injecting simulated text (max 10 s).
         var idleDeadline = Environment.TickCount64 + 10_000;
         while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
             await Task.Delay(100);
+
+        RemoveLastTourQuickReplyPanel();
 
         int blocksBefore = CoordinatorThread.Document.Blocks.Count;
 

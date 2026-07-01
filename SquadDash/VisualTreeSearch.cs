@@ -90,6 +90,29 @@ public static class VisualTreeSearch
     }
 
     /// <summary>
+    /// Returns the <em>last</em> <see cref="FrameworkElement"/> descendant whose
+    /// <see cref="FrameworkElement.Name"/> equals <paramref name="name"/>, found by
+    /// collecting all matches via depth-first visual-tree traversal and returning the
+    /// final entry, or <c>null</c> if no match exists.
+    /// </summary>
+    public static FrameworkElement? FindLastByName(DependencyObject root, string name)
+    {
+        var all = new List<FrameworkElement>();
+        CollectByName(root, name, all);
+        return all.Count > 0 ? all[all.Count - 1] : null;
+    }
+
+    private static void CollectByName(DependencyObject root, string name, List<FrameworkElement> results)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is FrameworkElement fe && fe.Name == name) results.Add(fe);
+            CollectByName(child, name, results);
+        }
+    }
+
+    /// <summary>
     /// Returns the first descendant of <typeparamref name="T"/> whose
     /// <see cref="FrameworkElement.Name"/> equals <paramref name="name"/>,
     /// found by depth-first visual-tree traversal, or <c>null</c>.
