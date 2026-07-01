@@ -492,7 +492,14 @@ document.addEventListener('click', function(e) {
     }
 
     private static string[] ParseTableRow(string line) {
-        return line.Trim().Trim('|').Split('|').Select(cell => cell.Trim()).ToArray();
+        const string placeholder = "\x00PIPE\x00";
+        return line
+            .Trim()
+            .Replace(@"\|", placeholder)
+            .Trim('|')
+            .Split('|')
+            .Select(cell => cell.Trim().Replace(placeholder, "|"))
+            .ToArray();
     }
 
     private static bool IsHorizontalRule(string line) {
