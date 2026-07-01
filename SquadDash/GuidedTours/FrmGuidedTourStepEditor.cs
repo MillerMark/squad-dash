@@ -74,6 +74,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private Rectangle? _pickBlackRect;
     private Border?    _pickLabel;
 
+    // Target highlight overlay — transparent live-preview overlay pinned over the main window
+    private Window?    _targetOverlay;
+    private Canvas?    _targetOverlayCanvas;
+    private Rectangle? _overlayBlackRect;
+    private Rectangle? _overlayWhiteRect;
+    private Border?    _overlayLabel;
+    private Ellipse?   _overlayDot;
+
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
 
@@ -224,6 +232,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
             _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
             if (hasTarget) RedrawCrosshair();
+            ShowOrUpdateTargetOverlay();
         };
 
         var captureButton = MakeButton("📷 Capture Current Layout for the Step");
@@ -320,7 +329,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); PushLivePreview(); };
         _markdownBox.TextChanged += (_, _) => { if (_isLoadingStep) return; _debounceTimer.Stop(); _debounceTimer.Start(); };
-        Closed += (_, _) => { _debounceTimer.Stop(); if (!WasSaved) RestoreOriginals(); };
+        Closed += (_, _) => { _debounceTimer.Stop(); CloseTargetOverlay(); if (!WasSaved) RestoreOriginals(); };
 
         SnapshotCurrentValues();
 
@@ -483,6 +492,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
         _crosshairCoordsLabel.Text       = FormatCrosshairCoords(step.TargetOffsetX, step.TargetOffsetY);
         if (hasTarget) RedrawCrosshair();
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"LoadStep: target={step.TargetControlId}, offsetX={step.TargetOffsetX:F3}, offsetY={step.TargetOffsetY:F3}");
+        ShowOrUpdateTargetOverlay();
 
         _statusLabel.Visibility = Visibility.Collapsed;
 
@@ -825,6 +838,139 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         canvas.Children.Add(_pickLabel);
     }
 
+    // ── Target highlight overlay ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Creates or updates a transparent topmost overlay that draws a highlight rectangle
+    /// and an anchor-dot over the current target element, so you can see exactly where
+    /// the callout will attach during step editing.
+    /// </summary>
+    private void ShowOrUpdateTargetOverlay()
+    {
+        var mainWindow = Owner;
+        if (mainWindow is null) return;
+
+        var targetId = _targetControlBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(targetId))
+        {
+            CloseTargetOverlay();
+            return;
+        }
+
+        var fe = FindElementByName(mainWindow, targetId);
+        if (fe is null || !fe.IsVisible)
+        {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"TargetOverlay: target={targetId} — element not found in visual tree");
+            CloseTargetOverlay();
+            return;
+        }
+
+        if (_targetOverlay is null)
+        {
+            _targetOverlayCanvas = new Canvas { IsHitTestVisible = false };
+
+            _overlayBlackRect = new Rectangle
+            {
+                Stroke = Brushes.Black, StrokeThickness = 2,
+                Fill = Brushes.Transparent, IsHitTestVisible = false,
+            };
+            _overlayWhiteRect = new Rectangle
+            {
+                Stroke = Brushes.White, StrokeThickness = 2,
+                Fill = Brushes.Transparent, IsHitTestVisible = false,
+            };
+            _overlayLabel = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0xCC, 20, 20, 20)),
+                Padding = new Thickness(6, 2, 6, 2),
+                CornerRadius = new CornerRadius(3),
+                IsHitTestVisible = false,
+                Child = new TextBlock { Foreground = Brushes.White, FontSize = 12 },
+            };
+            _overlayDot = new Ellipse
+            {
+                Width = 10, Height = 10,
+                Fill = Brushes.Yellow, IsHitTestVisible = false,
+            };
+
+            _targetOverlayCanvas.Children.Add(_overlayBlackRect);
+            _targetOverlayCanvas.Children.Add(_overlayWhiteRect);
+            _targetOverlayCanvas.Children.Add(_overlayLabel);
+            _targetOverlayCanvas.Children.Add(_overlayDot);
+
+            _targetOverlay = new Window
+            {
+                Owner                 = mainWindow,
+                WindowStyle           = WindowStyle.None,
+                AllowsTransparency    = true,
+                Background            = Brushes.Transparent,
+                Topmost               = true,
+                ShowInTaskbar         = false,
+                IsHitTestVisible      = false,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left                  = mainWindow.Left,
+                Top                   = mainWindow.Top,
+                Width                 = mainWindow.ActualWidth,
+                Height                = mainWindow.ActualHeight,
+                Content               = _targetOverlayCanvas,
+            };
+            _targetOverlay.Show();
+        }
+        else
+        {
+            _targetOverlay.Left   = mainWindow.Left;
+            _targetOverlay.Top    = mainWindow.Top;
+            _targetOverlay.Width  = mainWindow.ActualWidth;
+            _targetOverlay.Height = mainWindow.ActualHeight;
+            if (!_targetOverlay.IsVisible) _targetOverlay.Show();
+        }
+
+        var screenTL = fe.PointToScreen(new Point(0, 0));
+        var topLeft  = _targetOverlay.PointFromScreen(screenTL);
+        double w     = fe.ActualWidth;
+        double h     = fe.ActualHeight;
+
+        const double stroke = 2;
+        const double pad    = 2;
+
+        Canvas.SetLeft(_overlayBlackRect!, topLeft.X - pad - stroke);
+        Canvas.SetTop(_overlayBlackRect!,  topLeft.Y - pad - stroke);
+        _overlayBlackRect!.Width  = w + (pad + stroke) * 2;
+        _overlayBlackRect!.Height = h + (pad + stroke) * 2;
+
+        Canvas.SetLeft(_overlayWhiteRect!, topLeft.X);
+        Canvas.SetTop(_overlayWhiteRect!,  topLeft.Y);
+        _overlayWhiteRect!.Width  = w;
+        _overlayWhiteRect!.Height = h;
+
+        var labelTop = topLeft.Y - 26;
+        if (labelTop < 0) labelTop = topLeft.Y + h + 4;
+        Canvas.SetLeft(_overlayLabel!, topLeft.X);
+        Canvas.SetTop(_overlayLabel!,  labelTop);
+        ((TextBlock)_overlayLabel!.Child).Text = targetId;
+
+        double dotX = topLeft.X + _step.TargetOffsetX * w;
+        double dotY = topLeft.Y + _step.TargetOffsetY * h;
+        Canvas.SetLeft(_overlayDot!, dotX - 5);
+        Canvas.SetTop(_overlayDot!,  dotY - 5);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"TargetOverlay: target={targetId}, found=True, screenBounds=({screenTL.X:F1},{screenTL.Y:F1} {w:F1}×{h:F1}), dotAt=({dotX:F1},{dotY:F1})");
+    }
+
+    private void CloseTargetOverlay()
+    {
+        if (_targetOverlay is null) return;
+        _targetOverlay.Close();
+        _targetOverlay       = null;
+        _targetOverlayCanvas = null;
+        _overlayBlackRect    = null;
+        _overlayWhiteRect    = null;
+        _overlayLabel        = null;
+        _overlayDot          = null;
+    }
+
     private void BrowseForControl()
     {
         var picker = new FrmControlPicker(Application.Current.MainWindow, _targetControlBox.Text)
@@ -959,8 +1105,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _step.TargetOffsetX = offsetX;
         _step.TargetOffsetY = offsetY;
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"CrosshairMoved: target={_targetControlBox.Text.Trim()}, offsetX={offsetX:F3}, offsetY={offsetY:F3}, canvasPos=({canvasPos.X:F1},{canvasPos.Y:F1})");
         _crosshairCoordsLabel.Text = FormatCrosshairCoords(offsetX, offsetY);
         RedrawCrosshair();
+        ShowOrUpdateTargetOverlay();
         _livePreviewCallback?.Invoke();
     }
 
