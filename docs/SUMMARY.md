@@ -98,3 +98,11 @@
   * [Loop File Templates](reference/loop-file-templates.md)
   * [Loop File - Custom UI](reference/loop-file-custom-ui.md)
 
+## Developing SquadDash
+
+* [Developing SquadDash](developing/README.md)
+
+  * [Developer Menu](developing/developer-menu.md)
+  * [Trace Log](developing/trace-log.md)
+  * [Creating Guided Tours](developing/guided-tours.md)
+
