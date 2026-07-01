@@ -14030,7 +14030,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var turn = CoordinatorThread.CurrentTurn!;
 
         var thinkingBlock = CreateThinkingBlock(turn, isExpanded: true);
-        thinkingBlock.Expander.Name = "TourInjectedToolingBlock";
+        thinkingBlock.Expander.Name                = "TourInjectedToolingBlock";
+        thinkingBlock.Expander.HorizontalAlignment = HorizontalAlignment.Left;
         _tourNamedElements["TourInjectedToolingBlock"] = thinkingBlock.Expander;
 
         foreach (var spec in specs)
