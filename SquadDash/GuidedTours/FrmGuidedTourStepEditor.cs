@@ -444,6 +444,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
         }
 
+        _debounceTimer.Stop(); // prevent double-callout: LoadStep sets _markdownBox.Text which restarts the timer
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
     }
