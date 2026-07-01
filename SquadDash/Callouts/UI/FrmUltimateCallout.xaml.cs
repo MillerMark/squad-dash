@@ -1829,10 +1829,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         // Clamp the base points (tp2, tp3) to the callout body. When the dangle tip is far
         // off-screen the fallback full-line intersection in GetTriangleScreenPoint can return
         // a point well outside the callout rectangle; clamping keeps the triangle visible.
+        // Guard against a non-positive size (window not yet laid out) so Math.Clamp never
+        // receives min > max and throws ArgumentException.
         double cbLeft   = OutsideMargin;
-        double cbRight  = OutsideMargin + calloutWidth;
+        double cbRight  = Math.Max(cbLeft, OutsideMargin + calloutWidth);
         double cbTop    = OutsideMargin;
-        double cbBottom = OutsideMargin + calloutHeight;
+        double cbBottom = Math.Max(cbTop,  OutsideMargin + calloutHeight);
         switch (data.CalloutDangleSide) {
             case CalloutSide.Top:
             case CalloutSide.Bottom:
