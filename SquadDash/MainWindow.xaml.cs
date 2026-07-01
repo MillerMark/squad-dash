@@ -13862,7 +13862,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (el is MenuItem mi)
                 {
                     mi.IsSubmenuOpen = true;
-                    await Task.Delay(120); // let WPF render the submenu before opening the next level
+                    await Task.Delay(180); // let WPF render the submenu before opening the next level
+
+                    // Register the submenu popup child as "{Name}_Popup" so a callout can
+                    // point at the open dropdown panel rather than the small menu-bar header.
+                    if (mi.Template?.FindName("PART_Popup", mi) is System.Windows.Controls.Primitives.Popup popup
+                        && popup.Child is FrameworkElement submenuRoot)
+                    {
+                        _tourNamedElements[$"{name}_Popup"] = submenuRoot;
+                    }
                 }
             }
         });
