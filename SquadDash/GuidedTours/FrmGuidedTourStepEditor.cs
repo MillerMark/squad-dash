@@ -440,8 +440,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // ── Sidebar buttons ──────────────────────────────────────────────────
 
         var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
-        var addBtn    = MakeButton("+");
-        var deleteBtn = MakeButton("🗑");
+        var addBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
+        var deleteBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteBtn.Margin = new Thickness(0);
         addBtn.Click    += (_, _) => _addStepAfterCallback?.Invoke();
@@ -475,8 +475,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _tourListBox.SelectedIndex = allTours.IndexOf(activeTour);
         _tourListBox.SelectionChanged += OnTourListSelectionChanged;
 
-        var addTourBtn    = MakeButton("+");
-        var deleteTourBtn = MakeButton("🗑");
+        var addTourBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
+        var deleteTourBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addTourBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteTourBtn.Margin = new Thickness(0);
         addTourBtn.Click    += (_, _) => _addTourCallback?.Invoke();
@@ -1531,6 +1531,30 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Height  = 26,
             Margin  = new Thickness(3, 0, 3, 0),
             Padding = new Thickness(10, 2, 10, 2),
+        };
+        btn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        return btn;
+    }
+
+    /// <summary>Creates a square icon button with a large, colored glyph filling the button face.</summary>
+    private static Button MakeIconButton(string glyph, Brush iconBrush)
+    {
+        var label = new TextBlock
+        {
+            Text               = glyph,
+            FontSize           = 20,
+            FontWeight         = FontWeights.Bold,
+            Foreground         = iconBrush,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+        };
+        var btn = new Button
+        {
+            Content = label,
+            Width   = 32,
+            Height  = 32,
+            Padding = new Thickness(0),
+            Margin  = new Thickness(3, 0, 3, 0),
         };
         btn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         return btn;
