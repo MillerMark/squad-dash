@@ -32,6 +32,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private double                     _originalTargetOffsetX;
     private double                     _originalTargetOffsetY;
     private readonly DispatcherTimer   _debounceTimer;
+    private bool                       _isLoadingStep;
 
     // Navigation state — snapshot-based dirty detection
     private string   _snapTitle           = string.Empty;
@@ -141,7 +142,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 };
                 rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
                 rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
-                rb.Checked += (_, _) => PushLivePreview();
+                rb.Checked += (_, _) => { if (!_isLoadingStep) PushLivePreview(); };
                 return rb;
             })
             .ToArray();
@@ -318,7 +319,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); PushLivePreview(); };
-        _markdownBox.TextChanged += (_, _) => { _debounceTimer.Stop(); _debounceTimer.Start(); };
+        _markdownBox.TextChanged += (_, _) => { if (_isLoadingStep) return; _debounceTimer.Stop(); _debounceTimer.Start(); };
         Closed += (_, _) => { _debounceTimer.Stop(); if (!WasSaved) RestoreOriginals(); };
 
         SnapshotCurrentValues();
@@ -444,13 +445,15 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
         }
 
-        _debounceTimer.Stop(); // prevent double-callout: LoadStep sets _markdownBox.Text which restarts the timer
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
     }
 
     private void LoadStep(int index)
     {
+        _isLoadingStep = true;
+        try
+        {
         var step = _activeTour.Steps[index];
 
         _originalMarkdown      = step.MarkdownText;
@@ -487,6 +490,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepCountLabel.Text = $"Step {index + 1} of {_activeTour.Steps.Count}";
         UpdateNavigationState();
         SnapshotCurrentValues();
+        }
+        finally
+        {
+            _isLoadingStep = false;
+            _debounceTimer.Stop();
+        }
     }
 
     private void UpdateNavigationState()
