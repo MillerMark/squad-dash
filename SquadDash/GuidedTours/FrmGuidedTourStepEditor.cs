@@ -32,9 +32,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private double                     _originalTargetOffsetY;
     private readonly DispatcherTimer   _debounceTimer;
 
-    // Navigation state
-    private bool                       _isDirty;
-    private bool                       _suppressDirty;
+    // Navigation state — snapshot-based dirty detection
+    private string   _snapTitle           = string.Empty;
+    private string   _snapMarkdown        = string.Empty;
+    private string   _snapTargetControlId = string.Empty;
+    private string   _snapPlacement       = string.Empty;
+    private string   _snapAdvanceTrigger  = string.Empty;
+    private string[] _snapCommandsBefore  = [];
+    private string[] _snapCommandsAfter   = [];
     private Button                     _prevButton = null!;
     private Button                     _nextButton = null!;
     private TextBlock                  _stepCountLabel = null!;
@@ -313,16 +318,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _markdownBox.TextChanged += (_, _) => { _debounceTimer.Stop(); _debounceTimer.Start(); };
         Closed += (_, _) => { _debounceTimer.Stop(); if (!WasSaved) RestoreOriginals(); };
 
-        // ── Dirty tracking ────────────────────────────────────────────────────
-
-        void MarkDirty() { if (!_suppressDirty) _isDirty = true; }
-        _titleBox.TextChanged       += (_, _) => MarkDirty();
-        _markdownBox.TextChanged    += (_, _) => MarkDirty();
-        _targetControlBox.TextChanged += (_, _) => MarkDirty();
-        _advanceTriggerBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
-            new TextChangedEventHandler((_, _) => MarkDirty()));
-        foreach (var rb in _placementRadios)
-            rb.Checked += (_, _) => MarkDirty();
+        SnapshotCurrentValues();
 
         PreviewKeyDown += (_, e) =>
         {
@@ -408,7 +404,6 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
 
             WasSaved = true;
-            _isDirty = false;
             return true;
         }
         catch (Exception ex)
@@ -426,7 +421,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         if (newIndex < 0 || newIndex >= _activeTour.Steps.Count) return;
 
-        if (_isDirty)
+        if (HasUnsavedChanges())
         {
             var result = MessageBox.Show(
                 "Save changes to this step before moving?",
@@ -459,49 +454,70 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _originalTargetOffsetX = step.TargetOffsetX;
         _originalTargetOffsetY = step.TargetOffsetY;
 
-        _suppressDirty = true;
-        try
-        {
-            _step      = step;
-            _stepIndex = index;
+        _step      = step;
+        _stepIndex = index;
 
-            _titleBox.Text         = step.Title;
-            _markdownBox.Text      = step.MarkdownText;
-            _targetControlBox.Text = step.TargetControlId;
+        _titleBox.Text         = step.Title;
+        _markdownBox.Text      = step.MarkdownText;
+        _targetControlBox.Text = step.TargetControlId;
 
-            var placements = new[] { "Auto", "North", "South", "East", "West" };
-            for (int i = 0; i < _placementRadios.Length; i++)
-                _placementRadios[i].IsChecked = string.Equals(placements[i], step.CalloutPlacement, StringComparison.OrdinalIgnoreCase);
-            if (_placementRadios.All(r => r.IsChecked != true))
-                _placementRadios[0].IsChecked = true;
+        var placements = new[] { "Auto", "North", "South", "East", "West" };
+        for (int i = 0; i < _placementRadios.Length; i++)
+            _placementRadios[i].IsChecked = string.Equals(placements[i], step.CalloutPlacement, StringComparison.OrdinalIgnoreCase);
+        if (_placementRadios.All(r => r.IsChecked != true))
+            _placementRadios[0].IsChecked = true;
 
-            ReloadCommandRows(_commandBeforeRows, _commandBeforePanel, step.EffectiveCommandsBefore);
-            ReloadCommandRows(_commandAfterRows,  _commandAfterPanel,  step.EffectiveCommandsAfter);
-            _advanceTriggerBox.Text = string.IsNullOrEmpty(step.AdvanceTrigger) ? "(none)" : step.AdvanceTrigger;
+        ReloadCommandRows(_commandBeforeRows, _commandBeforePanel, step.EffectiveCommandsBefore);
+        ReloadCommandRows(_commandAfterRows,  _commandAfterPanel,  step.EffectiveCommandsAfter);
+        _advanceTriggerBox.Text = string.IsNullOrEmpty(step.AdvanceTrigger) ? "(none)" : step.AdvanceTrigger;
 
-            var hasTarget = !string.IsNullOrWhiteSpace(step.TargetControlId);
-            _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
-            _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
-            _crosshairCoordsLabel.Text       = FormatCrosshairCoords(step.TargetOffsetX, step.TargetOffsetY);
-            if (hasTarget) RedrawCrosshair();
+        var hasTarget = !string.IsNullOrWhiteSpace(step.TargetControlId);
+        _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+        _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
+        _crosshairCoordsLabel.Text       = FormatCrosshairCoords(step.TargetOffsetX, step.TargetOffsetY);
+        if (hasTarget) RedrawCrosshair();
 
-            _statusLabel.Visibility = Visibility.Collapsed;
-            _isDirty = false;
-        }
-        finally
-        {
-            _suppressDirty = false;
-        }
+        _statusLabel.Visibility = Visibility.Collapsed;
 
         Title                = $"Edit Step {index + 1} — {_activeTour.Name}";
         _stepCountLabel.Text = $"Step {index + 1} of {_activeTour.Steps.Count}";
         UpdateNavigationState();
+        SnapshotCurrentValues();
     }
 
     private void UpdateNavigationState()
     {
         _prevButton.IsEnabled = _stepIndex > 0;
         _nextButton.IsEnabled = _stepIndex < _activeTour.Steps.Count - 1;
+    }
+
+    private void SnapshotCurrentValues()
+    {
+        _snapTitle           = _titleBox.Text;
+        _snapMarkdown        = _markdownBox.Text;
+        _snapTargetControlId = _targetControlBox.Text;
+        _snapPlacement       = GetSelectedPlacement();
+        _snapAdvanceTrigger  = _advanceTriggerBox.Text;
+        _snapCommandsBefore  = _commandBeforeRows.Select(r => r.Box.Text).ToArray();
+        _snapCommandsAfter   = _commandAfterRows.Select(r => r.Box.Text).ToArray();
+        _originalTargetOffsetX = _step.TargetOffsetX;
+        _originalTargetOffsetY = _step.TargetOffsetY;
+    }
+
+    private bool HasUnsavedChanges()
+    {
+        if (_titleBox.Text            != _snapTitle)            return true;
+        if (_markdownBox.Text         != _snapMarkdown)         return true;
+        if (_targetControlBox.Text    != _snapTargetControlId)  return true;
+        if (GetSelectedPlacement()    != _snapPlacement)        return true;
+        if (_advanceTriggerBox.Text   != _snapAdvanceTrigger)   return true;
+        if (_step.TargetOffsetX       != _originalTargetOffsetX) return true;
+        if (_step.TargetOffsetY       != _originalTargetOffsetY) return true;
+        var currentBefore = _commandBeforeRows.Select(r => r.Box.Text).ToArray();
+        var currentAfter  = _commandAfterRows.Select(r => r.Box.Text).ToArray();
+        if (!currentBefore.SequenceEqual(_snapCommandsBefore))  return true;
+        if (!currentAfter.SequenceEqual(_snapCommandsAfter))    return true;
+        return false;
     }
 
     private string GetSelectedPlacement() =>
@@ -547,6 +563,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         var overlay = new Window
         {
+            Owner                     = mainWindow,
             WindowStyle               = WindowStyle.None,
             AllowsTransparency        = true,
             Background                = new SolidColorBrush(Color.FromArgb(0x10, 0, 0, 0)),
@@ -1036,12 +1053,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             rows.Remove(commandRow);
             panel.Children.Remove(rowGrid);
             UpdateDeleteButtonVisibility(rows);
-            if (!_suppressDirty) _isDirty = true;
         };
-
-        cb.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
-            new TextChangedEventHandler((_, _) => { if (!_suppressDirty) _isDirty = true; }));
-        cb.SelectionChanged += (_, _) => { if (!_suppressDirty) _isDirty = true; };
 
         UpdateDeleteButtonVisibility(rows);
     }
@@ -1051,11 +1063,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var btn = MakeButton("+ Add Command");
         btn.HorizontalAlignment = HorizontalAlignment.Left;
         btn.Margin = new Thickness(0, 2, 0, 0);
-        btn.Click += (_, _) =>
-        {
-            AddCommandRowToPanel(rows, panel, string.Empty);
-            if (!_suppressDirty) _isDirty = true;
-        };
+        btn.Click += (_, _) => AddCommandRowToPanel(rows, panel, string.Empty);
         return btn;
     }
 
