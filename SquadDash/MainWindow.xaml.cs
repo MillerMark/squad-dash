@@ -154,6 +154,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly GuidedTourCommandRegistry _tourCommandRegistry = new();
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
+    private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13684,6 +13685,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         EnsureGuidedTourController();
         _tourInjectedCoordinatorBlocks.Clear();
+        _tourNamedElements.Clear();
         _guidedTourController!.StartTour(tour, allTours);
     }
 
@@ -13694,7 +13696,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RegisterTourAdvanceTriggers();
         _guidedTourController = new GuidedTourController(
             ownerWindow:             this,
-            elementLocator:          name => VisualTreeSearch.FindByName(this, name),
+            elementLocator:          name => _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
+                                             : VisualTreeSearch.FindByName(this, name),
             savePreTourLayout:       () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
             restorePreTourLayout:    () =>
             {
@@ -13743,6 +13746,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             try { doc.Blocks.Remove(block); } catch { /* block may have already been removed */ }
         }
         _tourInjectedCoordinatorBlocks.Clear();
+        _tourNamedElements.Clear();
     }
 
     /// <summary>
@@ -13999,6 +14003,71 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             ScrollToEndIfAtBottom(targetThread);
         });
+
+        _tourCommandRegistry.RegisterParameterizedAsync("InjectTranscriptTools", async arg =>
+        {
+            // Format: toolName:description:output[;toolName:description:output...]
+            // Each spec uses ':' as delimiter (max 3 parts; output may itself contain ':').
+            // '\n' in output is expanded to real newlines.
+            await InjectTourTranscriptTools(arg);
+        });
+    }
+
+    /// <summary>
+    /// Injects simulated tool call blocks into the coordinator transcript for a guided tour step.
+    /// Each tool runs with an animated delay, then completes. The "Tooling..." expander is
+    /// registered as <c>TourInjectedToolingBlock</c> for callout targeting.
+    /// </summary>
+    private async Task InjectTourTranscriptTools(string arg)
+    {
+        var specs = arg.Split(';', StringSplitOptions.RemoveEmptyEntries);
+        if (specs.Length == 0) return;
+
+        int blocksBefore = CoordinatorThread.Document.Blocks.Count;
+        var rng = new Random();
+
+        BeginTranscriptTurn(CoordinatorThread, string.Empty);
+        var turn = CoordinatorThread.CurrentTurn!;
+
+        var thinkingBlock = CreateThinkingBlock(turn, isExpanded: true);
+        thinkingBlock.Expander.Name = "TourInjectedToolingBlock";
+        _tourNamedElements["TourInjectedToolingBlock"] = thinkingBlock.Expander;
+
+        foreach (var spec in specs)
+        {
+            var parts       = spec.Split(':', 3);
+            var toolName    = parts.Length > 0 ? parts[0].Trim() : "tool";
+            var description = parts.Length > 1 ? parts[1].Trim() : string.Empty;
+            var outputRaw   = parts.Length > 2 ? parts[2] : string.Empty;
+            var output      = outputRaw.Replace(@"\n", "\n");
+
+            var toolCallId = "tour-tool-" + Guid.NewGuid().ToString("N")[..8];
+            var descriptor = new ToolTranscriptDescriptor(
+                ToolName:    toolName,
+                Description: description,
+                DisplayText: description);
+
+            var entry = CreateToolEntry(thinkingBlock, toolCallId, descriptor, null, DateTimeOffset.UtcNow);
+            _agentThreadRegistry.SetToolEntry(toolCallId, entry);
+            RenderToolEntry(entry);
+
+            await Task.Delay(rng.Next(400, 900));
+
+            entry.IsCompleted   = true;
+            entry.Success       = true;
+            entry.FinishedAt    = DateTimeOffset.UtcNow;
+            entry.OutputText    = string.IsNullOrWhiteSpace(output) ? null : output;
+            entry.DetailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
+                descriptor, null, output, entry.StartedAt, entry.FinishedAt, null, true, true));
+            RenderToolEntry(entry);
+
+            await Task.Delay(rng.Next(120, 300));
+        }
+
+        CoordinatorThread.CurrentTurn = null;
+        TrackNewCoordinatorBlocks(blocksBefore);
+        SelectTranscriptThread(CoordinatorThread);
+        ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
     /// <summary>
