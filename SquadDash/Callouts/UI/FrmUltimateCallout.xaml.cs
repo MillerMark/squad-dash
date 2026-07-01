@@ -1122,7 +1122,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     Point GetScreenDanglePointForHorizontalExit() {
         // ![](473394D46C1D2A4F0FA89BEEE7DA7405.png)
-        double adjacentA = TargetWidth / 2 + Options.TargetSpacing;
+        double offsetX = HorizontalPercentOffset / 2.0 + 0.5;
+        double xSign = GetXSign();
+        // xSign > 0: callout is to the left → dangle exits from LEFT edge
+        //            distance from targetCenter to left edge = offsetX * TargetWidth
+        // xSign < 0: callout is to the right → dangle exits from RIGHT edge
+        //            distance from targetCenter to right edge = (1 - offsetX) * TargetWidth
+        double targetHorizDist = (xSign > 0)
+            ? offsetX * TargetWidth
+            : (1.0 - offsetX) * TargetWidth;
+        double adjacentA = targetHorizDist + Options.TargetSpacing;
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ScreenDanglePoint(Horizontal): offsetX={offsetX:F3}, xSign={xSign:F0}, targetHorizDist={targetHorizDist:F1}, adjacentA={adjacentA:F1}, TargetWidth={TargetWidth:F1}");
         double theta = GetTheta();
         double oppositeB = Math.Abs(adjacentA * Math.Tan(theta));
 
@@ -1131,7 +1142,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     Point GetScreenDanglePointForVerticalExit() {
         // ![](1DDD9F289F77FC56734B77A13828B6B0.png)
-        double oppositeB = TargetHeight / 2 + Options.TargetSpacing;
+        double offsetY = VerticalPercentOffset / 2.0 + 0.5;
+        double ySign = GetYSign();
+        // ySign > 0: callout is above element → dangle exits from TOP edge
+        //            distance from targetCenter to top edge = offsetY * TargetHeight
+        // ySign < 0: callout is below element → dangle exits from BOTTOM edge
+        //            distance from targetCenter to bottom edge = (1 - offsetY) * TargetHeight
+        double targetVertDist = (ySign > 0)
+            ? offsetY * TargetHeight
+            : (1.0 - offsetY) * TargetHeight;
+        double oppositeB = targetVertDist + Options.TargetSpacing;
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ScreenDanglePoint(Vertical): offsetY={offsetY:F3}, ySign={ySign:F0}, targetVertDist={targetVertDist:F1}, oppositeB={oppositeB:F1}, TargetHeight={TargetHeight:F1}");
         double theta = GetTheta();
         double tanTheta = Math.Tan(theta);
         double adjacentA;
