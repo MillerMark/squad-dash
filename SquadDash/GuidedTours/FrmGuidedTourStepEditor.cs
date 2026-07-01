@@ -302,7 +302,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         var cancelButton = MakeButton("Cancel");
         cancelButton.IsCancel = true;
-        cancelButton.Click += (_, _) => Close();
+        cancelButton.Click += (_, _) => TryClose();
 
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         leftButtons.Children.Add(_prevButton);
@@ -338,7 +338,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape) { Close(); return; }
+            if (e.Key == Key.Escape) { e.Handled = true; TryClose(); return; }
 
             // Ctrl+B / Ctrl+I: markdown bold/italic in the markdown text box
             if (_markdownBox.IsFocused && (Keyboard.Modifiers & ModifierKeys.Control) != 0
@@ -438,6 +438,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 MessageBoxImage.Error);
             return false;
         }
+    }
+
+    private void TryClose()
+    {
+        if (HasUnsavedChanges())
+        {
+            var result = MessageBox.Show(
+                "Discard changes to this step?",
+                "Discard Changes",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+            if (result != MessageBoxResult.Yes) return;
+        }
+        Close();
     }
 
     private void TryNavigate(int newIndex)
