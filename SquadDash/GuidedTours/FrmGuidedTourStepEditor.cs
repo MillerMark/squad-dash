@@ -419,7 +419,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private void CommitSave()
     {
         if (PerformSave())
-            Close();
+            SnapshotCurrentValues();
     }
 
     private bool PerformSave()
