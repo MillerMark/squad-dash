@@ -13866,13 +13866,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             // Format: "MenuItemName" or "MenuItemName|SubMenuItemName|..."
             // Opens each named MenuItem in sequence so a callout can point at it / its children.
+            // After each level opens, subsequent names are searched inside the opened popup
+            // child (which lives in a separate HwndSource) rather than the main window.
             var names = arg.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            DependencyObject searchRoot = this;   // start search in main window visual tree
             foreach (var name in names)
             {
                 var el = _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
-                       : VisualTreeSearch.FindByName(this, name);
+                       : VisualTreeSearch.FindByName(searchRoot, name)
+                       ?? (searchRoot != this ? VisualTreeSearch.FindByName(this, name) : null);
                 SquadDashTrace.Write(TraceCategory.Callouts,
-                    $"OpenMenu: looking for \"{name}\" → found={el is not null}, type={el?.GetType().Name ?? "null"}");
+                    $"OpenMenu: looking for \"{name}\" in searchRoot={searchRoot.GetType().Name} → found={el is not null}, type={el?.GetType().Name ?? "null"}");
                 if (el is MenuItem mi)
                 {
                     mi.ApplyTemplate();
@@ -13900,6 +13904,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         _tourNamedElements[$"{name}_Popup"] = child;
                         SquadDashTrace.Write(TraceCategory.Callouts,
                             $"OpenMenu: registered \"{name}_Popup\" in _tourNamedElements");
+                        // Search next level's items within this popup's visual tree
+                        searchRoot = child;
                     }
                 }
             }
