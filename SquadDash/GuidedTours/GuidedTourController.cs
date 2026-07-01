@@ -214,6 +214,8 @@ internal sealed class GuidedTourController
         _activeTriggerSubscription = null;
         _onStepChanging?.Invoke();
         CloseActiveCallout();
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ShowCurrentStep: stepIndex={_currentStepIndex}, tourStepCount={_activeTour?.Steps.Count ?? -1}");
         // Run the previous step's CommandsAfter now that its callout is closed,
         // before showing the new step. This supports async commands (e.g. InjectTranscriptTextWithReplies).
         foreach (var cmd in prevCommandsAfter ?? [])
@@ -231,10 +233,17 @@ internal sealed class GuidedTourController
         await _ownerWindow.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
         if (IsActive && ReferenceEquals(CurrentStep, step))
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowCurrentStep: guard passed, calling ShowStepCallout for \"{step.Title}\" (target=\"{step.TargetControlId}\")");
             ShowStepCallout(step);
             _activeTriggerSubscription?.Dispose();
             _activeTriggerSubscription = _triggerRegistry?.Subscribe(step.AdvanceTrigger, () =>
                 _ownerWindow.Dispatcher.InvokeAsync(Next));
+        }
+        else
+        {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowCurrentStep: guard BLOCKED — IsActive={IsActive}, ReferenceEquals={ReferenceEquals(CurrentStep, step)} — skipping ShowStepCallout for \"{step.Title}\"");
         }
     }
 
@@ -242,6 +251,8 @@ internal sealed class GuidedTourController
     {
         if (string.IsNullOrWhiteSpace(step.TargetControlId))
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowStepCallout: no target — showing centered callout for \"{step.Title}\"");
             // No target defined — show centered on screen with no dangle
             ShowCenteredCallout(step);
             return;
@@ -250,11 +261,15 @@ internal sealed class GuidedTourController
         var target = _elementLocator(step.TargetControlId);
         if (target is null || !target.IsVisible)
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowStepCallout: target \"{step.TargetControlId}\" {(target is null ? "not found" : "not visible")} — falling back to centered callout for \"{step.Title}\"");
             // Target not found or not visible — show centered on screen with no dangle
             ShowCenteredCallout(step);
             return;
         }
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ShowStepCallout: showing beside target \"{step.TargetControlId}\" for \"{step.Title}\", placement={step.CalloutPlacement}, markdownLen={step.MarkdownText.Length}");
         _activeCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
             step.MarkdownText,
             target,
@@ -368,6 +383,8 @@ internal sealed class GuidedTourController
         var insertIndex = _currentStepIndex + 1;
         _activeTour.Steps.Insert(insertIndex, newStep);
         _currentStepIndex = insertIndex;
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"HandleNewStepAfter: inserted new step at index {insertIndex}, tour now has {_activeTour.Steps.Count} steps");
 
         var editor = new FrmGuidedTourStepEditor(
             step:                newStep,
@@ -383,12 +400,19 @@ internal sealed class GuidedTourController
             triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"HandleNewStepAfter: editor closed — WasSaved={editor.WasSaved}, stepIndex={_currentStepIndex}, stepCount={_activeTour.Steps.Count}");
+
         if (editor.WasSaved)
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"HandleNewStepAfter: save confirmed — title=\"{_activeTour.Steps[_currentStepIndex].Title}\", target=\"{_activeTour.Steps[_currentStepIndex].TargetControlId}\", markdown length={_activeTour.Steps[_currentStepIndex].MarkdownText.Length}");
             ShowCurrentStep();
         }
         else
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"HandleNewStepAfter: cancelled — removing step at {insertIndex}, reverting to {Math.Max(0, insertIndex - 1)}");
             _activeTour.Steps.RemoveAt(insertIndex);
             _currentStepIndex = Math.Max(0, insertIndex - 1);
             ShowCurrentStep();  // restore callout for original step
@@ -402,6 +426,8 @@ internal sealed class GuidedTourController
         var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
         var insertIndex = _currentStepIndex;  // Insert BEFORE current step
         _activeTour.Steps.Insert(insertIndex, newStep);
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"HandleNewStepBefore: inserted new step at index {insertIndex}, tour now has {_activeTour.Steps.Count} steps");
 
         var editor = new FrmGuidedTourStepEditor(
             step:                newStep,
@@ -417,12 +443,19 @@ internal sealed class GuidedTourController
             triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"HandleNewStepBefore: editor closed — WasSaved={editor.WasSaved}, stepIndex={_currentStepIndex}, stepCount={_activeTour.Steps.Count}");
+
         if (editor.WasSaved)
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"HandleNewStepBefore: save confirmed — title=\"{_activeTour.Steps[_currentStepIndex].Title}\", target=\"{_activeTour.Steps[_currentStepIndex].TargetControlId}\", markdown length={_activeTour.Steps[_currentStepIndex].MarkdownText.Length}");
             ShowCurrentStep();
         }
         else
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"HandleNewStepBefore: cancelled — removing step at {insertIndex}");
             _activeTour.Steps.RemoveAt(insertIndex);
             // _currentStepIndex stays the same (the original step is back)
             ShowCurrentStep();  // restore callout for original step

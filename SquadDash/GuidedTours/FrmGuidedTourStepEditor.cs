@@ -403,14 +403,19 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _step.CommandAfter = string.Empty;
             // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
 
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"PerformSave: stepIndex={_stepIndex}, title=\"{_step.Title}\", target=\"{_step.TargetControlId}\", placement={_step.CalloutPlacement}, markdownLen={_step.MarkdownText.Length}, workspacePath={(string.IsNullOrWhiteSpace(_workspaceFolderPath) ? "(none)" : _workspaceFolderPath)}");
+
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
             {
                 try
                 {
                     GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
+                    SquadDashTrace.Write(TraceCategory.Callouts, "PerformSave: disk save succeeded");
                 }
                 catch (Exception ex)
                 {
+                    SquadDashTrace.Write(TraceCategory.Callouts, $"PerformSave: disk save FAILED — {ex.Message}");
                     MessageBox.Show(
                         $"Step updated in memory but could not be saved to disk:\n{ex.Message}",
                         "Save Error",
@@ -420,10 +425,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
 
             WasSaved = true;
+            SquadDashTrace.Write(TraceCategory.Callouts, $"PerformSave: WasSaved=true, tourStepCount={_activeTour.Steps.Count}");
             return true;
         }
         catch (Exception ex)
         {
+            SquadDashTrace.Write(TraceCategory.Callouts, $"PerformSave: EXCEPTION — {ex}");
             MessageBox.Show(
                 $"An unexpected error occurred while saving the step:\n{ex}",
                 "Save Error",
