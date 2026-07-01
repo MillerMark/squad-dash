@@ -328,11 +328,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             return new Rect(
                 physTL.X / dpiX,
                 physTL.Y / dpiY,
-                (physBR.X - physTL.X) / dpiX,
-                (physBR.Y - physTL.Y) / dpiY);
+                Math.Max(0, (physBR.X - physTL.X) / dpiX),
+                Math.Max(0, (physBR.Y - physTL.Y) / dpiY));
         }
         // Fallback when PresentationSource is unavailable (should be rare).
-        return new Rect(Left + OutsideMargin, Top + OutsideMargin, calloutWidth, calloutHeight);
+        return new Rect(Left + OutsideMargin, Top + OutsideMargin,
+            Math.Max(0, calloutWidth), Math.Max(0, calloutHeight));
     }
 
     void OnSettled_TourOverlay(object? sender, EventArgs e)
