@@ -45,6 +45,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private Button                     _prevButton = null!;
     private Button                     _nextButton = null!;
     private TextBlock                  _stepCountLabel = null!;
+    private ListBox                    _stepListBox = null!;
 
     // PTT voice dictation
     private readonly PttTextBoxAttachment _ptt;
@@ -322,10 +323,39 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         buttonRow.Children.Add(leftButtons);
         buttonRow.Children.Add(rightButtons);
 
+        // ── Step list (left sidebar) ──────────────────────────────────────────
+
+        _stepListBox = new ListBox { Width = 170 };
+        ScrollViewer.SetHorizontalScrollBarVisibility(_stepListBox, ScrollBarVisibility.Disabled);
+        _stepListBox.SetResourceReference(ListBox.BackgroundProperty,  "InputSurface");
+        _stepListBox.SetResourceReference(ListBox.ForegroundProperty,  "LabelText");
+        _stepListBox.SetResourceReference(ListBox.FontSizeProperty,    "FontSizeBody");
+
+        for (int i = 0; i < activeTour.Steps.Count; i++)
+            _stepListBox.Items.Add($"{i + 1}. {activeTour.Steps[i].Title}");
+
+        _stepListBox.SelectedIndex = stepIndex;
+        _stepListBox.SelectionChanged += OnStepListSelectionChanged;
+
+        var formScrollViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+            Content                       = formPanel,
+        };
+
+        var contentSplit = new Grid();
+        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170, GridUnitType.Pixel) });
+        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,   GridUnitType.Star)  });
+        Grid.SetColumn(_stepListBox,    0);
+        Grid.SetColumn(formScrollViewer, 1);
+        contentSplit.Children.Add(_stepListBox);
+        contentSplit.Children.Add(formScrollViewer);
+
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(buttonRow, Dock.Bottom);
         layout.Children.Add(buttonRow);
-        layout.Children.Add(formPanel);
+        layout.Children.Add(contentSplit);
 
         contentArea.Child = layout;
 
@@ -528,6 +558,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepCountLabel.Text = $"Step {index + 1} of {_activeTour.Steps.Count}";
         UpdateNavigationState();
         SnapshotCurrentValues();
+        _stepListBox.SelectedIndex = index;
+        _stepListBox.ScrollIntoView(_stepListBox.SelectedItem);
         }
         finally
         {
@@ -540,6 +572,50 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         _prevButton.IsEnabled = _stepIndex > 0;
         _nextButton.IsEnabled = _stepIndex < _activeTour.Steps.Count - 1;
+        if (_stepListBox.SelectedIndex != _stepIndex)
+            _stepListBox.SelectedIndex = _stepIndex;
+    }
+
+    private void OnStepListSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingStep) return;
+        int newIndex = _stepListBox.SelectedIndex;
+        if (newIndex < 0 || newIndex == _stepIndex) return;
+
+        if (HasUnsavedChanges())
+        {
+            var result = MessageBox.Show(
+                "Save changes to this step before moving?",
+                "Unsaved Changes",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+
+            if (result == MessageBoxResult.Cancel)
+            {
+                _isLoadingStep = true;
+                _stepListBox.SelectedIndex = _stepIndex;
+                _isLoadingStep = false;
+                return;
+            }
+            if (result == MessageBoxResult.Yes)
+            {
+                if (!PerformSave())
+                {
+                    _isLoadingStep = true;
+                    _stepListBox.SelectedIndex = _stepIndex;
+                    _isLoadingStep = false;
+                    return;
+                }
+            }
+            else
+            {
+                RestoreOriginals();
+            }
+        }
+
+        LoadStep(newIndex);
+        _jumpToStepCallback?.Invoke(newIndex);
     }
 
     private void SnapshotCurrentValues()
