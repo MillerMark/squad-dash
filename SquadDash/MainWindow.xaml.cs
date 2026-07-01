@@ -14066,9 +14066,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var panel = new System.Windows.Controls.WrapPanel
         {
-            Name        = "TourQuickReplyPanel",
-            Margin      = new System.Windows.Thickness(0, 2, 0, 0),
-            Orientation = System.Windows.Controls.Orientation.Horizontal
+            Name                = "TourQuickReplyPanel",
+            Margin              = new System.Windows.Thickness(0, 2, 0, 0),
+            Orientation         = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
         };
 
         foreach (var label in buttonLabels)
