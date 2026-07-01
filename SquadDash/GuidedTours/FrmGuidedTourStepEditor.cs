@@ -365,11 +365,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Drag-to-reorder ──────────────────────────────────────────────────
 
+        // Reset drag state on every mouse-down in the window (tunnel fires root→target).
+        // This ensures that a click in a text box outside _stepListBox clears stale drag
+        // state; _stepListBox.PreviewMouseLeftButtonDown then re-sets it for list clicks.
+        PreviewMouseLeftButtonDown += (_, _) =>
+        {
+            _listDragStart       = new Point(double.NaN, double.NaN);
+            _listDragInProgress  = false;
+            _listDragSourceIndex = -1;
+        };
+
         _stepListBox.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            // Only initiate a drag when the press lands directly on a ListBoxItem.
-            // Clicks originating from text boxes or other controls outside the list
-            // bubble up as Preview events and must be ignored here.
+            // Override the window-level reset: allow drag only when the press lands
+            // directly on a ListBoxItem within this list.
             var hit = e.OriginalSource as DependencyObject;
             var overItem = hit != null && GetListBoxItemAncestor(_stepListBox, hit) != null;
             _listDragStart       = overItem ? e.GetPosition(_stepListBox) : new Point(double.NaN, double.NaN);
@@ -380,12 +389,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepListBox.PreviewMouseMove += (_, e) =>
         {
             if (e.LeftButton != MouseButtonState.Pressed || _listDragInProgress) return;
+            if (_listDragSourceIndex < 0) return;
             var pos  = e.GetPosition(_stepListBox);
             var diff = _listDragStart - pos;
             if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
                 Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
             {
-                if (_listDragSourceIndex < 0) return;
                 _listDragInProgress = true;
                 var item = _stepListBox.Items[_listDragSourceIndex];
                 DragDrop.DoDragDrop(_stepListBox, item, DragDropEffects.Move);
