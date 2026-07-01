@@ -141,7 +141,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _captureLayout       = captureLayout;
 
         Title                 = $"Edit Step {stepIndex + 1} — {activeTour.Name}";
-        Width                 = 560;
+        Width                 = 1300;
         SizeToContent         = SizeToContent.Height;
         ShowInTaskbar         = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;

@@ -55,21 +55,24 @@ internal sealed class GuidedTourCommandRegistry
     /// Executes the named command synchronously if registered; silently does nothing if not found.
     /// Async commands registered via <see cref="RegisterAsync"/> or <see cref="RegisterParameterizedAsync"/>
     /// are not reachable through this overload — use <see cref="ExecuteAsync"/> instead.
-    /// If <paramref name="name"/> contains '|', the part before the first '|' is the command name
-    /// and the remainder is passed as the argument to a parameterized command.
+    /// <para>
+    /// Supports two argument separator styles:
+    /// <list type="bullet">
+    ///   <item><c>CommandName|argument</c> — pipe separator</item>
+    ///   <item><c>CommandName: argument</c> — colon-space separator (more readable in the UI)</item>
+    /// </list>
+    /// </para>
     /// </summary>
     public void Execute(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return;
-        var sep = name.IndexOf('|');
-        if (sep >= 0)
+        var (cmdName, arg, hasArg) = SplitCommandAndArg(name);
+        if (hasArg)
         {
-            var cmdName = name[..sep];
-            var arg     = name[(sep + 1)..];
             if (_paramCommands.TryGetValue(cmdName, out var paramAction))
                 paramAction(arg);
         }
-        else if (_commands.TryGetValue(name, out var action))
+        else if (_commands.TryGetValue(cmdName, out var action))
             action();
     }
 
@@ -77,17 +80,20 @@ internal sealed class GuidedTourCommandRegistry
     /// Executes the named command and returns a <see cref="Task"/> that completes when the command
     /// finishes. Async commands are awaited; synchronous commands complete immediately.
     /// Silently does nothing if the command name is not registered.
-    /// If <paramref name="name"/> contains '|', the part before the first '|' is the command name
-    /// and the remainder is passed as the argument to a parameterized command.
+    /// <para>
+    /// Supports two argument separator styles:
+    /// <list type="bullet">
+    ///   <item><c>CommandName|argument</c> — pipe separator</item>
+    ///   <item><c>CommandName: argument</c> — colon-space separator (more readable in the UI)</item>
+    /// </list>
+    /// </para>
     /// </summary>
     public async Task ExecuteAsync(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return;
-        var sep = name.IndexOf('|');
-        if (sep >= 0)
+        var (cmdName, arg, hasArg) = SplitCommandAndArg(name);
+        if (hasArg)
         {
-            var cmdName = name[..sep];
-            var arg     = name[(sep + 1)..];
             if (_asyncParamCommands.TryGetValue(cmdName, out var asyncParamAction))
                 await asyncParamAction(arg);
             else if (_paramCommands.TryGetValue(cmdName, out var paramAction))
@@ -95,11 +101,31 @@ internal sealed class GuidedTourCommandRegistry
         }
         else
         {
-            if (_asyncCommands.TryGetValue(name, out var asyncAction))
+            if (_asyncCommands.TryGetValue(cmdName, out var asyncAction))
                 await asyncAction();
-            else if (_commands.TryGetValue(name, out var action))
+            else if (_commands.TryGetValue(cmdName, out var action))
                 action();
         }
+    }
+
+    /// <summary>
+    /// Splits a raw command string into (commandName, argument, hasArgument).
+    /// Recognises both <c>Name|arg</c> (pipe) and <c>Name: arg</c> (colon-space) separators.
+    /// The pipe separator takes precedence.
+    /// </summary>
+    private static (string CmdName, string Arg, bool HasArg) SplitCommandAndArg(string raw)
+    {
+        // Pipe separator: "CommandName|argument"
+        var pipeSep = raw.IndexOf('|');
+        if (pipeSep >= 0)
+            return (raw[..pipeSep], raw[(pipeSep + 1)..], true);
+
+        // Colon-space separator: "CommandName: argument"
+        var colonSep = raw.IndexOf(": ");
+        if (colonSep >= 0)
+            return (raw[..colonSep], raw[(colonSep + 2)..], true);
+
+        return (raw, string.Empty, false);
     }
 
     /// <summary>
