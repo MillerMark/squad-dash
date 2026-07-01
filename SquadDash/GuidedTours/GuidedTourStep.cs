@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace SquadDash.GuidedTours;
@@ -29,6 +30,38 @@ internal sealed class GuidedTourStep
     /// <summary>Name of the registered command to run after this step is left (navigate away or tour stop).</summary>
     [JsonPropertyName("commandAfter")]
     public string CommandAfter { get; set; } = string.Empty;
+
+    /// <summary>Names of registered commands to run before this step is shown (multi-command form).</summary>
+    [JsonPropertyName("commandsBefore")]
+    public List<string>? CommandsBefore { get; set; }
+
+    /// <summary>Names of registered commands to run after this step is left (multi-command form).</summary>
+    [JsonPropertyName("commandsAfter")]
+    public List<string>? CommandsAfter { get; set; }
+
+    /// <summary>
+    /// Effective list of commands to run before this step.
+    /// Prefers <see cref="CommandsBefore"/> when non-empty; falls back to <see cref="CommandBefore"/>.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> EffectiveCommandsBefore =>
+        CommandsBefore is { Count: > 0 }
+            ? CommandsBefore
+            : string.IsNullOrWhiteSpace(CommandBefore)
+                ? []
+                : [CommandBefore];
+
+    /// <summary>
+    /// Effective list of commands to run after this step.
+    /// Prefers <see cref="CommandsAfter"/> when non-empty; falls back to <see cref="CommandAfter"/>.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> EffectiveCommandsAfter =>
+        CommandsAfter is { Count: > 0 }
+            ? CommandsAfter
+            : string.IsNullOrWhiteSpace(CommandAfter)
+                ? []
+                : [CommandAfter];
 
     /// <summary>
     /// Optional trigger spec that auto-advances to the next step when the named event fires.

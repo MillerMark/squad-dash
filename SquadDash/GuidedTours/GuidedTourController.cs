@@ -127,12 +127,12 @@ internal sealed class GuidedTourController
     public void Next()
     {
         if (!IsActive) return;
-        var commandAfter = CurrentStep.CommandAfter;
+        var commandsAfter = CurrentStep.EffectiveCommandsAfter;
         if (_currentStepIndex >= _activeTour!.Steps.Count - 1)
         {
             var allToursSnapshot = _allTours;
             var currentTourId    = _activeTour.Id;
-            StopTourInternal(showHint: false, commandAfter: commandAfter);
+            StopTourInternal(showHint: false, commandsAfter: commandsAfter);
 
             var remaining = allToursSnapshot
                 .Where(t => t.Id != currentTourId && !GuidedTourStateStore.Shared.IsCompleted(t.Id))
@@ -151,16 +151,16 @@ internal sealed class GuidedTourController
         }
         FrmUltimateCallout.RecordTourAdvance();
         _currentStepIndex++;
-        ShowCurrentStep(prevCommandAfter: commandAfter);
+        ShowCurrentStep(prevCommandsAfter: commandsAfter);
     }
 
     /// <summary>Moves to the previous step.</summary>
     public void Prev()
     {
         if (!IsActive || _currentStepIndex <= 0) return;
-        var commandAfter = CurrentStep.CommandAfter;
+        var commandsAfter = CurrentStep.EffectiveCommandsAfter;
         _currentStepIndex--;
-        ShowCurrentStep(prevCommandAfter: commandAfter);
+        ShowCurrentStep(prevCommandsAfter: commandsAfter);
     }
 
     /// <summary>
@@ -168,8 +168,8 @@ internal sealed class GuidedTourController
     /// </summary>
     public void StopTour()
     {
-        var commandAfter = IsActive ? CurrentStep.CommandAfter : null;
-        StopTourInternal(showHint: true, commandAfter: commandAfter);
+        var commandsAfter = IsActive ? CurrentStep.EffectiveCommandsAfter : null;
+        StopTourInternal(showHint: true, commandsAfter: commandsAfter);
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -197,18 +197,20 @@ internal sealed class GuidedTourController
     private GuidedTourStep CurrentStep =>
         _activeTour!.Steps[_currentStepIndex];
 
-    private async void ShowCurrentStep(string? prevCommandAfter = null)
+    private async void ShowCurrentStep(IReadOnlyList<string>? prevCommandsAfter = null)
     {
         _activeTriggerSubscription?.Dispose();
         _activeTriggerSubscription = null;
         _onStepChanging?.Invoke();
         CloseActiveCallout();
-        // Run the previous step's CommandAfter now that its callout is closed,
+        // Run the previous step's CommandsAfter now that its callout is closed,
         // before showing the new step. This supports async commands (e.g. InjectTranscriptTextWithReplies).
-        await (_commandRegistry?.ExecuteAsync(prevCommandAfter ?? string.Empty) ?? Task.CompletedTask);
+        foreach (var cmd in prevCommandsAfter ?? [])
+            await (_commandRegistry?.ExecuteAsync(cmd) ?? Task.CompletedTask);
         RunPreAction(CurrentStep);
         var step = CurrentStep;
-        await (_commandRegistry?.ExecuteAsync(step.CommandBefore) ?? Task.CompletedTask);
+        foreach (var cmd in step.EffectiveCommandsBefore)
+            await (_commandRegistry?.ExecuteAsync(cmd) ?? Task.CompletedTask);
         // Defer by one layout pass so that any UI changes made by RunPreAction or
         // CommandBefore (e.g. queue items added, panel opened) are fully rendered
         // before ShowStepCallout checks target.IsVisible.  Without this, the callout
@@ -314,7 +316,7 @@ internal sealed class GuidedTourController
         }
     }
 
-    private async void StopTourInternal(bool showHint, string? commandAfter = null)
+    private async void StopTourInternal(bool showHint, IReadOnlyList<string>? commandsAfter = null)
     {
         var wasActive  = IsActive;
         var tourId     = _activeTour?.Id;
@@ -330,9 +332,10 @@ internal sealed class GuidedTourController
 
         CloseActiveCallout();
 
-        // Run CommandAfter after the callout is closed, supporting async commands.
-        if (wasActive && !string.IsNullOrWhiteSpace(commandAfter))
-            await (_commandRegistry?.ExecuteAsync(commandAfter) ?? Task.CompletedTask);
+        // Run CommandsAfter after the callout is closed, supporting async commands.
+        if (wasActive)
+            foreach (var cmd in commandsAfter ?? [])
+                await (_commandRegistry?.ExecuteAsync(cmd) ?? Task.CompletedTask);
 
         if (wasActive)
         {

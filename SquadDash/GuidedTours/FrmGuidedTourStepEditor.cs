@@ -48,9 +48,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly RadioButton[] _placementRadios;
     private readonly TextBox       _targetControlBox;
     private readonly TextBlock     _statusLabel;
-    private readonly ComboBox      _commandBeforeBox;
-    private readonly ComboBox      _commandAfterBox;
     private readonly ComboBox      _advanceTriggerBox;
+
+    // Multi-command rows
+    private readonly List<CommandRow>  _commandBeforeRows = new();
+    private readonly List<CommandRow>  _commandAfterRows  = new();
+    private StackPanel                 _commandBeforePanel = null!;
+    private StackPanel                 _commandAfterPanel  = null!;
+    private string[]                   _commandItems = Array.Empty<string>();
 
     // Crosshair picker
     private readonly Canvas        _crosshairCanvas;
@@ -163,10 +168,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         targetRow.Children.Add(pickButton);
 
         var commandNames = commandRegistry?.CommandNames ?? Array.Empty<string>();
-        var commandItems = new[] { "" }.Concat(commandNames).ToArray();
+        _commandItems = new[] { "" }.Concat(commandNames).ToArray();
 
-        _commandBeforeBox = MakeCommandCombo(commandItems, step.CommandBefore);
-        _commandAfterBox  = MakeCommandCombo(commandItems, step.CommandAfter);
+        _commandBeforePanel = new StackPanel();
+        _commandAfterPanel  = new StackPanel();
+
+        // Populate initial rows from effective command lists (handles legacy single-string migration)
+        var initialBefore = step.EffectiveCommandsBefore;
+        var initialAfter  = step.EffectiveCommandsAfter;
+        foreach (var cmd in initialBefore.Count > 0 ? initialBefore : (IReadOnlyList<string>)[string.Empty])
+            AddCommandRowToPanel(_commandBeforeRows, _commandBeforePanel, cmd);
+        foreach (var cmd in initialAfter.Count > 0 ? initialAfter : (IReadOnlyList<string>)[string.Empty])
+            AddCommandRowToPanel(_commandAfterRows, _commandAfterPanel, cmd);
+
+        var addBeforeButton = MakeAddRowButton(_commandBeforeRows, _commandBeforePanel);
+        var addAfterButton  = MakeAddRowButton(_commandAfterRows,  _commandAfterPanel);
 
         var triggerNames = triggerRegistry?.TriggerNames ?? Array.Empty<string>();
         var triggerItems = new[] { "" }.Concat(triggerNames).ToArray();
@@ -238,9 +254,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         formPanel.Children.Add(_crosshairCanvas);
         formPanel.Children.Add(_crosshairCoordsLabel);
         formPanel.Children.Add(MakeLabel("Command Before"));
-        formPanel.Children.Add(MakeCommandRow(_commandBeforeBox));
+        formPanel.Children.Add(_commandBeforePanel);
+        formPanel.Children.Add(addBeforeButton);
         formPanel.Children.Add(MakeLabel("Command After"));
-        formPanel.Children.Add(MakeCommandRow(_commandAfterBox));
+        formPanel.Children.Add(_commandAfterPanel);
+        formPanel.Children.Add(addAfterButton);
         formPanel.Children.Add(MakeLabel("Advance Trigger"));
         formPanel.Children.Add(_advanceTriggerBox);
         formPanel.Children.Add(new Border { Height = 10 });
@@ -301,10 +319,6 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _titleBox.TextChanged       += (_, _) => MarkDirty();
         _markdownBox.TextChanged    += (_, _) => MarkDirty();
         _targetControlBox.TextChanged += (_, _) => MarkDirty();
-        _commandBeforeBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
-            new TextChangedEventHandler((_, _) => MarkDirty()));
-        _commandAfterBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
-            new TextChangedEventHandler((_, _) => MarkDirty()));
         _advanceTriggerBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => MarkDirty()));
         foreach (var rb in _placementRadios)
@@ -362,9 +376,19 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _step.MarkdownText     = _markdownBox.Text;
             _step.CalloutPlacement = GetSelectedPlacement();
             _step.TargetControlId  = _targetControlBox.Text.Trim();
-            _step.CommandBefore    = GetSelectedCommand(_commandBeforeBox);
-            _step.CommandAfter     = GetSelectedCommand(_commandAfterBox);
             _step.AdvanceTrigger   = GetSelectedCommand(_advanceTriggerBox);
+
+            _step.CommandsBefore = _commandBeforeRows
+                .Select(r => GetSelectedCommand(r.Box))
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToList();
+            _step.CommandBefore = string.Empty;
+
+            _step.CommandsAfter = _commandAfterRows
+                .Select(r => GetSelectedCommand(r.Box))
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToList();
+            _step.CommandAfter = string.Empty;
             // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
 
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
@@ -451,8 +475,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             if (_placementRadios.All(r => r.IsChecked != true))
                 _placementRadios[0].IsChecked = true;
 
-            _commandBeforeBox.Text  = string.IsNullOrEmpty(step.CommandBefore) ? "(none)" : step.CommandBefore;
-            _commandAfterBox.Text   = string.IsNullOrEmpty(step.CommandAfter)  ? "(none)" : step.CommandAfter;
+            ReloadCommandRows(_commandBeforeRows, _commandBeforePanel, step.EffectiveCommandsBefore);
+            ReloadCommandRows(_commandAfterRows,  _commandAfterPanel,  step.EffectiveCommandsAfter);
             _advanceTriggerBox.Text = string.IsNullOrEmpty(step.AdvanceTrigger) ? "(none)" : step.AdvanceTrigger;
 
             var hasTarget = !string.IsNullOrWhiteSpace(step.TargetControlId);
@@ -970,23 +994,85 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private static string GetSelectedCommand(ComboBox cb) =>
         !string.IsNullOrWhiteSpace(cb.Text) && cb.Text != "(none)" ? cb.Text.Trim() : string.Empty;
 
-    private Grid MakeCommandRow(ComboBox comboBox)
-    {
-        var ellipsisBtn = MakeButton("…");
-        ellipsisBtn.Width   = 32;
-        ellipsisBtn.Margin  = new Thickness(4, 0, 0, 0);
-        ellipsisBtn.Padding = new Thickness(0);
-        ellipsisBtn.ToolTip = "Edit as multi-line text (\\n = new line)";
-        ellipsisBtn.Click  += (_, _) => OpenCommandEditor(comboBox);
+    // ── Multi-command row helpers ──────────────────────────────────────────────
 
-        var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(comboBox,    0);
-        Grid.SetColumn(ellipsisBtn, 1);
-        row.Children.Add(comboBox);
-        row.Children.Add(ellipsisBtn);
-        return row;
+    /// <summary>Tracks a single command combo row with its delete button.</summary>
+    private sealed record CommandRow(ComboBox Box, Button DeleteButton);
+
+    private void AddCommandRowToPanel(List<CommandRow> rows, StackPanel panel, string value)
+    {
+        var cb = MakeCommandCombo(_commandItems, value);
+
+        var expandBtn = MakeButton("…");
+        expandBtn.Width   = 32;
+        expandBtn.Margin  = new Thickness(4, 0, 0, 0);
+        expandBtn.Padding = new Thickness(0);
+        expandBtn.ToolTip = "Edit as multi-line text (\\n = new line)";
+        expandBtn.Click  += (_, _) => OpenCommandEditor(cb);
+
+        var deleteBtn = MakeButton("×");
+        deleteBtn.Width   = 26;
+        deleteBtn.Margin  = new Thickness(4, 0, 0, 0);
+        deleteBtn.Padding = new Thickness(0);
+        deleteBtn.ToolTip = "Remove this command";
+
+        var rowGrid = new Grid { Margin = new Thickness(0, 0, 0, 2) };
+        rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(cb,        0);
+        Grid.SetColumn(expandBtn, 1);
+        Grid.SetColumn(deleteBtn, 2);
+        rowGrid.Children.Add(cb);
+        rowGrid.Children.Add(expandBtn);
+        rowGrid.Children.Add(deleteBtn);
+
+        var commandRow = new CommandRow(cb, deleteBtn);
+        rows.Add(commandRow);
+        panel.Children.Add(rowGrid);
+
+        deleteBtn.Click += (_, _) =>
+        {
+            rows.Remove(commandRow);
+            panel.Children.Remove(rowGrid);
+            UpdateDeleteButtonVisibility(rows);
+            if (!_suppressDirty) _isDirty = true;
+        };
+
+        cb.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler((_, _) => { if (!_suppressDirty) _isDirty = true; }));
+        cb.SelectionChanged += (_, _) => { if (!_suppressDirty) _isDirty = true; };
+
+        UpdateDeleteButtonVisibility(rows);
+    }
+
+    private Button MakeAddRowButton(List<CommandRow> rows, StackPanel panel)
+    {
+        var btn = MakeButton("+ Add Command");
+        btn.HorizontalAlignment = HorizontalAlignment.Left;
+        btn.Margin = new Thickness(0, 2, 0, 0);
+        btn.Click += (_, _) =>
+        {
+            AddCommandRowToPanel(rows, panel, string.Empty);
+            if (!_suppressDirty) _isDirty = true;
+        };
+        return btn;
+    }
+
+    private static void UpdateDeleteButtonVisibility(List<CommandRow> rows)
+    {
+        bool canDelete = rows.Count > 1;
+        foreach (var r in rows)
+            r.DeleteButton.Visibility = canDelete ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ReloadCommandRows(List<CommandRow> rows, StackPanel panel, IReadOnlyList<string> values)
+    {
+        rows.Clear();
+        panel.Children.Clear();
+        var list = values.Count > 0 ? values : (IReadOnlyList<string>)[string.Empty];
+        foreach (var v in list)
+            AddCommandRowToPanel(rows, panel, v);
     }
 
     private void OpenCommandEditor(ComboBox comboBox)
