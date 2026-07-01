@@ -53,6 +53,7 @@ public static class VisualTreeSearch
     /// Supports an index-selector suffix: <c>"ControlName[N]"</c> finds the element named
     /// <c>ControlName</c> and then returns the Nth (0-based) item container (for an
     /// <see cref="ItemsControl"/>) or the Nth visual child (for a <see cref="Panel"/>).
+    /// If N exceeds the available count the last available item is returned instead.
     /// </para>
     /// </summary>
     public static FrameworkElement? FindByName(DependencyObject root, string name)
@@ -67,9 +68,17 @@ public static class VisualTreeSearch
             {
                 var baseElement = FindByNameCore(root, baseName);
                 if (baseElement is ItemsControl ic)
-                    return ic.ItemContainerGenerator.ContainerFromIndex(index) as FrameworkElement;
-                if (baseElement is Panel panel && index < panel.Children.Count)
-                    return panel.Children[index] as FrameworkElement;
+                {
+                    int clampedIc = Math.Min(index, ic.Items.Count - 1);
+                    if (clampedIc >= 0)
+                        return ic.ItemContainerGenerator.ContainerFromIndex(clampedIc) as FrameworkElement;
+                    return null;
+                }
+                if (baseElement is Panel panel && panel.Children.Count > 0)
+                {
+                    int clampedPanel = Math.Min(index, panel.Children.Count - 1);
+                    return panel.Children[clampedPanel] as FrameworkElement;
+                }
             }
             return null;
         }
