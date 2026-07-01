@@ -3869,7 +3869,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var effectiveText = _activeTabId == id ? PromptTextBox.Text : item.Text;
 
         // Empty items have nothing to confirm — delete immediately.
-        if (string.IsNullOrWhiteSpace(effectiveText))
+        // Tour/sim items in developer mode are also deleted without confirmation.
+        if (string.IsNullOrWhiteSpace(effectiveText) ||
+            (SquadDashEnvironment.IsDeveloperMode && IsTourOrSimTag(item.SourceTag)))
         {
             OnQueueTabRemove(id);
             return;
@@ -3906,7 +3908,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Active tab's live text lives in PromptTextBox (not yet flushed to item.Text).
         var effectiveText = PromptTextBox.Text;
 
-        if (!string.IsNullOrWhiteSpace(effectiveText))
+        if (!string.IsNullOrWhiteSpace(effectiveText) &&
+            !(SquadDashEnvironment.IsDeveloperMode && IsTourOrSimTag(item.SourceTag)))
         {
             var result = MessageBox.Show(
                 "Are you sure you want to delete this queued item?",
@@ -13689,6 +13692,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private const string TourDummyTag = "guided-tour-dummy";
     private const string TourTypeTag  = "guided-tour-type";
+
+    private static bool IsTourOrSimTag(string? tag) =>
+        tag == TourDummyTag || tag == TourTypeTag;
 
     private void RegisterTourCommands()
     {
