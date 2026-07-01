@@ -141,7 +141,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _captureLayout       = captureLayout;
 
         Title                 = BuildEditorTitle(activeTour.Name, stepIndex, step.Title);
-        Width                 = 1300;
+        Width                 = 1600;
         SizeToContent         = SizeToContent.Height;
         ShowInTaskbar         = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -351,7 +351,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Step list (left sidebar) ──────────────────────────────────────────
 
-        _stepListBox = new ListBox { Width = 170 };
+        _stepListBox = new ListBox { Width = 320 };
         ScrollViewer.SetHorizontalScrollBarVisibility(_stepListBox, ScrollBarVisibility.Disabled);
         _stepListBox.SetResourceReference(ListBox.BackgroundProperty,  "InputSurface");
         _stepListBox.SetResourceReference(ListBox.ForegroundProperty,  "LabelText");
@@ -448,7 +448,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Tour list (leftmost sidebar) ─────────────────────────────────────
 
-        _tourListBox = new ListBox { Width = 150 };
+        _tourListBox = new ListBox { Width = 300 };
         ScrollViewer.SetHorizontalScrollBarVisibility(_tourListBox, ScrollBarVisibility.Disabled);
         _tourListBox.SetResourceReference(ListBox.BackgroundProperty, "InputSurface");
         _tourListBox.SetResourceReference(ListBox.ForegroundProperty, "LabelText");
@@ -477,8 +477,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         tourSidebarPanel.Children.Add(_tourListBox);
 
         var contentSplit = new Grid();
-        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150, GridUnitType.Pixel) });
-        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170, GridUnitType.Pixel) });
+        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300, GridUnitType.Pixel) });
+        contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320, GridUnitType.Pixel) });
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,   GridUnitType.Star)  });
         Grid.SetColumn(tourSidebarPanel,  0);
         Grid.SetColumn(sidebarPanel,      1);
