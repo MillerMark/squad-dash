@@ -123,6 +123,16 @@ internal sealed class GuidedTourController
         ShowStepCallout(CurrentStep);
     }
 
+    /// <summary>Jumps directly to the given step index, closing the current callout and showing the new one.</summary>
+    public void JumpToStep(int index)
+    {
+        if (!IsActive || _activeTour is null) return;
+        if (index < 0 || index >= _activeTour.Steps.Count) return;
+        _currentStepIndex = index;
+        CloseActiveCallout();
+        ShowStepCallout(CurrentStep);
+    }
+
     /// <summary>Moves to the next step, or ends the tour if already at the last step.</summary>
     public void Next()
     {
@@ -187,6 +197,7 @@ internal sealed class GuidedTourController
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
             livePreviewCallback: NotifyStepEdited,
+            jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();

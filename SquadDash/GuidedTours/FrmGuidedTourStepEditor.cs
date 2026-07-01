@@ -26,6 +26,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly Action?           _captureLayout;
 
     private readonly Action?           _livePreviewCallback;
+    private readonly Action<int>?      _jumpToStepCallback;
     private string                     _originalMarkdown;
     private string                     _originalPlacement;
     private double                     _originalTargetOffsetX;
@@ -84,6 +85,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Window           owner,
         Action?          captureLayout        = null,
         Action?          livePreviewCallback  = null,
+        Action<int>?     jumpToStepCallback   = null,
         GuidedTourCommandRegistry? commandRegistry = null,
         GuidedTourAdvanceTriggerRegistry? triggerRegistry = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
@@ -93,6 +95,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _originalTargetOffsetX = step.TargetOffsetX;
         _originalTargetOffsetY = step.TargetOffsetY;
         _livePreviewCallback = livePreviewCallback;
+        _jumpToStepCallback  = jumpToStepCallback;
 
         _step                = step;
         _stepIndex           = stepIndex;
@@ -442,7 +445,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         }
 
         LoadStep(newIndex);
-        PushLivePreview();
+        _jumpToStepCallback?.Invoke(newIndex);
     }
 
     private void LoadStep(int index)
