@@ -434,7 +434,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 var (fe, name) = lastResult;
                 if (fe != null && name != null)
                 {
-                    var topLeft = fe.TranslatePoint(new Point(0, 0), mainWindow);
+                    var topLeft = overlay.PointFromScreen(fe.PointToScreen(new Point(0, 0)));
                     const double stroke = 2;
                     const double pad    = 2; // gap between white rect and black rect
                     UpdateHighlight(canvas, topLeft, fe.ActualWidth, fe.ActualHeight, stroke, pad, name);
