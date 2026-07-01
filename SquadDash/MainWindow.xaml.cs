@@ -13701,6 +13701,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 // Layout restore: reload the active layout from workspace
                 CleanUpTourInjectedThreads();
                 CleanUpTourInjectedCoordinatorBlocks();
+                CleanUpTourQueueItems();
             },
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
@@ -13742,6 +13743,33 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             try { doc.Blocks.Remove(block); } catch { /* block may have already been removed */ }
         }
         _tourInjectedCoordinatorBlocks.Clear();
+    }
+
+    /// <summary>
+    /// Removes all demo prompt-queue items added during a guided tour (both dummy items and
+    /// the TypeIntoPrompt animation item). Restores the pre-edit draft if the user had clicked
+    /// into a demo tab. Safe to call when no tour items exist (no-op in that case).
+    /// </summary>
+    private void CleanUpTourQueueItems()
+    {
+        // If the user clicked into a demo tab, _activeTabId points at a dummy item.
+        // Restore the real pre-edit draft before deleting the demo items so the
+        // user's text is not lost (same logic as OnQueueTabRemove for the active tab).
+        if (_activeTabId is not null &&
+            _promptQueue.Items.Any(i => i.Id == _activeTabId && IsTourOrSimTag(i.SourceTag)))
+        {
+            _activeTabId = null;
+            SetPromptTextBoxLogicalBuffer(
+                _queuePreEditDraft ?? string.Empty,
+                _queuePreEditDraftCaretIndex,
+                _queuePreEditDraftSelectionStart,
+                _queuePreEditDraftSelectionLength,
+                "tour-cleanup-restore-draft");
+            _queuePreEditDraft = null;
+        }
+        StopTypeIntoPromptAnimation(); // removes TourTypeTag item + stops timer
+        _promptQueue.RemoveByTag(TourDummyTag);
+        SyncQueuePanel();
     }
 
     /// <summary>
@@ -13808,24 +13836,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.Register("Remove Dummy Queue Items", () =>
         {
-            // If the user clicked into a demo tab, _activeTabId points at a dummy item.
-            // Restore the real pre-edit draft before deleting the dummy items so the
-            // user's text is not lost (same logic as OnQueueTabRemove for the active tab).
-            if (_activeTabId is not null &&
-                _promptQueue.Items.Any(i => i.Id == _activeTabId && (i.SourceTag == DummyTag || i.SourceTag == TourTypeTag)))
-            {
-                _activeTabId = null;
-                SetPromptTextBoxLogicalBuffer(
-                    _queuePreEditDraft ?? string.Empty,
-                    _queuePreEditDraftCaretIndex,
-                    _queuePreEditDraftSelectionStart,
-                    _queuePreEditDraftSelectionLength,
-                    "tour-cleanup-restore-draft");
-                _queuePreEditDraft = null;
-            }
-            StopTypeIntoPromptAnimation(); // removes tour-type item + stops timer
-            _promptQueue.RemoveByTag(DummyTag);
-            SyncQueuePanel();
+            CleanUpTourQueueItems();
         });
 
         _tourCommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
