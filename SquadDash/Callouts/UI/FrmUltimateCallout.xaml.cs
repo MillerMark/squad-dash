@@ -1327,10 +1327,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void SetParentWindow(Window window) {
-        targetParentWindow = window;
+        // Popup children live in a separate HwndSource so Window.GetWindow() returns null.
+        // Fall back to the main application window so the callout still has a valid owner.
+        targetParentWindow = window ?? Application.Current.MainWindow;
         targetParentLeft = targetParentWindow.Left;
         targetParentTop = targetParentWindow.Top;
-        this.Owner = window;
+        this.Owner = targetParentWindow;
     }
 
     void PointTo(Rect targetRect) {
