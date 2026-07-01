@@ -115,15 +115,18 @@ internal sealed class GuidedTourCommandRegistry
     /// </summary>
     private static (string CmdName, string Arg, bool HasArg) SplitCommandAndArg(string raw)
     {
+        // Colon-space separator takes precedence: "CommandName: argument"
+        // This must be checked first so that pipes inside the argument
+        // (e.g. "OpenMenu: EditMenuItem|EditSelectionMenuItem") are not
+        // mistakenly treated as the command/arg boundary.
+        var colonSep = raw.IndexOf(": ");
+        if (colonSep >= 0)
+            return (raw[..colonSep], raw[(colonSep + 2)..], true);
+
         // Pipe separator: "CommandName|argument"
         var pipeSep = raw.IndexOf('|');
         if (pipeSep >= 0)
             return (raw[..pipeSep], raw[(pipeSep + 1)..], true);
-
-        // Colon-space separator: "CommandName: argument"
-        var colonSep = raw.IndexOf(": ");
-        if (colonSep >= 0)
-            return (raw[..colonSep], raw[(colonSep + 2)..], true);
 
         return (raw, string.Empty, false);
     }
