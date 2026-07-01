@@ -333,8 +333,13 @@ internal sealed class GuidedTourController
         // WPF Popup children live in a separate HwndSource and return IsVisible=false even when
         // the popup is open.  Treat an element with actual size and a valid PresentationSource
         // as rendered, regardless of IsVisible.
+        var presSource = System.Windows.PresentationSource.FromVisual(target);
         bool isRendered = target.IsVisible
-                       || (target.ActualWidth > 0 && System.Windows.PresentationSource.FromVisual(target) != null);
+                       || (target.ActualWidth > 0 && presSource != null);
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ShowStepCallout: target \"{step.TargetControlId}\" found — type={target.GetType().Name}, "
+            + $"IsVisible={target.IsVisible}, ActualW={target.ActualWidth:F1}, ActualH={target.ActualHeight:F1}, "
+            + $"PresentationSource={(presSource != null ? "non-null" : "null")}, isRendered={isRendered}");
         if (!isRendered)
         {
             SquadDashTrace.Write(TraceCategory.Callouts,

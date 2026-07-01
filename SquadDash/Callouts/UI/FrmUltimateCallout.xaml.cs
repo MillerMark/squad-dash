@@ -1321,6 +1321,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         bool isRendered = frameworkElementTarget.IsVisible
                        || (frameworkElementTarget.ActualWidth > 0
                            && System.Windows.PresentationSource.FromVisual(frameworkElementTarget) != null);
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"PointTo: type={target.GetType().Name}, IsVisible={target.IsVisible}, "
+            + $"ActualW={target.ActualWidth:F1}, ActualH={target.ActualHeight:F1}, isRendered={isRendered}");
         if (isRendered) {
             // Store in logical (DIP) coords so rectTarget is consistent with all other
             // WPF measurements.  PointToScreen returns physical pixels; convert back.
@@ -1527,6 +1530,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         bool isRendered = target.IsVisible
                        || (target.ActualWidth > 0 && target.ActualHeight > 0
                            && System.Windows.PresentationSource.FromVisual(target) != null);
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ShowCalloutBesideTarget: type={target.GetType().Name}, IsVisible={target.IsVisible}, "
+            + $"ActualW={target.ActualWidth:F1}, ActualH={target.ActualHeight:F1}, isRendered={isRendered}");
         if (!isRendered)
             return null;
         var callout = CreateNewCallout(markDownText, width, theme, fontSize);

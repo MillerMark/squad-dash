@@ -13871,6 +13871,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 var el = _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
                        : VisualTreeSearch.FindByName(this, name);
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"OpenMenu: looking for \"{name}\" → found={el is not null}, type={el?.GetType().Name ?? "null"}");
                 if (el is MenuItem mi)
                 {
                     mi.IsSubmenuOpen = true;
@@ -13878,10 +13880,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                     // Register the submenu popup child as "{Name}_Popup" so a callout can
                     // point at the open dropdown panel rather than the small menu-bar header.
-                    if (mi.Template?.FindName("PART_Popup", mi) is System.Windows.Controls.Primitives.Popup popup
-                        && popup.Child is FrameworkElement submenuRoot)
+                    var popup = mi.Template?.FindName("PART_Popup", mi) as System.Windows.Controls.Primitives.Popup;
+                    var child = popup?.Child as FrameworkElement;
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"OpenMenu: \"{name}\" → popup={popup is not null}, child={child is not null}, "
+                        + $"IsOpen={popup?.IsOpen}, childType={child?.GetType().Name ?? "null"}, "
+                        + $"ActualW={child?.ActualWidth:F1}, ActualH={child?.ActualHeight:F1}, "
+                        + $"IsVisible={child?.IsVisible}, "
+                        + $"PresentationSource={(child is not null ? System.Windows.PresentationSource.FromVisual(child) is not null ? "non-null" : "null" : "n/a")}");
+                    if (child is not null)
                     {
-                        _tourNamedElements[$"{name}_Popup"] = submenuRoot;
+                        _tourNamedElements[$"{name}_Popup"] = child;
+                        SquadDashTrace.Write(TraceCategory.Callouts,
+                            $"OpenMenu: registered \"{name}_Popup\" in _tourNamedElements");
                     }
                 }
             }
