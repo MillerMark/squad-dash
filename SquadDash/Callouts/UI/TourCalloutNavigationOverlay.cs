@@ -90,15 +90,9 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Margin = new Thickness(4),
         };
 
-        _deleteButton = BuildDeleteButton();
-        _editButton = BuildEditButton();
         _prevButton = BuildButton(isPrev: true);
         _nextButton = BuildButton(isPrev: false);
 
-        panel.Children.Add(_deleteButton);
-        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
-        panel.Children.Add(_editButton);
-        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
