@@ -1316,7 +1316,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void PointTo(FrameworkElement target) {
         frameworkElementTarget = target;
-        if (frameworkElementTarget.IsVisible) {
+        // Popup children (separate HwndSource) have IsVisible=false even when rendered.
+        // Use PresentationSource as an alternate "is rendered" check so PointToScreen works.
+        bool isRendered = frameworkElementTarget.IsVisible
+                       || (frameworkElementTarget.ActualWidth > 0
+                           && System.Windows.PresentationSource.FromVisual(frameworkElementTarget) != null);
+        if (isRendered) {
             // Store in logical (DIP) coords so rectTarget is consistent with all other
             // WPF measurements.  PointToScreen returns physical pixels; convert back.
             Point physPos = frameworkElementTarget.PointToScreen(new Point(0, 0));
@@ -1516,8 +1521,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         CalloutTheme theme = CalloutTheme.Light,
         double fontSize = 15,
         CalloutPlacement placement = CalloutPlacement.Auto) {
-        // Don't show callout against a target that isn't visible/rendered yet
-        if (!target.IsVisible || target.ActualWidth <= 0 || target.ActualHeight <= 0)
+        // Don't show callout against a target that isn't visible/rendered yet.
+        // Popup children (separate HwndSource) return IsVisible=false even when open;
+        // treat them as rendered if they have actual size and a valid PresentationSource.
+        bool isRendered = target.IsVisible
+                       || (target.ActualWidth > 0 && target.ActualHeight > 0
+                           && System.Windows.PresentationSource.FromVisual(target) != null);
+        if (!isRendered)
             return null;
         var callout = CreateNewCallout(markDownText, width, theme, fontSize);
         callout.PointTo(target);

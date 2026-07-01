@@ -322,11 +322,23 @@ internal sealed class GuidedTourController
         }
 
         var target = _elementLocator(step.TargetControlId);
-        if (target is null || !target.IsVisible)
+        if (target is null)
         {
             SquadDashTrace.Write(TraceCategory.Callouts,
-                $"ShowStepCallout: target \"{step.TargetControlId}\" {(target is null ? "not found" : "not visible")} — falling back to centered callout for \"{step.Title}\"");
-            // Target not found or not visible — show centered on screen with no dangle
+                $"ShowStepCallout: target \"{step.TargetControlId}\" not found — falling back to centered callout for \"{step.Title}\"");
+            ShowCenteredCallout(step);
+            return;
+        }
+
+        // WPF Popup children live in a separate HwndSource and return IsVisible=false even when
+        // the popup is open.  Treat an element with actual size and a valid PresentationSource
+        // as rendered, regardless of IsVisible.
+        bool isRendered = target.IsVisible
+                       || (target.ActualWidth > 0 && System.Windows.PresentationSource.FromVisual(target) != null);
+        if (!isRendered)
+        {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowStepCallout: target \"{step.TargetControlId}\" not visible — falling back to centered callout for \"{step.Title}\"");
             ShowCenteredCallout(step);
             return;
         }
