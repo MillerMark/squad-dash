@@ -18,19 +18,26 @@ namespace SquadDash;
 /// </summary>
 internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 {
-    private readonly GuidedTourStep    _step;
-    private readonly int               _stepIndex;
+    private GuidedTourStep             _step;
+    private int                        _stepIndex;
     private readonly GuidedTour        _activeTour;
     private readonly List<GuidedTour>  _allTours;
     private readonly string?           _workspaceFolderPath;
     private readonly Action?           _captureLayout;
 
     private readonly Action?           _livePreviewCallback;
-    private readonly string            _originalMarkdown;
-    private readonly string            _originalPlacement;
-    private readonly double            _originalTargetOffsetX;
-    private readonly double            _originalTargetOffsetY;
+    private string                     _originalMarkdown;
+    private string                     _originalPlacement;
+    private double                     _originalTargetOffsetX;
+    private double                     _originalTargetOffsetY;
     private readonly DispatcherTimer   _debounceTimer;
+
+    // Navigation state
+    private bool                       _isDirty;
+    private bool                       _suppressDirty;
+    private Button                     _prevButton = null!;
+    private Button                     _nextButton = null!;
+    private TextBlock                  _stepCountLabel = null!;
 
     // PTT voice dictation
     private readonly PttTextBoxAttachment _ptt;
@@ -208,7 +215,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Layout ────────────────────────────────────────────────────────────
 
+        _stepCountLabel = new TextBlock
+        {
+            Text                = $"Step {stepIndex + 1} of {activeTour.Steps.Count}",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin              = new Thickness(0, 4, 0, 0),
+        };
+        _stepCountLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _stepCountLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
         var formPanel = new StackPanel { Margin = new Thickness(14, 10, 14, 8) };
+        formPanel.Children.Add(_stepCountLabel);
         formPanel.Children.Add(MakeLabel("Title"));
         formPanel.Children.Add(_titleBox);
         formPanel.Children.Add(MakeLabel("Callout Text (Markdown)"));
@@ -232,6 +249,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Button bar ────────────────────────────────────────────────────────
 
+        _prevButton          = MakeButton("← Prev");
+        _prevButton.IsEnabled = stepIndex > 0;
+        _prevButton.Click    += (_, _) => TryNavigate(_stepIndex - 1);
+
+        _nextButton          = MakeButton("Next →");
+        _nextButton.IsEnabled = stepIndex < activeTour.Steps.Count - 1;
+        _nextButton.Click    += (_, _) => TryNavigate(_stepIndex + 1);
+
         var saveButton = MakeButton("Save");
         saveButton.IsDefault = true;
         saveButton.Click += (_, _) => CommitSave();
@@ -240,14 +265,23 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         cancelButton.IsCancel = true;
         cancelButton.Click += (_, _) => Close();
 
-        var buttonRow = new StackPanel
+        var leftButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        leftButtons.Children.Add(_prevButton);
+        leftButtons.Children.Add(_nextButton);
+
+        var rightButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        rightButtons.Children.Add(saveButton);
+        rightButtons.Children.Add(cancelButton);
+
+        var buttonRow = new DockPanel
         {
-            Orientation         = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin              = new Thickness(14, 4, 14, 12),
+            Margin        = new Thickness(14, 4, 14, 12),
+            LastChildFill = false,
         };
-        buttonRow.Children.Add(saveButton);
-        buttonRow.Children.Add(cancelButton);
+        DockPanel.SetDock(leftButtons,  Dock.Left);
+        DockPanel.SetDock(rightButtons, Dock.Right);
+        buttonRow.Children.Add(leftButtons);
+        buttonRow.Children.Add(rightButtons);
 
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(buttonRow, Dock.Bottom);
@@ -260,6 +294,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); PushLivePreview(); };
         _markdownBox.TextChanged += (_, _) => { _debounceTimer.Stop(); _debounceTimer.Start(); };
         Closed += (_, _) => { _debounceTimer.Stop(); if (!WasSaved) RestoreOriginals(); };
+
+        // ── Dirty tracking ────────────────────────────────────────────────────
+
+        void MarkDirty() { if (!_suppressDirty) _isDirty = true; }
+        _titleBox.TextChanged       += (_, _) => MarkDirty();
+        _markdownBox.TextChanged    += (_, _) => MarkDirty();
+        _targetControlBox.TextChanged += (_, _) => MarkDirty();
+        _commandBeforeBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler((_, _) => MarkDirty()));
+        _commandAfterBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler((_, _) => MarkDirty()));
+        _advanceTriggerBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new TextChangedEventHandler((_, _) => MarkDirty()));
+        foreach (var rb in _placementRadios)
+            rb.Checked += (_, _) => MarkDirty();
 
         PreviewKeyDown += (_, e) =>
         {
@@ -301,6 +350,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private void CommitSave()
     {
+        if (PerformSave())
+            Close();
+    }
+
+    private bool PerformSave()
+    {
         try
         {
             _step.Title            = _titleBox.Text.Trim();
@@ -329,7 +384,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
 
             WasSaved = true;
-            Close();
+            _isDirty = false;
+            return true;
         }
         catch (Exception ex)
         {
@@ -338,7 +394,90 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 "Save Error",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
+            return false;
         }
+    }
+
+    private void TryNavigate(int newIndex)
+    {
+        if (newIndex < 0 || newIndex >= _activeTour.Steps.Count) return;
+
+        if (_isDirty)
+        {
+            var result = MessageBox.Show(
+                "Save changes to this step before moving?",
+                "Unsaved Changes",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+
+            if (result == MessageBoxResult.Cancel) return;
+            if (result == MessageBoxResult.Yes)
+            {
+                if (!PerformSave()) return;
+            }
+            else
+            {
+                RestoreOriginals();
+            }
+        }
+
+        LoadStep(newIndex);
+        PushLivePreview();
+    }
+
+    private void LoadStep(int index)
+    {
+        var step = _activeTour.Steps[index];
+
+        _originalMarkdown      = step.MarkdownText;
+        _originalPlacement     = step.CalloutPlacement;
+        _originalTargetOffsetX = step.TargetOffsetX;
+        _originalTargetOffsetY = step.TargetOffsetY;
+
+        _suppressDirty = true;
+        try
+        {
+            _step      = step;
+            _stepIndex = index;
+
+            _titleBox.Text         = step.Title;
+            _markdownBox.Text      = step.MarkdownText;
+            _targetControlBox.Text = step.TargetControlId;
+
+            var placements = new[] { "Auto", "North", "South", "East", "West" };
+            for (int i = 0; i < _placementRadios.Length; i++)
+                _placementRadios[i].IsChecked = string.Equals(placements[i], step.CalloutPlacement, StringComparison.OrdinalIgnoreCase);
+            if (_placementRadios.All(r => r.IsChecked != true))
+                _placementRadios[0].IsChecked = true;
+
+            _commandBeforeBox.Text  = string.IsNullOrEmpty(step.CommandBefore) ? "(none)" : step.CommandBefore;
+            _commandAfterBox.Text   = string.IsNullOrEmpty(step.CommandAfter)  ? "(none)" : step.CommandAfter;
+            _advanceTriggerBox.Text = string.IsNullOrEmpty(step.AdvanceTrigger) ? "(none)" : step.AdvanceTrigger;
+
+            var hasTarget = !string.IsNullOrWhiteSpace(step.TargetControlId);
+            _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
+            _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
+            _crosshairCoordsLabel.Text       = FormatCrosshairCoords(step.TargetOffsetX, step.TargetOffsetY);
+            if (hasTarget) RedrawCrosshair();
+
+            _statusLabel.Visibility = Visibility.Collapsed;
+            _isDirty = false;
+        }
+        finally
+        {
+            _suppressDirty = false;
+        }
+
+        Title                = $"Edit Step {index + 1} — {_activeTour.Name}";
+        _stepCountLabel.Text = $"Step {index + 1} of {_activeTour.Steps.Count}";
+        UpdateNavigationState();
+    }
+
+    private void UpdateNavigationState()
+    {
+        _prevButton.IsEnabled = _stepIndex > 0;
+        _nextButton.IsEnabled = _stepIndex < _activeTour.Steps.Count - 1;
     }
 
     private string GetSelectedPlacement() =>
