@@ -13820,14 +13820,51 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SelectTranscriptThread(targetThread);
     }
 
+    private static IEnumerable<string> SplitIntoWordChunks(string text, int minWords = 3, int maxWords = 5)
+    {
+        var parts = text.Split(' ');
+        var rng   = new Random();
+        var i     = 0;
+        while (i < parts.Length)
+        {
+            var take  = rng.Next(minWords, maxWords + 1);
+            var chunk = string.Join(" ", parts.Skip(i).Take(take));
+            if (i > 0) chunk = " " + chunk;
+            yield return chunk;
+            i += take;
+        }
+    }
+
     /// <summary>
     /// Injects a simulated agent response with real quick reply buttons into the coordinator
     /// transcript and waits until those buttons are rendered in the visual tree.
     /// </summary>
     private async Task InjectTourTranscriptTextWithReplies(string messageText, string[] buttonLabels)
     {
-        var badgedText = $"*🎓 Tour simulation — not a real agent response.*\n\n{messageText}";
-        InjectTourTranscriptText(badgedText, null);
+        // Wait for coordinator to finish before injecting simulated text (max 10 s).
+        var idleDeadline = Environment.TickCount64 + 10_000;
+        while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
+            await Task.Delay(100);
+
+        // Create a streaming turn that mimics a real agent response.
+        BeginTranscriptTurn(CoordinatorThread, string.Empty);
+        SelectTranscriptThread(CoordinatorThread);
+
+        // Inject the badge prefix immediately (static label).
+        AppendText(CoordinatorThread, "*🎓 Tour simulation — not a real agent response.*\n\n");
+
+        // Stream message text word-by-word to simulate live AI output.
+        var rng = new Random();
+        foreach (var chunk in SplitIntoWordChunks(messageText))
+        {
+            if (_isPromptRunning) break; // real run started — bail out gracefully
+            await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            AppendText(CoordinatorThread, chunk);
+            await Task.Delay(rng.Next(70, 111));
+        }
+
+        // Finalise the turn in place (no persistence needed for tour simulation).
+        CoordinatorThread.CurrentTurn = null;
 
         var panel = new System.Windows.Controls.WrapPanel
         {
