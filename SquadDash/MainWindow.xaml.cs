@@ -13710,6 +13710,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 try { doc.Blocks.Remove(blocks[i]); } catch { /* already gone */ }
                 _tourInjectedCoordinatorBlocks.Remove(blocks[i]);
+                _currentQuickReplyOptions = [];
                 return;
             }
         }
@@ -14101,6 +14102,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         TrackNewCoordinatorBlocks(blocksBefore);
         ScrollToEndIfAtBottom(CoordinatorThread);
 
+        // Expose labels in intellisense so [ in the prompt box offers the same options.
+        _currentQuickReplyOptions = buttonLabels;
+
         // Poll until the panel is present in the visual tree (up to 2 s).
         var timeout = System.Threading.Tasks.Task.Delay(2000);
         while (!timeout.IsCompleted)
@@ -14121,6 +14125,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (sender is not System.Windows.FrameworkElement { Tag: TourQuickReplyPayload payload })
             return;
 
+        _currentQuickReplyOptions = [];
         SquadDashTrace.Write("Tour", $"Tour quick reply selected: '{payload.Option}'");
         InjectTourTranscriptText($"*🎓 (Tour) You selected: {payload.Option}*", null);
         _tourQuickReplySelected?.Invoke();
