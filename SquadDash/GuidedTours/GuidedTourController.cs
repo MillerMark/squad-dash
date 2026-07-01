@@ -120,6 +120,7 @@ internal sealed class GuidedTourController
     /// </summary>
     public void NotifyStepEdited()
     {
+        if (!IsActive) return;
         CloseActiveCallout();
         ShowStepCallout(CurrentStep);
     }
@@ -202,7 +203,9 @@ internal sealed class GuidedTourController
             jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry,
-            onClosed:            wasSaved => { _activeEditor = null; if (wasSaved) NotifyStepEdited(); });
+            onClosed:            wasSaved => { _activeEditor = null; if (wasSaved) NotifyStepEdited(); },
+            addStepAfterCallback: HandleNewStepAfterFromEditor,
+            deleteStepCallback:   HandleDeleteStepFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -420,7 +423,9 @@ internal sealed class GuidedTourController
                     _currentStepIndex = Math.Max(0, insertIndex - 1);
                     ShowCurrentStep();
                 }
-            });
+            },
+            addStepAfterCallback: HandleNewStepAfterFromEditor,
+            deleteStepCallback:   HandleDeleteStepFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -467,9 +472,66 @@ internal sealed class GuidedTourController
                     // _currentStepIndex stays the same (the original step is back)
                     ShowCurrentStep();
                 }
-            });
+            },
+            addStepAfterCallback: HandleNewStepAfterFromEditor,
+            deleteStepCallback:   HandleDeleteStepFromEditor);
         _activeEditor = editor;
         editor.Show();
+    }
+
+    private void HandleNewStepAfterFromEditor()
+    {
+        if (_activeTour is null || _activeEditor is null) return;
+        var newStep = new GuidedTourStep { Title = "New Step", CalloutPlacement = "Auto" };
+        var insertIndex = _currentStepIndex + 1;
+        _activeTour.Steps.Insert(insertIndex, newStep);
+        if (!string.IsNullOrWhiteSpace(WorkspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, WorkspaceFolderPath); }
+            catch { /* ignore */ }
+        }
+        _currentStepIndex = insertIndex;
+        _activeEditor.RefreshStepList(insertIndex);
+        ShowCurrentStep();
+    }
+
+    private void HandleDeleteStepFromEditor()
+    {
+        if (_activeTour is null || _activeTour.Steps.Count == 0 || _activeEditor is null) return;
+
+        var result = MessageBox.Show(
+            $"Delete step {_currentStepIndex + 1} of {_activeTour.Steps.Count}?\n\n\"{CurrentStep.Title}\"",
+            "Delete Step",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        var deleteIndex = _currentStepIndex;
+        _activeTour.Steps.RemoveAt(deleteIndex);
+
+        if (!string.IsNullOrWhiteSpace(WorkspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, WorkspaceFolderPath); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Step deleted from memory but could not be saved to disk:\n{ex.Message}",
+                    "Save Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        if (_activeTour.Steps.Count == 0)
+        {
+            _activeEditor.Close();
+            StopTour();
+            return;
+        }
+
+        _currentStepIndex = Math.Min(deleteIndex, _activeTour.Steps.Count - 1);
+        _activeEditor.RefreshStepList(_currentStepIndex);
+        ShowCurrentStep();
     }
 
     private void HandleDeleteStep()

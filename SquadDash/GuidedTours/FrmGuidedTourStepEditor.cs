@@ -27,6 +27,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private readonly Action?           _livePreviewCallback;
     private readonly Action<int>?      _jumpToStepCallback;
+    private readonly Action?           _addStepAfterCallback;
+    private readonly Action?           _deleteStepCallback;
     private string                     _originalMarkdown;
     private string                     _originalPlacement;
     private double                     _originalTargetOffsetX;
@@ -46,6 +48,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private Button                     _nextButton = null!;
     private TextBlock                  _stepCountLabel = null!;
     private ListBox                    _stepListBox = null!;
+
+    // Drag-to-reorder state
+    private Point  _listDragStart;
+    private bool   _listDragInProgress;
+    private int    _listDragSourceIndex = -1;
 
     // PTT voice dictation
     private readonly PttTextBoxAttachment _ptt;
@@ -100,7 +107,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action<int>?     jumpToStepCallback   = null,
         GuidedTourCommandRegistry? commandRegistry = null,
         GuidedTourAdvanceTriggerRegistry? triggerRegistry = null,
-        Action<bool>?    onClosed             = null)
+        Action<bool>?    onClosed             = null,
+        Action?          addStepAfterCallback = null,
+        Action?          deleteStepCallback   = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -110,6 +119,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _originalTargetOffsetY = step.TargetOffsetY;
         _livePreviewCallback = livePreviewCallback;
         _jumpToStepCallback  = jumpToStepCallback;
+        _addStepAfterCallback = addStepAfterCallback;
+        _deleteStepCallback   = deleteStepCallback;
 
         _step                = step;
         _stepIndex           = stepIndex;
@@ -341,6 +352,77 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepListBox.SelectedIndex = stepIndex;
         _stepListBox.SelectionChanged += OnStepListSelectionChanged;
 
+        // ── Drag-to-reorder ──────────────────────────────────────────────────
+
+        _stepListBox.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            _listDragStart       = e.GetPosition(_stepListBox);
+            _listDragInProgress  = false;
+            _listDragSourceIndex = _stepListBox.SelectedIndex;
+        };
+
+        _stepListBox.PreviewMouseMove += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || _listDragInProgress) return;
+            var pos  = e.GetPosition(_stepListBox);
+            var diff = _listDragStart - pos;
+            if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+            {
+                if (_listDragSourceIndex < 0) return;
+                _listDragInProgress = true;
+                var item = _stepListBox.Items[_listDragSourceIndex];
+                DragDrop.DoDragDrop(_stepListBox, item, DragDropEffects.Move);
+                _listDragInProgress = false;
+            }
+        };
+
+        _stepListBox.AllowDrop = true;
+        _stepListBox.Drop += (_, e) =>
+        {
+            if (_listDragSourceIndex < 0) return;
+            var pos = e.GetPosition(_stepListBox);
+            int destIndex = GetListBoxItemIndexAtPoint(_stepListBox, pos);
+            if (destIndex < 0) destIndex = _stepListBox.Items.Count - 1;
+            if (destIndex == _listDragSourceIndex) return;
+
+            var step = _activeTour.Steps[_listDragSourceIndex];
+            _activeTour.Steps.RemoveAt(_listDragSourceIndex);
+            _activeTour.Steps.Insert(destIndex, step);
+
+            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            {
+                try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+                catch { /* ignore */ }
+            }
+
+            _stepListBox.Items.Clear();
+            for (int i = 0; i < _activeTour.Steps.Count; i++)
+                _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
+            _stepListBox.SelectedIndex = destIndex;
+
+            _stepIndex = destIndex;
+            _jumpToStepCallback?.Invoke(destIndex);
+            _livePreviewCallback?.Invoke();
+        };
+
+        // ── Sidebar buttons ──────────────────────────────────────────────────
+
+        var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
+        var addBtn    = MakeButton("+");
+        var deleteBtn = MakeButton("🗑");
+        addBtn.Margin    = new Thickness(0, 0, 2, 0);
+        deleteBtn.Margin = new Thickness(0);
+        addBtn.Click    += (_, _) => _addStepAfterCallback?.Invoke();
+        deleteBtn.Click += (_, _) => _deleteStepCallback?.Invoke();
+        listSidebarButtons.Children.Add(addBtn);
+        listSidebarButtons.Children.Add(deleteBtn);
+
+        var sidebarPanel = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(listSidebarButtons, Dock.Top);
+        sidebarPanel.Children.Add(listSidebarButtons);
+        sidebarPanel.Children.Add(_stepListBox);
+
         var formScrollViewer = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -351,9 +433,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var contentSplit = new Grid();
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170, GridUnitType.Pixel) });
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,   GridUnitType.Star)  });
-        Grid.SetColumn(_stepListBox,    0);
+        Grid.SetColumn(sidebarPanel,    0);
         Grid.SetColumn(formScrollViewer, 1);
-        contentSplit.Children.Add(_stepListBox);
+        contentSplit.Children.Add(sidebarPanel);
         contentSplit.Children.Add(formScrollViewer);
 
         var layout = new DockPanel { LastChildFill = true };
@@ -495,6 +577,32 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             if (result != MessageBoxResult.Yes) return;
         }
         Close();
+    }
+
+    /// <summary>
+    /// Rebuilds the step list, selects the given index, and loads that step's fields.
+    /// Called by the controller after adding, deleting, or reordering steps from within the editor.
+    /// </summary>
+    public void RefreshStepList(int selectIndex)
+    {
+        _stepListBox.Items.Clear();
+        for (int i = 0; i < _activeTour.Steps.Count; i++)
+            _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
+        LoadStep(selectIndex);
+    }
+
+    private static int GetListBoxItemIndexAtPoint(ListBox listBox, Point point)
+    {
+        for (int i = 0; i < listBox.Items.Count; i++)
+        {
+            if (listBox.ItemContainerGenerator.ContainerFromIndex(i) is ListBoxItem item)
+            {
+                var itemPos = item.TranslatePoint(new Point(0, 0), listBox);
+                if (point.Y >= itemPos.Y && point.Y < itemPos.Y + item.ActualHeight)
+                    return i;
+            }
+        }
+        return -1;
     }
 
     private void TryNavigate(int newIndex)
