@@ -13650,7 +13650,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
             commandRegistry:         _tourCommandRegistry,
-            onStepChanging:          StopTypeIntoPromptAnimation,
+            onStepChanging:          FreezeTypeIntoPromptAnimation,
             triggerRegistry:         _tourAdvanceTriggerRegistry);
     }
 
@@ -13930,11 +13930,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         // Stop the timer if it's still running (it self-nulls when the text is fully typed,
         // but TourTypeTag items may still be in the queue after that — handle both cases).
-        if (_typeIntoPromptTimer is not null)
-        {
-            _typeIntoPromptTimer.Stop();
-            _typeIntoPromptTimer = null;
-        }
+        FreezeTypeIntoPromptAnimation();
 
         // Nothing to clean up if no tour-type items remain.
         if (!_promptQueue.Items.Any(i => i.SourceTag == TourTypeTag))
@@ -13955,6 +13951,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         _promptQueue.RemoveByTag(TourTypeTag);
         SyncQueuePanel();
+    }
+
+    /// <summary>
+    /// Stops the TypeIntoPrompt timer (freezing the animation mid-type) without removing
+    /// the queue item. Used on step transitions so the typed text persists visibly until
+    /// the tour step that owns it explicitly removes it via "Remove Dummy Queue Items".
+    /// </summary>
+    private void FreezeTypeIntoPromptAnimation()
+    {
+        if (_typeIntoPromptTimer is null) return;
+        _typeIntoPromptTimer.Stop();
+        _typeIntoPromptTimer = null;
     }
 
     private void StartTypeIntoPromptAnimation(string text)
