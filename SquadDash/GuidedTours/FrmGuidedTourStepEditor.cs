@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using SquadDash.GuidedTours;
 using SquadDash.Hints;
@@ -48,6 +49,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly Canvas        _crosshairCanvas;
     private readonly TextBlock     _crosshairCoordsLabel;
     private bool                   _crosshairDragging;
+
+    // Pick-mode hover highlight elements (recreated each time pick mode opens)
+    private Rectangle? _pickWhiteRect;
+    private Rectangle? _pickBlackRect;
+    private Border?    _pickLabel;
 
     /// <summary>True if the user clicked Save and the step was persisted.</summary>
     public bool WasSaved { get; private set; }
@@ -368,6 +374,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         Visibility = Visibility.Hidden;
 
+        // Reset highlight elements so EnsureHighlightElements re-creates them on the new canvas.
+        _pickWhiteRect = null;
+        _pickBlackRect = null;
+        _pickLabel     = null;
+
         var overlay = new Window
         {
             WindowStyle               = WindowStyle.None,
@@ -394,11 +405,54 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Foreground          = Brushes.White,
             FontSize            = 13,
         };
-        overlay.Content = hint;
+
+        // Canvas holds the hover-highlight layer; it never intercepts mouse input.
+        var canvas = new Canvas { IsHitTestVisible = false };
+
+        var grid = new Grid();
+        grid.Children.Add(canvas);
+        grid.Children.Add(hint);
+        overlay.Content = grid;
+
+        // Cache the last hit element to avoid redundant tree walks on every MouseMove.
+        DependencyObject? lastHitObj = null;
+        (FrameworkElement? element, string? name) lastResult = (null, null);
+
+        overlay.MouseMove += (_, e) =>
+        {
+            var pos = e.GetPosition(mainWindow);
+            var hit = VisualTreeHelper.HitTest(mainWindow, pos);
+            if (hit?.VisualHit is DependencyObject hitObj)
+            {
+                // Throttle: reuse result if the same leaf element is still under the cursor.
+                if (!ReferenceEquals(hitObj, lastHitObj))
+                {
+                    lastHitObj  = hitObj;
+                    lastResult  = FindFirstUniqueNamedAncestor(hitObj, mainWindow);
+                }
+
+                var (fe, name) = lastResult;
+                if (fe != null && name != null)
+                {
+                    var topLeft = fe.TranslatePoint(new Point(0, 0), mainWindow);
+                    const double stroke = 2;
+                    const double pad    = 2; // gap between white rect and black rect
+                    UpdateHighlight(canvas, topLeft, fe.ActualWidth, fe.ActualHeight, stroke, pad, name);
+                    return;
+                }
+            }
+            else
+            {
+                lastHitObj = null;
+                lastResult = (null, null);
+            }
+            ClearHighlight(canvas);
+        };
 
         overlay.MouseLeftButtonUp += (_, e) =>
         {
             var pos = e.GetPosition(mainWindow);
+            ClearHighlight(canvas);
             overlay.Close();
             Visibility = Visibility.Visible;
             Activate();
@@ -408,44 +462,18 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 var hit = VisualTreeHelper.HitTest(mainWindow, pos);
                 if (hit?.VisualHit is DependencyObject hitObj)
                 {
-                    DependencyObject? current = hitObj;
-                    bool found = false;
-                    while (current is not null)
+                    // Walk up the visual tree; first unique name wins.
+                    var (_, name) = FindFirstUniqueNamedAncestor(hitObj, mainWindow);
+                    if (name != null)
                     {
-                        if (current is FrameworkElement fe)
-                        {
-                            // Skip WPF internal template parts (PART_xxx) — unreliable for targeting
-                            var name = fe.Name;
-                            if (!string.IsNullOrEmpty(name) && !name.StartsWith("PART_", StringComparison.Ordinal))
-                            {
-                                _targetControlBox.Text = name;
-                                PushLivePreview();
-                                found = true;
-                                break;
-                            }
-
-                            // Check DataContext for IHaveAgentName or INamedControl
-                            if (fe.DataContext is IHaveAgentName agentNamed && !string.IsNullOrEmpty(agentNamed.AgentName))
-                            {
-                                _targetControlBox.Text = agentNamed.AgentName;
-                                PushLivePreview();
-                                found = true;
-                                break;
-                            }
-                            if (fe.DataContext is INamedControl namedControl && !string.IsNullOrEmpty(namedControl.ControlName))
-                            {
-                                _targetControlBox.Text = namedControl.ControlName;
-                                PushLivePreview();
-                                found = true;
-                                break;
-                            }
-                        }
-                        current = VisualTreeHelper.GetParent(current);
+                        _targetControlBox.Text = name;
+                        PushLivePreview();
                     }
-
-                    if (!found)
-                        ShowStatus("⚠ The clicked element has no x:Name — cannot use as a target. " +
+                    else
+                    {
+                        ShowStatus("⚠ The clicked element has no unique x:Name — cannot use as a target. " +
                                    "Assign an x:Name to this element or select a different target.");
+                    }
                 }
                 else
                 {
@@ -466,6 +494,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             if (e.Key == Key.Escape)
             {
+                ClearHighlight(canvas);
                 overlay.Close();
                 Visibility = Visibility.Visible;
                 Activate();
@@ -474,6 +503,130 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         overlay.Show();
         overlay.Focus();
+    }
+
+    // ── Pick-mode: unique-name helpers ───────────────────────────────────────
+
+    /// <summary>
+    /// Walks up the visual tree from <paramref name="hitObj"/> and returns the first
+    /// ancestor (or self) whose name is unique in the entire visual tree — first unique name wins.
+    /// Names from IHaveAgentName / INamedControl are assumed inherently unique.
+    /// </summary>
+    private static (FrameworkElement? element, string? name) FindFirstUniqueNamedAncestor(
+        DependencyObject? hitObj, DependencyObject treeRoot)
+    {
+        var current = hitObj;
+        while (current is not null)
+        {
+            if (current is FrameworkElement fe)
+            {
+                var name = fe.Name;
+                // Skip WPF internal template parts (PART_xxx) — unreliable for targeting.
+                // Accept only if the name appears exactly once in the visual tree.
+                if (!string.IsNullOrEmpty(name)
+                    && !name.StartsWith("PART_", StringComparison.Ordinal)
+                    && IsNameUniqueInTree(treeRoot, name))
+                    return (fe, name);
+
+                // DataContext-sourced names are inherently unique (agent/control identity).
+                if (fe.DataContext is IHaveAgentName agentNamed && !string.IsNullOrEmpty(agentNamed.AgentName))
+                    return (fe, agentNamed.AgentName);
+                if (fe.DataContext is INamedControl namedControl && !string.IsNullOrEmpty(namedControl.ControlName))
+                    return (fe, namedControl.ControlName);
+            }
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return (null, null);
+    }
+
+    private static bool IsNameUniqueInTree(DependencyObject root, string name)
+    {
+        int count = 0;
+        CountNamedDescendants(root, name, ref count);
+        return count == 1;
+    }
+
+    private static void CountNamedDescendants(DependencyObject node, string name, ref int count)
+    {
+        if (count > 1) return; // early exit once we know it's non-unique
+        if (node is FrameworkElement fe && fe.Name == name)
+            count++;
+        int childCount = VisualTreeHelper.GetChildrenCount(node);
+        for (int i = 0; i < childCount; i++)
+            CountNamedDescendants(VisualTreeHelper.GetChild(node, i), name, ref count);
+    }
+
+    // ── Pick-mode: hover highlight drawing ───────────────────────────────────
+
+    private void UpdateHighlight(Canvas canvas, Point topLeft, double w, double h,
+                                 double stroke, double pad, string name)
+    {
+        EnsureHighlightElements(canvas);
+
+        // White rectangle — tight around the element
+        Canvas.SetLeft(_pickWhiteRect!, topLeft.X);
+        Canvas.SetTop(_pickWhiteRect!, topLeft.Y);
+        _pickWhiteRect!.Width  = w;
+        _pickWhiteRect!.Height = h;
+
+        // Black rectangle — 2px outside the white one (visible on both light and dark backgrounds)
+        Canvas.SetLeft(_pickBlackRect!, topLeft.X - pad - stroke);
+        Canvas.SetTop(_pickBlackRect!, topLeft.Y - pad - stroke);
+        _pickBlackRect!.Width  = w + (pad + stroke) * 2;
+        _pickBlackRect!.Height = h + (pad + stroke) * 2;
+
+        // Name label: above the white rect if room (>24px), otherwise just below
+        var labelTop = topLeft.Y - 26;
+        if (labelTop < 0) labelTop = topLeft.Y + h + 4;
+        Canvas.SetLeft(_pickLabel!, topLeft.X);
+        Canvas.SetTop(_pickLabel!, labelTop);
+        ((TextBlock)_pickLabel!.Child).Text = name;
+
+        _pickWhiteRect.Visibility = Visibility.Visible;
+        _pickBlackRect.Visibility = Visibility.Visible;
+        _pickLabel.Visibility     = Visibility.Visible;
+    }
+
+    private void ClearHighlight(Canvas canvas)
+    {
+        if (_pickWhiteRect != null) _pickWhiteRect.Visibility = Visibility.Collapsed;
+        if (_pickBlackRect != null) _pickBlackRect.Visibility = Visibility.Collapsed;
+        if (_pickLabel     != null) _pickLabel.Visibility     = Visibility.Collapsed;
+    }
+
+    private void EnsureHighlightElements(Canvas canvas)
+    {
+        if (_pickWhiteRect != null) return;
+
+        _pickBlackRect = new Rectangle
+        {
+            Stroke           = Brushes.Black,
+            StrokeThickness  = 2,
+            Fill             = Brushes.Transparent,
+            IsHitTestVisible = false,
+        };
+        _pickWhiteRect = new Rectangle
+        {
+            Stroke           = Brushes.White,
+            StrokeThickness  = 2,
+            Fill             = Brushes.Transparent,
+            IsHitTestVisible = false,
+        };
+        _pickLabel = new Border
+        {
+            Background       = new SolidColorBrush(Color.FromArgb(0xCC, 20, 20, 20)),
+            Padding          = new Thickness(6, 2, 6, 2),
+            CornerRadius     = new CornerRadius(3),
+            IsHitTestVisible = false,
+            Child            = new TextBlock
+            {
+                Foreground = Brushes.White,
+                FontSize   = 12,
+            },
+        };
+        canvas.Children.Add(_pickBlackRect);
+        canvas.Children.Add(_pickWhiteRect);
+        canvas.Children.Add(_pickLabel);
     }
 
     private void BrowseForControl()
