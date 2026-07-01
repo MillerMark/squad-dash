@@ -1010,11 +1010,13 @@ internal sealed class MarkdownDocumentRenderer {
     }
 
     private static string[] ParseMarkdownTableRow(string line) {
+        const string placeholder = "\x00PIPE\x00";
         return line
             .Trim()
+            .Replace(@"\|", placeholder)
             .Trim('|')
             .Split('|')
-            .Select(cell => cell.Trim())
+            .Select(cell => cell.Trim().Replace(placeholder, "|"))
             .ToArray();
     }
 
