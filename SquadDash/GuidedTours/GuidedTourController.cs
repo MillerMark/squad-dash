@@ -185,6 +185,9 @@ internal sealed class GuidedTourController
             livePreviewCallback: NotifyStepEdited,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry);
+        editor.ShowDialog();
+        if (editor.WasSaved)
+            NotifyStepEdited();
     }
 
     private GuidedTourStep CurrentStep =>
