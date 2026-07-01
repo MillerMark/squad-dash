@@ -130,7 +130,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _titleBox = MakeTextBox(step.Title, multiLine: false);
 
-        _markdownBox = MakeTextBox(step.MarkdownText, multiLine: true);
+        // Pre-fill with title when markdown is empty so the callout is never blank on first show.
+        _markdownBox = MakeTextBox(
+            string.IsNullOrWhiteSpace(step.MarkdownText) ? step.Title : step.MarkdownText,
+            multiLine: true);
         _markdownBox.Height = 120;
         _markdownBox.FontFamily = new FontFamily("Consolas, Courier New, monospace");
         _markdownBox.AcceptsReturn = true;

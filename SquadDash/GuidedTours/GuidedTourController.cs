@@ -378,6 +378,7 @@ internal sealed class GuidedTourController
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
             livePreviewCallback: NotifyStepEdited,
+            jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();
@@ -411,6 +412,7 @@ internal sealed class GuidedTourController
             owner:               _ownerWindow,
             captureLayout:       _savePreTourLayout,
             livePreviewCallback: NotifyStepEdited,
+            jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry);
         editor.ShowDialog();
