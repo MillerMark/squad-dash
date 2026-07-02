@@ -3455,6 +3455,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var plainTooltip = tabId == nextReadyId
                     ? "This prompt is next in the Squad queue."
                     : "This item is in the Squad queue.";
+                // Close any open tooltip before replacing it to avoid
+                // "ToolTip cannot have a logical or visual parent" when the user
+                // is hovering over the tab (tooltip is shown and has a non-null
+                // visual parent via its Popup).
+                if (tab.ToolTip is ToolTip openTip)
+                    openTip.IsOpen = false;
                 tab.ToolTip = isActive ? BuildQueueTabActiveTooltip(plainTooltip) : (object)plainTooltip;
             }
         }
