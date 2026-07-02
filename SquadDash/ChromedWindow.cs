@@ -81,7 +81,19 @@ internal class ChromedWindow : Window {
         outerBorder.SetResourceReference(Border.BackgroundProperty,  backgroundResource);
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
-        var closeBtnText = new TextBlock {
+        RoutedEventHandler? loadedHandler = null;
+        loadedHandler = (_, _) => {
+            Loaded -= loadedHandler;
+            try {
+                var glowColor = ((SolidColorBrush)FindResource("WindowBorderGlow")).Color;
+                var restBrush = (SolidColorBrush)FindResource("PanelBorder");
+                WindowOpenGlow.Animate(outerBorder, glowColor, restBrush);
+            }
+            catch { /* silently skip if resources are unavailable (designer / test context) */ }
+        };
+        Loaded += loadedHandler;
+
+        var closeBtnText= new TextBlock {
             Text                = "\u2715",
             VerticalAlignment   = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
