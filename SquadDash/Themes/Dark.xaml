@@ -42,6 +42,7 @@
     <SolidColorBrush x:Key="TrackSurface" Color="#3A342C"/>
     <!-- Window Chrome Tokens -->
     <SolidColorBrush x:Key="WindowBorder" Color="#3A342C"/>
+    <SolidColorBrush x:Key="WindowBorderGlow" Color="#18b1fc"/>
     <SolidColorBrush x:Key="CaptionButtonHover" Color="#3A3530"/>
     <SolidColorBrush x:Key="CaptionCloseHover" Color="#B02415"/>
     <SolidColorBrush x:Key="CaptionCloseHoverText" Color="#FFFFFF"/>
