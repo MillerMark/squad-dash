@@ -920,8 +920,6 @@
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Edit Guided Tours"
                               Click="EditGuidedToursMenuItem_Click" />
-                    <MenuItem Header="_New Guided Tour..."
-                              Click="NewGuidedTourMenuItem_Click" />
                     <MenuItem Header="_Preview Current Tour Step"
                               Click="PreviewCurrentTourStepMenuItem_Click" />
                 </MenuItem>

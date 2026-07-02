@@ -246,6 +246,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _crosshairCanvas.MouseMove           += (_, e) => { if (_crosshairDragging) UpdateCrosshairFromMouse(e.GetPosition(_crosshairCanvas)); };
         _crosshairCanvas.MouseLeftButtonUp   += (_, e) => { _crosshairDragging = false; _crosshairCanvas.ReleaseMouseCapture(); };
         _crosshairCanvas.SizeChanged         += (_, _) => RedrawCrosshair();
+        _crosshairCanvas.MouseEnter          += (_, _) => ShowOrUpdateTargetOverlay();
+        _crosshairCanvas.MouseLeave          += (_, _) => { if (!_crosshairDragging) CloseTargetOverlay(); };
+        _crosshairCanvas.LostMouseCapture    += (_, _) => { _crosshairDragging = false; CloseTargetOverlay(); };
 
         _crosshairCoordsLabel = new TextBlock
         {
@@ -262,7 +265,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
             _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
             if (hasTarget) RedrawCrosshair();
-            ShowOrUpdateTargetOverlay();
+            // Target overlay is only shown on mouse-over of the crosshair canvas; close it
+            // whenever the target text changes so stale highlights don't linger.
+            CloseTargetOverlay();
         };
 
         var captureButton = MakeButton("📷 Capture Current Layout for the Step");
@@ -784,7 +789,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"LoadStep: target={step.TargetControlId}, offsetX={step.TargetOffsetX:F3}, offsetY={step.TargetOffsetY:F3}");
-        ShowOrUpdateTargetOverlay();
+        CloseTargetOverlay();
 
         _statusLabel.Visibility = Visibility.Collapsed;
 
