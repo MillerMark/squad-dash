@@ -215,7 +215,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         targetRow.Children.Add(pickButton);
 
         var commandNames = commandRegistry?.CommandNames ?? Array.Empty<string>();
-        _commandItems = new[] { "" }.Concat(commandNames).ToArray();
+        _commandItems = new[] { "" }.Concat(commandNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)).ToArray();
 
         _commandBeforePanel = new StackPanel();
         _commandAfterPanel  = new StackPanel();
