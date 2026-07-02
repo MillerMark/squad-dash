@@ -38,7 +38,13 @@
   Local items (AppData) show no icon or a different indicator.
   Depends on: shared/local data convention ADR.
 
-- [ ] **[Guided Tour] Implement Guided Tour feature** *(Owner: Lyra Morn)*
+- [x] **[UI] Window open glow-fade animation — Phase 1: WindowOpenGlow helper** *(Owner: Lyra Morn)*
+
+- [x] **[UI] Window open glow-fade animation — Phase 2: Theme tokens** *(Owner: Orion Vale)*
+
+- [x] **[UI] Window open glow-fade animation — Phase 3: Hook into ChromedWindow** *(Owner: Lyra Morn)*
+
+
   Full spec finalized 2026-06-24. Key components:
   - `GuidedTourStep` data model: Title, MarkdownText, TargetControlId, CalloutPlacement, PreAction
   - Steps file: `.squad/guided-tour.json` (workspace override) with embedded-resource fallback
@@ -410,3 +416,6 @@
 
 > Full details in `.squad/completed-tasks.md`. This section is a compact AI-recall index only.
 
+- [x] **[UI] Window open glow-fade animation — Phase 1: WindowOpenGlow helper** *(Owner: Lyra Morn)* — commit 23542c1
+- [x] **[UI] Window open glow-fade animation — Phase 2: Theme tokens** *(Owner: Orion Vale)* — commit f14cd03
+- [x] **[UI] Window open glow-fade animation — Phase 3: Hook into ChromedWindow** *(Owner: Lyra Morn)* — commit 4e3b71f
