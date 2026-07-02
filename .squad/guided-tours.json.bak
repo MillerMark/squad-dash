@@ -5,20 +5,6 @@
     "description": "A quick walkthrough of the main interface panels.",
     "steps": [
       {
-        "title": "Welcome to the Guided Tour",
-        "markdownText": "Meet SquadDash...\r\nStart by clicking the **Next** button below.",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
         "title": "Agent Section",
         "markdownText": "Active agents are here.",
         "targetControlId": "ActiveAgentItemsControl",
@@ -95,8 +81,8 @@
         "targetOffsetY": 0.27675198235539844
       },
       {
-        "title": "Quick reply buttons",
-        "markdownText": "AI responses may include **Quick Reply Buttons**.\r\nClick (or press \u0022**[**\u0022 in an empty prompt) to send this reply back to AI.",
+        "title": "Quick reply buttons.",
+        "markdownText": "AI responses may include **Quick Reply Buttons**.\r\nClick with the mouse (or press \u0022**[**\u0022 in an empty prompt textbox) to send the button\u0027s reply back to AI.",
         "targetControlId": "TourQuickReplyPanel",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -110,6 +96,37 @@
         "advanceTrigger": "QuickReplySelected",
         "targetOffsetX": 0.7846003898635477,
         "targetOffsetY": 0.4717917649167319
+      },
+      {
+        "title": "Tooling.",
+        "markdownText": "Agent tool calls let you see what\u0027s happening while agents work.",
+        "targetControlId": "TourInjectedToolingBlock",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectTranscriptTurn| Can you take a look at my config file and add a new empty line to it?",
+          "InjectTranscriptTools: view:Read Config.cs:// file contents\\nline 2;powershell:Build project:Build succeeded;edit:Update Config.cs: \u002B new line added (simulated)"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Prompts navigation.",
+        "markdownText": "Use these to see past prompts.",
+        "targetControlId": "PromptNavUpButton",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       },
       {
         "title": "The Queue Tab Strip",
@@ -129,7 +146,7 @@
       },
       {
         "title": "Queue drainage",
-        "markdownText": "To edit a queued prompt, click its tab. \r\nProcessing pauses when the right-most tab is **active**.",
+        "markdownText": "To edit a prompt in the queue, just click its tab. \r\nProcessing will pause while the tab is active.",
         "targetControlId": "QueueTabStrip[3]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -144,41 +161,10 @@
         "targetOffsetY": 0.410000000000001
       },
       {
-        "title": "Tooling",
-        "markdownText": "Tool calls show what\u0027s happening while agents work.",
-        "targetControlId": "TourInjectedToolingBlock",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "InjectTranscriptTurn| Can you take a look at my config file and add a new empty line to it?",
-          "InjectTranscriptTools: view:Read Config.cs:// file contents\\nline 2;powershell:Build project:Build succeeded;edit:Update Config.cs: \u002B new line added (simulated)"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Prompts navigation",
-        "markdownText": "Jump to past prompts.",
-        "targetControlId": "PromptNavUpButton",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
         "title": "Edit menu",
-        "markdownText": "The **Edit** menu includes commands for composing prompts and working with markdown.",
+        "markdownText": "The Edit menu contains commands for composing prompts and creating markdown documents.",
         "targetControlId": "EditMenuItem_Popup",
-        "calloutPlacement": "East",
+        "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -187,19 +173,32 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.8749999999999999,
-        "targetOffsetY": 0.8138461538461548
+        "targetOffsetX": 0,
+        "targetOffsetY": 0.7657692307692318
+      },
+      {
+        "title": "Welcome to the Guided Tour",
+        "markdownText": "Meet SquadDash...\r\nStart by clicking the **Next** button below.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       },
       {
         "title": "Selection",
-        "markdownText": "This menu works with selections.\r\nPress **Shift**\u002B**F3** to **cycle case** in the selection below.",
-        "targetControlId": "EditSelectionMenuItem_Popup",
+        "markdownText": "This menu works with the selections.",
+        "targetControlId": "EditSelectionMenuItem",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "SelectPromptText|Let\u0027s create a brand new class called the data resource binder.|data resource binder",
           "OpenMenu: EditMenuItem|EditSelectionMenuItem"
         ],
         "commandsAfter": [],
