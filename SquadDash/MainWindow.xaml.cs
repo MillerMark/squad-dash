@@ -13976,14 +13976,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
         {
             // Format: "text to show" — adds a dummy queue item with the text (never touches the
-            //   real prompt box), then selects that tab so the text is visible in the prompt box.
-            // Format: "text to show|substring to select" — the substring hint is carried for future
-            //   use; full text is shown in the queue tab.
+            //   real prompt box), then selects that tab so the text is visible in the prompt box,
+            //   with all text selected.
+            // Format: "text to show|substring to select" — selects the first occurrence of the
+            //   substring within the text (selects all if not found).
             // Idempotent: if a guided-tour-dummy item with this exact text already exists it is
-            //   selected rather than creating a duplicate.
+            //   selected rather than creating a duplicate. The selection is (re-)applied on every
+            //   call so navigating back to a step restores the highlight.
             // Safe: does NOT release any existing rightmost-hold-tab (no queue drain side-effect).
             var sep      = arg.IndexOf('|');
             var fullText = (sep >= 0 ? arg[..sep] : arg).Replace(@"\n", "\n");
+            var toSelect = sep >= 0 ? arg[(sep + 1)..] : string.Empty;
+
+            // Compute the desired selection within fullText.
+            var selStart  = 0;
+            var selLength = fullText.Length;
+            if (!string.IsNullOrEmpty(toSelect))
+            {
+                var idx = fullText.IndexOf(toSelect, StringComparison.Ordinal);
+                if (idx >= 0) { selStart = idx; selLength = toSelect.Length; }
+            }
 
             // Find an existing dummy item with the same text (idempotency).
             var existing = _promptQueue.Items.FirstOrDefault(
@@ -14002,7 +14014,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SyncQueuePanel();
             }
 
-            if (_activeTabId == existing.Id) return; // already selected — nothing to do
+            if (_activeTabId == existing.Id)
+            {
+                // Tab already active — just re-apply the selection (handles navigate-back case).
+                PromptTextBox.Select(selStart, selLength);
+                PromptTextBox.Focus();
+                return;
+            }
 
             // Switch to the dummy tab without going through OnQueueTabClicked, which would
             // release any existing rightmost-hold and potentially drain the real queue.
@@ -14028,8 +14046,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             var previousId = _activeTabId;
             _activeTabId = existing.Id;
-            SetPromptTextBoxLogicalBuffer(existing.Text, existing.CaretIndex,
-                existing.SelectionStart, existing.SelectionLength, "tour-select-tab");
+            // Load the full text into the prompt box, then apply the desired selection.
+            SetPromptTextBoxLogicalBuffer(fullText, selStart + selLength, selStart, selLength, "tour-select-tab");
             FastSyncQueueTabActiveState(previousId, existing.Id);
             SetQueuePaused(_queueManuallyPaused);
             PromptTextBox.Focus();
