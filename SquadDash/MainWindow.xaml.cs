@@ -13976,23 +13976,64 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
         {
             // Format: "text to show" — adds a dummy queue item with the text (never touches the
-            //   real prompt box). The item is tagged guided-tour-dummy so Remove Dummy Queue Items
-            //   cleans it up automatically. Leaves the user's existing prompt box content intact.
-            // Format: "text to show|substring to select" — the substring hint is ignored for the
-            //   queue item display (queue items do not have inline selections), but the full text
-            //   is preserved so the tour author can see what would have been highlighted.
+            //   real prompt box), then selects that tab so the text is visible in the prompt box.
+            // Format: "text to show|substring to select" — the substring hint is carried for future
+            //   use; full text is shown in the queue tab.
+            // Idempotent: if a guided-tour-dummy item with this exact text already exists it is
+            //   selected rather than creating a duplicate.
+            // Safe: does NOT release any existing rightmost-hold-tab (no queue drain side-effect).
             var sep      = arg.IndexOf('|');
             var fullText = (sep >= 0 ? arg[..sep] : arg).Replace(@"\n", "\n");
 
-            var dummyItem = new PromptQueueItem
+            // Find an existing dummy item with the same text (idempotency).
+            var existing = _promptQueue.Items.FirstOrDefault(
+                i => i.SourceTag == DummyTag && i.Text == fullText);
+
+            if (existing is null)
             {
-                Text           = fullText,
-                SequenceNumber = ++_promptQueueSeq,
-                QueueNumber    = NextQueueNumber(),
-                SourceTag      = DummyTag
-            };
-            _promptQueue.EnqueueItem(dummyItem);
-            SyncQueuePanel();
+                existing = new PromptQueueItem
+                {
+                    Text           = fullText,
+                    SequenceNumber = ++_promptQueueSeq,
+                    QueueNumber    = NextQueueNumber(),
+                    SourceTag      = DummyTag
+                };
+                _promptQueue.EnqueueItem(existing);
+                SyncQueuePanel();
+            }
+
+            if (_activeTabId == existing.Id) return; // already selected — nothing to do
+
+            // Switch to the dummy tab without going through OnQueueTabClicked, which would
+            // release any existing rightmost-hold and potentially drain the real queue.
+            // We save the current draft (if not already editing a queue tab) and show the
+            // dummy item's text — exactly what OnQueueTabClicked does minus the drain path.
+            if (_activeTabId is null)
+            {
+                _queuePreEditDraft               = PromptTextBox.Text;
+                _queuePreEditDraftCaretIndex     = PromptTextBox.CaretIndex;
+                _queuePreEditDraftSelectionStart = PromptTextBox.SelectionStart;
+                _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
+            }
+            else
+            {
+                var prev = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
+                if (prev is not null)
+                {
+                    prev.Text            = PromptTextBox.Text;
+                    prev.CaretIndex      = PromptTextBox.CaretIndex;
+                    prev.SelectionStart  = PromptTextBox.SelectionStart;
+                    prev.SelectionLength = PromptTextBox.SelectionLength;
+                }
+            }
+            var previousId = _activeTabId;
+            _activeTabId = existing.Id;
+            SetPromptTextBoxLogicalBuffer(existing.Text, existing.CaretIndex,
+                existing.SelectionStart, existing.SelectionLength, "tour-select-tab");
+            FastSyncQueueTabActiveState(previousId, existing.Id);
+            SetQueuePaused(_queueManuallyPaused);
+            PromptTextBox.Focus();
+            UpdateFollowUpStrip();
         });
 
         _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
