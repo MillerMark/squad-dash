@@ -155,6 +155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
+    private string? _tourSavedPromptText;  // text saved by SelectPromptText; restored on CleanUpTourQueueItems
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13698,6 +13699,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         EnsureGuidedTourController();
         _tourInjectedCoordinatorBlocks.Clear();
         _tourNamedElements.Clear();
+        _tourSavedPromptText = null;
         _guidedTourController!.StartTour(tour, allTours);
     }
 
@@ -13783,6 +13785,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 "tour-cleanup-restore-draft");
             _queuePreEditDraft = null;
         }
+
+        // Restore prompt text that was replaced by SelectPromptText, then clear the save slot.
+        if (_tourSavedPromptText is not null)
+        {
+            SetPromptTextBoxLogicalBuffer(_tourSavedPromptText, _tourSavedPromptText.Length, reason: "tour-cleanup-restore-prompt");
+            _tourSavedPromptText = null;
+        }
+
         StopTypeIntoPromptAnimation(); // removes TourTypeTag item + stops timer
         _promptQueue.RemoveByTag(TourDummyTag);
         SyncQueuePanel();
@@ -13916,9 +13926,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Format: "text to show" — puts text in the prompt box and selects all of it.
             // Format: "text to show|substring to select" — puts the full text in, then selects
             //   the first occurrence of the substring (selects all if not found).
+            // Saves any existing prompt text so CleanUpTourQueueItems can restore it afterward.
             var sep      = arg.IndexOf('|');
             var fullText = (sep >= 0 ? arg[..sep] : arg).Replace(@"\n", "\n");
             var toSelect = sep >= 0 ? arg[(sep + 1)..] : string.Empty;
+
+            // Save the existing prompt text the first time (don't overwrite if already saved
+            // by a prior SelectPromptText in the same tour step sequence).
+            _tourSavedPromptText ??= PromptTextBox.Text;
 
             var selStart  = 0;
             var selLength = fullText.Length;
