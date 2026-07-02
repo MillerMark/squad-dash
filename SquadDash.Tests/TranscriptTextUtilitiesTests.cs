@@ -98,6 +98,36 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_TopLevelApprovalGroupBlock_StripsFromDisplay() {
+        const string text = """
+            Committed: abc1234
+
+            APPROVAL_GROUP_JSON:
+            {"sha":"abc1234","group":"UI Polish"}
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("Committed: abc1234"));
+    }
+
+    [Test]
+    public void SanitizeResponseText_ApprovalGroupBlockWithTrailingText_StripsMachineBlock() {
+        const string text = """
+            Committed: abc1234
+
+            APPROVAL_GROUP_JSON:
+            {"sha":"abc1234","group":"UI Polish"}
+
+            trailing accidental text
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("Committed: abc1234"));
+    }
+
+    [Test]
     public void MergeStreamingAndFinalResponse_AppendsTail_WhenFinalStartsWithStreamedText() {
         const string streamed = "Okay, now I have everything I need to solve the problem.";
         const string final = """

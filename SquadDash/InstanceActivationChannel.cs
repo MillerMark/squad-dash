@@ -55,15 +55,36 @@ internal sealed class InstanceActivationChannel : IAsyncDisposable {
         string applicationRoot,
         RunningInstanceRecord owner,
         TimeSpan timeout) {
+        return TryRequestActivation(
+            applicationRoot,
+            owner,
+            timeout,
+            TryRequestActivationViaPipe,
+            NativeMethods.TryActivateProcessMainWindow);
+    }
+
+    internal static bool TryRequestActivation(
+        string applicationRoot,
+        RunningInstanceRecord owner,
+        TimeSpan timeout,
+        Func<string, int, long, TimeSpan, bool> pipeRequester,
+        Func<int, bool> processActivator) {
         if (owner is null)
             throw new ArgumentNullException(nameof(owner));
+        if (pipeRequester is null)
+            throw new ArgumentNullException(nameof(pipeRequester));
+        if (processActivator is null)
+            throw new ArgumentNullException(nameof(processActivator));
 
         NativeMethods.AllowSetForegroundWindow(owner.ProcessId);
 
-        if (TryRequestActivationViaPipe(applicationRoot, owner.ProcessId, owner.ProcessStartedAtUtcTicks, timeout))
-            return true;
-
-        return NativeMethods.TryActivateProcessMainWindow(owner.ProcessId);
+        var pipeRequested = pipeRequester(
+            applicationRoot,
+            owner.ProcessId,
+            owner.ProcessStartedAtUtcTicks,
+            timeout);
+        var nativeActivated = processActivator(owner.ProcessId);
+        return pipeRequested || nativeActivated;
     }
 
     internal static string GetPipeName(

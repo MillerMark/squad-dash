@@ -43,6 +43,19 @@ internal sealed class RestartDeferralPolicyTests {
     }
 
     [Test]
+    public void GetDeferralReason_BlocksRestart_WhenVoiceInputIsActiveOrDraining() {
+        var reason = RestartDeferralPolicy.GetDeferralReason(
+            isPromptRunning: false,
+            isLoopRunning: false,
+            hasBackgroundWork: false,
+            hasPendingDirectQuickReplyHandoff: false,
+            isVoiceInputActiveOrDraining: true,
+            hasDocRevisionInFlight: false);
+
+        Assert.That(reason, Is.EqualTo(RestartDeferralReason.VoiceInput));
+    }
+
+    [Test]
     public void GetDeferralReason_AllowsRestart_WhenNoBlockersRemain() {
         var reason = RestartDeferralPolicy.GetDeferralReason(
             isPromptRunning: false,

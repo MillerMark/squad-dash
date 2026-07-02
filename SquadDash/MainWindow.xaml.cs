@@ -264,6 +264,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TasksPanelController? _tasksPanelController;
     private CommitApprovalStore? _approvalStore;
     private List<CommitApprovalItem> _approvalItems = [];
+    private readonly Dictionary<string, string> _pendingApprovalGroupsBySha = new(StringComparer.OrdinalIgnoreCase);
     private System.Windows.Controls.Primitives.Popup? _approvalNotFoundPopup;
     private FeatureGroupStore? _featureGroupStore;
     private DispatcherTimer? _categorizationDebounceTimer;
@@ -4735,23 +4736,33 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         var hint = TruncatePromptHint(doneCurrentTurn?.Prompt, maxChars: 60);
                         bool touchesDecisionsFile = CommitTouchesDecisionsFile(commitInfo.CommitSha,
                             _currentWorkspace?.FolderPath ?? _workspacePaths.ApplicationRoot);
+                        var featureGroup = commitInfo.FeatureGroup ?? TakePendingApprovalGroup(commitInfo.CommitSha);
                         var item = CommitApprovalItem.Create(commitInfo.CommitSha, commitUrl, description,
                                                                       turnStartedAt, hint,
                                                                       originalPrompt: doneCurrentTurn?.Prompt?.Trim(),
                                                                       touchesDecisionsFile: touchesDecisionsFile,
-                                                                      featureGroup: commitInfo.FeatureGroup);
-                        if (commitInfo.FeatureGroup is not null)
-                            _featureGroupStore?.EnsureGroup(commitInfo.FeatureGroup);
+                                                                      featureGroup: featureGroup);
+                        if (featureGroup is not null)
+                            _featureGroupStore?.EnsureGroup(featureGroup);
                         // Guard: never add a duplicate SHA — a stale agent CurrentTurn or context
                         // echo can cause the same SHA to be detected on a subsequent turn.
-                        if (!_approvalItems.Any(a => string.Equals(a.CommitSha, item.CommitSha,
-                                                                    StringComparison.OrdinalIgnoreCase)))
+                        var existingApprovalIdx = FindApprovalItemIndexBySha(item.CommitSha);
+                        if (existingApprovalIdx < 0)
                         {
                             _approvalItems.Add(item);
                             _approvalStore?.Save(_approvalItems);
                             _approvalPanel?.AddItem(item);
                             SoundNotifications.Play(SoundEvent.ApprovalNeeded);
                         }
+                        else if (!string.IsNullOrWhiteSpace(featureGroup) &&
+                                 string.IsNullOrWhiteSpace(_approvalItems[existingApprovalIdx].FeatureGroup))
+                        {
+                            _approvalItems[existingApprovalIdx] = _approvalItems[existingApprovalIdx] with { FeatureGroup = featureGroup };
+                            _approvalStore?.Save(_approvalItems);
+                            _approvalPanel?.ReplaceAllItems(_approvalItems);
+                        }
+                        if (!string.IsNullOrWhiteSpace(featureGroup))
+                            AnnotateCommitInTranscript(commitInfo.CommitSha, featureGroup);
                         // ─────────────────────────────────────────────────────────────────
                     }
                     _ = _pushNotificationService.NotifyEventAsync("assistant_turn_complete", "SquadDash", notifMessage);
@@ -5565,6 +5576,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _settingsSnapshot = _settingsStore.SaveLoopActive(false);
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
+
+        if (_restartPending &&
+            TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
+        {
+            SyncLoopPanel();
+            return;
+        }
 
         // If queue items arrived while the loop was running (or are still pending),
         // mark the loop for resume once the queue drains.  Abort goes through
@@ -7351,6 +7369,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _hostCommandExecutor.Register(new Commands.ClearApprovedCommandHandler(() =>
         {
             _approvalItems.Clear();
+            _pendingApprovalGroupsBySha.Clear();
             _approvalStore?.Save(_approvalItems);
             _approvalPanel?.ReplaceAllItems(_approvalItems);
         }));
@@ -7390,10 +7409,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _agentThreadRegistry.OnAgentApprovalGroup = (sha, group) =>
         {
-            var idx = _approvalItems.FindIndex(i =>
-                i.CommitSha.StartsWith(sha, StringComparison.OrdinalIgnoreCase) ||
-                sha.StartsWith(i.CommitSha, StringComparison.OrdinalIgnoreCase));
-            if (idx < 0) return;
+            var idx = FindApprovalItemIndexBySha(sha);
+            if (idx < 0)
+            {
+                _pendingApprovalGroupsBySha[sha] = group;
+                return;
+            }
             _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
             _featureGroupStore?.EnsureGroup(group);
             AnnotateCommitInTranscript(sha, group);
@@ -7403,6 +7424,40 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _pec.GetHostCommandCatalogInstruction = () =>
             _hostCommandRegistry.BuildCatalogInstruction(_currentWorkspace?.FolderPath);
+    }
+
+    private int FindApprovalItemIndexBySha(string sha)
+    {
+        if (string.IsNullOrWhiteSpace(sha))
+            return -1;
+
+        return _approvalItems.FindIndex(i => ShaMatches(i.CommitSha, sha));
+    }
+
+    private static bool ShaMatches(string storedSha, string candidateSha)
+    {
+        if (string.IsNullOrWhiteSpace(storedSha) || string.IsNullOrWhiteSpace(candidateSha))
+            return false;
+
+        return storedSha.StartsWith(candidateSha, StringComparison.OrdinalIgnoreCase) ||
+               candidateSha.StartsWith(storedSha, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? TakePendingApprovalGroup(string sha)
+    {
+        if (string.IsNullOrWhiteSpace(sha) || _pendingApprovalGroupsBySha.Count == 0)
+            return null;
+
+        foreach (var (pendingSha, group) in _pendingApprovalGroupsBySha.ToArray())
+        {
+            if (!ShaMatches(pendingSha, sha))
+                continue;
+
+            _pendingApprovalGroupsBySha.Remove(pendingSha);
+            return group;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -18936,6 +18991,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var workspaceStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         SquadDashTrace.SetWorkspace(workspaceStateDir);
         _approvalStore = new CommitApprovalStore(workspaceStateDir);
+        _pendingApprovalGroupsBySha.Clear();
         _approvalItems = _approvalStore.Load();
         _approvalPanel?.ReplaceAllItems(_approvalItems);
 

@@ -24,10 +24,32 @@ internal sealed class StartupBlockedDialogPolicyTests {
             applicationRoot,
             "restart-123",
             DateTimeOffset.UtcNow));
+        _store.SavePlan(new RestartPlanState(
+            applicationRoot,
+            "restart-123",
+            DateTimeOffset.UtcNow,
+            Array.Empty<RunningInstanceRecord>()));
 
         var result = StartupBlockedDialogPolicy.HasPendingRestartRequest(applicationRoot, _store);
 
         Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public void HasPendingRestartRequest_WhenRequestHasNoMatchingPlan_ReturnsFalseAndClearsRequest() {
+        const string applicationRoot = @"D:\Drive\Source\SquadDash";
+
+        _store.SaveRequest(new RestartRequestState(
+            applicationRoot,
+            "restart-without-plan",
+            DateTimeOffset.UtcNow));
+
+        var result = StartupBlockedDialogPolicy.HasPendingRestartRequest(applicationRoot, _store);
+
+        Assert.Multiple(() => {
+            Assert.That(result, Is.False);
+            Assert.That(_store.LoadRequest(applicationRoot), Is.Null);
+        });
     }
 
     [Test]

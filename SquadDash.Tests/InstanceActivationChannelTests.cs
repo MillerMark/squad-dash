@@ -38,6 +38,44 @@ internal sealed class InstanceActivationChannelTests {
         });
     }
 
+    [Test]
+    public void TryRequestActivation_WhenPipeRequestSucceeds_StillAttemptsNativeActivation() {
+        using var workspace = new TestWorkspace();
+        var appRoot = workspace.GetPath("app-root");
+        Directory.CreateDirectory(appRoot);
+
+        var owner = new RunningInstanceRecord(
+            appRoot,
+            appRoot,
+            1234,
+            424242,
+            DateTimeOffset.UtcNow.Ticks) {
+            ActiveWorkspaceFolder = appRoot
+        };
+
+        var pipeRequests = 0;
+        var nativeActivations = 0;
+
+        var requested = InstanceActivationChannel.TryRequestActivation(
+            appRoot,
+            owner,
+            TimeSpan.FromSeconds(1),
+            (_, processId, startedAt, _) => {
+                pipeRequests++;
+                return processId == 1234 && startedAt == 424242;
+            },
+            processId => {
+                nativeActivations++;
+                return processId == 1234;
+            });
+
+        Assert.Multiple(() => {
+            Assert.That(requested, Is.True);
+            Assert.That(pipeRequests, Is.EqualTo(1));
+            Assert.That(nativeActivations, Is.EqualTo(1));
+        });
+    }
+
     // ── GetPipeName ───────────────────────────────────────────────────────────
 
     [Test]

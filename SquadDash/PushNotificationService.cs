@@ -372,7 +372,9 @@ internal sealed partial class PushNotificationService {
                 var sha = match.Groups[1].Value;
                 var message = match.Groups[2].Value.Trim();
                 var fgMatch = FeatureGroupRegex().Match(output);
-                var featureGroup = fgMatch.Success ? fgMatch.Groups[1].Value.Trim() : null;
+                var featureGroup = fgMatch.Success
+                    ? fgMatch.Groups[1].Value.Trim()
+                    : ExtractApprovalGroupForSha(agentResponse, sha);
                 return new GitCommitInfo(sha, message, featureGroup);
             }
         }
@@ -381,7 +383,10 @@ internal sealed partial class PushNotificationService {
         if (!string.IsNullOrWhiteSpace(agentResponse)) {
             var match = AgentCommitRegex().Match(agentResponse);
             if (match.Success)
-                return new GitCommitInfo(match.Groups[1].Value, null);
+            {
+                var sha = match.Groups[1].Value;
+                return new GitCommitInfo(sha, null, ExtractApprovalGroupForSha(agentResponse, sha));
+            }
         }
 
         // Priority 2b: Plain "Committed: sha" in the response text — coordinator instruction
@@ -390,12 +395,7 @@ internal sealed partial class PushNotificationService {
             var match = PlainCommittedRegex().Match(agentResponse);
             if (match.Success) {
                 var sha = match.Groups[1].Value;
-                string? featureGroup = null;
-                var fgMatch = ApprovalGroupInResponseRegex().Match(agentResponse);
-                if (fgMatch.Success &&
-                    string.Equals(fgMatch.Groups["sha"].Value, sha, StringComparison.OrdinalIgnoreCase))
-                    featureGroup = fgMatch.Groups["group"].Value.Trim();
-                return new GitCommitInfo(sha, null, featureGroup);
+                return new GitCommitInfo(sha, null, ExtractApprovalGroupForSha(agentResponse, sha));
             }
         }
         
@@ -415,6 +415,18 @@ internal sealed partial class PushNotificationService {
                 return new GitCommitInfo(match.Groups[1].Value, null);
         }
         
+        return null;
+    }
+
+    private static string? ExtractApprovalGroupForSha(string? agentResponse, string sha) {
+        if (string.IsNullOrWhiteSpace(agentResponse) || string.IsNullOrWhiteSpace(sha))
+            return null;
+
+        var fgMatch = ApprovalGroupInResponseRegex().Match(agentResponse);
+        if (fgMatch.Success &&
+            string.Equals(fgMatch.Groups["sha"].Value, sha, StringComparison.OrdinalIgnoreCase))
+            return fgMatch.Groups["group"].Value.Trim();
+
         return null;
     }
 

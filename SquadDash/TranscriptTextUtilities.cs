@@ -205,15 +205,12 @@ internal static class TranscriptTextUtilities
 
     private static string StripApprovalGroupBlock(string text)
     {
-        // Strip any top-level APPROVAL_GROUP_JSON block (label + JSON object on following line).
+        // Strip any top-level APPROVAL_GROUP_JSON block.
         // The AgentThreadRegistry parses these from the raw response before sanitization, so
         // stripping here only affects display; parsing is unaffected.
-        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
-        var match = Regex.Match(normalized,
-            @"(?s)^(?<body>.*?)(?:\n|^)\s*APPROVAL_GROUP_JSON:\s*\{[^\}]*\}\s*$",
-            RegexOptions.CultureInvariant);
-        if (match.Success)
-            return match.Groups["body"].Value.TrimEnd();
+        var sentinelIdx = FindTopLevelSentinelIndex(text, "APPROVAL_GROUP_JSON:");
+        if (sentinelIdx >= 0)
+            return text[..sentinelIdx].TrimEnd();
         return text;
     }
 
@@ -249,17 +246,15 @@ internal static class TranscriptTextUtilities
 
         // Strip partial block (still streaming), but only when the sentinel is on its
         // own top-level line. Inline references and code-fenced examples must remain visible.
-        var sentinelIdx = FindTopLevelInboxSentinelIndex(text);
+        var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
         if (sentinelIdx >= 0)
             return text[..sentinelIdx].TrimEnd();
 
         return text;
     }
 
-    private static int FindTopLevelInboxSentinelIndex(string text)
+    private static int FindTopLevelSentinelIndex(string text, string sentinel)
     {
-        const string sentinel = "INBOX_MESSAGE_JSON:";
-
         var inFence = false;
         var offset  = 0;
 

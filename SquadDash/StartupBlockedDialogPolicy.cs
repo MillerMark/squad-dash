@@ -20,7 +20,18 @@ internal static class StartupBlockedDialogPolicy {
             return false;
 
         try {
-            return restartStateStore.LoadRequest(applicationRoot) is not null;
+            var request = restartStateStore.LoadRequest(applicationRoot);
+            if (request is null)
+                return false;
+
+            if (restartStateStore.LoadPlan(applicationRoot, request.RequestId) is not null)
+                return true;
+
+            restartStateStore.ClearRequest(applicationRoot);
+            SquadDashTrace.Write(
+                "Startup",
+                $"Ignoring stale pending restart request without matching plan: requestId={request.RequestId}");
+            return false;
         }
         catch (Exception ex) {
             TraceCheckFailure(ex);

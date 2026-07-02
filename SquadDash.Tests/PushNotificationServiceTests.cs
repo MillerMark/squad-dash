@@ -342,6 +342,41 @@ internal sealed class PushNotificationServiceTests {
         Assert.That(result.CommitMessage, Is.EqualTo("Fresh commit during this turn"));
     }
 
+    [Test]
+    public void ExtractGitCommitInfo_NativeGitOutput_UsesApprovalGroupFromResponse() {
+        const string response = """
+            Committed: abc1234
+
+            APPROVAL_GROUP_JSON:
+            {"sha":"abc1234","group":"UI Polish"}
+            """;
+
+        var result = PushNotificationService.ExtractGitCommitInfo(
+            ["[main abc1234] Refine approval transcript labels"],
+            response);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.CommitSha, Is.EqualTo("abc1234"));
+        Assert.That(result.CommitMessage, Is.EqualTo("Refine approval transcript labels"));
+        Assert.That(result.FeatureGroup, Is.EqualTo("UI Polish"));
+    }
+
+    [Test]
+    public void ExtractGitCommitInfo_AgentBacktickCommit_UsesApprovalGroupFromResponse() {
+        const string response = """
+            Committed as `def5678`.
+
+            APPROVAL_GROUP_JSON:
+            {"sha":"def5678","group":"Loop Reliability"}
+            """;
+
+        var result = PushNotificationService.ExtractGitCommitInfo([], response);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.CommitSha, Is.EqualTo("def5678"));
+        Assert.That(result.FeatureGroup, Is.EqualTo("Loop Reliability"));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static TranscriptToolRecord MakeTool(string? outputText) =>

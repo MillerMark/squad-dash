@@ -21,6 +21,17 @@ namespace SquadDash {
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
             base.OnStartup(e);
 
+            try {
+                StartCore(e);
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write("Startup", $"Unhandled startup failure before main window creation: {ex}");
+                ShowStartupFailureDialog(ex);
+                Shutdown();
+            }
+        }
+
+        private void StartCore(StartupEventArgs e) {
             var startupArguments = StartupFolderParser.ParseArguments(e.Args);
             var workspacePaths = string.IsNullOrWhiteSpace(startupArguments.ApplicationRoot)
                 ? WorkspacePathsProvider.Discover()
@@ -300,7 +311,14 @@ namespace SquadDash {
                     if (StartupBlockedDialogPolicy.HasPendingRestartRequest(workspacePaths.ApplicationRoot)) {
                         SquadDashTrace.Write(
                             "Startup",
-                            $"Blocked for {candidateWorkspace} while restart request is pending — exiting without modal dialog.");
+                            $"Blocked for {candidateWorkspace} while restart request is pending — {(restartRelaunch ? "restart relaunch exits without modal dialog" : "showing restart-in-progress dialog")}.");
+                        if (!restartRelaunch) {
+                            MessageBox.Show(
+                                $"SquadDash is finishing a restart for this workspace:{Environment.NewLine}{candidateWorkspace}{Environment.NewLine}{Environment.NewLine}Try again in a moment. If this keeps happening, close the existing SquadDash window and launch it again.",
+                                "SquadDash Restart In Progress",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                        }
                         Shutdown();
                         return true;
                     }
