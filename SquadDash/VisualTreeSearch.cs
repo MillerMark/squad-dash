@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -76,6 +77,16 @@ public static class VisualTreeSearch
                 }
                 if (baseElement is Panel panel && panel.Children.Count > 0)
                 {
+                    // For panels that mix tab Borders with non-tab elements (e.g. QueueTabStrip
+                    // which interleaves priority-feedback TextBlocks and hint labels), index into
+                    // only the Border children so that [N] reliably means "the Nth tab" regardless
+                    // of how many decorative non-Border children are interspersed.
+                    var borders = panel.Children.OfType<Border>().ToList();
+                    if (borders.Count > 0)
+                    {
+                        int clamped = Math.Min(index, borders.Count - 1);
+                        return borders[clamped];
+                    }
                     int clampedPanel = Math.Min(index, panel.Children.Count - 1);
                     return panel.Children[clampedPanel] as FrameworkElement;
                 }
