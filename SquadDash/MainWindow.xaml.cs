@@ -2255,8 +2255,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     return;
                 }
 
-                // Intercept: tour-simulated send item → fire the trigger, don't dispatch to AI.
-                if (_tourTypeItemIsSimulated &&
+                // Intercept: a step is subscribed to SimulatedSend and the active tab is a
+                // tour-typed item → fire the trigger instead of dispatching to AI.
+                if (_tourSimulatedSendClicked != null &&
                     _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == TourTypeTag))
                 {
                     StopTypeIntoPromptAnimation(); // removes the TourTypeTag item and resets _tourTypeItemIsSimulated
