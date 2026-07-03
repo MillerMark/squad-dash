@@ -96,7 +96,7 @@ internal sealed class FrmWelcome : Window
         {
             Text            = "Welcome to",
             Foreground      = Brushes.White,
-            FontSize        = 26,
+            FontSize        = 34,
             FontWeight      = FontWeights.Normal,
             TextAlignment   = TextAlignment.Center,
             Width           = colWidth,
@@ -106,7 +106,7 @@ internal sealed class FrmWelcome : Window
         canvas.Children.Add(welcomeLabel);
 
         // SquadDashTitle.png
-        double titleW = 286;
+        double titleW = 372;
         double titleH = titleW * (219.0 / 971.0);
         var titleImg = MakePngImage(AssetPath("SquadDashTitle.png"), titleW, titleH);
         if (titleImg != null)
@@ -116,10 +116,10 @@ internal sealed class FrmWelcome : Window
             canvas.Children.Add(titleImg);
         }
 
-        // Subtitle
-        double logoImgLeft  = colLeft + (colWidth - titleW) / 2.0;
-        double subtitleLeft = logoImgLeft + 32.0;
-        double subtitleWidth = titleW - 32.0;
+        // Subtitle: left-aligns with Start Tour button, right-aligns with Skip button's right edge
+        double startBtnW = 320;
+        double subtitleLeft  = colLeft + (colWidth - startBtnW) / 2.0;
+        double subtitleWidth = (BleedW + WinW - 16) - subtitleLeft;
         var subtitle = new TextBlock
         {
             Text            = "Take a quick tour and learn how to direct your Squad agents, manage work, and move faster.",
@@ -136,7 +136,6 @@ internal sealed class FrmWelcome : Window
         double subtitleBottom = colTop + 30 + titleH + 18 + 60; // approximate subtitle height
 
         // Start Guided Tour button
-        double startBtnW = 320;
         double startBtnH = startBtnW * (147.0 / 585.0);
         var startBtn = MakeImageButton(
             AssetPath("StartGuidedTourButton-Normal.png"),
@@ -176,7 +175,7 @@ internal sealed class FrmWelcome : Window
         closeBtn.MouseLeftButtonDown += (_, e) => e.Handled = true;
         closeBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
         Canvas.SetLeft(closeBtn, BleedW + WinW - 14 - 24);
-        Canvas.SetTop(closeBtn, 10);
+        Canvas.SetTop(closeBtn, 7);
         canvas.Children.Add(closeBtn);
 
         return outerCanvas;
