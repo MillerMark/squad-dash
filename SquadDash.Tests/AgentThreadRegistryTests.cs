@@ -555,6 +555,35 @@ internal sealed class AgentThreadRegistryTests {
         Assert.That(AgentThreadRegistry.HasPersistableThreadContent(thread), Is.True);
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void FinalizeAgentThread_RawResponseWithFencedApprovalGroup_RaisesApprovalGroupCallback() {
+        var captured = new List<ApprovalGroupAssignment>();
+        var registry = MakeRegistry();
+        registry.OnAgentApprovalGroup = (sha, group) =>
+            captured.Add(new ApprovalGroupAssignment(sha, group));
+        var thread = registry.GetOrCreateAgentThread("tool-approval", "lyra-morn", null, null, null, null, null, null);
+
+        const string rawResponse = """
+            Committed: abc1234
+
+            APPROVAL_GROUP_JSON:
+            ```json
+            {
+              "sha": "abc1234",
+              "group": "Guided Tour"
+            }
+            ```
+            """;
+
+        registry.FinalizeAgentThread(thread, rawResponse);
+
+        Assert.Multiple(() => {
+            Assert.That(captured, Has.Count.EqualTo(1));
+            Assert.That(captured[0].Sha, Is.EqualTo("abc1234"));
+            Assert.That(captured[0].Group, Is.EqualTo("Guided Tour"));
+        });
+    }
+
     // ── Static: HasRosterBackedIdentity ─────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]

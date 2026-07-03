@@ -14,7 +14,12 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
         CommitReporting:
             "If you make a git commit, your visible response must include the resulting bare short commit hash (7 chars) as plain text immediately after describing the commit. " +
             "Do not construct a markdown hyperlink or GitHub URL. SquadDash auto-links bare commit hashes in the transcript. " +
-            "Obtain the hash after committing with `git rev-parse --short HEAD`. Example: `Committed: a1b2c3d`.",
+            "Obtain the hash after committing with `git rev-parse --short HEAD`. Example: `Committed: a1b2c3d`. " +
+            "If you make a git commit, also append an APPROVAL_GROUP_JSON block after your visible response and before any other machine-readable footer, " +
+            "specifying the feature group for the Approvals panel:\n" +
+            "APPROVAL_GROUP_JSON:\n" +
+            "{\"sha\":\"<7-char-hash>\",\"group\":\"<feature-group>\"}\n" +
+            "Choose a descriptive group name that reflects what the commit does (e.g. \"Guided Tour\", \"Developer Experience\", \"Bug Fixes\").",
         InboxMessage:
             "<inbox_instructions>\n" +
             "You may send the user a message to their Inbox panel by appending an INBOX_MESSAGE_JSON block at the very end of your response, after all other content. Use this when:\n" +
@@ -87,11 +92,11 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
         SubAgentApprovalGroup:
             "When delegating work to a sub-agent via the task tool that may result in a git commit, " +
             "include the following instruction at the end of the sub-agent prompt:\n" +
-            "\"If you make a git commit, output an APPROVAL_GROUP_JSON block at the very end of your response " +
+            "If you make a git commit, output an APPROVAL_GROUP_JSON block at the very end of your response " +
             "specifying the feature group for the Approvals panel:\n" +
             "APPROVAL_GROUP_JSON:\n" +
-            "{\\\"sha\\\":\\\"<7-char-hash>\\\",\\\"group\\\":\\\"<feature-group>\\\"}\n" +
-            "Choose a descriptive group name that reflects what the commit does (e.g. \\\"Guided Tour\\\", \\\"Developer Experience\\\", \\\"Bug Fixes\\\").\"");
+            "{\"sha\":\"<7-char-hash>\",\"group\":\"<feature-group>\"}\n" +
+            "Choose a descriptive group name that reflects what the commit does (e.g. \"Guided Tour\", \"Developer Experience\", \"Bug Fixes\").");
 
     public PromptInstructionSet Get() => Instance;
 }

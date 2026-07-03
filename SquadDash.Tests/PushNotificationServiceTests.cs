@@ -377,6 +377,47 @@ internal sealed class PushNotificationServiceTests {
         Assert.That(result.FeatureGroup, Is.EqualTo("Loop Reliability"));
     }
 
+    [Test]
+    public void ExtractGitCommitInfo_PlainCommitted_UsesPrettyPrintedApprovalGroupFromResponse() {
+        const string response = """
+            Committed: c38333d
+
+            APPROVAL_GROUP_JSON:
+            {
+              "group": "Guided Tour",
+              "sha": "c38333d"
+            }
+            """;
+
+        var result = PushNotificationService.ExtractGitCommitInfo([], response);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.CommitSha, Is.EqualTo("c38333d"));
+        Assert.That(result.FeatureGroup, Is.EqualTo("Guided Tour"));
+    }
+
+    [Test]
+    public void ExtractGitCommitInfo_NativeGitOutput_UsesFencedApprovalGroupFromResponse() {
+        const string response = """
+            Committed: abc1234
+
+            APPROVAL_GROUP_JSON:
+            ```json
+            {
+              "sha": "abc1234",
+              "group": "Approval Categorization"
+            }
+            ```
+            """;
+
+        var result = PushNotificationService.ExtractGitCommitInfo(
+            ["[main abc1234] Categorize approval commits"],
+            response);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.FeatureGroup, Is.EqualTo("Approval Categorization"));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static TranscriptToolRecord MakeTool(string? outputText) =>

@@ -1,8 +1,6 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace SquadDash;
@@ -108,10 +106,6 @@ internal sealed class AgentThreadRegistry {
     /// sub-agent response. First arg = 7-char commit SHA, second arg = feature group name.
     /// </summary>
     internal Action<string, string>? OnAgentApprovalGroup { get; set; }
-
-    private static readonly Regex ApprovalGroupJsonPattern = new(
-        @"APPROVAL_GROUP_JSON:\s*(\{[^\}]+\})",
-        RegexOptions.Compiled | RegexOptions.Singleline);
 
     internal AgentThreadRegistry(
         Action<TranscriptThreadState, string?> beginTranscriptTurn,
@@ -550,16 +544,8 @@ internal sealed class AgentThreadRegistry {
         var response = rawResponse ?? thread.LatestResponse;
         if (string.IsNullOrWhiteSpace(response)) return;
 
-        foreach (Match m in ApprovalGroupJsonPattern.Matches(response)) {
-            try {
-                using var doc = JsonDocument.Parse(m.Groups[1].Value);
-                var sha   = doc.RootElement.TryGetProperty("sha",   out var shaProp)   ? shaProp.GetString()   : null;
-                var group = doc.RootElement.TryGetProperty("group", out var groupProp) ? groupProp.GetString() : null;
-                if (!string.IsNullOrWhiteSpace(sha) && !string.IsNullOrWhiteSpace(group))
-                    OnAgentApprovalGroup(sha!, group!);
-            }
-            catch { /* ignore malformed JSON blocks */ }
-        }
+        foreach (var assignment in ApprovalGroupParser.Parse(response))
+            OnAgentApprovalGroup(assignment.Sha, assignment.Group);
     }
 
     internal void CompleteOutstandingAgentTools(TranscriptThreadState thread) {

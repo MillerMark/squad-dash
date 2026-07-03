@@ -174,10 +174,6 @@ internal sealed partial class PushNotificationService {
     [GeneratedRegex(@"\bCommitted:\s+([0-9a-f]{7,40})\b", RegexOptions.IgnoreCase)]
     private static partial Regex PlainCommittedRegex();
 
-    // APPROVAL_GROUP_JSON block sha+group extraction: {"sha":"abc1234","group":"Feature Name"}
-    [GeneratedRegex(@"APPROVAL_GROUP_JSON:\s*\{\s*""sha""\s*:\s*""(?<sha>[0-9a-f]{7,40})""\s*,\s*""group""\s*:\s*""(?<group>[^""]+)""\s*\}", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
-    private static partial Regex ApprovalGroupInResponseRegex();
-
     // Feature-Group commit trailer: "Feature-Group: UI & UX"
     [GeneratedRegex(@"^Feature-Group:\s*(.+)$", RegexOptions.Multiline)]
     private static partial Regex FeatureGroupRegex();
@@ -404,7 +400,10 @@ internal sealed partial class PushNotificationService {
             if (string.IsNullOrWhiteSpace(output)) continue;
             var match = GitNativeRegex().Match(output);
             if (match.Success)
-                return new GitCommitInfo(match.Groups[1].Value, null);
+                return new GitCommitInfo(
+                    match.Groups[1].Value,
+                    null,
+                    ExtractApprovalGroupForSha(agentResponse, match.Groups[1].Value));
         }
         
         // Priority 4: Try agent pattern in tool outputs as final fallback (SHA only)
@@ -412,7 +411,10 @@ internal sealed partial class PushNotificationService {
             if (string.IsNullOrWhiteSpace(output)) continue;
             var match = AgentCommitRegex().Match(output);
             if (match.Success)
-                return new GitCommitInfo(match.Groups[1].Value, null);
+                return new GitCommitInfo(
+                    match.Groups[1].Value,
+                    null,
+                    ExtractApprovalGroupForSha(agentResponse, match.Groups[1].Value));
         }
         
         return null;
@@ -422,12 +424,20 @@ internal sealed partial class PushNotificationService {
         if (string.IsNullOrWhiteSpace(agentResponse) || string.IsNullOrWhiteSpace(sha))
             return null;
 
-        var fgMatch = ApprovalGroupInResponseRegex().Match(agentResponse);
-        if (fgMatch.Success &&
-            string.Equals(fgMatch.Groups["sha"].Value, sha, StringComparison.OrdinalIgnoreCase))
-            return fgMatch.Groups["group"].Value.Trim();
+        foreach (var assignment in ApprovalGroupParser.Parse(agentResponse)) {
+            if (ShaMatches(assignment.Sha, sha))
+                return assignment.Group;
+        }
 
         return null;
+    }
+
+    private static bool ShaMatches(string left, string right) {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        return left.StartsWith(right, StringComparison.OrdinalIgnoreCase) ||
+               right.StartsWith(left, StringComparison.OrdinalIgnoreCase);
     }
 
     // Returns a best-effort summary of the prompt by stripping common stop words
