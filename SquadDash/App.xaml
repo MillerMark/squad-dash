@@ -415,6 +415,7 @@
                 <Setter Property="Foreground" Value="{DynamicResource QuickReplyText}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource QuickReplyBorder}"/>
                 <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="FontSize" Value="{DynamicResource FontSizeNormal}"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>

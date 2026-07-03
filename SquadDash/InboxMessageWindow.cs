@@ -107,9 +107,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             Text       = message.Subject,
             FontWeight = FontWeights.Bold,
-            FontSize   = 14,
             TextWrapping = TextWrapping.Wrap,
         };
+        subjectLabel.SetResourceReference(TextBlock.FontSizeProperty,  "FontSizeNormal");
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         headerPanel.Children.Add(subjectLabel);
 
