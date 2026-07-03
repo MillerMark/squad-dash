@@ -881,7 +881,8 @@ internal sealed class CommitApprovalPanel {
 
     private bool MatchesFilter(CommitApprovalItem item) {
         if (string.IsNullOrEmpty(_filterText)) return true;
-        return item.Description.Contains(_filterText, StringComparison.OrdinalIgnoreCase);
+        return item.Description.Contains(_filterText, StringComparison.OrdinalIgnoreCase)
+            || item.CommitSha.Contains(_filterText, StringComparison.OrdinalIgnoreCase);
     }
 
     private void ApplyFilterToPanel(StackPanel panel) {
