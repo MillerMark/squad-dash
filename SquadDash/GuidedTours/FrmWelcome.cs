@@ -16,12 +16,15 @@ internal sealed class FrmWelcome : Window
     public event EventHandler? StartTourClicked;
     public event EventHandler? SkipClicked;
 
-    private const double WinW = 760;
-    private const double WinH = 440;
+    private const double WinW   = 760;
+    private const double WinH   = 440;
+    // The window is made wider than the visible border so the landing image
+    // can bleed off the left edge of the rounded background.
+    private const double BleedW = 50;
 
     public FrmWelcome()
     {
-        Width              = WinW;
+        Width              = WinW + BleedW;
         Height             = WinH;
         WindowStyle        = WindowStyle.None;
         AllowsTransparency = true;
@@ -32,8 +35,10 @@ internal sealed class FrmWelcome : Window
 
         Content = BuildContent();
 
+        // Only drag when clicking on non-interactive areas.
         MouseLeftButtonDown += (_, e) =>
         {
+            if (e.Handled) return;
             if (e.ButtonState == MouseButtonState.Pressed)
                 DragMove();
         };
@@ -41,24 +46,36 @@ internal sealed class FrmWelcome : Window
 
     private UIElement BuildContent()
     {
-        // Root border — rounded, colored background
+        // Outer canvas: WinW+BleedW wide so the landing image can start at x=0
+        // and bleed off the left of the visible rounded border.
+        var outerCanvas = new Canvas { Width = WinW + BleedW, Height = WinH };
+
+        // Root border — rounded, colored background, positioned BleedW from left
         var root = new Border
         {
             CornerRadius    = new CornerRadius(16),
             Background      = new SolidColorBrush(Color.FromRgb(0x43, 0x3A, 0x64)),
-            ClipToBounds    = true,
+            ClipToBounds    = false,
             Width           = WinW,
             Height          = WinH,
         };
+        Canvas.SetLeft(root, BleedW);
+        Canvas.SetTop(root, 0);
+        outerCanvas.Children.Add(root);
 
-        var canvas = new Canvas { Width = WinW, Height = WinH };
-        root.Child = canvas;
+        var canvas = new Canvas { Width = WinW + BleedW, Height = WinH, Background = Brushes.Transparent };
+        // canvas sits on top of the border, spanning the full outer width
+        Canvas.SetLeft(canvas, 0);
+        Canvas.SetTop(canvas, 0);
+        outerCanvas.Children.Add(canvas);
 
-        // ── GuidedTourLanding image (bleeds off left edge) ──────────────────
+        // ── GuidedTourLanding image (bleeds off left edge of the border) ────
         double imgH = WinH * 0.955;
         double imgAspect = 859.0 / 837.0;
         double imgW = imgH * imgAspect;
-        double imgLeft = -50;
+        // Start image at x=0 in the outer canvas — the first BleedW pixels are
+        // outside the visible border area, so the image appears to bleed off.
+        double imgLeft = 0;
         double imgTop  = (WinH - imgH) / 2.0;
 
         var landingImg = MakePngImage(AssetPath("GuidedTourLanding.png"), imgW, imgH);
@@ -70,8 +87,8 @@ internal sealed class FrmWelcome : Window
         }
 
         // ── Right column ────────────────────────────────────────────────────
-        double colLeft  = 370;
-        double colWidth = WinW - colLeft - 30;
+        double colLeft  = BleedW + 370;   // offset by bleed so it's 370px from left edge of border
+        double colWidth = WinW - 370 - 30;
         double colTop   = 40;
 
         // "Welcome to"
@@ -124,7 +141,7 @@ internal sealed class FrmWelcome : Window
             startBtnW, startBtnH);
         Canvas.SetLeft(startBtn, colLeft + (colWidth - startBtnW) / 2.0);
         Canvas.SetTop(startBtn, subtitleBottom + 20);
-        startBtn.MouseLeftButtonUp += (_, _) => { Close(); StartTourClicked?.Invoke(this, EventArgs.Empty); };
+        startBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); StartTourClicked?.Invoke(this, EventArgs.Empty); };
         canvas.Children.Add(startBtn);
 
         // Skip for now button
@@ -136,7 +153,7 @@ internal sealed class FrmWelcome : Window
             skipBtnW, skipBtnH);
         Canvas.SetLeft(skipBtn, colLeft + colWidth - skipBtnW);
         Canvas.SetTop(skipBtn, subtitleBottom + 20 + startBtnH + 6);
-        skipBtn.MouseLeftButtonUp += (_, _) => { Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
+        skipBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
         canvas.Children.Add(skipBtn);
 
         // Close button (×)
@@ -153,12 +170,12 @@ internal sealed class FrmWelcome : Window
         };
         closeBtn.MouseEnter += (_, _) => closeBtn.Foreground = Brushes.White;
         closeBtn.MouseLeave += (_, _) => closeBtn.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
-        closeBtn.MouseLeftButtonUp += (_, _) => { Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
-        Canvas.SetLeft(closeBtn, WinW - 14 - 24);
+        closeBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
+        Canvas.SetLeft(closeBtn, BleedW + WinW - 14 - 24);
         Canvas.SetTop(closeBtn, 10);
         canvas.Children.Add(closeBtn);
 
-        return root;
+        return outerCanvas;
     }
 
     /// <summary>Creates an Image element from a file path, or null if the file is missing.</summary>
@@ -214,6 +231,7 @@ internal sealed class FrmWelcome : Window
             if (hoverImg  != null) hoverImg.Visibility  = Visibility.Collapsed;
         };
 
+        container.MouseLeftButtonDown += (_, e) => e.Handled = true;
         container.IsHitTestVisible = true;
 
         return container;
