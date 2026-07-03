@@ -78,7 +78,13 @@
     <Content Include="Assets\Roles\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Welcome\GuidedTourLanding.png">
+    <Content Include="Assets\Welcome\GuidedTourLanding-Normal.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Welcome\GuidedTourLanding-HoverStartTour.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Welcome\GuidedTourLanding-HoverSkipForNow.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\Welcome\SquadDashTitle.png">
