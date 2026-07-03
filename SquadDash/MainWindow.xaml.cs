@@ -8857,6 +8857,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 };
                 if (codeBox is not null)
                     codeBox.FontSize = codeBlockFontSize;
+
+                // Quick reply: BlockUIContainer (Tag=QuickReplyCopyData) > StackPanel > WrapPanel > Button
+                if (inner.Tag is QuickReplyCopyData && inner.Child is System.Windows.Controls.StackPanel qrStack)
+                {
+                    foreach (var child in qrStack.Children)
+                    {
+                        if (child is System.Windows.Controls.WrapPanel wp)
+                            foreach (var btn in wp.Children.OfType<Button>())
+                                btn.FontSize = _transcriptFontSize;
+                    }
+                }
             }
 
             foreach (var para in block.Blocks.OfType<Paragraph>())
@@ -8867,6 +8878,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     para.FontSize = MarkdownDocumentRenderer.HeadingFontSize(level, _transcriptFontSize);
                 }
             }
+        }
+
+        // Tour quick reply: BlockUIContainer added directly to document (not inside a Section)
+        // Structure: BlockUIContainer > WrapPanel > Button
+        foreach (var topBlock in document.Blocks.OfType<BlockUIContainer>())
+        {
+            if (topBlock.Child is not System.Windows.Controls.WrapPanel wp) continue;
+            foreach (var btn in wp.Children.OfType<Button>())
+                btn.FontSize = _transcriptFontSize;
         }
     }
 
@@ -14454,6 +14474,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             if (Application.Current.TryFindResource("QuickReplyButtonStyle") is System.Windows.Style style)
                 button.Style = style;
+            button.FontSize = _transcriptFontSize;
             button.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "QuickReplySurface");
             button.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "QuickReplyText");
             button.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "QuickReplyBorder");
@@ -23872,6 +23893,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style quickReplyStyle)
                 button.Style = quickReplyStyle;
+            button.FontSize = _transcriptFontSize;
             button.SetResourceReference(Control.BackgroundProperty, "QuickReplySurface");
             button.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
             button.SetResourceReference(Control.BorderBrushProperty, "QuickReplyBorder");
