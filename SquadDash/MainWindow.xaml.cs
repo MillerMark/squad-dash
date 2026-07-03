@@ -13592,6 +13592,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     // ── Guided Tour (Developer sub-menu) ──────────────────────────────────────
 
+    private void SimulateFirstStartupMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { ShowWelcomeSplash(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulateFirstStartupMenuItem_Click), ex); }
+    }
+
     private void EditGuidedToursMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -14552,15 +14558,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (GuidedTourStateStore.Shared.Offered) return;
         GuidedTourStateStore.Shared.Offered = true;
+        ShowWelcomeSplash();
+    }
 
-        var result = MessageBox.Show(
-            "Would you like to take a Guided Tour of SquadDash?",
-            "Welcome to SquadDash",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-
-        if (result == MessageBoxResult.Yes)
-            OpenGuidedTourSelector();
+    private void ShowWelcomeSplash()
+    {
+        var splash = new SquadDash.GuidedTours.FrmWelcome();
+        splash.Owner = this;
+        splash.StartTourClicked += (_, _) => StartFirstTour();
+        splash.SkipClicked      += (_, _) => GuidedTourStateStore.Shared.SkippedFirstRun = true;
+        splash.ShowDialog();
     }
 
     // ── Developer > Simulation menu ───────────────────────────────────────────

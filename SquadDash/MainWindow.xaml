@@ -918,6 +918,9 @@
                     <MenuItem Header="Trigger _Idle Hint Cycle"
                               Click="TriggerIdleHintCycleMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="Simulate _First Startup"
+                              Click="SimulateFirstStartupMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Edit Guided Tours"
                               Click="EditGuidedToursMenuItem_Click" />
                     <MenuItem Header="_Preview Current Tour Step"

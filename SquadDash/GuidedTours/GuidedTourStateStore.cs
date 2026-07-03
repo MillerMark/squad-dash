@@ -50,6 +50,18 @@ internal sealed class GuidedTourStateStore
             Flush();
     }
 
+    /// <summary>Whether the user clicked "Skip for now" on the first-run welcome screen.</summary>
+    public bool SkippedFirstRun
+    {
+        get => _state.SkippedFirstRun;
+        set
+        {
+            if (_state.SkippedFirstRun == value) return;
+            _state = _state with { SkippedFirstRun = value };
+            Flush();
+        }
+    }
+
     /// <summary>
     /// How many times the user has clicked Next across all tours on this machine.
     /// Used to decide when to hide the "Next" label on the nav overlay button.
@@ -93,6 +105,7 @@ internal sealed class GuidedTourStateStore
 internal sealed record GuidedTourState
 {
     public bool Offered { get; set; }
+    public bool SkippedFirstRun { get; set; }
     public HashSet<string> CompletedTourIds { get; set; } = new();
     public int TourNavAdvanceCount { get; set; }
 }
