@@ -76,32 +76,20 @@ internal sealed class FrmWelcome : Window
         Canvas.SetTop(canvas, 0);
         outerCanvas.Children.Add(canvas);
 
-        // ── GuidedTourLanding images — normal + two hover states ─────────────
-        double imgH = WinH * 0.917; // ~96% of prior 0.955 — gives more breathing room top/bottom
+        // ── GuidedTourLanding image (bleeds off left edge of the border) ────
+        double imgH = WinH * 0.917; // ~96% gives more breathing room top/bottom
         double imgAspect = 859.0 / 837.0;
         double imgW = imgH * imgAspect;
         double imgLeft = 0;
         double imgTop  = (WinH - imgH) / 2.0;
 
-        var landingNormal     = MakePngImage(AssetPath("GuidedTourLanding-Normal.png"),          imgW, imgH);
-        var landingHoverStart = MakePngImage(AssetPath("GuidedTourLanding-HoverStartTour.png"),  imgW, imgH);
-        var landingHoverSkip  = MakePngImage(AssetPath("GuidedTourLanding-HoverSkipForNow.png"), imgW, imgH);
-
-        void SetLanding(Image? show)
+        var landingImg = MakePngImage(AssetPath("GuidedTourLanding.png"), imgW, imgH);
+        if (landingImg != null)
         {
-            if (landingNormal     != null) landingNormal.Visibility     = ReferenceEquals(landingNormal,     show) ? Visibility.Visible : Visibility.Collapsed;
-            if (landingHoverStart != null) landingHoverStart.Visibility = ReferenceEquals(landingHoverStart, show) ? Visibility.Visible : Visibility.Collapsed;
-            if (landingHoverSkip  != null) landingHoverSkip.Visibility  = ReferenceEquals(landingHoverSkip,  show) ? Visibility.Visible : Visibility.Collapsed;
+            Canvas.SetLeft(landingImg, imgLeft);
+            Canvas.SetTop(landingImg, imgTop);
+            canvas.Children.Add(landingImg);
         }
-
-        foreach (var img in new[] { landingNormal, landingHoverStart, landingHoverSkip })
-        {
-            if (img == null) continue;
-            Canvas.SetLeft(img, imgLeft);
-            Canvas.SetTop(img, imgTop);
-            canvas.Children.Add(img);
-        }
-        SetLanding(landingNormal);
 
         // ── Right column ────────────────────────────────────────────────────
         double colLeft  = BleedW - 5 + 370;   // offset by bleed so it's 370px from left edge of border
@@ -161,8 +149,6 @@ internal sealed class FrmWelcome : Window
         Canvas.SetLeft(startBtn, colLeft + (colWidth - startBtnW) / 2.0);
         Canvas.SetTop(startBtn, subtitleBottom + 47);
         startBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); StartTourClicked?.Invoke(this, EventArgs.Empty); };
-        startBtn.MouseEnter += (_, _) => SetLanding(landingHoverStart);
-        startBtn.MouseLeave += (_, _) => SetLanding(landingNormal);
         canvas.Children.Add(startBtn);
 
         // Skip for now button
@@ -175,8 +161,6 @@ internal sealed class FrmWelcome : Window
         Canvas.SetLeft(skipBtn, BleedW + WinW - skipBtnW - 16);
         Canvas.SetTop(skipBtn, WinH - skipBtnH - 16);
         skipBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
-        skipBtn.MouseEnter += (_, _) => SetLanding(landingHoverSkip);
-        skipBtn.MouseLeave += (_, _) => SetLanding(landingNormal);
         canvas.Children.Add(skipBtn);
 
         // Close button (×) — wrapped in a Border that highlights on hover
