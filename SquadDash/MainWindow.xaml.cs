@@ -19243,6 +19243,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new Action(() => _backgroundTaskPresenter.PromoteRestoredBackgroundAgentReports("workspace-load")),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
+        // Re-apply commit group annotations that were lost when the transcript was
+        // rebuilt from stored text.  _approvalItems are already loaded (line ~19120);
+        // the document is fully populated after LoadWorkspaceConversationAsync, so we
+        // defer one idle pass to let layout settle before walking the blocks.
+        var itemsToAnnotate = _approvalItems
+            .Where(i => !string.IsNullOrEmpty(i.CommitSha) && !string.IsNullOrEmpty(i.FeatureGroup))
+            .ToList();
+        if (itemsToAnnotate.Count > 0)
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    foreach (var item in itemsToAnnotate)
+                        AnnotateCommitInTranscript(item.CommitSha, item.FeatureGroup!);
+                }),
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
         // Prune agent reports older than 2 weeks on each workspace load.
         var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace?.FolderPath ?? string.Empty);
         var reportsDir = AgentReportStore.GetReportsDir(reportStateDir);
