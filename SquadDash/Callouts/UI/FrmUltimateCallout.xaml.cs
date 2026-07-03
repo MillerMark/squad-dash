@@ -1715,7 +1715,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void CheckTopMostWindow() {
         if (targetParentWindow != null)
+        {
             Topmost = WindowHelper.IsForegroundWindow(targetParentWindow);
+            if (_tourOverlay != null)
+                _tourOverlay.Topmost = Topmost;
+        }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e) {
