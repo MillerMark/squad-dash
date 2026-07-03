@@ -918,9 +918,6 @@
                     <MenuItem Header="Trigger _Idle Hint Cycle"
                               Click="TriggerIdleHintCycleMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
-                    <MenuItem Header="Simulate _First Startup"
-                              Click="SimulateFirstStartupMenuItem_Click" />
-                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Edit Guided Tours"
                               Click="EditGuidedToursMenuItem_Click" />
                     <MenuItem Header="_Preview Current Tour Step"
@@ -930,6 +927,9 @@
                           Header="_Help"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                    <MenuItem Header="_Welcome to SquadDash..."
+                              Click="WelcomeToSquadDashMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Start Guided Tour..."
                               Click="StartGuidedTourMenuItem_Click" />
                     <MenuItem Header="_More Guided Tours..."

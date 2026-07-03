@@ -13636,13 +13636,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    // ── Guided Tour (Developer sub-menu) ──────────────────────────────────────
-
-    private void SimulateFirstStartupMenuItem_Click(object sender, RoutedEventArgs e)
+    private void WelcomeToSquadDashMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try { ShowWelcomeSplash(); }
-        catch (Exception ex) { HandleUiCallbackException(nameof(SimulateFirstStartupMenuItem_Click), ex); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(WelcomeToSquadDashMenuItem_Click), ex); }
     }
+
+    // ── Guided Tour (Developer sub-menu) ──────────────────────────────────────
 
     private void EditGuidedToursMenuItem_Click(object sender, RoutedEventArgs e)
     {
@@ -35620,7 +35620,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             sb.AppendLine();
             sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from the attached list:");
             sb.AppendLine("HOST_COMMAND_JSON:");
-            sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
+            sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":[{\"sha\":\"abc1234\",\"group\":\"Login Flow Refactor\"},{\"sha\":\"def5678\",\"group\":\"Bug Fixes\"}]}}]");
 
             EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
             ShowCategorizationQueuedCallout();
@@ -35674,7 +35674,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             sb.AppendLine();
             sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from the attached list:");
             sb.AppendLine("HOST_COMMAND_JSON:");
-            sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":\"[{\\\"sha\\\":\\\"abc1234\\\",\\\"group\\\":\\\"Login Flow Refactor\\\"},{\\\"sha\\\":\\\"def5678\\\",\\\"group\\\":\\\"Bug Fixes\\\"}]\"}}]");
+            sb.AppendLine("[{\"command\":\"organize_approvals\",\"parameters\":{\"assignments\":[{\"sha\":\"abc1234\",\"group\":\"Login Flow Refactor\"},{\"sha\":\"def5678\",\"group\":\"Bug Fixes\"}]}}]");
 
             EnqueueRcPrompt(sb.ToString(), new List<FollowUpAttachment> { attachment });
             ShowCategorizationQueuedCallout();
