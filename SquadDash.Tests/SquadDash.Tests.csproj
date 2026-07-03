@@ -65,6 +65,7 @@
     <Compile Include="..\SquadDash\TranscriptViewMode.cs" Link="Source\TranscriptViewMode.cs" />
     <Compile Include="..\SquadDash\ILiveTraceTarget.cs" Link="Source\ILiveTraceTarget.cs" />
     <Compile Include="..\SquadDash\ChromedWindow.cs" Link="Source\ChromedWindow.cs" />
+    <Compile Include="..\SquadDash\WindowOpenGlow.cs" Link="Source\WindowOpenGlow.cs" />
     <Compile Include="..\SquadDash\TraceWindow.cs" Link="Source\TraceWindow.cs" />
     <Compile Include="..\SquadDash\SquadDashTrace.cs" Link="Source\SquadDashTrace.cs" />
     <Compile Include="..\SquadDash\SquadDashRuntimeStamp.cs" Link="Source\SquadDashRuntimeStamp.cs" />

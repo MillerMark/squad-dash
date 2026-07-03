@@ -53,9 +53,9 @@ internal class TextCaseHelperTests
         const string original = "to a tag and a tag filter";
         var variants = ComputeOrderedVariants(original);
         Assert.That(variants, Has.Count.EqualTo(6));
-        // Canonical order preserved (no detected case to move): Title, Pascal, Sentence, Upper, Kebab, Underscore.
+        // Canonical order preserved (no detected case to move): Title, Sentence, Upper, Kebab, Underscore, Pascal.
         Assert.That(variants[0], Is.EqualTo(ToTitleCase(original)));
-        Assert.That(variants[5], Is.EqualTo(ToUnderscorePreserveCase(original)));
+        Assert.That(variants[5], Is.EqualTo(ToPascalCase(original)));
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -79,11 +79,11 @@ internal class TextCaseHelperTests
         string[] expected =
         [
             "To a Tag and a Tag Filter",
-            "ToATagAndATagFilter",
             "To a tag and a tag filter",
             "TO A TAG AND A TAG FILTER",
             "to-a-tag-and-a-tag-filter",
-            "to_a_tag_and_a_tag_filter"
+            "to_a_tag_and_a_tag_filter",
+            "ToATagAndATagFilter"
         ];
 
         Assert.That(results, Is.EqualTo(expected));
@@ -213,4 +213,60 @@ internal class TextCaseHelperTests
     [Test]
     public void ToTitleCase_AllMinorWords_FirstAndLastCapitalized()
         => Assert.That(ToTitleCase("a or the"), Is.EqualTo("A or The"));
+
+    // ──────────────────────────────────────────────────────────────
+    // 12. SplitPascalCaseToWords
+    // ──────────────────────────────────────────────────────────────
+
+    [TestCase("HelloWorld",       "Hello World")]
+    [TestCase("MyHTTPRequest",    "My HTTP Request")]
+    [TestCase("ParseXMLDocument", "Parse XML Document")]
+    [TestCase("Hello",            "Hello")]
+    [TestCase("Hello World",      "Hello World")]
+    [TestCase("",                 "")]
+    public void SplitPascalCaseToWords_ReturnsExpected(string input, string expected)
+        => Assert.That(SplitPascalCaseToWords(input), Is.EqualTo(expected));
+
+    // ──────────────────────────────────────────────────────────────
+    // 13. CycleCase — new order
+    // ──────────────────────────────────────────────────────────────
+
+    [Test]
+    public void CycleCase_PascalCase_SplitsToTitleCase()
+        => Assert.That(CycleCase("HelloWorld"), Is.EqualTo("Hello World"));
+
+    [Test]
+    public void CycleCase_TitleCase_GoesToSentenceCase()
+        => Assert.That(CycleCase("Hello World"), Is.EqualTo("Hello world"));
+
+    [Test]
+    public void CycleCase_SentenceCase_GoesToUpperCase()
+        => Assert.That(CycleCase("Hello world"), Is.EqualTo("HELLO WORLD"));
+
+    [Test]
+    public void CycleCase_KebabCase_GoesToUnderscoreCase()
+        => Assert.That(CycleCase("hello-world"), Is.EqualTo("hello_world"));
+
+    [Test]
+    public void CycleCase_UnderscoreCase_GoesToPascalCase()
+        => Assert.That(CycleCase("hello_world"), Is.EqualTo("HelloWorld"));
+
+    [Test]
+    public void CycleCase_PascalCase_FullRoundTrip()
+    {
+        // Starting from PascalCase, 6 presses should return to PascalCase
+        string text = "HelloWorld";
+        for (int i = 0; i < 6; i++)
+            text = CycleCase(text);
+        Assert.That(text, Is.EqualTo("HelloWorld"));
+    }
+
+    [Test]
+    public void CycleCase_KebabToUnderscoreToPascalToTitleCycle()
+    {
+        Assert.That(CycleCase("hello-world"),  Is.EqualTo("hello_world"));
+        Assert.That(CycleCase("hello_world"),  Is.EqualTo("HelloWorld"));
+        Assert.That(CycleCase("HelloWorld"),   Is.EqualTo("Hello World"));
+        Assert.That(CycleCase("Hello World"),  Is.EqualTo("Hello world"));
+    }
 }

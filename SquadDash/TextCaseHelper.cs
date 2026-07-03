@@ -7,7 +7,8 @@ using System.Text.RegularExpressions;
 namespace SquadDash;
 
 /// <summary>
-/// Detects and cycles text through Title Case → PascalCase → Sentence case → UPPERCASE → kebab-case → preserve_underscores.
+/// Detects and cycles text through Title Case → Sentence case → UPPERCASE → kebab-case → underscore_case → PascalCase.
+/// When input is PascalCase, it is first split into spaced words before cycling.
 /// </summary>
 internal static class TextCaseHelper
 {
@@ -188,41 +189,62 @@ internal static class TextCaseHelper
     }
 
     /// <summary>
-    /// Spaces replaced with underscores; letter case preserved exactly.
-    /// E.g. "Hello World" → "Hello_World".
+    /// Spaces and hyphens replaced with underscores; letter case preserved exactly.
+    /// E.g. "Hello World" → "Hello_World", "hello-world" → "hello_world".
     /// </summary>
     internal static string ToUnderscorePreserveCase(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        return Regex.Replace(text, @"\s+", "_");
+        return Regex.Replace(text, @"[\s\-]+", "_");
+    }
+
+    /// <summary>
+    /// Splits a PascalCase identifier into space-separated words, handling acronyms gracefully.
+    /// E.g. "HelloWorld" → "Hello World", "MyHTTPRequest" → "My HTTP Request".
+    /// Already-spaced text is returned unchanged.
+    /// </summary>
+    internal static string SplitPascalCaseToWords(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        // Insert space between a lowercase letter and an uppercase letter
+        var result = Regex.Replace(text, @"([a-z])([A-Z])", "$1 $2");
+        // Insert space between an uppercase+uppercase run and the next uppercase+lowercase pair
+        result = Regex.Replace(result, @"([A-Z]+)([A-Z][a-z])", "$1 $2");
+        return result;
     }
 
     /// <summary>
     /// Returns the case variants in dynamic cycle order starting from the next case to apply.
-    /// The canonical order is: Title Case, PascalCase, Sentence case, UPPERCASE, kebab-case, underscore_case.
+    /// The canonical order is: Title Case, Sentence case, UPPERCASE, kebab-case, underscore_case, PascalCase.
+    /// When starting from PascalCase, the split form is used as the base for all derived variants.
     /// If the input matches one of these, that case is moved to the end so the user cycles through
     /// all 5 other cases before returning to the original. Always returns exactly 6 items.
     /// </summary>
     internal static List<string> ComputeOrderedVariants(string text)
     {
+        var detectedCase = DetectCase(text);
+        string baseText = detectedCase == TextCase.PascalCase
+            ? SplitPascalCaseToWords(text)
+            : text;
+
         var canonical = new List<string>
         {
-            ToTitleCase(text),
-            ToPascalCase(text),
-            ToSentenceCase(text),
-            ToUpperCase(text),
-            ToKebabCase(text),
-            ToUnderscorePreserveCase(text)
+            ToTitleCase(baseText),
+            ToSentenceCase(baseText),
+            ToUpperCase(baseText),
+            ToKebabCase(baseText),
+            ToUnderscorePreserveCase(baseText),
+            ToPascalCase(baseText),
         };
 
-        int detectedIndex = DetectCase(text) switch
+        int detectedIndex = detectedCase switch
         {
             TextCase.TitleCase      => 0,
-            TextCase.PascalCase     => 1,
-            TextCase.SentenceCase   => 2,
-            TextCase.UpperCase      => 3,
-            TextCase.KebabCase      => 4,
-            TextCase.UnderscoreCase => 5,
+            TextCase.SentenceCase   => 1,
+            TextCase.UpperCase      => 2,
+            TextCase.KebabCase      => 3,
+            TextCase.UnderscoreCase => 4,
+            TextCase.PascalCase     => 5,
             _                       => -1,
         };
 
@@ -250,7 +272,8 @@ internal static class TextCaseHelper
 
     /// <summary>
     /// Detects the current case and returns the text transformed to the next case in the cycle:
-    /// Title Case → PascalCase → Sentence case → UPPERCASE → kebab-case → preserve_underscores → (back to) Title Case.
+    /// Title Case → Sentence case → UPPERCASE → kebab-case → underscore_case → PascalCase → (back to) Title Case.
+    /// When the input is PascalCase, it is first split into spaced words before applying Title Case.
     /// If the text matches no known case, starts from Title Case.
     /// </summary>
     internal static string CycleCase(string text)
@@ -258,12 +281,12 @@ internal static class TextCaseHelper
         if (string.IsNullOrEmpty(text)) return text;
         return DetectCase(text) switch
         {
-            TextCase.TitleCase      => ToPascalCase(text),
-            TextCase.PascalCase     => ToSentenceCase(text),
+            TextCase.TitleCase      => ToSentenceCase(text),
             TextCase.SentenceCase   => ToUpperCase(text),
             TextCase.UpperCase      => ToKebabCase(text),
             TextCase.KebabCase      => ToUnderscorePreserveCase(text),
-            TextCase.UnderscoreCase => ToTitleCase(text),
+            TextCase.UnderscoreCase => ToPascalCase(text),
+            TextCase.PascalCase     => ToTitleCase(SplitPascalCaseToWords(text)),
             _                       => ToTitleCase(text),
         };
     }
