@@ -124,16 +124,16 @@ internal sealed class FrmWelcome : Window
         {
             Text            = "Take a quick tour and learn how to direct your Squad agents, manage work, and move faster.",
             Foreground      = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xEE)),
-            FontSize        = 21,
+            FontSize        = 21.84, // 21 * 1.04
             TextWrapping    = TextWrapping.Wrap,
             TextAlignment   = TextAlignment.Left,
             Width           = subtitleWidth,
         };
-        Canvas.SetLeft(subtitle, subtitleLeft);
-        Canvas.SetTop(subtitle, colTop + 22 + titleH + 12);
+        Canvas.SetLeft(subtitle, subtitleLeft - 18);
+        Canvas.SetTop(subtitle, colTop + 22 + titleH + 8);
         canvas.Children.Add(subtitle);
 
-        double subtitleBottom = colTop + 22 + titleH + 12 + 60; // approximate subtitle height
+        double subtitleBottom = colTop + 22 + titleH + 8 + 60; // approximate subtitle height
 
         // Start Guided Tour button
         double startBtnH = startBtnW * (147.0 / 585.0);
@@ -142,7 +142,7 @@ internal sealed class FrmWelcome : Window
             AssetPath("StartGuidedTourButton-MouseOver.png"),
             startBtnW, startBtnH);
         Canvas.SetLeft(startBtn, colLeft + (colWidth - startBtnW) / 2.0);
-        Canvas.SetTop(startBtn, subtitleBottom + 20);
+        Canvas.SetTop(startBtn, subtitleBottom + 32);
         startBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); StartTourClicked?.Invoke(this, EventArgs.Empty); };
         canvas.Children.Add(startBtn);
 
