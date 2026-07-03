@@ -70,7 +70,7 @@ internal sealed class FrmWelcome : Window
         outerCanvas.Children.Add(canvas);
 
         // ── GuidedTourLanding image (bleeds off left edge of the border) ────
-        double imgH = WinH * 0.955;
+        double imgH = WinH * 0.917; // ~96% of prior 0.955 — gives more breathing room top/bottom
         double imgAspect = 859.0 / 837.0;
         double imgW = imgH * imgAspect;
         // Start image at x=0 in the outer canvas — the first BleedW pixels are
@@ -102,7 +102,7 @@ internal sealed class FrmWelcome : Window
             Width           = colWidth,
         };
         Canvas.SetLeft(welcomeLabel, colLeft);
-        Canvas.SetTop(welcomeLabel, colTop);
+        Canvas.SetTop(welcomeLabel, colTop - 12);
         canvas.Children.Add(welcomeLabel);
 
         // SquadDashTitle.png
@@ -112,7 +112,7 @@ internal sealed class FrmWelcome : Window
         if (titleImg != null)
         {
             Canvas.SetLeft(titleImg, colLeft + (colWidth - titleW) / 2.0);
-            Canvas.SetTop(titleImg, colTop + 30);
+            Canvas.SetTop(titleImg, colTop + 22);
             canvas.Children.Add(titleImg);
         }
 
@@ -130,10 +130,10 @@ internal sealed class FrmWelcome : Window
             Width           = subtitleWidth,
         };
         Canvas.SetLeft(subtitle, subtitleLeft);
-        Canvas.SetTop(subtitle, colTop + 30 + titleH + 18);
+        Canvas.SetTop(subtitle, colTop + 22 + titleH + 12);
         canvas.Children.Add(subtitle);
 
-        double subtitleBottom = colTop + 30 + titleH + 18 + 60; // approximate subtitle height
+        double subtitleBottom = colTop + 22 + titleH + 12 + 60; // approximate subtitle height
 
         // Start Guided Tour button
         double startBtnH = startBtnW * (147.0 / 585.0);
@@ -158,23 +158,33 @@ internal sealed class FrmWelcome : Window
         skipBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
         canvas.Children.Add(skipBtn);
 
-        // Close button (×)
-        var closeBtn = new TextBlock
+        // Close button (×) — wrapped in a Border that highlights on hover
+        // Hover color is ~20% lighter than the window background (0x43,0x3A,0x64)
+        var closeBtnHoverBrush = new SolidColorBrush(Color.FromRgb(0x76, 0x6D, 0x97));
+        var closeText = new TextBlock
         {
-            Text            = "×",
-            Foreground      = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-            FontSize        = 20,
-            Width           = 24,
-            Height          = 24,
-            TextAlignment   = TextAlignment.Center,
+            Text              = "×",
+            Foreground        = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
+            FontSize          = 20,
+            Width             = 24,
+            Height            = 24,
+            TextAlignment     = TextAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Cursor          = Cursors.Hand,
         };
-        closeBtn.MouseEnter += (_, _) => closeBtn.Foreground = Brushes.White;
-        closeBtn.MouseLeave += (_, _) => closeBtn.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
+        var closeBtn = new Border
+        {
+            Width           = 28,
+            Height          = 28,
+            CornerRadius    = new CornerRadius(4),
+            Background      = Brushes.Transparent,
+            Cursor          = Cursors.Hand,
+            Child           = closeText,
+        };
+        closeBtn.MouseEnter += (_, _) => { closeText.Foreground = Brushes.White; closeBtn.Background = closeBtnHoverBrush; };
+        closeBtn.MouseLeave += (_, _) => { closeText.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)); closeBtn.Background = Brushes.Transparent; };
         closeBtn.MouseLeftButtonDown += (_, e) => e.Handled = true;
         closeBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
-        Canvas.SetLeft(closeBtn, BleedW + WinW - 14 - 24);
+        Canvas.SetLeft(closeBtn, BleedW + WinW - 14 - 28);
         Canvas.SetTop(closeBtn, 7);
         canvas.Children.Add(closeBtn);
 
