@@ -8837,10 +8837,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ApplyTranscriptFontSizeToDocument(FlowDocument document)
     {
-        // NOTE: Do NOT guard on document.FontSize == _transcriptFontSize here.
-        // WPF property inheritance means document.FontSize (effective value) already
-        // reflects OutputTextBox.FontSize before this method runs, so the guard would
-        // fire immediately and skip the entire walk every time.
+        // Guard using Tag rather than document.FontSize: WPF property inheritance means
+        // document.FontSize (effective value) already reflects OutputTextBox.FontSize
+        // before this method runs, so comparing document.FontSize would always short-circuit.
+        // Tag is never touched by WPF, so it reliably tracks the last size we actually applied.
+        if (document.Tag is double lastApplied && lastApplied == _transcriptFontSize) return;
+        document.Tag = _transcriptFontSize;
         document.FontSize = _transcriptFontSize;
 
         var codeBlockFontSize = _transcriptFontSize * 0.9;
