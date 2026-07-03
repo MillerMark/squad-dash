@@ -8843,11 +8843,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         document.FontSize = _transcriptFontSize;
 
         var codeBlockFontSize = _transcriptFontSize * 0.9;
-        foreach (var block in document.Blocks.OfType<Section>())
+
+        // Walk all sections at all depths. Document structure is:
+        //   Document → NarrativeSection (Section) → inner Section → BlockUIContainer/Paragraph
+        // We use a local helper to avoid duplicating the per-section logic.
+        void ApplySectionBlocks(Section section)
         {
-            foreach (var inner in block.Blocks.OfType<BlockUIContainer>())
+            foreach (var inner in section.Blocks.OfType<BlockUIContainer>())
             {
-                // Code block is now: BlockUIContainer > StackPanel > [DockPanel header, TextBox]
+                // Code block: BlockUIContainer > StackPanel > [DockPanel header, TextBox]
                 var codeBox = inner.Child switch
                 {
                     TextBox tb when tb.Tag is "codeblock" => tb,
@@ -8870,7 +8874,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
 
-            foreach (var para in block.Blocks.OfType<Paragraph>())
+            foreach (var para in section.Blocks.OfType<Paragraph>())
             {
                 if (para.Tag is string headingTag)
                 {
@@ -8878,7 +8882,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     para.FontSize = MarkdownDocumentRenderer.HeadingFontSize(level, _transcriptFontSize);
                 }
             }
+
+            // Recurse into nested Sections (NarrativeSection → inner Section → content)
+            foreach (var nested in section.Blocks.OfType<Section>())
+                ApplySectionBlocks(nested);
         }
+
+        foreach (var block in document.Blocks.OfType<Section>())
+            ApplySectionBlocks(block);
 
         // Tour quick reply: BlockUIContainer added directly to document (not inside a Section)
         // Structure: BlockUIContainer > WrapPanel > Button
