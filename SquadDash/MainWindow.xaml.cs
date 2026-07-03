@@ -8837,9 +8837,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ApplyTranscriptFontSizeToDocument(FlowDocument document)
     {
-        // Skip the O(N) document walk if the font size hasn't changed since last apply.
-        if (document.FontSize == _transcriptFontSize) return;
-
+        // NOTE: Do NOT guard on document.FontSize == _transcriptFontSize here.
+        // WPF property inheritance means document.FontSize (effective value) already
+        // reflects OutputTextBox.FontSize before this method runs, so the guard would
+        // fire immediately and skip the entire walk every time.
         document.FontSize = _transcriptFontSize;
 
         var codeBlockFontSize = _transcriptFontSize * 0.9;
