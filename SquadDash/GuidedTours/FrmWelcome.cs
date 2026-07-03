@@ -42,6 +42,13 @@ internal sealed class FrmWelcome : Window
             if (e.ButtonState == MouseButtonState.Pressed)
                 DragMove();
         };
+
+        // Enter = start tour, Escape = close/skip
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)  { Close(); StartTourClicked?.Invoke(this, EventArgs.Empty); e.Handled = true; }
+            if (e.Key == Key.Escape) { Close(); SkipClicked?.Invoke(this, EventArgs.Empty);      e.Handled = true; }
+        };
     }
 
     private UIElement BuildContent()
@@ -130,10 +137,10 @@ internal sealed class FrmWelcome : Window
             Width           = subtitleWidth,
         };
         Canvas.SetLeft(subtitle, subtitleLeft - 18);
-        Canvas.SetTop(subtitle, colTop + 22 + titleH + 8);
+        Canvas.SetTop(subtitle, colTop + 22 + titleH + 5);
         canvas.Children.Add(subtitle);
 
-        double subtitleBottom = colTop + 22 + titleH + 8 + 60; // approximate subtitle height
+        double subtitleBottom = colTop + 22 + titleH + 5 + 60; // approximate subtitle height
 
         // Start Guided Tour button
         double startBtnH = startBtnW * (147.0 / 585.0);
@@ -142,7 +149,7 @@ internal sealed class FrmWelcome : Window
             AssetPath("StartGuidedTourButton-MouseOver.png"),
             startBtnW, startBtnH);
         Canvas.SetLeft(startBtn, colLeft + (colWidth - startBtnW) / 2.0);
-        Canvas.SetTop(startBtn, subtitleBottom + 44);
+        Canvas.SetTop(startBtn, subtitleBottom + 47);
         startBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); StartTourClicked?.Invoke(this, EventArgs.Empty); };
         canvas.Children.Add(startBtn);
 
@@ -170,6 +177,7 @@ internal sealed class FrmWelcome : Window
             Height            = 24,
             TextAlignment     = TextAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, -4, 0, 0), // keep X at same screen position when Border moves down
         };
         var closeBtn = new Border
         {
@@ -185,7 +193,7 @@ internal sealed class FrmWelcome : Window
         closeBtn.MouseLeftButtonDown += (_, e) => e.Handled = true;
         closeBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
         Canvas.SetLeft(closeBtn, BleedW + WinW - 14 - 28);
-        Canvas.SetTop(closeBtn, 10);
+        Canvas.SetTop(closeBtn, 14);
         canvas.Children.Add(closeBtn);
 
         return outerCanvas;

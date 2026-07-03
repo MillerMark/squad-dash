@@ -927,9 +927,8 @@
                           Header="_Help"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
-                    <MenuItem Header="_Welcome to SquadDash..."
+                    <MenuItem Header="_Welcome..."
                               Click="WelcomeToSquadDashMenuItem_Click" />
-                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem Header="_Start Guided Tour..."
                               Click="StartGuidedTourMenuItem_Click" />
                     <MenuItem Header="_More Guided Tours..."
