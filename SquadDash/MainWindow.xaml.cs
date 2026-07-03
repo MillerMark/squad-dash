@@ -236,6 +236,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptResponseEntry? _routingIssueQuickReplyEntry;
     private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
     private event Action? _tourQuickReplySelected;
+    private event Action? _tourSimulatedSendClicked;
+    private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
     private PendingQuickReplyLaunchState? _pendingQuickReplyLaunch;
@@ -2250,6 +2252,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     SquadDashTrace.Write("UI", $"Slash command {queuedText} executed from queued tab — slot removed");
                     await _pec.ExecutePromptAsync(queuedText, addToHistory: true, clearPromptBox: false);
                     SyncPromptTextBoxSimBorder();
+                    return;
+                }
+
+                // Intercept: tour-simulated send item → fire the trigger, don't dispatch to AI.
+                if (_tourTypeItemIsSimulated &&
+                    _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == TourTypeTag))
+                {
+                    StopTypeIntoPromptAnimation(); // removes the TourTypeTag item and resets _tourTypeItemIsSimulated
+                    _tourSimulatedSendClicked?.Invoke();
                     return;
                 }
 
@@ -13891,6 +13902,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new QuickReplySelectedAdvanceTrigger(
                 addHandler:    h => _tourQuickReplySelected += h,
                 removeHandler: h => _tourQuickReplySelected -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "SimulatedSend",
+            new SimulatedSendAdvanceTrigger(
+                addHandler:    h => _tourSimulatedSendClicked += h,
+                removeHandler: h => _tourSimulatedSendClicked -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -13926,8 +13943,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
         {
-            // Format: "text to type" (mode parameter is accepted but ignored — always Draft)
-            var text = arg.Split('|', 2)[0];
+            // Format: "text to type|Mode"  (Mode is "Sim" or "Draft"; defaults to Draft)
+            var parts = arg.Split('|');
+            var text = parts[0];
+            _tourTypeItemIsSimulated = parts.Length >= 2 &&
+                string.Equals(parts[1].Trim(), "Sim", StringComparison.OrdinalIgnoreCase);
             StartTypeIntoPromptAnimation(text);
         });
 
@@ -14482,6 +14502,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void StopTypeIntoPromptAnimation()
     {
+        _tourTypeItemIsSimulated = false;
+
         // Stop the timer if it's still running (it self-nulls when the text is fully typed,
         // but TourTypeTag items may still be in the queue after that — handle both cases).
         FreezeTypeIntoPromptAnimation();

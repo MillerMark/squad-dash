@@ -302,6 +302,11 @@
     <Compile Include="..\SquadDash\Hints\HintControlResolver.cs" Link="Source\Hints\HintControlResolver.cs" />
     <Compile Include="..\SquadDash\Hints\HintSettings.cs" Link="Source\Hints\HintSettings.cs" />
     <Compile Include="..\SquadDash\Hints\HintEngine.cs" Link="Source\Hints\HintEngine.cs" />
+
+    <!-- Guided Tour advance triggers -->
+    <Compile Include="..\SquadDash\GuidedTours\IGuidedTourAdvanceTrigger.cs" Link="Source\GuidedTours\IGuidedTourAdvanceTrigger.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\QuickReplySelectedAdvanceTrigger.cs" Link="Source\GuidedTours\QuickReplySelectedAdvanceTrigger.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\SimulatedSendAdvanceTrigger.cs" Link="Source\GuidedTours\SimulatedSendAdvanceTrigger.cs" />
   </ItemGroup>
 
   <!-- Callouts -->
