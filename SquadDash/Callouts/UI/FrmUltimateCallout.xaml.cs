@@ -226,6 +226,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
+    /// <summary>Starts the reading-time glow nudge on the Next navigation button.</summary>
+    public void StartNextButtonGlow() => _tourOverlay?.StartNextButtonGlow();
+
+    /// <summary>Stops the reading-time glow nudge on the Next navigation button.</summary>
+    public void StopNextButtonGlow() => _tourOverlay?.StopNextButtonGlow();
+
     /// <summary>
     /// When <c>true</c>, the callout is part of a guided-tour step.  A hint line is shown inside
     /// the callout and a floating Prev/Next overlay appears beside it after the callout settles.

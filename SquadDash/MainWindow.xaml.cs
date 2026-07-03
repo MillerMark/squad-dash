@@ -13783,7 +13783,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
             commandRegistry:         _tourCommandRegistry,
             onStepChanging:          FreezeTypeIntoPromptAnimation,
-            triggerRegistry:         _tourAdvanceTriggerRegistry);
+            triggerRegistry:         _tourAdvanceTriggerRegistry,
+            isTypeAnimationRunning:  () => _typeIntoPromptTimer != null);
     }
 
     private void CleanUpTourInjectedThreads()

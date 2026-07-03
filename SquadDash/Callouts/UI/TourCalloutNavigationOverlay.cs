@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Controls;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 
 namespace SquadDash;
 
@@ -30,6 +31,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private Border? _nextButton;
     private Border? _editButton;
     private Border? _deleteButton;
+    private bool _glowActive;
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
 
@@ -161,6 +163,67 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         bool showLabel = (_getNextAdvanceCount?.Invoke() ?? 0) < 3;
         _nextLabel.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
         _nextButton.Width = showLabel ? NextButtonWidth : PrevButtonWidth;
+    }
+
+    /// <summary>Fades a blue glow in on the Next button and holds it until <see cref="StopNextButtonGlow"/> is called or Next is clicked.</summary>
+    public void StartNextButtonGlow()
+    {
+        if (_nextButton is null || _glowActive) return;
+        _glowActive = true;
+
+        Color glowColor;
+        try   { glowColor = ((SolidColorBrush)Application.Current.FindResource("WindowBorderGlow")).Color; }
+        catch { glowColor = Color.FromRgb(0x18, 0xb1, 0xfc); }
+
+        var ease     = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var duration = new Duration(TimeSpan.FromSeconds(0.7));
+
+        // ── Drop-shadow fade IN, hold at target ─────────────────────────────
+        var glowEffect = new DropShadowEffect {
+            Color           = glowColor,
+            ShadowDepth     = 0,
+            BlurRadius      = 0,
+            Opacity         = 1.0,
+            RenderingBias   = RenderingBias.Performance,
+        };
+        _nextButton.Effect = glowEffect;
+        glowEffect.BeginAnimation(DropShadowEffect.BlurRadiusProperty,
+            new DoubleAnimation(0, 18, duration) { EasingFunction = ease });
+
+        // ── Border thickness fade IN, hold ───────────────────────────────────
+        _nextButton.BeginAnimation(Border.BorderThicknessProperty,
+            new ThicknessAnimation(new Thickness(1), new Thickness(3), duration)
+                { EasingFunction = ease, FillBehavior = FillBehavior.HoldEnd });
+
+        // ── Border color fade IN to glow color ───────────────────────────────
+        Color restColor;
+        try   { restColor = ((SolidColorBrush)Application.Current.FindResource("CalloutBorder")).Color; }
+        catch { restColor = Colors.Gray; }
+        var animBrush = new SolidColorBrush(restColor);
+        _nextButton.BorderBrush = animBrush;
+        animBrush.BeginAnimation(SolidColorBrush.ColorProperty,
+            new ColorAnimation(restColor, glowColor, duration)
+                { EasingFunction = ease, FillBehavior = FillBehavior.HoldEnd });
+
+        // Auto-cancel when Next is clicked
+        EventHandler? stopOnClick = null;
+        stopOnClick = (_, _) => {
+            NextClicked -= stopOnClick;
+            StopNextButtonGlow();
+        };
+        NextClicked += stopOnClick;
+    }
+
+    /// <summary>Immediately removes the Next-button glow and restores normal styling.</summary>
+    public void StopNextButtonGlow()
+    {
+        if (_nextButton is null || !_glowActive) return;
+        _glowActive = false;
+
+        _nextButton.Effect = null;
+        _nextButton.BeginAnimation(Border.BorderThicknessProperty, null);
+        _nextButton.BorderThickness = new Thickness(1);
+        _nextButton.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
     }
 
     private Border BuildEditButton() {

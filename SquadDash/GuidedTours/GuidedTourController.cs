@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -33,6 +34,8 @@ internal sealed class GuidedTourController
     private readonly Action?                              _onStepChanging;
     private readonly GuidedTourAdvanceTriggerRegistry?    _triggerRegistry;
     private IDisposable?                                  _activeTriggerSubscription;
+    private readonly Func<bool>?                          _isTypeAnimationRunning;
+    private CancellationTokenSource?                      _readingNudgeCts;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -56,7 +59,8 @@ internal sealed class GuidedTourController
         Func<string?>?                  workspaceFolderProvider = null,
         GuidedTourCommandRegistry?      commandRegistry      = null,
         Action?                         onStepChanging       = null,
-        GuidedTourAdvanceTriggerRegistry? triggerRegistry    = null)
+        GuidedTourAdvanceTriggerRegistry? triggerRegistry    = null,
+        Func<bool>?                     isTypeAnimationRunning = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -67,6 +71,7 @@ internal sealed class GuidedTourController
         _commandRegistry         = commandRegistry;
         _onStepChanging          = onStepChanging;
         _triggerRegistry         = triggerRegistry;
+        _isTypeAnimationRunning  = isTypeAnimationRunning;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -299,6 +304,9 @@ internal sealed class GuidedTourController
             SquadDashTrace.Write(TraceCategory.Callouts,
                 $"ShowCurrentStep: guard passed, calling ShowStepCallout for \"{step.Title}\" (target=\"{step.TargetControlId}\")");
             ShowStepCallout(step);
+            _readingNudgeCts?.Cancel();
+            _readingNudgeCts = new CancellationTokenSource();
+            _ = StartReadingNudgeAsync(step, _readingNudgeCts.Token);
             _activeTriggerSubscription?.Dispose();
             _activeTriggerSubscription = _triggerRegistry?.Subscribe(step.AdvanceTrigger, () =>
                 _ownerWindow.Dispatcher.InvokeAsync(Next));
@@ -673,9 +681,45 @@ internal sealed class GuidedTourController
 
     private void CloseActiveCallout()
     {
+        _readingNudgeCts?.Cancel();
+        _readingNudgeCts = null;
         if (_activeCallout is null) return;
         try { _activeCallout.Close(); } catch { /* already closed */ }
         _activeCallout = null;
+    }
+
+    private async Task StartReadingNudgeAsync(GuidedTourStep step, CancellationToken ct)
+    {
+        try
+        {
+            // Wait for TypeIntoPrompt animation to finish first
+            if (_isTypeAnimationRunning is not null)
+            {
+                while (_isTypeAnimationRunning())
+                    await Task.Delay(100, ct);
+            }
+
+            // Delay = words × 250ms × 2, minimum 2 seconds
+            int wordCount = CountMarkdownWords(step.MarkdownText);
+            int delayMs   = Math.Max(2000, wordCount * 500);
+            await Task.Delay(delayMs, ct);
+
+            if (ct.IsCancellationRequested) return;
+
+            await _ownerWindow.Dispatcher.InvokeAsync(() =>
+            {
+                if (!ct.IsCancellationRequested)
+                    _activeCallout?.StartNextButtonGlow();
+            });
+        }
+        catch (OperationCanceledException) { /* expected on step change */ }
+    }
+
+    private static int CountMarkdownWords(string markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown)) return 0;
+        var text = System.Text.RegularExpressions.Regex.Replace(markdown, @"[#*`\[\]()>~_]", " ");
+        return text.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length;
     }
 
     private void HandleSwitchTourFromEditor(int tourIndex)
