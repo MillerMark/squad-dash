@@ -50,16 +50,16 @@ internal sealed class FrmWelcome : Window
         // and bleed off the left of the visible rounded border.
         var outerCanvas = new Canvas { Width = WinW + BleedW, Height = WinH };
 
-        // Root border — rounded, colored background, positioned BleedW from left
+        // Root border — rounded, colored background, shifted 5px left of BleedW
         var root = new Border
         {
             CornerRadius    = new CornerRadius(16),
             Background      = new SolidColorBrush(Color.FromRgb(0x43, 0x3A, 0x64)),
             ClipToBounds    = false,
-            Width           = WinW,
+            Width           = WinW + 5,
             Height          = WinH,
         };
-        Canvas.SetLeft(root, BleedW);
+        Canvas.SetLeft(root, BleedW - 5);
         Canvas.SetTop(root, 0);
         outerCanvas.Children.Add(root);
 
@@ -87,7 +87,7 @@ internal sealed class FrmWelcome : Window
         }
 
         // ── Right column ────────────────────────────────────────────────────
-        double colLeft  = BleedW + 370;   // offset by bleed so it's 370px from left edge of border
+        double colLeft  = BleedW - 5 + 370;   // offset by bleed so it's 370px from left edge of border
         double colWidth = WinW - 370 - 30;
         double colTop   = 40;
 
@@ -96,7 +96,7 @@ internal sealed class FrmWelcome : Window
         {
             Text            = "Welcome to",
             Foreground      = Brushes.White,
-            FontSize        = 20,
+            FontSize        = 26,
             FontWeight      = FontWeights.Normal,
             TextAlignment   = TextAlignment.Center,
             Width           = colWidth,
@@ -106,7 +106,7 @@ internal sealed class FrmWelcome : Window
         canvas.Children.Add(welcomeLabel);
 
         // SquadDashTitle.png
-        double titleW = 220;
+        double titleW = 286;
         double titleH = titleW * (219.0 / 971.0);
         var titleImg = MakePngImage(AssetPath("SquadDashTitle.png"), titleW, titleH);
         if (titleImg != null)
@@ -117,16 +117,19 @@ internal sealed class FrmWelcome : Window
         }
 
         // Subtitle
+        double logoImgLeft  = colLeft + (colWidth - titleW) / 2.0;
+        double subtitleLeft = logoImgLeft + 32.0;
+        double subtitleWidth = titleW - 32.0;
         var subtitle = new TextBlock
         {
             Text            = "Take a quick tour and learn how to direct your Squad agents, manage work, and move faster.",
             Foreground      = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xEE)),
-            FontSize        = 14,
+            FontSize        = 21,
             TextWrapping    = TextWrapping.Wrap,
-            TextAlignment   = TextAlignment.Center,
-            Width           = colWidth,
+            TextAlignment   = TextAlignment.Left,
+            Width           = subtitleWidth,
         };
-        Canvas.SetLeft(subtitle, colLeft);
+        Canvas.SetLeft(subtitle, subtitleLeft);
         Canvas.SetTop(subtitle, colTop + 30 + titleH + 18);
         canvas.Children.Add(subtitle);
 
@@ -151,8 +154,8 @@ internal sealed class FrmWelcome : Window
             AssetPath("SkipForNowButton.png"),
             AssetPath("SkipForNowButton-MouseOver.png"),
             skipBtnW, skipBtnH);
-        Canvas.SetLeft(skipBtn, colLeft + colWidth - skipBtnW);
-        Canvas.SetTop(skipBtn, subtitleBottom + 20 + startBtnH + 6);
+        Canvas.SetLeft(skipBtn, BleedW + WinW - skipBtnW - 16);
+        Canvas.SetTop(skipBtn, WinH - skipBtnH - 16);
         skipBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
         canvas.Children.Add(skipBtn);
 
@@ -170,6 +173,7 @@ internal sealed class FrmWelcome : Window
         };
         closeBtn.MouseEnter += (_, _) => closeBtn.Foreground = Brushes.White;
         closeBtn.MouseLeave += (_, _) => closeBtn.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC));
+        closeBtn.MouseLeftButtonDown += (_, e) => e.Handled = true;
         closeBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); SkipClicked?.Invoke(this, EventArgs.Empty); };
         Canvas.SetLeft(closeBtn, BleedW + WinW - 14 - 24);
         Canvas.SetTop(closeBtn, 10);
