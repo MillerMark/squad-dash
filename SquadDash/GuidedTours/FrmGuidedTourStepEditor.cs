@@ -48,11 +48,22 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private Button                     _nextButton = null!;
     private TextBlock                  _stepCountLabel = null!;
     private ListBox                    _stepListBox = null!;
+    private StackPanel                 _formPanel = null!;
+    private TextBlock                  _multiSelectLabel = null!;
 
     // Drag-to-reorder state
     private Point  _listDragStart;
     private bool   _listDragInProgress;
     private int    _listDragSourceIndex = -1;
+
+    // Clipboard copy/cut/paste
+    private static readonly System.Text.Json.JsonSerializerOptions s_clipboardJsonOptions = new() { WriteIndented = false };
+    private const string ClipboardFormatMarker = "SquadDashTourSteps/v1:";
+
+    // Context menu items (populated in constructor, updated in ContextMenuOpening)
+    private MenuItem _ctxCopy  = null!;
+    private MenuItem _ctxCut   = null!;
+    private MenuItem _ctxPaste = null!;
 
     // PTT voice dictation
     private readonly PttTextBoxAttachment _ptt;
@@ -294,6 +305,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepCountLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
 
         var formPanel = new StackPanel { Margin = new Thickness(14, 10, 14, 8) };
+        _formPanel = formPanel;
         formPanel.Children.Add(_stepCountLabel);
         formPanel.Children.Add(MakeLabel("Title"));
         formPanel.Children.Add(_titleBox);
@@ -356,7 +368,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Step list (left sidebar) ──────────────────────────────────────────
 
-        _stepListBox = new ListBox { Width = 320 };
+        _stepListBox = new ListBox { Width = 320, SelectionMode = SelectionMode.Extended };
         ScrollViewer.SetHorizontalScrollBarVisibility(_stepListBox, ScrollBarVisibility.Disabled);
         _stepListBox.SetResourceReference(ListBox.BackgroundProperty,  "InputSurface");
         _stepListBox.SetResourceReference(ListBox.ForegroundProperty,  "LabelText");
@@ -401,6 +413,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             if (e.LeftButton != MouseButtonState.Pressed || _listDragInProgress) return;
             if (_listDragSourceIndex < 0) return;
+            if (_stepListBox.SelectedItems.Count > 1) return;
             var pos  = e.GetPosition(_stepListBox);
             var diff = _listDragStart - pos;
             if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
@@ -442,6 +455,23 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _livePreviewCallback?.Invoke();
         };
 
+        // ── Context menu on the step list ────────────────────────────────────
+
+        _ctxCopy  = new MenuItem { Header = "Copy Step" };
+        _ctxCut   = new MenuItem { Header = "Cut Step" };
+        _ctxPaste = new MenuItem { Header = "Paste Step" };
+
+        _ctxCopy.Click  += (_, _) => CopySelectedSteps();
+        _ctxCut.Click   += (_, _) => CutSelectedSteps();
+        _ctxPaste.Click += (_, _) => PasteSteps();
+
+        var stepContextMenu = new ContextMenu();
+        stepContextMenu.Items.Add(_ctxCopy);
+        stepContextMenu.Items.Add(_ctxCut);
+        stepContextMenu.Items.Add(_ctxPaste);
+        stepContextMenu.Opened += OnStepContextMenuOpening;
+        _stepListBox.ContextMenu = stepContextMenu;
+
         // ── Sidebar buttons ──────────────────────────────────────────────────
 
         var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
@@ -459,11 +489,24 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         sidebarPanel.Children.Add(listSidebarButtons);
         sidebarPanel.Children.Add(_stepListBox);
 
+        _multiSelectLabel = new TextBlock
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Visibility          = Visibility.Collapsed,
+        };
+        _multiSelectLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _multiSelectLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var formContentGrid = new Grid();
+        formContentGrid.Children.Add(formPanel);
+        formContentGrid.Children.Add(_multiSelectLabel);
+
         var formScrollViewer = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-            Content                       = formPanel,
+            Content                       = formContentGrid,
         };
 
         // ── Tour list (leftmost sidebar) ─────────────────────────────────────
@@ -818,6 +861,19 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private void OnStepListSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isLoadingStep) return;
+
+        int count = _stepListBox.SelectedItems.Count;
+
+        if (count == 0) return;
+
+        if (count > 1)
+        {
+            EnterMultiSelectMode();
+            return;
+        }
+
+        // count == 1 — single-select path
+        ExitMultiSelectMode();
         int newIndex = _stepListBox.SelectedIndex;
         if (newIndex < 0 || newIndex == _stepIndex) return;
 
@@ -855,6 +911,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
+    }
+
+    private void EnterMultiSelectMode()
+    {
+        int count = _stepListBox.SelectedItems.Count;
+        _multiSelectLabel.Text       = $"{count} steps selected — select a single step to edit";
+        _multiSelectLabel.Visibility = Visibility.Visible;
+        _formPanel.IsEnabled         = false;
+    }
+
+    private void ExitMultiSelectMode()
+    {
+        _multiSelectLabel.Visibility = Visibility.Collapsed;
+        _formPanel.IsEnabled         = true;
     }
 
     private void OnTourListSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1659,6 +1729,134 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             comboBox.Text = string.IsNullOrEmpty(editor.ResultText) ? "(none)" : editor.ResultText;
             PushLivePreview();
         }
+    }
+
+    // ── Multi-select copy/cut/paste ───────────────────────────────────────────
+
+    private void OnStepContextMenuOpening(object sender, System.Windows.RoutedEventArgs e)
+    {
+        int selectedCount = _stepListBox.SelectedItems.Count;
+        bool hasSelection = selectedCount > 0;
+
+        _ctxCopy.IsEnabled = hasSelection;
+        _ctxCut.IsEnabled  = hasSelection;
+
+        _ctxCopy.Header = selectedCount > 1
+            ? $"Copy Steps ({selectedCount})"
+            : "Copy Step";
+        _ctxCut.Header = selectedCount > 1
+            ? $"Cut Steps ({selectedCount})"
+            : "Cut Step";
+
+        _ctxPaste.IsEnabled = TryReadClipboardSteps(out _);
+    }
+
+    private void CopySelectedSteps()
+    {
+        var steps = GetSelectedStepsOrdered();
+        if (steps.Count == 0) return;
+        var json = ClipboardFormatMarker + System.Text.Json.JsonSerializer.Serialize(steps, s_clipboardJsonOptions);
+        Clipboard.SetText(json);
+    }
+
+    private void CutSelectedSteps()
+    {
+        var steps = GetSelectedStepsOrdered();
+        if (steps.Count == 0) return;
+        var json = ClipboardFormatMarker + System.Text.Json.JsonSerializer.Serialize(steps, s_clipboardJsonOptions);
+        Clipboard.SetText(json);
+
+        var indicesToRemove = GetSelectedIndicesOrdered();
+        foreach (int idx in indicesToRemove.OrderByDescending(i => i))
+            _activeTour.Steps.RemoveAt(idx);
+
+        if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+            catch { /* ignore */ }
+        }
+
+        ExitMultiSelectMode();
+        int selectAfter = indicesToRemove[0] < _activeTour.Steps.Count
+            ? indicesToRemove[0]
+            : Math.Max(0, _activeTour.Steps.Count - 1);
+        RefreshAfterBulkEdit(selectAfter);
+    }
+
+    private void PasteSteps()
+    {
+        if (!TryReadClipboardSteps(out var steps) || steps is null)
+        {
+            ShowStatus("⚠ Clipboard does not contain valid tour step data.");
+            return;
+        }
+
+        int insertAfter = _stepListBox.SelectedIndex >= 0
+            ? _stepListBox.SelectedIndex
+            : _activeTour.Steps.Count - 1;
+
+        for (int i = 0; i < steps.Count; i++)
+            _activeTour.Steps.Insert(insertAfter + 1 + i, steps[i]);
+
+        if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+            catch { /* ignore */ }
+        }
+
+        ExitMultiSelectMode();
+        RefreshAfterBulkEdit(insertAfter + steps.Count);
+    }
+
+    private bool TryReadClipboardSteps(out List<GuidedTourStep>? steps)
+    {
+        steps = null;
+        try
+        {
+            if (!Clipboard.ContainsText()) return false;
+            var text = Clipboard.GetText();
+            if (!text.StartsWith(ClipboardFormatMarker, StringComparison.Ordinal)) return false;
+            var json = text.Substring(ClipboardFormatMarker.Length);
+            var result = System.Text.Json.JsonSerializer.Deserialize<List<GuidedTourStep>>(json, s_clipboardJsonOptions);
+            if (result is null || result.Count == 0) return false;
+            steps = result;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private List<GuidedTourStep> GetSelectedStepsOrdered()
+    {
+        return GetSelectedIndicesOrdered()
+            .Select(i => _activeTour.Steps[i])
+            .ToList();
+    }
+
+    private List<int> GetSelectedIndicesOrdered()
+    {
+        return _stepListBox.SelectedItems
+            .Cast<object>()
+            .Select(item => _stepListBox.Items.IndexOf(item))
+            .Where(i => i >= 0)
+            .OrderBy(i => i)
+            .ToList();
+    }
+
+    private void RefreshAfterBulkEdit(int selectIndex = -1)
+    {
+        _stepListBox.Items.Clear();
+        for (int i = 0; i < _activeTour.Steps.Count; i++)
+            _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
+        int idx = selectIndex >= 0
+            ? Math.Clamp(selectIndex, 0, Math.Max(0, _activeTour.Steps.Count - 1))
+            : Math.Min(_stepIndex, Math.Max(0, _activeTour.Steps.Count - 1));
+        if (idx >= 0 && _activeTour.Steps.Count > 0)
+        {
+            _stepListBox.SelectedIndex = idx;
+            _stepIndex = idx;
+            _jumpToStepCallback?.Invoke(idx);
+        }
+        _livePreviewCallback?.Invoke();
     }
 }
 
