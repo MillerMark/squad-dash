@@ -378,10 +378,19 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             Application.Current.TryFindResource("HoverSurface") ?? SystemColors.ControlBrush, "Bd"));
         template.Triggers.Add(hoverTrigger);
 
-        var selectedTrigger = new Trigger { Property = Selector.IsSelectedProperty, Value = true };
-        selectedTrigger.Setters.Add(new Setter(Border.BackgroundProperty,
-            Application.Current.TryFindResource("InputSurface") ?? SystemColors.HighlightBrush, "Bd"));
-        template.Triggers.Add(selectedTrigger);
+        var selectedFocusedTrigger = new MultiTrigger();
+        selectedFocusedTrigger.Conditions.Add(new Condition(Selector.IsSelectedProperty, true));
+        selectedFocusedTrigger.Conditions.Add(new Condition(UIElement.IsKeyboardFocusWithinProperty, true));
+        selectedFocusedTrigger.Setters.Add(new Setter(Border.BackgroundProperty,
+            Application.Current.TryFindResource("FocusedSelectedItem") ?? SystemColors.HighlightBrush, "Bd"));
+        template.Triggers.Add(selectedFocusedTrigger);
+
+        var selectedUnfocusedTrigger = new MultiTrigger();
+        selectedUnfocusedTrigger.Conditions.Add(new Condition(Selector.IsSelectedProperty, true));
+        selectedUnfocusedTrigger.Conditions.Add(new Condition(UIElement.IsKeyboardFocusWithinProperty, false));
+        selectedUnfocusedTrigger.Setters.Add(new Setter(Border.BackgroundProperty,
+            Application.Current.TryFindResource("UnfocusedSelectedItem") ?? SystemColors.ControlBrush, "Bd"));
+        template.Triggers.Add(selectedUnfocusedTrigger);
 
         style.Setters.Add(new Setter(ListBoxItem.TemplateProperty, template));
         return style;
