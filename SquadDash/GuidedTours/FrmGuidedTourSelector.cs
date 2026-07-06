@@ -32,13 +32,37 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         _isCompleted = isCompleted ?? (_ => false);
 
         Title                 = "Select a Guided Tour";
-        Width                 = 420;
+        Width                 = 700;
         Height                = 480;
         ShowInTaskbar         = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Topmost               = true;
 
         var contentArea = ApplyOuterBorder("AppSurface", "Select a Guided Tour");
+
+        int completedCount = _allTours.Count(t => _isCompleted(t.Id));
+        int mascotIndex = (completedCount % 8) + 1;
+        string mascotPath = System.IO.Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory,
+            "Assets", "GuidedTours", "Mascots", $"Mascot{mascotIndex}.png");
+
+        var mascotImage = new System.Windows.Controls.Image
+        {
+            Height              = 420,
+            Stretch             = System.Windows.Media.Stretch.Uniform,
+            VerticalAlignment   = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin              = new Thickness(8, 8, 0, 0),
+        };
+        if (System.IO.File.Exists(mascotPath))
+        {
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource   = new Uri(mascotPath, UriKind.Absolute);
+            bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            mascotImage.Source = bmp;
+        }
 
         // ── Filter box (with inline placeholder) ─────────────────────────────
         _filterBox = new TextBox
@@ -115,6 +139,16 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         layout.Children.Add(_tourList);
 
         contentArea.Child = layout;
+
+        // Wrap the tour list in a two-column grid with the mascot on the left
+        var outerGrid = new Grid();
+        outerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220, GridUnitType.Pixel) });
+        outerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(mascotImage, 0);
+        Grid.SetColumn(layout, 1);
+        outerGrid.Children.Add(mascotImage);
+        outerGrid.Children.Add(layout);
+        contentArea.Child = outerGrid;
 
         PopulateList(_allTours);
         if (_tourList.Items.Count == 1)
