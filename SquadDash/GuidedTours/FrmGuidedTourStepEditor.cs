@@ -392,7 +392,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Height           = 2,
             IsHitTestVisible = false,
         };
-        _dragInsertLine.SetResourceReference(Rectangle.FillProperty, "AccentText");
+        _dragInsertLine.SetResourceReference(Rectangle.FillProperty, "QueueTabActiveBorder");
 
         _dragInsertCanvas = new Canvas
         {
