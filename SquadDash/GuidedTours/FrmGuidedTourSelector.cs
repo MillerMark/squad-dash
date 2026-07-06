@@ -20,6 +20,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     private readonly TextBox            _filterBox;
     private readonly Button             _startButton;
     private System.Windows.Controls.Image _mascotImage = null!;
+    private CheckBox _showCompletedCheckBox = null!;
 
     /// <summary>
     /// The tour selected by the user, or <c>null</c> if the dialog was cancelled.
@@ -107,11 +108,11 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         _tourList.MouseDoubleClick  += (_, _) => CommitSelection();
         _tourList.ItemContainerStyle = BuildListItemStyle();
 
-        // ── Context menu (Mark as seen / Mark as unseen) ─────────────────────
-        var markSeenItem   = new MenuItem { Header = "Mark as seen" };
-        var markUnseenItem = new MenuItem { Header = "Mark as unseen" };
+        // ── Context menu (Mark as complete / Mark as unseen) ─────────────────
+        var markCompleteItem = new MenuItem { Header = "Mark as complete" };
+        var markUnseenItem   = new MenuItem { Header = "Mark as unseen" };
 
-        markSeenItem.Click += (_, _) =>
+        markCompleteItem.Click += (_, _) =>
         {
             if (GetSelectedTour() is GuidedTour tour)
             {
@@ -129,16 +130,35 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         };
 
         var contextMenu = new ContextMenu();
-        contextMenu.Items.Add(markSeenItem);
+        contextMenu.Items.Add(markCompleteItem);
         contextMenu.Items.Add(markUnseenItem);
         contextMenu.ContextMenuOpening += (_, _) =>
         {
             var tour = GetSelectedTour();
-            bool completed = tour is not null && GuidedTourStateStore.Shared.IsCompleted(tour.Id);
-            markSeenItem.Visibility   = completed ? Visibility.Collapsed : Visibility.Visible;
-            markUnseenItem.Visibility = completed ? Visibility.Visible   : Visibility.Collapsed;
+            if (tour is null)
+            {
+                markCompleteItem.Visibility = Visibility.Collapsed;
+                markUnseenItem.Visibility   = Visibility.Collapsed;
+                return;
+            }
+            bool completed = GuidedTourStateStore.Shared.IsCompleted(tour.Id);
+            markCompleteItem.Visibility = completed ? Visibility.Collapsed : Visibility.Visible;
+            markUnseenItem.Visibility   = completed ? Visibility.Visible   : Visibility.Collapsed;
         };
         _tourList.ContextMenu = contextMenu;
+
+        // ── Show Completed checkbox ──────────────────────────────────────────
+        _showCompletedCheckBox = new CheckBox
+        {
+            Content           = "Show completed tours",
+            IsChecked         = true,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(8, 0, 8, 0),
+        };
+        _showCompletedCheckBox.SetResourceReference(CheckBox.ForegroundProperty, "LabelText");
+        _showCompletedCheckBox.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeBody");
+        _showCompletedCheckBox.Checked   += (_, _) => RepopulateCurrentFilter();
+        _showCompletedCheckBox.Unchecked += (_, _) => RepopulateCurrentFilter();
 
         // ── Buttons ──────────────────────────────────────────────────────────
         _startButton = new Button
@@ -177,13 +197,22 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         var outerGrid = new Grid();
         outerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220, GridUnitType.Pixel) });
         outerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(mascotImage, 0);
+
+        // Left column: checkbox row (aligned with filter box) + mascot below
+        var checkboxRow = new Border { Height = 28, Margin = new Thickness(0, 12, 0, 6) };
+        checkboxRow.Child = _showCompletedCheckBox;
+        var leftPanel = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(checkboxRow, Dock.Top);
+        leftPanel.Children.Add(checkboxRow);
+        leftPanel.Children.Add(_mascotImage);
+
+        Grid.SetColumn(leftPanel, 0);
         Grid.SetColumn(layout, 1);
-        outerGrid.Children.Add(mascotImage);
+        outerGrid.Children.Add(leftPanel);
         outerGrid.Children.Add(layout);
         contentArea.Child = outerGrid;
 
-        PopulateList(_allTours);
+        ApplyFilter();
         if (_tourList.Items.Count == 1)
             _tourList.SelectedIndex = 0;
 
@@ -210,29 +239,38 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
 
     private void ApplyFilter()
     {
-        var filter = _filterBox.Text.Trim();
-        var filtered = string.IsNullOrEmpty(filter)
-            ? _allTours
-            : _allTours.Where(t =>
+        var filter        = _filterBox.Text.Trim();
+        bool showComplete = _showCompletedCheckBox.IsChecked == true;
+        var filtered = _allTours
+            .Where(t => showComplete || !GuidedTourStateStore.Shared.IsCompleted(t.Id))
+            .Where(t => string.IsNullOrEmpty(filter) ||
                 t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-        PopulateList(filtered);
+                t.Description.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        _tourList.Items.Clear();
+        foreach (var tour in filtered)
+            _tourList.Items.Add(BuildTourItem(tour, GuidedTourStateStore.Shared.IsCompleted(tour.Id)));
+        if (_tourList.Items.Count == 1)
+            _tourList.SelectedIndex = 0;
+        RefreshMascot();
+        UpdateStartButton();
     }
 
     private void RepopulateCurrentFilter()
     {
-        var selectedTour = GetSelectedTour();
-        var filter = _filterBox.Text.Trim();
-        var filtered = string.IsNullOrEmpty(filter)
-            ? _allTours
-            : _allTours.Where(t =>
+        var selectedTour  = GetSelectedTour();
+        var filter        = _filterBox.Text.Trim();
+        bool showComplete = _showCompletedCheckBox.IsChecked == true;
+        var filtered = _allTours
+            .Where(t => showComplete || !GuidedTourStateStore.Shared.IsCompleted(t.Id))
+            .Where(t => string.IsNullOrEmpty(filter) ||
                 t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-        // Use live store state so checkmarks reflect the just-toggled value
+                t.Description.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
         _tourList.Items.Clear();
         foreach (var tour in filtered)
             _tourList.Items.Add(BuildTourItem(tour, GuidedTourStateStore.Shared.IsCompleted(tour.Id)));
-        // Restore selection
+        // Restore selection (item disappears when marked complete with checkbox off — that's by design)
         if (selectedTour is not null)
         {
             for (int i = 0; i < _tourList.Items.Count; i++)
