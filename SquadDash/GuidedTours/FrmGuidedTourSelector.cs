@@ -208,8 +208,8 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
                 FontWeight        = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            checkMark.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            checkMark.SetResourceReference(TextBlock.ForegroundProperty, "AccentText");
+            checkMark.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
+            checkMark.SetResourceReference(TextBlock.ForegroundProperty, "QueueTabActiveBorder");
             nameRow.Children.Add(checkMark);
         }
 
@@ -219,7 +219,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             FontWeight   = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         };
-        nameBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        nameBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
         nameBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         nameRow.Children.Add(nameBlock);
 
@@ -229,7 +229,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             TextWrapping = TextWrapping.Wrap,
             Margin       = new Thickness(0, 2, 0, 0),
         };
-        descBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+        descBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeNormal");
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
         var panel = new StackPanel { Margin = new Thickness(2), Tag = tour };
