@@ -543,7 +543,17 @@ internal sealed class SquadInstallerService {
                 process.BeginErrorReadLine();
 
                 await process.WaitForExitAsync().ConfigureAwait(false);
-                await Task.WhenAll(outputClosed.Task, errorClosed.Task).ConfigureAwait(false);
+
+                // Wait for the I/O pipes to drain, but cap at 5 seconds.
+                // On Windows, npm can leave child handles open that prevent
+                // the pipe-closed callbacks from ever firing.
+                using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await Task.WhenAll(outputClosed.Task, errorClosed.Task)
+                        .WaitAsync(cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { /* pipe drain timed out — proceed with output collected so far */ }
 
                 var success = process.ExitCode == 0;
                 var message = success
