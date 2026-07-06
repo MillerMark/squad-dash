@@ -4733,6 +4733,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     var commitInfo = PushNotificationService.ExtractGitCommitInfo(allToolOutputs, rawResponse);
                     if (commitInfo is not null)
                     {
+                        var readAgentOutputs = doneCurrentTurn?.ToolEntries
+                            .Where(entry => string.Equals(entry.Descriptor.ToolName, "read_agent", StringComparison.OrdinalIgnoreCase))
+                            .Select(entry => entry.OutputText)
+                            ?? Enumerable.Empty<string?>();
+                        var visibleCoordinatorResponse = GetSanitizedTurnResponseText(doneCurrentTurn);
+                        var missingDelegatedNote = PushNotificationService.BuildMissingDelegatedCommitCompletionNote(
+                            commitInfo,
+                            visibleCoordinatorResponse,
+                            readAgentOutputs);
+                        if (missingDelegatedNote is not null)
+                        {
+                            AppendText(CoordinatorThread, "\n\n" + missingDelegatedNote);
+                            FinalizeCurrentTurnResponse();
+                            _conversationManager.SaveCurrentTurnToConversation(
+                                DateTimeOffset.Now,
+                                "bridge-done-generated-delegated-commit-note");
+                            rawResponse = doneCurrentTurn?.ResponseTextBuilder.ToString();
+                            SquadDashTrace.Write(
+                                "Agents",
+                                $"DelegatedCommitNote.Appended sha={commitInfo.CommitSha} responseChars={rawResponse?.Length ?? 0}");
+                        }
+
                         notifMessage += $" [{commitInfo.CommitSha}]";
                         var commitUrl = _workspaceGitHubUrl is not null
                             ? $"{_workspaceGitHubUrl}/commit/{commitInfo.CommitSha}"
@@ -13823,7 +13845,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ownerWindow:             this,
             elementLocator:          name => _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
                                              : VisualTreeSearch.FindByName(this, name),
-            savePreTourLayout:       () => _dockingService?.SaveLayout(_currentWorkspace?.FolderPath ?? string.Empty),
+            savePreTourLayout:       () => { if (!string.IsNullOrEmpty(_currentWorkspace?.FolderPath)) _dockingService?.SaveLayout(_currentWorkspace.FolderPath); },
             restorePreTourLayout:    () =>
             {
                 // Layout restore: reload the active layout from workspace
@@ -34716,9 +34738,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"INBOX_SAVE: rawResponse len={rawResponse.Length} hasBlock={hasBlock}");
 
-        // The inbox parser regex requires the INBOX_MESSAGE_JSON block to be at the very end of the
-        // text (\s*$). Strip all known structured tail blocks that the model may append after it:
-        // <system_notification> tags, QUICK_REPLIES_JSON, and HOST_COMMAND_JSON.
+        // Strip known structured wrapper blocks before parsing. The inbox parser itself is
+        // tolerant of visible prose after the JSON payload and reports that prose separately.
         var responseForParsing = ToolTranscriptFormatter.StripSystemNotifications(rawResponse);
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"INBOX_SAVE: after StripSystemNotifications len={responseForParsing.Length} hasBlock={responseForParsing.Contains("INBOX_MESSAGE_JSON", StringComparison.Ordinal)}");
@@ -34736,7 +34757,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             responseForParsing = withoutHostCommands;
         }
 
-        if (!InboxMessageParser.TryExtract(responseForParsing, out _, out var dto) || dto is null)
+        if (!InboxMessageParser.TryExtract(responseForParsing, out var extraction) ||
+            extraction is null ||
+            extraction.Message is not { } dto)
         {
             // Log the tail of the text so we can see what the parser is seeing
             var tail = responseForParsing.Length > 500
@@ -34826,6 +34849,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return degradedMessage.Id;
             }
             return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(extraction.TrailingText))
+        {
+            var trailingSnippet = extraction.TrailingText.Length > 500
+                ? extraction.TrailingText[^500..]
+                : extraction.TrailingText;
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"INBOX_SAVE: trailing visible text after INBOX_MESSAGE_JSON preserved — chars={extraction.TrailingText.Length} tail=«{trailingSnippet}»");
         }
 
         if (string.IsNullOrWhiteSpace(dto.Subject))
