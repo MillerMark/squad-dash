@@ -35023,6 +35023,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (isManual) _codeHealthPanel?.ShowTransientStatus("No code-health.md found in this workspace.");
             return;
         }
+        if (!config.Configured) {
+            if (isManual) _codeHealthPanel?.ShowTransientStatus("Code health is not configured. Set configured: true in code-health.md to activate.");
+            return;
+        }
         if (!isManual && !config.EnabledOnIdle) return;
         if (config.Tasks is not { Count: > 0 } tasks || !tasks.Any(task => task.Enabled))
         {
