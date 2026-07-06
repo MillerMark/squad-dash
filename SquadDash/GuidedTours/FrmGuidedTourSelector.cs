@@ -19,6 +19,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     private readonly ListBox            _tourList;
     private readonly TextBox            _filterBox;
     private readonly Button             _startButton;
+    private System.Windows.Controls.Image _mascotImage = null!;
 
     /// <summary>
     /// The tour selected by the user, or <c>null</c> if the dialog was cancelled.
@@ -63,6 +64,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             bmp.EndInit();
             mascotImage.Source = bmp;
         }
+        _mascotImage = mascotImage;
 
         // ── Filter box (with inline placeholder) ─────────────────────────────
         _filterBox = new TextBox
@@ -239,7 +241,24 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
                 { _tourList.SelectedIndex = i; break; }
             }
         }
+        RefreshMascot();
         UpdateStartButton();
+    }
+
+    private void RefreshMascot()
+    {
+        int completedCount = _allTours.Count(t => GuidedTourStateStore.Shared.IsCompleted(t.Id));
+        int mascotIndex    = (completedCount % 8) + 1;
+        string mascotPath  = System.IO.Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory,
+            "Assets", "GuidedTours", "Mascots", $"Mascot{mascotIndex}.png");
+        if (!System.IO.File.Exists(mascotPath)) return;
+        var bmp = new System.Windows.Media.Imaging.BitmapImage();
+        bmp.BeginInit();
+        bmp.UriSource   = new Uri(mascotPath, UriKind.Absolute);
+        bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+        bmp.EndInit();
+        _mascotImage.Source = bmp;
     }
 
     private void PopulateList(List<GuidedTour> tours)
