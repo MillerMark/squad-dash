@@ -27123,6 +27123,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SetIsEnabledIfChanged(IssueSecondaryActionButton, true);
         SetIsEnabledIfChanged(IssuePrimaryLinkButton, true);
         SetIsEnabledIfChanged(IssueSecondaryLinkButton, true);
+
+        // Help menu: tour items require Squad to be installed
+        bool squadInstalled = _currentInstallationState?.IsSquadInstalledForActiveDirectory == true;
+        SetIsEnabledIfChanged(WelcomeMenuItem,         squadInstalled);
+        SetIsEnabledIfChanged(StartGuidedTourMenuItem, squadInstalled);
+        SetIsEnabledIfChanged(MoreGuidedToursMenuItem, squadInstalled);
     }
 
     private static void SetIsEnabledIfChanged(UIElement element, bool isEnabled)
