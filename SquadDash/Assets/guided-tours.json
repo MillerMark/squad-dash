@@ -5,25 +5,221 @@
     "description": "A quick walkthrough of the main interface panels.",
     "steps": [
       {
-        "title": "The Prompt Box",
-        "markdownText": "**The Prompt Box** is where you type your prompts to the AI agents.\n\nType your instructions here, then press **Enter** (or click the **Run** button) to send them to the active agent.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None"
+        "title": "Welcome to the Guided Tour",
+        "markdownText": "Meet SquadDash...\r\nStart by clicking the **Next** button below.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       },
       {
-        "title": "The Run Button",
-        "markdownText": "**The Run Button** dispatches your prompt to the active agent.\n\nYou can also press **Enter** in the prompt box, or use the queue to batch multiple prompts.",
+        "title": "Agent Section",
+        "markdownText": "Active agents are here.",
+        "targetControlId": "ActiveAgentItemsControl",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Inactive Agents",
+        "markdownText": "The rest of the team is here.",
+        "targetControlId": "InactiveAgentsScrollViewer",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.038011695906432746,
+        "targetOffsetY": 0.47674528156498536
+      },
+      {
+        "title": "The Prompt Box",
+        "markdownText": "Your AI prompts go here.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "TypeIntoPrompt|What is your model?|Sim"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.0594541910331384,
+        "targetOffsetY": 0.43030945419102895
+      },
+      {
+        "title": "The send button.",
+        "markdownText": "Press **Enter** or click this button to send your prompt to Squad.",
         "targetControlId": "RunButton",
         "calloutPlacement": "North",
-        "preAction": "None"
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [
+          "Remove Dummy Queue Items"
+        ],
+        "advanceTrigger": "SimulatedSend",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Transcript.",
+        "markdownText": "The **transcript** shows your prompts and agent responses.",
+        "targetControlId": "MainTranscriptBorder",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectTranscriptTurn|What is your model?|This is the guided tour (so AI model information is not available).\\nAI calls are simulated for the tour."
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.043859649122807015,
+        "targetOffsetY": 0.27675198235539844
+      },
+      {
+        "title": "Quick reply buttons",
+        "markdownText": "AI responses may include **Quick Reply Buttons**.\r\nClick (or press \u0022**[**\u0022 in an empty prompt) to send this reply back to AI.",
+        "targetControlId": "TourQuickReplyPanel",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...\\nFixing bugs.\\nDone.\\nThe bugs are fixed.\\n",
+          "InjectTranscriptTextWithReplies|What would you like to do next (simulated)?|Add Test Cases|Commit Changes"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "QuickReplySelected",
+        "targetOffsetX": 0.7846003898635477,
+        "targetOffsetY": 0.4717917649167319
       },
       {
         "title": "The Queue Tab Strip",
-        "markdownText": "**The Queue** lets you line up multiple prompts to run sequentially.\n\nClick **+** to add a new queue item, drag items to reorder them, and use the play/pause button to control execution.",
-        "targetControlId": "QueueTabStrip",
+        "markdownText": "This is the **Prompt Queue**. \r\nYou can right-click or **drag** tabs to reorder.",
+        "targetControlId": "QueueTabStrip[3]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "Add Dummy Queue Items"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.46410256410256395
+      },
+      {
+        "title": "Queue drainage",
+        "markdownText": "To edit a queued prompt, click its tab. \r\nProcessing pauses when the right-most tab is **active**.",
+        "targetControlId": "QueueTabStrip[3]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [
+          "Remove Dummy Queue Items"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.410000000000001
+      },
+      {
+        "title": "Tooling",
+        "markdownText": "Tool calls show what\u0027s happening while agents work.",
+        "targetControlId": "TourInjectedToolingBlock",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectTranscriptTurn| Can you take a look at my config file and add a new empty line to it?",
+          "InjectTranscriptTools: view:Read Config.cs:// file contents\\nline 2;powershell:Build project:Build succeeded;edit:Update Config.cs: \u002B new line added (simulated)"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Prompts navigation",
+        "markdownText": "Jump to past prompts.",
+        "targetControlId": "PromptNavUpButton",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Edit menu",
+        "markdownText": "The **Edit** menu includes commands for composing prompts and working with markdown.",
+        "targetControlId": "EditMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: EditMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.8749999999999999,
+        "targetOffsetY": 0.8138461538461548
+      },
+      {
+        "title": "Selection",
+        "markdownText": "This menu works with selections.\r\nPress **Shift**\u002B**F3** to **cycle case** in the selection below.",
+        "targetControlId": "EditSelectionMenuItem_Popup",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText|Let\u0027s create a brand new class called the data resource binder.|data resource binder",
+          "OpenMenu: EditMenuItem|EditSelectionMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Help Menu",
+        "markdownText": "You can start guided tours from inside the **Help** menu.",
+        "targetControlId": "HelpMenuItem",
         "calloutPlacement": "South",
-        "preAction": "None"
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       }
     ]
   },
@@ -34,24 +230,45 @@
     "steps": [
       {
         "title": "The Loop Panel",
-        "markdownText": "**The Loop** runs a set of prompts automatically on a schedule or file-watch trigger.\n\nConfigure your loop in `loop.md` — the Loop panel shows iteration status and lets you start, stop, or monitor progress.",
+        "markdownText": "**The Loop** runs a set of prompts automatically on a schedule or file-watch trigger.\n\nConfigure your loop in \u0060loop.md\u0060 \u2014 the Loop panel shows iteration status and lets you start, stop, or monitor progress.",
         "targetControlId": "LoopPanelBorder",
         "calloutPlacement": "East",
-        "preAction": "None"
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       },
       {
         "title": "Pausing the Queue",
-        "markdownText": "**Pause the queue** to temporarily hold all pending prompts.\n\nThis is useful when you want to review the current agent's work before allowing the next queued item to run.",
+        "markdownText": "**Pause the queue** to temporarily hold all pending prompts.\n\nThis is useful when you want to review the current agent\u0027s work before allowing the next queued item to run.",
         "targetControlId": "QueuePlayPauseButton",
         "calloutPlacement": "South",
-        "preAction": "None"
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       },
       {
         "title": "The Code Health Panel",
-        "markdownText": "**The Code Health panel** runs configured checks against your codebase and reports results.\n\nUse `code-health.md` to define which checks to run. Green = passing, red = action needed.",
+        "markdownText": "**The Code Health panel** runs configured checks against your codebase and reports results.\n\nUse \u0060code-health.md\u0060 to define which checks to run. Green = passing, red = action needed.",
         "targetControlId": "CodeHealthPanelBorder",
         "calloutPlacement": "East",
-        "preAction": "None"
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       }
     ]
   }
