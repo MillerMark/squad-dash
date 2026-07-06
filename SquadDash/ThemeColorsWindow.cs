@@ -429,7 +429,7 @@ internal sealed class ThemeColorsWindow : Window
         var copyItem = new MenuItem { Header = "Copy name" };
         copyItem.Click += (_, _) =>
         {
-            if (_listBox.SelectedItem is string key)
+            if (_listBox.SelectedItem is StackPanel row && row.Tag is string key)
                 Clipboard.SetText(key);
         };
         cm.Items.Add(copyItem);
