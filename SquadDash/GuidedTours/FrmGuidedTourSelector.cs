@@ -105,6 +105,39 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         _tourList.MouseDoubleClick  += (_, _) => CommitSelection();
         _tourList.ItemContainerStyle = BuildListItemStyle();
 
+        // ── Context menu (Mark as seen / Mark as unseen) ─────────────────────
+        var markSeenItem   = new MenuItem { Header = "Mark as seen" };
+        var markUnseenItem = new MenuItem { Header = "Mark as unseen" };
+
+        markSeenItem.Click += (_, _) =>
+        {
+            if (GetSelectedTour() is GuidedTour tour)
+            {
+                GuidedTourStateStore.Shared.MarkCompleted(tour.Id);
+                RepopulateCurrentFilter();
+            }
+        };
+        markUnseenItem.Click += (_, _) =>
+        {
+            if (GetSelectedTour() is GuidedTour tour)
+            {
+                GuidedTourStateStore.Shared.MarkUncompleted(tour.Id);
+                RepopulateCurrentFilter();
+            }
+        };
+
+        var contextMenu = new ContextMenu();
+        contextMenu.Items.Add(markSeenItem);
+        contextMenu.Items.Add(markUnseenItem);
+        contextMenu.ContextMenuOpening += (_, _) =>
+        {
+            var tour = GetSelectedTour();
+            bool completed = tour is not null && GuidedTourStateStore.Shared.IsCompleted(tour.Id);
+            markSeenItem.Visibility   = completed ? Visibility.Collapsed : Visibility.Visible;
+            markUnseenItem.Visibility = completed ? Visibility.Visible   : Visibility.Collapsed;
+        };
+        _tourList.ContextMenu = contextMenu;
+
         // ── Buttons ──────────────────────────────────────────────────────────
         _startButton = new Button
         {
@@ -182,6 +215,31 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
                 t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
                 t.Description.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         PopulateList(filtered);
+    }
+
+    private void RepopulateCurrentFilter()
+    {
+        var selectedTour = GetSelectedTour();
+        var filter = _filterBox.Text.Trim();
+        var filtered = string.IsNullOrEmpty(filter)
+            ? _allTours
+            : _allTours.Where(t =>
+                t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                t.Description.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+        // Use live store state so checkmarks reflect the just-toggled value
+        _tourList.Items.Clear();
+        foreach (var tour in filtered)
+            _tourList.Items.Add(BuildTourItem(tour, GuidedTourStateStore.Shared.IsCompleted(tour.Id)));
+        // Restore selection
+        if (selectedTour is not null)
+        {
+            for (int i = 0; i < _tourList.Items.Count; i++)
+            {
+                if (_tourList.Items[i] is System.Windows.Controls.StackPanel p && p.Tag is GuidedTour t && t.Id == selectedTour.Id)
+                { _tourList.SelectedIndex = i; break; }
+            }
+        }
+        UpdateStartButton();
     }
 
     private void PopulateList(List<GuidedTour> tours)

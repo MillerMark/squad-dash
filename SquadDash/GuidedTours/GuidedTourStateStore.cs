@@ -50,6 +50,13 @@ internal sealed class GuidedTourStateStore
             Flush();
     }
 
+    /// <summary>Removes the completed mark for the given tour ID and persists the change.</summary>
+    public void MarkUncompleted(string tourId)
+    {
+        if (_state.CompletedTourIds.Remove(tourId))
+            Flush();
+    }
+
     /// <summary>Whether the user clicked "Skip for now" on the first-run welcome screen.</summary>
     public bool SkippedFirstRun
     {
