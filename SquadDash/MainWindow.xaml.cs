@@ -13374,7 +13374,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             RefreshInstallationState();
 
-            if (result.Success && _currentInstallationState?.IsSquadInstalledForActiveDirectory == true)
+            if (_currentInstallationState?.IsSquadInstalledForActiveDirectory == true)
             {
                 SetInstallUiState(isInstalling: false, "Squad installed successfully. Starting the first Squad turn...");
                 RefreshAgentCards();
@@ -13384,6 +13384,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
+            // Install process reported failure and files are still missing
             var failureMessage = result.Success
                 ? "Squad setup completed, but the local Squad command is still unavailable."
                 : result.Message;
