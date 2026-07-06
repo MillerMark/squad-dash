@@ -56,6 +56,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private bool   _listDragInProgress;
     private int    _listDragSourceIndex = -1;
 
+    // Drag insertion-line overlay
+    private Grid      _stepListBoxHost  = null!;
+    private Canvas    _dragInsertCanvas = null!;
+    private Rectangle _dragInsertLine   = null!;
+
     // Clipboard copy/cut/paste
     private static readonly System.Text.Json.JsonSerializerOptions s_clipboardJsonOptions = new() { WriteIndented = false };
     private const string ClipboardFormatMarker = "SquadDashTourSteps/v1:";
@@ -380,6 +385,26 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepListBox.SelectedIndex = stepIndex;
         _stepListBox.SelectionChanged += OnStepListSelectionChanged;
 
+        // ── Drag insertion-line overlay ──────────────────────────────────────
+
+        _dragInsertLine = new Rectangle
+        {
+            Height           = 2,
+            IsHitTestVisible = false,
+        };
+        _dragInsertLine.SetResourceReference(Rectangle.FillProperty, "AccentText");
+
+        _dragInsertCanvas = new Canvas
+        {
+            IsHitTestVisible = false,
+            Visibility       = Visibility.Collapsed,
+        };
+        _dragInsertCanvas.Children.Add(_dragInsertLine);
+
+        _stepListBoxHost = new Grid();
+        _stepListBoxHost.Children.Add(_stepListBox);
+        _stepListBoxHost.Children.Add(_dragInsertCanvas);
+
         // ── Drag-to-reorder ──────────────────────────────────────────────────
 
         // Reset drag state on every mouse-down in the window (tunnel fires root→target).
@@ -427,12 +452,23 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         };
 
         _stepListBox.AllowDrop = true;
+        _stepListBox.DragOver += (_, e) =>
+        {
+            if (_listDragSourceIndex < 0) { HideDragInsertLine(); return; }
+            var pos = e.GetPosition(_stepListBox);
+            int insertIndex = GetDropInsertIndex(_stepListBox, pos);
+            ShowDragInsertLine(insertIndex);
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        };
+        _stepListBox.DragLeave += (_, _) => HideDragInsertLine();
         _stepListBox.Drop += (_, e) =>
         {
+            HideDragInsertLine();
             if (_listDragSourceIndex < 0) return;
             var pos = e.GetPosition(_stepListBox);
-            int destIndex = GetListBoxItemIndexAtPoint(_stepListBox, pos);
-            if (destIndex < 0) destIndex = _stepListBox.Items.Count - 1;
+            int destIndex = GetDropInsertIndex(_stepListBox, pos);
+            destIndex = Math.Clamp(destIndex, 0, _activeTour.Steps.Count - 1);
             if (destIndex == _listDragSourceIndex) return;
 
             var step = _activeTour.Steps[_listDragSourceIndex];
@@ -487,7 +523,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var sidebarPanel = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(listSidebarButtons, Dock.Top);
         sidebarPanel.Children.Add(listSidebarButtons);
-        sidebarPanel.Children.Add(_stepListBox);
+        sidebarPanel.Children.Add(_stepListBoxHost);
 
         _multiSelectLabel = new TextBlock
         {
@@ -746,6 +782,51 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
         }
         return -1;
+    }
+
+    private static int GetDropInsertIndex(ListBox listBox, Point point)
+    {
+        for (int i = 0; i < listBox.Items.Count; i++)
+        {
+            if (listBox.ItemContainerGenerator.ContainerFromIndex(i) is not ListBoxItem item) continue;
+            var itemPos = item.TranslatePoint(new Point(0, 0), listBox);
+            var midY = itemPos.Y + item.ActualHeight / 2.0;
+            if (point.Y < midY)
+                return i;
+        }
+        return listBox.Items.Count;
+    }
+
+    private void ShowDragInsertLine(int insertIndex)
+    {
+        double y;
+        if (insertIndex < _stepListBox.Items.Count &&
+            _stepListBox.ItemContainerGenerator.ContainerFromIndex(insertIndex) is ListBoxItem itemAt)
+        {
+            var pos = itemAt.TranslatePoint(new Point(0, 0), _stepListBox);
+            y = pos.Y;
+        }
+        else if (insertIndex > 0 &&
+                 _stepListBox.ItemContainerGenerator.ContainerFromIndex(insertIndex - 1) is ListBoxItem itemBefore)
+        {
+            var pos = itemBefore.TranslatePoint(new Point(0, 0), _stepListBox);
+            y = pos.Y + itemBefore.ActualHeight;
+        }
+        else
+        {
+            y = 0;
+        }
+
+        Canvas.SetTop(_dragInsertLine, y - 1);
+        Canvas.SetLeft(_dragInsertLine, 0);
+        _dragInsertLine.Width = _stepListBox.ActualWidth;
+
+        _dragInsertCanvas.Visibility = Visibility.Visible;
+    }
+
+    private void HideDragInsertLine()
+    {
+        _dragInsertCanvas.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
