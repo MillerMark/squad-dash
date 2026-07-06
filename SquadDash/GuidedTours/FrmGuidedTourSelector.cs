@@ -209,7 +209,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
                 VerticalAlignment = VerticalAlignment.Center,
             };
             checkMark.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
-            checkMark.SetResourceReference(TextBlock.ForegroundProperty, "QueueTabActiveBorder");
+            checkMark.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
             nameRow.Children.Add(checkMark);
         }
 
