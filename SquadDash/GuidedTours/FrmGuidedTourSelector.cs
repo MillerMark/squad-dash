@@ -138,8 +138,6 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         layout.Children.Add(buttonRow);
         layout.Children.Add(_tourList);
 
-        contentArea.Child = layout;
-
         // Wrap the tour list in a two-column grid with the mascot on the left
         var outerGrid = new Grid();
         outerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(220, GridUnitType.Pixel) });
