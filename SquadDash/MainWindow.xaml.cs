@@ -13367,10 +13367,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             SetInstallUiState(isInstalling: true, "Checking prerequisites...");
-            var progress = new Progress<string>(text => SetInstallStatus(text));
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var lastProgressMessage = "Checking prerequisites...";
+            var progress = new Progress<string>(text =>
+            {
+                lastProgressMessage = text;
+                SetInstallStatus($"{text} ({(int)sw.Elapsed.TotalSeconds}s)");
+            });
+
+            var elapsedTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            elapsedTimer.Tick += (_, _) => SetInstallStatus($"{lastProgressMessage} ({(int)sw.Elapsed.TotalSeconds}s)");
+            elapsedTimer.Start();
 
             var result = await _installerService
                 .InstallAsync(_currentWorkspace.FolderPath, progress);
+
+            elapsedTimer.Stop();
+            sw.Stop();
 
             RefreshInstallationState();
 
@@ -26845,7 +26858,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         WorkspaceIssueTitleTextBlock.Text = issue.Title;
         SetInstallStatus(issue.Message);
         WorkspaceIssueDetailTextBlock.Text = issue.DetailText ?? string.Empty;
-        WorkspaceIssueDetailTextBlock.Visibility = string.IsNullOrWhiteSpace(issue.DetailText)
+        WorkspaceIssueDetailTextBlock.Visibility = string.IsNullOrWhiteSpace(issue.DetailText) || _installSquadButtonPressed || _isInstallingSquad
             ? Visibility.Collapsed
             : Visibility.Visible;
 
