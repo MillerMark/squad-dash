@@ -52,7 +52,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             Stretch             = System.Windows.Media.Stretch.Uniform,
             VerticalAlignment   = VerticalAlignment.Bottom,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin              = new Thickness(8, 8, 0, 0),
+            Margin              = new Thickness(16, 16, 16, 16),
         };
         if (System.IO.File.Exists(mascotPath))
         {
