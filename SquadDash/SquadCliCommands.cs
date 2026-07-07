@@ -6,8 +6,10 @@ internal static class SquadCliCommands {
     public static SquadCliCommandDefinition InstallLocalCli { get; } =
         new("cmd.exe", "/c npm install --save-dev @bradygaster/squad-cli", "Install local Squad CLI");
 
+    // Use node + local path (same pattern as StartWatch) to avoid npx prompting
+    // "Need to install? (y)" which blocks forever when stdin is not a real terminal.
     public static SquadCliCommandDefinition Init { get; } =
-        new("cmd.exe", "/c npx @bradygaster/squad-cli init", "Install Squad");
+        new("node", $"\"{LocalCliEntryPath}\" init", "Install Squad");
 
     public static SquadCliCommandDefinition Doctor { get; } =
         new("cmd.exe", "/c npx @bradygaster/squad-cli doctor", "Run Squad Doctor");

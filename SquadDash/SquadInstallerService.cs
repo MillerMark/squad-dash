@@ -500,6 +500,7 @@ internal sealed class SquadInstallerService {
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
+                        RedirectStandardInput = true,  // prevent CLI prompts from blocking
                         CreateNoWindow = true,
                         StandardOutputEncoding = Encoding.UTF8,
                         StandardErrorEncoding = Encoding.UTF8
@@ -541,8 +542,22 @@ internal sealed class SquadInstallerService {
 
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
+                process.StandardInput.Close(); // signal EOF so CLI never waits on interactive prompts
 
-                await process.WaitForExitAsync().ConfigureAwait(false);
+                // Cap the total process wait at 3 minutes to prevent an indefinite hang.
+                using var processCts = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(3));
+                try {
+                    await process.WaitForExitAsync(processCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) {
+                    try { process.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+                    return new SquadCommandResult(
+                        false,
+                        null,
+                        stdout.ToString(),
+                        stderr.ToString(),
+                        $"{command.DisplayName} timed out after 3 minutes.");
+                }
 
                 // Wait for the I/O pipes to drain, but cap at 5 seconds.
                 // On Windows, npm can leave child handles open that prevent
