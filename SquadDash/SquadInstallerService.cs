@@ -183,14 +183,16 @@ internal sealed class SquadInstallerService {
             Directory.CreateDirectory(universesDir);
 
             var squadDashMd = LoadEmbeddedSquadDashMd();
-            EnsureUniverseMarkdown(universesDir, "squaddash.md", squadDashMd);
-            EnsureUniverseMarkdown(universesDir, "squaddash-profiles.md", LoadEmbeddedSquadDashProfilesMd());
+            // Always overwrite SquadDash-owned roster files so new agents are visible
+            // after an app update without requiring a fresh workspace install.
+            UpdateUniverseMarkdown(universesDir, "squaddash.md", squadDashMd);
+            UpdateUniverseMarkdown(universesDir, "squaddash-profiles.md", LoadEmbeddedSquadDashProfilesMd());
 
             // Also write to .squad/templates/universes/ so the agent init flow can
             // find the file at the standard templates path without a ⚠ warning.
             var templateUniversesDir = Path.Combine(squadDir, "templates", "universes");
             Directory.CreateDirectory(templateUniversesDir);
-            EnsureUniverseMarkdown(templateUniversesDir, "squaddash.md", squadDashMd);
+            UpdateUniverseMarkdown(templateUniversesDir, "squaddash.md", squadDashMd);
 
             EnsureLoopFiles(squadDir);
             EnsureCodeHealthFile(squadDir);
@@ -242,6 +244,12 @@ internal sealed class SquadInstallerService {
         if (File.Exists(destinationPath) || content is null)
             return;
 
+        File.WriteAllText(destinationPath, content, Encoding.UTF8);
+    }
+
+    private static void UpdateUniverseMarkdown(string universesDir, string fileName, string? content) {
+        if (content is null) return;
+        var destinationPath = Path.Combine(universesDir, fileName);
         File.WriteAllText(destinationPath, content, Encoding.UTF8);
     }
 
