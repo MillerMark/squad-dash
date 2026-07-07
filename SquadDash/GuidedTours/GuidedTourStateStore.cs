@@ -84,6 +84,16 @@ internal sealed class GuidedTourStateStore
         Flush();
     }
 
+    /// <summary>
+    /// Resets all tour state (Offered, SkippedFirstRun, CompletedTourIds, TourNavAdvanceCount)
+    /// and flushes to disk. Intended for developer use only.
+    /// </summary>
+    public void Reset()
+    {
+        _state = new GuidedTourState();
+        Flush();
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private GuidedTourState Load()

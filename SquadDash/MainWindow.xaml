@@ -922,6 +922,8 @@
                               Click="EditGuidedToursMenuItem_Click" />
                     <MenuItem Header="_Preview Current Tour Step"
                               Click="PreviewCurrentTourStepMenuItem_Click" />
+                    <MenuItem Header="Clear Guided Tour State"
+                              Click="ClearGuidedTourStateMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="HelpMenuItem"
                           Header="_Help"

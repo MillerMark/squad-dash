@@ -13822,6 +13822,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(MoreGuidedToursMenuItem_Click), ex); }
     }
 
+    private void ClearGuidedTourStateMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try { GuidedTourStateStore.Shared.Reset(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ClearGuidedTourStateMenuItem_Click), ex); }
+    }
+
     private void DocumentationMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try { Process.Start(new ProcessStartInfo("https://millermark.github.io/squad-dash/") { UseShellExecute = true }); }
@@ -14679,8 +14685,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void OfferGuidedTourOnFirstRun()
     {
         if (GuidedTourStateStore.Shared.Offered) return;
+        if (!WorkspaceHasRealTeamMembers()) return;
         GuidedTourStateStore.Shared.Offered = true;
         ShowWelcomeSplash();
+    }
+
+    private bool WorkspaceHasRealTeamMembers()
+    {
+        if (_currentWorkspace is null) return false;
+        try
+        {
+            var members = new SquadTeamRosterLoader().Load(_currentWorkspace.FolderPath);
+            return SquadTeamRosterLoader.HasNonUtilityMembers(members);
+        }
+        catch { return false; }
     }
 
     private void ShowWelcomeSplash()
@@ -28929,6 +28947,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             RefreshAgentCards();
             RefreshSidebar();
             MaybePublishRoutingIssueSystemEntry("team-files-changed");
+            _ = Dispatcher.BeginInvoke(OfferGuidedTourOnFirstRun, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
         catch (Exception ex)
         {
