@@ -111,7 +111,14 @@ internal sealed class SquadOrchestrationService {
             process.BeginErrorReadLine();
 
             await process.WaitForExitAsync().ConfigureAwait(false);
-            await Task.WhenAll(outputClosed.Task, errorClosed.Task).ConfigureAwait(false);
+
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await Task.WhenAll(outputClosed.Task, errorClosed.Task)
+                    .WaitAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { /* pipe drain timed out */ }
 
             var success = process.ExitCode == 0;
             return new SquadCommandResult(

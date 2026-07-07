@@ -381,7 +381,15 @@ internal sealed class SquadInstallerServiceProcessRunner : ISquadCommandRunner {
             process.BeginErrorReadLine();
 
             await process.WaitForExitAsync().ConfigureAwait(false);
-            await Task.WhenAll(outputClosed.Task, errorClosed.Task).ConfigureAwait(false);
+
+            // Cap pipe-drain wait at 5 seconds — same guard as SquadInstallerService.
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await Task.WhenAll(outputClosed.Task, errorClosed.Task)
+                    .WaitAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { /* pipe drain timed out */ }
 
             var success = process.ExitCode == 0;
             var message = success
