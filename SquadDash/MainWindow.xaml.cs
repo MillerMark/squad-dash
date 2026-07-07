@@ -19373,11 +19373,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var savedEntries = _conversationManager.ConversationState.QueuedPromptEntries;
         var savedLegacy = _conversationManager.ConversationState.QueuedPrompts;
         var savedQueuePaused = _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath).QueuePaused == true;
-        // Restore _queueManuallyPaused before SyncQueuePanel() so it doesn't overwrite QueuePaused=true
-        // in the settings store. Without this, the UI calls SetQueuePaused(false) which resets the
-        // persisted value, causing RestoreDocsPanelState() to miss the paused state.
-        if (savedQueuePaused)
-            _queueManuallyPaused = true;
+        // Always sync _queueManuallyPaused to savedQueuePaused BEFORE SyncQueuePanel() so the
+        // call to SetQueuePaused(_queueManuallyPaused) inside SyncQueuePanel() persists the
+        // correct value to the settings store.  Using a conditional "set-only-when-true" would
+        // leave a stale 'true' from the previous workspace when switching to an unpaused one,
+        // corrupting the new workspace's QueuePaused setting and blocking future drain.
+        _queueManuallyPaused = savedQueuePaused;
         if (savedEntries is { Count: > 0 })
         {
             _promptQueueSeq = 0;
@@ -19441,7 +19442,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             else
             {
                 if (savedQueuePaused)
+                {
                     SquadDashTrace.Write("Queue", $"Restore: skipping drain — queue was paused at shutdown");
+                    // Re-apply the paused styling at ContextIdle so it wins over any Background-priority
+                    // tab-selection work (e.g. OnQueueTabClicked) that fires between now and idle.
+                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
+                        System.Windows.Threading.DispatcherPriority.ContextIdle);
+                }
                 else
                     _ = Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
                         System.Windows.Threading.DispatcherPriority.Background);
@@ -19504,7 +19511,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 // Auto-dispatch restored queue items once the UI is fully initialised.
                 if (savedQueuePaused)
+                {
                     SquadDashTrace.Write("Queue", $"Restore: skipping drain — queue was paused at shutdown");
+                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
+                        System.Windows.Threading.DispatcherPriority.ContextIdle);
+                }
                 else
                     _ = Dispatcher.InvokeAsync(() => _ = DrainQueueIfNeededAsync(),
                         System.Windows.Threading.DispatcherPriority.Background);
