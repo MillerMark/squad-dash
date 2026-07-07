@@ -10,10 +10,14 @@ internal sealed class SquadInstallationStateService {
         var squadFolderPath = layout?.TeamSquadFolderPath ?? Path.Combine(normalizedDirectory, ".squad");
         var teamFilePath = layout?.TeamFilePath ?? Path.Combine(squadFolderPath, "team.md");
         var packageJsonPath = Path.Combine(normalizedDirectory, "package.json");
-        var localSquadCommandPath = Path.Combine(normalizedDirectory, "node_modules", ".bin", "squad.cmd");
+        var localSquadShimPath = Path.Combine(normalizedDirectory, "node_modules", ".bin", "squad.cmd");
+        var localSquadCliEntryPath = ResolveWorkspaceRelativePath(normalizedDirectory, SquadCliCommands.LocalCliEntryPath);
+        var localSquadCommandPath = File.Exists(localSquadShimPath)
+            ? localSquadShimPath
+            : localSquadCliEntryPath;
         var workspaceInitialized = File.Exists(teamFilePath);
         var hasPackageManifest = File.Exists(packageJsonPath);
-        var hasLocalCli = File.Exists(localSquadCommandPath);
+        var hasLocalCli = File.Exists(localSquadShimPath) || File.Exists(localSquadCliEntryPath);
 
         return new SquadInstallationState(
             normalizedDirectory,
@@ -33,6 +37,11 @@ internal sealed class SquadInstallationStateService {
             layout?.ProjectKey,
             layout?.ResolutionReason);
     }
+
+    private static string ResolveWorkspaceRelativePath(string workspacePath, string relativePath) =>
+        Path.Combine(new[] { workspacePath }
+            .Concat(relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .ToArray());
 }
 
 internal sealed record SquadInstallationState(

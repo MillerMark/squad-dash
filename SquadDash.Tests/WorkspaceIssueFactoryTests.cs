@@ -255,6 +255,26 @@ internal sealed class WorkspaceIssueFactoryTests {
     }
 
     [Test]
+    public void CreateStartupIssue_WhenCliEntryExistsWithoutBinShim_DoesNotShowInstallIssue() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
+        workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
+
+        var service = new SquadInstallationStateService();
+        var state = service.GetState(workspace.RootPath);
+
+        Assume.That(state.IsSquadInstalledForActiveDirectory, Is.True);
+
+        var issue = WorkspaceIssueFactory.CreateStartupIssue(state);
+
+        Assert.That(issue is null || issue.Title.Contains("Node.js") || issue.Title.Contains("PowerShell"), Is.True);
+        if (issue is not null) {
+            Assert.That(issue.Title, Does.Not.Contain("Squad isn't installed"));
+            Assert.That(issue.Title, Does.Not.Contain("Finish installing Squad"));
+        }
+    }
+
+    [Test]
     public void CreateStartupIssue_WhenPartialInstall_ReturnsFinishInstallIssue() {
         using var workspace = new TestWorkspace();
         var state = new SquadInstallationState(

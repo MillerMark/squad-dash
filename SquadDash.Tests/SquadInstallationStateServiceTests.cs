@@ -33,6 +33,25 @@ internal sealed class SquadInstallationStateServiceTests {
     }
 
     [Test]
+    public void GetState_TreatsWorkspaceLocalCliEntryAsInstalled_WhenBinShimIsMissing() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
+        workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
+
+        var service = new SquadInstallationStateService();
+
+        var state = service.GetState(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(state.HasLocalCliCommand, Is.True);
+            Assert.That(state.IsSquadInstalledForActiveDirectory, Is.True);
+            Assert.That(
+                state.LocalSquadCommandPath,
+                Is.EqualTo(workspace.GetPath("node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js")));
+        });
+    }
+
+    [Test]
     public void GetState_DetectsPackageManifestSeparately() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile("package.json", "{}");

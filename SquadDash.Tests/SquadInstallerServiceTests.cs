@@ -66,6 +66,44 @@ internal sealed class SquadInstallerServiceTests {
     }
 
     [Test]
+    public async Task InstallAsync_WorkspaceIsInstalled_WhenLocalCliEntryExistsWithoutBinShim() {
+        using var workspace = new TestWorkspace();
+        var runner = new FakeCommandRunner((command, activeDirectory) => {
+            if (command.DisplayName.StartsWith("Locate "))
+                return Task.FromResult(Success(command.DisplayName));
+
+            if (command == SquadCliCommands.InstallLocalCli) {
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc"));
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@github", "copilot-sdk", "dist"));
+                workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
+                File.WriteAllText(
+                    Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc", "package.json"),
+                    """{ "exports": { ".": { "default": "./lib/node/main.js" } } }""");
+                File.WriteAllText(
+                    Path.Combine(activeDirectory, "node_modules", "@github", "copilot-sdk", "dist", "session.js"),
+                    "import rpc from \"vscode-jsonrpc/node\";\n");
+            }
+
+            if (command == SquadCliCommands.Init)
+                workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
+
+            return Task.FromResult(Success(command.DisplayName));
+        });
+        var service = new SquadInstallerService(runner);
+
+        var result = await service.InstallAsync(workspace.RootPath);
+        var state = new SquadInstallationStateService().GetState(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(File.Exists(workspace.GetPath("node_modules", ".bin", "squad.cmd")), Is.False);
+            Assert.That(File.Exists(workspace.GetPath("node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js")), Is.True);
+            Assert.That(state.HasLocalCliCommand, Is.True);
+            Assert.That(state.IsSquadInstalledForActiveDirectory, Is.True);
+        });
+    }
+
+    [Test]
     public async Task InstallAsync_SkipsInitWhenWorkspaceAlreadyInitialized_ButRepairsLocalCli() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Existing team");
