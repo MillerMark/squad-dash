@@ -28756,6 +28756,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private static bool HasGitRemote(string workspaceFolder)
+    {
+        try
+        {
+            var dir = workspaceFolder;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                var gitConfigPath = Path.Combine(dir, ".git", "config");
+                if (File.Exists(gitConfigPath))
+                {
+                    var config = File.ReadAllText(gitConfigPath);
+                    return config.Contains("[remote \"origin\"]", StringComparison.Ordinal)
+                        || config.Contains("[remote 'origin']", StringComparison.Ordinal);
+                }
+                dir = Path.GetDirectoryName(dir)!;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static string ReadGitBranch(string workspaceFolder)
     {
         try
@@ -28807,11 +28831,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_currentWorkspace is null)
         {
             BranchIndicatorStrip.Visibility = Visibility.Collapsed;
+            NoRepoPromptStrip.Visibility = Visibility.Collapsed;
             return;
         }
 
         var branch = ReadGitBranch(_currentWorkspace.FolderPath);
         _currentBranch = branch;
+
+        if (string.IsNullOrEmpty(branch))
+        {
+            BranchIndicatorStrip.Visibility = Visibility.Collapsed;
+            NoRepoPromptStrip.Visibility = Visibility.Visible;
+            return;
+        }
+
+        NoRepoPromptStrip.Visibility = Visibility.Collapsed;
         BranchIndicatorStrip.Visibility = Visibility.Visible;
 
         var homeBranch = _settingsSnapshot.GetHomeBranch(_currentWorkspace.FolderPath);
@@ -34205,6 +34239,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         e.Handled = true;
     }
 
+    private void NoRepoPromptStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        SetPromptTextBoxLogicalBuffer("Initialize a git repository and create an initial commit",
+            "Initialize a git repository and create an initial commit".Length, reason: "no-repo-prompt");
+        PromptTextBox.Focus();
+        e.Handled = true;
+    }
+
     private void BranchIndicatorStrip_MouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         ShowBranchContextMenu();
@@ -34219,8 +34261,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var workspaceFolder = _currentWorkspace?.FolderPath;
             if (workspaceFolder is null) return;
 
+            // No git repo — no menu to show
+            if (string.IsNullOrEmpty(branch)) return;
+
             var homeBranch = _settingsSnapshot.GetHomeBranch(workspaceFolder);
             bool isOnMain = _settingsSnapshot.IsHomeBranch(workspaceFolder, branch);
+            bool hasRemote = HasGitRemote(workspaceFolder);
 
             var menu = new ContextMenu();
             menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
@@ -34233,7 +34279,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
             menu.Items.Add(sep1);
 
-            if (!isOnMain)
+            if (!isOnMain && hasRemote)
             {
                 bool alreadyQueued = _promptQueue.Items.Any(i => i.SourceTag == "branch-indicator");
 
@@ -34322,6 +34368,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             copyItem.Click += (_, _) => SetClipboardTextWithRetry(branch);
             menu.Items.Add(copyItem);
+
+            if (!hasRemote)
+            {
+                var sep4 = new Separator();
+                sep4.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(sep4);
+
+                var createRepoItem = new MenuItem { Header = "Create GitHub repository..." };
+                createRepoItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                createRepoItem.Click += (_, _) =>
+                {
+                    SetPromptTextBoxLogicalBuffer("Create a new GitHub repository for this workspace and push the current branch",
+                        "Create a new GitHub repository for this workspace and push the current branch".Length, reason: "no-remote-prompt");
+                    PromptTextBox.Focus();
+                };
+                menu.Items.Add(createRepoItem);
+            }
 
             menu.PlacementTarget = BranchIndicatorStrip;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
