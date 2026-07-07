@@ -57,8 +57,6 @@ internal sealed class HireAgentWindow : Window {
     private bool _hasManualReplaceableChanges;
     private bool _suppressManualChangeTracking;
     private bool _suppressTabHandling;
-    private bool _advancedOptionsVisible;
-
     // ── PTT voice dictation ───────────────────────────────────────────────────
     private readonly PttTextBoxAttachment _pttAttachment;
     private TextBox? _roleEditableTextBox;
@@ -312,7 +310,7 @@ internal sealed class HireAgentWindow : Window {
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 0, 0, 16),
             Padding = new Thickness(14, 0, 14, 0),
-            Content = "Show Advanced Options"
+            Content = "Clear Fields"
         };
         _advancedOptionsButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         _advancedOptionsButton.Click += AdvancedOptionsButton_Click;
@@ -1033,7 +1031,12 @@ internal sealed class HireAgentWindow : Window {
             _selectedImagePath = option.ImagePath;
             _imagePreview.Source = option.ImageSource;
             _imageIsRoleDefault = option.ImagePath is null;
+            _bestForBox.SetBulletItems(option.BestFor);
+            _avoidBox.SetBulletItems(option.Avoid);
         });
+        if (option.BestFor.Count > 0 || option.Avoid.Count > 0) {
+            _advancedOptionsPanel.Visibility = Visibility.Visible;
+        }
         _hasManualReplaceableChanges = false;
         UpdateSelectionVisuals();
         UpdatePreviewState();
@@ -1116,17 +1119,13 @@ internal sealed class HireAgentWindow : Window {
     }
 
     private void AdvancedOptionsButton_Click(object sender, RoutedEventArgs e) {
-        _advancedOptionsVisible = !_advancedOptionsVisible;
-        UpdateAdvancedOptionsVisibility();
-    }
-
-    private void UpdateAdvancedOptionsVisibility() {
-        _advancedOptionsPanel.Visibility = _advancedOptionsVisible
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        _advancedOptionsButton.Content = _advancedOptionsVisible
-            ? "Hide Advanced Options"
-            : "Show Advanced Options";
+        RunWithoutManualChangeTracking(() => {
+            _bestForBox.SetBulletItems(null);
+            _avoidBox.SetBulletItems(null);
+            _whatIOwnBox.SetBulletItems(null);
+            _modelPreferenceBox.Clear();
+            _extraGuidanceBox.Clear();
+        });
     }
 
     private void UpdatePreviewState() {
