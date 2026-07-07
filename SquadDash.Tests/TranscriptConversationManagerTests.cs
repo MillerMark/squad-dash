@@ -312,6 +312,27 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test]
+    public void ShouldApplyPendingSessionBoundary_ExplicitClear_ReturnsFalse() {
+        var state = WorkspaceConversationState.Empty with {
+            ClearedAt = DateTimeOffset.UtcNow
+        };
+
+        Assert.That(TranscriptConversationManager.ShouldApplyPendingSessionBoundary(state), Is.False);
+    }
+
+    [Test]
+    public void ShouldApplyPendingSessionBoundary_ActiveConversation_ReturnsTrue() {
+        var state = new WorkspaceConversationState(
+            "session-1",
+            DateTimeOffset.UtcNow,
+            null,
+            Array.Empty<string>(),
+            [MakeTurn("response")]);
+
+        Assert.That(TranscriptConversationManager.ShouldApplyPendingSessionBoundary(state), Is.True);
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void UpdateQueuedPromptsState_PreventsOlderBackgroundSaveFromRestoringDequeuedItem() {
         var manager = MakeManager();

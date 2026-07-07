@@ -182,7 +182,7 @@ internal sealed class WorkspaceConversationStore {
         out ConversationRecoveryCandidate? candidate) {
         candidate = null;
 
-        if (current is not null && IsExplicitClear(current))
+        if (current is not null && HasClearedTranscriptMarker(current))
             return false;
 
         foreach (var candidatePath in EnumerateRecoveryCandidatePaths(primaryPath)) {
@@ -326,7 +326,7 @@ internal sealed class WorkspaceConversationStore {
     private static bool WouldDropDurableTranscriptContent(
         WorkspaceConversationState existing,
         WorkspaceConversationState incoming) {
-        if (IsExplicitClear(incoming))
+        if (HasClearedTranscriptMarker(incoming))
             return false;
 
         return CountDurableTranscriptTurns(existing) > 0 &&
@@ -348,6 +348,11 @@ internal sealed class WorkspaceConversationStore {
 
     private static bool IsExplicitClear(WorkspaceConversationState state) {
         return state.ClearedAt is not null && !HasMeaningfulContent(state);
+    }
+
+    private static bool HasClearedTranscriptMarker(WorkspaceConversationState state) {
+        return state.ClearedAt is not null &&
+               CountDurableTranscriptTurns(state) == 0;
     }
 
     private WorkspaceConversationState NormalizeState(WorkspaceConversationState state) {
@@ -384,6 +389,14 @@ internal sealed class WorkspaceConversationStore {
             .TakeLast(MaxAgentThreads)
             .ToArray();
 
+        var hasDurableTranscriptContent =
+            turns.Any(turn => !turn.IsSessionBoundary) ||
+            threads.Any(thread => thread.Turns.Count > 0);
+        if (state.ClearedAt is not null && !hasDurableTranscriptContent) {
+            turns = Array.Empty<TranscriptTurnRecord>();
+            threads = Array.Empty<TranscriptThreadRecord>();
+        }
+
         return new WorkspaceConversationState(
             sessionId,
             sessionUpdatedAt,
@@ -392,13 +405,8 @@ internal sealed class WorkspaceConversationStore {
             turns,
             threads,
             recentSessionIds,
-            turns.Length == 0 &&
-            threads.Length == 0 &&
-            string.IsNullOrWhiteSpace(sessionId) &&
-            recentSessionIds.Count == 0 &&
-            string.IsNullOrWhiteSpace(state.PromptDraft) &&
-            state.PromptHistory.Count == 0
-                ? state.ClearedAt?.ToUniversalTime()
+            state.ClearedAt is not null && !hasDurableTranscriptContent
+                ? state.ClearedAt.Value.ToUniversalTime()
                 : null) {
             PromptDraftCaretIndex    = state.PromptDraftCaretIndex,
             PromptDraftSelectionStart  = state.PromptDraftSelectionStart,

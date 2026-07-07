@@ -250,7 +250,7 @@ internal sealed class TranscriptConversationManager {
         // If a session-gap boundary was registered before this load, append it to the
         // turn list now — before rendering starts — so it is rendered in sequence and
         // persisted as part of the conversation history.
-        if (_pendingSessionBoundary is { } boundary) {
+        if (_pendingSessionBoundary is { } boundary && ShouldApplyPendingSessionBoundary(_conversationState)) {
             _pendingSessionBoundary = null;
             var updatedTurns = ApplyPendingSessionBoundary(_conversationState.Turns, boundary, out var replacedTailBoundary);
             _conversationState = _conversationState with {
@@ -272,6 +272,10 @@ internal sealed class TranscriptConversationManager {
                     $" appVersion={boundary.SessionBoundaryAppVersion}");
             }
             PersistConversationStateInBackground(_conversationState);
+        }
+        else if (_pendingSessionBoundary is not null) {
+            _pendingSessionBoundary = null;
+            SquadDashTrace.Write(TraceCategory.UI, "SessionGap: skipped boundary because transcript was explicitly cleared.");
         }
 
         // Reset virtual window so stale state from a previous workspace never leaks in.
@@ -350,6 +354,9 @@ internal sealed class TranscriptConversationManager {
         replacedTailBoundary = false;
         return existingTurns.Append(boundary).ToArray();
     }
+
+    internal static bool ShouldApplyPendingSessionBoundary(WorkspaceConversationState state) =>
+        state.ClearedAt is null;
 
     internal IReadOnlyList<string> GetKnownSessionIds() {
         return _conversationState.GetRecentSessionIds();

@@ -109,11 +109,17 @@ internal sealed class SquadTeamRosterLoaderTests {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/agents/ralph/charter.md", "# Ralph");
         workspace.CreateFile(".squad/agents/scribe/charter.md", "# Scribe");
+        workspace.CreateFile(".squad/agents/Rai/charter.md", "# Rai");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", "# Fact Checker");
 
         var loader = new SquadTeamRosterLoader();
         var members = loader.Load(workspace.RootPath);
 
-        Assert.That(SquadTeamRosterLoader.HasNonUtilityMembers(members), Is.False);
+        Assert.Multiple(() => {
+            Assert.That(members, Has.Count.EqualTo(4));
+            Assert.That(members.All(member => member.IsUtilityAgent), Is.True);
+            Assert.That(SquadTeamRosterLoader.HasNonUtilityMembers(members), Is.False);
+        });
     }
 
     [Test]
@@ -123,7 +129,7 @@ internal sealed class SquadTeamRosterLoaderTests {
 
         var missing = SquadTeamRosterLoader.GetMissingUtilityAgentNames(workspace.RootPath);
 
-        Assert.That(missing, Is.EqualTo(new[] { "Ralph" }));
+        Assert.That(missing, Is.EqualTo(new[] { "Ralph", "Rai", "Fact Checker" }));
     }
 
     [Test]
@@ -138,6 +144,8 @@ internal sealed class SquadTeamRosterLoaderTests {
             |------|------|---------|--------|
             | Ralph | Work Monitor | — | Monitor |
             | Scribe | Session Logger | — | Silent |
+            | Rai | RAI Reviewer | — | Silent |
+            | Fact Checker | Fact Checker | — | Silent |
             """);
 
         var missing = SquadTeamRosterLoader.GetMissingUtilityAgentNames(workspace.RootPath);

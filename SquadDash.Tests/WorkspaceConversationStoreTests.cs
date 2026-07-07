@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 
 namespace SquadDash.Tests;
 
@@ -662,6 +663,67 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void Clear_ThenDraftSave_DoesNotRecoverOldTranscriptBackup() {
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-old",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                [MakeDurableTurn()]));
+
+        var clearedAt = DateTimeOffset.UtcNow;
+        _store.Save(_workspacePath, WorkspaceConversationState.Empty with { ClearedAt = clearedAt });
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ClearedAt = clearedAt,
+                PromptDraft = "still typing"
+            });
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.Turns, Is.Empty);
+            Assert.That(loaded.ClearedAt, Is.Not.Null);
+            Assert.That(loaded.PromptDraft, Is.EqualTo("still typing"));
+            Assert.That(loaded.SessionId, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Load_ClearMarkerWithOnlySessionBoundary_DoesNotRecoverOldTranscriptBackup() {
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-old",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                [MakeDurableTurn()]));
+
+        var clearedAt = DateTimeOffset.UtcNow;
+        _store.Save(_workspacePath, WorkspaceConversationState.Empty with { ClearedAt = clearedAt });
+
+        var workspaceDirectory = _store.GetWorkspaceStateDirectory(_workspacePath);
+        var primaryPath = Path.Combine(workspaceDirectory, "conversation.json");
+        var boundaryOnlyClear = WorkspaceConversationState.Empty with {
+            ClearedAt = clearedAt,
+            Turns = [MakeBoundary()]
+        };
+        File.WriteAllText(primaryPath, JsonSerializer.Serialize(boundaryOnlyClear));
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.Turns, Is.Empty);
+            Assert.That(loaded.ClearedAt, Is.Not.Null);
+            Assert.That(loaded.SessionId, Is.Null);
+        });
+    }
+
+    [Test]
     public void Clear_ThenNewContent_OverwritesSuccessfully() {
         _store.Save(_workspacePath, WorkspaceConversationState.Empty with { ClearedAt = DateTimeOffset.UtcNow });
 
@@ -691,4 +753,16 @@ internal sealed class WorkspaceConversationStoreTests {
             "test response",
             true,
             Array.Empty<TranscriptToolRecord>());
+
+    private static TranscriptTurnRecord MakeBoundary() =>
+        new(
+            DateTimeOffset.UtcNow,
+            null,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            false,
+            Array.Empty<TranscriptToolRecord>()) {
+            IsSessionBoundary = true
+        };
 }

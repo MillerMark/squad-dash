@@ -56,6 +56,42 @@ internal sealed class SquadRoutingDocumentServiceTests {
     }
 
     [Test]
+    public void Assess_DefersPlaceholderRouting_WhenFreshInstallHasOnlyUtilityAgents() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", """
+            # Squad Team
+
+            ## Members
+
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            """);
+        workspace.CreateFile(".squad/agents/ralph/charter.md", "# Ralph");
+        workspace.CreateFile(".squad/agents/scribe/charter.md", "# Scribe");
+        workspace.CreateFile(".squad/agents/Rai/charter.md", "# Rai");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", "# Fact Checker");
+        workspace.CreateFile(".squad/routing.md", """
+            # Work Routing
+
+            ## Routing Table
+
+            | Work Type | Route To | Examples |
+            |-----------|----------|----------|
+            | {domain 1} | {Name} | {example tasks} |
+            """);
+
+        var service = new SquadRoutingDocumentService();
+
+        var assessment = service.Assess(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(assessment.Status, Is.EqualTo(SquadRoutingDocumentStatus.NotApplicable));
+            Assert.That(assessment.NeedsRepair, Is.False);
+            Assert.That(assessment.IssueFingerprint, Is.Null);
+        });
+    }
+
+    [Test]
     public void Assess_TreatsLegacyManagedMarkersAsHealthy_WhenRoutingTableIsStillValid() {
         using var workspace = new TestWorkspace();
         CreateTeam(
