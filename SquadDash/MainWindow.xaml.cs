@@ -14025,13 +14025,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         const string DummyTag = TourDummyTag;
 
-        _tourCommandRegistry.Register("Add Dummy Queue Items", () =>
+        _tourCommandRegistry.RegisterParameterized("Add Dummy Queue Items", arg =>
         {
-            for (int i = 1; i <= 3; i++)
+            // Format: "<count>"  — optional; defaults to 3.
+            // New items are numbered sequentially after any existing dummy items,
+            // e.g. if 3 already exist the next batch starts at 4.
+            int count = 3;
+            if (!string.IsNullOrWhiteSpace(arg) && int.TryParse(arg.Trim(), out var parsed) && parsed > 0)
+                count = parsed;
+
+            int existingCount = _promptQueue.Items.Count(i => i.SourceTag == DummyTag);
+            for (int i = 1; i <= count; i++)
             {
                 var dummyItem = new PromptQueueItem
                 {
-                    Text           = $"[Tour Demo Item {i}]",
+                    Text           = $"[Tour Demo Item {existingCount + i}]",
                     SequenceNumber = ++_promptQueueSeq,
                     QueueNumber    = NextQueueNumber(),
                     SourceTag      = DummyTag
