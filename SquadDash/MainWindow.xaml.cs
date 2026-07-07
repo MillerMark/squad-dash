@@ -31710,13 +31710,50 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Width = 900,
             Height = 700,
             MinWidth = 640,
-            MinHeight = 480
+            MinHeight = 480,
+            WindowStyle = WindowStyle.None,
+            ResizeMode = ResizeMode.CanResize
         };
         window.SetResourceReference(BackgroundProperty, "AppSurface");
+
+        System.Windows.Shell.WindowChrome.SetWindowChrome(window, new System.Windows.Shell.WindowChrome
+        {
+            CaptionHeight = 32,
+            ResizeBorderThickness = new Thickness(4),
+            CornerRadius = new CornerRadius(0),
+            GlassFrameThickness = new Thickness(0),
+            UseAeroCaptionButtons = false
+        });
 
         if (CanShowOwnedWindow())
             window.Owner = this;
 
+        // Custom title bar
+        var titleText = new TextBlock
+        {
+            Text = title,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+            FontWeight = FontWeights.SemiBold
+        };
+        titleText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        titleText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        var closeButton = new Button { Content = "✕", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        closeButton.SetResourceReference(FrameworkElement.StyleProperty, "PanelCloseButtonStyle");
+        System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(closeButton, true);
+        closeButton.Click += (_, _) => window.Close();
+
+        var titleBarGrid = new Grid();
+        titleBarGrid.Children.Add(titleText);
+        titleBarGrid.Children.Add(closeButton);
+
+        var titleBar = new Border { Child = titleBarGrid };
+        titleBar.SetResourceReference(Border.BackgroundProperty, "ChromeSurface");
+        System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(titleBar, true);
+        titleBar.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) window.DragMove(); };
+
+        // Content area with styled border matching panel CornerRadius
         var textBox = new TextBox
         {
             Text = content,
@@ -31726,13 +31763,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontFamily = new FontFamily("Consolas"),
-            Margin = new Thickness(12),
-            BorderThickness = new Thickness(0)
+            FontFamily = new FontFamily("Consolas")
         };
         textBox.SetResourceReference(TextBox.BackgroundProperty, "AppSurface");
         textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
-        window.Content = textBox;
+
+        var contentBorder = new Border
+        {
+            CornerRadius = new CornerRadius(16),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12),
+            Margin = new Thickness(8, 0, 8, 8),
+            Child = textBox
+        };
+        contentBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
+        contentBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+
+        // Root layout grid
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(titleBar, 0);
+        Grid.SetRow(contentBorder, 1);
+        grid.Children.Add(titleBar);
+        grid.Children.Add(contentBorder);
+
+        window.Content = grid;
 
         WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
         window.Show();
