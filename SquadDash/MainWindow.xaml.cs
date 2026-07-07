@@ -22152,8 +22152,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Using visual position avoids the timestamp-window approximation that
             // broke down whenever the active prompt happened to land below the viewport
             // top reference used by the old approach.
-            string? foundIntent = null;
-            double bestY = double.MinValue;
+            string? foundIntent    = null;
+            double  bestY          = double.MinValue;
+            string? aboveIntent    = null;   // fallback: best entry above viewport
+            double  bestAboveBottom = double.MinValue; // largest entryBottom ≤ 0
 
             foreach (var toolEntry in _agentThreadRegistry.ToolEntries.Values)
             {
@@ -22194,18 +22196,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             foundIntent = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
                         }
                     }
+                    else if (entryBottom <= 0 && entryBottom > bestAboveBottom)
+                    {
+                        // Entry is above the viewport — track the closest one to the top edge
+                        // as a fallback for when nothing is visible.
+                        bestAboveBottom = entryBottom;
+                        aboveIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                    }
                 }
                 catch { }
             }
 
-            if (!string.IsNullOrWhiteSpace(foundIntent))
+            var displayIntent = foundIntent ?? aboveIntent;
+            if (!string.IsNullOrWhiteSpace(displayIntent))
             {
-                TranscriptTitleTextBlock.Text = $"Coordinator - {foundIntent}";
-                TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(foundIntent);
+                TranscriptTitleTextBlock.Text    = $"Coordinator - {displayIntent}";
+                TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(displayIntent);
             }
             else
             {
-                TranscriptTitleTextBlock.Text = "Coordinator";
+                TranscriptTitleTextBlock.Text    = "Coordinator";
                 TranscriptTitleTextBlock.ToolTip = null;
             }
         }
@@ -22253,9 +22263,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? entry.TranscriptBox.Template?.FindName("PART_ContentHost", entry.TranscriptBox) as ScrollViewer
             : null;
 
-        string? foundIntent = null;
-        DateTimeOffset? foundTimestamp = null;
-        double bestY = double.MinValue;
+        string?         foundIntent      = null;
+        DateTimeOffset? foundTimestamp   = null;
+        double          bestY            = double.MinValue;
+        string?         aboveIntent      = null;
+        DateTimeOffset? aboveTimestamp   = null;
+        double          bestAboveBottom  = double.MinValue;
 
         foreach (var toolEntry in _agentThreadRegistry.ToolEntries.Values)
         {
@@ -22290,10 +22303,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         if (pos.Y > bestY)
                         {
-                            bestY = pos.Y;
-                            foundIntent = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                            bestY          = pos.Y;
+                            foundIntent    = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
                             foundTimestamp = toolEntry.StartedAt;
                         }
+                    }
+                    else if (entryBottom <= 0 && entryBottom > bestAboveBottom)
+                    {
+                        bestAboveBottom = entryBottom;
+                        aboveIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                        aboveTimestamp  = toolEntry.StartedAt;
                     }
                 }
                 else
@@ -22309,7 +22328,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             catch { }
         }
 
-        return (foundIntent, foundTimestamp);
+        return (foundIntent ?? aboveIntent, foundTimestamp ?? aboveTimestamp);
     }
 
     private void RestartAgentIntentDebounce(TranscriptThreadState thread)
