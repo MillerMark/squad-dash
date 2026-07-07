@@ -34245,8 +34245,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void NoRepoPromptStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        _ = _pec.ExecutePromptAsync("Initialize a git repository and create an initial commit",
-            addToHistory: true, clearPromptBox: true);
+        const string prompt = "Initialize a git repository and create an initial commit";
+        if (_isPromptRunning || IsNativeLoopRunning)
+        {
+            _promptQueue.EnqueueAtFront(prompt, ++_promptQueueSeq, sourceTag: "branch-indicator");
+            _promptQueue.RenumberSequentially();
+            SyncQueuePanel();
+            _ = DrainQueueIfNeededAsync();
+        }
+        else
+        {
+            _ = _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
+        }
         e.Handled = true;
     }
 
@@ -34382,8 +34392,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 createRepoItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 createRepoItem.Click += (_, _) =>
                 {
-                    _ = _pec.ExecutePromptAsync("Create a new GitHub repository for this workspace and push the current branch",
-                        addToHistory: true, clearPromptBox: true);
+                    const string prompt = "Create a new GitHub repository for this workspace and push the current branch";
+                    if (_isPromptRunning || IsNativeLoopRunning)
+                    {
+                        _promptQueue.EnqueueAtFront(prompt, ++_promptQueueSeq, sourceTag: "branch-indicator");
+                        _promptQueue.RenumberSequentially();
+                        SyncQueuePanel();
+                        _ = DrainQueueIfNeededAsync();
+                    }
+                    else
+                    {
+                        _ = _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
+                    }
                 };
                 menu.Items.Add(createRepoItem);
             }
