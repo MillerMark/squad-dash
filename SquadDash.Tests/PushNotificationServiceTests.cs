@@ -418,6 +418,48 @@ internal sealed class PushNotificationServiceTests {
         Assert.That(result!.FeatureGroup, Is.EqualTo("Approval Categorization"));
     }
 
+    [Test]
+    public void BuildMissingDelegatedCommitCompletionNote_ReadAgentReportedCommitAndCoordinatorOmittedSha_ReturnsNote() {
+        var commitInfo = new GitCommitInfo("35f5087", "feat: multi-select + copy/cut/paste in Guided Tour Step Editor");
+        const string coordinatorResponse = "Lyra is implementing multi-select + copy/cut/paste. Here's the auto-save spec for your inbox:";
+        const string readAgentOutput = "Build ✅ · Tests ✅ (2653 passed) · Committed as `35f5087`.\n\n(Full response provided to agent)";
+
+        var note = PushNotificationService.BuildMissingDelegatedCommitCompletionNote(
+            commitInfo,
+            coordinatorResponse,
+            [readAgentOutput]);
+
+        Assert.That(note, Is.Not.Null);
+        Assert.That(note!, Does.Contain("35f5087"));
+        Assert.That(note, Does.Contain("delegated agent"));
+    }
+
+    [Test]
+    public void BuildMissingDelegatedCommitCompletionNote_CoordinatorAlreadyMentionedSha_ReturnsNull() {
+        var commitInfo = new GitCommitInfo("35f5087", null);
+        const string coordinatorResponse = "Build passed and committed as `35f5087`.";
+        const string readAgentOutput = "Build passed. Tests passed. Committed as `35f5087`.";
+
+        var note = PushNotificationService.BuildMissingDelegatedCommitCompletionNote(
+            commitInfo,
+            coordinatorResponse,
+            [readAgentOutput]);
+
+        Assert.That(note, Is.Null);
+    }
+
+    [Test]
+    public void BuildMissingDelegatedCommitCompletionNote_NoReadAgentCompletion_ReturnsNull() {
+        var commitInfo = new GitCommitInfo("35f5087", null);
+
+        var note = PushNotificationService.BuildMissingDelegatedCommitCompletionNote(
+            commitInfo,
+            "Done.",
+            ["Some unrelated tool output"]);
+
+        Assert.That(note, Is.Null);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static TranscriptToolRecord MakeTool(string? outputText) =>

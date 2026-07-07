@@ -4,10 +4,13 @@ using System.Text.RegularExpressions;
 namespace SquadDash;
 
 internal static partial class HostCommandParser {
-    [GeneratedRegex(
-        @"(?s)^(?<body>.*?)(?:\n|^)\s*HOST_COMMAND_JSON:\s*(?<json>\[[\s\S]*\])\s*$",
-        RegexOptions.CultureInvariant)]
-    private static partial Regex HostCommandJsonRegex();
+    private const string Sentinel = "HOST_COMMAND_JSON:";
+
+    [GeneratedRegex(@"""command""\s*:\s*""organize_approvals""", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex OrganizeApprovalsCommandRegex();
+
+    [GeneratedRegex(@"""assignments""\s*:\s*""\s*\[", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex QuotedAssignmentsArrayPrefixRegex();
 
     internal static bool TryExtract(
         string text,
@@ -20,13 +23,18 @@ internal static partial class HostCommandParser {
             return false;
 
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var sentinelIdx = normalized.IndexOf(Sentinel, StringComparison.Ordinal);
+        if (sentinelIdx < 0)
+            return false;
+        if (sentinelIdx != normalized.LastIndexOf(Sentinel, StringComparison.Ordinal))
+            return false;
 
-        var match = HostCommandJsonRegex().Match(normalized);
-        if (!match.Success)
+        var json = normalized[(sentinelIdx + Sentinel.Length)..].Trim();
+        if (!json.StartsWith("[", StringComparison.Ordinal))
             return false;
 
         try {
-            using var document = JsonDocument.Parse(match.Groups["json"].Value);
+            using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Array)
                 return false;
 
@@ -42,10 +50,14 @@ internal static partial class HostCommandParser {
                 return false;
 
             commands = parsed;
-            body = match.Groups["body"].Value.TrimEnd();
+            body = normalized[..sentinelIdx].TrimEnd();
             return true;
         }
         catch (JsonException) {
+            if (TryParseMalformedOrganizeApprovals(json, out commands)) {
+                body = normalized[..sentinelIdx].TrimEnd();
+                return true;
+            }
             return false;
         }
     }
@@ -69,11 +81,94 @@ internal static partial class HostCommandParser {
                     if (val is not null)
                         dict[param.Name] = val;
                 }
+                else if (param.Value.ValueKind is JsonValueKind.Array or JsonValueKind.Object or
+                         JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False) {
+                    dict[param.Name] = param.Value.GetRawText();
+                }
             }
             if (dict.Count > 0)
                 parameters = dict;
         }
 
         return new HostCommandInvocation(command.Trim(), parameters);
+    }
+
+    private static bool TryParseMalformedOrganizeApprovals(string json, out HostCommandInvocation[] commands) {
+        commands = Array.Empty<HostCommandInvocation>();
+
+        if (!OrganizeApprovalsCommandRegex().IsMatch(json))
+            return false;
+
+        var prefixMatch = QuotedAssignmentsArrayPrefixRegex().Match(json);
+        if (!prefixMatch.Success)
+            return false;
+
+        var arrayStart = json.IndexOf('[', prefixMatch.Index);
+        if (arrayStart < 0 || !TryFindJsonArrayEnd(json, arrayStart, out var arrayEnd))
+            return false;
+
+        var assignmentsJson = json[arrayStart..(arrayEnd + 1)];
+        try {
+            using var document = JsonDocument.Parse(assignmentsJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                return false;
+        }
+        catch (JsonException) {
+            return false;
+        }
+
+        commands = [
+            new HostCommandInvocation(
+                "organize_approvals",
+                new Dictionary<string, string>(StringComparer.Ordinal) {
+                    ["assignments"] = assignmentsJson
+                })
+        ];
+        return true;
+    }
+
+    private static bool TryFindJsonArrayEnd(string text, int arrayStart, out int arrayEnd) {
+        arrayEnd = -1;
+        var depth = 0;
+        var inString = false;
+        var escaping = false;
+
+        for (var i = arrayStart; i < text.Length; i++) {
+            var ch = text[i];
+            if (inString) {
+                if (escaping) {
+                    escaping = false;
+                    continue;
+                }
+                if (ch == '\\') {
+                    escaping = true;
+                    continue;
+                }
+                if (ch == '"')
+                    inString = false;
+                continue;
+            }
+
+            if (ch == '"') {
+                inString = true;
+                continue;
+            }
+            if (ch == '[') {
+                depth++;
+                continue;
+            }
+            if (ch != ']')
+                continue;
+
+            depth--;
+            if (depth == 0) {
+                arrayEnd = i;
+                return true;
+            }
+            if (depth < 0)
+                return false;
+        }
+
+        return false;
     }
 }

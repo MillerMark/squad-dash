@@ -668,6 +668,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private InteractiveControlState? _lastInteractiveControlState;
     private bool _lastCanAbortBackgroundTask;
     private string? _workspaceGitHubUrl;
+    private long _installationStateRefreshVersion;
     private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
     private const int PttMaxTapHoldMs = 250;
     const int PttDoubleClickTime = 350;
@@ -676,6 +677,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string Title,
         string Summary,
         string Details);
+
+    private sealed record InstallationStateRefreshResult(
+        string? WorkspaceFolder,
+        SquadInstallationState? InstallationState,
+        SquadRoutingDocumentAssessment? RoutingAssessment,
+        WorkspaceIssuePresentation? StartupIssue);
 
     internal MainWindow(string? startupFolder = null, WorkspaceOwnershipLease? startupWorkspaceLease = null, IWorkspacePaths? workspacePaths = null, ScreenshotRefreshOptions? screenshotRefreshOptions = null, bool noWorkspaceOnStart = false, IServiceProvider? serviceProvider = null)
     {
@@ -1635,7 +1642,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             $" | gap2={PromptBorder.TranslatePoint(new System.Windows.Point(0,0), this).Y - (TranscriptPanelsGrid.TranslatePoint(new System.Windows.Point(0,0), this).Y + TranscriptPanelsGrid.ActualHeight):F0}px");
     }
 
-    private void MainWindow_Activated(object? sender, EventArgs e)
+    private async void MainWindow_Activated(object? sender, EventArgs e)
     {
         try
         {
@@ -1654,12 +1661,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
 
             _pendingPowerShellInstallRecheck = false;
-            RefreshInstallationState();
-            if (WorkspaceIssueFactory.IsPowerShellAvailable() &&
+            await RefreshInstallationStateAsync();
+            if (await Task.Run(WorkspaceIssueFactory.IsPowerShellAvailable) &&
                 WorkspaceIssueFactory.IsMissingPowerShellIssue(_runtimeIssue))
             {
                 ClearRuntimeIssue();
-                RefreshInstallationState();
+                await RefreshInstallationStateAsync();
                 SetInstallStatus("PowerShell 7 was detected. Setup looks good now.");
             }
         }
@@ -1779,7 +1786,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: complete {loadedSw.ElapsedMilliseconds}ms total.");
 
             // First-run guided tour offer (fire-and-forget after a short delay so UI is settled)
-            Dispatcher.BeginInvoke(OfferGuidedTourOnFirstRun, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            _ = Dispatcher.BeginInvoke(OfferGuidedTourOnFirstRun, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
             // Screenshot refresh mode: run the automated pass then shut down.
             if (_screenshotRefreshOptions.Mode != ScreenshotRefreshMode.None)
@@ -2163,7 +2170,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RefreshRecentFoldersMenu(_settingsSnapshot.RecentFolders);
         UpdateVoiceHintVisibility();
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: theme/UI applied {initWsSw.ElapsedMilliseconds}ms.");
-        RefreshInstallationState();
+        await RefreshInstallationStateAsync();
         RefreshDeveloperRuntimeIssuePreview();
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: installation state refreshed {initWsSw.ElapsedMilliseconds}ms.");
 
@@ -13379,13 +13386,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             elapsedTimer.Tick += (_, _) => SetInstallStatus($"{lastProgressMessage} ({(int)sw.Elapsed.TotalSeconds}s)");
             elapsedTimer.Start();
 
-            var result = await _installerService
-                .InstallAsync(_currentWorkspace.FolderPath, progress);
+            SquadCommandResult result;
+            try
+            {
+                result = await _installerService
+                    .InstallAsync(_currentWorkspace.FolderPath, progress);
+            }
+            finally
+            {
+                elapsedTimer.Stop();
+                sw.Stop();
+            }
 
-            elapsedTimer.Stop();
-            sw.Stop();
-
-            RefreshInstallationState();
+            await RefreshInstallationStateAsync();
 
             if (_currentInstallationState?.IsSquadInstalledForActiveDirectory == true)
             {
@@ -19230,7 +19243,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         repairSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"WORKSPACE_REPAIR: {repairSw.ElapsedMilliseconds}ms folder={_currentWorkspace.FolderPath}");
 
-        RefreshInstallationState();
+        await RefreshInstallationStateAsync();
         RefreshDeveloperRuntimeIssuePreview();
         SquadInstallerService.EnsureSquadDashUniverseFiles(_currentWorkspace.FolderPath);
         ConfigureTeamFileWatcher();
@@ -26786,7 +26799,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var attempts = 6;
         for (var attempt = 0; attempt < attempts; attempt++)
         {
-            RefreshInstallationState();
+            await RefreshInstallationStateAsync();
             if (_currentRoutingAssessment is null || !_currentRoutingAssessment.NeedsRepair)
                 return;
 
@@ -26796,18 +26809,66 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void RefreshInstallationState()
     {
+        _ = RefreshInstallationStateAndHandleErrorsAsync();
+    }
+
+    private async Task RefreshInstallationStateAndHandleErrorsAsync()
+    {
+        try
+        {
+            await RefreshInstallationStateAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RefreshInstallationState), ex, showDialog: false);
+        }
+    }
+
+    private async Task RefreshInstallationStateAsync()
+    {
+        var workspaceFolder = _currentWorkspace?.FolderPath;
+        var startupSimulation = _settingsSnapshot.GetStartupIssueSimulation(workspaceFolder ?? "");
+        var refreshVersion = Interlocked.Increment(ref _installationStateRefreshVersion);
+
+        var result = await Task.Run(() =>
+        {
+            SquadInstallationState? installationState = null;
+            SquadRoutingDocumentAssessment? routingAssessment = null;
+
+            if (!string.IsNullOrWhiteSpace(workspaceFolder))
+            {
+                installationState = _installationStateService.GetState(workspaceFolder);
+                if (startupSimulation == DeveloperStartupIssueSimulation.None)
+                    routingAssessment = _routingDocumentService.Assess(workspaceFolder);
+            }
+
+            return new InstallationStateRefreshResult(
+                workspaceFolder,
+                installationState,
+                routingAssessment,
+                WorkspaceIssueFactory.CreateStartupIssue(installationState, startupSimulation));
+        }).ConfigureAwait(true);
+
+        if (refreshVersion != Interlocked.Read(ref _installationStateRefreshVersion))
+            return;
+
+        if (!string.Equals(_currentWorkspace?.FolderPath, result.WorkspaceFolder, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        ApplyInstallationStateRefresh(result);
+    }
+
+    private void ApplyInstallationStateRefresh(InstallationStateRefreshResult result)
+    {
         _currentInstallationState = _currentWorkspace is null
             ? null
-            : _installationStateService.GetState(_currentWorkspace.FolderPath);
-        _currentRoutingAssessment = _currentWorkspace is not null &&
-                                    _settingsSnapshot.GetStartupIssueSimulation(_currentWorkspace.FolderPath) == DeveloperStartupIssueSimulation.None
-            ? _routingDocumentService.Assess(_currentWorkspace.FolderPath)
-            : null;
+            : result.InstallationState;
+        _currentRoutingAssessment = _currentWorkspace is null
+            ? null
+            : result.RoutingAssessment;
         ClearIgnoredRoutingIssueFingerprintIfResolved();
 
-        _startupIssue = WorkspaceIssueFactory.CreateStartupIssue(
-            _currentInstallationState,
-            _settingsSnapshot.GetStartupIssueSimulation(_currentWorkspace?.FolderPath ?? ""));
+        _startupIssue = result.StartupIssue;
         _installSquadButtonPressed = false;
         UpdateWorkspaceIssuePanel();
         UpdateInteractiveControlState();
@@ -28842,12 +28903,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _teamRefreshDebounceTimer.Start();
     }
 
-    private void TeamRefreshDebounceTimer_Tick(object? sender, EventArgs e)
+    private async void TeamRefreshDebounceTimer_Tick(object? sender, EventArgs e)
     {
         try
         {
             _teamRefreshDebounceTimer.Stop();
-            RefreshInstallationState();
+            await RefreshInstallationStateAsync();
             RefreshAgentCards();
             RefreshSidebar();
             MaybePublishRoutingIssueSystemEntry("team-files-changed");

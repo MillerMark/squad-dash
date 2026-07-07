@@ -67,6 +67,21 @@ internal sealed class HostCommandParserTests {
         Assert.That(commands[0].Parameters!["name"], Is.EqualTo("Approvals"));
     }
 
+    [Test]
+    public void TryExtract_BlockOnSameLineAsBody_ParsesAndStripsFromBody() {
+        const string text = """
+            Doing this myself because it's a trivial categorization task. HOST_COMMAND_JSON:
+            [{"command":"open_panel","parameters":{"name":"Approvals"}}]
+            """;
+
+        var result = HostCommandParser.TryExtract(text, out var body, out var commands);
+
+        Assert.That(result, Is.True);
+        Assert.That(body.Trim(), Is.EqualTo("Doing this myself because it's a trivial categorization task."));
+        Assert.That(commands, Has.Length.EqualTo(1));
+        Assert.That(commands[0].Command, Is.EqualTo("open_panel"));
+    }
+
     // ── Non-match cases ───────────────────────────────────────────────────────
 
     [Test]
@@ -246,6 +261,50 @@ internal sealed class HostCommandParserTests {
         Assert.That(parameters["text"], Is.EqualTo("Hello world"));
         Assert.That(parameters["count"], Is.EqualTo("42"));
         Assert.That(parameters["flag"], Is.EqualTo("true"));
+    }
+
+    [Test]
+    public void TryExtract_ArrayParameter_PreservesRawJsonForHandler() {
+        const string text = """
+            Categorizing approvals.
+
+            HOST_COMMAND_JSON:
+            [
+              {
+                "command": "organize_approvals",
+                "parameters": {
+                  "assignments": [
+                    { "sha": "3972fab", "group": "Guided Tour" },
+                    { "sha": "4e3b71f", "group": "UI Polish" }
+                  ]
+                }
+              }
+            ]
+            """;
+
+        var result = HostCommandParser.TryExtract(text, out _, out var commands);
+
+        Assert.That(result, Is.True);
+        Assert.That(commands[0].Parameters, Is.Not.Null);
+        Assert.That(commands[0].Parameters!["assignments"], Does.Contain("\"sha\": \"3972fab\""));
+        Assert.That(commands[0].Parameters!["assignments"], Does.StartWith("["));
+    }
+
+    [Test]
+    public void TryExtract_MalformedOrganizeApprovalsQuotedArray_ParsesCompatibilityFallback() {
+        const string text = """
+            Doing this myself because it's a trivial categorization task. HOST_COMMAND_JSON:
+            [{"command":"organize_approvals","parameters":{"assignments":"[{"sha":"3972fab","group":"Guided Tour"},{"sha":"4e3b71f","group":"UI Polish"}]"}}]
+            """;
+
+        var result = HostCommandParser.TryExtract(text, out var body, out var commands);
+
+        Assert.That(result, Is.True);
+        Assert.That(body.Trim(), Is.EqualTo("Doing this myself because it's a trivial categorization task."));
+        Assert.That(commands, Has.Length.EqualTo(1));
+        Assert.That(commands[0].Command, Is.EqualTo("organize_approvals"));
+        Assert.That(commands[0].Parameters, Is.Not.Null);
+        Assert.That(commands[0].Parameters!["assignments"], Is.EqualTo("[{\"sha\":\"3972fab\",\"group\":\"Guided Tour\"},{\"sha\":\"4e3b71f\",\"group\":\"UI Polish\"}]"));
     }
 
     [Test]

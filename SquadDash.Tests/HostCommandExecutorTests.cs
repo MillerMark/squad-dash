@@ -195,6 +195,30 @@ internal sealed class HostCommandExecutorTests {
         Assert.That(body.Trim(), Does.Contain("Here is my answer."));
     }
 
+    [Test]
+    public void TryParseAndExecute_OrganizeApprovalsArrayParameter_AppliesAssignments() {
+        IReadOnlyDictionary<string, string>? capturedParameters = null;
+        var executor = new HostCommandExecutor();
+        executor.Register(new RecordingCommandHandler("organize_approvals", parameters => {
+            capturedParameters = parameters;
+            return new HostCommandResult(true);
+        }));
+
+        const string response = """
+            Categorizing approvals. HOST_COMMAND_JSON:
+            [{"command":"organize_approvals","parameters":{"assignments":[{"sha":"3972fab","group":"Guided Tour"},{"sha":"4e3b71f","group":"UI Polish"}]}}]
+            """;
+
+        var results = executor.TryParseAndExecute(
+            response, BuildRegistry(), workspaceFolder: null, out var body);
+
+        Assert.That(results, Is.Not.Null);
+        Assert.That(results![0].Item3.Success, Is.True);
+        Assert.That(body, Does.Not.Contain("HOST_COMMAND_JSON:"));
+        Assert.That(capturedParameters, Is.Not.Null);
+        Assert.That(capturedParameters!["assignments"], Is.EqualTo("[{\"sha\":\"3972fab\",\"group\":\"Guided Tour\"},{\"sha\":\"4e3b71f\",\"group\":\"UI Polish\"}]"));
+    }
+
     // ── Parameter validation ──────────────────────────────────────────────────
 
     [Test]

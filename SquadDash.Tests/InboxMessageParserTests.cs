@@ -52,10 +52,10 @@ internal sealed class InboxMessageParserTests {
 
     /// <summary>
     /// Regression: model emits INBOX block then appends a prose/markdown summary after it.
-    /// Parser must succeed and strip from the marker onwards.
+    /// Parser must succeed, strip the machine payload, and preserve trailing prose.
     /// </summary>
     [Test]
-    public void TryExtract_BlockInMiddleWithTrailingProse_ParsesAndStripsBlock() {
+    public void TryExtract_BlockInMiddleWithTrailingProse_ParsesAndPreservesTrailingProse() {
         var text = $"""
             Report ready.
 
@@ -69,13 +69,18 @@ internal sealed class InboxMessageParserTests {
         var result = InboxMessageParser.TryExtract(text, out var body, out var dto);
 
         Assert.That(result, Is.True);
-        Assert.That(body, Is.EqualTo("Report ready."));
+        Assert.That(body, Is.EqualTo("""
+            Report ready.
+
+            ## Summary
+            **Tasks Found: 52** — see table above for details.
+            """));
         Assert.That(dto, Is.Not.Null);
         Assert.That(dto!.Subject, Is.EqualTo("README report"));
     }
 
     [Test]
-    public void TryExtract_BlockAtStartWithTrailingProse_ParsesAndBodyIsEmpty() {
+    public void TryExtract_BlockAtStartWithTrailingProse_ParsesAndPreservesTrailingProse() {
         var text = $"""
             INBOX_MESSAGE_JSON:
             {MinimalJson}
@@ -86,7 +91,7 @@ internal sealed class InboxMessageParserTests {
         var result = InboxMessageParser.TryExtract(text, out var body, out var dto);
 
         Assert.That(result, Is.True);
-        Assert.That(body, Is.EqualTo(string.Empty));
+        Assert.That(body, Is.EqualTo("Some trailing summary text here."));
         Assert.That(dto, Is.Not.Null);
         Assert.That(dto!.Subject, Is.EqualTo("README report"));
     }
@@ -144,6 +149,35 @@ internal sealed class InboxMessageParserTests {
         Assert.That(result, Is.True);
         Assert.That(dto, Is.Not.Null);
         Assert.That(dto!.Subject, Is.EqualTo("Example"));
+        Assert.That(body, Is.EqualTo("""
+            Example:
+
+            The real response continues here.
+            """));
+    }
+
+    [Test]
+    public void TryExtract_WithTrailingText_ReportsExtractionDetails() {
+        var text = $"""
+            Report ready.
+
+            INBOX_MESSAGE_JSON:
+            {MinimalJson}
+
+            Final visible note.
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out var extraction);
+
+        Assert.That(result, Is.True);
+        Assert.That(extraction, Is.Not.Null);
+        Assert.That(extraction!.TextBeforeBlock, Is.EqualTo("Report ready."));
+        Assert.That(extraction.TrailingText, Is.EqualTo("Final visible note."));
+        Assert.That(extraction.VisibleText, Is.EqualTo("""
+            Report ready.
+
+            Final visible note.
+            """));
     }
 
     [Test]
@@ -371,7 +405,7 @@ internal sealed class InboxMessageParserTests {
 
     [Test]
     public void TryExtract_MultipleBlocks_BodyIsEverythingBeforeLastMarker() {
-        // body = everything up to (not including) the last INBOX_MESSAGE_JSON: marker,
+        // body = visible text with the last INBOX_MESSAGE_JSON payload removed,
         // which means the first block's raw text is included in body.
         const string text = """
             Preamble text.

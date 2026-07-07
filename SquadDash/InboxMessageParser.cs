@@ -45,15 +45,33 @@ internal static class InboxMessageParser
     /// <summary>
     /// Attempts to extract an INBOX_MESSAGE_JSON block from <paramref name="text"/>.
     /// Returns true when the sentinel is found and the JSON is valid.
-    /// <paramref name="body"/> receives the text before the block (trimmed);
+    /// <paramref name="body"/> receives the visible text with the block removed (trimmed);
     /// <paramref name="dto"/> receives the parsed payload.
     /// Tolerates arbitrary prose appearing after the closing brace.
     /// When multiple markers are present the last one is used.
     /// </summary>
     internal static bool TryExtract(string text, out string body, out InboxMessageDto? dto)
     {
+        var result = TryExtract(text, out var extraction);
+        if (result && extraction is not null)
+        {
+            body = extraction.VisibleText;
+            dto  = extraction.Message;
+            return true;
+        }
+
         body = text;
         dto  = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Attempts to extract an INBOX_MESSAGE_JSON block and returns structured details about
+    /// the visible text before and after the machine-readable payload.
+    /// </summary>
+    internal static bool TryExtract(string text, out InboxMessageExtraction? extraction)
+    {
+        extraction = null;
 
         if (string.IsNullOrWhiteSpace(text))
             return false;
@@ -110,18 +128,36 @@ internal static class InboxMessageParser
         try
         {
             var sanitized = SanitizeMalformedStringContent(jsonText);
-            dto = JsonSerializer.Deserialize<InboxMessageDto>(sanitized, ParseOptions);
+            var dto = JsonSerializer.Deserialize<InboxMessageDto>(sanitized, ParseOptions);
             if (dto is null)
                 return false;
 
             dto = StripNoOpDoneActions(dto);
-            body = StripTrailingCodeFence(normalized[..markerIdx].TrimEnd());
+            var before = StripTrailingCodeFence(normalized[..markerIdx].TrimEnd());
+            var after  = StripLeadingCodeFence(normalized[(braceEnd + 1)..]).Trim();
+            extraction = new InboxMessageExtraction(
+                Message:           dto,
+                VisibleText:       CombineVisibleText(before, after),
+                TextBeforeBlock:   before,
+                TrailingText:      after,
+                MarkerIndex:       markerIdx,
+                JsonStartIndex:    braceStart,
+                JsonEndIndex:      braceEnd);
             return true;
         }
         catch (JsonException)
         {
             return false;
         }
+    }
+
+    private static string CombineVisibleText(string before, string after)
+    {
+        if (string.IsNullOrWhiteSpace(before))
+            return after.Trim();
+        if (string.IsNullOrWhiteSpace(after))
+            return before.TrimEnd();
+        return before.TrimEnd() + "\n\n" + after.Trim();
     }
 
     /// <summary>
@@ -273,4 +309,29 @@ internal static class InboxMessageParser
         }
         return text;
     }
+
+    private static string StripLeadingCodeFence(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var trimmed = text.TrimStart();
+        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
+            return text;
+
+        var lineEnd = trimmed.IndexOf('\n');
+        if (lineEnd < 0)
+            return string.Empty;
+
+        return trimmed[(lineEnd + 1)..];
+    }
 }
+
+internal sealed record InboxMessageExtraction(
+    InboxMessageDto Message,
+    string VisibleText,
+    string TextBeforeBlock,
+    string TrailingText,
+    int MarkerIndex,
+    int JsonStartIndex,
+    int JsonEndIndex);

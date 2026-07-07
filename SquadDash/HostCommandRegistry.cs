@@ -43,7 +43,7 @@ internal sealed class HostCommandRegistry {
             ResultBehavior: HostCommandResultBehavior.Silent),
         new HostCommandDescriptor(
             Name:           "organize_approvals",
-            Description:    "Assigns feature groups to pending approval items. Use assignments parameter with JSON array: [{\"sha\":\"abc1234\",\"group\":\"Feature Name\"},...]. You may use existing groups or invent specific feature names.",
+            Description:    "Assigns feature groups to pending approval items. Use assignments parameter as a JSON array, not as an escaped string: {\"assignments\":[{\"sha\":\"abc1234\",\"group\":\"Feature Name\"},...]}. You may use existing groups or invent specific feature names.",
             Parameters:     [new HostCommandParameterDescriptor("assignments", "string", Required: true)],
             ResultBehavior: HostCommandResultBehavior.Silent),
     ];
@@ -93,6 +93,9 @@ internal sealed class HostCommandRegistry {
         sb.AppendLine("  { \"command\": \"command_name\" },");
         sb.AppendLine("  { \"command\": \"open_panel\", \"parameters\": { \"name\": \"Approvals\" } }");
         sb.AppendLine("]");
+        sb.AppendLine();
+        sb.AppendLine("When a parameter is structured data, pass it as real JSON, not as an escaped JSON string.");
+        sb.AppendLine("Example: { \"command\": \"organize_approvals\", \"parameters\": { \"assignments\": [{ \"sha\": \"abc1234\", \"group\": \"Feature Name\" }] } }");
         sb.AppendLine();
         sb.AppendLine("Commands are executed sequentially. Commands that return output inject that output as your next user turn.");
         sb.AppendLine();

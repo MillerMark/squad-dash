@@ -18,13 +18,17 @@ internal sealed class SquadCliCommandsTests {
     }
 
     [Test]
-    public void Init_HasCmdExeFileName() {
-        Assert.That(SquadCliCommands.Init.FileName, Is.EqualTo("cmd.exe"));
+    public void Init_HasNodeFileName() {
+        Assert.That(SquadCliCommands.Init.FileName, Is.EqualTo("node"));
     }
 
     [Test]
-    public void Init_ArgumentsContainNpxAndInit() {
-        Assert.That(SquadCliCommands.Init.Arguments, Does.Contain("npx").And.Contain("init"));
+    public void Init_ArgumentsUseLocalCliEntryAndInit() {
+        Assert.That(
+            SquadCliCommands.Init.Arguments,
+            Does.Contain(SquadCliCommands.LocalCliEntryPath)
+                .And.Contain("init")
+                .And.Not.Contain("npx"));
     }
 
     [Test]

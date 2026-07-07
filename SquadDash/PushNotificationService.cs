@@ -420,6 +420,30 @@ internal sealed partial class PushNotificationService {
         return null;
     }
 
+    internal static string? BuildMissingDelegatedCommitCompletionNote(
+        GitCommitInfo? commitInfo,
+        string? visibleCoordinatorResponse,
+        IEnumerable<string?> readAgentOutputs)
+    {
+        if (commitInfo is null || string.IsNullOrWhiteSpace(commitInfo.CommitSha))
+            return null;
+
+        var sha = commitInfo.CommitSha.Trim();
+        if (ContainsSha(visibleCoordinatorResponse, sha))
+            return null;
+
+        var hasDelegatedCompletion = readAgentOutputs.Any(output =>
+            LooksLikeDelegatedCompletionReport(output, sha));
+        if (!hasDelegatedCompletion)
+            return null;
+
+        var note = $"Note: A delegated agent reported build/test completion and commit `{sha}`.";
+        if (!string.IsNullOrWhiteSpace(commitInfo.CommitMessage))
+            note += $" Commit message: {commitInfo.CommitMessage.Trim()}.";
+        note += " The coordinator's final text did not mention that result, so SquadDash surfaced it here.";
+        return note;
+    }
+
     private static string? ExtractApprovalGroupForSha(string? agentResponse, string sha) {
         if (string.IsNullOrWhiteSpace(agentResponse) || string.IsNullOrWhiteSpace(sha))
             return null;
@@ -438,6 +462,27 @@ internal sealed partial class PushNotificationService {
 
         return left.StartsWith(right, StringComparison.OrdinalIgnoreCase) ||
                right.StartsWith(left, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeDelegatedCompletionReport(string? output, string sha)
+    {
+        if (string.IsNullOrWhiteSpace(output) || !ContainsSha(output, sha))
+            return false;
+
+        return output.Contains("(Full response provided to agent)", StringComparison.OrdinalIgnoreCase) ||
+               output.Contains("Committed", StringComparison.OrdinalIgnoreCase) ||
+               output.Contains("Build", StringComparison.OrdinalIgnoreCase) ||
+               output.Contains("Tests", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ContainsSha(string? text, string sha)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(sha))
+            return false;
+
+        var shortSha = sha.Length > 7 ? sha[..7] : sha;
+        return text.Contains(sha, StringComparison.OrdinalIgnoreCase) ||
+               text.Contains(shortSha, StringComparison.OrdinalIgnoreCase);
     }
 
     // Returns a best-effort summary of the prompt by stripping common stop words

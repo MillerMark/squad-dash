@@ -41,11 +41,11 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     /// <summary>
-    /// Previously this was expected not to strip (old end-anchor behavior). Now that the parser
-    /// is intentionally tolerant of trailing prose, even a fenced example block is stripped.
+    /// Previously the parser stripped everything after a valid inbox block. It should now keep
+    /// trailing visible prose while still removing the machine-readable JSON payload.
     /// </summary>
     [Test]
-    public void SanitizeResponseText_CodeFencedExampleWithTrailingText_NowStrips() {
+    public void SanitizeResponseText_CodeFencedInboxBlockWithTrailingText_PreservesTrailingText() {
         const string text = """
             Example:
 
@@ -59,7 +59,11 @@ internal sealed class TranscriptTextUtilitiesTests {
 
         var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
 
-        Assert.That(sanitized, Is.EqualTo("Example:"));
+        Assert.That(sanitized, Is.EqualTo("""
+            Example:
+
+            The real response continues here.
+            """));
     }
 
     [Test]
