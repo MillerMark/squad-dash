@@ -19663,7 +19663,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         var members = _teamRosterLoader.Load(_currentWorkspace.FolderPath);
-        if (!SquadTeamRosterLoader.HasNonUtilityMembers(members))
+        if (UniverseSelectionPromptPolicy.ShouldPrompt(members, _conversationManager.ConversationState))
             _pec.InjectUniverseSelectorTurn();
     }
 

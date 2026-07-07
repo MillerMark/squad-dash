@@ -146,6 +146,7 @@
     <Compile Include="..\SquadDash\SquadSdkProcess.cs" Link="Source\SquadSdkProcess.cs" />
     <Compile Include="..\SquadDash\CodeHealthPromptLogger.cs" Link="Source\CodeHealthPromptLogger.cs" />
     <Compile Include="..\SquadDash\SquadTeamRosterLoader.cs" Link="Source\SquadTeamRosterLoader.cs" />
+    <Compile Include="..\SquadDash\UniverseSelectionPromptPolicy.cs" Link="Source\UniverseSelectionPromptPolicy.cs" />
     <Compile Include="..\SquadDash\NativeMethods.cs" Link="Source\NativeMethods.cs" />
     <Compile Include="..\SquadDash\ClipboardUtilities.cs" Link="Source\ClipboardUtilities.cs" />
     <Compile Include="..\SquadDash\Screenshots\ILiveElementLocator.cs" Link="Source\ILiveElementLocator.cs" />
