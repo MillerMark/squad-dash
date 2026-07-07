@@ -562,7 +562,18 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _tourListBox.SelectedIndex = allTours.IndexOf(activeTour);
         _tourListBox.SelectionChanged += OnTourListSelectionChanged;
 
-        var addTourBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
+        var tourRenameMenuItem = new MenuItem { Header = "Rename" };
+        tourRenameMenuItem.Click += (_, _) =>
+        {
+            var idx = _tourListBox.SelectedIndex;
+            if (idx >= 0)
+                BeginTourRename(idx);
+        };
+        var tourContextMenu = new ContextMenu();
+        tourContextMenu.Items.Add(tourRenameMenuItem);
+        _tourListBox.ContextMenu = tourContextMenu;
+
+        var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
         var deleteTourBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addTourBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteTourBtn.Margin = new Thickness(0);
@@ -845,19 +856,6 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         grid.Children.Add(label);
         grid.Children.Add(editBox);
-
-        // Hook the ListBoxItem container after layout to detect second-click
-        grid.Loaded += (_, _) =>
-        {
-            if (_tourListBox.ItemContainerGenerator.ContainerFromIndex(index) is ListBoxItem container)
-            {
-                container.PreviewMouseLeftButtonDown += (_, _) =>
-                {
-                    if (_tourListBox.SelectedIndex == index)
-                        BeginTourRename(index);
-                };
-            }
-        };
 
         return grid;
     }
