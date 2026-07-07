@@ -13400,6 +13400,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             await RefreshInstallationStateAsync();
 
+            // The version-guard in RefreshInstallationStateAsync may have discarded the result
+            // if the team-file watcher also triggered a refresh while install was creating files.
+            // Do a direct fresh check so we never falsely enter the failure path on a successful install.
+            if (_currentInstallationState?.IsSquadInstalledForActiveDirectory != true && _currentWorkspace is not null)
+            {
+                var freshState = await Task.Run(() => _installationStateService.GetState(_currentWorkspace.FolderPath));
+                if (freshState.IsSquadInstalledForActiveDirectory)
+                {
+                    _currentInstallationState = freshState;
+                    _startupIssue = null;
+                    UpdateWorkspaceIssuePanel();
+                    UpdateInteractiveControlState();
+                }
+            }
+
             if (_currentInstallationState?.IsSquadInstalledForActiveDirectory == true)
             {
                 SetInstallUiState(isInstalling: false, "Squad installed successfully. Starting the first Squad turn...");
