@@ -62,9 +62,16 @@ internal static class SquadWorkspaceLayoutResolver {
         if (!isExternalState && !isRemote && !string.IsNullOrWhiteSpace(teamRoot)) {
             var resolvedTeamSquadDir = TryResolveTeamSquadDirectory(projectSquadDir, teamRoot);
             if (!string.IsNullOrWhiteSpace(resolvedTeamSquadDir)) {
-                teamSquadDir = resolvedTeamSquadDir;
-                isRemote = !PathsEqual(teamSquadDir, projectSquadDir);
-                resolutionReason = reason;
+                if (ShouldPreferProjectSquadDirectory(projectSquadDir, resolvedTeamSquadDir)) {
+                    teamSquadDir = projectSquadDir;
+                    isRemote = false;
+                    resolutionReason = "Using project .squad because configured teamRoot has no team.md";
+                }
+                else {
+                    teamSquadDir = resolvedTeamSquadDir;
+                    isRemote = !PathsEqual(teamSquadDir, projectSquadDir);
+                    resolutionReason = reason;
+                }
             }
         }
 
@@ -198,6 +205,14 @@ internal static class SquadWorkspaceLayoutResolver {
         }
 
         return resolvedTeamRoot;
+    }
+
+    private static bool ShouldPreferProjectSquadDirectory(string projectSquadDir, string resolvedTeamSquadDir) {
+        if (PathsEqual(projectSquadDir, resolvedTeamSquadDir))
+            return false;
+
+        return File.Exists(Path.Combine(projectSquadDir, "team.md")) &&
+               !File.Exists(Path.Combine(resolvedTeamSquadDir, "team.md"));
     }
 
     private static bool PathsEqual(string left, string right) {
