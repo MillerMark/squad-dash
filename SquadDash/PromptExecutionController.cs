@@ -220,6 +220,8 @@ internal sealed class PromptExecutionController {
 
     // ── Owned fields ──────────────────────────────────────────────────────
     private bool             _universeSelectionPending;
+    private bool             _newProjectOnboardingPending;   // set when waiting for "what do you want to build?"
+    private string?          _pendingUniverseName;           // stashed universe name, combined with onboarding answer
     private DateTimeOffset?  _currentPromptStartedAt;
     private DateTimeOffset?  _lastPromptActivityAt;
     private string?          _lastPromptActivityName;
@@ -892,6 +894,19 @@ internal sealed class PromptExecutionController {
             if (MainWindow.UniverseSelectorOptions.Any(u => string.Equals(u, trimmed, StringComparison.OrdinalIgnoreCase)))
                 return HandleUniverseSelection(trimmed);
             _universeSelectionPending = false;
+        }
+
+        // Intercept onboarding answer (typed or quick-reply)
+        if (_newProjectOnboardingPending) {
+            _newProjectOnboardingPending = false;
+            var universeName = _pendingUniverseName ?? SquadInstallerService.SquadDashUniverseName;
+            _pendingUniverseName = null;
+            var appTypeDescription = prompt.Trim();
+            if (!string.IsNullOrWhiteSpace(appTypeDescription))
+                FireHirePromptForUniverseWithAppType(universeName, appTypeDescription);
+            else
+                FireHirePromptForUniverse(universeName);
+            return true;
         }
 
         if (TryMatchCommandWithArguments(trimmed, "/activate", out var activateArgs))
@@ -1807,15 +1822,59 @@ internal sealed class PromptExecutionController {
         _transcriptSink.ScrollToEndIfAtBottom();
     }
 
+    internal void InjectNewProjectOnboardingTurn() {
+        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+        _transcriptSink.BeginTranscriptTurn(string.Empty);
+        _transcriptSink.AppendLine(
+            "What do you want to build? Describe it in the prompt box below, or pick a type to get started:\n\n" +
+            string.Join(" ", new[] {
+                "Web app",
+                "Mobile app",
+                "REST API / Backend service",
+                "Desktop app",
+                "CLI tool",
+                "Game",
+                "Browser extension",
+                "Data pipeline / Analytics",
+            }.Select(t => $"[{t}]")), null);
+        _transcriptSink.FinalizeCurrentTurnResponse();
+        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "new-project-onboarding-turn");
+        _conversationManager.TagLastTurnAsNewProjectOnboarding();
+        SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=new-project-onboarding-turn");
+        _transcriptSink.CoordinatorThread.CurrentTurn = null;
+        _transcriptSink.ScrollToEndIfAtBottom();
+    }
+
     private bool HandleUniverseSelection(string universeName) {
         _universeSelectionPending = false;
 
+        var workspaceFolder = _workspaceContext.GetCurrentWorkspace()?.FolderPath;
+        if (!string.IsNullOrWhiteSpace(workspaceFolder) && WorkspaceEmptyDetector.IsEmpty(workspaceFolder)) {
+            _pendingUniverseName         = universeName;
+            _newProjectOnboardingPending = true;
+            InjectNewProjectOnboardingTurn();
+            return true;
+        }
+
+        FireHirePromptForUniverse(universeName);
+        return true;
+    }
+
+    private void FireHirePromptForUniverse(string universeName) {
         var llmPrompt = string.Equals(universeName, SquadInstallerService.SquadDashUniverseName, StringComparison.OrdinalIgnoreCase)
             ? $"Create a team from the {SquadInstallerService.SquadDashUniverseName}. Before selecting members, read `.squad/universes/squaddash.md` — it describes each character's best-fit work, areas to avoid, and related roles. Choose the best fit for this project."
             : $"Create a suitable team from the {universeName} universe.";
 
         _ = ExecutePromptAsync(llmPrompt, addToHistory: false, clearPromptBox: false);
-        return true;
+    }
+
+    private void FireHirePromptForUniverseWithAppType(string universeName, string appTypeDescription) {
+        var universeClause = string.Equals(universeName, SquadInstallerService.SquadDashUniverseName, StringComparison.OrdinalIgnoreCase)
+            ? $"Create a team from the {SquadInstallerService.SquadDashUniverseName}. Before selecting members, read `.squad/universes/squaddash.md` — it describes each character's best-fit work, areas to avoid, and related roles. Choose the best fit for this project."
+            : $"Create a suitable team from the {universeName} universe.";
+
+        var combinedPrompt = $"{universeClause} The user wants to build: {appTypeDescription}";
+        _ = ExecutePromptAsync(combinedPrompt, addToHistory: false, clearPromptBox: false);
     }
 
     // ─────────────────────────────────────────────────────────────────────

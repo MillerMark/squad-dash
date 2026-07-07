@@ -114,6 +114,7 @@
     <Compile Include="..\SquadDash\CamelCaseTextBoxAttachment.cs" Link="Source\CamelCaseTextBoxAttachment.cs" />
     <Compile Include="..\SquadDash\CamelCaseRichTextBoxAttachment.cs" Link="Source\CamelCaseRichTextBoxAttachment.cs" />
     <Compile Include="..\SquadDash\PromptExecutionController.cs" Link="Source\PromptExecutionController.cs" />
+    <Compile Include="..\SquadDash\WorkspaceEmptyDetector.cs" Link="Source\WorkspaceEmptyDetector.cs" />
     <Compile Include="..\SquadDash\IWorkspaceContext.cs" Link="Source\IWorkspaceContext.cs" />
     <Compile Include="..\SquadDash\IPromptBoxState.cs" Link="Source\IPromptBoxState.cs" />
     <Compile Include="..\SquadDash\ITranscriptRenderSink.cs" Link="Source\ITranscriptRenderSink.cs" />

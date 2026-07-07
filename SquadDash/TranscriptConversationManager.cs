@@ -812,8 +812,25 @@ internal sealed class TranscriptConversationManager {
     /// If there are no saved turns yet the call is a no-op (the button was already
     /// appended live and will be gone on restart, but this is an uncommon edge case).
     /// </summary>
-    internal void AppendAgentReportToLastTurn(string agentLabel, string reportPath) {
+    internal void TagLastTurnAsNewProjectOnboarding()
+    {
         if (_getWorkspace() is null)
+            return;
+
+        var turns = _conversationState.Turns;
+        if (turns.Count == 0)
+            return;
+
+        var lastTurn = turns[^1];
+        var newTurns = turns.ToList();
+        newTurns[^1] = lastTurn with { IsNewProjectOnboarding = true };
+
+        PersistConversationState(_conversationState with {
+            Turns = newTurns
+        }, "TagLastTurnAsNewProjectOnboarding");
+    }
+
+    internal void AppendAgentReportToLastTurn(string agentLabel, string reportPath) {        if (_getWorkspace() is null)
             return;
 
         var turns = _conversationState.Turns;

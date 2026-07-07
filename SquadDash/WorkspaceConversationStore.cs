@@ -861,6 +861,13 @@ internal sealed record TranscriptTurnRecord(
     /// </summary>
     public bool IsTourInjected { get; init; }
 
+    /// <summary>
+    /// When <c>true</c>, this turn was injected by SquadDash to ask the user what they want
+    /// to build (new-project onboarding flow). It is a system-injected display-only turn;
+    /// the scanner uses this tag — not the text — to detect the "waiting for answer" state.
+    /// </summary>
+    public bool IsNewProjectOnboarding { get; init; }
+
     public IReadOnlyList<TranscriptThoughtRecord> GetThoughts() {
         if (Thoughts is { Count: > 0 })
             return Thoughts;

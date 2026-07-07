@@ -15,5 +15,5 @@ internal static class UniverseSelectionPromptPolicy {
     }
 
     private static bool IsRealConversationTurn(TranscriptTurnRecord turn) =>
-        !turn.IsSessionBoundary && !turn.IsTourInjected;
+        !turn.IsSessionBoundary && !turn.IsTourInjected && !turn.IsNewProjectOnboarding;
 }
