@@ -14025,11 +14025,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         const string DummyTag = TourDummyTag;
 
-        _tourCommandRegistry.RegisterParameterized("Add Dummy Queue Items", arg =>
+        void AddDummyQueueItems(string arg)
         {
-            // Format: "<count>"  — optional; defaults to 3.
+            // arg is optional count; defaults to 3.
             // New items are numbered sequentially after any existing dummy items,
-            // e.g. if 3 already exist the next batch starts at 4.
+            // e.g. if 3 already exist the next batch starts at [Tour Demo Item 4].
             int count = 3;
             if (!string.IsNullOrWhiteSpace(arg) && int.TryParse(arg.Trim(), out var parsed) && parsed > 0)
                 count = parsed;
@@ -14047,7 +14047,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _promptQueue.EnqueueItem(dummyItem);
             }
             SyncQueuePanel();
-        });
+        }
+        _tourCommandRegistry.Register("Add Dummy Queue Items", () => AddDummyQueueItems(string.Empty));
+        _tourCommandRegistry.RegisterParameterized("Add Dummy Queue Items", AddDummyQueueItems);
 
         _tourCommandRegistry.Register("Remove Dummy Queue Items", () =>
         {
