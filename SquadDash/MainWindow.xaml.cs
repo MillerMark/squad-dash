@@ -28841,7 +28841,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (string.IsNullOrEmpty(branch))
         {
             BranchIndicatorStrip.Visibility = Visibility.Collapsed;
-            NoRepoPromptStrip.Visibility = Visibility.Visible;
+            // Only offer "Initialize repository" once the workspace has real team members —
+            // an empty or Squad-only folder has nothing meaningful to commit yet.
+            NoRepoPromptStrip.Visibility = WorkspaceHasRealTeamMembers()
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             return;
         }
 
