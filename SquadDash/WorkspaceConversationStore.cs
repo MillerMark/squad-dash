@@ -83,6 +83,13 @@ internal sealed class WorkspaceConversationStore {
             return existing;
         }
 
+        if (IsExplicitClear(existing) && !HasMeaningfulContent(normalized) && !IsExplicitClear(normalized)) {
+            SquadDashTrace.Write(
+                "Persistence",
+                $"ConversationStore.Save: blocked plain-empty overwrite of explicit clear existingClearedAt={existing.ClearedAt}");
+            return existing;
+        }
+
         var isExplicitClear = IsExplicitClear(normalized);
         if (isExplicitClear && HasMeaningfulContent(existing)) {
             CreateBackup(normalizedWorkspace, existing);

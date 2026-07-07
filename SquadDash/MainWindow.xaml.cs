@@ -26695,7 +26695,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _announcedRoutingIssueFingerprint = null;
         _pendingSupplementalPromptInstruction = null;
         _pendingRoutingRepairRecheck = false;
-        _conversationManager.ConversationState = WorkspaceConversationState.Empty;
+        _conversationManager.ConversationState = WorkspaceConversationState.Empty with {
+            ClearedAt = _conversationManager.ConversationState.ClearedAt
+        };
         _conversationManager.ResetVirtualWindow();
         _toolSpinnerTimer.Stop();
         _toolSpinnerFrame = 0;
@@ -33329,7 +33331,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onGroupedViewChanged: grouped => _settingsStore.SaveApprovalGroupedView(grouped),
                 getGroups: () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults).ToList().AsReadOnly(),
                 onCategorizeUncategorized: items => EnqueueOrganizeUncategorizedPrompt(items),
-                categorizeRow: ApprovalCategorizeRow);
+                categorizeRow: ApprovalCategorizeRow,
+                needsApprovalHeader: ApprovalNeedsHeader,
+                emptyStateText: ApprovalEmptyStateText);
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width

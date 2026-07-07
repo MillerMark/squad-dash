@@ -442,6 +442,33 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    // ── ClearAndPersist ───────────────────────────────────────────────────────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ClearAndPersist_MakesPendingSaveStale() {
+        using var workspace = new TestWorkspace();
+        var workspacePath = workspace.GetPath("test-workspace");
+        Directory.CreateDirectory(workspacePath);
+
+        var manager = MakeManager();
+
+        // Inject a test-isolated store so ClearAndPersist doesn't write to production AppData.
+        var testStore = new WorkspaceConversationStore(workspace.GetPath("store"));
+        var storeField = typeof(TranscriptConversationManager)
+            .GetField("_conversationStore", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        storeField.SetValue(manager, testStore);
+
+        // Capture the current save version, simulating a background save that is now queued.
+        var staleVersion = InvokePrivate<long>(manager, "RegisterConversationSaveRequest");
+
+        manager.ClearAndPersist(workspacePath);
+
+        // ClearAndPersist bumps the version; the previously captured version must now be stale.
+        var isStale = InvokePrivate<bool>(manager, "HasNewerConversationSaveRequest", staleVersion);
+        Assert.That(isStale, Is.True,
+            "Any save queued before ClearAndPersist should be considered stale after the call.");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static T InvokePrivate<T>(TranscriptConversationManager manager, string methodName, params object?[] args) {

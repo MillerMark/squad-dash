@@ -1493,6 +1493,24 @@ internal sealed class TranscriptConversationManager {
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Atomically marks the conversation as explicitly cleared, cancels any pending
+    /// background saves (so stale queued content cannot overwrite the clear), and
+    /// persists the cleared state synchronously to disk.
+    /// Must be called before ClearSessionView() resets the UI.
+    /// </summary>
+    internal WorkspaceConversationState ClearAndPersist(string workspaceFolderPath) {
+        var clearedState = WorkspaceConversationState.Empty with { ClearedAt = DateTimeOffset.UtcNow };
+        // Bump the version so any pending background save becomes stale and is skipped.
+        RegisterConversationSaveRequest();
+        // Set in-memory state immediately so EmergencySave and SaveWorkspaceInputState
+        // use the cleared state rather than the old in-memory content.
+        _conversationState = clearedState;
+        // Save directly (not via the background queue) to ensure the disk is updated
+        // before ClearSessionView() returns.
+        return _conversationStore.Save(workspaceFolderPath, clearedState);
+    }
+
     private long RegisterConversationSaveRequest() {
         lock (_backgroundSaveGate) {
             var version = ++_nextConversationSaveVersion;

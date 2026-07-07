@@ -622,4 +622,73 @@ internal sealed class WorkspaceConversationStoreTests {
 
         Assert.That(saved.QueuedPromptEntries, Is.Null);
     }
+
+    // ── Clear persistence ─────────────────────────────────────────────────────
+
+    [Test]
+    public void Clear_PersistsAcrossLoad() {
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-clear",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                [MakeDurableTurn()]));
+
+        var clearedAt = DateTimeOffset.UtcNow;
+        _store.Save(_workspacePath, WorkspaceConversationState.Empty with { ClearedAt = clearedAt });
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.Turns, Is.Empty);
+            Assert.That(loaded.ClearedAt, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void Clear_ThenPlainEmptySave_DoesNotWipeClear() {
+        var clearedAt = DateTimeOffset.UtcNow;
+        _store.Save(_workspacePath, WorkspaceConversationState.Empty with { ClearedAt = clearedAt });
+
+        // Simulate a plain-empty state save (e.g. from a stale background save or SaveWorkspaceInputState).
+        _store.Save(_workspacePath, WorkspaceConversationState.Empty);
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.That(loaded.ClearedAt, Is.Not.Null,
+            "A plain-empty save must not overwrite an explicit clear.");
+    }
+
+    [Test]
+    public void Clear_ThenNewContent_OverwritesSuccessfully() {
+        _store.Save(_workspacePath, WorkspaceConversationState.Empty with { ClearedAt = DateTimeOffset.UtcNow });
+
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-new",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                [MakeDurableTurn()]));
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.Turns, Has.Count.EqualTo(1));
+            Assert.That(loaded.SessionId, Is.EqualTo("session-new"));
+        });
+    }
+
+    private static TranscriptTurnRecord MakeDurableTurn() =>
+        new(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow,
+            "test prompt",
+            string.Empty,
+            "test response",
+            true,
+            Array.Empty<TranscriptToolRecord>());
 }

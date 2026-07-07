@@ -1669,11 +1669,7 @@ internal sealed class PromptExecutionController {
 
         var workspace = _workspaceContext.GetCurrentWorkspace();
         if (workspace is not null) {
-            _conversationManager.ConversationStore.Save(
-                workspace.FolderPath,
-                WorkspaceConversationState.Empty with {
-                    ClearedAt = DateTimeOffset.UtcNow
-                });
+            _conversationManager.ClearAndPersist(workspace.FolderPath);
         }
 
         _clearSessionView();
