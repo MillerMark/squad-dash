@@ -100,7 +100,7 @@ internal sealed class CommitApprovalPanel {
         _emptyStateText            = emptyStateText;
 
         AttachPanelContextMenu(outerBorder);
-        _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
+        SyncRejectedSectionVisibility();
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -289,7 +289,7 @@ internal sealed class CommitApprovalPanel {
 
         _toggleRejectedItem.Click += (_, _) => {
             _showRejected = !_showRejected;
-            _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
+            SyncRejectedSectionVisibility();
             _onShowRejectedChanged?.Invoke(_showRejected);
             UpdateToggleHeaders();
         };
@@ -383,7 +383,7 @@ internal sealed class CommitApprovalPanel {
         };
         rowToggleRejectedItem.Click += (_, _) => {
             _showRejected = !_showRejected;
-            _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
+            SyncRejectedSectionVisibility();
             _onShowRejectedChanged?.Invoke(_showRejected);
             UpdateToggleHeaders();
         };
@@ -674,6 +674,15 @@ internal sealed class CommitApprovalPanel {
             _needsApprovalHeader.Visibility = hasAnyCommits ? Visibility.Visible : Visibility.Collapsed;
         if (_emptyStateText is not null)
             _emptyStateText.Visibility = hasAnyCommits ? Visibility.Collapsed : Visibility.Visible;
+
+        SyncRejectedSectionVisibility();
+    }
+
+    private void SyncRejectedSectionVisibility() {
+        var hasRejected = _rejectedPanel.Children.Count > 0;
+        _rejectedSection.Visibility = (hasRejected && _showRejected)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void SyncCategorizeRowVisibility() {
