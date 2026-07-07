@@ -8,7 +8,7 @@ using System.Text.Json;
 
 internal sealed class CommitApprovalStore {
     private const string FileName = "commit-approvals.json";
-    private const int MaxItems = 200;
+    private const int MaxItems = 10_000;
     private readonly string _filePath;
     private static readonly JsonSerializerOptions s_options = JsonFileStorage.PrettyPrint;
 
