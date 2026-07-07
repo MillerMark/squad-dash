@@ -170,7 +170,8 @@ internal sealed class GuidedTourController
             deleteStepCallback:   HandleDeleteStepFromEditor,
             switchTourCallback:   HandleSwitchTourFromEditor,
             addTourCallback:      HandleAddTourFromEditor,
-            deleteTourCallback:   HandleDeleteTourFromEditor);
+            deleteTourCallback:   HandleDeleteTourFromEditor,
+            renameTourCallback:   HandleRenameTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -268,7 +269,8 @@ internal sealed class GuidedTourController
             deleteStepCallback:   HandleDeleteStepFromEditor,
             switchTourCallback:   HandleSwitchTourFromEditor,
             addTourCallback:      HandleAddTourFromEditor,
-            deleteTourCallback:   HandleDeleteTourFromEditor);
+            deleteTourCallback:   HandleDeleteTourFromEditor,
+            renameTourCallback:   HandleRenameTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -511,7 +513,8 @@ internal sealed class GuidedTourController
             deleteStepCallback:   HandleDeleteStepFromEditor,
             switchTourCallback:   HandleSwitchTourFromEditor,
             addTourCallback:      HandleAddTourFromEditor,
-            deleteTourCallback:   HandleDeleteTourFromEditor);
+            deleteTourCallback:   HandleDeleteTourFromEditor,
+            renameTourCallback:   HandleRenameTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -563,7 +566,8 @@ internal sealed class GuidedTourController
             deleteStepCallback:   HandleDeleteStepFromEditor,
             switchTourCallback:   HandleSwitchTourFromEditor,
             addTourCallback:      HandleAddTourFromEditor,
-            deleteTourCallback:   HandleDeleteTourFromEditor);
+            deleteTourCallback:   HandleDeleteTourFromEditor,
+            renameTourCallback:   HandleRenameTourFromEditor);
         _activeEditor = editor;
         editor.Show();
     }
@@ -757,6 +761,21 @@ internal sealed class GuidedTourController
         _activeEditor?.RefreshTourList(_allTours.Count - 1);
         _activeEditor?.SwitchActiveTour(newTour, 0);
         ShowCurrentStep();
+        _activeEditor?.BeginTourRename(_allTours.Count - 1);
+    }
+
+    private void HandleRenameTourFromEditor(int tourIndex, string newName)
+    {
+        if (tourIndex < 0 || tourIndex >= _allTours.Count) return;
+        if (string.IsNullOrWhiteSpace(newName)) return;
+        _allTours[tourIndex].Name = newName;
+        if (!string.IsNullOrWhiteSpace(WorkspaceFolderPath))
+        {
+            try { GuidedTourSaver.Save(_allTours, WorkspaceFolderPath); }
+            catch { /* ignore */ }
+        }
+        if (ReferenceEquals(_allTours[tourIndex], _activeTour))
+            _activeEditor?.UpdateWindowTitle();
     }
 
     private void HandleDeleteTourFromEditor()

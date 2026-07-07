@@ -115,6 +115,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly Action<int>?      _switchTourCallback;
     private readonly Action?           _addTourCallback;
     private readonly Action?           _deleteTourCallback;
+    private readonly Action<int, string>? _renameTourCallback;
 
     public FrmGuidedTourStepEditor(
         GuidedTourStep   step,
@@ -133,7 +134,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action?          deleteStepCallback   = null,
         Action<int>?     switchTourCallback   = null,
         Action?          addTourCallback      = null,
-        Action?          deleteTourCallback   = null)
+        Action?          deleteTourCallback   = null,
+        Action<int, string>? renameTourCallback = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -148,6 +150,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _switchTourCallback   = switchTourCallback;
         _addTourCallback      = addTourCallback;
         _deleteTourCallback   = deleteTourCallback;
+        _renameTourCallback   = renameTourCallback;
 
         _step                = step;
         _stepIndex           = stepIndex;
@@ -554,7 +557,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _tourListBox.SetResourceReference(ListBox.FontSizeProperty,   "FontSizeBody");
 
         for (int i = 0; i < allTours.Count; i++)
-            _tourListBox.Items.Add(allTours[i].Name);
+            _tourListBox.Items.Add(BuildTourListItem(i, allTours[i].Name));
 
         _tourListBox.SelectedIndex = allTours.IndexOf(activeTour);
         _tourListBox.SelectionChanged += OnTourListSelectionChanged;
@@ -611,7 +614,18 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape) { e.Handled = true; TryClose(); return; }
+            if (e.Key == Key.Escape)
+            {
+                if (IsTourRenameActive())
+                {
+                    CancelActiveTourRename();
+                    e.Handled = true;
+                    return;
+                }
+                e.Handled = true;
+                TryClose();
+                return;
+            }
 
             // Ctrl+B / Ctrl+I: markdown bold/italic in the markdown text box
             if (_markdownBox.IsFocused && (Keyboard.Modifiers & ModifierKeys.Control) != 0
@@ -751,7 +765,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             _tourListBox.Items.Clear();
             for (int i = 0; i < _allTours.Count; i++)
-                _tourListBox.Items.Add(_allTours[i].Name);
+                _tourListBox.Items.Add(BuildTourListItem(i, _allTours[i].Name));
             _tourListBox.SelectedIndex = Math.Clamp(selectTourIndex, 0, Math.Max(0, _allTours.Count - 1));
         }
         finally { _isLoadingStep = false; }
@@ -769,6 +783,149 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private static string BuildEditorTitle(string tourName, int stepIndex, string stepTitle) =>
         $"Guided Tour Editor — {tourName} — Step {stepIndex + 1}: {stepTitle}";
+
+    /// <summary>Updates the window title after a tour rename.</summary>
+    public void UpdateWindowTitle()
+    {
+        Title = BuildEditorTitle(_activeTour.Name, _stepIndex, _titleBox.Text.Trim());
+    }
+
+    /// <summary>Builds a Grid-based ListBox item for a tour entry (TextBlock + inline edit TextBox).</summary>
+    private Grid BuildTourListItem(int index, string name)
+    {
+        var grid = new Grid();
+
+        var label = new TextBlock
+        {
+            Text                = name,
+            VerticalAlignment   = VerticalAlignment.Center,
+            TextTrimming        = TextTrimming.CharacterEllipsis,
+        };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        label.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var editBox = new TextBox
+        {
+            Text              = name,
+            Visibility        = Visibility.Collapsed,
+            BorderThickness   = new Thickness(0),
+            Padding           = new Thickness(0),
+            Background        = System.Windows.Media.Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        editBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        editBox.SetResourceReference(TextBox.FontSizeProperty,   "FontSizeBody");
+
+        editBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                var trimmed = editBox.Text.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && trimmed != label.Text)
+                {
+                    label.Text = trimmed;
+                    _renameTourCallback?.Invoke(index, trimmed);
+                }
+                SwitchTourItemToDisplay(grid);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                editBox.Text = label.Text;
+                SwitchTourItemToDisplay(grid);
+                e.Handled = true;
+            }
+        };
+
+        editBox.LostFocus += (_, _) =>
+        {
+            editBox.Text = label.Text;
+            SwitchTourItemToDisplay(grid);
+        };
+
+        grid.Children.Add(label);
+        grid.Children.Add(editBox);
+
+        // Hook the ListBoxItem container after layout to detect second-click
+        grid.Loaded += (_, _) =>
+        {
+            if (_tourListBox.ItemContainerGenerator.ContainerFromIndex(index) is ListBoxItem container)
+            {
+                container.PreviewMouseLeftButtonDown += (_, _) =>
+                {
+                    if (_tourListBox.SelectedIndex == index)
+                        BeginTourRename(index);
+                };
+            }
+        };
+
+        return grid;
+    }
+
+    private static void SwitchTourItemToDisplay(Grid itemGrid)
+    {
+        foreach (var child in itemGrid.Children)
+        {
+            if (child is TextBlock tb) tb.Visibility = Visibility.Visible;
+            if (child is TextBox   tx) tx.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private static void SwitchTourItemToEdit(Grid itemGrid)
+    {
+        foreach (var child in itemGrid.Children)
+        {
+            if (child is TextBlock tb) tb.Visibility = Visibility.Collapsed;
+            if (child is TextBox   tx) { tx.Visibility = Visibility.Visible; tx.SelectAll(); tx.Focus(); }
+        }
+    }
+
+    /// <summary>Enters inline-rename edit mode for the tour at <paramref name="index"/>.</summary>
+    public void BeginTourRename(int index)
+    {
+        if (index < 0 || index >= _tourListBox.Items.Count) return;
+        if (_tourListBox.Items[index] is not Grid itemGrid) return;
+
+        // Sync TextBox text with current label in case it drifted
+        var label   = itemGrid.Children.OfType<TextBlock>().FirstOrDefault();
+        var editBox = itemGrid.Children.OfType<TextBox>().FirstOrDefault();
+        if (label is null || editBox is null) return;
+        editBox.Text = label.Text;
+
+        SwitchTourItemToEdit(itemGrid);
+    }
+
+    private bool IsTourRenameActive()
+    {
+        for (int i = 0; i < _tourListBox.Items.Count; i++)
+        {
+            if (_tourListBox.Items[i] is Grid g)
+            {
+                var tx = g.Children.OfType<TextBox>().FirstOrDefault();
+                if (tx is { Visibility: Visibility.Visible })
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private void CancelActiveTourRename()
+    {
+        for (int i = 0; i < _tourListBox.Items.Count; i++)
+        {
+            if (_tourListBox.Items[i] is Grid g)
+            {
+                var tx = g.Children.OfType<TextBox>().FirstOrDefault();
+                if (tx is { Visibility: Visibility.Visible })
+                {
+                    var lb = g.Children.OfType<TextBlock>().FirstOrDefault();
+                    if (lb is not null) tx.Text = lb.Text;
+                    SwitchTourItemToDisplay(g);
+                    return;
+                }
+            }
+        }
+    }
 
     private static int GetListBoxItemIndexAtPoint(ListBox listBox, Point point)
     {
