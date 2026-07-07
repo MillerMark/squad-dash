@@ -30,6 +30,8 @@ internal sealed class CommitApprovalPanel {
     private readonly UIElement  _approvedSection;
     private readonly UIElement  _approvedScrollViewer;
     private readonly UIElement? _categorizeRow;
+    private readonly UIElement? _needsApprovalHeader;
+    private readonly UIElement? _emptyStateText;
     private readonly ScrollViewer _needsApprovalScrollViewer;
 
     private Border?    _selectedRow;
@@ -68,7 +70,9 @@ internal sealed class CommitApprovalPanel {
         Action<bool>?                            onGroupedViewChanged = null,
         Func<IReadOnlyList<string>>?             getGroups            = null,
         Action<IReadOnlyList<CommitApprovalItem>>? onCategorizeUncategorized = null,
-        UIElement?                               categorizeRow = null) {
+        UIElement?                               categorizeRow = null,
+        UIElement?                               needsApprovalHeader = null,
+        UIElement?                               emptyStateText = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -92,6 +96,8 @@ internal sealed class CommitApprovalPanel {
         _getGroups                 = getGroups;
         _onCategorizeUncategorized = onCategorizeUncategorized;
         _categorizeRow             = categorizeRow;
+        _needsApprovalHeader       = needsApprovalHeader;
+        _emptyStateText            = emptyStateText;
 
         AttachPanelContextMenu(outerBorder);
         _rejectedSection.Visibility = _showRejected ? Visibility.Visible : Visibility.Collapsed;
@@ -662,6 +668,12 @@ internal sealed class CommitApprovalPanel {
             : Visibility.Collapsed;
         _approvedSection.Visibility      = vis;
         _approvedScrollViewer.Visibility = vis;
+
+        var hasAnyCommits = _mutableItems.Count > 0;
+        if (_needsApprovalHeader is not null)
+            _needsApprovalHeader.Visibility = hasAnyCommits ? Visibility.Visible : Visibility.Collapsed;
+        if (_emptyStateText is not null)
+            _emptyStateText.Visibility = hasAnyCommits ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void SyncCategorizeRowVisibility() {

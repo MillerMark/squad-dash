@@ -1923,12 +1923,22 @@
                                         Click="ApprovalCategorizeButton_Click" />
                             </DockPanel>
 
-                            <!-- "Needs Approval" header -->
-                            <TextBlock Grid.Row="2"
+                            <!-- "Needs Approval" header — hidden when panel is empty -->
+                            <TextBlock x:Name="ApprovalNeedsHeader"
+                                       Grid.Row="2"
                                        Text="Needs Approval"
                                        FontSize="{DynamicResource FontSizeSmall}"
                                        Margin="0,8,0,4"
                                        Foreground="{DynamicResource SubtleText}" />
+
+                            <!-- Empty state — shown only when there are no commits at all -->
+                            <TextBlock x:Name="ApprovalEmptyStateText"
+                                       Grid.Row="2"
+                                       Text="No commits yet."
+                                       FontSize="{DynamicResource FontSizeBody}"
+                                       Margin="0,12,0,0"
+                                       Foreground="{DynamicResource SubtleText}"
+                                       Visibility="Collapsed" />
 
                             <!-- Needs Approval items -->
                             <ScrollViewer x:Name="ApprovalNeedsScrollViewer"
