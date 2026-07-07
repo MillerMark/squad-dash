@@ -616,8 +616,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             if (_isLoadingStep) return;
             var newLabel = $"{_stepIndex + 1}. {_titleBox.Text.Trim()}";
-            if (_stepListBox.SelectedIndex >= 0 && _stepListBox.SelectedIndex < _stepListBox.Items.Count)
-                _stepListBox.Items[_stepListBox.SelectedIndex] = newLabel;
+            // Use _stepIndex directly — assigning Items[i] causes WPF to briefly
+            // set SelectedIndex to -1, which would skip updates on subsequent keystrokes.
+            if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
+                _stepListBox.Items[_stepIndex] = newLabel;
             Title = BuildEditorTitle(_activeTour.Name, _stepIndex, _titleBox.Text.Trim());
         };
 
