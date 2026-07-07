@@ -74,7 +74,7 @@
         "commandsAfter": [
           "Remove Dummy Queue Items"
         ],
-        "advanceTrigger": "",
+        "advanceTrigger": "SimulatedSend",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
