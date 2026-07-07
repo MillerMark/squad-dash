@@ -84,8 +84,18 @@ internal sealed class SquadInstallerServiceTests {
                     "import rpc from \"vscode-jsonrpc/node\";\n");
             }
 
-            if (command == SquadCliCommands.Init)
+            if (command == SquadCliCommands.Init) {
+                var globalSquadRoot = Path.Combine(activeDirectory, "appdata", "squad");
+                Directory.CreateDirectory(globalSquadRoot);
+                workspace.CreateFile(Path.Combine(".squad", "config.json"),
+                    $$"""
+                      {
+                        "version": 1,
+                        "teamRoot": "{{globalSquadRoot.Replace("\\", "\\\\")}}"
+                      }
+                      """);
                 workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
+            }
 
             return Task.FromResult(Success(command.DisplayName));
         });

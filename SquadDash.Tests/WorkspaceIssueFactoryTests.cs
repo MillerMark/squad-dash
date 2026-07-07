@@ -257,6 +257,15 @@ internal sealed class WorkspaceIssueFactoryTests {
     [Test]
     public void CreateStartupIssue_WhenCliEntryExistsWithoutBinShim_DoesNotShowInstallIssue() {
         using var workspace = new TestWorkspace();
+        var globalSquadRoot = workspace.GetPath("appdata", "squad");
+        Directory.CreateDirectory(globalSquadRoot);
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            $$"""
+              {
+                "version": 1,
+                "teamRoot": "{{globalSquadRoot.Replace("\\", "\\\\")}}"
+              }
+              """);
         workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
         workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
 

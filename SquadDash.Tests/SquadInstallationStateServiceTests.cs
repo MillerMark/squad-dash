@@ -52,6 +52,34 @@ internal sealed class SquadInstallationStateServiceTests {
     }
 
     [Test]
+    public void GetState_PrefersLocalTeamFile_WhenConfiguredTeamRootHasNoTeamFile() {
+        using var workspace = new TestWorkspace();
+        var globalSquadRoot = workspace.GetPath("appdata", "squad");
+        Directory.CreateDirectory(globalSquadRoot);
+        workspace.CreateFile(Path.Combine(".squad", "config.json"),
+            $$"""
+              {
+                "version": 1,
+                "teamRoot": "{{globalSquadRoot.Replace("\\", "\\\\")}}"
+              }
+              """);
+        workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Local Team");
+        workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
+
+        var service = new SquadInstallationStateService();
+
+        var state = service.GetState(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(state.IsWorkspaceInitialized, Is.True);
+            Assert.That(state.IsSquadInstalledForActiveDirectory, Is.True);
+            Assert.That(state.UsesRemoteTeamRoot, Is.False);
+            Assert.That(state.SquadFolderPath, Is.EqualTo(workspace.GetPath(".squad")));
+            Assert.That(state.TeamFilePath, Is.EqualTo(workspace.GetPath(".squad", "team.md")));
+        });
+    }
+
+    [Test]
     public void GetState_DetectsPackageManifestSeparately() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile("package.json", "{}");
