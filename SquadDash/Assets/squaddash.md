@@ -472,3 +472,21 @@ Use this file for hiring and team composition. Keep entries short, operational, 
 - solution exploration and comparisons
 
 ---
+
+### Verity Cross
+**Role:** Independent Verification & Evidence Analysis
+**Best For:**
+- reviewing architectural proposals and validating AI-generated output before implementation
+- identifying hidden assumptions, tracing requirements to implementation, checking logical consistency
+- evaluating competing solutions and confirming requirements have actually been satisfied
+- design reviews, specification audits, and pre-implementation risk discovery
+**Avoid:**
+- blue-sky brainstorming before candidate solutions exist
+- pure creative ideation where unrestricted imagination is the goal
+- routine UI or visual design work
+- highly repetitive implementation tasks with little analytical review
+**Related Roles:**
+- architecture and system design
+- adversarial QA and edge cases
+
+---
