@@ -34245,9 +34245,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void NoRepoPromptStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        SetPromptTextBoxLogicalBuffer("Initialize a git repository and create an initial commit",
-            "Initialize a git repository and create an initial commit".Length, reason: "no-repo-prompt");
-        PromptTextBox.Focus();
+        _ = _pec.ExecutePromptAsync("Initialize a git repository and create an initial commit",
+            addToHistory: true, clearPromptBox: true);
         e.Handled = true;
     }
 
@@ -34383,9 +34382,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 createRepoItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 createRepoItem.Click += (_, _) =>
                 {
-                    SetPromptTextBoxLogicalBuffer("Create a new GitHub repository for this workspace and push the current branch",
-                        "Create a new GitHub repository for this workspace and push the current branch".Length, reason: "no-remote-prompt");
-                    PromptTextBox.Focus();
+                    _ = _pec.ExecutePromptAsync("Create a new GitHub repository for this workspace and push the current branch",
+                        addToHistory: true, clearPromptBox: true);
                 };
                 menu.Items.Add(createRepoItem);
             }
