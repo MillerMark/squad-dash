@@ -14186,6 +14186,41 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             UpdateFollowUpStrip();
         });
 
+        _tourCommandRegistry.RegisterParameterized("AttachText", arg =>
+        {
+            var text = arg.Replace(@"\n", "\n");
+            var list = GetOrCreateFollowUpList("");
+            if (list.Any(a => a.ContentBlock == text)) return;
+            list.Add(new FollowUpAttachment("", "Attachment", null, ContentBlock: text));
+            UpdateFollowUpStrip();
+            SyncQueuePanel();
+        });
+
+        _tourCommandRegistry.RegisterParameterized("AttachImage", arg =>
+        {
+            var path = arg.Trim();
+            if (!System.IO.Path.IsPathRooted(path) && _currentWorkspace?.FolderPath is string folder)
+                path = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, path));
+            if (!File.Exists(path))
+            {
+                SquadDashTrace.Write("Tour", $"AttachImage: file not found — {path}");
+                return;
+            }
+            var list = GetOrCreateFollowUpList("");
+            if (list.Any(a => a.ImagePath == path)) return;
+            list.Add(new FollowUpAttachment("", "Image", null, ImagePath: path));
+            UpdateFollowUpStrip();
+            SyncQueuePanel();
+        });
+
+        _tourCommandRegistry.Register("ClearAttachments", () =>
+        {
+            if (_followUpAttachments.TryGetValue("", out var list))
+                list.Clear();
+            UpdateFollowUpStrip();
+            SyncQueuePanel();
+        });
+
         _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
         {
             // Format: "markdown text" or "markdown text|agentName"
@@ -34145,13 +34180,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 row.Children.Add(label);
                 FollowUpItemsPanel.Children.Add(row);
+                _tourNamedElements[$"FollowUpAttachmentRow{i}"]     = row;
+                _tourNamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;
             }
             FollowUpStrip.Visibility = Visibility.Visible;
+            _tourNamedElements["FollowUpStrip"] = FollowUpStrip;
         }
         else
         {
             FollowUpItemsPanel.Children.Clear();
             FollowUpStrip.Visibility = Visibility.Collapsed;
+            var staleKeys = _tourNamedElements.Keys
+                .Where(k => k.StartsWith("FollowUpAttachmentRow", StringComparison.Ordinal)
+                         || k.StartsWith("FollowUpAttachmentDismiss", StringComparison.Ordinal))
+                .ToList();
+            foreach (var k in staleKeys) _tourNamedElements.Remove(k);
         }
     }
 
