@@ -128,6 +128,12 @@ internal sealed class GuidedTourCommandRegistry
         if (pipeSep >= 0)
             return (raw[..pipeSep], raw[(pipeSep + 1)..], true);
 
+        // Colon-only separator (no trailing space): "CommandName:argument"
+        // Checked last so "CommandName: argument" always takes precedence.
+        var colonOnly = raw.IndexOf(':');
+        if (colonOnly >= 0)
+            return (raw[..colonOnly], raw[(colonOnly + 1)..], true);
+
         return (raw, string.Empty, false);
     }
 
