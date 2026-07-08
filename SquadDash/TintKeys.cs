@@ -96,6 +96,7 @@ internal static class TintKeys
         "CalloutBackground",
         "CalloutText",
         "CalloutButtonHover",
+        "CalloutButtonBackground",
         "TourNavButtonSurface",
         "TourNavButtonHoverSurface",
         "TourNavButtonText",

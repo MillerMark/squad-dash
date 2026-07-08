@@ -75,6 +75,7 @@
     <SolidColorBrush x:Key="CalloutBackground" Color="#AEA99F"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
     <SolidColorBrush x:Key="CalloutText"          Color="#1D1B18"/><!-- matches LabelText dark -->
     <SolidColorBrush x:Key="CalloutButtonHover"   Color="#8A8078"/><!-- hover on callout surface: darker than CalloutBackground -->
+    <SolidColorBrush x:Key="CalloutButtonBackground" Color="#E8E0D4"/><!-- rest background for buttons on the callout surface -->
     <!-- Tour Callout Nav Button Tokens (inverted: light-look on dark) -->
     <SolidColorBrush x:Key="TourNavButtonSurface"      Color="#E8E0D4"/><!-- warm off-white, echoes light InputSurface -->
     <SolidColorBrush x:Key="TourNavButtonHoverSurface"  Color="#F4EEE6"/><!-- lighter on hover -->

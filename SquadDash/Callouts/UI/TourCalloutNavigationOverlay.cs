@@ -119,11 +119,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 ? "Click or press Backspace to go to the previous step."
                 : "Click or press Enter to go to the next step.",
         };
-        border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
+        border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
         border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
         border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonHover");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
         border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
             if (isPrev) PrevClicked?.Invoke(this, EventArgs.Empty);
