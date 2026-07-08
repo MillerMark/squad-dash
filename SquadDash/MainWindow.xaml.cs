@@ -28439,6 +28439,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var maintenanceMdPath = Path.Combine(squadRoot, "code-health.md");
         var tasksMdPath       = Path.Combine(squadRoot, "tasks.md");
 
+        // 1. Hire New Agent — topmost item
+        var hireMenuItem = new MenuItem
+        {
+            Header = "👤 _Hire New Agent",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+        hireMenuItem.Click += (_, _) =>
+        {
+            var submission = ShowHireAgentWindow();
+            if (submission is null)
+                return;
+            EnqueuePrompt(submission.PromptText, isSystemInjected: false);
+        };
+        WorkspaceMenuItem.Items.Add(hireMenuItem);
+
+        WorkspaceMenuItem.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
+
+        // 2. "Files & Folders" submenu
+        var filesAndFoldersMenuItem = new MenuItem
+        {
+            Header = "Files & _Folders",
+            Style = (Style)FindResource("ThemedMenuItemStyle")
+        };
+
         // Regular squad files: added only when they exist.
         foreach (var relativePath in new[] {
                      "ceremonies.md",
@@ -28466,32 +28490,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         foreach (var (header, _, clickAction) in _squadFileMenuEntries.OrderBy(x => x.SortKey, StringComparer.OrdinalIgnoreCase))
         {
-            var menuItem = new MenuItem { Header = header, Style = (Style)FindResource("ThemedMenuItemStyle") };
-            menuItem.Click += (_, _) => clickAction();
-            WorkspaceMenuItem.Items.Add(menuItem);
+            var fileMenuItem = new MenuItem { Header = header, Style = (Style)FindResource("ThemedMenuItemStyle") };
+            fileMenuItem.Click += (_, _) => clickAction();
+            filesAndFoldersMenuItem.Items.Add(fileMenuItem);
         }
         _squadFileMenuEntries.Clear();
 
-        PopulateLoopFilePicker();
-        RefreshLoopOptionsPanel();
-        UpdateLoopPanelButtonStates();
-        _pec.TasksFilePath = tasksMdPath;
-
-        AddWorkspaceMenuSeparator();
-
-        var hireMenuItem = new MenuItem
-        {
-            Header = "👤 _Hire New Agent",
-            Style = (Style)FindResource("ThemedMenuItemStyle")
-        };
-        hireMenuItem.Click += (_, _) =>
-        {
-            var submission = ShowHireAgentWindow();
-            if (submission is null)
-                return;
-            EnqueuePrompt(submission.PromptText, isSystemInjected: false);
-        };
-        WorkspaceMenuItem.Items.Add(hireMenuItem);
+        filesAndFoldersMenuItem.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
 
         OpenSquadFolderMenuItem = new MenuItem
         {
@@ -28501,9 +28506,35 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Style = (Style)FindResource("ThemedMenuItemStyle")
         };
         OpenSquadFolderMenuItem.Click += OpenSquadFolderMenuItem_Click;
-        WorkspaceMenuItem.Items.Add(OpenSquadFolderMenuItem);
+        filesAndFoldersMenuItem.Items.Add(OpenSquadFolderMenuItem);
 
-        AddWorkspaceFolderMenuItem(Path.Combine("decisions", "inbox"));
+        var inboxRelativePath = Path.Combine("decisions", "inbox");
+        var inboxPath = Path.Combine(squadRoot, inboxRelativePath);
+        if (Directory.Exists(inboxPath))
+        {
+            var inboxFileCount = CountFiles(inboxPath);
+            var inboxEntry = new SidebarEntry(
+                $"📂{Path.GetFileName(inboxRelativePath)} folder ({inboxFileCount})",
+                string.Empty,
+                inboxPath,
+                true,
+                SidebarEntryKind.Folder);
+            var inboxMenuItem = new MenuItem
+            {
+                Header = inboxEntry.Title,
+                Tag = inboxEntry,
+                Style = (Style)FindResource("ThemedMenuItemStyle")
+            };
+            inboxMenuItem.Click += (_, _) => OpenSidebarEntry(inboxEntry);
+            filesAndFoldersMenuItem.Items.Add(inboxMenuItem);
+        }
+
+        WorkspaceMenuItem.Items.Add(filesAndFoldersMenuItem);
+
+        PopulateLoopFilePicker();
+        RefreshLoopOptionsPanel();
+        UpdateLoopPanelButtonStates();
+        _pec.TasksFilePath = tasksMdPath;
 
         AddWorkspaceMenuSeparator();
 
