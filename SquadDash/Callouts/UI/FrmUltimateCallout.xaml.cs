@@ -151,7 +151,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void PlaceCloseButton() {
         var closeButton = new Button();
         closeButton.SetResourceReference(Button.StyleProperty,    "PanelCloseButtonStyle");
-        closeButton.SetResourceReference(Button.ForegroundProperty, "SubtleText");
+        closeButton.SetResourceReference(Button.ForegroundProperty, "CalloutText");
         closeButton.Content = "×";
         closeButton.FontSize = 14;
         closeButton.Width  = closeButtonEdgeSize;
