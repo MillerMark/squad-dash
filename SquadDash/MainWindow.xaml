@@ -1214,6 +1214,16 @@
                             Click="IssueHelpButton_Click">
                         View Fix Steps
                     </Button>
+                    <Button x:Name="IssueDiagnosticsButton"
+                            MinWidth="112"
+                            Height="32"
+                            Padding="14,0,14,0"
+                            Margin="0,0,8,0"
+                            Style="{StaticResource ThemedButtonStyle}"
+                            Visibility="Collapsed"
+                            Click="IssueDiagnosticsButton_Click">
+                        Diagnostics
+                    </Button>
                     <Button x:Name="IssueActionButton"
                             MinWidth="120"
                             Height="32"

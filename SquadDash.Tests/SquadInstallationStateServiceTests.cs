@@ -52,6 +52,44 @@ internal sealed class SquadInstallationStateServiceTests {
     }
 
     [Test]
+    public void DiagnosticsFormatter_ReportsInstallChecklistPaths() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
+        workspace.CreateFile("package.json", "{}");
+
+        var state = new SquadInstallationStateService().GetState(workspace.RootPath);
+
+        var diagnostics = SquadInstallDiagnosticsFormatter.Build(state);
+
+        Assert.Multiple(() => {
+            Assert.That(diagnostics, Does.Contain($"Workspace: {workspace.RootPath}"));
+            Assert.That(diagnostics, Does.Contain(".squad/team.md: found"));
+            Assert.That(diagnostics, Does.Contain("package.json: found"));
+            Assert.That(diagnostics, Does.Contain("local Squad CLI shim: missing"));
+            Assert.That(diagnostics, Does.Contain("local Squad CLI entry: missing"));
+            Assert.That(diagnostics, Does.Contain($"resolved .squad path: {workspace.GetPath(".squad")}"));
+            Assert.That(diagnostics, Does.Contain("SquadDash considers this folder installed: no"));
+        });
+    }
+
+    [Test]
+    public void DiagnosticsFormatter_ReportsCliEntryFound_WhenShimIsMissing() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
+        workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
+
+        var state = new SquadInstallationStateService().GetState(workspace.RootPath);
+
+        var diagnostics = SquadInstallDiagnosticsFormatter.Build(state);
+
+        Assert.Multiple(() => {
+            Assert.That(diagnostics, Does.Contain("local Squad CLI shim: missing"));
+            Assert.That(diagnostics, Does.Contain("local Squad CLI entry: found"));
+            Assert.That(diagnostics, Does.Contain("SquadDash considers this folder installed: yes"));
+        });
+    }
+
+    [Test]
     public void GetState_PrefersLocalTeamFile_WhenConfiguredTeamRootHasNoTeamFile() {
         using var workspace = new TestWorkspace();
         var globalSquadRoot = workspace.GetPath("appdata", "squad");

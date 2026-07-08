@@ -27057,6 +27057,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SetInstallStatus(string.Empty);
             InstallSquadButton.Visibility = Visibility.Collapsed;
             IssueHelpButton.Visibility = Visibility.Collapsed;
+            IssueDiagnosticsButton.Visibility = Visibility.Collapsed;
             IssueActionButton.Visibility = Visibility.Collapsed;
             IssueSecondaryActionButton.Visibility = Visibility.Collapsed;
             IssuePrimaryLinkButton.Visibility = Visibility.Collapsed;
@@ -27082,6 +27083,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         IssueHelpButton.Visibility = string.IsNullOrWhiteSpace(issue.HelpWindowContent)
             ? Visibility.Collapsed
             : Visibility.Visible;
+
+        IssueDiagnosticsButton.Visibility = issue.ShowInstallButton && _currentWorkspace is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         ConfigureIssueActionButton(IssueActionButton, issue.Action);
         ConfigureIssueActionButton(IssueSecondaryActionButton, issue.SecondaryAction);
@@ -27217,6 +27222,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    private void IssueDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                return;
+
+            var state = _currentInstallationState ?? _installationStateService.GetState(_currentWorkspace.FolderPath);
+            var diagnostics = SquadInstallDiagnosticsFormatter.Build(state);
+            var window = new WorkspaceInstallDiagnosticsWindow(diagnostics);
+            if (CanShowOwnedWindow())
+                window.Owner = this;
+            WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(IssueDiagnosticsButton_Click), ex);
+        }
+    }
+
     private void IssueLinkButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -27343,6 +27369,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SetIsEnabledIfChanged(RunDoctorMenuItem, state.RunDoctorEnabled);
         SetIsEnabledIfChanged(InstallSquadButton, state.InstallSquadEnabled);
         SetIsEnabledIfChanged(IssueHelpButton, true);
+        SetIsEnabledIfChanged(IssueDiagnosticsButton, true);
         SetIsEnabledIfChanged(IssueActionButton, true);
         SetIsEnabledIfChanged(IssueSecondaryActionButton, true);
         SetIsEnabledIfChanged(IssuePrimaryLinkButton, true);
