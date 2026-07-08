@@ -92,9 +92,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         panel.Children.Add(_nextButton);
 
         var container = new Border {
-            CornerRadius    = new CornerRadius(8),
-            Padding         = new Thickness(0),
-            Child           = panel,
+            CornerRadius        = new CornerRadius(8),
+            Padding             = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment   = VerticalAlignment.Top,
+            Child               = panel,
         };
         container.SetResourceReference(Border.BackgroundProperty, "CalloutBackground");
 
@@ -269,7 +271,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom) {
         Rect visibleBounds = GetVisibleButtonBounds();
 
-        const double gap = 4;
+        const double gap = 10;
 
         // Align the measured button faces, not the transparent top-level window bounds.
         // Some layered WPF windows can report extra non-visible width; using that width
