@@ -715,6 +715,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         SizeChanged += (_, _) => InvalidateVisual();
     }
 
+    // Make the entire canvas surface hittable (not just rendered pixels) so
+    // OnMouseMove fires everywhere and tooltips show over dots and lines.
+    protected override HitTestResult HitTestCore(PointHitTestParameters hitTestParameters)
+        => new PointHitTestResult(this, hitTestParameters.HitPoint);
+
     // ── Public API ─────────────────────────────────────────────────────────────
 
     public void SetData(
