@@ -14210,9 +14210,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             var rect = new System.Windows.Shapes.Rectangle
             {
-                Stroke          = new SolidColorBrush(rectColor),
+                Stroke          = new SolidColorBrush(Color.FromArgb(128, rectColor.R, rectColor.G, rectColor.B)),
                 StrokeThickness = thickness,
-                Fill            = new SolidColorBrush(Color.FromArgb(128, rectColor.R, rectColor.G, rectColor.B)),
+                Fill            = Brushes.Transparent,
                 IsHitTestVisible = false,
                 Width           = w + pad * 2 + thickness * 2,
                 Height          = h + pad * 2 + thickness * 2,
