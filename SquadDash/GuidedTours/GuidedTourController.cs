@@ -207,6 +207,10 @@ internal sealed class GuidedTourController
             var currentTourId    = _activeTour.Id;
             StopTourInternal(showHint: false, commandsAfter: commandsAfter);
 
+            // Mark the tour completed before showing the selector so the completion
+            // badge renders correctly for the tour that was just finished.
+            GuidedTourStateStore.Shared.MarkCompleted(currentTourId);
+
             var hasOtherTours = allToursSnapshot.Any(t => t.Id != currentTourId);
 
             if (hasOtherTours)
