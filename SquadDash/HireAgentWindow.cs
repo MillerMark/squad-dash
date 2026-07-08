@@ -307,10 +307,10 @@ internal sealed class HireAgentWindow : Window {
 
         _advancedOptionsButton = new Button {
             Height = 32,
-            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 0, 0, 16),
             Padding = new Thickness(14, 0, 14, 0),
-            Content = "Clear Fields"
+            Content = "Clear Fields Below"
         };
         _advancedOptionsButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         _advancedOptionsButton.Click += AdvancedOptionsButton_Click;
@@ -318,7 +318,7 @@ internal sealed class HireAgentWindow : Window {
         previewGrid.Children.Add(_advancedOptionsButton);
 
         _advancedOptionsPanel = new StackPanel {
-            Visibility = Visibility.Collapsed
+            Visibility = Visibility.Visible
         };
         Grid.SetRow(_advancedOptionsPanel, 4);
         previewGrid.Children.Add(_advancedOptionsPanel);
@@ -1033,6 +1033,8 @@ internal sealed class HireAgentWindow : Window {
             _imageIsRoleDefault = option.ImagePath is null;
             _bestForBox.SetBulletItems(option.BestFor);
             _avoidBox.SetBulletItems(option.Avoid);
+            if (!string.IsNullOrEmpty(option.Role))
+                _roleComboBox.Text = option.Role;
         });
         if (option.BestFor.Count > 0 || option.Avoid.Count > 0) {
             _advancedOptionsPanel.Visibility = Visibility.Visible;

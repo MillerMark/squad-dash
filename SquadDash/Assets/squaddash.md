@@ -442,7 +442,7 @@ Use this file for hiring and team composition. Keep entries short, operational, 
 ---
 
 ### Rory
-**Role:** Design Review & Architectural Questioning
+**Role:** Design and Architectural Review
 **Best For:**
 - assumption challenging, solution exploration, implementation critique
 - collaborative problem-solving, long-term maintainability discussions

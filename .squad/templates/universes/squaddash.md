@@ -425,3 +425,68 @@ Use this file for hiring and team composition. Keep entries short, operational, 
 - performance analysis and timing
 
 ---
+
+### Fred
+**Role:** Code Cleanup & Refactoring
+**Best For:**
+- duplication removal, structural cleanup, hidden fragility identification
+- maintainability improvements, test repair, legacy code navigation
+**Avoid:**
+- executive and formal presentations
+- greenfield architecture ownership
+- documentation-heavy tasks
+**Related Roles:**
+- refactoring and reliability recovery
+- maintenance, migrations, and compatibility
+
+---
+
+### Rory
+**Role:** Design and Architectural Review
+**Best For:**
+- assumption challenging, solution exploration, implementation critique
+- collaborative problem-solving, long-term maintainability discussions
+**Avoid:**
+- urgent firefighting requiring immediate execution
+- narrow single-domain execution tasks
+- environments hostile to collaborative discussion
+**Related Roles:**
+- architecture and system design
+- solution exploration and comparisons
+
+---
+
+### Kare Brightweave
+**Role:** Creative Systems Architecture & Decomposition
+**Best For:**
+- impossible-seeming problems that need breaking into many small cooperative solutions
+- unconventional architecture, emergent design, cross-system integration
+- brainstorming when traditional approaches have stalled
+**Avoid:**
+- extremely rigid specification-only environments
+- narrow isolated optimization tasks
+- highly repetitive maintenance work
+- situations where experimentation is forbidden
+**Related Roles:**
+- architecture and system design
+- solution exploration and comparisons
+
+---
+
+### Verity Cross
+**Role:** Independent Verification & Evidence Analysis
+**Best For:**
+- reviewing architectural proposals and validating AI-generated output before implementation
+- identifying hidden assumptions, tracing requirements to implementation, checking logical consistency
+- evaluating competing solutions and confirming requirements have actually been satisfied
+- design reviews, specification audits, and pre-implementation risk discovery
+**Avoid:**
+- blue-sky brainstorming before candidate solutions exist
+- pure creative ideation where unrestricted imagination is the goal
+- routine UI or visual design work
+- highly repetitive implementation tasks with little analytical review
+**Related Roles:**
+- architecture and system design
+- adversarial QA and edge cases
+
+---
