@@ -50,7 +50,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
 
         var mascotImage = new System.Windows.Controls.Image
         {
-            Height              = 420,
+            Height              = 265,
             Stretch             = System.Windows.Media.Stretch.Uniform,
             VerticalAlignment   = VerticalAlignment.Bottom,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -157,6 +157,8 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         };
         _showCompletedCheckBox.SetResourceReference(CheckBox.ForegroundProperty, "LabelText");
         _showCompletedCheckBox.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeBody");
+        // Scale the entire checkbox (glyph + label) up to match FontSizeLarge (15) from FontSizeBody (13)
+        _showCompletedCheckBox.LayoutTransform = new System.Windows.Media.ScaleTransform(15.0 / 13.0, 15.0 / 13.0);
         _showCompletedCheckBox.Checked   += (_, _) => RepopulateCurrentFilter();
         _showCompletedCheckBox.Unchecked += (_, _) => RepopulateCurrentFilter();
 
@@ -323,7 +325,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
                 FontWeight        = FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            checkMark.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
+            checkMark.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeLarge");
             checkMark.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
             nameRow.Children.Add(checkMark);
         }
@@ -334,7 +336,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             FontWeight   = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         };
-        nameBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeMedium");
+        nameBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeLarge");
         nameBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         nameRow.Children.Add(nameBlock);
 
