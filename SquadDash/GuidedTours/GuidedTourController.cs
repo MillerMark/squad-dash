@@ -207,15 +207,13 @@ internal sealed class GuidedTourController
             var currentTourId    = _activeTour.Id;
             StopTourInternal(showHint: false, commandsAfter: commandsAfter);
 
-            var remaining = allToursSnapshot
-                .Where(t => t.Id != currentTourId && !GuidedTourStateStore.Shared.IsCompleted(t.Id))
-                .ToList();
+            var hasOtherTours = allToursSnapshot.Any(t => t.Id != currentTourId);
 
-            if (remaining.Count > 0)
+            if (hasOtherTours)
             {
                 var selected = FrmGuidedTourSelector.ShowForResult(
                     _ownerWindow,
-                    remaining,
+                    allToursSnapshot,
                     id => GuidedTourStateStore.Shared.IsCompleted(id));
                 if (selected is not null)
                     StartTour(selected, allToursSnapshot);
