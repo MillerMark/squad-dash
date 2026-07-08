@@ -29,8 +29,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private Border? _prevButton;
     private Border? _nextButton;
-    private Border? _editButton;
-    private Border? _deleteButton;
     private bool _glowActive;
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
@@ -38,13 +36,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private bool _isDevModeVisible;
     public bool IsDevModeVisible {
         get => _isDevModeVisible;
-        set {
-            _isDevModeVisible = value;
-            if (_editButton is not null)
-                _editButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-            if (_deleteButton is not null)
-                _deleteButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-        }
+        set => _isDevModeVisible = value;
     }
 
     // NavRight arrow path — fits a 822×882 viewbox (right-pointing chevron/arrow).
@@ -94,16 +86,10 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
         _prevButton = BuildButton(isPrev: true);
         _nextButton = BuildButton(isPrev: false);
-        _editButton = BuildEditButton();
-        _deleteButton = BuildDeleteButton();
 
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
-        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
-        panel.Children.Add(_editButton);
-        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
-        panel.Children.Add(_deleteButton);
 
         var container = new Border {
             CornerRadius    = new CornerRadius(8),
@@ -239,81 +225,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         _nextButton.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
     }
 
-    private Border BuildEditButton() {
-        var border = new Border {
-            Width = PrevButtonWidth,
-            Height = ButtonHeight,
-            CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1),
-            IsHitTestVisible = true,
-            Cursor = Cursors.Hand,
-            Visibility = Visibility.Collapsed,
-            ToolTip = "Click to edit step.\nAlt+Click to add a new step after this one.\nCtrl+Click to add a new step before this step.",
-        };
-        border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
-        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
-
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonHoverSurface");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
-        border.MouseLeftButtonUp += (_, e) => {
-            e.Handled = true;
-            bool isAlt = Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt);
-            bool isCtrl = Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
-            if (isAlt)
-                NewStepAfterClicked?.Invoke(this, EventArgs.Empty);
-            else if (isCtrl)
-                NewStepBeforeClicked?.Invoke(this, EventArgs.Empty);
-            else
-                EditClicked?.Invoke(this, EventArgs.Empty);
-        };
-
-        var pencil = new TextBlock {
-            Text = "✎",
-            FontSize = 14,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            IsHitTestVisible = false,
-        };
-        pencil.SetResourceReference(TextBlock.ForegroundProperty, "TourNavButtonText");
-
-        border.Child = pencil;
-        return border;
-    }
-
-    private Border BuildDeleteButton() {
-        var border = new Border {
-            Width = PrevButtonWidth,
-            Height = ButtonHeight,
-            CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1),
-            IsHitTestVisible = true,
-            Cursor = Cursors.Hand,
-            Visibility = Visibility.Collapsed,
-            ToolTip = "Click to delete this step.",
-        };
-        border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
-        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
-
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonHoverSurface");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
-        border.MouseLeftButtonUp += (_, e) => {
-            e.Handled = true;
-            DeleteClicked?.Invoke(this, EventArgs.Empty);
-        };
-
-        var icon = new TextBlock {
-            Text = "\uD83D\uDDD1",
-            FontSize = 14,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            IsHitTestVisible = false,
-        };
-        icon.SetResourceReference(TextBlock.ForegroundProperty, "TourNavButtonText");
-
-        border.Child = icon;
-        return border;
-    }
-
     private static UIElement BuildArrowIcon(bool flipHorizontal) {
         var geometry = Geometry.Parse(NavRightPath);
         var path = new System.Windows.Shapes.Path {
@@ -358,7 +269,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom) {
         Rect visibleBounds = GetVisibleButtonBounds();
 
-        const double gap = 6;
+        const double gap = 4;
 
         // Align the measured button faces, not the transparent top-level window bounds.
         // Some layered WPF windows can report extra non-visible width; using that width
@@ -432,8 +343,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private Rect GetVisibleButtonBounds() {
         Rect? bounds = null;
-        AddButtonBounds(_deleteButton, ref bounds);
-        AddButtonBounds(_editButton, ref bounds);
         AddButtonBounds(_prevButton, ref bounds);
         AddButtonBounds(_nextButton, ref bounds);
 
