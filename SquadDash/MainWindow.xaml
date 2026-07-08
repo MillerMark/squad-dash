@@ -918,7 +918,7 @@
                     <MenuItem Header="Trigger _Idle Hint Cycle"
                               Click="TriggerIdleHintCycleMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
-                    <MenuItem Header="_Edit Guided Tours"
+                    <MenuItem Header="_Edit Guided Tours…"
                               Click="EditGuidedToursMenuItem_Click" />
                     <MenuItem Header="_Preview Current Tour Step"
                               Click="PreviewCurrentTourStepMenuItem_Click" />
