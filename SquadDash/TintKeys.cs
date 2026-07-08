@@ -94,6 +94,7 @@ internal static class TintKeys
         "TranscriptActionBorder",
         "CalloutBorder",
         "CalloutBackground",
+        "CalloutText",
 
         // Text
         "ImportantText",
