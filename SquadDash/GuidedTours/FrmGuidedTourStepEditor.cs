@@ -89,6 +89,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private StackPanel                 _commandAfterPanel  = null!;
     private string[]                   _commandItems = Array.Empty<string>();
 
+    // Extra windows to include in pick-mode (e.g. PreferencesWindow when open)
+    private readonly Func<IReadOnlyList<Window>?>? _extraPickWindowsProvider;
+
     // Crosshair picker
     private readonly Canvas        _crosshairCanvas;
     private readonly TextBlock     _crosshairCoordsLabel;
@@ -136,7 +139,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action<int>?     switchTourCallback   = null,
         Action?          addTourCallback      = null,
         Action?          deleteTourCallback   = null,
-        Action<int, string>? renameTourCallback = null)
+        Action<int, string>? renameTourCallback = null,
+        Func<IReadOnlyList<Window>?>? extraPickWindowsProvider = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -152,6 +156,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _addTourCallback      = addTourCallback;
         _deleteTourCallback   = deleteTourCallback;
         _renameTourCallback   = renameTourCallback;
+        _extraPickWindowsProvider = extraPickWindowsProvider;
 
         _step                = step;
         _stepIndex           = stepIndex;
@@ -1462,6 +1467,133 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         overlay.Show();
         overlay.Focus();
+
+        // ── Extra-window overlays (e.g. PreferencesWindow) ───────────────────
+        var extraWindows = _extraPickWindowsProvider?.Invoke() ?? [];
+        foreach (var extraWin in extraWindows)
+            AttachExtraPickOverlay(extraWin, overlay);
+    }
+
+    /// <summary>
+    /// Creates a transparent pick-mode overlay covering <paramref name="extraWin"/> so the user
+    /// can click elements in it just like in the main window.  The overlay closes when the main
+    /// overlay closes, and vice versa.
+    /// </summary>
+    private void AttachExtraPickOverlay(Window extraWin, Window mainOverlay)
+    {
+        var extraPickWhiteRect = default(Rectangle?);
+        var extraPickBlackRect = default(Rectangle?);
+        var extraPickLabel     = default(Border?);
+
+        var extraCanvas = new Canvas { IsHitTestVisible = false };
+        var extraGrid   = new Grid();
+        extraGrid.Children.Add(extraCanvas);
+
+        var extraOverlay = new Window
+        {
+            Owner                 = extraWin,
+            WindowStyle           = WindowStyle.None,
+            AllowsTransparency    = true,
+            Background            = new SolidColorBrush(Color.FromArgb(0x10, 0, 0, 0)),
+            Topmost               = true,
+            ShowInTaskbar         = false,
+            Cursor                = Cursors.Cross,
+            Left                  = extraWin.Left,
+            Top                   = extraWin.Top,
+            Width                 = extraWin.ActualWidth,
+            Height                = extraWin.ActualHeight,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Content               = extraGrid,
+        };
+
+        void ClearExtraHighlight()
+        {
+            if (extraPickWhiteRect != null) extraPickWhiteRect.Visibility = Visibility.Collapsed;
+            if (extraPickBlackRect != null) extraPickBlackRect.Visibility = Visibility.Collapsed;
+            if (extraPickLabel     != null) extraPickLabel.Visibility     = Visibility.Collapsed;
+        }
+
+        DependencyObject? lastHitObj2 = null;
+        (FrameworkElement? element, string? name) lastResult2 = (null, null);
+
+        extraOverlay.MouseMove += (_, e) =>
+        {
+            var pos = e.GetPosition(extraWin);
+            var hit = VisualTreeHelper.HitTest(extraWin, pos);
+            if (hit?.VisualHit is DependencyObject hitObj)
+            {
+                if (!ReferenceEquals(hitObj, lastHitObj2))
+                {
+                    lastHitObj2 = hitObj;
+                    lastResult2 = FindFirstUniqueNamedAncestor(hitObj, extraWin);
+                }
+                var (fe, name) = lastResult2;
+                if (fe != null && name != null)
+                {
+                    var topLeft = extraOverlay.PointFromScreen(fe.PointToScreen(new Point(0, 0)));
+                    if (extraPickWhiteRect is null)
+                    {
+                        extraPickBlackRect = new Rectangle { Stroke = Brushes.Black, StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false };
+                        extraPickWhiteRect = new Rectangle { Stroke = Brushes.White, StrokeThickness = 2, Fill = Brushes.Transparent, IsHitTestVisible = false };
+                        extraPickLabel = new Border
+                        {
+                            Background = new SolidColorBrush(Color.FromArgb(0xCC, 20, 20, 20)),
+                            Padding    = new Thickness(6, 2, 6, 2),
+                            Child      = new TextBlock { Foreground = Brushes.White, FontSize = 11 },
+                            IsHitTestVisible = false,
+                        };
+                        extraCanvas.Children.Add(extraPickBlackRect);
+                        extraCanvas.Children.Add(extraPickWhiteRect);
+                        extraCanvas.Children.Add(extraPickLabel);
+                    }
+                    const double stroke = 2, pad = 2;
+                    UpdateHighlight(extraCanvas, topLeft, fe.ActualWidth, fe.ActualHeight, stroke, pad, name);
+                    return;
+                }
+            }
+            else
+            {
+                lastHitObj2 = null;
+                lastResult2 = (null, null);
+            }
+            ClearExtraHighlight();
+        };
+
+        extraOverlay.MouseLeftButtonUp += (_, e) =>
+        {
+            ClearExtraHighlight();
+            extraOverlay.Close();
+            mainOverlay.Close();
+            Visibility = Visibility.Visible;
+            Activate();
+            try
+            {
+                var pos = e.GetPosition(extraWin);
+                var hit = VisualTreeHelper.HitTest(extraWin, pos);
+                if (hit?.VisualHit is DependencyObject hitObj)
+                {
+                    var (_, name) = FindFirstUniqueNamedAncestor(hitObj, extraWin);
+                    if (name != null) { _targetControlBox.Text = name; PushLivePreview(); }
+                    else ShowStatus("⚠ The clicked element has no unique x:Name — cannot use as a target.");
+                }
+                else ShowStatus("⚠ No element found at that position.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error picking target element:\n{ex}", "Pick Target Error",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
+
+        extraOverlay.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape) { extraOverlay.Close(); mainOverlay.Close(); Visibility = Visibility.Visible; Activate(); }
+        };
+
+        // Close extra overlay when main overlay closes (ESC or click on main window side).
+        mainOverlay.Closed += (_, _) => { if (extraOverlay.IsLoaded) extraOverlay.Close(); };
+
+        extraOverlay.Show();
     }
 
     // ── Pick-mode: unique-name helpers ───────────────────────────────────────

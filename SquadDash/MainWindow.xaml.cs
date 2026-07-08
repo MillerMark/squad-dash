@@ -13896,8 +13896,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         RegisterTourAdvanceTriggers();
         _guidedTourController = new GuidedTourController(
             ownerWindow:             this,
-            elementLocator:          name => _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
-                                             : VisualTreeSearch.FindByName(this, name),
+            elementLocator:          name =>
+            {
+                if (_tourNamedElements.TryGetValue(name, out var namedEl)) return namedEl;
+                var inMain = VisualTreeSearch.FindByName(this, name);
+                if (inMain is not null) return inMain;
+                if (_preferencesWindow is { IsVisible: true })
+                    return VisualTreeSearch.FindByName(_preferencesWindow, name);
+                return null;
+            },
             savePreTourLayout:       () => { if (!string.IsNullOrEmpty(_currentWorkspace?.FolderPath)) _dockingService?.SaveLayout(_currentWorkspace.FolderPath); },
             restorePreTourLayout:    () =>
             {
@@ -13912,7 +13919,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             commandRegistry:         _tourCommandRegistry,
             onStepChanging:          FreezeTypeIntoPromptAnimation,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
-            isTypeAnimationRunning:  () => _typeIntoPromptTimer != null);
+            isTypeAnimationRunning:  () => _typeIntoPromptTimer != null,
+            extraPickWindowsProvider: () => _preferencesWindow is { IsVisible: true }
+                                            ? [(Window)_preferencesWindow]
+                                            : null);
     }
 
     private void UnhighlightAllMenuItems()

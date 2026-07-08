@@ -571,7 +571,7 @@ internal sealed class PreferencesWindow : Window {
         Grid.SetColumn(navStrip, 0);
         body.Children.Add(navStrip);
 
-        _pageHost = new ContentControl();
+        _pageHost = new ContentControl { Name = "PrefPageHost" };
         Grid.SetColumn(_pageHost, 1);
         body.Children.Add(_pageHost);
 
@@ -644,9 +644,30 @@ internal sealed class PreferencesWindow : Window {
                 return new TreeViewItem();          // placeholder — never reached
             var item = new TreeViewItem { Style = leafStyle };
             item.Header = label;
+            item.Name   = LabelToTourName(label);   // e.g. "PrefNav_PushToTalk"
             item.Selected += (_, _) => NavigateTo(idx);
             leafItems[idx] = item;
             return item;
+        }
+
+        static string LabelToTourName(string label)
+        {
+            // "Push to Talk" → "PrefNav_PushToTalk", "Dev / Diag." → "PrefNav_DevDiag"
+            var sb = new System.Text.StringBuilder("PrefNav_");
+            bool capitalizeNext = true;
+            foreach (char c in label)
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    sb.Append(capitalizeNext ? char.ToUpperInvariant(c) : c);
+                    capitalizeNext = false;
+                }
+                else
+                {
+                    capitalizeNext = true;  // skip non-alphanumeric, capitalize next letter
+                }
+            }
+            return sb.ToString();
         }
 
         TreeViewItem MakeGroup(string label, params string[] children) {
