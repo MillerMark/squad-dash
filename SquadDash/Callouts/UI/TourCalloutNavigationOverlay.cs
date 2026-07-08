@@ -148,7 +148,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
             };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "TourNavButtonText");
+            label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
             _nextLabel = label;
             UpdateNextLabelVisibility();
             inner.Children.Add(label);
@@ -236,7 +236,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Height = 14,
             IsHitTestVisible = false,
         };
-        path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "TourNavButtonText");
+        path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "CalloutText");
 
         if (flipHorizontal) {
             path.RenderTransformOrigin = new Point(0.5, 0.5);

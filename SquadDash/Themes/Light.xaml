@@ -77,10 +77,6 @@
     <SolidColorBrush x:Key="CalloutText"          Color="#EFE8E3"/><!-- matches LabelText light -->
     <SolidColorBrush x:Key="CalloutButtonHover"   Color="#5E4E4E"/><!-- hover on callout surface: darker than CalloutBackground -->
     <SolidColorBrush x:Key="CalloutButtonBackground" Color="#2A2520"/><!-- rest background for buttons on the callout surface -->
-    <!-- Tour Callout Nav Button Tokens (inverted: dark-look on light) -->
-    <SolidColorBrush x:Key="TourNavButtonSurface"      Color="#2A2520"/><!-- dark warm, echoes dark InputSurface -->
-    <SolidColorBrush x:Key="TourNavButtonHoverSurface"  Color="#3A342C"/><!-- slightly lighter on hover -->
-    <SolidColorBrush x:Key="TourNavButtonText"          Color="#D8C8B0"/><!-- light warm cream, echoes dark LabelText -->
     <SolidColorBrush x:Key="TableRule" Color="#D8D0C4"/>
     <SolidColorBrush x:Key="TableHeaderSurface" Color="#EDE8E0"/>
     <!-- Text Tokens -->
