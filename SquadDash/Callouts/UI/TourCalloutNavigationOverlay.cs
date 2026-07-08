@@ -89,17 +89,30 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private void BuildContent() {
         var panel = new StackPanel {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(4),
+            Margin = new Thickness(6),
         };
 
         _prevButton = BuildButton(isPrev: true);
         _nextButton = BuildButton(isPrev: false);
+        _editButton = BuildEditButton();
+        _deleteButton = BuildDeleteButton();
 
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
+        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
+        panel.Children.Add(_editButton);
+        panel.Children.Add(new FrameworkElement { Width = ButtonGap });
+        panel.Children.Add(_deleteButton);
 
-        Content = panel;
+        var container = new Border {
+            CornerRadius    = new CornerRadius(8),
+            Padding         = new Thickness(0),
+            Child           = panel,
+        };
+        container.SetResourceReference(Border.BackgroundProperty, "CalloutBackground");
+
+        Content = container;
     }
 
     // Width of the panel margin on each side — used by PositionNear to flush the
@@ -118,11 +131,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 ? "Click or press Backspace to go to the previous step."
                 : "Click or press Enter to go to the next step.",
         };
-        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonHoverSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
             if (isPrev) PrevClicked?.Invoke(this, EventArgs.Empty);
@@ -147,7 +160,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
             };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            label.SetResourceReference(TextBlock.ForegroundProperty, "TourNavButtonText");
             _nextLabel = label;
             UpdateNextLabelVisibility();
             inner.Children.Add(label);
@@ -237,11 +250,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Visibility = Visibility.Collapsed,
             ToolTip = "Click to edit step.\nAlt+Click to add a new step after this one.\nCtrl+Click to add a new step before this step.",
         };
-        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonHoverSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
             bool isAlt = Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt);
@@ -261,7 +274,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
         };
-        pencil.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        pencil.SetResourceReference(TextBlock.ForegroundProperty, "TourNavButtonText");
 
         border.Child = pencil;
         return border;
@@ -278,11 +291,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Visibility = Visibility.Collapsed,
             ToolTip = "Click to delete this step.",
         };
-        border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonHoverSurface");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
             DeleteClicked?.Invoke(this, EventArgs.Empty);
@@ -295,7 +308,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
         };
-        icon.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        icon.SetResourceReference(TextBlock.ForegroundProperty, "TourNavButtonText");
 
         border.Child = icon;
         return border;
@@ -310,7 +323,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Height = 14,
             IsHitTestVisible = false,
         };
-        path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "LabelText");
+        path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "TourNavButtonText");
 
         if (flipHorizontal) {
             path.RenderTransformOrigin = new Point(0.5, 0.5);
