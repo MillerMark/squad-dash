@@ -16541,7 +16541,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _commitActivityGraphWindow = new CommitActivityGraphWindow(
                 _commitStatService,
                 _approvalItems,
-                isDark);
+                isDark,
+                workspaceFolderPath: _workspacePaths.ApplicationRoot);
             if (CanShowOwnedWindow())
                 _commitActivityGraphWindow.Owner = this;
             _commitActivityGraphWindow.Closed += (_, _) =>

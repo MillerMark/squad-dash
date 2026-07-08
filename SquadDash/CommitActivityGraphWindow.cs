@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -45,36 +46,43 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     // ── State ─────────────────────────────────────────────────────────────────
     private readonly ICommitStatService          _statService;
     private readonly List<CommitApprovalItem>    _allItems;
+    private readonly string?                     _workspaceFolderPath;
     private bool                                 _isDark;
-    private int                                  _visibleDays = 30;
+    private DateOnly                             _startDate;
+    private DateOnly                             _endDate;
     private CancellationTokenSource?             _cts;
     private readonly DispatcherTimer             _debounceTimer;
 
     // ── UI ────────────────────────────────────────────────────────────────────
     private readonly CommitActivityCanvas _canvas;
-    private readonly TextBlock            _dateRangeLabel;
+    private readonly RangeSliderControl   _rangeSlider;
 
     public CommitActivityGraphWindow(
         ICommitStatService              statService,
         IEnumerable<CommitApprovalItem> items,
-        bool                            isDark)
+        bool                            isDark,
+        string?                         workspaceFolderPath = null)
         : base(captionHeight: ChromedWindow.CloseButtonHeight)
     {
-        _statService = statService ?? throw new ArgumentNullException(nameof(statService));
-        _allItems    = items.ToList();
-        _isDark      = isDark;
+        _statService         = statService ?? throw new ArgumentNullException(nameof(statService));
+        _allItems            = items.ToList();
+        _isDark              = isDark;
+        _workspaceFolderPath = workspaceFolderPath;
+
+        _endDate   = DateOnly.FromDateTime(DateTime.Today);
+        _startDate = _endDate.AddDays(-365);
 
         Title         = "Commit History";
-        Width         = 900;
+        Width         = 1100;
         Height        = 600;
-        MinWidth      = 500;
+        MinWidth      = 1024;
         MinHeight     = 300;
         ShowInTaskbar = false;
         ShowActivated = false;
         Topmost       = false;
 
-        _debounceTimer          = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _debounceTimer.Tick    += (_, _) => { _debounceTimer.Stop(); StartLoadingData(); };
+        _debounceTimer       = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); StartLoadingData(); };
 
         // ── Canvas / scroll area ──────────────────────────────────────────────
         _canvas = new CommitActivityCanvas();
@@ -83,34 +91,26 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         var scrollViewer = new ScrollViewer
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            // Horizontal scroll disabled — canvas auto-fits to window width.
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
             Content                       = _canvas,
         };
         scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
 
-        // ── Slider ────────────────────────────────────────────────────────────
-        var slider = new Slider
-        {
-            Minimum       = 30,
-            Maximum       = 365,
-            Value         = 30,
-            LargeChange   = 30,
-            SmallChange   = 1,
-            TickFrequency = 30,
-            TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight,
-            Margin        = new Thickness(10, 6, 10, 4),
-        };
-        WindowChrome.SetIsHitTestVisibleInChrome(slider, true);
-        slider.ValueChanged += (_, _) => OnSliderValueChanged((int)slider.Value);
+        // ── Range slider ──────────────────────────────────────────────────────
+        var minDate = DateOnly.FromDateTime(DateTime.Today.AddYears(-5));
+        var maxDate = DateOnly.FromDateTime(DateTime.Today);
 
-        _dateRangeLabel = new TextBlock { Margin = new Thickness(10, 0, 10, 6), FontSize = 11 };
-        _dateRangeLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        UpdateDateRangeLabel();
+        _rangeSlider = new RangeSliderControl(minDate, maxDate, _startDate, _endDate)
+        {
+            Margin = new Thickness(10, 6, 10, 4),
+        };
+        WindowChrome.SetIsHitTestVisibleInChrome(_rangeSlider, true);
+        _rangeSlider.RangeChanged += OnRangeSliderChanged;
 
         var sliderPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
-        sliderPanel.Children.Add(slider);
-        sliderPanel.Children.Add(_dateRangeLabel);
+        sliderPanel.Children.Add(_rangeSlider);
 
         // ── Main layout ───────────────────────────────────────────────────────
         var layout = new DockPanel { LastChildFill = true };
@@ -133,21 +133,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _canvas.SetTheme(isDark);
     }
 
-    // ── Slider ────────────────────────────────────────────────────────────────
+    // ── Range slider ──────────────────────────────────────────────────────────
 
-    private void OnSliderValueChanged(int days)
+    private void OnRangeSliderChanged(object? sender, EventArgs e)
     {
-        _visibleDays = days;
-        UpdateDateRangeLabel();
+        _startDate = _rangeSlider.StartDate;
+        _endDate   = _rangeSlider.EndDate;
         _debounceTimer.Stop();
         _debounceTimer.Start();
-    }
-
-    private void UpdateDateRangeLabel()
-    {
-        var end   = DateTime.Today;
-        var start = end.AddDays(-(_visibleDays - 1));
-        _dateRangeLabel.Text = $"{start:MMM d, yyyy}  –  {end:MMM d, yyyy}  ({_visibleDays} days)";
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
@@ -161,8 +154,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     private async Task LoadDataAsync(CancellationToken ct)
     {
-        var endDate   = DateOnly.FromDateTime(DateTime.Today);
-        var startDate = endDate.AddDays(-(_visibleDays - 1));
+        var startDate = _startDate;
+        var endDate   = _endDate;
 
         var filteredItems = _allItems
             .Where(i =>
@@ -172,7 +165,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             })
             .ToList();
 
-        var rows     = BuildFeatureRows(filteredItems);
+        var rows     = BuildFeatureRows(filteredItems, hasWorkspace: _workspaceFolderPath is not null);
         var requests = BuildRequests(filteredItems);
 
         var pendingShas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -183,6 +176,26 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         }
 
         RefreshCanvasData(rows, requests, pendingShas, startDate, endDate);
+
+        // ── Git history scan (Change 5) ───────────────────────────────────────
+        if (_workspaceFolderPath is not null)
+        {
+            try
+            {
+                var gitRequests = await BuildGitRequestsAsync(startDate, endDate, requests, ct);
+                if (gitRequests.Count > 0 && !ct.IsCancellationRequested)
+                {
+                    requests.AddRange(gitRequests);
+                    foreach (var req in gitRequests)
+                    {
+                        if (_statService.TryGetCached(req.Sha) is null)
+                            pendingShas.Add(req.Sha);
+                    }
+                    RefreshCanvasData(rows, requests, pendingShas, startDate, endDate);
+                }
+            }
+            catch (OperationCanceledException) { return; }
+        }
 
         if (requests.Count == 0) return;
 
@@ -200,6 +213,87 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         }
         catch (OperationCanceledException) { /* expected */ }
     }
+
+    // ── Git history helpers ───────────────────────────────────────────────────
+
+    private async Task<List<CommitStatRequest>> BuildGitRequestsAsync(
+        DateOnly                startDate,
+        DateOnly                endDate,
+        List<CommitStatRequest> existingRequests,
+        CancellationToken       ct)
+    {
+        var existingShas = new HashSet<string>(
+            _allItems.Select(i => i.CommitSha)
+                     .Concat(existingRequests.Select(r => r.Sha)),
+            StringComparer.OrdinalIgnoreCase);
+
+        var gitCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
+
+        return gitCommits
+            .Where(c => !existingShas.Contains(c.sha))
+            .Select(c => new CommitStatRequest(c.sha, null, c.date))
+            .ToList();
+    }
+
+    private async Task<List<(string sha, DateOnly date)>> RunGitLogAsync(
+        DateOnly          startDate,
+        DateOnly          endDate,
+        CancellationToken ct)
+    {
+        var since = startDate.AddDays(-1).ToString("yyyy-MM-dd");
+        var until = endDate.AddDays(1).ToString("yyyy-MM-dd");
+        var args  = $"log --format=\"%H %ad\" --date=short --after={since} --until={until}";
+
+        try
+        {
+            var psi = new ProcessStartInfo("git", args)
+            {
+                WorkingDirectory       = _workspaceFolderPath!,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc is null) return [];
+
+            var stdout = await proc.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            return ParseGitLogOutput(stdout);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Parses output of <c>git log --format="%H %ad" --date=short</c>.
+    /// Each line is a full SHA followed by a space and an ISO date (yyyy-MM-dd).
+    /// </summary>
+    internal static List<(string sha, DateOnly date)> ParseGitLogOutput(string output)
+    {
+        var results = new List<(string, DateOnly)>();
+        foreach (var line in output.AsSpan().EnumerateLines())
+        {
+            var s = line.ToString().Trim();
+            var spaceIdx = s.IndexOf(' ');
+            if (spaceIdx < 7) continue;
+            var sha  = s[..spaceIdx];
+            var rest = s[(spaceIdx + 1)..].Trim();
+            if (DateOnly.TryParseExact(rest, "yyyy-MM-dd", null, DateTimeStyles.None, out var date))
+                results.Add((sha, date));
+        }
+        return results;
+    }
+
+    // ── Canvas refresh ────────────────────────────────────────────────────────
 
     private void RefreshCanvasData(
         List<CommitActivityRow>   rows,
@@ -245,11 +339,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static List<CommitActivityRow> BuildFeatureRows(List<CommitApprovalItem> items)
+    private static List<CommitActivityRow> BuildFeatureRows(
+        List<CommitApprovalItem> items,
+        bool                     hasWorkspace = false)
     {
         var rows = new List<CommitActivityRow>();
 
-        var hasUncategorized = items.Any(i => i.FeatureGroup is null);
+        // Always show Uncategorized when workspace is available (git history will populate it).
+        var hasUncategorized = hasWorkspace || items.Any(i => i.FeatureGroup is null);
         if (hasUncategorized)
             rows.Add(new CommitActivityRow(null, "Uncategorized", 0));
 
@@ -278,6 +375,262 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                     DateOnly.FromDateTime(first.TurnStartedAt.LocalDateTime));
             })
             .ToList();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Range slider control (Change 4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// A custom two-handle date range picker built entirely in code.
+/// Exposes <see cref="StartDate"/> / <see cref="EndDate"/> and raises
+/// <see cref="RangeChanged"/> when a handle is released after dragging.
+/// </summary>
+internal sealed class RangeSliderControl : FrameworkElement
+{
+    // ── Layout constants ───────────────────────────────────────────────────────
+    private const double TrackY            = 14.0;
+    private const double HandleRadius      = 5.0;
+    private const double HandleHoverRadius = 6.0;
+    private const double TrackThickness    = 2.0;
+    private const double SelectedThickness = 3.0;
+    private const double LabelY            = TrackY + HandleRadius + 5.0;
+    private const double ControlHeight     = LabelY + 15.0;
+    private const double TrackMargin       = 10.0;
+
+    // ── Properties ─────────────────────────────────────────────────────────────
+    public DateOnly StartDate    { get; private set; }
+    public DateOnly EndDate      { get; private set; }
+    public DateOnly MinDate      { get; set; }
+    public DateOnly MaxDate      { get; set; }
+    public int      MinRangeDays { get; set; } = 7;
+
+    // ── Events ─────────────────────────────────────────────────────────────────
+    public event EventHandler? RangeChanged;
+
+    // ── Drag / hover state ─────────────────────────────────────────────────────
+    private bool   _draggingLeft;
+    private bool   _draggingRight;
+    private bool   _hoverLeft;
+    private bool   _hoverRight;
+    private double _pixelsPerDip = 1.0;
+
+    public RangeSliderControl(DateOnly minDate, DateOnly maxDate, DateOnly startDate, DateOnly endDate)
+    {
+        MinDate   = minDate;
+        MaxDate   = maxDate;
+        StartDate = startDate;
+        EndDate   = endDate;
+        Height    = ControlHeight;
+        Cursor    = Cursors.Arrow;
+    }
+
+    // ── Measure ────────────────────────────────────────────────────────────────
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var w = double.IsFinite(availableSize.Width) && availableSize.Width > 0
+            ? availableSize.Width
+            : 400;
+        return new Size(w, ControlHeight);
+    }
+
+    protected override Size ArrangeOverride(Size finalSize)
+        => finalSize;
+
+    // ── DPI ────────────────────────────────────────────────────────────────────
+
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        _pixelsPerDip = newDpi.PixelsPerDip;
+        InvalidateVisual();
+    }
+
+    // ── Rendering ──────────────────────────────────────────────────────────────
+
+    protected override void OnRender(DrawingContext dc)
+    {
+        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, ActualWidth, ActualHeight));
+
+        var trackLeft  = TrackMargin;
+        var trackRight = ActualWidth - TrackMargin;
+
+        if (trackRight <= trackLeft) return;
+
+        var leftX  = DateToX(StartDate);
+        var rightX = DateToX(EndDate);
+
+        // Full track (SubtleText at 40% opacity)
+        var subtleBrush = TryFindBrush("SubtleText") ?? Brushes.Gray;
+        var trackColor  = subtleBrush is SolidColorBrush scb
+            ? Color.FromArgb(102, scb.Color.R, scb.Color.G, scb.Color.B)
+            : Color.FromArgb(102, 160, 160, 160);
+        dc.DrawLine(
+            new Pen(new SolidColorBrush(trackColor), TrackThickness),
+            new Point(trackLeft, TrackY),
+            new Point(trackRight, TrackY));
+
+        // Selected range fill (ActivePanelBorder)
+        var fillBrush = TryFindBrush("ActivePanelBorder") ?? TryFindBrush("PanelBorder") ?? Brushes.CornflowerBlue;
+        dc.DrawLine(
+            new Pen(fillBrush, SelectedThickness),
+            new Point(leftX, TrackY),
+            new Point(rightX, TrackY));
+
+        // Handles
+        var handleFill   = TryFindBrush("LabelText")    ?? Brushes.White;
+        var handleStroke = new Pen(TryFindBrush("PanelBorder") ?? Brushes.Gray, 1.0);
+        var hoverFill    = TryFindBrush("CaptionButtonHover") ?? TryFindBrush("ActivePanelBorder") ?? Brushes.LightBlue;
+
+        var leftR  = _hoverLeft  ? HandleHoverRadius : HandleRadius;
+        var rightR = _hoverRight ? HandleHoverRadius : HandleRadius;
+
+        dc.DrawEllipse(_hoverLeft  ? hoverFill : handleFill, handleStroke, new Point(leftX,  TrackY), leftR,  leftR);
+        dc.DrawEllipse(_hoverRight ? hoverFill : handleFill, handleStroke, new Point(rightX, TrackY), rightR, rightR);
+
+        // Date labels below handles
+        var textBrush = TryFindBrush("SubtleText") ?? Brushes.Gray;
+        var leftFt    = MakeText(StartDate.ToString("MMM d, yyyy"), textBrush, 10);
+        var rightFt   = MakeText(EndDate.ToString("MMM d, yyyy"),   textBrush, 10);
+
+        var leftLabelX  = Math.Max(0, Math.Min(leftX  - leftFt.Width  / 2, ActualWidth - leftFt.Width));
+        var rightLabelX = Math.Max(0, Math.Min(rightX - rightFt.Width / 2, ActualWidth - rightFt.Width));
+
+        // Prevent labels from overlapping
+        if (rightLabelX < leftLabelX + leftFt.Width + 4)
+            rightLabelX = leftLabelX + leftFt.Width + 4;
+
+        dc.DrawText(leftFt,  new Point(leftLabelX,  LabelY));
+        dc.DrawText(rightFt, new Point(rightLabelX, LabelY));
+    }
+
+    // ── Mouse events ───────────────────────────────────────────────────────────
+
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        var pt        = e.GetPosition(this);
+        var leftX     = DateToX(StartDate);
+        var rightX    = DateToX(EndDate);
+        var hitRadius = HandleRadius + 4;
+
+        var nearLeft  = Math.Abs(pt.X - leftX)  <= hitRadius && Math.Abs(pt.Y - TrackY) <= hitRadius;
+        var nearRight = Math.Abs(pt.X - rightX) <= hitRadius && Math.Abs(pt.Y - TrackY) <= hitRadius;
+
+        // When both handles are very close, prefer the one the mouse is nearer to.
+        if (nearLeft && (!nearRight || Math.Abs(pt.X - leftX) <= Math.Abs(pt.X - rightX)))
+        {
+            _draggingLeft = true;
+            CaptureMouse();
+            e.Handled = true;
+        }
+        else if (nearRight)
+        {
+            _draggingRight = true;
+            CaptureMouse();
+            e.Handled = true;
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        var pt = e.GetPosition(this);
+
+        if (_draggingLeft)
+        {
+            var newDate = ClampDate(XToDate(pt.X), MinDate, EndDate.AddDays(-MinRangeDays));
+            if (newDate != StartDate) { StartDate = newDate; InvalidateVisual(); }
+            return;
+        }
+
+        if (_draggingRight)
+        {
+            var newDate = ClampDate(XToDate(pt.X), StartDate.AddDays(MinRangeDays), MaxDate);
+            if (newDate != EndDate) { EndDate = newDate; InvalidateVisual(); }
+            return;
+        }
+
+        // Hover detection
+        var leftX     = DateToX(StartDate);
+        var rightX    = DateToX(EndDate);
+        var hitRadius = HandleRadius + 4;
+        var newHoverLeft  = Math.Abs(pt.X - leftX)  <= hitRadius && Math.Abs(pt.Y - TrackY) <= hitRadius;
+        var newHoverRight = Math.Abs(pt.X - rightX) <= hitRadius && Math.Abs(pt.Y - TrackY) <= hitRadius;
+
+        if (newHoverLeft != _hoverLeft || newHoverRight != _hoverRight)
+        {
+            _hoverLeft  = newHoverLeft;
+            _hoverRight = newHoverRight;
+            InvalidateVisual();
+        }
+    }
+
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
+        if (_draggingLeft || _draggingRight)
+        {
+            _draggingLeft  = false;
+            _draggingRight = false;
+            ReleaseMouseCapture();
+            RangeChanged?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoverLeft || _hoverRight)
+        {
+            _hoverLeft = _hoverRight = false;
+            InvalidateVisual();
+        }
+    }
+
+    // ── Coordinate helpers ─────────────────────────────────────────────────────
+
+    private double DateToX(DateOnly date)
+    {
+        var total      = MaxDate.DayNumber - MinDate.DayNumber;
+        var trackWidth = ActualWidth - 2 * TrackMargin;
+        if (total <= 0 || trackWidth <= 0) return TrackMargin;
+        return TrackMargin + (date.DayNumber - MinDate.DayNumber) / (double)total * trackWidth;
+    }
+
+    private DateOnly XToDate(double x)
+    {
+        var trackWidth = ActualWidth - 2 * TrackMargin;
+        if (trackWidth <= 0) return MinDate;
+        var fraction = Math.Clamp((x - TrackMargin) / trackWidth, 0.0, 1.0);
+        var total    = MaxDate.DayNumber - MinDate.DayNumber;
+        return MinDate.AddDays((int)Math.Round(fraction * total));
+    }
+
+    private static DateOnly ClampDate(DateOnly value, DateOnly min, DateOnly max)
+        => value.DayNumber < min.DayNumber ? min
+         : value.DayNumber > max.DayNumber ? max
+         : value;
+
+    // ── Brush / text helpers ───────────────────────────────────────────────────
+
+    private Brush? TryFindBrush(string key)
+    {
+        try   { return FindResource(key) as Brush; }
+        catch { return null; }
+    }
+
+    private FormattedText MakeText(string text, Brush foreground, double fontSize)
+        => new(
+            text,
+            CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"),
+            fontSize,
+            foreground,
+            _pixelsPerDip == 0 ? 1.0 : _pixelsPerDip);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,15 +677,23 @@ internal sealed record CommitLineHit(
 /// Custom <see cref="FrameworkElement"/> that renders the commit activity graph
 /// (feature-name column, connecting lines, dots, and x-axis date labels) via
 /// <see cref="DrawingContext"/>.
+/// <para>
+/// The timeline is auto-fitted to the available canvas width so no horizontal
+/// scrolling is required: pixels-per-day = (canvasWidth − labelColumnWidth) / totalDays.
+/// </para>
+/// <para>
+/// Circle radius formula: <c>radius(n) = BaseRadius × √n</c> (equal-area growth —
+/// each additional commit adds the same visual area as the first).
+/// </para>
 /// </summary>
 internal sealed class CommitActivityCanvas : FrameworkElement
 {
     // ── Layout ─────────────────────────────────────────────────────────────────
-    internal const double LabelColumnWidth = 160;
-    internal const double RowHeight        = 32;
-    internal const double XAxisHeight      = 24;
-    internal const double PixelsPerDay     = 20;
-    internal const double BaseRadius       = 5.0;
+    internal const double LabelColumnWidth    = 160;
+    internal const double RowHeight           = 32;
+    internal const double XAxisHeight         = 24;
+    internal const double FallbackPixelsPerDay = 20; // used when ActualWidth is unavailable
+    internal const double BaseRadius          = 5.0;
 
     // ── State ──────────────────────────────────────────────────────────────────
     private List<CommitActivityRow> _rows      = [];
@@ -340,10 +701,19 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private DateOnly                _endDate;
     private bool                    _isDark;
     private int                     _dayCount;
-    private double                  _pixelsPerDip = 1.0;
+    private double                  _pixelsPerDip        = 1.0;
+    private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
 
     // Tooltip hit tracking
     private object? _lastHit;
+
+    // ── Constructor ────────────────────────────────────────────────────────────
+
+    public CommitActivityCanvas()
+    {
+        // Re-render whenever layout gives us a new size (window resize).
+        SizeChanged += (_, _) => InvalidateVisual();
+    }
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -369,15 +739,20 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    // ── Measure ────────────────────────────────────────────────────────────────
+    // ── Measure / Arrange ──────────────────────────────────────────────────────
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        if (_dayCount == 0) return new Size(400, 100);
-        var w = LabelColumnWidth + _dayCount * PixelsPerDay;
         var h = Math.Max(1, _rows.Count) * RowHeight + XAxisHeight;
+        // Fill the available width so no horizontal scrollbar is needed.
+        var w = double.IsFinite(availableSize.Width) && availableSize.Width > LabelColumnWidth
+            ? availableSize.Width
+            : LabelColumnWidth + Math.Max(1, _dayCount) * FallbackPixelsPerDay;
         return new Size(w, h);
     }
+
+    protected override Size ArrangeOverride(Size finalSize)
+        => finalSize;
 
     // ── DPI ────────────────────────────────────────────────────────────────────
 
@@ -394,16 +769,20 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     {
         if (_dayCount == 0) return;
 
-        var palette    = _isDark ? CommitActivityGraphWindow.DarkPalette : CommitActivityGraphWindow.LightPalette;
-        var textBrush  = TryFindBrush("LabelText")  ?? Brushes.Black;
-        var subtleBrush = TryFindBrush("SubtleText") ?? Brushes.Gray;
+        // Compute pixels-per-day to fit the entire range in the canvas width.
+        var canvasWidth = ActualWidth - LabelColumnWidth;
+        _effectivePixelsPerDay = canvasWidth > 0 ? canvasWidth / _dayCount : FallbackPixelsPerDay;
+
+        var palette     = _isDark ? CommitActivityGraphWindow.DarkPalette : CommitActivityGraphWindow.LightPalette;
+        var textBrush   = TryFindBrush("LabelText")   ?? Brushes.Black;
+        var subtleBrush = TryFindBrush("SubtleText")  ?? Brushes.Gray;
         var borderBrush = TryFindBrush("PanelBorder") ?? Brushes.LightGray;
 
         // Background
         dc.DrawRectangle(
             TryFindBrush("AppSurface") ?? Brushes.Transparent,
             null,
-            new Rect(0, 0, Math.Max(ActualWidth, DesiredSize.Width), Math.Max(ActualHeight, DesiredSize.Height)));
+            new Rect(0, 0, ActualWidth, ActualHeight));
 
         // Vertical separator between label column and graph area
         dc.DrawLine(
@@ -421,7 +800,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             if (i > 0)
             {
                 var sepPen = new Pen(borderBrush, 0.5) { DashStyle = DashStyles.Dot };
-                dc.DrawLine(sepPen, new Point(0, i * RowHeight), new Point(DesiredSize.Width, i * RowHeight));
+                dc.DrawLine(sepPen, new Point(0, i * RowHeight), new Point(ActualWidth, i * RowHeight));
             }
 
             // ── Feature label ─────────────────────────────────────────────────
@@ -457,14 +836,15 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             }
 
             // ── Resolved (solid) dots ─────────────────────────────────────────
-            var fillColor  = Color.FromArgb(128, color.R, color.G, color.B);
-            var fillBrush  = new SolidColorBrush(fillColor);
-            var strokePen  = new Pen(new SolidColorBrush(color), 1.0);
+            // Radius: BaseRadius × √n  (equal-area growth — each additional commit
+            // adds the same visual area as the first, so r(n) = BaseRadius × √n).
+            var fillColor = Color.FromArgb(128, color.R, color.G, color.B);
+            var fillBrush = new SolidColorBrush(fillColor);
+            var strokePen = new Pen(new SolidColorBrush(color), 1.0);
             foreach (var (date, commits) in row.CommitsByDay)
             {
                 if (date < _startDate || date > _endDate) continue;
-                var count  = commits.Count;
-                var radius = Math.Min(BaseRadius * Math.Pow(1.4, count - 1), BaseRadius * 8);
+                var radius = BaseRadius * Math.Sqrt(commits.Count);
                 var cx     = LabelColumnWidth + DayToX(date);
                 dc.DrawEllipse(fillBrush, strokePen, new Point(cx, cy), radius, radius);
             }
@@ -483,7 +863,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         dc.DrawLine(
             new Pen(tickBrush, 1),
             new Point(LabelColumnWidth, axisY),
-            new Point(LabelColumnWidth + _dayCount * PixelsPerDay, axisY));
+            new Point(ActualWidth, axisY));
 
         // Tick marks and labels — align to multiples of intervalDays from DayNumber epoch
         var cursor = _startDate;
@@ -510,7 +890,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double DayToX(DateOnly date)
     {
         var offset = date.DayNumber - _startDate.DayNumber;
-        return offset * PixelsPerDay + PixelsPerDay / 2.0;
+        return offset * _effectivePixelsPerDay + _effectivePixelsPerDay / 2.0;
     }
 
     // ── Tooltip / hit testing ──────────────────────────────────────────────────
@@ -522,7 +902,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         var hit = HitTestPoint(pt);
         if (!Equals(hit, _lastHit))
         {
-            _lastHit   = hit;
+            _lastHit     = hit;
             this.ToolTip = hit is null ? null : (object)BuildTooltipElement(hit);
         }
     }
@@ -545,7 +925,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         var row    = _rows[rowIndex];
         var graphX = pt.X - LabelColumnWidth;
-        var dayIdx = (int)(graphX / PixelsPerDay);
+        var dayIdx = (int)(graphX / _effectivePixelsPerDay);
         if (dayIdx < 0 || dayIdx >= _dayCount) return null;
 
         var date  = _startDate.AddDays(dayIdx);
@@ -554,10 +934,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         const double hitTolerance = 4;
 
-        // Check resolved dot
+        // Check resolved dot — radius(n) = BaseRadius × √n
         if (row.CommitsByDay.TryGetValue(date, out var commits))
         {
-            var radius = Math.Min(BaseRadius * Math.Pow(1.4, commits.Count - 1), BaseRadius * 8);
+            var radius = BaseRadius * Math.Sqrt(commits.Count);
             if (dist <= radius + hitTolerance)
                 return new CommitDotHit(row, date, false, commits);
         }
@@ -603,8 +983,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         };
         return new TextBlock
         {
-            Text        = text,
-            MaxWidth    = 340,
+            Text         = text,
+            MaxWidth     = 340,
             TextWrapping = TextWrapping.Wrap,
         };
     }

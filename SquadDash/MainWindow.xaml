@@ -770,6 +770,11 @@
                                   InputGestureText="Shift+F9"
                                   Click="SaveLayoutSlot3MenuItem_Click" />
                     </MenuItem>
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem x:Name="ViewCommitHistoryMenuItem"
+                              Header="Commit History"
+                              IsCheckable="True"
+                              Click="ViewCommitHistoryMenuItem_Click" />
                 </MenuItem>
                 <MenuItem Header="_Panels"
                           Style="{StaticResource TopLevelMenuItemStyle}"
@@ -783,10 +788,6 @@
                               Header="Code Health"
                               IsCheckable="True"
                               Click="ViewCodeHealthMenuItem_Click" />
-                    <MenuItem x:Name="ViewCommitHistoryMenuItem"
-                              Header="Commit History"
-                              IsCheckable="True"
-                              Click="ViewCommitHistoryMenuItem_Click" />
                     <MenuItem x:Name="ViewInboxMenuItem"
                               Header="Inbox"
                               IsCheckable="True"
