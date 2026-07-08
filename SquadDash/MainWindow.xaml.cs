@@ -14128,7 +14128,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Safe: does NOT release any existing rightmost-hold-tab (no queue drain side-effect).
             var sep      = arg.IndexOf('|');
             var fullText = (sep >= 0 ? arg[..sep] : arg).Replace(@"\n", "\n");
-            var toSelect = sep >= 0 ? arg[(sep + 1)..] : string.Empty;
+            var toSelect = sep >= 0 ? arg[(sep + 1)..].Replace(@"\n", "\n") : string.Empty;
 
             // Compute the desired selection within fullText.
             var selStart  = 0;
