@@ -240,6 +240,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
     private event Action? _tourQuickReplySelected;
     private event Action? _tourSimulatedSendClicked;
+    private event Action? _tourPreferencesWindowShown;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
@@ -14029,6 +14030,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new SimulatedSendAdvanceTrigger(
                 addHandler:    h => _tourSimulatedSendClicked += h,
                 removeHandler: h => _tourSimulatedSendClicked -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "PreferencesShown",
+            new PreferencesWindowShownAdvanceTrigger(
+                addHandler:    h => _tourPreferencesWindowShown += h,
+                removeHandler: h => _tourPreferencesWindowShown -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -14226,6 +14233,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         });
 
         _tourCommandRegistry.Register("UnhighlightMenuItems", UnhighlightAllMenuItems);
+
+        _tourCommandRegistry.Register("ShowPreferences", () =>
+            PreferencesMenuItem_Click(this, new RoutedEventArgs()));
 
         _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
         {
@@ -15352,6 +15362,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_preferencesWindow is { IsVisible: true })
             {
                 _preferencesWindow.Activate();
+                _tourPreferencesWindowShown?.Invoke();
                 return;
             }
 
@@ -15394,6 +15405,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 },
                 stopPtt: () => _ = StopPushToTalkAsync(send: false),
                 startGuidedTour: () => OpenGuidedTourSelector());
+            _tourPreferencesWindowShown?.Invoke();
         }
         catch (Exception ex)
         {
