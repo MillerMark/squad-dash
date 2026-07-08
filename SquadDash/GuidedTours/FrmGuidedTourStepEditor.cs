@@ -468,6 +468,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
                 Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
             {
+                // Guard: if the button was released before we reached the threshold
+                // (fast click-release), skip the drag entirely.  DoDragDrop is a
+                // blocking OLE call; starting it after mouse-up causes a freeze
+                // because the nested message loop never sees the release event.
+                if (Mouse.LeftButton != MouseButtonState.Pressed) {
+                    _listDragSourceIndex = -1;
+                    return;
+                }
                 _listDragInProgress = true;
                 var item = _stepListBox.Items[_listDragSourceIndex];
                 DragDrop.DoDragDrop(_stepListBox, item, DragDropEffects.Move);
