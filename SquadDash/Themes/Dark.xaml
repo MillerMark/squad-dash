@@ -72,7 +72,7 @@
     <SolidColorBrush x:Key="QuoteBorder" Color="#6A5038"/>
     <SolidColorBrush x:Key="AvatarImageBorder" Color="#5A5A5A"/>
     <SolidColorBrush x:Key="CalloutBorder"     Color="#9A7F55"/><!-- CardSurface #2E2920 shifted 30% toward white -->
-    <SolidColorBrush x:Key="CalloutBackground" Color="#AEA99F"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
+    <SolidColorBrush x:Key="CalloutBackground" Color="#ADA89D"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
     <SolidColorBrush x:Key="CalloutText"          Color="#1D1B18"/><!-- matches LabelText dark -->
     <SolidColorBrush x:Key="CalloutButtonHover"   Color="#8A8078"/><!-- hover on callout surface: darker than CalloutBackground -->
     <SolidColorBrush x:Key="CalloutButtonBackground" Color="#E8E0D4"/><!-- rest background for buttons on the callout surface -->

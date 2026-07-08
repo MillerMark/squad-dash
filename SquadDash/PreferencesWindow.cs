@@ -109,8 +109,12 @@ internal sealed class PreferencesWindow : Window {
 
     private readonly UIElement[] _pages;
     private readonly Dictionary<int, TreeViewItem> _leafItems;
+    private readonly Dictionary<string, int>       _pageIndexByLabel;  // label → page index
     private int _currentPage;
     private readonly ContentControl _pageHost;
+
+    /// <summary>Fired when the user (or a tour command) navigates to a page. Arg = page label.</summary>
+    internal event Action<string>? PageSelected;
 
     // ── Push-to-talk support ──────────────────────────────────────────────
     private readonly Action<TextBox>? _startPtt;
@@ -602,7 +606,10 @@ internal sealed class PreferencesWindow : Window {
         // ── Build grouped TreeView nav ────────────────────────────────────
 
         var (navTree, leafItems) = BuildNavTree(pageList);
-        _leafItems = leafItems;
+        _leafItems        = leafItems;
+        _pageIndexByLabel = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < pageList.Count; i++)
+            _pageIndexByLabel[pageList[i].label] = i;
         navStrip.Child = navTree;
 
         NavigateTo(Math.Min(currentSettings.Preferences_LastPage, _pages.Length - 1));
@@ -616,6 +623,15 @@ internal sealed class PreferencesWindow : Window {
         if (_leafItems.TryGetValue(index, out var leafItem) && !leafItem.IsSelected)
             leafItem.IsSelected = true;
         _settingsStore.SavePreferencesLastPage(index);
+        // Fire label-based event so tour triggers can react.
+        var label = _pageIndexByLabel.FirstOrDefault(kv => kv.Value == index).Key;
+        if (label is not null) PageSelected?.Invoke(label);
+    }
+
+    /// <summary>Navigates to the page whose label matches <paramref name="label"/> (case-insensitive). No-op if not found.</summary>
+    internal void NavigateToByLabel(string label) {
+        if (_pageIndexByLabel.TryGetValue(label, out int idx))
+            NavigateTo(idx);
     }
 
     // ── TreeView nav ──────────────────────────────────────────────────────

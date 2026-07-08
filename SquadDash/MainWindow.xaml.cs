@@ -241,6 +241,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourQuickReplySelected;
     private event Action? _tourSimulatedSendClicked;
     private event Action? _tourPreferencesWindowShown;
+    private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
@@ -14046,6 +14047,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new PreferencesWindowShownAdvanceTrigger(
                 addHandler:    h => _tourPreferencesWindowShown += h,
                 removeHandler: h => _tourPreferencesWindowShown -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "PreferencePageSelected",
+            new PreferencePageSelectedAdvanceTrigger(
+                addHandler:    h => _tourPreferencePageSelected += h,
+                removeHandler: h => _tourPreferencePageSelected -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -14241,11 +14248,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tourHighlightCanvas!.Children.Add(rect);
             _tourHighlightRects.Add(rect);
         });
+        // Alias — "HighlightElement" is the preferred name; "HighlightMenuItem" kept for backward compatibility.
+        _tourCommandRegistry.RegisterParameterizedAsync("HighlightElement",
+            arg => _tourCommandRegistry.ExecuteAsync($"HighlightMenuItem: {arg}"));
 
         _tourCommandRegistry.Register("UnhighlightMenuItems", UnhighlightAllMenuItems);
+        // Alias — "UnhighlightElements" is the preferred name going forward; both work.
+        _tourCommandRegistry.Register("UnhighlightElements", UnhighlightAllMenuItems);
 
         _tourCommandRegistry.Register("ShowPreferences", () =>
             PreferencesMenuItem_Click(this, new RoutedEventArgs()));
+
+        _tourCommandRegistry.RegisterParameterized("SelectPreferencesPage", arg =>
+        {
+            // Idempotent: opens preferences if not already open, then navigates to the named page.
+            // arg = page label, e.g. "Hints", "Model", "General"
+            if (_preferencesWindow is not { IsVisible: true })
+                PreferencesMenuItem_Click(this, new RoutedEventArgs());
+            _preferencesWindow?.NavigateToByLabel(arg);
+        });
 
         _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
         {
@@ -15415,6 +15436,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 },
                 stopPtt: () => _ = StopPushToTalkAsync(send: false),
                 startGuidedTour: () => OpenGuidedTourSelector());
+            _preferencesWindow.PageSelected += label => _tourPreferencePageSelected?.Invoke(label);
             _tourPreferencesWindowShown?.Invoke();
         }
         catch (Exception ex)

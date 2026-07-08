@@ -63,22 +63,6 @@
         "targetOffsetY": 0.43030945419102895
       },
       {
-        "title": "The send button.",
-        "markdownText": "Press **Enter** or click this button to send your prompt to Squad.",
-        "targetControlId": "RunButton",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [
-          "Remove Dummy Queue Items"
-        ],
-        "advanceTrigger": "SimulatedSend",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
         "title": "Transcript.",
         "markdownText": "The **transcript** shows your prompts and agent responses.",
         "targetControlId": "MainTranscriptBorder",
@@ -87,6 +71,7 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
+          "Remove Dummy Queue Items",
           "InjectTranscriptTurn|What is your model?|This is the guided tour (so AI model information is not available).\\nAI calls are simulated for the tour."
         ],
         "commandsAfter": [],
@@ -110,38 +95,6 @@
         "advanceTrigger": "QuickReplySelected",
         "targetOffsetX": 0.7846003898635477,
         "targetOffsetY": 0.4717917649167319
-      },
-      {
-        "title": "The Queue Tab Strip",
-        "markdownText": "This is the **Prompt Queue**. \r\nYou can right-click or **drag** tabs to reorder.",
-        "targetControlId": "QueueTabStrip[3]",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "Add Dummy Queue Items"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 1,
-        "targetOffsetY": 0.46410256410256395
-      },
-      {
-        "title": "Queue drainage",
-        "markdownText": "To edit a queued prompt, click its tab. \r\nProcessing pauses when the right-most tab is **active**.",
-        "targetControlId": "QueueTabStrip[3]",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [
-          "Remove Dummy Queue Items"
-        ],
-        "advanceTrigger": "",
-        "targetOffsetX": 1,
-        "targetOffsetY": 0.410000000000001
       },
       {
         "title": "Tooling",
@@ -175,39 +128,6 @@
         "targetOffsetY": 0.5
       },
       {
-        "title": "Edit menu",
-        "markdownText": "The **Edit** menu includes commands for composing prompts and working with markdown.",
-        "targetControlId": "EditMenuItem_Popup",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: EditMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.8749999999999999,
-        "targetOffsetY": 0.8138461538461548
-      },
-      {
-        "title": "Selection",
-        "markdownText": "This menu works with selections.\r\nPress **Shift**\u002B**F3** to **cycle case** in the selection below.",
-        "targetControlId": "EditSelectionMenuItem_Popup",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText|Let\u0027s create a brand new class called the data resource binder.|data resource binder",
-          "OpenMenu: EditMenuItem|EditSelectionMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
         "title": "The Help Menu",
         "markdownText": "You can start guided tours from inside the **Help** menu.",
         "targetControlId": "HelpMenuItem",
@@ -225,8 +145,8 @@
   },
   {
     "id": "working-with-loop",
-    "name": "Working with the Loop",
-    "description": "Learn how the Loop panel, queue pausing, and the Health panel work together.",
+    "name": "Loops, Tasks, and the Queue",
+    "description": "",
     "steps": [
       {
         "title": "The Loop Panel",
@@ -264,11 +184,350 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "0db954aa",
+    "name": "Prompts and the Queue",
+    "description": "Powerful prompt creation and prompt queue techniques.",
+    "steps": [
+      {
+        "title": "The Prompt Box",
+        "markdownText": "Your AI prompts go here.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "TypeIntoPrompt|I want to build a new feature...|Sim"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.0594541910331384,
+        "targetOffsetY": 0.43030945419102895
+      },
+      {
+        "title": "The Send button.",
+        "markdownText": "Press **Enter** or click this button to send your prompt to Squad.",
+        "targetControlId": "RunButton",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [
+          "Remove Dummy Queue Items"
+        ],
+        "advanceTrigger": "SimulatedSend",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Queue Tab Strip (part1)",
+        "markdownText": "This is the **Prompt Queue**.\r\nIf Squad is busy when you send a prompt, it will enter this queue.",
+        "targetControlId": "QueueTabStrip[3]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "Remove Dummy Queue Items",
+          "Add Dummy Queue Items"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.46410256410256395
+      },
+      {
+        "title": "The Rightmost Tab",
+        "markdownText": "The rightmost tab is the **front** of the queue. It sends when Squad finishes its turn.\r\nYou can right-click or **drag** tabs to reorder.",
+        "targetControlId": "QueueTabStrip[12]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "Remove Dummy Queue Items",
+          "Add Dummy Queue Items: 6"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.46410256410256395
+      },
+      {
+        "title": "New Queue Prompt",
+        "markdownText": "You can create a new queued prompt entry by pressing **Ctrl**\u002B**Q**.",
+        "targetControlId": "QueueTabStrip[9]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "Remove Dummy Queue Items",
+          "Add Dummy Queue Items:6"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.46410256410256395
+      },
+      {
+        "title": "Edit and Pause",
+        "markdownText": "To edit a queued prompt, click its tab. \r\nProcessing pauses when the right-most tab is **active**.",
+        "targetControlId": "QueueTabStrip[3]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [
+          "Remove Dummy Queue Items"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.410000000000001
+      },
+      {
+        "title": "Queue Nav Shortcuts",
+        "markdownText": "You can press **Ctrl**\u002B**Tab** and **Ctrl**\u002B**Shift**\u002B**Tab** to navigate among these queued prompts.",
+        "targetControlId": "QueueTabStrip[3]",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "Add Dummy Queue Items"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.46410256410256395
+      },
+      {
+        "title": "Edit menu",
+        "markdownText": "The **Edit** menu includes commands for composing prompts and working with markdown.",
+        "targetControlId": "EditMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: EditMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.8749999999999999,
+        "targetOffsetY": 0.8138461538461548
+      },
+      {
+        "title": "Selection",
+        "markdownText": "This menu works with selections.\r\nPress **Shift**\u002B**F3** to **cycle case** in the selection below.",
+        "targetControlId": "EditSelectionMenuItem_Popup",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText|Let\u0027s create a brand new class called the data resource binder.|data resource binder",
+          "OpenMenu: EditMenuItem|EditSelectionMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Prompts navigation",
+        "markdownText": "Jump to past prompts.",
+        "targetControlId": "PromptNavUpButton",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "c63b910d",
+    "name": "Remote Control",
+    "description": "",
+    "steps": [
+      {
+        "title": "New Step",
+        "markdownText": "",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
         "commandsBefore": null,
         "commandsAfter": null,
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "bfaa6492",
+    "name": "Selection Embedding",
+    "description": "Quickly modify text selections with useful shortcuts.",
+    "steps": [
+      {
+        "title": "Ctrl\u002BB for Bold",
+        "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.11093247588424437,
+        "targetOffsetY": 0.6432803382160294
+      },
+      {
+        "title": "New Step",
+        "markdownText": "",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Quotes",
+        "markdownText": "You can wrap a selection in quotes by pressing the **\u0022** key.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Backticks",
+        "markdownText": "You can wrap one or more lines of text in backtick fences by pressing the **\u0060** (backtick) key.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      }
+    ]
+  },
+  {
+    "id": "5514ddcd",
+    "name": "Setting Up Voice PTT",
+    "description": "Set up voice dictation and push to talk (PTT).",
+    "steps": [
+      {
+        "title": "File options.",
+        "markdownText": "To set up voice, you\u0027ll need to go into the Options dialog.",
+        "targetControlId": "FileMenuItem_Popup",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: FileMenuItem",
+          "HighlightMenuItem: FileOptionsMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "PreferencesShown",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "New Step",
+        "markdownText": "In the Voice and speech section, you\u0027ll want to first set up your provider.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "aac81aa5",
+    "name": "Theme and Appearance",
+    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
+    "steps": [
+      {
+        "title": "View menu.",
+        "markdownText": "Appearance controls are inside the **View** menu.",
+        "targetControlId": "ViewMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Theme",
+        "markdownText": "Set the theme here.",
+        "targetControlId": "ViewThemeMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem|ViewThemeMenuItem",
+          "HighlightMenuItem: ViewThemeLightMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.4639423076923076,
+        "targetOffsetY": 0.5130448717948715
       }
     ]
   }
