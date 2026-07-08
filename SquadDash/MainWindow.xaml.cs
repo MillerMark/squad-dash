@@ -14212,7 +14212,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 Stroke          = new SolidColorBrush(rectColor),
                 StrokeThickness = thickness,
-                Fill            = new SolidColorBrush(Color.FromArgb(30, rectColor.R, rectColor.G, rectColor.B)),
+                Fill            = Brushes.Transparent,
                 IsHitTestVisible = false,
                 Width           = w + pad * 2 + thickness * 2,
                 Height          = h + pad * 2 + thickness * 2,

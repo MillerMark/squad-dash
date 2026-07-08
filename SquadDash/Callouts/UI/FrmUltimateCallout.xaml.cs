@@ -173,7 +173,27 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     public FrmUltimateCallout() {
         InitializeComponent();
         InitializeColors();
+        // Prevent clicks on the callout from activating this window (which would deactivate the
+        // main window and cause any open WPF menus to close).
+        SourceInitialized += (_, _) =>
+        {
+            var src = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            src?.AddHook(WndProc_NoActivate);
+        };
     }
+
+    private const int WM_MOUSEACTIVATE = 0x0021;
+    private const IntPtr MA_NOACTIVATE = (nint)3;
+    private static IntPtr WndProc_NoActivate(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WM_MOUSEACTIVATE)
+        {
+            handled = true;
+            return MA_NOACTIVATE;
+        }
+        return IntPtr.Zero;
+    }
+
 
     void InvalidateLayout() {
         layoutValid = false;
