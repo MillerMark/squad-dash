@@ -72,8 +72,8 @@
     <SolidColorBrush x:Key="QuoteBorder" Color="#6A5038"/>
     <SolidColorBrush x:Key="AvatarImageBorder" Color="#5A5A5A"/>
     <SolidColorBrush x:Key="CalloutBorder"     Color="#9A7F55"/><!-- CardSurface #2E2920 shifted 30% toward white -->
-    <SolidColorBrush x:Key="CalloutBackground" Color="#342C1B"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
-    <SolidColorBrush x:Key="CalloutText"       Color="#D8C8B0"/><!-- matches LabelText dark -->
+    <SolidColorBrush x:Key="CalloutBackground" Color="#AEA99F"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
+    <SolidColorBrush x:Key="CalloutText"       Color="#1D1B18"/><!-- matches LabelText dark -->
     <SolidColorBrush x:Key="TableRule" Color="#3A3530"/>
     <SolidColorBrush x:Key="TableHeaderSurface" Color="#2A2520"/>
     <!-- Text Tokens -->
