@@ -96,9 +96,10 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Padding             = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment   = VerticalAlignment.Top,
+            Background          = new System.Windows.Media.SolidColorBrush(
+                                      System.Windows.Media.Color.FromArgb(128, 0, 0, 0)),
             Child               = panel,
         };
-        container.SetResourceReference(Border.BackgroundProperty, "CalloutBackground");
 
         Content = container;
     }

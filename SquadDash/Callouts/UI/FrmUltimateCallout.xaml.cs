@@ -94,6 +94,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _openCallouts.RemoveAll(r => !r.TryGetTarget(out _));
     }
 
+    /// <summary>
+    /// Re-fetches theme brushes on all open callouts after a tint or theme change.
+    /// Call from MainWindow.NotifyTintChanged().
+    /// </summary>
+    public static void NotifyTintChanged()
+    {
+        _openCallouts.RemoveAll(r => !r.TryGetTarget(out _));
+        foreach (var r in _openCallouts)
+            if (r.TryGetTarget(out var c) && c.IsVisible)
+                c.LoadColorsForTheme();
+    }
+
     public Color GlowColor {
         get => glowColor;
         set {

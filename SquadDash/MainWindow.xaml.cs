@@ -30910,6 +30910,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         MarkdownDocumentWindow.RefreshAllOpenWindows();
         RefreshDocumentationViewer();
         RefreshDocMarkdownViewerFromSource();
+        FrmUltimateCallout.NotifyTintChanged();
     }
 
     private void ApplyWorkspaceTint(string? folderPath)
