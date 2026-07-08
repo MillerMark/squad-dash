@@ -14136,8 +14136,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // arg: x:Name of any FrameworkElement (MenuItem, Button, etc.) to outline with
             // a themed "guided tour" rectangle border overlay.
             // Colors: dark theme → light red (#FF8080 ish), light theme → dark red (#8B0000 ish)
-            var el = _tourNamedElements.TryGetValue(arg, out var namedEl) ? namedEl
-                   : VisualTreeSearch.FindByName(this, arg) as FrameworkElement;
+            // Look in _tourNamedElements first (handles runtime-registered elements), then
+            // the main window visual tree, then any popup visual trees that OpenMenu registered
+            // (menu items inside open submenus live in separate HWND popup trees).
+            FrameworkElement? el = null;
+            if (_tourNamedElements.TryGetValue(arg, out var namedEl))
+                el = namedEl;
+            if (el is null)
+                el = VisualTreeSearch.FindByName(this, arg) as FrameworkElement;
+            if (el is null)
+            {
+                foreach (var root in _tourNamedElements.Values)
+                {
+                    el = VisualTreeSearch.FindByName(root, arg) as FrameworkElement;
+                    if (el is not null) break;
+                }
+            }
             if (el is null) return;
 
             // Wait a tick so the element has had a chance to render (important for menu items
