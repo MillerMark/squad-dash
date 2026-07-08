@@ -30787,6 +30787,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopOutputWindow?.NotifyThemeChanged();
         _screenshotHealthWindow?.NotifyThemeChanged();
 
+        // Refresh any open callouts so they repaint with the new theme brushes and styles.
+        FrmUltimateCallout.NotifyThemeChanged(isDark);
+
         RefreshDocumentationViewer();
 
         // Rebuild queue tabs after the current dispatcher frame so WPF's deferred

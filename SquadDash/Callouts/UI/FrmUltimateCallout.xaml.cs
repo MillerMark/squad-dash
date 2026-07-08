@@ -106,6 +106,27 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 c.LoadColorsForTheme();
     }
 
+    /// <summary>
+    /// Updates the Theme property and refreshes colors/styles on all open callouts
+    /// after a light/dark theme switch. Call from MainWindow.ApplyTheme().
+    /// </summary>
+    public static void NotifyThemeChanged(bool isDark)
+    {
+        var newTheme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+        _openCallouts.RemoveAll(r => !r.TryGetTarget(out _));
+        foreach (var r in _openCallouts)
+        {
+            if (!r.TryGetTarget(out var c) || !c.IsVisible) continue;
+            // Setting Theme triggers LoadColorsForTheme via the property setter.
+            // If theme hasn't changed we force a manual reload anyway to pick up
+            // any new tint values that were applied as part of the theme swap.
+            if (c.theme != newTheme)
+                c.Theme = newTheme;
+            else
+                c.LoadColorsForTheme();
+        }
+    }
+
     public Color GlowColor {
         get => glowColor;
         set {
