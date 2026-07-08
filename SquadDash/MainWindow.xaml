@@ -783,6 +783,10 @@
                               Header="Code Health"
                               IsCheckable="True"
                               Click="ViewCodeHealthMenuItem_Click" />
+                    <MenuItem x:Name="ViewCommitHistoryMenuItem"
+                              Header="Commit History"
+                              IsCheckable="True"
+                              Click="ViewCommitHistoryMenuItem_Click" />
                     <MenuItem x:Name="ViewInboxMenuItem"
                               Header="Inbox"
                               IsCheckable="True"

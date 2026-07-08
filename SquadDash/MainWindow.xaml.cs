@@ -251,7 +251,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TraceWindow?            _traceWindow;
     private LoopMergedViewWindow?   _loopMergedViewWindow;
     private DispatcherTimer?        _loopPreviewFilterDebounce;
-    private ScreenshotHealthWindow? _screenshotHealthWindow;
+    private ScreenshotHealthWindow?      _screenshotHealthWindow;
+    private CommitActivityGraphWindow?   _commitActivityGraphWindow;
+    private ICommitStatService?          _commitStatService;
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
@@ -16522,6 +16524,43 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewCodeHealthMenuItem_Click), ex); }
     }
 
+    private void ViewCommitHistoryMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ShowCommitActivityGraphWindow();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ViewCommitHistoryMenuItem_Click), ex); }
+    }
+
+    private void ShowCommitActivityGraphWindow()
+    {
+        if (_commitActivityGraphWindow is null)
+        {
+            _commitStatService ??= new CommitStatService(_workspacePaths.ApplicationRoot);
+            var isDark = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
+            _commitActivityGraphWindow = new CommitActivityGraphWindow(
+                _commitStatService,
+                _approvalItems,
+                isDark);
+            if (CanShowOwnedWindow())
+                _commitActivityGraphWindow.Owner = this;
+            _commitActivityGraphWindow.Closed += (_, _) =>
+            {
+                _commitActivityGraphWindow = null;
+                if (ViewCommitHistoryMenuItem is not null)
+                    ViewCommitHistoryMenuItem.IsChecked = false;
+            };
+            _commitActivityGraphWindow.Show();
+            if (ViewCommitHistoryMenuItem is not null)
+                ViewCommitHistoryMenuItem.IsChecked = true;
+        }
+        else
+        {
+            _commitActivityGraphWindow.Activate();
+        }
+    }
+
     private void CodeHealthPanelCloseButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -30786,6 +30825,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _traceWindow?.NotifyThemeChanged();
         _loopOutputWindow?.NotifyThemeChanged();
         _screenshotHealthWindow?.NotifyThemeChanged();
+        _commitActivityGraphWindow?.NotifyThemeChanged(isDark);
 
         // Refresh any open callouts so they repaint with the new theme brushes and styles.
         FrmUltimateCallout.NotifyThemeChanged(isDark);
