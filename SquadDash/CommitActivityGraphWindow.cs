@@ -53,9 +53,17 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private CancellationTokenSource?             _cts;
     private readonly DispatcherTimer             _debounceTimer;
 
+    // ── Cached data for filter-only refreshes ─────────────────────────────────
+    private List<CommitActivityRow>?  _cachedRows;
+    private List<CommitStatRequest>?  _cachedRequests;
+    private HashSet<string>           _cachedPendingShas = new(StringComparer.OrdinalIgnoreCase);
+    private DateOnly                  _cachedStartDate;
+    private DateOnly                  _cachedEndDate;
+
     // ── UI ────────────────────────────────────────────────────────────────────
     private readonly CommitActivityCanvas _canvas;
     private readonly RangeSliderControl   _rangeSlider;
+    private readonly CheckBox             _showUncategorizedCheckBox;
 
     public CommitActivityGraphWindow(
         ICommitStatService              statService,
@@ -112,10 +120,39 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var sliderPanel = new StackPanel { Margin = new Thickness(0, 2, 0, 0) };
         sliderPanel.Children.Add(_rangeSlider);
 
+        // ── Show Uncategorized checkbox ───────────────────────────────────────
+        _showUncategorizedCheckBox = new CheckBox
+        {
+            IsChecked         = true,
+            Content           = "Show Uncategorized",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 0, 8, 0),
+        };
+        _showUncategorizedCheckBox.SetResourceReference(CheckBox.ForegroundProperty, "LabelText");
+        _showUncategorizedCheckBox.SetResourceReference(CheckBox.FontSizeProperty,   "FontSizeBody");
+        _showUncategorizedCheckBox.Checked   += OnShowUncategorizedChanged;
+        _showUncategorizedCheckBox.Unchecked += OnShowUncategorizedChanged;
+        WindowChrome.SetIsHitTestVisibleInChrome(_showUncategorizedCheckBox, true);
+
+        // ── Quick-range buttons ───────────────────────────────────────────────
+        var controlsBar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin      = new Thickness(10, 4, 10, 0),
+        };
+        controlsBar.Children.Add(_showUncategorizedCheckBox);
+        foreach (var btn in CreateQuickRangeButtons())
+            controlsBar.Children.Add(btn);
+
+        // ── Top bar (controls bar + slider) ──────────────────────────────────
+        var topBar = new StackPanel();
+        topBar.Children.Add(controlsBar);
+        topBar.Children.Add(sliderPanel);
+
         // ── Main layout ───────────────────────────────────────────────────────
         var layout = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(sliderPanel, Dock.Top);
-        layout.Children.Add(sliderPanel);
+        DockPanel.SetDock(topBar, Dock.Top);
+        layout.Children.Add(topBar);
         layout.Children.Add(scrollViewer);
 
         var contentBorder   = ApplyOuterBorder(titleText: "Commit History");
@@ -141,6 +178,50 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _endDate   = _rangeSlider.EndDate;
         _debounceTimer.Stop();
         _debounceTimer.Start();
+    }
+
+    private void OnShowUncategorizedChanged(object sender, RoutedEventArgs e)
+    {
+        if (_cachedRows is null) return;
+        RefreshCanvasData(_cachedRows, _cachedRequests!, _cachedPendingShas,
+                          _cachedStartDate, _cachedEndDate);
+    }
+
+    private IEnumerable<Button> CreateQuickRangeButtons()
+    {
+        (string Label, int Days)[] ranges =
+        [
+            ("Last Week",    7),
+            ("Last Month",   30),
+            ("Last Quarter", 91),
+            ("Last Year",    365),
+        ];
+
+        foreach (var (label, days) in ranges)
+        {
+            var btn = new Button
+            {
+                Content = label,
+                Padding = new Thickness(8, 3, 8, 3),
+                Margin  = new Thickness(4, 0, 0, 0),
+            };
+            btn.SetResourceReference(Button.BackgroundProperty,  "InputSurface");
+            btn.SetResourceReference(Button.ForegroundProperty,  "LabelText");
+            btn.SetResourceReference(Button.BorderBrushProperty, "PanelBorder");
+            btn.SetResourceReference(Button.FontSizeProperty,    "FontSizeBody");
+            WindowChrome.SetIsHitTestVisibleInChrome(btn, true);
+            var d = days;
+            btn.Click += (_, _) =>
+            {
+                var today  = DateOnly.FromDateTime(DateTime.Today);
+                _startDate = today.AddDays(-d);
+                _endDate   = today;
+                _rangeSlider.SetRange(_startDate, _endDate);
+                _debounceTimer.Stop();
+                _debounceTimer.Start();
+            };
+            yield return btn;
+        }
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
@@ -334,10 +415,36 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 list.Add(result);
         }
 
-        _canvas.SetData(rows, startDate, endDate, _isDark);
-    }
+        var displayRows = _showUncategorizedCheckBox?.IsChecked == false
+            ? rows.Where(r => r.FeatureGroup is not null).ToList()
+            : rows;
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+        _canvas.SetData(displayRows, startDate, endDate, _isDark);
+
+        // Auto-fit the slider's left boundary to the oldest commit date in the
+        // visible rows, capped at today minus 5 years so the track never stretches
+        // further left than there's actually data.
+        var todayMinus5Years = DateOnly.FromDateTime(DateTime.Today.AddYears(-5));
+        if (displayRows.Any(r => r.CommitsByDay.Count > 0 || r.PendingDays.Count > 0))
+        {
+            var oldest = displayRows
+                .SelectMany(r => r.CommitsByDay.Keys.Concat(r.PendingDays))
+                .Min();
+            _rangeSlider.MinDate = oldest > todayMinus5Years ? oldest : todayMinus5Years;
+        }
+        else
+        {
+            _rangeSlider.MinDate = todayMinus5Years;
+        }
+        _rangeSlider.InvalidateVisual();
+
+        // Snapshot for filter-only refreshes (e.g. toggling Show Uncategorized).
+        _cachedRows        = rows;
+        _cachedRequests    = requests;
+        _cachedPendingShas = new HashSet<string>(pendingShas, StringComparer.OrdinalIgnoreCase);
+        _cachedStartDate   = startDate;
+        _cachedEndDate     = endDate;
+    }
 
     private static List<CommitActivityRow> BuildFeatureRows(
         List<CommitApprovalItem> items,
@@ -592,6 +699,21 @@ internal sealed class RangeSliderControl : FrameworkElement
 
     // ── Coordinate helpers ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Programmatically sets both handles, clamping to [MinDate, MaxDate] and
+    /// enforcing <see cref="MinRangeDays"/>.  Triggers an immediate repaint.
+    /// </summary>
+    public void SetRange(DateOnly start, DateOnly end)
+    {
+        start = ClampDate(start, MinDate, MaxDate);
+        end   = ClampDate(end,   MinDate, MaxDate);
+        if (end.DayNumber - start.DayNumber < MinRangeDays)
+            end = ClampDate(start.AddDays(MinRangeDays), MinDate, MaxDate);
+        StartDate = start;
+        EndDate   = end;
+        InvalidateVisual();
+    }
+
     private double DateToX(DateOnly date)
     {
         var total      = MaxDate.DayNumber - MinDate.DayNumber;
@@ -704,15 +826,25 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double                  _pixelsPerDip        = 1.0;
     private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
 
-    // Tooltip hit tracking
-    private object? _lastHit;
-
     // ── Constructor ────────────────────────────────────────────────────────────
 
     public CommitActivityCanvas()
     {
-        // Re-render whenever layout gives us a new size (window resize).
         SizeChanged += (_, _) => InvalidateVisual();
+
+        // WPF only opens the tooltip popup on MouseEnter; dynamically reassigning
+        // ToolTip inside OnMouseMove does nothing once the mouse is already over the
+        // element.  Instead, keep a single ToolTip instance and update its content
+        // inside ToolTipOpening — which fires every time the popup is about to show.
+        var tip = new ToolTip();
+        ToolTip = tip;
+        ToolTipOpening += (_, e) =>
+        {
+            var pt  = Mouse.GetPosition(this);
+            var hit = HitTestPoint(pt);
+            if (hit is null) { e.Handled = true; return; }
+            tip.Content = BuildTooltipElement(hit);
+        };
     }
 
     // Make the entire canvas surface hittable (not just rendered pixels) so
@@ -899,25 +1031,6 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     }
 
     // ── Tooltip / hit testing ──────────────────────────────────────────────────
-
-    protected override void OnMouseMove(MouseEventArgs e)
-    {
-        base.OnMouseMove(e);
-        var pt  = e.GetPosition(this);
-        var hit = HitTestPoint(pt);
-        if (!Equals(hit, _lastHit))
-        {
-            _lastHit     = hit;
-            this.ToolTip = hit is null ? null : (object)BuildTooltipElement(hit);
-        }
-    }
-
-    protected override void OnMouseLeave(MouseEventArgs e)
-    {
-        base.OnMouseLeave(e);
-        _lastHit     = null;
-        this.ToolTip = null;
-    }
 
     private object? HitTestPoint(Point pt)
     {
