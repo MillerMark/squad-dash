@@ -155,7 +155,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
-    private readonly List<(MenuItem item, Brush? originalBackground)> _highlightedMenuItems = new();
+    private Window?  _tourHighlightOverlay;
+    private Canvas?  _tourHighlightCanvas;
+    private readonly List<System.Windows.Shapes.Rectangle> _tourHighlightRects = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13914,20 +13916,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void UnhighlightAllMenuItems()
     {
-        foreach (var (item, brush) in _highlightedMenuItems)
-            item.Background = brush;
-        _highlightedMenuItems.Clear();
-    }
-
-    private bool TryGetResourceColor(string resourceKey, out Color color)
-    {
-        if (Resources[resourceKey] is SolidColorBrush scb)
+        if (_tourHighlightOverlay is not null)
         {
-            color = scb.Color;
-            return true;
+            _tourHighlightOverlay.Close();
+            _tourHighlightOverlay = null;
+            _tourHighlightCanvas  = null;
         }
-        color = default;
-        return false;
+        _tourHighlightRects.Clear();
     }
 
     private void CleanUpTourInjectedThreads()
@@ -14138,41 +14133,82 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
         {
-            // arg: x:Name of a MenuItem to highlight with a temporary background.
-            // Blends current background 50% toward black (dark theme) or white (light theme).
+            // arg: x:Name of any FrameworkElement (MenuItem, Button, etc.) to outline with
+            // a themed "guided tour" rectangle border overlay.
+            // Colors: dark theme → light red (#FF8080 ish), light theme → dark red (#8B0000 ish)
             var el = _tourNamedElements.TryGetValue(arg, out var namedEl) ? namedEl
-                   : VisualTreeSearch.FindByName(this, arg);
-            if (el is not MenuItem menuItem) return;
+                   : VisualTreeSearch.FindByName(this, arg) as FrameworkElement;
+            if (el is null) return;
 
-            var originalBackground = menuItem.Background;
-            _highlightedMenuItems.Add((menuItem, originalBackground));
+            // Wait a tick so the element has had a chance to render (important for menu items
+            // that just became visible via OpenMenu).
+            await Task.Delay(80);
+
+            if (!el.IsVisible) return;
 
             var isDark = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
-            var target = isDark ? Colors.Black : Colors.White;
+            var rectColor = isDark
+                ? Color.FromRgb(0xFF, 0xA0, 0xA0)  // light red for dark theme
+                : Color.FromRgb(0x8B, 0x00, 0x00);  // dark red for light theme
 
-            Color baseColor;
-            if (menuItem.Background is SolidColorBrush scb && scb.Color.A > 0)
+            // Lazily create the overlay window (covers the whole screen/main window area).
+            if (_tourHighlightOverlay is null)
             {
-                baseColor = scb.Color;
-            }
-            else if (TryGetResourceColor("InputSurface", out var resourceColor))
-            {
-                baseColor = resourceColor;
+                _tourHighlightCanvas = new Canvas { IsHitTestVisible = false };
+                _tourHighlightOverlay = new Window
+                {
+                    Owner                 = this,
+                    WindowStyle           = WindowStyle.None,
+                    AllowsTransparency    = true,
+                    Background            = Brushes.Transparent,
+                    Topmost               = true,
+                    ShowInTaskbar         = false,
+                    IsHitTestVisible      = false,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left                  = this.Left,
+                    Top                   = this.Top,
+                    Width                 = this.ActualWidth,
+                    Height                = this.ActualHeight,
+                    Content               = _tourHighlightCanvas,
+                };
+                _tourHighlightOverlay.Show();
             }
             else
             {
-                baseColor = isDark ? Color.FromRgb(32, 32, 32) : Color.FromRgb(240, 240, 240);
+                _tourHighlightOverlay.Left   = this.Left;
+                _tourHighlightOverlay.Top    = this.Top;
+                _tourHighlightOverlay.Width  = this.ActualWidth;
+                _tourHighlightOverlay.Height = this.ActualHeight;
+                if (!_tourHighlightOverlay.IsVisible) _tourHighlightOverlay.Show();
             }
 
-            var blended = new Color
+            // Compute element position in overlay coordinates.
+            Point screenTL;
+            try { screenTL = el.PointToScreen(new Point(0, 0)); }
+            catch { return; } // element not in visual tree / not rendered yet
+            var overlayTL = _tourHighlightOverlay.PointFromScreen(screenTL);
+            double w = el.ActualWidth;
+            double h = el.ActualHeight;
+            if (w <= 0 || h <= 0) return;
+
+            const double pad = 2;
+            const double thickness = 2.5;
+
+            var rect = new System.Windows.Shapes.Rectangle
             {
-                R = (byte)((baseColor.R + target.R) / 2),
-                G = (byte)((baseColor.G + target.G) / 2),
-                B = (byte)((baseColor.B + target.B) / 2),
-                A = 255
+                Stroke          = new SolidColorBrush(rectColor),
+                StrokeThickness = thickness,
+                Fill            = new SolidColorBrush(Color.FromArgb(30, rectColor.R, rectColor.G, rectColor.B)),
+                IsHitTestVisible = false,
+                Width           = w + pad * 2 + thickness * 2,
+                Height          = h + pad * 2 + thickness * 2,
+                RadiusX         = 3,
+                RadiusY         = 3,
             };
-            menuItem.Background = new SolidColorBrush(blended);
-            await Task.Delay(50);
+            Canvas.SetLeft(rect, overlayTL.X - pad - thickness);
+            Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
+            _tourHighlightCanvas!.Children.Add(rect);
+            _tourHighlightRects.Add(rect);
         });
 
         _tourCommandRegistry.Register("UnhighlightMenuItems", UnhighlightAllMenuItems);
