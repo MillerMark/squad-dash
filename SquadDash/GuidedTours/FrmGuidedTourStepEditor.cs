@@ -74,6 +74,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly PttTextBoxAttachment _ptt;
 
     // Form controls
+    private TextBox                _descriptionBox = null!;
     private readonly TextBox       _titleBox;
     private readonly TextBox       _markdownBox;
     private readonly RadioButton[] _placementRadios;
@@ -305,16 +306,36 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _stepCountLabel = new TextBlock
         {
-            Text                = $"Step {stepIndex + 1} of {activeTour.Steps.Count}",
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin              = new Thickness(0, 4, 0, 0),
+            Text              = $"Step {stepIndex + 1} of {activeTour.Steps.Count}",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(4, 0, 0, 0),
         };
         _stepCountLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         _stepCountLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
 
+        _descriptionBox = new TextBox
+        {
+            Text    = activeTour.Description,
+            Height  = 26,
+            Padding = new Thickness(4, 3, 4, 3),
+        };
+        _descriptionBox.SetResourceReference(TextBox.BackgroundProperty,  "TextBoxBackground");
+        _descriptionBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        _descriptionBox.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
+        _descriptionBox.SetResourceReference(TextBox.FontSizeProperty,    "FontSizeBody");
+        _descriptionBox.TextChanged += (_, _) =>
+        {
+            if (_isLoadingStep) return;
+            _activeTour.Description = _descriptionBox.Text;
+            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            {
+                try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+                catch { /* ignore auto-save errors */ }
+            }
+        };
+
         var formPanel = new StackPanel { Margin = new Thickness(14, 10, 14, 8) };
         _formPanel = formPanel;
-        formPanel.Children.Add(_stepCountLabel);
         formPanel.Children.Add(MakeLabel("Title"));
         formPanel.Children.Add(_titleBox);
         formPanel.Children.Add(MakeLabel("Callout Text (Markdown)"));
@@ -513,7 +534,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Sidebar buttons ──────────────────────────────────────────────────
 
-        var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 2) };
+        var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal };
         var addBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
         var deleteBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addBtn.Margin    = new Thickness(0, 0, 2, 0);
@@ -523,9 +544,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         listSidebarButtons.Children.Add(addBtn);
         listSidebarButtons.Children.Add(deleteBtn);
 
+        var stepListHeader = new DockPanel { Margin = new Thickness(0, 0, 0, 2) };
+        DockPanel.SetDock(listSidebarButtons, Dock.Left);
+        DockPanel.SetDock(_stepCountLabel,    Dock.Right);
+        listSidebarButtons.Margin = new Thickness(0);
+        stepListHeader.Children.Add(listSidebarButtons);
+        stepListHeader.Children.Add(_stepCountLabel);
+
         var sidebarPanel = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(listSidebarButtons, Dock.Top);
-        sidebarPanel.Children.Add(listSidebarButtons);
+        DockPanel.SetDock(stepListHeader, Dock.Top);
+        sidebarPanel.Children.Add(stepListHeader);
         sidebarPanel.Children.Add(_stepListBoxHost);
 
         _multiSelectLabel = new TextBlock
@@ -589,16 +617,36 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         tourSidebarPanel.Children.Add(tourSidebarButtons);
         tourSidebarPanel.Children.Add(_tourListBox);
 
+        var descLabel = new TextBlock
+        {
+            Text              = "Description:",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 0, 6, 0),
+        };
+        descLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        descLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var descriptionRow = new DockPanel { Margin = new Thickness(14, 4, 14, 4) };
+        DockPanel.SetDock(descLabel, Dock.Left);
+        descriptionRow.LastChildFill = true;
+        descriptionRow.Children.Add(descLabel);
+        descriptionRow.Children.Add(_descriptionBox);
+
+        var formColumn = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(descriptionRow, Dock.Top);
+        formColumn.Children.Add(descriptionRow);
+        formColumn.Children.Add(formScrollViewer);
+
         var contentSplit = new Grid();
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300, GridUnitType.Pixel) });
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320, GridUnitType.Pixel) });
         contentSplit.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1,   GridUnitType.Star)  });
         Grid.SetColumn(tourSidebarPanel,  0);
         Grid.SetColumn(sidebarPanel,      1);
-        Grid.SetColumn(formScrollViewer,  2);
+        Grid.SetColumn(formColumn,        2);
         contentSplit.Children.Add(tourSidebarPanel);
         contentSplit.Children.Add(sidebarPanel);
-        contentSplit.Children.Add(formScrollViewer);
+        contentSplit.Children.Add(formColumn);
 
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(buttonRow, Dock.Bottom);
@@ -701,6 +749,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 .Where(s => !string.IsNullOrEmpty(s))
                 .ToList();
             _step.CommandAfter = string.Empty;
+            _activeTour.Description = _descriptionBox.Text.Trim();
             // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
 
             SquadDashTrace.Write(TraceCategory.Callouts,
@@ -791,6 +840,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     public void SwitchActiveTour(GuidedTour newTour, int selectStepIndex)
     {
         _activeTour = newTour;
+        _isLoadingStep = true;
+        try { _descriptionBox.Text = newTour.Description; }
+        finally { _isLoadingStep = false; }
         RefreshStepList(selectStepIndex);
     }
 
