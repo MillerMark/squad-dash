@@ -12012,46 +12012,45 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         overlay.Width = _agentCardGlowOverlayTarget.ActualWidth;
         overlay.Height = _agentCardGlowOverlayTarget.ActualHeight;
 
-        // Clip the glow overlay ONLY on the right edge when the card extends beyond the viewport.
-        // The glow MUST extend beyond the card boundaries on the left, top, and bottom sides
-        // (approximately 30 pixels) - this is intentional and required for the glow effect.
-        // Only the RIGHT side should be clipped, and only when BOTH conditions are true:
-        // 1. The card is the rightmost visible card
-        // 2. The card is being cropped (doesn't have enough width to show fully)
+        // Clip the glow overlay on whichever edge(s) the card is cropped by the ScrollViewer viewport.
+        // The glow may freely bleed outside the card on any un-cropped side (~100px margin).
         var owningScrollViewer = FindVisualAncestor<ScrollViewer>(_agentCardGlowOverlayTarget);
         if (owningScrollViewer is not null && owningScrollViewer.IsLoaded)
         {
             try
             {
-                // Get ScrollViewer viewport bounds in overlay coordinate space
+                // ScrollViewer viewport bounds in overlay coordinate space
                 var scrollViewerTopLeft = owningScrollViewer.TranslatePoint(new System.Windows.Point(0, 0), overlayCoordinateRoot);
-                var viewportRightEdge = scrollViewerTopLeft.X + owningScrollViewer.ViewportWidth;
+                var viewportLeft  = scrollViewerTopLeft.X;
+                var viewportRight = scrollViewerTopLeft.X + owningScrollViewer.ViewportWidth;
 
-                // Calculate overlay bounds in the same coordinate space
-                var overlayRight = topLeft.X + overlay.Width;
+                var cardLeft  = topLeft.X;
+                var cardRight = topLeft.X + overlay.Width;
 
-                // Check if the overlay extends beyond the viewport's right edge
-                if (overlayRight > viewportRightEdge)
+                bool clippedOnLeft  = cardLeft  < viewportLeft;
+                bool clippedOnRight = cardRight > viewportRight;
+
+                if (clippedOnLeft || clippedOnRight)
                 {
-                    // The card is clipped on the right - create a clip geometry that:
-                    // - Has NO left boundary (extends far left to allow glow, e.g., -100)
-                    // - Has NO top boundary (extends far up to allow glow, e.g., -100)
-                    // - Has NO bottom boundary (extends far down to allow glow)
-                    // - Has a RIGHT boundary at the viewport edge (clips at viewport right)
-                    const double glowMargin = 100; // More than enough for the ~30px glow extension
-                    
+                    const double glowMargin = 100;
+
+                    // Clip boundaries in the overlay's local coordinate space.
+                    // When a side IS cropped: clip flush with the viewport edge (no glow bleed).
+                    // When a side is NOT cropped: allow the full glow margin.
+                    double localClipLeft  = clippedOnLeft  ? (viewportLeft  - cardLeft) : -glowMargin;
+                    double localClipRight = clippedOnRight ? (viewportRight - cardLeft) : (overlay.Width + glowMargin);
+
                     var clipRect = new Rect(
-                        -glowMargin, // Allow glow to extend left
-                        -glowMargin, // Allow glow to extend up
-                        viewportRightEdge - topLeft.X + glowMargin, // Width: from far-left to viewport right edge
-                        overlay.Height + (2 * glowMargin)); // Height: allow glow to extend down and up
+                        localClipLeft,
+                        -glowMargin,
+                        localClipRight - localClipLeft,
+                        overlay.Height + (2 * glowMargin));
 
                     overlay.Clip = new System.Windows.Media.RectangleGeometry(clipRect);
                 }
                 else
                 {
-                    // Card is fully visible or clipped on left - no clipping needed
-                    // Glow extends freely on all sides
+                    // Card fully within viewport — no clipping needed, glow extends freely.
                     overlay.Clip = null;
                 }
             }
