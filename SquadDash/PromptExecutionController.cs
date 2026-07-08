@@ -1860,20 +1860,21 @@ internal sealed class PromptExecutionController {
         return true;
     }
 
-    private void FireHirePromptForUniverse(string universeName) {
-        var llmPrompt = string.Equals(universeName, SquadInstallerService.SquadDashUniverseName, StringComparison.OrdinalIgnoreCase)
-            ? $"Create a team from the {SquadInstallerService.SquadDashUniverseName}. Before selecting members, read `.squad/universes/squaddash.md` — it describes each character's best-fit work, areas to avoid, and related roles. Choose the best fit for this project."
-            : $"Create a suitable team from the {universeName} universe.";
+    private string BuildUniverseHireClause(string universeName) {
+        if (string.Equals(universeName, SquadInstallerService.SquadDashUniverseName, StringComparison.OrdinalIgnoreCase))
+            return $"Create a team exclusively from the {SquadInstallerService.SquadDashUniverseName}. " +
+                   $"IMPORTANT: You MUST only cast characters from this universe. Do NOT invent characters, do NOT borrow from any other universe (Goonies, Star Wars, etc.), and do NOT create fictional personas outside of this universe. " +
+                   $"Before selecting members, read `.squad/universes/squaddash.md` — it describes each character's best-fit work, areas to avoid, and related roles. Choose the best fit for this project.";
+        return $"Create a suitable team exclusively from the {universeName} universe. " +
+               $"IMPORTANT: You MUST only cast characters from the {universeName} universe. Do NOT invent characters and do NOT borrow from any other universe.";
+    }
 
-        _ = ExecutePromptAsync(llmPrompt, addToHistory: false, clearPromptBox: false);
+    private void FireHirePromptForUniverse(string universeName) {
+        _ = ExecutePromptAsync(BuildUniverseHireClause(universeName), addToHistory: false, clearPromptBox: false);
     }
 
     private void FireHirePromptForUniverseWithAppType(string universeName, string appTypeDescription) {
-        var universeClause = string.Equals(universeName, SquadInstallerService.SquadDashUniverseName, StringComparison.OrdinalIgnoreCase)
-            ? $"Create a team from the {SquadInstallerService.SquadDashUniverseName}. Before selecting members, read `.squad/universes/squaddash.md` — it describes each character's best-fit work, areas to avoid, and related roles. Choose the best fit for this project."
-            : $"Create a suitable team from the {universeName} universe.";
-
-        var combinedPrompt = $"{universeClause} The user wants to build: {appTypeDescription}";
+        var combinedPrompt = $"{BuildUniverseHireClause(universeName)} The user wants to build: {appTypeDescription}";
         _ = ExecutePromptAsync(combinedPrompt, addToHistory: false, clearPromptBox: false);
     }
 
