@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shell;
@@ -94,8 +95,6 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         // ── Canvas / scroll area ──────────────────────────────────────────────
         _canvas = new CommitActivityCanvas();
-        ToolTipService.SetInitialShowDelay(_canvas, 400);
-        ToolTipService.SetShowDuration(_canvas, 12_000);
 
         var scrollViewer = new ScrollViewer
         {
@@ -804,8 +803,9 @@ internal sealed record CommitLineHit(
 /// scrolling is required: pixels-per-day = (canvasWidth − labelColumnWidth) / totalDays.
 /// </para>
 /// <para>
-/// Circle radius formula: <c>radius(n) = BaseRadius × √n</c> (equal-area growth —
-/// each additional commit adds the same visual area as the first).
+/// Multiple commits on the same day are rendered as individual fixed-size dots
+/// (radius = <see cref="BaseRadius"/>) laid out side-by-side, centered on the day's
+/// X position.
 /// </para>
 /// </summary>
 internal sealed class CommitActivityCanvas : FrameworkElement
@@ -826,31 +826,79 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double                  _pixelsPerDip        = 1.0;
     private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
 
+    // ── Hover popup ────────────────────────────────────────────────────────────
+    private Popup?     _hoverPopup;
+    private TextBlock? _hoverContent;
+
     // ── Constructor ────────────────────────────────────────────────────────────
 
     public CommitActivityCanvas()
     {
         SizeChanged += (_, _) => InvalidateVisual();
-
-        // WPF only opens the tooltip popup on MouseEnter; dynamically reassigning
-        // ToolTip inside OnMouseMove does nothing once the mouse is already over the
-        // element.  Instead, keep a single ToolTip instance and update its content
-        // inside ToolTipOpening — which fires every time the popup is about to show.
-        var tip = new ToolTip();
-        ToolTip = tip;
-        ToolTipOpening += (_, e) =>
-        {
-            var pt  = Mouse.GetPosition(this);
-            var hit = HitTestPoint(pt);
-            if (hit is null) { e.Handled = true; return; }
-            tip.Content = BuildTooltipElement(hit);
-        };
     }
 
     // Make the entire canvas surface hittable (not just rendered pixels) so
-    // OnMouseMove fires everywhere and tooltips show over dots and lines.
+    // OnMouseMove fires everywhere and the popup shows over dots and lines.
     protected override HitTestResult HitTestCore(PointHitTestParameters hitTestParameters)
         => new PointHitTestResult(this, hitTestParameters.HitPoint);
+
+    // ── Hover popup ────────────────────────────────────────────────────────────
+
+    private void EnsurePopup()
+    {
+        if (_hoverPopup is not null) return;
+        _hoverContent = new TextBlock
+        {
+            MaxWidth     = 340,
+            TextWrapping = TextWrapping.Wrap,
+            Padding      = new Thickness(6, 4, 6, 4),
+        };
+        _hoverContent.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        _hoverContent.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        var border = new Border
+        {
+            Child          = _hoverContent,
+            CornerRadius   = new CornerRadius(4),
+            Padding        = new Thickness(0),
+            BorderThickness = new Thickness(1),
+        };
+        border.SetResourceReference(Border.BackgroundProperty,  "InputSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+
+        _hoverPopup = new Popup
+        {
+            Child              = border,
+            AllowsTransparency = true,
+            Placement          = PlacementMode.Mouse,
+            HorizontalOffset   = 12,
+            VerticalOffset     = 12,
+            StaysOpen          = true,   // We control open/close manually
+            IsHitTestVisible   = false,
+            PlacementTarget    = this,
+        };
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        EnsurePopup();
+        var hit = HitTestPoint(e.GetPosition(this));
+        if (hit is null)
+        {
+            _hoverPopup!.IsOpen = false;
+        }
+        else
+        {
+            _hoverContent!.Text = BuildTooltipText(hit);
+            _hoverPopup!.IsOpen = true;
+        }
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoverPopup is not null) _hoverPopup.IsOpen = false;
+    }
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -973,17 +1021,24 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             }
 
             // ── Resolved (solid) dots ─────────────────────────────────────────
-            // Radius: BaseRadius × √n  (equal-area growth — each additional commit
-            // adds the same visual area as the first, so r(n) = BaseRadius × √n).
-            var fillColor = Color.FromArgb(128, color.R, color.G, color.B);
+            // Each commit gets its own fixed-size dot; multiple commits on the same
+            // day are laid out side-by-side, centered on the day's X position.
+            const double DotSpacing = BaseRadius * 2 + 2; // center-to-center spacing
+            var fillColor = Color.FromArgb(180, color.R, color.G, color.B);
             var fillBrush = new SolidColorBrush(fillColor);
             var strokePen = new Pen(new SolidColorBrush(color), 1.0);
             foreach (var (date, commits) in row.CommitsByDay)
             {
                 if (date < _startDate || date > _endDate) continue;
-                var radius = BaseRadius * Math.Sqrt(commits.Count);
-                var cx     = LabelColumnWidth + DayToX(date);
-                dc.DrawEllipse(fillBrush, strokePen, new Point(cx, cy), radius, radius);
+                var cx = LabelColumnWidth + DayToX(date);
+                int n  = commits.Count;
+                // Total span = (n-1) * DotSpacing; offset of first dot from center
+                double startOffset = -(n - 1) * DotSpacing / 2.0;
+                for (int d = 0; d < n; d++)
+                {
+                    var dotCx = cx + startOffset + d * DotSpacing;
+                    dc.DrawEllipse(fillBrush, strokePen, new Point(dotCx, cy), BaseRadius, BaseRadius);
+                }
             }
         }
 
@@ -1047,18 +1102,27 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         if (dayIdx < 0 || dayIdx >= _dayCount) return null;
 
         var date  = _startDate.AddDays(dayIdx);
-        var dotCx = DayToX(date); // offset from graph origin
-        var dist  = Math.Abs(graphX - dotCx);
 
         const double hitTolerance = 4;
 
-        // Check resolved dot — radius(n) = BaseRadius × √n
+        // Check resolved dots — individual fixed-size dots laid side-by-side
         if (row.CommitsByDay.TryGetValue(date, out var commits))
         {
-            var radius = BaseRadius * Math.Sqrt(commits.Count);
-            if (dist <= radius + hitTolerance)
-                return new CommitDotHit(row, date, false, commits);
+            int n = commits.Count;
+            const double DotSpacing = CommitActivityCanvas.BaseRadius * 2 + 2;
+            double resolvedCx = DayToX(date); // graphX-relative center
+            double startOffset = -(n - 1) * DotSpacing / 2.0;
+            for (int d = 0; d < n; d++)
+            {
+                var eachDotCx = resolvedCx + startOffset + d * DotSpacing;
+                if (Math.Abs(graphX - eachDotCx) <= CommitActivityCanvas.BaseRadius + 4)
+                    return new CommitDotHit(row, date, false, commits);
+            }
         }
+
+        // For pending dot and line hit, use the simple day-center distance
+        var dotCx = DayToX(date); // offset from graph origin
+        var dist  = Math.Abs(graphX - dotCx);
 
         // Check pending dot
         if (row.PendingDays.Contains(date) && !row.CommitsByDay.ContainsKey(date))
@@ -1083,9 +1147,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         return null;
     }
 
-    private static TextBlock BuildTooltipElement(object hit)
-    {
-        var text = hit switch
+    private static string BuildTooltipText(object hit)
+        => hit switch
         {
             CommitDotHit { IsPending: true  } d =>
                 $"Feature: {d.Row.DisplayName}\nDate: {d.Date:MMM d, yyyy}\nStatus: Loading commit data\u2026",
@@ -1099,13 +1162,6 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 $"Feature: {l.Row.DisplayName}\nActive: {l.FirstDate:MMM d, yyyy} \u2192 {l.LastDate:MMM d, yyyy}",
             _ => ""
         };
-        return new TextBlock
-        {
-            Text         = text,
-            MaxWidth     = 340,
-            TextWrapping = TextWrapping.Wrap,
-        };
-    }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
