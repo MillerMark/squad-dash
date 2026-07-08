@@ -155,6 +155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
+    private readonly List<(MenuItem item, Brush? originalBackground)> _highlightedMenuItems = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13898,6 +13899,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             restorePreTourLayout:    () =>
             {
                 // Layout restore: reload the active layout from workspace
+                UnhighlightAllMenuItems();
                 CleanUpTourInjectedThreads();
                 CleanUpTourInjectedCoordinatorBlocks();
                 CleanUpTourQueueItems();
@@ -13908,6 +13910,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onStepChanging:          FreezeTypeIntoPromptAnimation,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
             isTypeAnimationRunning:  () => _typeIntoPromptTimer != null);
+    }
+
+    private void UnhighlightAllMenuItems()
+    {
+        foreach (var (item, brush) in _highlightedMenuItems)
+            item.Background = brush;
+        _highlightedMenuItems.Clear();
+    }
+
+    private bool TryGetResourceColor(string resourceKey, out Color color)
+    {
+        if (Resources[resourceKey] is SolidColorBrush scb)
+        {
+            color = scb.Color;
+            return true;
+        }
+        color = default;
+        return false;
     }
 
     private void CleanUpTourInjectedThreads()
@@ -14115,6 +14135,47 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
         });
+
+        _tourCommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
+        {
+            // arg: x:Name of a MenuItem to highlight with a temporary background.
+            // Blends current background 50% toward black (dark theme) or white (light theme).
+            var el = _tourNamedElements.TryGetValue(arg, out var namedEl) ? namedEl
+                   : VisualTreeSearch.FindByName(this, arg);
+            if (el is not MenuItem menuItem) return;
+
+            var originalBackground = menuItem.Background;
+            _highlightedMenuItems.Add((menuItem, originalBackground));
+
+            var isDark = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
+            var target = isDark ? Colors.Black : Colors.White;
+
+            Color baseColor;
+            if (menuItem.Background is SolidColorBrush scb && scb.Color.A > 0)
+            {
+                baseColor = scb.Color;
+            }
+            else if (TryGetResourceColor("InputSurface", out var resourceColor))
+            {
+                baseColor = resourceColor;
+            }
+            else
+            {
+                baseColor = isDark ? Color.FromRgb(32, 32, 32) : Color.FromRgb(240, 240, 240);
+            }
+
+            var blended = new Color
+            {
+                R = (byte)((baseColor.R + target.R) / 2),
+                G = (byte)((baseColor.G + target.G) / 2),
+                B = (byte)((baseColor.B + target.B) / 2),
+                A = 255
+            };
+            menuItem.Background = new SolidColorBrush(blended);
+            await Task.Delay(50);
+        });
+
+        _tourCommandRegistry.Register("UnhighlightMenuItems", UnhighlightAllMenuItems);
 
         _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
         {
