@@ -1761,9 +1761,37 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
 
+    // Manual drag state — avoids DragMove() which activates the window via WM_SYSCOMMAND SC_MOVE
+    // (activation deactivates the main window and closes any open menus).
+    private bool _isDragging;
+    private Point _dragStartScreenPos;
+    private double _dragStartWindowLeft;
+    private double _dragStartWindowTop;
+
     private void Window_MouseDown(object sender, MouseButtonEventArgs e) {
-        if (e.ChangedButton == MouseButton.Left)
-            this.DragMove();
+        if (e.ChangedButton != MouseButton.Left) return;
+        _isDragging = true;
+        _dragStartScreenPos = PointToScreen(e.GetPosition(this));
+        _dragStartWindowLeft = Left;
+        _dragStartWindowTop = Top;
+        Mouse.Capture(this, CaptureMode.SubTree);
+        e.Handled = true;
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e) {
+        base.OnMouseMove(e);
+        if (!_isDragging) return;
+        var current = PointToScreen(e.GetPosition(this));
+        Left = _dragStartWindowLeft + (current.X - _dragStartScreenPos.X);
+        Top  = _dragStartWindowTop  + (current.Y - _dragStartScreenPos.Y);
+    }
+
+    protected override void OnMouseUp(MouseButtonEventArgs e) {
+        base.OnMouseUp(e);
+        if (e.ChangedButton == MouseButton.Left && _isDragging) {
+            _isDragging = false;
+            Mouse.Capture(null);
+        }
     }
 
     private void Window_Activated(object sender, EventArgs e) {
