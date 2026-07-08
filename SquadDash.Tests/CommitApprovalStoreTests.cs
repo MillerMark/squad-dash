@@ -63,20 +63,23 @@ internal sealed class CommitApprovalStoreTests {
 
     [Test]
     public void Load_MoreThanMaxItems_CapsAtMaxKeepingNewest() {
+        // MaxItems in CommitApprovalStore is 10,000. Create 10,001 items so the cap triggers.
+        const int maxItems = 10_000;
         var baseTime = DateTimeOffset.UtcNow;
-        var items = Enumerable.Range(1, 201)
+        var items = Enumerable.Range(1, maxItems + 1)
             .Select(i => CommitApprovalItem.Create(
-                $"sha{i:D3}", null, $"commit {i}",
+                $"sha{i:D5}", null, $"commit {i}",
                 baseTime.AddMinutes(-i), null, null))
             .ToList();
         _store.Save(items);
 
         var result = _store.Load();
 
+        // sha10001 is the oldest entry — it should have been trimmed.
         Assert.Multiple(() => {
-            Assert.That(result, Has.Count.EqualTo(200));
-            Assert.That(result.Any(r => r.CommitSha == "sha201"), Is.False);
-            Assert.That(result.All(r => r.CommitSha != "sha201"), Is.True);
+            Assert.That(result, Has.Count.EqualTo(maxItems));
+            Assert.That(result.Any(r => r.CommitSha == $"sha{maxItems + 1:D5}"), Is.False);
+            Assert.That(result.All(r => r.CommitSha != $"sha{maxItems + 1:D5}"), Is.True);
         });
     }
 
