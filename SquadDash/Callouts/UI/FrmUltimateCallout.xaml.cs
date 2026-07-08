@@ -150,8 +150,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void PlaceCloseButton() {
         var closeButton = new Button();
-        closeButton.SetResourceReference(Button.StyleProperty,    "PanelCloseButtonStyle");
+        closeButton.SetResourceReference(Button.StyleProperty,      "PanelCloseButtonStyle");
         closeButton.SetResourceReference(Button.ForegroundProperty, "CalloutText");
+        // Shadow CaptionButtonHover locally so the PanelCloseButtonStyle hover trigger
+        // uses CalloutButtonHover instead of the app-wide caption button color.
+        closeButton.SetResourceReference(Button.TagProperty, "CalloutButtonHover"); // forces resource tracking
+        if (Application.Current.TryFindResource("CalloutButtonHover") is System.Windows.Media.Brush hoverBrush)
+            closeButton.Resources["CaptionButtonHover"] = hoverBrush;
         closeButton.Content = "×";
         closeButton.FontSize = 14;
         closeButton.Width  = closeButtonEdgeSize;

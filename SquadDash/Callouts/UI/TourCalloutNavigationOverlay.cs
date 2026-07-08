@@ -122,7 +122,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
 
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonHoverSurface");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonHover");
         border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "TourNavButtonSurface");
         border.MouseLeftButtonUp += (_, e) => {
             e.Handled = true;
