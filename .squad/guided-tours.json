@@ -478,7 +478,7 @@
       {
         "title": "Speech Page",
         "markdownText": "In the Voice \u0026 Speech section, you\u0027ll want to first set up your provider.",
-        "targetControlId": "PrefNav_Provider",
+        "targetControlId": "SpeechProvider_Azure",
         "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
@@ -491,8 +491,8 @@
           "UnhighlightElements"
         ],
         "advanceTrigger": "PreferencePageSelected: Voice",
-        "targetOffsetX": 0,
-        "targetOffsetY": 0.4067307692307688
+        "targetOffsetX": 1,
+        "targetOffsetY": 0.02211538461538418
       },
       {
         "title": "Speech Provider",

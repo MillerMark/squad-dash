@@ -576,7 +576,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // ── Sidebar buttons ──────────────────────────────────────────────────
 
         var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal };
-        var addBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
+        var addBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30);
         var deleteBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteBtn.Margin = new Thickness(0);
@@ -642,7 +642,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         tourContextMenu.Items.Add(tourRenameMenuItem);
         _tourListBox.ContextMenu = tourContextMenu;
 
-        var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)));
+        var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30);
         var deleteTourBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addTourBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteTourBtn.Margin = new Thickness(0);
@@ -2161,12 +2161,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     }
 
     /// <summary>Creates a square icon button with a large, colored glyph filling the button face.</summary>
-    private static Button MakeIconButton(string glyph, Brush iconBrush)
+    private static Button MakeIconButton(string glyph, Brush iconBrush, double fontSize = 20)
     {
         var label = new TextBlock
         {
             Text               = glyph,
-            FontSize           = 20,
+            FontSize           = fontSize,
             FontWeight         = FontWeights.Bold,
             Foreground         = iconBrush,
             HorizontalAlignment = HorizontalAlignment.Center,
