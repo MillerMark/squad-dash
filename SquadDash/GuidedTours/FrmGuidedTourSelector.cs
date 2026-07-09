@@ -328,29 +328,27 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             Margin            = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        if (completed)
+        string badgeFile = completed ? "CompletedBadge.png" : "EmptyBadge.png";
+        string imagePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                                        "Assets", "GuidedTours", badgeFile);
+        if (File.Exists(imagePath))
         {
-            string imagePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                                            "Assets", "GuidedTours", "CompletedBadge.png");
-            if (File.Exists(imagePath))
-            {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource    = new Uri(imagePath, UriKind.Absolute);
-                bmp.CacheOption  = BitmapCacheOption.OnLoad;
-                bmp.EndInit();
-                bmp.Freeze();
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource    = new Uri(imagePath, UriKind.Absolute);
+            bmp.CacheOption  = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
 
-                var image = new System.Windows.Controls.Image
-                {
-                    Source  = bmp,
-                    Width   = badgeWidth,
-                    Height  = badgeHeight,
-                    Stretch = Stretch.Uniform,
-                };
-                RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
-                badgeArea.Child = image;
-            }
+            var image = new System.Windows.Controls.Image
+            {
+                Source  = bmp,
+                Width   = badgeWidth,
+                Height  = badgeHeight,
+                Stretch = Stretch.Uniform,
+            };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            badgeArea.Child = image;
         }
 
         var nameBlock = new TextBlock
