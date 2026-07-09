@@ -99,6 +99,7 @@
     <Compile Include="..\SquadDash\ModelProviderProbeService.cs" Link="Source\ModelProviderProbeService.cs" />
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
+    <Compile Include="..\SquadDash\LoopStartupResumePolicy.cs" Link="Source\LoopStartupResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />
     <Compile Include="..\SquadDash\PromptQueue.cs" Link="Source\PromptQueue.cs" />
     <Compile Include="..\SquadDash\AgentImagePathResolver.cs" Link="Source\AgentImagePathResolver.cs" />

@@ -497,6 +497,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _loopPanelVisible = true;
     private LoopOutputWindow? _loopOutputWindow;
     private bool _loopQueued;
+    private int _loopQueuedResumeFromIteration;
     private LoopMode _activeLoopMode = LoopMode.NativeAgents; // set at loop start; Shift+click overrides to SquadCli
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _loopPausedForQuickReply; // set at startup when loop resume is held for pending quick replies
@@ -3054,7 +3055,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!shouldResume || _isPromptRunning || IsLoopRunning) return;
         bool wasQueueResume = _loopQueued || _loopInterruptedByQueue;
         bool wasQrResume    = _loopPausedForQuickReply;
+        int resumeFromIteration = Math.Max(_loopCurrentIteration, _loopQueuedResumeFromIteration);
         _loopQueued = false;
+        _loopQueuedResumeFromIteration = 0;
         _loopInterruptedByQueue = false;
         _loopPausedForQuickReply = false;
         _conversationManager.UpdateQueuedPromptsState(
@@ -3069,9 +3072,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var resumeMsg = wasQueueResume
                 ? $"▶ Loop starting — {LoopTimestamp()} — queue drained."
                 : $"▶ Loop resuming — {LoopTimestamp()} — quick replies answered.";
+            SquadDashTrace.Write("Loop", $"MaybeFireQueuedLoopAsync: starting queued loop resumeFromIteration={resumeFromIteration} wasQueueResume={wasQueueResume} wasQrResume={wasQrResume} queueCount={_promptQueue.Count}");
             AppendLoopOutputLine(resumeMsg, LoopLifecycleBrush);
             AppendLine("▶ Starting queued loop…", (Brush)FindResource("SubtleText"));
-            await StartLoopImmediateAsync(resumeFromIteration: _loopCurrentIteration);
+            await StartLoopImmediateAsync(resumeFromIteration: resumeFromIteration);
         }
         catch (Exception ex)
         {
@@ -5615,6 +5619,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _activeDecomposeGroupId = null;
         _CodeHealthGroupRunner = null;
 
+        int stoppedIteration = _loopCurrentIteration;
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
@@ -5629,6 +5634,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_restartPending &&
             TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
         {
+            _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, stoppedIteration);
+            SquadDashTrace.Write("Loop", $"OnNativeLoopStopped: restart pending; preserving loop active-on-exit resumeFromIteration={_loopQueuedResumeFromIteration} queueCount={_promptQueue.Count}");
             SyncLoopPanel();
             return;
         }
@@ -5640,13 +5647,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write("Queue", $"OnNativeLoopStopped: hasInterrupt={hasInterrupt} hasReadyItems={_promptQueue.HasReadyItems} loopQueued={_loopQueued}.");
         if ((hasInterrupt || _promptQueue.HasReadyItems) && !_loopQueued)
         {
-            _loopQueued = true;
-            _conversationManager.UpdateQueuedPromptsState(
-                _promptQueue.Items, _followUpAttachments,
-                queueRightmostHeld: IsRightmostQueueTabActive(),
-                loopQueuedToDequeue: true,
-                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
-                activeTabIndex: GetActiveQueueTabIndex());
+            QueueLoopResumeAfterQueueDrain(stoppedIteration, "native-loop-stopped", updateUi: false);
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
         }
 
@@ -6916,13 +6917,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _activeLoopMode = mode;
         if (mode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
         {
-            _loopQueued = true;
-            _conversationManager.UpdateQueuedPromptsState(
-                _promptQueue.Items, _followUpAttachments,
-                queueRightmostHeld: IsRightmostQueueTabActive(),
-                loopQueuedToDequeue: true,
-                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
-                activeTabIndex: GetActiveQueueTabIndex());
+            QueueLoopResumeAfterQueueDrain(_loopCurrentIteration, "manual-start", updateUi: false);
             AppendLoopOutputLine($"⏳ Loop queued — {LoopTimestamp()} — will start after queue drains.", LoopLifecycleBrush);
             SyncLoopPanel();
             return;
@@ -6933,6 +6928,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private async Task StartLoopImmediateAsync(int resumeFromIteration = 0)
     {
         if (_currentWorkspace is null) return;
+        if (_activeLoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
+        {
+            QueueLoopResumeAfterQueueDrain(resumeFromIteration, "start-loop-immediate-guard");
+            return;
+        }
         BackupAndClearLoopOutput();
         var loopMdPath = GetEffectiveLoopMdPath();
 
@@ -19895,32 +19895,50 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Suppressed when Shift is held on startup.
         if (_settingsSnapshot.LoopActiveOnExit)
         {
-            // Capture before SaveLoopActive(false) resets it to 0.
             var loopResumeIteration = _settingsSnapshot.LoopLastIteration;
-            _settingsSnapshot = _settingsStore.SaveLoopActive(false);
-            if (_loopQueued)
+            var startupLoopResumeAction = LoopStartupResumePolicy.Resolve(
+                loopActiveOnExit: true,
+                loopAlreadyQueued: _loopQueued,
+                queueHasReadyItems: _promptQueue.HasReadyItems,
+                startupShiftHeld: _startupShiftHeld,
+                hasPendingQuickReplies: _lastQuickReplyEntry?.AllowQuickReplies == true);
+            SquadDashTrace.Write(
+                "Loop",
+                $"Startup loop resume policy action={startupLoopResumeAction} resumeFromIteration={loopResumeIteration} queueCount={_promptQueue.Count} loopQueued={_loopQueued} shiftHeld={_startupShiftHeld} quickReplies={_lastQuickReplyEntry?.AllowQuickReplies == true}");
+
+            if (startupLoopResumeAction == LoopStartupResumeAction.KeepQueuedLoop)
             {
                 // _loopQueued already arranges queue-drain then loop-start
                 // (and handles Shift-held suppression on its own).  Avoid a
                 // double-start by letting that path own the resume.
+                _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, loopResumeIteration);
             }
-            else if (_startupShiftHeld)
+            else if (startupLoopResumeAction == LoopStartupResumeAction.PauseForShift)
             {
                 AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
                 SyncLoopPanel();
             }
-            else
+            else if (startupLoopResumeAction == LoopStartupResumeAction.PauseForQuickReplies)
             {
+                _loopPausedForQuickReply = true;
+                _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, loopResumeIteration);
+                AppendLoopOutputLine("⏸ Loop paused — pending quick replies require your input. The loop will resume automatically after you respond.", LoopLifecycleBrush);
+                SyncLoopPanel();
+            }
+            else if (startupLoopResumeAction == LoopStartupResumeAction.QueueLoopBehindRestoredQueue)
+            {
+                QueueLoopResumeAfterQueueDrain(loopResumeIteration, "startup-restored-queue", updateUi: false);
+                AppendLoopOutputLine("⏸ Loop paused — restored queue will drain before loop resumes.", LoopLifecycleBrush);
+                SyncLoopPanel();
+            }
+            else if (startupLoopResumeAction == LoopStartupResumeAction.StartImmediately)
+            {
+                // Clear only for an immediate start. Queued/paused resumes keep LoopActiveOnExit
+                // intact so another restart still knows the loop was active.
+                _settingsSnapshot = _settingsStore.SaveLoopActive(false);
                 _ = Dispatcher.InvokeAsync(async () =>
                 {
                     if (_isClosing || _restartPending) return;
-                    if (_lastQuickReplyEntry?.AllowQuickReplies == true)
-                    {
-                        _loopPausedForQuickReply = true;
-                        AppendLoopOutputLine("⏸ Loop paused — pending quick replies require your input. The loop will resume automatically after you respond.", LoopLifecycleBrush);
-                        SyncLoopPanel();
-                        return;
-                    }
                     AppendLoopOutputLine("🔄 Resuming loop after restart…", LoopLifecycleBrush);
                     await StartLoopImmediateAsync(resumeFromIteration: loopResumeIteration);
                 }, System.Windows.Threading.DispatcherPriority.Background);
@@ -27449,6 +27467,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(IssueHelpButton_Click), ex);
+        }
+    }
+
+    private void QueueLoopResumeAfterQueueDrain(int resumeFromIteration, string reason, bool updateUi = true)
+    {
+        _loopQueued = true;
+        _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, resumeFromIteration);
+        _conversationManager.UpdateQueuedPromptsState(
+            _promptQueue.Items, _followUpAttachments,
+            queueRightmostHeld: IsRightmostQueueTabActive(),
+            loopQueuedToDequeue: true,
+            activeDraftSimEntry: _pec.ActiveDraftSimEntry,
+            activeTabIndex: GetActiveQueueTabIndex());
+        SquadDashTrace.Write(
+            "Loop",
+            $"Loop queued until queue drains reason={reason} resumeFromIteration={_loopQueuedResumeFromIteration} promptRunning={_isPromptRunning} queueCount={_promptQueue.Count} restartPending={_restartPending}");
+        if (updateUi)
+        {
+            AppendLoopOutputLine($"⏳ Loop queued — {LoopTimestamp()} — waiting for current turn/queue to drain.", LoopLifecycleBrush);
+            SyncLoopPanel();
         }
     }
 

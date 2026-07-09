@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Windows;
@@ -250,6 +251,7 @@ internal sealed class PromptExecutionController {
     private bool             _promptNoActivityWarningShown;
     private bool             _promptStallWarningShown;
     private bool             _promptDeadWarningShown;
+    private readonly SemaphoreSlim _coordinatorTurnGate = new(1, 1);
 
     // ── Silent-completion watchdog ────────────────────────────────────────
     private record SilentCompletionCandidate(SilentCompletionFollowUpReport Report, int ResponseCharsAtArrival);
@@ -2025,43 +2027,66 @@ internal sealed class PromptExecutionController {
         if (allowLocalCommandHandling && TryHandleLocalCommand(visiblePrompt, addToHistory, clearPromptBox))
             return;
 
-        DisableTranscriptQuickReplies(_transcriptSink.CoordinatorThread);
-
-        var workspace = _workspaceContext.GetCurrentWorkspace()!;
-        SquadDashTrace.Write(
-            "UI",
-            $"ExecutePromptAsync start prompt={visiblePrompt} cwd={workspace.FolderPath}");
-
-        _setIsPromptRunning(true);
-        _conversationManager.ResetHistoryNavigation();
-        _updateInteractiveControlState();
-
-        if (addToHistory) {
-            // Strip attachment XML preamble before storing history: the attachments are
-            // already stored separately in PromptHistoryEntry.Attachments and re-applied
-            // on Ctrl+Up navigation, so the history text should be just the user's typed message.
-            var historyText = visiblePrompt;
-            var bodyStart = AttachmentBlockFormatter.StripTypedAttachmentHeaders(visiblePrompt);
-            if (bodyStart >= 0) historyText = visiblePrompt[bodyStart..];
-            _conversationManager.AddPromptToHistory(historyText, _getSubmittedAttachments());
+        var queuedAt = DateTimeOffset.UtcNow;
+        var existingTurn = _transcriptSink.CoordinatorThread.CurrentTurn;
+        var gateWasContended = _coordinatorTurnGate.CurrentCount == 0 || _getIsPromptRunning() || existingTurn is not null;
+        if (gateWasContended)
+        {
+            SquadDashTrace.Write(
+                "PromptHealth",
+                $"Coordinator turn gate queued promptChars={visiblePrompt.Length} queuedItem={FormatCurrentDispatchedItemForTrace()} pendingQueue={PendingQueueItemCount} isPromptRunning={_getIsPromptRunning()} isLoopRunning={IsLoopRunning} restartPending={_getRestartPending()} existingTurnPromptChars={existingTurn?.Prompt?.Length ?? 0}");
         }
 
-        _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
-        _transcriptSink.BeginTranscriptTurn(visiblePrompt);
+        await _coordinatorTurnGate.WaitAsync();
+        bool gateHeld = true;
+        if (gateWasContended)
+        {
+            SquadDashTrace.Write(
+                "PromptHealth",
+                $"Coordinator turn gate acquired waitMs={(DateTimeOffset.UtcNow - queuedAt).TotalMilliseconds:F0} promptChars={visiblePrompt.Length} queuedItem={FormatCurrentDispatchedItemForTrace()} pendingQueue={PendingQueueItemCount} isLoopRunning={IsLoopRunning} restartPending={_getRestartPending()}");
+        }
 
-        if (clearPromptBox)
-            _promptBoxState.ClearPromptTextBox();
-
-        _currentPromptContextDiagnostics = _conversationManager.CapturePromptContextDiagnostics();
-        SquadDashTrace.Write(
-            "PromptHealth",
-            $"Turn context visiblePromptChars={visiblePrompt.Length} {PromptContextDiagnosticsPresentation.BuildTraceSummary(_currentPromptContextDiagnostics, DateTimeOffset.UtcNow)}");
-        ActiveToolName = null;
-        _updateLeadAgent("Thinking", string.Empty, "Coordinating the current turn.");
-        _updateSessionState("Running");
-        StartPromptHealthMonitoring();
-
+        SessionWorkspace? workspace = null;
         try {
+            DisableTranscriptQuickReplies(_transcriptSink.CoordinatorThread);
+
+            workspace = _workspaceContext.GetCurrentWorkspace();
+            if (workspace is null)
+                return;
+
+            SquadDashTrace.Write(
+                "UI",
+                $"ExecutePromptAsync start prompt={visiblePrompt} cwd={workspace.FolderPath}");
+
+            _setIsPromptRunning(true);
+            _conversationManager.ResetHistoryNavigation();
+            _updateInteractiveControlState();
+
+            if (addToHistory) {
+                // Strip attachment XML preamble before storing history: the attachments are
+                // already stored separately in PromptHistoryEntry.Attachments and re-applied
+                // on Ctrl+Up navigation, so the history text should be just the user's typed message.
+                var historyText = visiblePrompt;
+                var bodyStart = AttachmentBlockFormatter.StripTypedAttachmentHeaders(visiblePrompt);
+                if (bodyStart >= 0) historyText = visiblePrompt[bodyStart..];
+                _conversationManager.AddPromptToHistory(historyText, _getSubmittedAttachments());
+            }
+
+            _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
+            _transcriptSink.BeginTranscriptTurn(visiblePrompt);
+
+            if (clearPromptBox)
+                _promptBoxState.ClearPromptTextBox();
+
+            _currentPromptContextDiagnostics = _conversationManager.CapturePromptContextDiagnostics();
+            SquadDashTrace.Write(
+                "PromptHealth",
+                $"Turn context visiblePromptChars={visiblePrompt.Length} {PromptContextDiagnosticsPresentation.BuildTraceSummary(_currentPromptContextDiagnostics, DateTimeOffset.UtcNow)}");
+            ActiveToolName = null;
+            _updateLeadAgent("Thinking", string.Empty, "Coordinating the current turn.");
+            _updateSessionState("Running");
+            StartPromptHealthMonitoring();
+
             var configDirectory = _conversationManager.ConversationStore.GetSessionConfigDirectory(workspace.FolderPath);
             var settings = _workspaceContext.GetSettingsSnapshot();
             if (settings.GetRuntimeIssueSimulation(workspace.FolderPath) != DeveloperRuntimeIssueSimulation.None) {
@@ -2129,7 +2154,7 @@ internal sealed class PromptExecutionController {
             if (_canShowOwnedWindow()) {
                 _showTextWindow(
                     issue.HelpWindowTitle ?? "Squad Runtime Diagnostics",
-                    issue.HelpWindowContent ?? BuildRuntimeDiagnostics(ex.Message, workspace.FolderPath));
+                    issue.HelpWindowContent ?? BuildRuntimeDiagnostics(ex.Message, workspace?.FolderPath ?? string.Empty));
             }
         }
         finally {
@@ -2167,7 +2192,21 @@ internal sealed class PromptExecutionController {
                 if (_promptBoxState.IsPromptTextBoxEnabled)
                     _promptBoxState.FocusPromptTextBox();
             }
+
+            if (gateHeld)
+            {
+                CurrentDispatchedItem = null;
+                PendingQueueItemCount = 0;
+                _coordinatorTurnGate.Release();
+                SquadDashTrace.Write("PromptHealth", $"Coordinator turn gate released promptChars={visiblePrompt.Length} queueDispatchMetadataCleared=true");
+            }
         }
+    }
+
+    private string FormatCurrentDispatchedItemForTrace()
+    {
+        var item = CurrentDispatchedItem;
+        return item is null ? "none" : $"#{item.QueueNumber}/{item.Id[..Math.Min(8, item.Id.Length)]}";
     }
 
     private void DisableTranscriptQuickReplies(TranscriptThreadState thread) {
