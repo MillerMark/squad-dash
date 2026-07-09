@@ -552,7 +552,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private WorkspaceOwnershipLease? _workspaceOwnershipLease;
     private bool _startupInitialized;
     private (string FolderPath, WorkspaceWindowPlacement Placement)? _pendingWindowPlacement;
-    private (bool TasksOpen, bool TraceOpen, bool PlaybackWindowOpen, double? TraceOffsetX, double? TraceOffsetY)? _pendingUtilityWindowState;
+    private (bool TasksOpen, bool TraceOpen, bool PlaybackWindowOpen, double? TraceOffsetX, double? TraceOffsetY, bool GuidedTourEditorOpen)? _pendingUtilityWindowState;
     private SquadDash.PanelDocking.DockingTestPlaybackWindow? _dockingTestPlaybackWindow;
     private (bool Open, List<string>? ExpandedNodes, string? SelectedTopic, double? DocsPanelWidth, double? DocsTopicsWidth, double? DocsPanelWidthFraction, double? DocsTopicsWidthFraction, bool? DocsSourceOpen, double? DocsSourceWidth)? _pendingDocsPanelState;
     private WorkspaceDocsPanelState? _docsPanelState; // loaded at startup, updated on save
@@ -13929,7 +13929,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                                             .ToList(),
             getLastEditorTourName:  () => _settingsSnapshot.LastGuidedTourEditorTourName,
-            saveLastEditorTourName: name => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorTourName(name));
+            saveLastEditorTourName: name => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorTourName(name),
+            getLastEditorStepIndex: () => _settingsSnapshot.LastGuidedTourEditorStepIndex,
+            saveLastEditorStepIndex: idx => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorStepIndex(idx));
     }
 
     private void UnhighlightAllMenuItems()
@@ -27976,7 +27978,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (pendingPlacement is { } p)
                         _settingsStore.SaveWindowPlacement(p.FolderPath, p.Placement);
                     if (pendingUtilityWindowState is { } u)
-                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen, dockingTestPlaybackWindowOpen: u.PlaybackWindowOpen, traceWindowOffsetX: u.TraceOffsetX, traceWindowOffsetY: u.TraceOffsetY);
+                        _settingsStore.SaveUtilityWindowState(u.TasksOpen, u.TraceOpen, dockingTestPlaybackWindowOpen: u.PlaybackWindowOpen, traceWindowOffsetX: u.TraceOffsetX, traceWindowOffsetY: u.TraceOffsetY, guidedTourEditorOpen: u.GuidedTourEditorOpen);
                     if (pendingDocsPanelState is { } docs)
                         _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, new WorkspaceDocsPanelState
                         {
@@ -28183,7 +28185,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _traceWindow is { IsVisible: true },
                 _dockingTestPlaybackWindow is { IsVisible: true },
                 _traceWindowOffset?.X,
-                _traceWindowOffset?.Y);
+                _traceWindowOffset?.Y,
+                _guidedTourController?.IsEditorOpen ?? false);
 
             // Persist open inbox viewer IDs.
             if (_inboxStore is not null)
@@ -32455,6 +32458,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             SquadDashTrace.Write("Startup", "Restoring docking test playback window from previous session.");
             ShowDockingTestPlaybackWindow();
+        }
+
+        if (_settingsSnapshot.GuidedTourEditorOpen && SquadDashEnvironment.IsDeveloperMode)
+        {
+            SquadDashTrace.Write("Startup", "Restoring guided tour editor from previous session.");
+            try
+            {
+                var toursFile = GetGuidedToursWorkspaceFilePath();
+                if (toursFile is not null && File.Exists(toursFile))
+                {
+                    var workspaceFolderPath = Path.GetDirectoryName(Path.GetDirectoryName(toursFile))!;
+                    var allTours = GuidedTourLoader.Load(workspaceFolderPath) ?? new List<GuidedTour>();
+                    EnsureGuidedTourController();
+                    _guidedTourController!.OpenEditorStandalone(allTours);
+                }
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Startup", $"Failed to restore guided tour editor: {ex.Message}");
+            }
         }
 
         RestoreDocsPanelState();

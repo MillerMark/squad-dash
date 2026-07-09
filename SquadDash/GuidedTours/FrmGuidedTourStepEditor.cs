@@ -139,6 +139,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly Action?           _addTourCallback;
     private readonly Action?           _deleteTourCallback;
     private readonly Action<int, string>? _renameTourCallback;
+    private readonly Action<int>?         _onStepChanged;
 
     public FrmGuidedTourStepEditor(
         GuidedTourStep   step,
@@ -160,7 +161,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action?          deleteTourCallback   = null,
         Action<int, string>? renameTourCallback = null,
         Func<IReadOnlyList<Window>?>? extraPickWindowsProvider = null,
-        Func<IReadOnlyList<string>>? elementNamesProvider = null)
+        Func<IReadOnlyList<string>>? elementNamesProvider = null,
+        Action<int>?     onStepChanged        = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -178,6 +180,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _renameTourCallback   = renameTourCallback;
         _extraPickWindowsProvider = extraPickWindowsProvider;
         _elementNamesProvider     = elementNamesProvider;
+        _onStepChanged            = onStepChanged;
         foreach (var n in commandRegistry?.ParameterizedCommandNames ?? Array.Empty<string>())
             _parameterizedCommandNames.Add(n);
 
@@ -1228,6 +1231,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _step      = step;
         _stepIndex = index;
+        _onStepChanged?.Invoke(index);
 
         _titleBox.Text         = step.Title;
         _markdownBox.Text      = step.MarkdownText;

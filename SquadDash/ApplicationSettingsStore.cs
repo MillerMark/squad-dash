@@ -471,7 +471,7 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
-    public ApplicationSettingsSnapshot SaveUtilityWindowState(bool tasksWindowOpen, bool traceWindowOpen, bool approvalWindowOpen = false, bool dockingTestPlaybackWindowOpen = false, double? traceWindowOffsetX = null, double? traceWindowOffsetY = null) {
+    public ApplicationSettingsSnapshot SaveUtilityWindowState(bool tasksWindowOpen, bool traceWindowOpen, bool approvalWindowOpen = false, bool dockingTestPlaybackWindowOpen = false, double? traceWindowOffsetX = null, double? traceWindowOffsetY = null, bool guidedTourEditorOpen = false) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
         var updated = current with {
@@ -481,6 +481,7 @@ internal sealed class ApplicationSettingsStore {
             TraceWindowOffsetY               = traceWindowOffsetY,
             ApprovalWindowOpen               = approvalWindowOpen,
             DockingTestPlaybackWindowOpen    = dockingTestPlaybackWindowOpen,
+            GuidedTourEditorOpen             = guidedTourEditorOpen,
         };
         SaveCore(updated);
         return updated;
@@ -882,6 +883,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveLastGuidedTourEditorStepIndex(int stepIndex) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { LastGuidedTourEditorStepIndex = stepIndex };
+        SaveCore(updated);
+        return updated;
+    }
+
     private void SaveCore(ApplicationSettingsSnapshot snapshot) {
         var normalized = snapshot.Normalize();
         JsonFileStorage.AtomicWrite(_settingsPath, normalized);
@@ -1180,6 +1189,18 @@ internal sealed record ApplicationSettingsSnapshot(
     /// Restored on next open so the user lands on the same tour.
     /// </summary>
     public string? LastGuidedTourEditorTourName { get; init; }
+
+    /// <summary>
+    /// Step index last viewed in the standalone Guided Tour Editor.
+    /// Restored on next open so the user lands on the same step.
+    /// </summary>
+    public int LastGuidedTourEditorStepIndex { get; init; }
+
+    /// <summary>
+    /// True when the standalone Guided Tour Editor was open at shutdown.
+    /// Used to re-open it automatically on the next launch.
+    /// </summary>
+    public bool GuidedTourEditorOpen { get; init; }
 
     public DeveloperStartupIssueSimulation GetStartupIssueSimulation(string workspaceFolder) {
         if (string.IsNullOrEmpty(workspaceFolder)) return DeveloperStartupIssueSimulation.None;
@@ -1844,6 +1865,9 @@ internal sealed record ApplicationSettingsSnapshot(
             BridgeDiagnosticsEnabled = BridgeDiagnosticsEnabled,
             HomeBranchByWorkspace = normalizedHomeBranches,
             FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),
+            LastGuidedTourEditorTourName = LastGuidedTourEditorTourName,
+            LastGuidedTourEditorStepIndex = Math.Max(0, LastGuidedTourEditorStepIndex),
+            GuidedTourEditorOpen = GuidedTourEditorOpen,
         };
     }
 

@@ -39,6 +39,8 @@ internal sealed class GuidedTourController
     private readonly Func<IReadOnlyList<string>>?         _elementNamesProvider;
     private readonly Func<string?>?                       _getLastEditorTourName;
     private readonly Action<string>?                      _saveLastEditorTourName;
+    private readonly Func<int>?                           _getLastEditorStepIndex;
+    private readonly Action<int>?                         _saveLastEditorStepIndex;
     private CancellationTokenSource?                      _readingNudgeCts;
 
     /// <summary>
@@ -68,7 +70,9 @@ internal sealed class GuidedTourController
         Func<IReadOnlyList<Window>?>?   extraPickWindowsProvider = null,
         Func<IReadOnlyList<string>>?    elementNamesProvider = null,
         Func<string?>?                  getLastEditorTourName  = null,
-        Action<string>?                 saveLastEditorTourName = null)
+        Action<string>?                 saveLastEditorTourName = null,
+        Func<int>?                      getLastEditorStepIndex  = null,
+        Action<int>?                    saveLastEditorStepIndex = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -84,6 +88,8 @@ internal sealed class GuidedTourController
         _elementNamesProvider    = elementNamesProvider;
         _getLastEditorTourName   = getLastEditorTourName;
         _saveLastEditorTourName  = saveLastEditorTourName;
+        _getLastEditorStepIndex  = getLastEditorStepIndex;
+        _saveLastEditorStepIndex = saveLastEditorStepIndex;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -92,6 +98,9 @@ internal sealed class GuidedTourController
 
     public GuidedTour?  ActiveTour         => _activeTour;
     public int          CurrentStepIndex   => _currentStepIndex;
+
+    /// <summary>True when the standalone guided tour editor is currently open.</summary>
+    public bool IsEditorOpen => _activeEditor is { IsLoaded: true };
 
     /// <summary>The workspace folder path resolved at the moment of the call, or null.</summary>
     public string? WorkspaceFolderPath => _workspaceFolderProvider?.Invoke();
@@ -161,8 +170,11 @@ internal sealed class GuidedTourController
                 ? null
                 : _allTours.FirstOrDefault(t =>
                     string.Equals(t.Name, lastName, StringComparison.OrdinalIgnoreCase));
-            _activeTour       = restored ?? tour;
-            _currentStepIndex = 0;
+            _activeTour = restored ?? tour;
+
+            // Restore last step index for the selected tour.
+            var lastStep = _getLastEditorStepIndex?.Invoke() ?? 0;
+            _currentStepIndex = (lastStep >= 0 && lastStep < _activeTour.Steps.Count) ? lastStep : 0;
         }
 
         if (_activeTour!.Steps.Count == 0)
@@ -191,7 +203,8 @@ internal sealed class GuidedTourController
             deleteTourCallback:   HandleDeleteTourFromEditor,
             renameTourCallback:   HandleRenameTourFromEditor,
             extraPickWindowsProvider: _extraPickWindowsProvider,
-            elementNamesProvider: _elementNamesProvider);
+            elementNamesProvider: _elementNamesProvider,
+            onStepChanged:       idx => _saveLastEditorStepIndex?.Invoke(idx));
         _activeEditor = editor;
         editor.Show();
     }
@@ -763,6 +776,7 @@ internal sealed class GuidedTourController
         _activeTour       = newTour;
         _currentStepIndex = 0;
         _saveLastEditorTourName?.Invoke(newTour.Name);
+        _saveLastEditorStepIndex?.Invoke(0);
 
         _activeEditor?.SwitchActiveTour(newTour, 0);
         ShowCurrentStep();
