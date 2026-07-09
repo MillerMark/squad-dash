@@ -1396,10 +1396,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _pickLabel     = null;
 
         // Gather all windows whose visual trees should be searchable during pick mode.
-        // MainWindow comes first; extra windows (e.g. PreferencesWindow) follow.
-        var allWindows = new List<Window> { mainWindow };
+        // Extra windows (e.g. PreferencesWindow) come FIRST because they are visually in
+        // front of mainWindow.  VisualTreeHelper.HitTest is purely geometric within a single
+        // window's tree and does not know about z-order across windows, so we must search
+        // front-to-back manually: if we searched mainWindow first, its elements would be
+        // found at any point that overlaps mainWindow even when PreferencesWindow is on top.
         var extraWindows = _extraPickWindowsProvider?.Invoke() ?? [];
-        allWindows.AddRange(extraWindows);
+        var allWindows   = new List<Window>(extraWindows) { mainWindow };
 
         // One full-virtual-screen overlay — eliminates z-order conflicts between windows.
         // Alpha=1 makes it nearly invisible while still receiving mouse events (WPF skips
@@ -1470,7 +1473,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             var screenPos  = overlay.PointToScreen(overlayPos);
 
             // Try the window that had the hit last frame first (avoids full search on every move).
-            Window? candidateWin = lastHitWindow ?? mainWindow;
+            // Default to allWindows[0] (the frontmost window) rather than mainWindow so that
+            // extra windows (PreferencesWindow) are tried first on the initial frame.
+            Window? candidateWin = lastHitWindow ?? allWindows[0];
             var candidatePos = candidateWin.PointFromScreen(screenPos);
             var quickHit = VisualTreeHelper.HitTest(candidateWin, candidatePos);
             DependencyObject? hitObj = quickHit?.VisualHit;
