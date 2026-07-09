@@ -31282,7 +31282,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (v == 0.0) return color;
         ColorUtilities.RgbToHsl(color.R, color.G, color.B, out double h, out double s, out double l);
-        double newL = l >= 0.5 ? l + (1.0 - l) * v : l - l * v;
+        // Continuous contrast curve anchored at L=0.5.
+        // v > 0 increases contrast (pushes darks darker, lights lighter).
+        // Uses a power curve so the formula is smooth and continuous at L=0.5.
+        double newL;
+        if (l < 0.5)
+            newL = 0.5 * Math.Pow(2.0 * l, 1.0 + v);
+        else
+            newL = 1.0 - 0.5 * Math.Pow(2.0 * (1.0 - l), 1.0 + v);
         newL = Math.Clamp(newL, 0.0, 1.0);
         ColorUtilities.HslToRgb(h, s, newL, out byte r, out byte g, out byte b);
         return Color.FromArgb(color.A, r, g, b);
