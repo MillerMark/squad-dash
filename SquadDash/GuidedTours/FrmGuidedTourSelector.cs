@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using System.Windows.Markup;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using SquadDash.GuidedTours;
 
 namespace SquadDash;
@@ -316,15 +318,40 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
 
     private static UIElement BuildTourItem(GuidedTour tour, bool completed)
     {
+        const double badgeHeight = 48.0;
+        const double badgeWidth  = badgeHeight * 256.0 / 191.0;
+
         var badgeArea = new Border
         {
-            Width             = 48,
-            Height            = 48,
+            Width             = badgeWidth,
+            Height            = badgeHeight,
             Margin            = new Thickness(0, 0, 8, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
         if (completed)
-            badgeArea.Child = BuildCompletionBadge();
+        {
+            string imagePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                                            "Assets", "GuidedTours", "CompletedBadge.png");
+            if (File.Exists(imagePath))
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource    = new Uri(imagePath, UriKind.Absolute);
+                bmp.CacheOption  = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+
+                var image = new System.Windows.Controls.Image
+                {
+                    Source  = bmp,
+                    Width   = badgeWidth,
+                    Height  = badgeHeight,
+                    Stretch = Stretch.Uniform,
+                };
+                RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+                badgeArea.Child = image;
+            }
+        }
 
         var nameBlock = new TextBlock
         {
@@ -359,93 +386,6 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         row.Children.Add(badgeArea);
         row.Children.Add(textColumn);
         return row;
-    }
-
-    private static UIElement BuildCompletionBadge()
-    {
-        const string xaml = """
-            <Viewbox xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-                <Canvas Width="2378" Height="2377">
-                    <Canvas>
-                        <Canvas.Clip>
-                            <PathGeometry Figures="M1189,2158.5C654.375,2158.5,219.5,1723.625,219.5,1189C219.5,654.375,654.375,219.5,1189,219.5C1723.625,219.5,2158.5,654.5,2158.5,1189C2158.5,1723.5,1723.625,2158.5,1189,2158.5z M1189,247.25C669.75,247.25,247.25,669.75,247.25,1189.125C247.25,1708.375,669.75,2130.875,1189,2130.875C1708.25,2130.875,2130.875,1708.375,2130.875,1189.125C2130.875,669.75,1708.375,247.25,1189,247.25z" />
-                        </Canvas.Clip>
-                        <Rectangle Width="1940" Height="1940" Canvas.Left="219" Canvas.Top="219">
-                            <Rectangle.Fill>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                    <LinearGradientBrush.GradientStops>
-                                        <GradientStop Color="#FF8B5E3C" Offset="0" />
-                                        <GradientStop Color="#FFFBB040" Offset="0.250258531540848" />
-                                        <GradientStop Color="#FFF4EEC2" Offset="0.54110651499482942" />
-                                        <GradientStop Color="#FFFBB142" Offset="0.79860392967942084" />
-                                        <GradientStop Color="#FFBD833E" Offset="0.9123578076525336" />
-                                        <GradientStop Color="#FF8B5E3C" Offset="1" />
-                                    </LinearGradientBrush.GradientStops>
-                                </LinearGradientBrush>
-                            </Rectangle.Fill>
-                        </Rectangle>
-                    </Canvas>
-                    <Path Fill="#FF0D253B">
-                        <Path.Data>
-                            <PathGeometry Figures="M2184.5,1188.5C2184.5,1738.625,1738.875,2184.5,1189,2184.5C639.25,2184.5,193.5,1738.625,193.5,1188.5C193.5,638.5,639.25,192.5,1189,192.5C1738.875,192.5,2184.5,638.5,2184.5,1188.5" />
-                        </Path.Data>
-                    </Path>
-                    <Path Fill="#FF9FCBFD">
-                        <Path.Data>
-                            <PathGeometry Figures="M405.1875,1330.6875L550.5625,1185.25C570.6875,1165.1875,603.3125,1165.3125,623.5625,1185.5L916.125,1478.0625 1705.75,688.4375C1725.8125,668.375,1758.5,668.4375,1778.6875,688.6875L1925.125,835.125C1945.375,855.3125,1945.5,888,1925.375,908.0625L1099.4375,1734.0625 1099.375,1734.0625 954,1879.5C933.9375,1899.5625,901.25,1899.4375,881.0625,1879.1875L405.4375,1403.625C385.25,1383.375,385.125,1350.75,405.1875,1330.6875z" />
-                        </Path.Data>
-                    </Path>
-                    <Path Fill="#FF3794FB">
-                        <Path.Data>
-                            <PathGeometry Figures="M1924,852.375L1934.9375,868.875C1942.5,887.4375,1938.75,909.5625,1923.6875,924.625L1097.6875,1750.625 1097.6875,1750.625 952.3125,1896C932.25,1916.0625,899.625,1916,879.5,1895.875L405.875,1422.3125C390.8125,1407.1875,387,1385.0625,394.5,1366.5L405,1350.625 915.4375,1861z" />
-                        </Path.Data>
-                    </Path>
-                    <Canvas>
-                        <Canvas.Clip>
-                            <PathGeometry Figures="M2093.25,1066.75L2097.875,1097.125C2101,1127.875,2102.5,1159,2102.5,1190.5C2102.5,1695.375,1693.5,2104.5,1188.875,2104.5C1157.375,2104.5,1126.125,2103,1095.5,2099.875L1021.5,2088.5 1107.625,2002.375 1188.875,2006.5C1639.375,2006.5,2004.5,1641.125,2004.5,1190.5L2002.875,1157.125z M1188.875,276.5C1346.625,276.5,1495,316.5,1624.375,386.875L1655.5,405.75 1584.25,477.125 1577.625,473.125C1462.125,410.25,1329.625,374.625,1188.875,374.625C794.75,374.625,465.875,654.375,389.75,1026.125L382.125,1076.75 275.5,1183.25 279.875,1097.125C326.75,636.25,715.75,276.5,1188.875,276.5z" />
-                        </Canvas.Clip>
-                        <Rectangle Width="1828" Height="1829" Canvas.Left="275" Canvas.Top="276">
-                            <Rectangle.Fill>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                    <LinearGradientBrush.GradientStops>
-                                        <GradientStop Color="#FF8B5E3C" Offset="0" />
-                                        <GradientStop Color="#FFFBB040" Offset="0.25027442371020858" />
-                                        <GradientStop Color="#FFF4EEC2" Offset="0.54116355653128434" />
-                                        <GradientStop Color="#FFFBB142" Offset="0.79884742041712409" />
-                                        <GradientStop Color="#FF8B5E3C" Offset="1" />
-                                    </LinearGradientBrush.GradientStops>
-                                </LinearGradientBrush>
-                            </Rectangle.Fill>
-                        </Rectangle>
-                    </Canvas>
-                    <Path Fill="#FFDEEDFE">
-                        <Path.Data>
-                            <PathGeometry Figures="M1749.5,666.1875C1762.6875,666.25,1775.9375,671.3125,1786,681.4375L1932.4375,827.875C1942.5625,838,1947.6875,851.1875,1947.6875,864.4375L1946.9375,868.375 1909.3125,868.375 1751.1875,710.3125 923.9375,1537.5625 588.3125,1201.9375 425.3125,1365 398.5625,1365 397.5625,1359.8125C397.5,1346.625,402.5,1333.4375,412.5,1323.4375L557.9375,1178C578,1157.9375,610.625,1158.0625,630.875,1178.25L923.4375,1470.8125 1713.0625,681.1875C1723.125,671.125,1736.3125,666.125,1749.5,666.1875z" />
-                        </Path.Data>
-                    </Path>
-                </Canvas>
-            </Viewbox>
-            """;
-
-        try
-        {
-            return (UIElement)XamlReader.Parse(xaml);
-        }
-        catch
-        {
-            // Fallback: plain green checkmark if XAML parse fails for any reason
-            var fallback = new TextBlock
-            {
-                Text                = "✓",
-                FontSize            = 20,
-                FontWeight          = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment   = VerticalAlignment.Center,
-            };
-            fallback.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
-            return fallback;
-        }
     }
 
     private static Style BuildListItemStyle()
