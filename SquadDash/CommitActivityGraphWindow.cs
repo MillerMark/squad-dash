@@ -77,17 +77,34 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private double _panStartV;
     private ScrollViewer _scrollViewer = null!;
 
+    // ── AI categorization ─────────────────────────────────────────────────────
+    private SquadSdkCategorizationService? _categorizationService;
+    private CommitCategoryCache?           _categoryCache;
+    private bool                           _categorizationInFlight;
+    private TextBlock?                     _categorizeStatusText;
+    private Button?                        _categorizeButton;
+    private Action<IReadOnlyList<(string Sha, string Group)>>? _onCategoriesAssigned;
+
     public CommitActivityGraphWindow(
         ICommitStatService              statService,
         IEnumerable<CommitApprovalItem> items,
         bool                            isDark,
-        string?                         workspaceFolderPath = null)
+        string?                         workspaceFolderPath = null,
+        IWorkspacePaths?                workspacePaths      = null,
+        Action<IReadOnlyList<(string Sha, string Group)>>? onCategoriesAssigned = null)
         : base(captionHeight: ChromedWindow.CloseButtonHeight)
     {
         _statService         = statService ?? throw new ArgumentNullException(nameof(statService));
         _allItems            = items.ToList();
         _isDark              = isDark;
         _workspaceFolderPath = workspaceFolderPath;
+        _onCategoriesAssigned = onCategoriesAssigned;
+        if (workspacePaths is not null)
+        {
+            _categorizationService = new SquadSdkCategorizationService(workspacePaths);
+            _categoryCache         = new CommitCategoryCache(workspacePaths.ApplicationRoot);
+            ApplyCacheTo(_allItems);
+        }
 
         _endDate   = DateOnly.FromDateTime(DateTime.Today);
         _startDate = _endDate.AddDays(-365);
@@ -157,6 +174,33 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         controlsBar.Children.Add(_showUncategorizedCheckBox);
         foreach (var btn in CreateQuickRangeButtons())
             controlsBar.Children.Add(btn);
+
+        if (_categorizationService is not null)
+        {
+            _categorizeButton = new Button
+            {
+                Content           = "Categorize",
+                Padding           = new Thickness(8, 2, 8, 2),
+                Margin            = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            _categorizeButton.SetResourceReference(Button.ForegroundProperty, "LabelText");
+            _categorizeButton.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
+            _categorizeButton.Click += OnCategorizeButtonClick;
+            WindowChrome.SetIsHitTestVisibleInChrome(_categorizeButton, true);
+            controlsBar.Children.Add(_categorizeButton);
+
+            _categorizeStatusText = new TextBlock
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(8, 0, 0, 0),
+                Visibility        = Visibility.Collapsed,
+            };
+            _categorizeStatusText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            _categorizeStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            WindowChrome.SetIsHitTestVisibleInChrome(_categorizeStatusText, true);
+            controlsBar.Children.Add(_categorizeStatusText);
+        }
 
         // ── Top bar (controls bar + slider) ──────────────────────────────────
         var topBar = new StackPanel();
@@ -246,6 +290,23 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             _scrollViewer.ReleaseMouseCapture();
             _scrollViewer.Cursor = _isPanMode ? AnnotationCursors.OpenHand : null;
             e.Handled = true;
+        };
+
+        // ── Right-click on canvas row: context menu for AI categorization ─────
+        _canvas.MouseRightButtonDown += (_, e) =>
+        {
+            if (_categorizationService is null) return;
+            var pos    = e.GetPosition(_canvas);
+            var hitRow = _canvas.HitTestRow(pos);
+            if (hitRow?.FeatureGroup is null) // null FeatureGroup = Uncategorized row
+            {
+                var menu     = new ContextMenu();
+                var menuItem = new MenuItem { Header = "Categorize with AI" };
+                menuItem.Click += (_, _) => OnCategorizeButtonClick(null, null!);
+                menu.Items.Add(menuItem);
+                menu.IsOpen = true;
+                e.Handled = true;
+            }
         };
     }
 
@@ -629,6 +690,130 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                     TurnStartedAt: first.TurnStartedAt);
             })
             .ToList();
+
+    // ── AI categorization ─────────────────────────────────────────────────────
+
+    private void ApplyCacheTo(List<CommitApprovalItem> items)
+    {
+        if (_categoryCache is null) return;
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].FeatureGroup is not null) continue;
+            if (_categoryCache.TryGetGroup(items[i].CommitSha, out var group) && group is not null)
+                items[i] = items[i] with { FeatureGroup = group };
+        }
+    }
+
+    private async void OnCategorizeButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (_categorizationService is null || _categorizationInFlight) return;
+        _categorizationInFlight = true;
+        if (_categorizeButton is not null)   _categorizeButton.IsEnabled = false;
+        if (_categorizeStatusText is not null)
+        {
+            _categorizeStatusText.Text       = "Categorizing\u2026";
+            _categorizeStatusText.Visibility = Visibility.Visible;
+        }
+
+        try
+        {
+            var uncategorized = _allItems
+                .Where(i => i.FeatureGroup is null)
+                .OrderByDescending(i => i.TurnStartedAt)
+                .Take(100)
+                .Select(i => (i.CommitSha, i.Description))
+                .ToList();
+
+            if (uncategorized.Count == 0)
+            {
+                if (_categorizeStatusText is not null)
+                {
+                    _categorizeStatusText.Text = "Nothing to categorize.";
+                    _ = Task.Delay(2000).ContinueWith(_ =>
+                        Dispatcher.Invoke(() => _categorizeStatusText.Visibility = Visibility.Collapsed));
+                }
+                return;
+            }
+
+            var existingGroups = _allItems
+                .Where(i => i.FeatureGroup is not null)
+                .Select(i => i.FeatureGroup!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g)
+                .ToList();
+
+            if (_categorizeStatusText is not null)
+                _categorizeStatusText.Text = $"Categorizing {uncategorized.Count} commits\u2026";
+
+            var results = await Task.Run(() =>
+                _categorizationService.CategorizeAsync(uncategorized, existingGroups))
+                .ConfigureAwait(true); // back on UI thread
+
+            if (results.Count == 0)
+            {
+                if (_categorizeStatusText is not null)
+                    _categorizeStatusText.Text = "No categories returned.";
+            }
+            else
+            {
+                var lookup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (sha, group) in results)
+                    lookup[sha] = group;
+
+                for (int i = 0; i < _allItems.Count; i++)
+                {
+                    if (_allItems[i].FeatureGroup is not null) continue;
+                    string? group = null;
+                    if (!lookup.TryGetValue(_allItems[i].CommitSha, out group))
+                    {
+                        foreach (var kv in lookup)
+                        {
+                            if (_allItems[i].CommitSha.StartsWith(kv.Key, StringComparison.OrdinalIgnoreCase) ||
+                                kv.Key.StartsWith(_allItems[i].CommitSha, StringComparison.OrdinalIgnoreCase))
+                            {
+                                group = kv.Value;
+                                break;
+                            }
+                        }
+                    }
+                    if (group is not null)
+                        _allItems[i] = _allItems[i] with { FeatureGroup = group };
+                }
+
+                if (_categoryCache is not null)
+                {
+                    foreach (var (sha, group) in results)
+                        _categoryCache.SetGroup(sha, group);
+                    _categoryCache.Save();
+                }
+
+                _onCategoriesAssigned?.Invoke(results);
+
+                StartLoadingData();
+
+                if (_categorizeStatusText is not null)
+                    _categorizeStatusText.Text = $"Categorized {results.Count} commits.";
+            }
+
+            _ = Task.Delay(3000).ContinueWith(_ =>
+                Dispatcher.Invoke(() =>
+                {
+                    if (_categorizeStatusText is not null)
+                        _categorizeStatusText.Visibility = Visibility.Collapsed;
+                }));
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("CommitViewer", $"Categorization failed: {ex.Message}");
+            if (_categorizeStatusText is not null)
+                _categorizeStatusText.Text = "Categorization failed.";
+        }
+        finally
+        {
+            _categorizationInFlight = false;
+            if (_categorizeButton is not null) _categorizeButton.IsEnabled = true;
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1352,6 +1537,19 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns the <see cref="CommitActivityRow"/> at the given canvas-local Y position,
+    /// or null if the point is outside all rows.
+    /// </summary>
+    internal CommitActivityRow? HitTestRow(Point canvasPoint)
+    {
+        if (_rows.Count == 0) return null;
+        if (canvasPoint.Y > _rows.Count * RowHeight) return null;
+        var rowIndex = (int)(canvasPoint.Y / RowHeight);
+        if (rowIndex < 0 || rowIndex >= _rows.Count) return null;
+        return _rows[rowIndex];
     }
 
     private static string BuildTooltipText(object hit)

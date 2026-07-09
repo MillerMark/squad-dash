@@ -7483,6 +7483,33 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return _approvalItems.FindIndex(i => ShaMatches(i.CommitSha, sha));
     }
 
+    /// <summary>
+    /// Applies AI-assigned categories from the Commit Viewer back to the approval store.
+    /// Only updates items that are not yet categorized (FeatureGroup is null/empty).
+    /// </summary>
+    private void ApplyCommitCategories(IReadOnlyList<(string Sha, string Group)> assignments)
+    {
+        bool changed = false;
+        foreach (var (sha, group) in assignments)
+        {
+            var idx = _approvalItems.FindIndex(i =>
+                string.Equals(i.CommitSha, sha, StringComparison.OrdinalIgnoreCase) ||
+                i.CommitSha.StartsWith(sha, StringComparison.OrdinalIgnoreCase) ||
+                sha.StartsWith(i.CommitSha, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0 && string.IsNullOrWhiteSpace(_approvalItems[idx].FeatureGroup))
+            {
+                _approvalItems[idx] = _approvalItems[idx] with { FeatureGroup = group };
+                _featureGroupStore?.EnsureGroup(group);
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            _approvalStore?.Save(_approvalItems);
+            _approvalPanel?.ReplaceAllItems(_approvalItems);
+        }
+    }
+
     private static bool ShaMatches(string storedSha, string candidateSha)
     {
         if (string.IsNullOrWhiteSpace(storedSha) || string.IsNullOrWhiteSpace(candidateSha))
@@ -16743,7 +16770,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _commitStatService,
                 _approvalItems,
                 isDark,
-                workspaceFolderPath: _workspacePaths.ApplicationRoot);
+                workspaceFolderPath: _workspacePaths.ApplicationRoot,
+                workspacePaths:      _workspacePaths,
+                onCategoriesAssigned: assignments => Dispatcher.Invoke(() => ApplyCommitCategories(assignments)));
             if (CanShowOwnedWindow())
                 _commitActivityGraphWindow.Owner = this;
             _commitActivityGraphWindow.Closed += (_, _) =>

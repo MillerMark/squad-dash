@@ -419,3 +419,4 @@
 - [x] **[UI] Window open glow-fade animation — Phase 1: WindowOpenGlow helper** *(Owner: Lyra Morn)* — commit 23542c1
 - [x] **[UI] Window open glow-fade animation — Phase 2: Theme tokens** *(Owner: Orion Vale)* — commit f14cd03
 - [x] **[UI] Window open glow-fade animation — Phase 3: Hook into ChromedWindow** *(Owner: Lyra Morn)* — commit 4e3b71f
+- [x] **[Commit Viewer] AI-assisted categorization of uncategorized commits** *(Owner: Lyra Morn)* ✅ Completed 2026-07-09 — commit c40ae85
