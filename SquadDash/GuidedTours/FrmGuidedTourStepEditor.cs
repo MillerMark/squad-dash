@@ -34,6 +34,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private double                     _originalTargetOffsetX;
     private double                     _originalTargetOffsetY;
     private readonly DispatcherTimer   _debounceTimer;
+    private readonly DispatcherTimer   _autoSaveTimer;
     private bool                       _isLoadingStep;
 
     // Navigation state — snapshot-based dirty detection
@@ -225,7 +226,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 };
                 rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
                 rb.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
-                rb.Checked += (_, _) => { if (!_isLoadingStep) PushLivePreview(); };
+                rb.Checked += (_, _) => { if (!_isLoadingStep) { PushLivePreview(); QueueAutoSave(); } };
                 return rb;
             })
             .ToArray();
@@ -280,7 +281,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var triggerNames = triggerRegistry?.TriggerNames ?? Array.Empty<string>();
         _triggerItems = new[] { "" }.Concat(triggerNames).ToArray();
         _advanceTriggerBox = MakeCommandCombo(_triggerItems, step.AdvanceTrigger);
-        _advanceTriggerBox.Loaded += (_, _) => AttachIntelliSenseToComboBox(_advanceTriggerBox, isCommand: false);
+        _advanceTriggerBox.Loaded += (_, _) =>
+        {
+            AttachIntelliSenseToComboBox(_advanceTriggerBox, isCommand: false);
+            var innerTb = VisualTreeSearch.FindChild<TextBox>(_advanceTriggerBox);
+            if (innerTb is not null)
+                innerTb.TextChanged += (_, _) => { if (!_isLoadingStep) QueueAutoSave(); };
+        };
 
         // ── Crosshair picker ──────────────────────────────────────────────────
 
@@ -315,6 +322,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             // Target overlay is only shown on mouse-over of the crosshair canvas; close it
             // whenever the target text changes so stale highlights don't linger.
             CloseTargetOverlay();
+            if (!_isLoadingStep) QueueAutoSave();
         };
 
         var captureButton = MakeButton("📷 Capture Current Layout for the Step");
@@ -396,21 +404,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _nextButton.IsEnabled = stepIndex < activeTour.Steps.Count - 1;
         _nextButton.Click    += (_, _) => TryNavigate(_stepIndex + 1);
 
-        var saveButton = MakeButton("Save");
-        saveButton.IsDefault = true;
-        saveButton.Click += (_, _) => CommitSave();
-
-        var cancelButton = MakeButton("Cancel");
-        cancelButton.IsCancel = true;
-        cancelButton.Click += (_, _) => TryClose();
+        var closeButton = MakeButton("Close");
+        closeButton.IsCancel = true;
+        closeButton.Click += (_, _) => TryClose();
 
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         leftButtons.Children.Add(_prevButton);
         leftButtons.Children.Add(_nextButton);
 
         var rightButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        rightButtons.Children.Add(saveButton);
-        rightButtons.Children.Add(cancelButton);
+        rightButtons.Children.Add(closeButton);
 
         var buttonRow = new DockPanel
         {
@@ -692,8 +695,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); PushLivePreview(); };
-        _markdownBox.TextChanged += (_, _) => { if (_isLoadingStep) return; _debounceTimer.Stop(); _debounceTimer.Start(); };
-        Closed += (_, _) => { _debounceTimer.Stop(); CloseTargetOverlay(); if (!WasSaved) RestoreOriginals(); _onClosed?.Invoke(WasSaved); };
+        _autoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        _autoSaveTimer.Tick += (_, _) => { _autoSaveTimer.Stop(); PerformAutoSave(); };
+        _markdownBox.TextChanged += (_, _) => { if (_isLoadingStep) return; _debounceTimer.Stop(); _debounceTimer.Start(); QueueAutoSave(); };
+        Closed += (_, _) =>
+        {
+            _debounceTimer.Stop();
+            if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
+            CloseTargetOverlay();
+            if (!WasSaved) RestoreOriginals();
+            _onClosed?.Invoke(WasSaved);
+        };
 
         _titleBox.TextChanged += (_, _) =>
         {
@@ -704,6 +716,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
                 _stepListBox.Items[_stepIndex] = newLabel;
             Title = BuildEditorTitle(_activeTour.Name, _stepIndex, _titleBox.Text.Trim());
+            QueueAutoSave();
         };
 
         SnapshotCurrentValues();
@@ -742,6 +755,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 }
             }
 
+            // Ctrl+S: manual save-now shortcut
+            if (e.Key == Key.S && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
+            {
+                PerformAutoSave();
+                e.Handled = true;
+                return;
+            }
+
             // Route double-tap Ctrl PTT to whichever text box has focus
             var focused = FocusManager.GetFocusedElement(this) as TextBox;
             if (focused is not null && _ptt.HandlePreviewKeyDown(e, focused))
@@ -763,29 +786,34 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             SnapshotCurrentValues();
     }
 
+    private void SaveCurrentFieldsToStep()
+    {
+        _step.Title            = _titleBox.Text.Trim();
+        _step.MarkdownText     = _markdownBox.Text;
+        _step.CalloutPlacement = GetSelectedPlacement();
+        _step.TargetControlId  = _targetControlBox.Text.Trim();
+        _step.AdvanceTrigger   = GetSelectedCommand(_advanceTriggerBox);
+
+        _step.CommandsBefore = _commandBeforeRows
+            .Select(r => GetSelectedCommand(r.Box))
+            .Where(s => !string.IsNullOrEmpty(s))
+            .ToList();
+        _step.CommandBefore = string.Empty;
+
+        _step.CommandsAfter = _commandAfterRows
+            .Select(r => GetSelectedCommand(r.Box))
+            .Where(s => !string.IsNullOrEmpty(s))
+            .ToList();
+        _step.CommandAfter = string.Empty;
+        _activeTour.Description = _descriptionBox.Text.Trim();
+        // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
+    }
+
     private bool PerformSave()
     {
         try
         {
-            _step.Title            = _titleBox.Text.Trim();
-            _step.MarkdownText     = _markdownBox.Text;
-            _step.CalloutPlacement = GetSelectedPlacement();
-            _step.TargetControlId  = _targetControlBox.Text.Trim();
-            _step.AdvanceTrigger   = GetSelectedCommand(_advanceTriggerBox);
-
-            _step.CommandsBefore = _commandBeforeRows
-                .Select(r => GetSelectedCommand(r.Box))
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList();
-            _step.CommandBefore = string.Empty;
-
-            _step.CommandsAfter = _commandAfterRows
-                .Select(r => GetSelectedCommand(r.Box))
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList();
-            _step.CommandAfter = string.Empty;
-            _activeTour.Description = _descriptionBox.Text.Trim();
-            // TargetOffsetX/Y are updated live via UpdateCrosshairFromMouse; no action needed here
+            SaveCurrentFieldsToStep();
 
             SquadDashTrace.Write(TraceCategory.Callouts,
                 $"PerformSave: stepIndex={_stepIndex}, title=\"{_step.Title}\", target=\"{_step.TargetControlId}\", placement={_step.CalloutPlacement}, markdownLen={_step.MarkdownText.Length}, workspacePath={(string.IsNullOrWhiteSpace(_workspaceFolderPath) ? "(none)" : _workspaceFolderPath)}");
@@ -824,18 +852,41 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         }
     }
 
+    private void PerformAutoSave()
+    {
+        if (string.IsNullOrWhiteSpace(_workspaceFolderPath)) return;
+        _isLoadingStep = true;
+        try
+        {
+            SaveCurrentFieldsToStep();
+
+            GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
+            WasSaved = true;
+            ShowStatus("✓ Saved");
+
+            var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            clearTimer.Tick += (_, _) => { clearTimer.Stop(); _statusLabel.Visibility = Visibility.Collapsed; };
+            clearTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"⚠ Auto-save failed: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingStep = false;
+        }
+    }
+
+    private void QueueAutoSave()
+    {
+        if (_isLoadingStep) return;
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
     private void TryClose()
     {
-        if (HasUnsavedChanges())
-        {
-            var result = MessageBox.Show(
-                "Discard changes to this step?",
-                "Discard Changes",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
-            if (result != MessageBoxResult.Yes) return;
-        }
         Close();
     }
 
@@ -1095,27 +1146,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private void TryNavigate(int newIndex)
     {
         if (newIndex < 0 || newIndex >= _activeTour.Steps.Count) return;
-
-        if (HasUnsavedChanges())
-        {
-            var result = MessageBox.Show(
-                "Save changes to this step before moving?",
-                "Unsaved Changes",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question,
-                MessageBoxResult.Yes);
-
-            if (result == MessageBoxResult.Cancel) return;
-            if (result == MessageBoxResult.Yes)
-            {
-                if (!PerformSave()) return;
-            }
-            else
-            {
-                RestoreOriginals();
-            }
-        }
-
+        if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
     }
@@ -1172,6 +1203,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             _isLoadingStep = false;
             _debounceTimer.Stop();
+            _autoSaveTimer.Stop();
         }
     }
 
@@ -1201,39 +1233,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         ExitMultiSelectMode();
         int newIndex = _stepListBox.SelectedIndex;
         if (newIndex < 0 || newIndex == _stepIndex) return;
-
-        if (HasUnsavedChanges())
-        {
-            var result = MessageBox.Show(
-                "Save changes to this step before moving?",
-                "Unsaved Changes",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question,
-                MessageBoxResult.Yes);
-
-            if (result == MessageBoxResult.Cancel)
-            {
-                _isLoadingStep = true;
-                _stepListBox.SelectedIndex = _stepIndex;
-                _isLoadingStep = false;
-                return;
-            }
-            if (result == MessageBoxResult.Yes)
-            {
-                if (!PerformSave())
-                {
-                    _isLoadingStep = true;
-                    _stepListBox.SelectedIndex = _stepIndex;
-                    _isLoadingStep = false;
-                    return;
-                }
-            }
-            else
-            {
-                RestoreOriginals();
-            }
-        }
-
+        if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
     }
@@ -1258,39 +1258,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         int newIndex = _tourListBox.SelectedIndex;
         if (newIndex < 0 || newIndex >= _allTours.Count) return;
         if (ReferenceEquals(_allTours[newIndex], _activeTour)) return;
-
-        if (HasUnsavedChanges())
-        {
-            var result = MessageBox.Show(
-                "Save changes to this step before switching tours?",
-                "Unsaved Changes",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question,
-                MessageBoxResult.Yes);
-
-            if (result == MessageBoxResult.Cancel)
-            {
-                _isLoadingStep = true;
-                try { _tourListBox.SelectedIndex = _allTours.IndexOf(_activeTour); }
-                finally { _isLoadingStep = false; }
-                return;
-            }
-            if (result == MessageBoxResult.Yes)
-            {
-                if (!PerformSave())
-                {
-                    _isLoadingStep = true;
-                    try { _tourListBox.SelectedIndex = _allTours.IndexOf(_activeTour); }
-                    finally { _isLoadingStep = false; }
-                    return;
-                }
-            }
-            else
-            {
-                RestoreOriginals();
-            }
-        }
-
+        if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
         _switchTourCallback?.Invoke(newIndex);
     }
 
@@ -1454,6 +1422,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                     {
                         _targetControlBox.Text = name;
                         PushLivePreview();
+                        QueueAutoSave();
                     }
                     else
                     {
@@ -1595,7 +1564,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 if (hit?.VisualHit is DependencyObject hitObj)
                 {
                     var (_, name) = FindFirstUniqueNamedAncestor(hitObj, extraWin);
-                    if (name != null) { _targetControlBox.Text = name; PushLivePreview(); }
+                    if (name != null) { _targetControlBox.Text = name; PushLivePreview(); QueueAutoSave(); }
                     else ShowStatus("⚠ The clicked element has no unique x:Name — cannot use as a target.");
                 }
                 else ShowStatus("⚠ No element found at that position.");
@@ -2015,6 +1984,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         RedrawCrosshair();
         ShowOrUpdateTargetOverlay();
         _livePreviewCallback?.Invoke();
+        QueueAutoSave();
     }
 
     private static string FormatCrosshairCoords(double x, double y) =>
@@ -2155,7 +2125,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             // Suppress the ComboBox's own dropdown while the user is typing
             var innerTb = VisualTreeSearch.FindChild<TextBox>(cb);
             if (innerTb is not null)
+            {
                 innerTb.TextChanged += (_, _) => { if (cb.IsDropDownOpen) cb.IsDropDownOpen = false; };
+                innerTb.TextChanged += (_, _) => { if (!_isLoadingStep) QueueAutoSave(); };
+            }
         };
 
         // Focus the new ComboBox so the user can start typing immediately
@@ -2194,6 +2167,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             comboBox.Text = string.IsNullOrEmpty(editor.ResultText) ? "(none)" : editor.ResultText;
             PushLivePreview();
+            QueueAutoSave();
         }
     }
 
@@ -2300,6 +2274,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             cb.Text = needsParam ? accepted + ": " : accepted;
         }
         PushLivePreview();
+        QueueAutoSave();
     }
 
     private IReadOnlyList<string> GetTriggerSuggestions(string rawText)
@@ -2358,6 +2333,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _advanceTriggerBox.Text = needsParam ? accepted + ": " : accepted;
         }
         PushLivePreview();
+        QueueAutoSave();
     }
 
     // ── Multi-select copy/cut/paste ───────────────────────────────────────────
