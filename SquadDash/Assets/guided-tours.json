@@ -478,7 +478,7 @@
       {
         "title": "Speech Page",
         "markdownText": "In the Voice \u0026 Speech section, you\u0027ll want to first set up your provider.",
-        "targetControlId": "SpeechProvider_Azure",
+        "targetControlId": "",
         "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
@@ -492,12 +492,12 @@
         ],
         "advanceTrigger": "PreferencePageSelected: Voice",
         "targetOffsetX": 0,
-        "targetOffsetY": 0.4067307692307688
+        "targetOffsetY": 0.8971153846153842
       },
       {
         "title": "Speech Provider",
         "markdownText": "Choose your speech provider. **Azure** is fastest and recommended (you may also be able to get a free account for up to $5 a month in transcriptions).",
-        "targetControlId": "PrefPageHost",
+        "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",

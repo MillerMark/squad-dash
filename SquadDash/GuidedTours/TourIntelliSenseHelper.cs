@@ -32,6 +32,7 @@ internal sealed class TourIntelliSenseHelper : IDisposable
     private readonly ListBox                                 _listBox;
     private bool                                             _suppressUpdate;
     private bool                                             _disposed;
+    private Window?                                          _ownerWindow;
 
     /// <param name="placementTarget">
     /// The control beneath which the popup appears (typically the ComboBox or TextBox itself).
@@ -100,6 +101,13 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         _textSource.TextChanged    += OnTextChanged;
         _textSource.PreviewKeyDown += OnPreviewKeyDown;
         _placementTarget.IsKeyboardFocusWithinChanged += OnFocusWithinChanged;
+
+        // Close popup whenever the owner window moves or resizes so it doesn't
+        // float at the original screen position after the user drags the window.
+        if (_placementTarget.IsLoaded)
+            HookOwnerWindow();
+        else
+            _placementTarget.Loaded += OnPlacementTargetLoaded;
     }
 
     private void OnFocusWithinChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -107,6 +115,23 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         if (!(bool)e.NewValue)
             _popup.IsOpen = false;
     }
+
+    private void OnPlacementTargetLoaded(object sender, RoutedEventArgs e)
+    {
+        _placementTarget.Loaded -= OnPlacementTargetLoaded;
+        HookOwnerWindow();
+    }
+
+    private void HookOwnerWindow()
+    {
+        _ownerWindow = Window.GetWindow(_placementTarget);
+        if (_ownerWindow is null) return;
+        _ownerWindow.LocationChanged += OnWindowPositionChanged;
+        _ownerWindow.SizeChanged     += OnWindowSizeChanged;
+    }
+
+    private void OnWindowPositionChanged(object? sender, EventArgs e) => _popup.IsOpen = false;
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)  => _popup.IsOpen = false;
 
     private void OnTextChanged(object sender, TextChangedEventArgs e)
     {
@@ -240,7 +265,13 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         _textSource.TextChanged    -= OnTextChanged;
         _textSource.PreviewKeyDown -= OnPreviewKeyDown;
         _placementTarget.IsKeyboardFocusWithinChanged -= OnFocusWithinChanged;
+        _placementTarget.Loaded -= OnPlacementTargetLoaded;
         _listBox.PreviewMouseLeftButtonDown -= OnListBoxPreviewMouseDown;
+        if (_ownerWindow is not null)
+        {
+            _ownerWindow.LocationChanged -= OnWindowPositionChanged;
+            _ownerWindow.SizeChanged     -= OnWindowSizeChanged;
+        }
         _popup.IsOpen = false;
     }
 }
