@@ -76,6 +76,7 @@ internal static class TintKeys
 
         // Borders / lines
         "PanelBorder",
+        "MenuBorder",
         "RosterPanelBorder",
         "WorkspaceBorder",
         "LineColor",
