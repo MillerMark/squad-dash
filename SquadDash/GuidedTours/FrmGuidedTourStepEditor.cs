@@ -1519,6 +1519,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         overlay.MouseLeftButtonUp += (_, e) =>
         {
             var overlayPos = e.GetPosition(overlay);
+            // Convert to screen coords NOW, before Close() tears down the window's HwndSource.
+            // HitTestAllWindows calls overlay.PointToScreen() — if overlay is already closed
+            // that call throws InvalidOperationException.
+            var screenPosAtClick = overlay.PointToScreen(overlayPos);
             ClearHighlight(canvas);
             overlay.Close();
             Visibility = Visibility.Visible;
@@ -1526,14 +1530,28 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
             try
             {
-                var (fe, name, _) = HitTestAllWindows(overlayPos);
-                if (name != null)
+                // Re-use pre-captured screen position instead of calling overlay.PointToScreen.
+                (FrameworkElement? fe, string? name, Window? _) hitResult = (null, null, null);
+                foreach (var win in allWindows)
                 {
-                    _targetControlBox.Text = name;
+                    if (!win.IsVisible) continue;
+                    var winPos = win.PointFromScreen(screenPosAtClick);
+                    var hit = VisualTreeHelper.HitTest(win, winPos);
+                    if (hit?.VisualHit is DependencyObject hitObj)
+                    {
+                        var (hfe, hname) = FindFirstUniqueNamedAncestor(hitObj, win);
+                        if (hfe != null) { hitResult = (hfe, hname, win); break; }
+                    }
+                }
+
+                var (rfe, rname, _) = hitResult;
+                if (rname != null)
+                {
+                    _targetControlBox.Text = rname;
                     PushLivePreview();
                     QueueAutoSave();
                 }
-                else if (fe != null)
+                else if (rfe != null)
                 {
                     ShowStatus("⚠ The clicked element has no unique x:Name — cannot use as a target. " +
                                "Assign an x:Name to this element or select a different target.");
