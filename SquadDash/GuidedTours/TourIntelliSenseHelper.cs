@@ -219,9 +219,13 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         _suppressUpdate = true;
         try   { _acceptCallback(text); }
         finally { _suppressUpdate = false; }
-        // Re-evaluate after accept so that parameter suggestions appear when the
-        // callback has appended ": " after a parameterised command / trigger name.
-        _textSource.Dispatcher.InvokeAsync(UpdateSuggestions, DispatcherPriority.Background);
+        // Move caret to end so the user can continue typing or Tab away cleanly.
+        _textSource.CaretIndex = _textSource.Text.Length;
+        // Only re-evaluate if the callback produced a partial text awaiting a parameter
+        // (e.g. "Command: ").  For complete values the popup should stay closed so the
+        // next Tab press moves focus to the next control instead of re-accepting.
+        if (_textSource.Text.EndsWith(": "))
+            _textSource.Dispatcher.InvokeAsync(UpdateSuggestions, DispatcherPriority.Background);
     }
 
     // ── Suggestion refresh ────────────────────────────────────────────────────

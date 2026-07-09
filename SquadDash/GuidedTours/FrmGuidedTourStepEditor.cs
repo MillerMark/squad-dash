@@ -2316,8 +2316,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 var names  = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
                 return names
                     .Where(n => filter.Length == 0
-                                || n.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                                || n.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(n => filter.Length > 0 && n.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .ThenBy(n => n, StringComparer.OrdinalIgnoreCase)
                     .ToList();
             },
             acceptCallback: accepted =>
@@ -2363,8 +2364,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         return _commandItems
             .Where(c => c != "" && c != "(none)")
-            .Where(c => filter.Length == 0 || c.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .Where(c => filter.Length == 0 || c.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => filter.Length > 0 && c.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(c => c, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -2373,7 +2375,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         if (s_preferencePageCommands.Contains(cmdName))
             return s_preferencePageNames
                 .Where(p => paramText.Length == 0
-                            || p.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
+                            || p.Contains(paramText, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(p => paramText.Length > 0 && p.StartsWith(paramText, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
         if (s_elementNameCommands.Contains(cmdName))
@@ -2381,8 +2385,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             var names = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
             return names
                 .Where(n => paramText.Length == 0
-                            || n.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                            || n.Contains(paramText, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => paramText.Length > 0 && n.StartsWith(paramText, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
@@ -2424,8 +2429,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         return _triggerItems
             .Where(t => t != "" && t != "(none)")
-            .Where(t => filter.Length == 0 || t.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .Where(t => filter.Length == 0 || t.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => filter.Length > 0 && t.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(t => t, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -2434,7 +2440,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         if (string.Equals(triggerName, "PreferencePageSelected", StringComparison.OrdinalIgnoreCase))
             return s_preferencePageNames
                 .Where(p => paramText.Length == 0
-                            || p.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
+                            || p.Contains(paramText, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(p => paramText.Length > 0 && p.StartsWith(paramText, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
         if (string.Equals(triggerName, "MenuOpened", StringComparison.OrdinalIgnoreCase))
@@ -2442,8 +2450,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             var names = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
             return names
                 .Where(n => paramText.Length == 0
-                            || n.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                            || n.Contains(paramText, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => paramText.Length > 0 && n.StartsWith(paramText, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
