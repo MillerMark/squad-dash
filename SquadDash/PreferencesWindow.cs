@@ -155,6 +155,8 @@ internal sealed class PreferencesWindow : Window {
         "Ptt_BehaviorGroup",  // StackPanel containing both PTT behavior radio buttons
         "Ptt_AutoSend",       // "Send/queue my spoken prompt immediately" radio
         "Ptt_DoNothing",      // "Do nothing" radio
+        // Footer
+        "Preferences_SaveButton",  // Save button at the bottom of every preferences page
     };
 
     private readonly UIElement[] _pages;
@@ -602,7 +604,7 @@ internal sealed class PreferencesWindow : Window {
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
 
-        var saveButton = new Button { Content = "Save", Width = 88, Height = 30 };
+        var saveButton = new Button { Content = "Save", Width = 88, Height = 30, Name = "Preferences_SaveButton" };
         saveButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         DockPanel.SetDock(saveButton, Dock.Right);
         saveButton.Click += SaveButton_Click;
