@@ -528,7 +528,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         var since = startDate.AddDays(-1).ToString("yyyy-MM-dd");
         var until = endDate.AddDays(1).ToString("yyyy-MM-dd");
-        var args  = $"log --format=\"%H %aI\" --after={since} --until={until}";
+        var args  = $"log --format=\"%h %aI\" --after={since} --until={until}";
 
         try
         {
@@ -560,8 +560,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     }
 
     /// <summary>
-    /// Parses output of <c>git log --format="%H %aI"</c>.
-    /// Each line is a full SHA followed by a space and an ISO 8601 timestamp.
+    /// Parses output of <c>git log --format="%h %aI"</c>.
+    /// Each line is an abbreviated SHA followed by a space and an ISO 8601 timestamp.
     /// </summary>
     internal static List<(string sha, DateTimeOffset time)> ParseGitLogOutput(string output)
     {
@@ -1343,7 +1343,13 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var cy    = i * RowHeight + RowHeight / 2.0;
             var color = palette[row.ColorIndex % 7];
 
-            // Collect all dates (to determine line span)
+            // ── Full-width guide line (always drawn) ──────────────────────────
+            var guideColor = Color.FromArgb(128, color.R, color.G, color.B);
+            dc.DrawLine(new Pen(new SolidColorBrush(guideColor), 1.0),
+                new Point(LabelColumnWidth, cy),
+                new Point(ActualWidth, cy));
+
+            // No commits in this row at all — skip activity rendering
             var allDates = row.CommitsByDay.Keys.Concat(row.PendingDays).ToList();
             if (allDates.Count == 0) continue;
 
@@ -1352,11 +1358,44 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var x1        = DayToX(firstDate);
             var x2        = DayToX(lastDate);
 
-            // ── Connecting line ───────────────────────────────────────────────
-            var linePen = new Pen(new SolidColorBrush(color), 1.0);
-            dc.DrawLine(linePen,
-                new Point(LabelColumnWidth + x1, cy),
-                new Point(LabelColumnWidth + x2, cy));
+            // ── Day-span lines (4px, 100% opacity) — drawn when 2+ commits in a day ──────
+            var spanPen = new Pen(new SolidColorBrush(color), 4.0);
+            foreach (var (date, commits) in row.CommitsByDay)
+            {
+                if (date < _startDate || date > _endDate) continue;
+                if (commits.Count < 2) continue;
+
+                double minX = double.MaxValue;
+                double maxX = double.MinValue;
+                var dayCx   = LabelColumnWidth + DayToX(date);
+
+                foreach (var commit in commits)
+                {
+                    double left, right;
+                    if (commit.TurnStartedAt.HasValue && commit.CommitTime.HasValue)
+                    {
+                        left  = LabelColumnWidth + DateTimeToX(commit.TurnStartedAt.Value);
+                        right = LabelColumnWidth + DateTimeToX(commit.CommitTime.Value);
+                        if (right < left) (left, right) = (right, left);
+                        if (right - left < MinRectWidth)
+                        {
+                            var mid = (left + right) / 2.0;
+                            left  = mid - MinRectWidth / 2.0;
+                            right = mid + MinRectWidth / 2.0;
+                        }
+                    }
+                    else
+                    {
+                        left  = dayCx - BaseRadius;
+                        right = dayCx + BaseRadius;
+                    }
+                    if (left  < minX) minX = left;
+                    if (right > maxX) maxX = right;
+                }
+
+                if (maxX > minX)
+                    dc.DrawLine(spanPen, new Point(minX, cy), new Point(maxX, cy));
+            }
 
             // ── Pending (hollow) rounded rectangles ───────────────────────────
             var pendingColor = Color.FromArgb(128, color.R, color.G, color.B);
