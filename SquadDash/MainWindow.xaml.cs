@@ -157,7 +157,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
     private Window?  _tourHighlightOverlay;
     private Canvas?  _tourHighlightCanvas;
-    private readonly List<System.Windows.Shapes.Rectangle> _tourHighlightRects = new();
+    private readonly List<(FrameworkElement El, System.Windows.Shapes.Rectangle Rect)> _tourHighlightRects = new();
+    private readonly HashSet<Window> _tourHighlightTrackedWindows = new();
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -13943,6 +13944,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tourHighlightCanvas  = null;
         }
         _tourHighlightRects.Clear();
+        foreach (var w in _tourHighlightTrackedWindows)
+            w.LocationChanged -= OnTourHighlightWindowMoved;
+        _tourHighlightTrackedWindows.Clear();
+    }
+
+    private void OnTourHighlightWindowMoved(object? sender, EventArgs e) =>
+        RefreshTourHighlightRects();
+
+    private void RefreshTourHighlightRects()
+    {
+        if (_tourHighlightCanvas is null) return;
+        foreach (var (el, rect) in _tourHighlightRects)
+        {
+            Point screenTL;
+            try { screenTL = el.PointToScreen(new Point(0, 0)); }
+            catch { continue; }
+            var overlayTL = _tourHighlightOverlay!.PointFromScreen(screenTL);
+            Canvas.SetLeft(rect, overlayTL.X - 2 - 2.5);
+            Canvas.SetTop(rect,  overlayTL.Y - 2 - 2.5);
+        }
     }
 
     private void CleanUpTourInjectedThreads()
@@ -14266,7 +14287,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Canvas.SetLeft(rect, overlayTL.X - pad - thickness);
             Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
             _tourHighlightCanvas!.Children.Add(rect);
-            _tourHighlightRects.Add(rect);
+            _tourHighlightRects.Add((el, rect));
+
+            // Subscribe to the parent window's LocationChanged so the rect tracks window drags.
+            var parentWin = Window.GetWindow(el);
+            if (parentWin is not null && _tourHighlightTrackedWindows.Add(parentWin))
+                parentWin.LocationChanged += OnTourHighlightWindowMoved;
         });
         // Alias — "HighlightElement" is the preferred name; "HighlightMenuItem" kept for backward compatibility.
         _tourCommandRegistry.RegisterParameterizedAsync("HighlightElement",
