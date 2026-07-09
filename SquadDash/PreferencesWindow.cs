@@ -720,6 +720,10 @@ internal sealed class PreferencesWindow : Window {
             item.Header = label;
             item.Name   = LabelToTourName(label);   // e.g. "PrefNav_PushToTalk"
             item.Selected += (_, _) => NavigateTo(idx);
+            // WPF only fires Selected when transitioning from unselected → selected.
+            // Handle re-clicks on the already-selected item so that tour triggers like
+            // PreferencePageSelected fire even when the page is already shown.
+            item.PreviewMouseLeftButtonDown += (_, _) => { if (item.IsSelected) NavigateTo(idx); };
             leafItems[idx] = item;
             return item;
         }
