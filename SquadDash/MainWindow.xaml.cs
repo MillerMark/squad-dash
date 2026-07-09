@@ -14182,6 +14182,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (el is not null) break;
                 }
             }
+            // Also search the Preferences window visual tree when it is open
+            // (PrefNav_* TreeViewItems live there, not in MainWindow).
+            if (el is null && _preferencesWindow is { IsVisible: true })
+                el = VisualTreeSearch.FindByName(_preferencesWindow, arg) as FrameworkElement;
             if (el is null) return;
 
             // Wait a tick so the element has had a chance to render (important for menu items
@@ -14195,7 +14199,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ? Color.FromRgb(0xFF, 0xA0, 0xA0)  // light red for dark theme
                 : Color.FromRgb(0x8B, 0x00, 0x00);  // dark red for light theme
 
-            // Lazily create the overlay window (covers the whole screen/main window area).
+            // Lazily create the overlay window. It spans the full virtual screen so that
+            // elements in any window (MainWindow, PreferencesWindow, etc.) can be highlighted —
+            // PointFromScreen then always yields in-canvas coordinates.
+            var screenLeft   = SystemParameters.VirtualScreenLeft;
+            var screenTop    = SystemParameters.VirtualScreenTop;
+            var screenWidth  = SystemParameters.VirtualScreenWidth;
+            var screenHeight = SystemParameters.VirtualScreenHeight;
             if (_tourHighlightOverlay is null)
             {
                 _tourHighlightCanvas = new Canvas { IsHitTestVisible = false };
@@ -14209,20 +14219,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     ShowInTaskbar         = false,
                     IsHitTestVisible      = false,
                     WindowStartupLocation = WindowStartupLocation.Manual,
-                    Left                  = this.Left,
-                    Top                   = this.Top,
-                    Width                 = this.ActualWidth,
-                    Height                = this.ActualHeight,
+                    Left                  = screenLeft,
+                    Top                   = screenTop,
+                    Width                 = screenWidth,
+                    Height                = screenHeight,
                     Content               = _tourHighlightCanvas,
                 };
                 _tourHighlightOverlay.Show();
             }
             else
             {
-                _tourHighlightOverlay.Left   = this.Left;
-                _tourHighlightOverlay.Top    = this.Top;
-                _tourHighlightOverlay.Width  = this.ActualWidth;
-                _tourHighlightOverlay.Height = this.ActualHeight;
+                _tourHighlightOverlay.Left   = screenLeft;
+                _tourHighlightOverlay.Top    = screenTop;
+                _tourHighlightOverlay.Width  = screenWidth;
+                _tourHighlightOverlay.Height = screenHeight;
                 if (!_tourHighlightOverlay.IsVisible) _tourHighlightOverlay.Show();
             }
 
