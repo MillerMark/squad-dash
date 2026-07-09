@@ -13,7 +13,7 @@
     <SolidColorBrush x:Key="WorkspaceSurface" Color="#F7F4EE"/>
     <SolidColorBrush x:Key="CardSurface" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="InboxBodySurface" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="HoverSurface" Color="#E8E0D4"/>
+    <SolidColorBrush x:Key="HoverSurface" Color="#DFD4C3"/>
     <!-- 50% blend of TranscriptSurface (#FFFCF8) and HoverSurface (#E8E0D4) — softer hover for transcript links -->
     <SolidColorBrush x:Key="TranscriptLinkHoverSurface" Color="#F4EEE6"/>
     <SolidColorBrush x:Key="ApprovalSelectedSurface" Color="#80E8E0D4"/>
@@ -55,6 +55,7 @@
     <SolidColorBrush x:Key="GripStripLine" Color="#BCB1A2"/>  <!-- same hue as surface, matches SubtleBorder for low-contrast hatching -->
     <!-- Border / Line Tokens -->
     <SolidColorBrush x:Key="PanelBorder" Color="#D6C8B4"/>
+    <SolidColorBrush x:Key="MenuBorder" Color="#D6C8B4"/>
     <SolidColorBrush x:Key="ActivePanelBorder" Color="#C4D8F5"/>
     <SolidColorBrush x:Key="RosterPanelBorder" Color="#E2D5C3"/>
     <SolidColorBrush x:Key="WorkspaceBorder" Color="#D8D0C1"/>

@@ -507,7 +507,7 @@
                                            PopupAnimation="Fade">
                                         <Border x:Name="SubMenuBorder"
                                                 Background="{DynamicResource ChromeSurface}"
-                                                BorderBrush="{DynamicResource PanelBorder}"
+                                                BorderBrush="{DynamicResource MenuBorder}"
                                                 BorderThickness="1"
                                                 Padding="2"
                                                 SnapsToDevicePixels="True"
@@ -597,7 +597,7 @@
                                            PopupAnimation="Fade">
                                         <Border x:Name="SubMenuBorder"
                                                 Background="{DynamicResource ChromeSurface}"
-                                                BorderBrush="{DynamicResource PanelBorder}"
+                                                BorderBrush="{DynamicResource MenuBorder}"
                                                 BorderThickness="1"
                                                 Padding="2"
                                                 SnapsToDevicePixels="True"
@@ -647,7 +647,7 @@
                                            Focusable="False"
                                            PopupAnimation="Fade">
                                         <Border Background="{DynamicResource ChromeSurface}"
-                                                BorderBrush="{DynamicResource PanelBorder}"
+                                                BorderBrush="{DynamicResource MenuBorder}"
                                                 BorderThickness="1"
                                                 Padding="2"
                                                 SnapsToDevicePixels="True"
