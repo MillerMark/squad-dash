@@ -126,12 +126,14 @@ internal sealed class TourIntelliSenseHelper : IDisposable
     {
         _ownerWindow = Window.GetWindow(_placementTarget);
         if (_ownerWindow is null) return;
+        // Close popup when the window is dragged to a new position.
+        // SizeChanged is intentionally NOT subscribed: the tour editor uses
+        // SizeToContent=Height, so showing/hiding the status label causes SizeChanged
+        // to fire and would incorrectly dismiss the suggestion popup.
         _ownerWindow.LocationChanged += OnWindowPositionChanged;
-        _ownerWindow.SizeChanged     += OnWindowSizeChanged;
     }
 
     private void OnWindowPositionChanged(object? sender, EventArgs e) => _popup.IsOpen = false;
-    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)  => _popup.IsOpen = false;
 
     private void OnTextChanged(object sender, TextChangedEventArgs e)
     {
@@ -270,7 +272,6 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         if (_ownerWindow is not null)
         {
             _ownerWindow.LocationChanged -= OnWindowPositionChanged;
-            _ownerWindow.SizeChanged     -= OnWindowSizeChanged;
         }
         _popup.IsOpen = false;
     }
