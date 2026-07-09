@@ -5,9 +5,11 @@ namespace SquadDash;
 /// The window builds one of these per <see cref="CommitApprovalItem"/> it wants stats for.
 /// </summary>
 internal record CommitStatRequest(
-    string   Sha,
-    string?  FeatureGroupId, // null → "Uncategorized" at the rendering layer
-    DateOnly TurnDate        // from CommitApprovalItem.TurnStartedAt, NOT a git timestamp
+    string          Sha,
+    string?         FeatureGroupId,    // null → "Uncategorized" at the rendering layer
+    DateOnly        TurnDate,          // from CommitApprovalItem.TurnStartedAt, NOT a git timestamp
+    DateTimeOffset? TurnStartedAt = null,  // precise turn start time for duration rendering
+    DateTimeOffset? CommitTime    = null   // precise commit author time from git
 );
 
 /// <summary>
@@ -18,11 +20,13 @@ internal record CommitStatRequest(
 /// </para>
 /// </summary>
 internal record CommitStatResult(
-    string   Sha,
-    string?  FeatureGroupId,
-    DateOnly TurnDate,
-    int      FilesChanged,
-    int      Insertions,
-    int      Deletions,
-    bool     IsFound   // false = SHA not found in repo or git call failed
+    string          Sha,
+    string?         FeatureGroupId,
+    DateOnly        TurnDate,
+    int             FilesChanged,
+    int             Insertions,
+    int             Deletions,
+    bool            IsFound,          // false = SHA not found in repo or git call failed
+    DateTimeOffset? TurnStartedAt = null,
+    DateTimeOffset? CommitTime    = null
 );

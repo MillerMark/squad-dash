@@ -24,7 +24,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     // ── Color palette ─────────────────────────────────────────────────────────
     internal static readonly Color[] DarkPalette =
     [
-        Color.FromRgb(0xFF, 0x6B, 0x6B), // 0 Uncategorized
+        Color.FromRgb(0x90, 0x90, 0x90), // 0 Uncategorized
         Color.FromRgb(0x4E, 0xCD, 0xC4), // 1
         Color.FromRgb(0xFF, 0xD9, 0x3D), // 2
         Color.FromRgb(0xA2, 0x9B, 0xFE), // 3
@@ -35,7 +35,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     internal static readonly Color[] LightPalette =
     [
-        Color.FromRgb(0xC0, 0x39, 0x2B), // 0 Uncategorized
+        Color.FromRgb(0x70, 0x70, 0x70), // 0 Uncategorized
         Color.FromRgb(0x14, 0x8A, 0x82), // 1
         Color.FromRgb(0xB8, 0x86, 0x0B), // 2
         Color.FromRgb(0x5E, 0x35, 0xB1), // 3
@@ -311,18 +311,21 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         return gitCommits
             .Where(c => !existingShas.Contains(c.sha))
-            .Select(c => new CommitStatRequest(c.sha, null, c.date))
+            .Select(c => new CommitStatRequest(
+                c.sha, null,
+                DateOnly.FromDateTime(c.time.LocalDateTime),
+                CommitTime: c.time))
             .ToList();
     }
 
-    private async Task<List<(string sha, DateOnly date)>> RunGitLogAsync(
+    private async Task<List<(string sha, DateTimeOffset time)>> RunGitLogAsync(
         DateOnly          startDate,
         DateOnly          endDate,
         CancellationToken ct)
     {
         var since = startDate.AddDays(-1).ToString("yyyy-MM-dd");
         var until = endDate.AddDays(1).ToString("yyyy-MM-dd");
-        var args  = $"log --format=\"%H %ad\" --date=short --after={since} --until={until}";
+        var args  = $"log --format=\"%H %aI\" --after={since} --until={until}";
 
         try
         {
@@ -354,12 +357,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     }
 
     /// <summary>
-    /// Parses output of <c>git log --format="%H %ad" --date=short</c>.
-    /// Each line is a full SHA followed by a space and an ISO date (yyyy-MM-dd).
+    /// Parses output of <c>git log --format="%H %aI"</c>.
+    /// Each line is a full SHA followed by a space and an ISO 8601 timestamp.
     /// </summary>
-    internal static List<(string sha, DateOnly date)> ParseGitLogOutput(string output)
+    internal static List<(string sha, DateTimeOffset time)> ParseGitLogOutput(string output)
     {
-        var results = new List<(string, DateOnly)>();
+        var results = new List<(string, DateTimeOffset)>();
         foreach (var line in output.AsSpan().EnumerateLines())
         {
             var s = line.ToString().Trim();
@@ -367,8 +370,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             if (spaceIdx < 7) continue;
             var sha  = s[..spaceIdx];
             var rest = s[(spaceIdx + 1)..].Trim();
-            if (DateOnly.TryParseExact(rest, "yyyy-MM-dd", null, DateTimeStyles.None, out var date))
-                results.Add((sha, date));
+            if (DateTimeOffset.TryParse(rest, out var time))
+                results.Add((sha, time));
         }
         return results;
     }
@@ -478,7 +481,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 return new CommitStatRequest(
                     first.CommitSha,
                     first.FeatureGroup,
-                    DateOnly.FromDateTime(first.TurnStartedAt.LocalDateTime));
+                    DateOnly.FromDateTime(first.TurnStartedAt.LocalDateTime),
+                    TurnStartedAt: first.TurnStartedAt);
             })
             .ToList();
 }
@@ -803,9 +807,9 @@ internal sealed record CommitLineHit(
 /// scrolling is required: pixels-per-day = (canvasWidth − labelColumnWidth) / totalDays.
 /// </para>
 /// <para>
-/// Multiple commits on the same day are rendered as individual fixed-size dots
-/// (radius = <see cref="BaseRadius"/>) laid out side-by-side, centered on the day's
-/// X position.
+/// Commit markers are rendered as rounded rectangles whose width spans from the turn-start
+/// time to the commit time on the timeline, giving a visual indication of session duration.
+/// A fixed-width fallback is used when precise timestamps are unavailable.
 /// </para>
 /// </summary>
 internal sealed class CommitActivityCanvas : FrameworkElement
@@ -816,6 +820,9 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     internal const double XAxisHeight         = 24;
     internal const double FallbackPixelsPerDay = 20; // used when ActualWidth is unavailable
     internal const double BaseRadius          = 5.0;
+    internal const double RectHeight          = 10.0;
+    internal const double MinRectWidth        = 3.0;
+    internal const double CornerRadius        = 2.0;
 
     // ── State ──────────────────────────────────────────────────────────────────
     private List<CommitActivityRow> _rows      = [];
@@ -975,6 +982,12 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             new Point(LabelColumnWidth - 0.5, 0),
             new Point(LabelColumnWidth - 0.5, _rows.Count * RowHeight));
 
+        // Clip graph area so markers never bleed into the label column
+        dc.PushClip(new RectangleGeometry(new Rect(
+            LabelColumnWidth, 0,
+            Math.Max(0, ActualWidth - LabelColumnWidth),
+            _rows.Count * RowHeight)));
+
         for (int i = 0; i < _rows.Count; i++)
         {
             var row   = _rows[i];
@@ -1009,40 +1022,61 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 new Point(LabelColumnWidth + x1, cy),
                 new Point(LabelColumnWidth + x2, cy));
 
-            // ── Pending (hollow) dots ──────────────────────────────────────────
+            // ── Pending (hollow) rounded rectangles ───────────────────────────
             var pendingColor = Color.FromArgb(128, color.R, color.G, color.B);
             var pendingPen   = new Pen(new SolidColorBrush(pendingColor), 1.5);
             foreach (var date in row.PendingDays)
             {
                 if (date < _startDate || date > _endDate) continue;
-                if (row.CommitsByDay.ContainsKey(date)) continue; // solid dot takes priority
-                var cx = LabelColumnWidth + DayToX(date);
-                dc.DrawEllipse(null, pendingPen, new Point(cx, cy), BaseRadius, BaseRadius);
+                if (row.CommitsByDay.ContainsKey(date)) continue; // solid rect takes priority
+                var cx      = LabelColumnWidth + DayToX(date);
+                var rectTop = cy - RectHeight / 2.0;
+                dc.DrawRoundedRectangle(null, pendingPen,
+                    new Rect(cx - BaseRadius, rectTop, BaseRadius * 2, RectHeight),
+                    CornerRadius, CornerRadius);
             }
 
-            // ── Resolved (solid) dots ─────────────────────────────────────────
-            // Each commit gets its own fixed-size dot; multiple commits on the same
-            // day are laid out side-by-side, centered on the day's X position.
-            const double DotSpacing = BaseRadius * 2 + 2; // center-to-center spacing
+            // ── Resolved (solid) rounded rectangles ───────────────────────────
+            // Each commit gets a rounded rect whose width spans turn-start → commit-time;
+            // falls back to a fixed-width rect centered on the day when timestamps are absent.
             var fillColor = Color.FromArgb(180, color.R, color.G, color.B);
             var fillBrush = new SolidColorBrush(fillColor);
             var strokePen = new Pen(new SolidColorBrush(color), 1.0);
             foreach (var (date, commits) in row.CommitsByDay)
             {
                 if (date < _startDate || date > _endDate) continue;
-                var cx = LabelColumnWidth + DayToX(date);
-                int n  = commits.Count;
-                // Total span = (n-1) * DotSpacing; offset of first dot from center
-                double startOffset = -(n - 1) * DotSpacing / 2.0;
-                for (int d = 0; d < n; d++)
+                var dayCx = LabelColumnWidth + DayToX(date);
+                foreach (var commit in commits)
                 {
-                    var dotCx = cx + startOffset + d * DotSpacing;
-                    dc.DrawEllipse(fillBrush, strokePen, new Point(dotCx, cy), BaseRadius, BaseRadius);
+                    double left, right;
+                    if (commit.TurnStartedAt.HasValue && commit.CommitTime.HasValue)
+                    {
+                        left  = LabelColumnWidth + DateTimeToX(commit.TurnStartedAt.Value);
+                        right = LabelColumnWidth + DateTimeToX(commit.CommitTime.Value);
+                        if (right < left) (left, right) = (right, left);
+                    }
+                    else
+                    {
+                        left  = dayCx - BaseRadius;
+                        right = dayCx + BaseRadius;
+                    }
+                    if (right - left < MinRectWidth)
+                    {
+                        var mid = (left + right) / 2.0;
+                        left  = mid - MinRectWidth / 2.0;
+                        right = mid + MinRectWidth / 2.0;
+                    }
+                    var rectTop   = cy - RectHeight / 2.0;
+                    var rectWidth = right - left;
+                    dc.DrawRoundedRectangle(
+                        fillBrush, strokePen,
+                        new Rect(left, rectTop, rectWidth, RectHeight),
+                        CornerRadius, CornerRadius);
                 }
             }
         }
 
-        // ── X-axis ─────────────────────────────────────────────────────────────
+        dc.Pop(); // end graph-area clip
         RenderXAxis(dc, subtleBrush, borderBrush);
     }
 
@@ -1085,6 +1119,14 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         return offset * _effectivePixelsPerDay + _effectivePixelsPerDay / 2.0;
     }
 
+    /// <summary>Returns the X offset (relative to the graph area) for a precise timestamp.</summary>
+    private double DateTimeToX(DateTimeOffset dt)
+    {
+        var startDt = new DateTimeOffset(_startDate.ToDateTime(TimeOnly.MinValue), dt.Offset);
+        var days    = (dt - startDt).TotalDays;
+        return days * _effectivePixelsPerDay;
+    }
+
     // ── Tooltip / hit testing ──────────────────────────────────────────────────
 
     private object? HitTestPoint(Point pt)
@@ -1105,17 +1147,31 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         const double hitTolerance = 4;
 
-        // Check resolved dots — individual fixed-size dots laid side-by-side
+        // Check resolved commits — rectangle-based hit testing
         if (row.CommitsByDay.TryGetValue(date, out var commits))
         {
-            int n = commits.Count;
-            const double DotSpacing = CommitActivityCanvas.BaseRadius * 2 + 2;
-            double resolvedCx = DayToX(date); // graphX-relative center
-            double startOffset = -(n - 1) * DotSpacing / 2.0;
-            for (int d = 0; d < n; d++)
+            var dayCx = DayToX(date);
+            foreach (var commit in commits)
             {
-                var eachDotCx = resolvedCx + startOffset + d * DotSpacing;
-                if (Math.Abs(graphX - eachDotCx) <= CommitActivityCanvas.BaseRadius + 4)
+                double left, right;
+                if (commit.TurnStartedAt.HasValue && commit.CommitTime.HasValue)
+                {
+                    left  = DateTimeToX(commit.TurnStartedAt.Value);
+                    right = DateTimeToX(commit.CommitTime.Value);
+                    if (right < left) (left, right) = (right, left);
+                    if (right - left < MinRectWidth)
+                    {
+                        var mid = (left + right) / 2.0;
+                        left  = mid - MinRectWidth / 2.0;
+                        right = mid + MinRectWidth / 2.0;
+                    }
+                }
+                else
+                {
+                    left  = dayCx - BaseRadius - 4;
+                    right = dayCx + BaseRadius + 4;
+                }
+                if (graphX >= left - 2 && graphX <= right + 2)
                     return new CommitDotHit(row, date, false, commits);
             }
         }

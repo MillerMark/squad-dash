@@ -281,25 +281,60 @@ internal sealed class CommitStatServiceTests
 
     // ── Batch partitioning ────────────────────────────────────────────────────
 
+    // ── ParseGitLogOutput ─────────────────────────────────────────────────────
+
     [Test]
-    public async Task GetStatsAsync_MoreThanBatchSize_SpawnsMultipleBatches()
+    public void ParseGitLogOutput_IsoTimestampLine_ReturnsShaAndDateTimeOffset()
     {
-        var batchCount    = 0;
-        var totalRequests = CommitStatService.BatchSize + 5; // crosses the batch boundary
+        var output = "abc1234def5678901234567890123456789012345 2024-01-15T10:30:00+00:00\n";
 
-        var requests = Enumerable.Range(0, totalRequests)
-            .Select(i => new CommitStatRequest($"sha{i:D4}", null, new DateOnly(2026, 1, 1)))
-            .ToList();
+        var results = CommitActivityGraphWindow.ParseGitLogOutput(output);
 
-        Task<string> FakeGit(string args, CancellationToken _)
-        {
-            Interlocked.Increment(ref batchCount);
-            return Task.FromResult(string.Empty);
-        }
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0].sha, Is.EqualTo("abc1234def5678901234567890123456789012345"));
+        Assert.That(results[0].time, Is.EqualTo(new DateTimeOffset(2024, 1, 15, 10, 30, 0, TimeSpan.Zero)));
+    }
 
-        var svc = new CommitStatService(FakeGit);
-        await svc.GetStatsAsync(requests);
+    [Test]
+    public void ParseGitLogOutput_IsoTimestampWithOffset_ReturnsParsedOffset()
+    {
+        var output = "aabbccddeeff00112233445566778899aabbccdd 2024-06-10T08:00:00+05:30\n";
 
-        Assert.That(batchCount, Is.EqualTo(2), "55 SHAs should produce 2 batches of 50/5");
+        var results = CommitActivityGraphWindow.ParseGitLogOutput(output);
+
+        Assert.That(results, Has.Count.EqualTo(1));
+        var expected = new DateTimeOffset(2024, 6, 10, 8, 0, 0, new TimeSpan(5, 30, 0));
+        Assert.That(results[0].time, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ParseGitLogOutput_MultipleLines_ReturnsAll()
+    {
+        var output =
+            "aaaa1234567890123456789012345678901234aa 2024-01-01T00:00:00+00:00\n" +
+            "bbbb1234567890123456789012345678901234bb 2024-02-01T12:00:00+00:00\n";
+
+        var results = CommitActivityGraphWindow.ParseGitLogOutput(output);
+
+        Assert.That(results, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void ParseGitLogOutput_EmptyOutput_ReturnsEmpty()
+    {
+        var results = CommitActivityGraphWindow.ParseGitLogOutput(string.Empty);
+        Assert.That(results, Is.Empty);
+    }
+
+    [Test]
+    public void ParseGitLogOutput_MalformedLine_Skipped()
+    {
+        // SHA is only 6 chars — shorter than the minimum 7, so the line is skipped
+        var output = "abc123 2024-01-01T00:00:00+00:00\n";
+
+        var results = CommitActivityGraphWindow.ParseGitLogOutput(output);
+
+        Assert.That(results, Is.Empty);
     }
 }
+

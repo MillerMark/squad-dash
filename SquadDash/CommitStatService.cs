@@ -64,7 +64,8 @@ internal sealed class CommitStatService : ICommitStatService
         {
             var notFound = new CommitStatResult(
                 req.Sha, req.FeatureGroupId, req.TurnDate,
-                FilesChanged: 0, Insertions: 0, Deletions: 0, IsFound: false);
+                FilesChanged: 0, Insertions: 0, Deletions: 0, IsFound: false,
+                TurnStartedAt: req.TurnStartedAt);
             _cache.TryAdd(req.Sha, notFound);
         }
 
@@ -118,7 +119,7 @@ internal sealed class CommitStatService : ICommitStatService
         CancellationToken       cancellationToken)
     {
         var shaList = string.Join(" ", batch.Select(r => r.Sha));
-        var args    = $"log --no-walk --format=\"STAT:%H\" --numstat {shaList}";
+        var args    = $"log --no-walk --format=\"STAT:%H %aI\" --numstat {shaList}";
 
         string stdout;
         try
@@ -142,17 +143,17 @@ internal sealed class CommitStatService : ICommitStatService
 
     /// <summary>
     /// Parses the output of
-    /// <c>git log --no-walk --format="STAT:%H" --numstat sha1 sha2 ...</c>.
+    /// <c>git log --no-walk --format="STAT:%H %aI" --numstat sha1 sha2 ...</c>.
     /// </summary>
     /// <remarks>
     /// Expected output shape per commit:
     /// <code>
-    /// STAT:abc123fullsha...
+    /// STAT:abc123fullsha 2024-01-15T10:30:00+05:30
     ///
     /// 3	2	src/foo.cs
     /// 1	0	docs/bar.md
     ///
-    /// STAT:def456fullsha...
+    /// STAT:def456fullsha 2024-01-16T08:00:00+00:00
     /// ...
     /// </code>
     /// Binary files produce <c>-\t-\tfilename</c> lines; those are counted as a file changed
@@ -165,21 +166,25 @@ internal sealed class CommitStatService : ICommitStatService
         var requestBySha = batch.ToDictionary(r => r.Sha, r => r, StringComparer.OrdinalIgnoreCase);
         var results      = new List<CommitStatResult>(batch.Count);
 
-        CommitStatRequest? current      = null;
-        int                files        = 0;
-        int                insertions   = 0;
-        int                deletions    = 0;
+        CommitStatRequest? current           = null;
+        int                files             = 0;
+        int                insertions        = 0;
+        int                deletions         = 0;
+        DateTimeOffset?    currentCommitTime = null;
 
         void Flush()
         {
             if (current is null) return;
             results.Add(new CommitStatResult(
                 current.Sha, current.FeatureGroupId, current.TurnDate,
-                files, insertions, deletions, IsFound: true));
-            current    = null;
-            files      = 0;
-            insertions = 0;
-            deletions  = 0;
+                files, insertions, deletions, IsFound: true,
+                TurnStartedAt: current.TurnStartedAt,
+                CommitTime:    currentCommitTime));
+            current           = null;
+            files             = 0;
+            insertions        = 0;
+            deletions         = 0;
+            currentCommitTime = null;
         }
 
         foreach (var line in output.AsSpan().EnumerateLines())
@@ -188,11 +193,24 @@ internal sealed class CommitStatService : ICommitStatService
             if (s.StartsWith("STAT:", StringComparison.Ordinal))
             {
                 Flush();
-                var gitSha  = s[5..]; // full SHA as returned by git
-                current     = MatchRequest(gitSha, requestBySha);
-                files       = 0;
-                insertions  = 0;
-                deletions   = 0;
+                var rest     = s[5..];
+                var spaceIdx = rest.IndexOf(' ');
+                string gitSha;
+                if (spaceIdx > 0)
+                {
+                    gitSha = rest[..spaceIdx];
+                    var tsStr = rest[(spaceIdx + 1)..].Trim();
+                    if (DateTimeOffset.TryParse(tsStr, out var ts))
+                        currentCommitTime = ts;
+                }
+                else
+                {
+                    gitSha = rest;
+                }
+                current    = MatchRequest(gitSha, requestBySha);
+                files      = 0;
+                insertions = 0;
+                deletions  = 0;
             }
             else if (current is not null && s.Length > 0 && (char.IsAsciiDigit(s[0]) || s[0] == '-'))
             {
