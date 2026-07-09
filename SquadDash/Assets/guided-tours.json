@@ -477,8 +477,8 @@
       },
       {
         "title": "Speech Page",
-        "markdownText": "In the Voice \u0026 Speech section, you\u0027ll want to first set up your provider.",
-        "targetControlId": "",
+        "markdownText": "In the **Voice \u0026 Speech** section, you\u0027ll want to first set up your provider.",
+        "targetControlId": "PrefNav_Provider",
         "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
@@ -492,21 +492,21 @@
         ],
         "advanceTrigger": "PreferencePageSelected: Voice",
         "targetOffsetX": 0,
-        "targetOffsetY": 0.8971153846153842
+        "targetOffsetY": 0.5509615384615381
       },
       {
         "title": "Speech Provider",
-        "markdownText": "Choose your speech provider. **Azure** is fastest and recommended (you may also be able to get a free account for up to $5 a month in transcriptions).",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
+        "markdownText": "Choose your speech provider. **Azure** is fastest and recommended.\r\nSpecify your **API key** and any other needed settings down below.",
+        "targetControlId": "SpeechProvider_Azure",
+        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
+        "targetOffsetX": 0.07451923076923064,
+        "targetOffsetY": 0.17596153846153803
       }
     ]
   },

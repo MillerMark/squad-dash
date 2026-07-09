@@ -576,7 +576,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // ── Sidebar buttons ──────────────────────────────────────────────────
 
         var listSidebarButtons = new StackPanel { Orientation = Orientation.Horizontal };
-        var addBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30);
+        var addBtn    = MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30, glyphVerticalOffset: -3);
         var deleteBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteBtn.Margin = new Thickness(0);
@@ -642,7 +642,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         tourContextMenu.Items.Add(tourRenameMenuItem);
         _tourListBox.ContextMenu = tourContextMenu;
 
-        var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30);
+        var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30, glyphVerticalOffset: -3);
         var deleteTourBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addTourBtn.Margin    = new Thickness(0, 0, 2, 0);
         deleteTourBtn.Margin = new Thickness(0);
@@ -2161,7 +2161,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     }
 
     /// <summary>Creates a square icon button with a large, colored glyph filling the button face.</summary>
-    private static Button MakeIconButton(string glyph, Brush iconBrush, double fontSize = 20)
+    private static Button MakeIconButton(string glyph, Brush iconBrush, double fontSize = 20, double glyphVerticalOffset = 0)
     {
         var label = new TextBlock
         {
@@ -2171,6 +2171,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Foreground         = iconBrush,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment   = VerticalAlignment.Center,
+            Margin             = new Thickness(0, glyphVerticalOffset, 0, -glyphVerticalOffset),
         };
         var btn = new Button
         {
