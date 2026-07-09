@@ -423,15 +423,17 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         _canvas.SetData(displayRows, startDate, endDate, _isDark);
 
-        // Auto-fit the slider's left boundary to the oldest commit date in the
-        // visible rows, capped at today minus 5 years so the track never stretches
-        // further left than there's actually data.
+        // Set slider MinDate to the global oldest date across the full dataset so
+        // the track is stable regardless of which filter is active (e.g. "Last Week"
+        // must not shrink the left boundary and lock the handles).
         var todayMinus5Years = DateOnly.FromDateTime(DateTime.Today.AddYears(-5));
-        if (displayRows.Any(r => r.CommitsByDay.Count > 0 || r.PendingDays.Count > 0))
+        var allKnownDates = _allItems
+            .Select(i => DateOnly.FromDateTime(i.TurnStartedAt.LocalDateTime))
+            .Concat(requests.Select(r => r.TurnDate))
+            .ToList();
+        if (allKnownDates.Count > 0)
         {
-            var oldest = displayRows
-                .SelectMany(r => r.CommitsByDay.Keys.Concat(r.PendingDays))
-                .Min();
+            var oldest = allKnownDates.Min();
             _rangeSlider.MinDate = oldest > todayMinus5Years ? oldest : todayMinus5Years;
         }
         else
@@ -467,7 +469,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             .ToList();
 
         for (int i = 0; i < named.Count; i++)
-            rows.Add(new CommitActivityRow(named[i], named[i], (i + 1) % 7));
+            rows.Add(new CommitActivityRow(named[i], named[i], (i % 6) + 1));
 
         return rows;
     }
@@ -982,7 +984,27 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             new Point(LabelColumnWidth - 0.5, 0),
             new Point(LabelColumnWidth - 0.5, _rows.Count * RowHeight));
 
-        // Clip graph area so markers never bleed into the label column
+        // Pass 1: draw row separators and feature labels (outside graph-area clip so
+        // labels at x < LabelColumnWidth are not hidden).
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            var row = _rows[i];
+            var cy  = i * RowHeight + RowHeight / 2.0;
+
+            if (i > 0)
+            {
+                var sepPen = new Pen(borderBrush, 0.5) { DashStyle = DashStyles.Dot };
+                dc.DrawLine(sepPen, new Point(0, i * RowHeight), new Point(ActualWidth, i * RowHeight));
+            }
+
+            var labelFt = MakeText(row.DisplayName, textBrush, 12);
+            dc.PushClip(new RectangleGeometry(new Rect(4, i * RowHeight + 2, LabelColumnWidth - 8, RowHeight - 4)));
+            dc.DrawText(labelFt, new Point(8, cy - labelFt.Height / 2.0));
+            dc.Pop();
+        }
+
+        // Pass 2: draw graph content clipped to the graph area so markers never
+        // bleed into the label column.
         dc.PushClip(new RectangleGeometry(new Rect(
             LabelColumnWidth, 0,
             Math.Max(0, ActualWidth - LabelColumnWidth),
@@ -993,19 +1015,6 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var row   = _rows[i];
             var cy    = i * RowHeight + RowHeight / 2.0;
             var color = palette[row.ColorIndex % 7];
-
-            // Row separator (subtle dashed line, skip first row)
-            if (i > 0)
-            {
-                var sepPen = new Pen(borderBrush, 0.5) { DashStyle = DashStyles.Dot };
-                dc.DrawLine(sepPen, new Point(0, i * RowHeight), new Point(ActualWidth, i * RowHeight));
-            }
-
-            // ── Feature label ─────────────────────────────────────────────────
-            var labelFt = MakeText(row.DisplayName, textBrush, 12);
-            dc.PushClip(new RectangleGeometry(new Rect(4, i * RowHeight + 2, LabelColumnWidth - 8, RowHeight - 4)));
-            dc.DrawText(labelFt, new Point(8, cy - labelFt.Height / 2.0));
-            dc.Pop();
 
             // Collect all dates (to determine line span)
             var allDates = row.CommitsByDay.Keys.Concat(row.PendingDays).ToList();
