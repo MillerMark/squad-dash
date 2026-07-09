@@ -146,4 +146,15 @@ internal sealed class GuidedTourCommandRegistry
             .Concat(_asyncCommands.Keys)
             .Concat(_asyncParamCommands.Keys)
             .ToList();
+
+    /// <summary>
+    /// Names of commands that require a parameter (i.e. registered via
+    /// <see cref="RegisterParameterized"/> or <see cref="RegisterParameterizedAsync"/>).
+    /// These commands use the <c>CommandName: argument</c> syntax.
+    /// </summary>
+    public IReadOnlyList<string> ParameterizedCommandNames =>
+        _paramCommands.Keys
+            .Concat(_asyncParamCommands.Keys)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 }

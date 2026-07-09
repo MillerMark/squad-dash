@@ -36,6 +36,7 @@ internal sealed class GuidedTourController
     private IDisposable?                                  _activeTriggerSubscription;
     private readonly Func<bool>?                          _isTypeAnimationRunning;
     private readonly Func<IReadOnlyList<Window>?>?        _extraPickWindowsProvider;
+    private readonly Func<IReadOnlyList<string>>?         _elementNamesProvider;
     private CancellationTokenSource?                      _readingNudgeCts;
 
     /// <summary>
@@ -62,7 +63,8 @@ internal sealed class GuidedTourController
         Action?                         onStepChanging       = null,
         GuidedTourAdvanceTriggerRegistry? triggerRegistry    = null,
         Func<bool>?                     isTypeAnimationRunning = null,
-        Func<IReadOnlyList<Window>?>?   extraPickWindowsProvider = null)
+        Func<IReadOnlyList<Window>?>?   extraPickWindowsProvider = null,
+        Func<IReadOnlyList<string>>?    elementNamesProvider = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -75,6 +77,7 @@ internal sealed class GuidedTourController
         _triggerRegistry         = triggerRegistry;
         _isTypeAnimationRunning  = isTypeAnimationRunning;
         _extraPickWindowsProvider = extraPickWindowsProvider;
+        _elementNamesProvider    = elementNamesProvider;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -175,7 +178,8 @@ internal sealed class GuidedTourController
             addTourCallback:      HandleAddTourFromEditor,
             deleteTourCallback:   HandleDeleteTourFromEditor,
             renameTourCallback:   HandleRenameTourFromEditor,
-            extraPickWindowsProvider: _extraPickWindowsProvider);
+            extraPickWindowsProvider: _extraPickWindowsProvider,
+            elementNamesProvider: _elementNamesProvider);
         _activeEditor = editor;
         editor.Show();
     }
@@ -277,7 +281,8 @@ internal sealed class GuidedTourController
             addTourCallback:      HandleAddTourFromEditor,
             deleteTourCallback:   HandleDeleteTourFromEditor,
             renameTourCallback:   HandleRenameTourFromEditor,
-            extraPickWindowsProvider: _extraPickWindowsProvider);
+            extraPickWindowsProvider: _extraPickWindowsProvider,
+            elementNamesProvider: _elementNamesProvider);
         _activeEditor = editor;
         editor.Show();
     }
@@ -522,7 +527,8 @@ internal sealed class GuidedTourController
             addTourCallback:      HandleAddTourFromEditor,
             deleteTourCallback:   HandleDeleteTourFromEditor,
             renameTourCallback:   HandleRenameTourFromEditor,
-            extraPickWindowsProvider: _extraPickWindowsProvider);
+            extraPickWindowsProvider: _extraPickWindowsProvider,
+            elementNamesProvider: _elementNamesProvider);
         _activeEditor = editor;
         editor.Show();
     }
@@ -576,7 +582,8 @@ internal sealed class GuidedTourController
             addTourCallback:      HandleAddTourFromEditor,
             deleteTourCallback:   HandleDeleteTourFromEditor,
             renameTourCallback:   HandleRenameTourFromEditor,
-            extraPickWindowsProvider: _extraPickWindowsProvider);
+            extraPickWindowsProvider: _extraPickWindowsProvider,
+            elementNamesProvider: _elementNamesProvider);
         _activeEditor = editor;
         editor.Show();
     }

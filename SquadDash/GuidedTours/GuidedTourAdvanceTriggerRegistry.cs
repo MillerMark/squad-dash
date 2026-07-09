@@ -13,9 +13,23 @@ internal sealed class GuidedTourAdvanceTriggerRegistry
     private readonly Dictionary<string, IGuidedTourAdvanceTrigger> _triggers =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Registers a named trigger type. Replaces any existing registration.</summary>
-    public void Register(string name, IGuidedTourAdvanceTrigger trigger) =>
+    private readonly HashSet<string> _parameterizedTriggers =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Registers a named trigger type. Replaces any existing registration.
+    /// </summary>
+    /// <param name="hasParameter">
+    /// When <see langword="true"/> the trigger expects a <c>Name: argument</c> spec
+    /// (e.g. <c>MenuOpened: EditMenu</c>). The step editor uses this flag to offer
+    /// autocomplete for the parameter portion.
+    /// </param>
+    public void Register(string name, IGuidedTourAdvanceTrigger trigger, bool hasParameter = false)
+    {
         _triggers[name] = trigger;
+        if (hasParameter) _parameterizedTriggers.Add(name);
+        else              _parameterizedTriggers.Remove(name);
+    }
 
     /// <summary>
     /// Parses <paramref name="spec"/> as "Name:Argument" (or just "Name"),
@@ -37,4 +51,10 @@ internal sealed class GuidedTourAdvanceTriggerRegistry
 
     /// <summary>All registered trigger-type names.</summary>
     public IReadOnlyCollection<string> TriggerNames => _triggers.Keys;
+
+    /// <summary>
+    /// Names of triggers that require a parameter (registered with <c>hasParameter: true</c>).
+    /// These use the <c>Name: argument</c> spec syntax.
+    /// </summary>
+    public IReadOnlyCollection<string> ParameterizedTriggerNames => _parameterizedTriggers;
 }

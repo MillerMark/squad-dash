@@ -13923,7 +13923,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             isTypeAnimationRunning:  () => _typeIntoPromptTimer != null,
             extraPickWindowsProvider: () => _preferencesWindow is { IsVisible: true }
                                             ? [(Window)_preferencesWindow]
-                                            : null);
+                                            : null,
+            elementNamesProvider: () => _tourNamedElements.Keys
+                                            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+                                            .ToList());
     }
 
     private void UnhighlightAllMenuItems()
@@ -14028,7 +14031,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _tourAdvanceTriggerRegistry.Register(
             "MenuOpened",
-            new MenuOpenedAdvanceTrigger(name => VisualTreeSearch.FindByName(this, name)));
+            new MenuOpenedAdvanceTrigger(name => VisualTreeSearch.FindByName(this, name)),
+            hasParameter: true);
 
         _tourAdvanceTriggerRegistry.Register(
             "QuickReplySelected",
@@ -14052,7 +14056,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             "PreferencePageSelected",
             new PreferencePageSelectedAdvanceTrigger(
                 addHandler:    h => _tourPreferencePageSelected += h,
-                removeHandler: h => _tourPreferencePageSelected -= h));
+                removeHandler: h => _tourPreferencePageSelected -= h),
+            hasParameter: true);
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

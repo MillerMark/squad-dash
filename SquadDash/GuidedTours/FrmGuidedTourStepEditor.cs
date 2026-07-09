@@ -92,6 +92,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     // Extra windows to include in pick-mode (e.g. PreferencesWindow when open)
     private readonly Func<IReadOnlyList<Window>?>? _extraPickWindowsProvider;
 
+    // Intellisense — context-sensitive autocomplete for command/trigger/target fields
+    private readonly Func<IReadOnlyList<string>>? _elementNamesProvider;
+    private readonly HashSet<string>              _parameterizedCommandNames = new(StringComparer.OrdinalIgnoreCase);
+    private string[]                              _triggerItems = Array.Empty<string>();
+    private readonly List<IDisposable>            _intelliSenseHelpers = new();
+
+    private static readonly string[] s_preferencePageNames =
+        ["General", "Hints", "Model", "Voice", "Developer", "Licenses"];
+    private static readonly HashSet<string> s_elementNameCommands =
+        new(StringComparer.OrdinalIgnoreCase) { "HighlightElement", "HighlightMenuItem", "OpenMenu", "CloseMenu" };
+    private static readonly HashSet<string> s_preferencePageCommands =
+        new(StringComparer.OrdinalIgnoreCase) { "SelectPreferencesPage" };
+    private static readonly HashSet<string> s_paramTriggerNames =
+        new(StringComparer.OrdinalIgnoreCase) { "MenuOpened", "PreferencePageSelected" };
+
     // Crosshair picker
     private readonly Canvas        _crosshairCanvas;
     private readonly TextBlock     _crosshairCoordsLabel;
@@ -140,7 +155,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action?          addTourCallback      = null,
         Action?          deleteTourCallback   = null,
         Action<int, string>? renameTourCallback = null,
-        Func<IReadOnlyList<Window>?>? extraPickWindowsProvider = null)
+        Func<IReadOnlyList<Window>?>? extraPickWindowsProvider = null,
+        Func<IReadOnlyList<string>>? elementNamesProvider = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -157,6 +173,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _deleteTourCallback   = deleteTourCallback;
         _renameTourCallback   = renameTourCallback;
         _extraPickWindowsProvider = extraPickWindowsProvider;
+        _elementNamesProvider     = elementNamesProvider;
+        foreach (var n in commandRegistry?.ParameterizedCommandNames ?? Array.Empty<string>())
+            _parameterizedCommandNames.Add(n);
 
         _step                = step;
         _stepIndex           = stepIndex;
@@ -177,6 +196,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // PTT voice dictation — uses the same settings store as the rest of the app
         _ptt = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
         Closed += (_, _) => _ptt.Dispose();
+        Closed += (_, _) => { foreach (var h in _intelliSenseHelpers) h.Dispose(); };
 
         // ── Form fields ───────────────────────────────────────────────────────
 
@@ -217,6 +237,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             placementRow.Children.Add(rb);
 
         _targetControlBox = MakeTextBox(step.TargetControlId, multiLine: false);
+        _targetControlBox.Loaded += (_, _) => AttachIntelliSenseToTargetBox();
 
         var browseButton = MakeButton("Target...");
         browseButton.Click += (_, _) => BrowseForControl();
@@ -257,8 +278,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var addAfterButton  = MakeAddRowButton(_commandAfterRows,  _commandAfterPanel);
 
         var triggerNames = triggerRegistry?.TriggerNames ?? Array.Empty<string>();
-        var triggerItems = new[] { "" }.Concat(triggerNames).ToArray();
-        _advanceTriggerBox = MakeCommandCombo(triggerItems, step.AdvanceTrigger);
+        _triggerItems = new[] { "" }.Concat(triggerNames).ToArray();
+        _advanceTriggerBox = MakeCommandCombo(_triggerItems, step.AdvanceTrigger);
+        _advanceTriggerBox.Loaded += (_, _) => AttachIntelliSenseToComboBox(_advanceTriggerBox, isCommand: false);
 
         // ── Crosshair picker ──────────────────────────────────────────────────
 
@@ -2124,6 +2146,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         };
 
         UpdateDeleteButtonVisibility(rows);
+
+        // Suppress the ComboBox built-in dropdown and show our intellisense popup instead.
+        // Use the Loaded event so the inner TextBox template is fully applied.
+        cb.Loaded += (_, _) =>
+        {
+            AttachIntelliSenseToComboBox(cb, isCommand: true);
+            // Suppress the ComboBox's own dropdown while the user is typing
+            var innerTb = VisualTreeSearch.FindChild<TextBox>(cb);
+            if (innerTb is not null)
+                innerTb.TextChanged += (_, _) => { if (cb.IsDropDownOpen) cb.IsDropDownOpen = false; };
+        };
+
+        // Focus the new ComboBox so the user can start typing immediately
+        cb.Focus();
     }
 
     private Button MakeAddRowButton(List<CommandRow> rows, StackPanel panel)
@@ -2159,6 +2195,169 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             comboBox.Text = string.IsNullOrEmpty(editor.ResultText) ? "(none)" : editor.ResultText;
             PushLivePreview();
         }
+    }
+
+    // ── Intellisense helpers ──────────────────────────────────────────────────
+
+    private void AttachIntelliSenseToTargetBox()
+    {
+        var helper = new TourIntelliSenseHelper(
+            placementTarget:   _targetControlBox,
+            textSource:        _targetControlBox,
+            suggestionsProvider: text =>
+            {
+                var filter = text.Trim();
+                var names  = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
+                return names
+                    .Where(n => filter.Length == 0
+                                || n.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            },
+            acceptCallback: accepted =>
+            {
+                _targetControlBox.Text = accepted;
+            });
+        _intelliSenseHelpers.Add(helper);
+    }
+
+    private void AttachIntelliSenseToComboBox(ComboBox cb, bool isCommand)
+    {
+        var innerTb = VisualTreeSearch.FindChild<TextBox>(cb);
+        if (innerTb is null) return;
+
+        var helper = new TourIntelliSenseHelper(
+            placementTarget:   cb,
+            textSource:        innerTb,
+            suggestionsProvider: text => isCommand
+                ? GetCommandSuggestions(text)
+                : GetTriggerSuggestions(text),
+            acceptCallback: accepted =>
+            {
+                if (isCommand)
+                    ApplyCommandAccepted(cb, accepted);
+                else
+                    ApplyTriggerAccepted(accepted);
+            });
+        _intelliSenseHelpers.Add(helper);
+    }
+
+    private IReadOnlyList<string> GetCommandSuggestions(string rawText)
+    {
+        var colonIdx = rawText.IndexOf(": ");
+        if (colonIdx >= 0)
+        {
+            var cmdName   = rawText[..colonIdx].Trim();
+            var paramText = rawText[(colonIdx + 2)..];
+            return GetCommandParamSuggestions(cmdName, paramText);
+        }
+
+        var filter = rawText.Trim();
+        if (string.Equals(filter, "(none)", StringComparison.OrdinalIgnoreCase)) filter = "";
+
+        return _commandItems
+            .Where(c => c != "" && c != "(none)")
+            .Where(c => filter.Length == 0 || c.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<string> GetCommandParamSuggestions(string cmdName, string paramText)
+    {
+        if (s_preferencePageCommands.Contains(cmdName))
+            return s_preferencePageNames
+                .Where(p => paramText.Length == 0
+                            || p.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        if (s_elementNameCommands.Contains(cmdName))
+        {
+            var names = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
+            return names
+                .Where(n => paramText.Length == 0
+                            || n.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private void ApplyCommandAccepted(ComboBox cb, string accepted)
+    {
+        var text      = cb.Text;
+        var colonIdx  = text.IndexOf(": ");
+
+        if (colonIdx >= 0)
+        {
+            // Accepting a parameter value — replace the text after ": "
+            cb.Text = text[..(colonIdx + 2)] + accepted;
+        }
+        else
+        {
+            // Accepting a command name — append ": " if the command takes a parameter
+            var needsParam = _parameterizedCommandNames.Contains(accepted);
+            cb.Text = needsParam ? accepted + ": " : accepted;
+        }
+        PushLivePreview();
+    }
+
+    private IReadOnlyList<string> GetTriggerSuggestions(string rawText)
+    {
+        var colonIdx = rawText.IndexOf(": ");
+        if (colonIdx >= 0)
+        {
+            var triggerName = rawText[..colonIdx].Trim();
+            var paramText   = rawText[(colonIdx + 2)..];
+            return GetTriggerParamSuggestions(triggerName, paramText);
+        }
+
+        var filter = rawText.Trim();
+        if (string.Equals(filter, "(none)", StringComparison.OrdinalIgnoreCase)) filter = "";
+
+        return _triggerItems
+            .Where(t => t != "" && t != "(none)")
+            .Where(t => filter.Length == 0 || t.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private IReadOnlyList<string> GetTriggerParamSuggestions(string triggerName, string paramText)
+    {
+        if (string.Equals(triggerName, "PreferencePageSelected", StringComparison.OrdinalIgnoreCase))
+            return s_preferencePageNames
+                .Where(p => paramText.Length == 0
+                            || p.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+        if (string.Equals(triggerName, "MenuOpened", StringComparison.OrdinalIgnoreCase))
+        {
+            var names = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
+            return names
+                .Where(n => paramText.Length == 0
+                            || n.StartsWith(paramText, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private void ApplyTriggerAccepted(string accepted)
+    {
+        var text     = _advanceTriggerBox.Text;
+        var colonIdx = text.IndexOf(": ");
+
+        if (colonIdx >= 0)
+        {
+            _advanceTriggerBox.Text = text[..(colonIdx + 2)] + accepted;
+        }
+        else
+        {
+            var needsParam = s_paramTriggerNames.Contains(accepted);
+            _advanceTriggerBox.Text = needsParam ? accepted + ": " : accepted;
+        }
+        PushLivePreview();
     }
 
     // ── Multi-select copy/cut/paste ───────────────────────────────────────────
