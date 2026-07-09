@@ -514,8 +514,8 @@
       {
         "title": "PTT Options",
         "markdownText": "This page allows you to set your push to talk (PTT) options.",
-        "targetControlId": "PrefNav_PushToTalk",
-        "calloutPlacement": "East",
+        "targetControlId": "PrefPageHost",
+        "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -526,6 +526,20 @@
         "commandsAfter": [
           "UnhighlightElements"
         ],
+        "advanceTrigger": "PreferencePageSelected: Push to Talk",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "PTT Options.",
+        "markdownText": "These buttons that impact how the",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5

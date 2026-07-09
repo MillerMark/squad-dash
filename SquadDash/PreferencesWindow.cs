@@ -151,6 +151,10 @@ internal sealed class PreferencesWindow : Window {
         "SpeechProvider_OpenAiWhisper",  // "OpenAI Whisper" radio button
         "SpeechProvider_AzureApiKey",    // Azure Speech API key password box
         "SpeechProvider_AzureRegion",    // Azure Speech region text box
+        // Push to Talk page content controls
+        "Ptt_BehaviorGroup",  // StackPanel containing both PTT behavior radio buttons
+        "Ptt_AutoSend",       // "Send/queue my spoken prompt immediately" radio
+        "Ptt_DoNothing",      // "Do nothing" radio
     };
 
     private readonly UIElement[] _pages;
@@ -311,6 +315,7 @@ internal sealed class PreferencesWindow : Window {
         _openAiSpeechRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _pttAutoSendRadio = new RadioButton {
+            Name = "Ptt_AutoSend",
             Content = "Send/queue my spoken prompt immediately",
             GroupName = "PttBehavior",
             IsChecked = currentSettings.PttAutoSend,
@@ -318,6 +323,7 @@ internal sealed class PreferencesWindow : Window {
         };
         _pttAutoSendRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
         _pttDoNothingRadio = new RadioButton {
+            Name = "Ptt_DoNothing",
             Content = "Do nothing",
             GroupName = "PttBehavior",
             IsChecked = !currentSettings.PttAutoSend,
@@ -990,7 +996,7 @@ internal sealed class PreferencesWindow : Window {
 
         AddLabel(form, "When I release the Ctrl key in the prompt text box (after I'm done speaking):");
 
-        var pttStack = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+        var pttStack = new StackPanel { Name = "Ptt_BehaviorGroup", Margin = new Thickness(0, 4, 0, 0) };
 
         pttStack.Children.Add(_pttAutoSendRadio);
 
