@@ -41,8 +41,8 @@ internal sealed class GuidedTourAdvanceTriggerRegistry
         if (string.IsNullOrWhiteSpace(spec)) return null;
 
         var sep  = spec.IndexOf(':');
-        var name = sep >= 0 ? spec[..sep] : spec;
-        var arg  = sep >= 0 ? spec[(sep + 1)..] : string.Empty;
+        var name = (sep >= 0 ? spec[..sep] : spec).Trim();
+        var arg  = (sep >= 0 ? spec[(sep + 1)..] : string.Empty).Trim();
 
         return _triggers.TryGetValue(name, out var trigger)
             ? trigger.Subscribe(arg, onAdvance)
