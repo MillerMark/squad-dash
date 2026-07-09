@@ -13925,6 +13925,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                             ? [(Window)_preferencesWindow]
                                             : null,
             elementNamesProvider: () => _tourNamedElements.Keys
+                                            .Concat(PreferencesWindow.NavElementNames)
                                             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                                             .ToList());
     }

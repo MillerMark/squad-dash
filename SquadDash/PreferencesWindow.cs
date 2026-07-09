@@ -107,6 +107,47 @@ internal sealed class PreferencesWindow : Window {
         "gemini-3-pro-preview"
     };
 
+    /// <summary>
+    /// Display labels for all navigation leaf pages. These are the strings to pass to
+    /// <see cref="NavigateToByLabel"/> and the <c>SelectPreferencesPage</c> tour command.
+    /// </summary>
+    public static readonly IReadOnlyList<string> PageLabels = new[]
+    {
+        "General",
+        "Provider",       // Voice & Speech
+        "Push to Talk",   // Voice & Speech
+        "Replacements",   // Voice & Speech
+        "Sound Alerts",   // Sound
+        "TTS Provider",   // Sound
+        "Commands",       // AI
+        "Model",          // AI
+        "Remote Access",  // Connectivity
+        "Notifications",  // Connectivity
+        "Hints",          // Discoverability
+        "Dev / Diag.",    // standalone
+    };
+
+    /// <summary>
+    /// Element names (x:Name equivalents) for all navigation leaf items in the Preferences window.
+    /// These are the names assigned via <c>LabelToTourName</c> in <see cref="BuildNavTree"/> and
+    /// can be used as tour target IDs or intellisense suggestions even before the window is opened.
+    /// </summary>
+    public static readonly IReadOnlyList<string> NavElementNames = new[]
+    {
+        "PrefNav_General",
+        "PrefNav_Provider",      // Voice & Speech > Provider
+        "PrefNav_PushToTalk",    // Voice & Speech > Push to Talk
+        "PrefNav_Replacements",  // Voice & Speech > Replacements
+        "PrefNav_SoundAlerts",   // Sound > Sound Alerts
+        "PrefNav_TTSProvider",   // Sound > TTS Provider
+        "PrefNav_Commands",      // AI > Commands
+        "PrefNav_Model",         // AI > Model
+        "PrefNav_RemoteAccess",  // Connectivity > Remote Access
+        "PrefNav_Notifications", // Connectivity > Notifications
+        "PrefNav_Hints",         // Discoverability > Hints
+        "PrefNav_DevDiag",       // Dev / Diag.
+    };
+
     private readonly UIElement[] _pages;
     private readonly Dictionary<int, TreeViewItem> _leafItems;
     private readonly Dictionary<string, int>       _pageIndexByLabel;  // label → page index

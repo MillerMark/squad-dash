@@ -98,8 +98,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private string[]                              _triggerItems = Array.Empty<string>();
     private readonly List<IDisposable>            _intelliSenseHelpers = new();
 
-    private static readonly string[] s_preferencePageNames =
-        ["General", "Hints", "Model", "Voice", "Developer", "Licenses"];
+    private static readonly IReadOnlyList<string> s_preferencePageNames =
+        PreferencesWindow.PageLabels;
     private static readonly HashSet<string> s_elementNameCommands =
         new(StringComparer.OrdinalIgnoreCase) { "HighlightElement", "HighlightMenuItem", "OpenMenu", "CloseMenu" };
     private static readonly HashSet<string> s_preferencePageCommands =

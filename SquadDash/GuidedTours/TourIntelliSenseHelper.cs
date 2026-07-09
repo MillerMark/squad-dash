@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace SquadDash.GuidedTours;
@@ -68,7 +69,11 @@ internal sealed class TourIntelliSenseHelper : IDisposable
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
         _listBox.SetResourceReference(ListBox.BackgroundProperty, "InputSurface");
-        _listBox.MouseLeftButtonUp += OnListBoxMouseLeftButtonUp;
+        // PreviewMouseLeftButtonDown fires before WPF transfers keyboard focus away from the
+        // text source, so we can accept the item before IsKeyboardFocusWithinChanged closes
+        // the popup.  Using MouseLeftButtonUp instead would be too late — the popup is already
+        // closed by the time that event fires.
+        _listBox.PreviewMouseLeftButtonDown += OnListBoxPreviewMouseDown;
 
         var border = new Border
         {
@@ -96,8 +101,6 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         _textSource.PreviewKeyDown += OnPreviewKeyDown;
         _placementTarget.IsKeyboardFocusWithinChanged += OnFocusWithinChanged;
     }
-
-    // ── Event handlers ────────────────────────────────────────────────────────
 
     private void OnFocusWithinChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
@@ -155,10 +158,20 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         }
     }
 
-    private void OnListBoxMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void OnListBoxPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (_listBox.SelectedItem is ListBoxItem item && item.Content is string text)
+        // Walk up from the element under the pointer to find the ListBoxItem.
+        var dep = e.OriginalSource as DependencyObject;
+        while (dep is not null and not ListBoxItem)
+            dep = VisualTreeHelper.GetParent(dep);
+
+        if (dep is ListBoxItem lbi && lbi.Content is string text)
+        {
+            // Prevent the click from transferring keyboard focus away from the text source,
+            // which would otherwise close the popup before acceptance completes.
+            e.Handled = true;
             AcceptItem(text);
+        }
     }
 
     // ── Accept logic ──────────────────────────────────────────────────────────
@@ -227,7 +240,7 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         _textSource.TextChanged    -= OnTextChanged;
         _textSource.PreviewKeyDown -= OnPreviewKeyDown;
         _placementTarget.IsKeyboardFocusWithinChanged -= OnFocusWithinChanged;
-        _listBox.MouseLeftButtonUp -= OnListBoxMouseLeftButtonUp;
+        _listBox.PreviewMouseLeftButtonDown -= OnListBoxPreviewMouseDown;
         _popup.IsOpen = false;
     }
 }

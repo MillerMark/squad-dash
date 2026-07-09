@@ -468,22 +468,39 @@
           "OpenMenu: FileMenuItem",
           "HighlightMenuItem: FileOptionsMenuItem"
         ],
-        "commandsAfter": [],
+        "commandsAfter": [
+          "UnhighlightElements"
+        ],
         "advanceTrigger": "PreferencesShown",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
       {
-        "title": "New Step",
-        "markdownText": "In the Voice and speech section, you\u0027ll want to first set up your provider.",
+        "title": "Speech Page",
+        "markdownText": "In the Voice \u0026 Speech section, you\u0027ll want to first set up your provider.",
+        "targetControlId": "PrefNav_Provider",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "HighlightElement: PrefNavProvider"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "PreferencePageSelected: Voice",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Speech Provider",
+        "markdownText": "Choose your speech provider. **Azure** is fastest and recommended (you may also be able to get a free account for up to $5 a month in transcriptions).",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [
-          "ShowPreferences"
-        ],
+        "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
