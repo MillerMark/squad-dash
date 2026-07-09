@@ -233,6 +233,8 @@ internal sealed class TourIntelliSenseHelper : IDisposable
     private void UpdateSuggestions()
     {
         if (_suppressUpdate || _disposed) return;
+        // Only show suggestions when the user is actively editing the field.
+        if (!_textSource.IsKeyboardFocused) return;
 
         var suggestions = _suggestionsProvider(_textSource.Text);
 
