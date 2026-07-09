@@ -485,12 +485,14 @@
         "commandAfter": "",
         "commandsBefore": [
           "ShowPreferences",
-          "HighlightElement: PrefNavProvider"
+          "HighlightElement: PrefNav_Provider"
         ],
-        "commandsAfter": [],
+        "commandsAfter": [
+          "UnhighlightElements"
+        ],
         "advanceTrigger": "PreferencePageSelected: Voice",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
+        "targetOffsetX": 0,
+        "targetOffsetY": 0.4067307692307688
       },
       {
         "title": "Speech Provider",

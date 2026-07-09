@@ -1395,19 +1395,28 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _pickBlackRect = null;
         _pickLabel     = null;
 
+        // Gather all windows whose visual trees should be searchable during pick mode.
+        // MainWindow comes first; extra windows (e.g. PreferencesWindow) follow.
+        var allWindows = new List<Window> { mainWindow };
+        var extraWindows = _extraPickWindowsProvider?.Invoke() ?? [];
+        allWindows.AddRange(extraWindows);
+
+        // One full-virtual-screen overlay — eliminates z-order conflicts between windows.
+        // Alpha=1 makes it nearly invisible while still receiving mouse events (WPF skips
+        // hit-testing for fully transparent pixels when AllowsTransparency=true).
         var overlay = new Window
         {
             Owner                     = mainWindow,
             WindowStyle               = WindowStyle.None,
             AllowsTransparency        = true,
-            Background                = new SolidColorBrush(Color.FromArgb(0x10, 0, 0, 0)),
+            Background                = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)),
             Topmost                   = true,
             ShowInTaskbar             = false,
             Cursor                    = Cursors.Cross,
-            Left                      = mainWindow.Left,
-            Top                       = mainWindow.Top,
-            Width                     = mainWindow.ActualWidth,
-            Height                    = mainWindow.ActualHeight,
+            Left                      = SystemParameters.VirtualScreenLeft,
+            Top                       = SystemParameters.VirtualScreenTop,
+            Width                     = SystemParameters.VirtualScreenWidth,
+            Height                    = SystemParameters.VirtualScreenHeight,
             WindowStartupLocation     = WindowStartupLocation.Manual,
         };
 
@@ -1434,18 +1443,58 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // Cache the last hit element to avoid redundant tree walks on every MouseMove.
         DependencyObject? lastHitObj = null;
         (FrameworkElement? element, string? name) lastResult = (null, null);
+        Window? lastHitWindow = null;
+
+        // Find the topmost named element under the screen-space cursor, searching all windows.
+        (FrameworkElement? fe, string? name, Window? win) HitTestAllWindows(Point overlayPos)
+        {
+            var screenPos = overlay.PointToScreen(overlayPos);
+            foreach (var win in allWindows)
+            {
+                if (!win.IsVisible) continue;
+                var winPos = win.PointFromScreen(screenPos);
+                var hit = VisualTreeHelper.HitTest(win, winPos);
+                if (hit?.VisualHit is DependencyObject hitObj)
+                {
+                    var (fe, name) = FindFirstUniqueNamedAncestor(hitObj, win);
+                    if (fe != null && name != null)
+                        return (fe, name, win);
+                }
+            }
+            return (null, null, null);
+        }
 
         overlay.MouseMove += (_, e) =>
         {
-            var pos = e.GetPosition(mainWindow);
-            var hit = VisualTreeHelper.HitTest(mainWindow, pos);
-            if (hit?.VisualHit is DependencyObject hitObj)
+            var overlayPos = e.GetPosition(overlay);
+            var screenPos  = overlay.PointToScreen(overlayPos);
+
+            // Try the window that had the hit last frame first (avoids full search on every move).
+            Window? candidateWin = lastHitWindow ?? mainWindow;
+            var candidatePos = candidateWin.PointFromScreen(screenPos);
+            var quickHit = VisualTreeHelper.HitTest(candidateWin, candidatePos);
+            DependencyObject? hitObj = quickHit?.VisualHit;
+            Window? hitWin = hitObj != null ? candidateWin : null;
+
+            // If quick hit failed, search all other windows.
+            if (hitObj == null)
             {
-                // Throttle: reuse result if the same leaf element is still under the cursor.
-                if (!ReferenceEquals(hitObj, lastHitObj))
+                foreach (var win in allWindows)
                 {
-                    lastHitObj  = hitObj;
-                    lastResult  = FindFirstUniqueNamedAncestor(hitObj, mainWindow);
+                    if (!win.IsVisible || ReferenceEquals(win, candidateWin)) continue;
+                    var winPos = win.PointFromScreen(screenPos);
+                    var h = VisualTreeHelper.HitTest(win, winPos);
+                    if (h?.VisualHit is DependencyObject obj) { hitObj = obj; hitWin = win; break; }
+                }
+            }
+
+            if (hitObj is DependencyObject finalHitObj && hitWin is not null)
+            {
+                lastHitWindow = hitWin;
+                if (!ReferenceEquals(finalHitObj, lastHitObj))
+                {
+                    lastHitObj = finalHitObj;
+                    lastResult = FindFirstUniqueNamedAncestor(finalHitObj, hitWin);
                 }
 
                 var (fe, name) = lastResult;
@@ -1453,22 +1502,23 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 {
                     var topLeft = overlay.PointFromScreen(fe.PointToScreen(new Point(0, 0)));
                     const double stroke = 2;
-                    const double pad    = 2; // gap between white rect and black rect
+                    const double pad    = 2;
                     UpdateHighlight(canvas, topLeft, fe.ActualWidth, fe.ActualHeight, stroke, pad, name);
                     return;
                 }
             }
             else
             {
-                lastHitObj = null;
-                lastResult = (null, null);
+                lastHitObj    = null;
+                lastHitWindow = null;
+                lastResult    = (null, null);
             }
             ClearHighlight(canvas);
         };
 
         overlay.MouseLeftButtonUp += (_, e) =>
         {
-            var pos = e.GetPosition(mainWindow);
+            var overlayPos = e.GetPosition(overlay);
             ClearHighlight(canvas);
             overlay.Close();
             Visibility = Visibility.Visible;
@@ -1476,22 +1526,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
             try
             {
-                var hit = VisualTreeHelper.HitTest(mainWindow, pos);
-                if (hit?.VisualHit is DependencyObject hitObj)
+                var (fe, name, _) = HitTestAllWindows(overlayPos);
+                if (name != null)
                 {
-                    // Walk up the visual tree; first unique name wins.
-                    var (_, name) = FindFirstUniqueNamedAncestor(hitObj, mainWindow);
-                    if (name != null)
-                    {
-                        _targetControlBox.Text = name;
-                        PushLivePreview();
-                        QueueAutoSave();
-                    }
-                    else
-                    {
-                        ShowStatus("⚠ The clicked element has no unique x:Name — cannot use as a target. " +
-                                   "Assign an x:Name to this element or select a different target.");
-                    }
+                    _targetControlBox.Text = name;
+                    PushLivePreview();
+                    QueueAutoSave();
+                }
+                else if (fe != null)
+                {
+                    ShowStatus("⚠ The clicked element has no unique x:Name — cannot use as a target. " +
+                               "Assign an x:Name to this element or select a different target.");
                 }
                 else
                 {
@@ -1521,11 +1566,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         overlay.Show();
         overlay.Focus();
-
-        // ── Extra-window overlays (e.g. PreferencesWindow) ───────────────────
-        var extraWindows = _extraPickWindowsProvider?.Invoke() ?? [];
-        foreach (var extraWin in extraWindows)
-            AttachExtraPickOverlay(extraWin, overlay);
+        // AttachExtraPickOverlay is no longer needed — one full-screen overlay handles all windows.
     }
 
     /// <summary>
