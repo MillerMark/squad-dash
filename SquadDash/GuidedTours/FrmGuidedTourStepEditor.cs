@@ -23,6 +23,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private GuidedTour                 _activeTour;
     private readonly List<GuidedTour>  _allTours;
     private readonly string?           _workspaceFolderPath;
+
+    private readonly Stack<string>     _undoStack = new();
+    private const int                  UndoStackMaxDepth = 50;
     private readonly Action?           _captureLayout;
 
     private readonly Action?           _livePreviewCallback;
@@ -755,6 +758,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 }
             }
 
+            // Ctrl+Z: undo last change
+            if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
+            {
+                UndoLastChange();
+                e.Handled = true;
+                return;
+            }
+
             // Ctrl+S: manual save-now shortcut
             if (e.Key == Key.S && (Keyboard.Modifiers & ModifierKeys.Control) != 0
                 && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
@@ -859,6 +872,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         try
         {
             SaveCurrentFieldsToStep();
+            PushUndoSnapshot();
 
             GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
             WasSaved = true;
@@ -883,6 +897,54 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         if (_isLoadingStep) return;
         _autoSaveTimer.Stop();
         _autoSaveTimer.Start();
+    }
+
+    private string SnapshotTourJson() =>
+        System.Text.Json.JsonSerializer.Serialize(_activeTour.Steps);
+
+    private void PushUndoSnapshot()
+    {
+        _undoStack.Push(SnapshotTourJson());
+        if (_undoStack.Count > UndoStackMaxDepth)
+        {
+            var items = _undoStack.ToArray(); // top-first order
+            _undoStack.Clear();
+            foreach (var item in items.Take(UndoStackMaxDepth).Reverse())
+                _undoStack.Push(item);
+        }
+    }
+
+    private void UndoLastChange()
+    {
+        if (_undoStack.Count == 0)
+        {
+            ShowStatus("Nothing to undo");
+            return;
+        }
+        var json = _undoStack.Pop();
+        try
+        {
+            var steps = System.Text.Json.JsonSerializer.Deserialize<List<GuidedTourStep>>(json);
+            if (steps is null) return;
+            _activeTour.Steps.Clear();
+            foreach (var s in steps)
+                _activeTour.Steps.Add(s);
+
+            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+                GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
+
+            _stepIndex = Math.Clamp(_stepIndex, 0, Math.Max(0, _activeTour.Steps.Count - 1));
+
+            RefreshAfterBulkEdit(_stepIndex);
+            ShowStatus("↩ Undone");
+            var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            clearTimer.Tick += (_, _) => { clearTimer.Stop(); ShowStatus(string.Empty); };
+            clearTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"⚠ Undo failed: {ex.Message}");
+        }
     }
 
     private void TryClose()
@@ -926,6 +988,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     public void SwitchActiveTour(GuidedTour newTour, int selectStepIndex)
     {
         _activeTour = newTour;
+        _undoStack.Clear();
         _isLoadingStep = true;
         try { _descriptionBox.Text = newTour.Description; }
         finally { _isLoadingStep = false; }
