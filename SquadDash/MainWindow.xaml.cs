@@ -31200,6 +31200,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    /// <summary>
+    /// Called by ThemeColorsWindow when the user edits a theme token via the live preview.
+    /// Updates the tint baseline so ApplyTintStop immediately re-rotates from the new base color,
+    /// matching the post-restart appearance exactly.
+    /// </summary>
+    internal void NotifyThemeBaselineColorChanged(string key, Color newBaseColor)
+    {
+        if (_tintBaseline is null) return;
+        if (!_tintBaseline.ContainsKey(key) && !TintKeys.ActiveAccent.Contains(key)) return;
+        _tintBaseline[key] = newBaseColor;
+        ApplyTintStop(_activeTintStop, notify: false);
+    }
+
     private void ApplyTintStop(int stop, bool notify = true)
     {
         if (_tintBaseline is null) return;

@@ -764,6 +764,9 @@ internal sealed class ThemeColorsWindow : Window
             _pendingByTheme[currentTheme] = new Dictionary<string, Color>(StringComparer.Ordinal);
         _pendingByTheme[currentTheme][_selectedKey] = adjusted;
 
+        // Re-apply tint so the preview reflects the tinted result, not just the raw color.
+        _mainWindow.NotifyThemeBaselineColorChanged(_selectedKey, adjusted);
+
         // Update swatch
         _swatchBorder.Background = new SolidColorBrush(adjusted);
 
