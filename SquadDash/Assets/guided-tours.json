@@ -497,7 +497,7 @@
       {
         "title": "Speech Provider",
         "markdownText": "Choose your speech provider. **Azure** is fastest and recommended (you may also be able to get a free account for up to $5 a month in transcriptions).",
-        "targetControlId": "",
+        "targetControlId": "PrefPageHost",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",

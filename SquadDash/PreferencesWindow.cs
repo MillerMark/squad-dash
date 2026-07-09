@@ -146,6 +146,11 @@ internal sealed class PreferencesWindow : Window {
         "PrefNav_Notifications", // Connectivity > Notifications
         "PrefNav_Hints",         // Discoverability > Hints
         "PrefNav_DevDiag",       // Dev / Diag.
+        // Provider page content controls
+        "SpeechProvider_Azure",          // "Azure Cognitive Services" radio button
+        "SpeechProvider_OpenAiWhisper",  // "OpenAI Whisper" radio button
+        "SpeechProvider_AzureApiKey",    // Azure Speech API key password box
+        "SpeechProvider_AzureRegion",    // Azure Speech region text box
     };
 
     private readonly UIElement[] _pages;
@@ -243,6 +248,7 @@ internal sealed class PreferencesWindow : Window {
 
         var currentApiKey = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User) ?? string.Empty;
         _apiKeyPasswordBox = new PasswordBox {
+            Name = "SpeechProvider_AzureApiKey",
             Password = currentApiKey,
             Padding = new Thickness(6, 4, 6, 4),
             Height = 30
@@ -261,6 +267,7 @@ internal sealed class PreferencesWindow : Window {
         _apiKeyRevealBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
 
         _speechRegionBox = new TextBox {
+            Name = "SpeechProvider_AzureRegion",
             Text = currentSettings.SpeechRegion ?? string.Empty,
             Padding = new Thickness(6, 4, 6, 4),
             Height = 30
@@ -284,6 +291,7 @@ internal sealed class PreferencesWindow : Window {
 
         var isOpenAi = currentSettings.SpeechProvider == SpeechProvider.OpenAI;
         _azureSpeechRadio = new RadioButton {
+            Name = "SpeechProvider_Azure",
             Content = "Azure Cognitive Services",
             GroupName = "SpeechProvider",
             FontSize = (double)Application.Current.Resources["FontSizeNormal"],
@@ -293,6 +301,7 @@ internal sealed class PreferencesWindow : Window {
         _azureSpeechRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _openAiSpeechRadio = new RadioButton {
+            Name = "SpeechProvider_OpenAiWhisper",
             Content = "OpenAI Whisper",
             GroupName = "SpeechProvider",
             FontSize = (double)Application.Current.Resources["FontSizeNormal"],
