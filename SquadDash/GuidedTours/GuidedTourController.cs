@@ -37,6 +37,8 @@ internal sealed class GuidedTourController
     private readonly Func<bool>?                          _isTypeAnimationRunning;
     private readonly Func<IReadOnlyList<Window>?>?        _extraPickWindowsProvider;
     private readonly Func<IReadOnlyList<string>>?         _elementNamesProvider;
+    private readonly Func<string?>?                       _getLastEditorTourName;
+    private readonly Action<string>?                      _saveLastEditorTourName;
     private CancellationTokenSource?                      _readingNudgeCts;
 
     /// <summary>
@@ -64,7 +66,9 @@ internal sealed class GuidedTourController
         GuidedTourAdvanceTriggerRegistry? triggerRegistry    = null,
         Func<bool>?                     isTypeAnimationRunning = null,
         Func<IReadOnlyList<Window>?>?   extraPickWindowsProvider = null,
-        Func<IReadOnlyList<string>>?    elementNamesProvider = null)
+        Func<IReadOnlyList<string>>?    elementNamesProvider = null,
+        Func<string?>?                  getLastEditorTourName  = null,
+        Action<string>?                 saveLastEditorTourName = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -78,6 +82,8 @@ internal sealed class GuidedTourController
         _isTypeAnimationRunning  = isTypeAnimationRunning;
         _extraPickWindowsProvider = extraPickWindowsProvider;
         _elementNamesProvider    = elementNamesProvider;
+        _getLastEditorTourName   = getLastEditorTourName;
+        _saveLastEditorTourName  = saveLastEditorTourName;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -147,9 +153,15 @@ internal sealed class GuidedTourController
             return;
         }
 
+        // Restore the last-selected tour (by name) unless a tour is already active.
         if (!IsActive)
         {
-            _activeTour       = tour;
+            var lastName = _getLastEditorTourName?.Invoke();
+            var restored = string.IsNullOrWhiteSpace(lastName)
+                ? null
+                : _allTours.FirstOrDefault(t =>
+                    string.Equals(t.Name, lastName, StringComparison.OrdinalIgnoreCase));
+            _activeTour       = restored ?? tour;
             _currentStepIndex = 0;
         }
 
@@ -750,6 +762,7 @@ internal sealed class GuidedTourController
 
         _activeTour       = newTour;
         _currentStepIndex = 0;
+        _saveLastEditorTourName?.Invoke(newTour.Name);
 
         _activeEditor?.SwitchActiveTour(newTour, 0);
         ShowCurrentStep();

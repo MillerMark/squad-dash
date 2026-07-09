@@ -477,7 +477,7 @@
       },
       {
         "title": "Speech Page",
-        "markdownText": "In the **Voice \u0026 Speech** section, you\u0027ll want to first set up your provider.",
+        "markdownText": "In the **Voice \u0026 Speech** section, we\u0027ll set up our speech services provider.",
         "targetControlId": "PrefNav_Provider",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -488,7 +488,8 @@
           "HighlightElement: PrefNav_Provider"
         ],
         "commandsAfter": [
-          "UnhighlightElements"
+          "UnhighlightElements",
+          "SelectPreferencesPage: Provider"
         ],
         "advanceTrigger": "PreferencePageSelected: Voice",
         "targetOffsetX": 0,
@@ -502,11 +503,32 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "ShowPreferences"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.07451923076923064,
         "targetOffsetY": 0.17596153846153803
+      },
+      {
+        "title": "PTT Options",
+        "markdownText": "This page allows you to set your push to talk (PTT) options.",
+        "targetControlId": "PrefNav_PushToTalk",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "HighlightElement: PrefNav_PushToTalk"
+        ],
+        "commandsAfter": [
+          "UnhighlightElements"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       }
     ]
   },

@@ -13927,7 +13927,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             elementNamesProvider: () => _tourNamedElements.Keys
                                             .Concat(PreferencesWindow.NavElementNames)
                                             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
-                                            .ToList());
+                                            .ToList(),
+            getLastEditorTourName:  () => _settingsSnapshot.LastGuidedTourEditorTourName,
+            saveLastEditorTourName: name => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorTourName(name));
     }
 
     private void UnhighlightAllMenuItems()

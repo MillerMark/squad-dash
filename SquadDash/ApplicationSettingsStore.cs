@@ -874,6 +874,14 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveLastGuidedTourEditorTourName(string tourName) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { LastGuidedTourEditorTourName = tourName };
+        SaveCore(updated);
+        return updated;
+    }
+
     private void SaveCore(ApplicationSettingsSnapshot snapshot) {
         var normalized = snapshot.Normalize();
         JsonFileStorage.AtomicWrite(_settingsPath, normalized);
@@ -1166,6 +1174,12 @@ internal sealed record ApplicationSettingsSnapshot(
     /// Intended for developer troubleshooting and off by default.
     /// </summary>
     public bool BridgeDiagnosticsEnabled { get; init; } = false;
+
+    /// <summary>
+    /// Name of the tour last selected in the standalone Guided Tour Editor.
+    /// Restored on next open so the user lands on the same tour.
+    /// </summary>
+    public string? LastGuidedTourEditorTourName { get; init; }
 
     public DeveloperStartupIssueSimulation GetStartupIssueSimulation(string workspaceFolder) {
         if (string.IsNullOrEmpty(workspaceFolder)) return DeveloperStartupIssueSimulation.None;
