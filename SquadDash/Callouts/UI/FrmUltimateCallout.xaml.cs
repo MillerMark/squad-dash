@@ -71,10 +71,196 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     // ── Global registry (for auto-close sweep) ──────────────────────────────────
     private static readonly List<WeakReference<FrmUltimateCallout>> _openCallouts = new();
+    private static readonly List<WeakReference<ContextMenu>> _openContextMenus = new();
+    private static bool _contextMenuDragProtectionHooksInstalled;
+    private static bool _protectingContextMenusForCalloutDrag;
+    private static bool _contextMenuProtectedDragInProgress;
+    private static WeakReference<FrmUltimateCallout>? _contextMenuProtectedDragCallout;
+    private static readonly Dictionary<ContextMenu, bool> _protectedContextMenuOriginalStaysOpen = new();
+
+    private static void EnsureContextMenuDragProtectionHooks()
+    {
+        if (_contextMenuDragProtectionHooksInstalled)
+            return;
+
+        _contextMenuDragProtectionHooksInstalled = true;
+        EventManager.RegisterClassHandler(
+            typeof(ContextMenu),
+            ContextMenu.OpenedEvent,
+            new RoutedEventHandler(OnAnyContextMenuOpened),
+            handledEventsToo: true);
+        EventManager.RegisterClassHandler(
+            typeof(ContextMenu),
+            ContextMenu.ClosedEvent,
+            new RoutedEventHandler(OnAnyContextMenuClosed),
+            handledEventsToo: true);
+        InputManager.Current.PreProcessInput += OnPreProcessInputForContextMenuDragProtection;
+    }
+
+    private static void OnAnyContextMenuOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu menu)
+            return;
+
+        _openContextMenus.RemoveAll(r => !r.TryGetTarget(out _));
+        if (!_openContextMenus.Any(r => r.TryGetTarget(out var existing) && ReferenceEquals(existing, menu)))
+            _openContextMenus.Add(new WeakReference<ContextMenu>(menu));
+    }
+
+    private static void OnAnyContextMenuClosed(object sender, RoutedEventArgs e)
+    {
+        if (sender is ContextMenu menu)
+            _protectedContextMenuOriginalStaysOpen.Remove(menu);
+
+        _openContextMenus.RemoveAll(r => !r.TryGetTarget(out var existing)
+            || !existing.IsOpen
+            || ReferenceEquals(existing, sender));
+    }
+
+    private static void OnPreProcessInputForContextMenuDragProtection(object sender, PreProcessInputEventArgs e)
+    {
+        if (e.StagingItem.Input is not MouseButtonEventArgs mouseArgs
+            || mouseArgs.ChangedButton != MouseButton.Left)
+            return;
+
+        if (mouseArgs.RoutedEvent != Mouse.PreviewMouseDownEvent
+            && mouseArgs.RoutedEvent != Mouse.MouseDownEvent
+            && mouseArgs.RoutedEvent != Mouse.PreviewMouseDownOutsideCapturedElementEvent
+            && mouseArgs.RoutedEvent != Mouse.PreviewMouseUpOutsideCapturedElementEvent
+            && mouseArgs.RoutedEvent != Mouse.PreviewMouseUpEvent
+            && mouseArgs.RoutedEvent != Mouse.MouseUpEvent
+            && mouseArgs.RoutedEvent != UIElement.PreviewMouseLeftButtonUpEvent
+            && mouseArgs.RoutedEvent != UIElement.MouseLeftButtonUpEvent
+            && mouseArgs.RoutedEvent != UIElement.PreviewMouseLeftButtonDownEvent
+            && mouseArgs.RoutedEvent != UIElement.MouseLeftButtonDownEvent)
+            return;
+
+        if (mouseArgs.ButtonState == MouseButtonState.Released)
+        {
+            if (!_protectingContextMenusForCalloutDrag)
+                return;
+
+            if (_contextMenuProtectedDragInProgress
+                && _contextMenuProtectedDragCallout?.TryGetTarget(out var activeCallout) == true)
+                activeCallout.EndRawMouseDrag();
+
+            _contextMenuProtectedDragInProgress = false;
+            _contextMenuProtectedDragCallout = null;
+
+            mouseArgs.Handled = true;
+            return;
+        }
+
+        if (mouseArgs.ButtonState != MouseButtonState.Pressed)
+            return;
+
+        if (!TryGetCalloutUnderCursor(out var callout))
+        {
+            RestoreContextMenusAfterCalloutDrag();
+            return;
+        }
+
+        if (!callout.IsCursorOverDraggableCalloutSurface())
+        {
+            RestoreContextMenusAfterCalloutDrag();
+            return;
+        }
+
+        ProtectOpenContextMenusForCalloutDrag();
+        ProtectCapturedMenuForCalloutDragIfNeeded();
+        callout.StartRawMouseDrag();
+        mouseArgs.Handled = true;
+    }
+
+    private static bool TryGetCalloutUnderCursor(out FrmUltimateCallout callout)
+    {
+        callout = null!;
+        _openCallouts.RemoveAll(r => !r.TryGetTarget(out var c) || !c.IsVisible);
+
+        var cursor = NativeMethods.GetCursorScreenPos();
+        for (int i = _openCallouts.Count - 1; i >= 0; i--)
+        {
+            if (!_openCallouts[i].TryGetTarget(out var c) || !c.IsVisible)
+                continue;
+
+            var local = c.PointFromScreen(cursor);
+            if (local.X < 0 || local.Y < 0 || local.X > c.ActualWidth || local.Y > c.ActualHeight)
+                continue;
+
+            callout = c;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void ProtectOpenContextMenusForCalloutDrag()
+    {
+        _openContextMenus.RemoveAll(r => !r.TryGetTarget(out var menu) || !menu.IsOpen);
+        if (_openContextMenus.Count == 0)
+            return;
+
+        _protectingContextMenusForCalloutDrag = true;
+        foreach (var weakMenu in _openContextMenus)
+        {
+            if (!weakMenu.TryGetTarget(out var menu) || !menu.IsOpen)
+                continue;
+
+            if (!_protectedContextMenuOriginalStaysOpen.ContainsKey(menu))
+                _protectedContextMenuOriginalStaysOpen[menu] = menu.StaysOpen;
+
+            if (!menu.StaysOpen)
+                menu.StaysOpen = true;
+        }
+    }
+
+    private static void ProtectCapturedMenuForCalloutDragIfNeeded()
+    {
+        if (_protectingContextMenusForCalloutDrag)
+            return;
+
+        if (!IsMouseCapturedByMenu())
+            return;
+
+        _protectingContextMenusForCalloutDrag = true;
+    }
+
+    private static void RestoreContextMenusAfterCalloutDrag()
+    {
+        if (!_protectingContextMenusForCalloutDrag)
+            return;
+
+        _protectingContextMenusForCalloutDrag = false;
+        _contextMenuProtectedDragInProgress = false;
+        _contextMenuProtectedDragCallout = null;
+        foreach (var (menu, originalStaysOpen) in _protectedContextMenuOriginalStaysOpen.ToArray())
+        {
+            if (menu.IsOpen)
+                menu.StaysOpen = originalStaysOpen;
+        }
+
+        _protectedContextMenuOriginalStaysOpen.Clear();
+        _openContextMenus.RemoveAll(r => !r.TryGetTarget(out var menu) || !menu.IsOpen);
+    }
+
+    private static bool IsMouseCapturedByMenu()
+    {
+        if (Mouse.Captured is not DependencyObject captured)
+            return false;
+
+        for (DependencyObject? node = captured; node is not null; node = GetDependencyParent(node))
+        {
+            if (node is System.Windows.Controls.Primitives.MenuBase or MenuItem)
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>Called from FinalizeAndShow to register this instance for auto-close sweeping.</summary>
     private static void RegisterCallout(FrmUltimateCallout callout)
     {
+        EnsureContextMenuDragProtectionHooks();
         // Clean up dead references while we're here.
         _openCallouts.RemoveAll(r => !r.TryGetTarget(out _));
         _openCallouts.Add(new WeakReference<FrmUltimateCallout>(callout));
@@ -173,18 +359,19 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     public FrmUltimateCallout() {
         InitializeComponent();
         InitializeColors();
-        // Prevent clicks on the callout from activating this window (which would deactivate the
-        // main window and cause any open WPF menus to close).
+        // Prevent clicks on the callout from activating this window.
         SourceInitialized += (_, _) =>
         {
-            var src = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
-            src?.AddHook(WndProc_NoActivate);
+            _hwndSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+            _hwndSource?.AddHook(WndProc_NoActivate);
         };
     }
 
     private const int WM_MOUSEACTIVATE = 0x0021;
     private const IntPtr MA_NOACTIVATE = (nint)3;
-    private static IntPtr WndProc_NoActivate(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    private HwndSource? _hwndSource;
+
+    private IntPtr WndProc_NoActivate(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == WM_MOUSEACTIVATE)
         {
@@ -1651,11 +1838,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         public uint dwFlags;
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr SetCapture(IntPtr hWnd);
+    private const int VK_LBUTTON = 0x01;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool ReleaseCapture();
+    private static extern short GetAsyncKeyState(int vKey);
 
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "MonitorFromWindow")]
     private static extern IntPtr MonitorFromWindow_Centered(IntPtr hwnd, uint dwFlags);
@@ -1761,45 +1947,159 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void Callout_Closed(object sender, EventArgs e) {
+        _hwndSource?.RemoveHook(WndProc_NoActivate);
+        _hwndSource = null;
+        EndRawMouseDrag();
         ThemeRevealWindowRegistry.Unregister(this);
         UnhookTargetParentWindowEvents();
         CloseTourOverlay();
     }
 
 
-    // Manual drag state — avoids DragMove() which activates the window via WM_SYSCOMMAND SC_MOVE
-    // (activation deactivates the main window and closes any open menus).
+    // Manual drag state.  Do not use DragMove(), WPF Mouse.Capture(), or Win32 SetCapture()
+    // here: all three disturb WPF Popup/ContextMenu ownership.  The HWND hook eats the initial
+    // mouse-down and this timer polls the physical cursor until the button is released.
     private bool _isDragging;
     private Point _dragStartScreenPos;
     private double _dragStartWindowLeft;
     private double _dragStartWindowTop;
+    private DispatcherTimer? _rawDragTimer;
 
     private void Window_MouseDown(object sender, MouseButtonEventArgs e) {
         if (e.ChangedButton != MouseButton.Left) return;
-        _isDragging = true;
-        _dragStartScreenPos = PointToScreen(e.GetPosition(this));
-        _dragStartWindowLeft = Left;
-        _dragStartWindowTop = Top;
-        // Use Win32 SetCapture instead of Mouse.Capture so WPF's LostMouseCapture
-        // notification is never fired — preventing any open menu popup from closing.
-        SetCapture(new WindowInteropHelper(this).Handle);
+        if (!IsCursorOverDraggableCalloutSurface())
+            return;
+
+        StartRawMouseDrag();
         e.Handled = true;
     }
 
     protected override void OnMouseMove(MouseEventArgs e) {
         base.OnMouseMove(e);
-        if (!_isDragging) return;
-        var current = PointToScreen(e.GetPosition(this));
-        Left = _dragStartWindowLeft + (current.X - _dragStartScreenPos.X);
-        Top  = _dragStartWindowTop  + (current.Y - _dragStartScreenPos.Y);
+        if (_isDragging)
+            MoveRawMouseDragToCursor();
     }
 
     protected override void OnMouseUp(MouseButtonEventArgs e) {
         base.OnMouseUp(e);
-        if (e.ChangedButton == MouseButton.Left && _isDragging) {
-            _isDragging = false;
-            ReleaseCapture();
+        if (e.ChangedButton == MouseButton.Left)
+            EndRawMouseDrag();
+    }
+
+    private void StartRawMouseDrag()
+    {
+        if (_isDragging)
+            return;
+
+        _dragStartScreenPos = GetCursorLogicalScreenPos();
+        _dragStartWindowLeft = Left;
+        _dragStartWindowTop = Top;
+        _isDragging = true;
+        if (_protectingContextMenusForCalloutDrag)
+        {
+            _contextMenuProtectedDragInProgress = true;
+            _contextMenuProtectedDragCallout = new WeakReference<FrmUltimateCallout>(this);
         }
+
+        _rawDragTimer ??= new DispatcherTimer(
+            TimeSpan.FromMilliseconds(10),
+            DispatcherPriority.Input,
+            RawDragTimer_Tick,
+            Dispatcher);
+        _rawDragTimer.Start();
+    }
+
+    private void RawDragTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_isDragging || !IsLeftMouseButtonPhysicallyDown())
+        {
+            EndRawMouseDrag();
+            return;
+        }
+
+        MoveRawMouseDragToCursor();
+    }
+
+    private void MoveRawMouseDragToCursor()
+    {
+        var current = GetCursorLogicalScreenPos();
+        Left = _dragStartWindowLeft + (current.X - _dragStartScreenPos.X);
+        Top  = _dragStartWindowTop  + (current.Y - _dragStartScreenPos.Y);
+    }
+
+    private void EndRawMouseDrag()
+    {
+        if (!_isDragging && _rawDragTimer?.IsEnabled != true)
+            return;
+
+        _isDragging = false;
+        _rawDragTimer?.Stop();
+    }
+
+    private Point GetCursorLogicalScreenPos() =>
+        DpiHelper.PhysicalToLogical(this, NativeMethods.GetCursorScreenPos());
+
+    private static bool IsLeftMouseButtonPhysicallyDown() =>
+        (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+
+    private bool IsCursorOverDraggableCalloutSurface()
+    {
+        var cursor = NativeMethods.GetCursorScreenPos();
+        if (_closeButton?.IsVisible == true && IsCursorOverElement(_closeButton, cursor))
+            return false;
+
+        var local = PointFromScreen(cursor);
+        if (local.X < 0 || local.Y < 0 || local.X > ActualWidth || local.Y > ActualHeight)
+            return false;
+
+        var hit = VisualTreeHelper.HitTest(this, local);
+        if (hit?.VisualHit is not DependencyObject visualHit)
+            return false;
+
+        return !HasInteractiveAncestor(visualHit);
+    }
+
+    private static bool IsCursorOverElement(FrameworkElement element, Point screenPoint)
+    {
+        var local = element.PointFromScreen(screenPoint);
+        return local.X >= 0
+            && local.Y >= 0
+            && local.X <= element.ActualWidth
+            && local.Y <= element.ActualHeight;
+    }
+
+    private static bool HasInteractiveAncestor(DependencyObject current)
+    {
+        for (DependencyObject? node = current; node is not null; node = GetDependencyParent(node))
+        {
+            if (node is System.Windows.Controls.Primitives.ButtonBase
+                or System.Windows.Controls.Primitives.TextBoxBase
+                or System.Windows.Controls.Primitives.Selector
+                or System.Windows.Controls.Primitives.RangeBase)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static DependencyObject? GetDependencyParent(DependencyObject node)
+    {
+        try
+        {
+            var visualParent = VisualTreeHelper.GetParent(node);
+            if (visualParent is not null)
+                return visualParent;
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        return node switch
+        {
+            FrameworkElement fe => fe.Parent,
+            FrameworkContentElement fce => fce.Parent,
+            _ => null
+        };
     }
 
     private void Window_Activated(object sender, EventArgs e) {
@@ -2020,7 +2320,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             ShowDiagnosticControls(guidelineIntersectionData);
         }
 
-        if (GetMouseIsDown()) {
+        if (_isDragging || GetMouseIsDown()) {
             if (animating)
                 StopAnimationTimer(fireSettled: false);
 
