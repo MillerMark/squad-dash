@@ -13970,6 +13970,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tourHighlightOverlay = null;
             _tourHighlightCanvas  = null;
         }
+        // Unsubscribe visibility handlers before clearing the list
+        foreach (var (el, _) in _tourHighlightRects)
+            el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
         _tourHighlightRects.Clear();
         foreach (var w in _tourHighlightTrackedWindows)
             w.LocationChanged -= OnTourHighlightWindowMoved;
@@ -13978,6 +13981,34 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void OnTourHighlightWindowMoved(object? sender, EventArgs e) =>
         RefreshTourHighlightRects();
+
+    private void OnTourHighlightElementVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if ((bool)e.NewValue) return; // became visible — nothing to clean up
+        if (sender is not FrameworkElement el) return;
+        el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
+
+        // Remove the specific rect(s) for this element from the canvas and list
+        var toRemove = _tourHighlightRects.Where(r => ReferenceEquals(r.El, el)).ToList();
+        foreach (var (_, rect) in toRemove)
+            _tourHighlightCanvas?.Children.Remove(rect);
+        _tourHighlightRects.RemoveAll(r => ReferenceEquals(r.El, el));
+
+        // If no rects remain, close the overlay entirely to avoid a lingering
+        // transparent topmost window consuming hit-test events.
+        if (_tourHighlightRects.Count == 0)
+        {
+            if (_tourHighlightOverlay is not null)
+            {
+                _tourHighlightOverlay.Close();
+                _tourHighlightOverlay = null;
+                _tourHighlightCanvas  = null;
+            }
+            foreach (var w in _tourHighlightTrackedWindows)
+                w.LocationChanged -= OnTourHighlightWindowMoved;
+            _tourHighlightTrackedWindows.Clear();
+        }
+    }
 
     private void RefreshTourHighlightRects()
     {
@@ -14315,6 +14346,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
             _tourHighlightCanvas!.Children.Add(rect);
             _tourHighlightRects.Add((el, rect));
+            // Auto-remove the highlight rect when the element becomes invisible
+            // (e.g. when a popup menu is dismissed by the user).
+            el.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
 
             // Subscribe to the parent window's LocationChanged so the rect tracks window drags.
             var parentWin = Window.GetWindow(el);
