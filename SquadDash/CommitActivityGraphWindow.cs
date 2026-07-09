@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
@@ -66,6 +67,16 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private readonly RangeSliderControl   _rangeSlider;
     private readonly CheckBox             _showUncategorizedCheckBox;
 
+    // ── Zoom / pan ────────────────────────────────────────────────────────────
+    private double _zoomLevel = 1.0;
+    private readonly ScaleTransform _canvasScaleTransform = new(1.0, 1.0);
+    private bool   _isPanMode;
+    private bool   _isPanning;
+    private Point  _panStartMouse;
+    private double _panStartH;
+    private double _panStartV;
+    private ScrollViewer _scrollViewer = null!;
+
     public CommitActivityGraphWindow(
         ICommitStatService              statService,
         IEnumerable<CommitApprovalItem> items,
@@ -96,14 +107,18 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         // ── Canvas / scroll area ──────────────────────────────────────────────
         _canvas = new CommitActivityCanvas();
 
-        var scrollViewer = new ScrollViewer
+        var canvasWrapper = new Border
         {
-            // Horizontal scroll disabled — canvas auto-fits to window width.
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-            Content                       = _canvas,
+            Child           = _canvas,
+            LayoutTransform = _canvasScaleTransform,
         };
-        scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
+        _scrollViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
+            Content                       = canvasWrapper,
+        };
+        _scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
 
         // ── Range slider ──────────────────────────────────────────────────────
         var minDate = DateOnly.FromDateTime(DateTime.Today.AddYears(-5));
@@ -152,13 +167,140 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(topBar, Dock.Top);
         layout.Children.Add(topBar);
-        layout.Children.Add(scrollViewer);
+        layout.Children.Add(_scrollViewer);
 
         var contentBorder   = ApplyOuterBorder(titleText: "Commit History");
         contentBorder.Child = layout;
 
         Loaded += (_, _) => StartLoadingData();
         Closed += (_, _) => { _cts?.Cancel(); _debounceTimer.Stop(); };
+
+        // ── Ctrl+scroll zoom ──────────────────────────────────────────────────
+        PreviewMouseWheel += (_, e) =>
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+            var mouseInViewport = e.GetPosition(_scrollViewer);
+            double oldZoom = _zoomLevel;
+            double factor  = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+            ApplyZoom(_zoomLevel * factor);
+
+            if (_zoomLevel > 1.0 && _scrollViewer.ScrollableWidth > 0)
+            {
+                double contentX = (_scrollViewer.HorizontalOffset + mouseInViewport.X) / oldZoom;
+                _scrollViewer.ScrollToHorizontalOffset(contentX * _zoomLevel - mouseInViewport.X);
+            }
+            e.Handled = true;
+        };
+
+        // ── Spacebar pan mode ─────────────────────────────────────────────────
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Space && !_isPanMode)
+            {
+                _isPanMode = true;
+                _scrollViewer.Cursor = AnnotationCursors.OpenHand;
+                e.Handled = true;
+            }
+        };
+
+        PreviewKeyUp += (_, e) =>
+        {
+            if (e.Key == Key.Space && _isPanMode)
+            {
+                _isPanMode = false;
+                if (_isPanning)
+                {
+                    _isPanning = false;
+                    _scrollViewer.ReleaseMouseCapture();
+                }
+                _scrollViewer.Cursor = null;
+                e.Handled = true;
+            }
+        };
+
+        // ── Pan drag ──────────────────────────────────────────────────────────
+        _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (!_isPanMode) return;
+            _isPanning     = true;
+            _panStartMouse = e.GetPosition(_scrollViewer);
+            _panStartH     = _scrollViewer.HorizontalOffset;
+            _panStartV     = _scrollViewer.VerticalOffset;
+            _scrollViewer.CaptureMouse();
+            _scrollViewer.Cursor = AnnotationCursors.ClosedHand;
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseMove += (_, e) =>
+        {
+            if (!_isPanning) return;
+            var pos = e.GetPosition(_scrollViewer);
+            _scrollViewer.ScrollToHorizontalOffset(_panStartH - (pos.X - _panStartMouse.X));
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (!_isPanning) return;
+            _isPanning = false;
+            _scrollViewer.ReleaseMouseCapture();
+            _scrollViewer.Cursor = _isPanMode ? AnnotationCursors.OpenHand : null;
+            e.Handled = true;
+        };
+    }
+
+    // ── Zoom / pan helpers ────────────────────────────────────────────────────
+
+    private void ApplyZoom(double zoom)
+    {
+        _zoomLevel = Math.Max(1.0, Math.Min(20.0, zoom));
+        _canvasScaleTransform.ScaleX = _zoomLevel;
+        _canvasScaleTransform.ScaleY = _zoomLevel;
+        _scrollViewer.HorizontalScrollBarVisibility =
+            _zoomLevel > 1.0 ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        _scrollViewer.InvalidateMeasure();
+        UpdateWindowSizeForZoom();
+        _scrollViewer.UpdateLayout();
+    }
+
+    private void UpdateWindowSizeForZoom()
+    {
+        Rect workDip;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+        {
+            var workPhys = NativeMethods.GetWorkAreaForWindow(hwnd);
+            var source   = PresentationSource.FromVisual(this);
+            double dpiX  = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            double dpiY  = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            workDip = new Rect(workPhys.Left / dpiX, workPhys.Top / dpiY,
+                               workPhys.Width / dpiX, workPhys.Height / dpiY);
+        }
+        else
+        {
+            workDip = SystemParameters.WorkArea;
+        }
+
+        double canvasNatW = _canvas.ActualWidth  > 0 ? _canvas.ActualWidth  : ActualWidth;
+        double canvasNatH = _canvas.ActualHeight > 0 ? _canvas.ActualHeight : ActualHeight;
+        double desiredW   = Math.Max(MinWidth,  canvasNatW * _zoomLevel + 40);
+        double desiredH   = Math.Max(MinHeight, canvasNatH * _zoomLevel + 80);
+
+        double newW = Math.Min(workDip.Width,  desiredW);
+        double newH = Math.Min(workDip.Height, desiredH);
+
+        double newLeft = Left + (Width  - newW) / 2.0;
+        double newTop  = Top  + (Height - newH) / 2.0;
+
+        if (newLeft < workDip.Left)                  newLeft = workDip.Left;
+        if (newTop  < workDip.Top)                   newTop  = workDip.Top;
+        if (newLeft + newW > workDip.Right)  newLeft = workDip.Right  - newW;
+        if (newTop  + newH > workDip.Bottom) newTop  = workDip.Bottom - newH;
+
+        Width  = newW;
+        Height = newH;
+        Left   = newLeft;
+        Top    = newTop;
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
@@ -515,7 +657,7 @@ internal sealed class RangeSliderControl : FrameworkElement
     public DateOnly EndDate      { get; private set; }
     public DateOnly MinDate      { get; set; }
     public DateOnly MaxDate      { get; set; }
-    public int      MinRangeDays { get; set; } = 7;
+    public int      MinRangeDays { get; set; } = 1;
 
     // ── Events ─────────────────────────────────────────────────────────────────
     public event EventHandler? RangeChanged;
