@@ -1651,6 +1651,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         public uint dwFlags;
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SetCapture(IntPtr hWnd);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "MonitorFromWindow")]
     private static extern IntPtr MonitorFromWindow_Centered(IntPtr hwnd, uint dwFlags);
 
@@ -1774,7 +1780,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _dragStartScreenPos = PointToScreen(e.GetPosition(this));
         _dragStartWindowLeft = Left;
         _dragStartWindowTop = Top;
-        Mouse.Capture(this, CaptureMode.SubTree);
+        // Use Win32 SetCapture instead of Mouse.Capture so WPF's LostMouseCapture
+        // notification is never fired — preventing any open menu popup from closing.
+        SetCapture(new WindowInteropHelper(this).Handle);
         e.Handled = true;
     }
 
@@ -1790,7 +1798,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         base.OnMouseUp(e);
         if (e.ChangedButton == MouseButton.Left && _isDragging) {
             _isDragging = false;
-            Mouse.Capture(null);
+            ReleaseCapture();
         }
     }
 
