@@ -242,6 +242,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourQuickReplySelected;
     private event Action? _tourSimulatedSendClicked;
     private event Action? _tourPreferencesWindowShown;
+    private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
@@ -14137,6 +14138,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 removeHandler: h => _tourPreferencesWindowShown -= h));
 
         _tourAdvanceTriggerRegistry.Register(
+            "PreferencesClosed",
+            new PreferencesWindowClosedAdvanceTrigger(
+                addHandler:    h => _tourPreferencesWindowClosed += h,
+                removeHandler: h => _tourPreferencesWindowClosed -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
             "PreferencePageSelected",
             new PreferencePageSelectedAdvanceTrigger(
                 addHandler:    h => _tourPreferencePageSelected += h,
@@ -15544,6 +15551,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 stopPtt: () => _ = StopPushToTalkAsync(send: false),
                 startGuidedTour: () => OpenGuidedTourSelector());
             _preferencesWindow.PageSelected += label => _tourPreferencePageSelected?.Invoke(label);
+            _preferencesWindow.Closed += (_, _) => _tourPreferencesWindowClosed?.Invoke();
             _tourPreferencesWindowShown?.Invoke();
         }
         catch (Exception ex)
