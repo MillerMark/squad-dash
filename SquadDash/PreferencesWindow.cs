@@ -212,7 +212,7 @@ internal sealed class PreferencesWindow : Window {
         });
         KeyDown += (_, e) => {
             if (e.Key == Key.Enter)
-                SaveButton_Click(this, new RoutedEventArgs());
+                Close();
         };
 
         // ── Push-to-talk: double-tap Ctrl routes speech to the focused TextBox ──
@@ -233,10 +233,20 @@ internal sealed class PreferencesWindow : Window {
             }
             _pttGesture.HandleKeyUp(e.Key, DateTime.UtcNow);
         };
-        Closed += (_, _) => {
+        Closed += async (_, _) => {
             if (_pttActive) {
                 _pttActive = false;
                 _stopPtt?.Invoke();
+            }
+            // SetEnvironmentVariable(EnvironmentVariableTarget.User) broadcasts WM_SETTINGCHANGE to all
+            // top-level windows synchronously, which can block the UI thread for 10+ seconds.
+            var apiKey = _apiKeyRevealBox.IsVisible ? _apiKeyRevealBox.Text : _apiKeyPasswordBox.Password;
+            try {
+                await Task.Run(() =>
+                    Environment.SetEnvironmentVariable("SQUAD_SPEECH_KEY", apiKey, EnvironmentVariableTarget.User));
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write("Preferences", $"SetEnvironmentVariable failed: {ex.Message}");
             }
         };
 
@@ -567,6 +577,46 @@ internal sealed class PreferencesWindow : Window {
         _notifyRcEstablishedCheckBox = MakeCheckBox("Remote connection established", GetToggle(currentSettings, "rc_connection_established", false));
         _notifyRcDroppedCheckBox = MakeCheckBox("Remote connection dropped", GetToggle(currentSettings, "rc_connection_dropped", true));
 
+        // ── Auto-save hooks ───────────────────────────────────────────────
+        _userNameBox.LostFocus += (_, _) => SaveUserNameNow();
+        _speechRegionBox.LostFocus += (_, _) => SaveSpeechRegionNow();
+        _speechLanguageComboBox.SelectionChanged += (_, _) => SaveSpeechLanguageNow();
+
+        _notificationsEnabledCheckBox.Checked   += (_, _) => SaveNotificationsNow();
+        _notificationsEnabledCheckBox.Unchecked += (_, _) => SaveNotificationsNow();
+        _notificationTopicBox.LostFocus         += (_, _) => SaveNotificationsNow();
+        _notifyAiTurnCheckBox.Checked           += (_, _) => SaveNotificationsNow();
+        _notifyAiTurnCheckBox.Unchecked         += (_, _) => SaveNotificationsNow();
+        _notifyGitCommitCheckBox.Checked        += (_, _) => SaveNotificationsNow();
+        _notifyGitCommitCheckBox.Unchecked      += (_, _) => SaveNotificationsNow();
+        _notifyLoopIterationCheckBox.Checked    += (_, _) => SaveNotificationsNow();
+        _notifyLoopIterationCheckBox.Unchecked  += (_, _) => SaveNotificationsNow();
+        _notifyLoopStoppedCheckBox.Checked      += (_, _) => SaveNotificationsNow();
+        _notifyLoopStoppedCheckBox.Unchecked    += (_, _) => SaveNotificationsNow();
+        _notifyRcEstablishedCheckBox.Checked    += (_, _) => SaveNotificationsNow();
+        _notifyRcEstablishedCheckBox.Unchecked  += (_, _) => SaveNotificationsNow();
+        _notifyRcDroppedCheckBox.Checked        += (_, _) => SaveNotificationsNow();
+        _notifyRcDroppedCheckBox.Unchecked      += (_, _) => SaveNotificationsNow();
+
+        _tunnelModeComboBox.SelectionChanged  += (_, _) => SaveTunnelNow();
+        _tunnelTokenPasswordBox.LostFocus     += (_, _) => SaveTunnelNow();
+        _tunnelTokenRevealBox.LostFocus       += (_, _) => SaveTunnelNow();
+
+        _githubCopilotProviderRadio.Checked   += (_, _) => SaveModelSettingsNow();
+        _customModelProviderRadio.Checked     += (_, _) => SaveModelSettingsNow();
+        _copilotModelComboBox.SelectionChanged += (_, _) => SaveModelSettingsNow();
+        _copilotModelComboBox.LostFocus        += (_, _) => SaveModelSettingsNow();
+
+        _byokProviderUrlBox.LostFocus         += (_, _) => SaveByokNow();
+        _byokModelBox.LostFocus               += (_, _) => SaveByokNow();
+        _byokApiKeyPasswordBox.LostFocus      += (_, _) => SaveByokNow();
+        _byokApiKeyRevealBox.LostFocus        += (_, _) => SaveByokNow();
+        _byokProviderTypeComboBox.SelectionChanged += (_, _) => SaveByokNow();
+        _byokOfflineModeCheckBox.Checked      += (_, _) => SaveByokNow();
+        _byokOfflineModeCheckBox.Unchecked    += (_, _) => SaveByokNow();
+
+        _cleanupPromptBox.LostFocus += (_, _) => SaveCleanupPromptNow();
+
         // ── Window skeleton ───────────────────────────────────────────────
 
         var root = new DockPanel();
@@ -604,7 +654,7 @@ internal sealed class PreferencesWindow : Window {
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
 
-        var saveButton = new Button { Content = "Save", Width = 88, Height = 30, Name = "Preferences_SaveButton" };
+        var saveButton = new Button { Content = "Close", Width = 88, Height = 30, Name = "Preferences_SaveButton" };
         saveButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         DockPanel.SetDock(saveButton, Dock.Right);
         saveButton.Click += SaveButton_Click;
@@ -641,6 +691,7 @@ internal sealed class PreferencesWindow : Window {
 
         _hintsOptionsPage = new HintsOptionsPage();
         _hintsOptionsPage.Initialize(currentSettings);
+        _hintsOptionsPage.SettingsChanged += (_, _) => SaveHintsNow();
 
         var pageList = new List<(string label, UIElement page)> {
             ("General",           BuildGeneralPage()),
@@ -1040,7 +1091,7 @@ internal sealed class PreferencesWindow : Window {
         AddLabel(form, "Pattern (regex) → Replacement — applied to every voice phrase in order.", topMargin: 4);
 
         var gridHint = new TextBlock {
-            Text = "Double-click a cell to edit. Changes are saved automatically.",
+            Text = "Double-click a cell to edit.",
             FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 2, 0, 6)
         };
@@ -2301,64 +2352,82 @@ internal sealed class PreferencesWindow : Window {
                 string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase));
     }
 
-    private async void SaveButton_Click(object sender, RoutedEventArgs e) {
+    private void SaveButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    // ── Per-setting auto-save helpers ─────────────────────────────────────
+
+    private void SaveUserNameNow() {
         var userName = _userNameBox.Text.Trim();
-        var apiKey = _apiKeyRevealBox.IsVisible ? _apiKeyRevealBox.Text : _apiKeyPasswordBox.Password;
-        var speechRegion = _speechRegionBox.Text.Trim();
         var updated = _settingsStore.SaveUserName(string.IsNullOrWhiteSpace(userName) ? null : userName);
-        updated = _settingsStore.SaveSpeechRegion(string.IsNullOrWhiteSpace(speechRegion) ? null : speechRegion);
-        updated = _settingsStore.SaveSpeechProvider(
-            _openAiSpeechRadio.IsChecked == true ? SpeechProvider.OpenAI : SpeechProvider.Azure,
-            string.IsNullOrWhiteSpace(_openAiSpeechKeyPasswordBox.Password.Trim()) ? null : _openAiSpeechKeyPasswordBox.Password.Trim());
+        _onSaved(updated);
+    }
+
+    private void SaveSpeechRegionNow() {
+        var speechRegion = _speechRegionBox.Text.Trim();
+        var updated = _settingsStore.SaveSpeechRegion(string.IsNullOrWhiteSpace(speechRegion) ? null : speechRegion);
+        _onSaved(updated);
+    }
+
+    private void SaveSpeechLanguageNow() {
         var speechLocale = (_speechLanguageComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
-        updated = _settingsStore.SaveSpeechLanguage(speechLocale);
+        var updated = _settingsStore.SaveSpeechLanguage(speechLocale);
+        _onSaved(updated);
+    }
+
+    private void SaveNotificationsNow() {
         var notifEnabled = _notificationsEnabledCheckBox.IsChecked == true;
         var notifTopic = _notificationTopicBox.Text.Trim();
-        updated = _settingsStore.SaveNotificationSettings(
+        var updated = _settingsStore.SaveNotificationSettings(
             notifEnabled ? "ntfy" : null,
             notifEnabled && !string.IsNullOrWhiteSpace(notifTopic)
                 ? new System.Collections.Generic.Dictionary<string, string> { ["topic"] = notifTopic }
                 : null,
             new System.Collections.Generic.Dictionary<string, bool> {
-                ["assistant_turn_complete"] = _notifyAiTurnCheckBox.IsChecked == true,
-                ["git_commit_pushed"] = _notifyGitCommitCheckBox.IsChecked == true,
-                ["loop_iteration_complete"] = _notifyLoopIterationCheckBox.IsChecked == true,
-                ["loop_stopped"] = _notifyLoopStoppedCheckBox.IsChecked == true,
+                ["assistant_turn_complete"]   = _notifyAiTurnCheckBox.IsChecked == true,
+                ["git_commit_pushed"]         = _notifyGitCommitCheckBox.IsChecked == true,
+                ["loop_iteration_complete"]   = _notifyLoopIterationCheckBox.IsChecked == true,
+                ["loop_stopped"]              = _notifyLoopStoppedCheckBox.IsChecked == true,
                 ["rc_connection_established"] = _notifyRcEstablishedCheckBox.IsChecked == true,
-                ["rc_connection_dropped"] = _notifyRcDroppedCheckBox.IsChecked == true,
+                ["rc_connection_dropped"]     = _notifyRcDroppedCheckBox.IsChecked == true,
             });
         _pushNotificationService.ReloadProvider();
+        _onSaved(updated);
+    }
+
+    private void SaveTunnelNow() {
         var tunnelMode = (_tunnelModeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
         var tunnelToken = _tunnelTokenRevealBox.IsVisible ? _tunnelTokenRevealBox.Text : _tunnelTokenPasswordBox.Password;
-        updated = _settingsStore.SaveTunnelSettings(tunnelMode, string.IsNullOrWhiteSpace(tunnelToken) ? null : tunnelToken);
-        updated = _settingsStore.SaveModelSettings(
+        var updated = _settingsStore.SaveTunnelSettings(tunnelMode, string.IsNullOrWhiteSpace(tunnelToken) ? null : tunnelToken);
+        _onSaved(updated);
+    }
+
+    private void SaveModelSettingsNow() {
+        var updated = _settingsStore.SaveModelSettings(
             _customModelProviderRadio.IsChecked == true ? ModelProvider.Custom : ModelProvider.GitHubCopilot,
             ReadCopilotDefaultModelInput());
+        _onSaved(updated);
+    }
+
+    private void SaveByokNow() {
         var byokProviderType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
         var byokApiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
-        updated = _settingsStore.SaveByokSettings(
+        var updated = _settingsStore.SaveByokSettings(
             ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text),
             string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim(),
             byokProviderType,
             string.IsNullOrWhiteSpace(byokApiKey) ? null : byokApiKey,
             _byokOfflineModeCheckBox.IsChecked == true);
-        updated = _settingsStore.SaveCleanupPrompt(_cleanupPromptBox.Text.Trim());
-        SaveVoiceReplacementsNow();
-        updated = _settingsStore.SaveHintSettings(_hintsOptionsPage.GetCurrentSettings());
         _onSaved(updated);
-        Close();
+    }
 
-        // SetEnvironmentVariable(EnvironmentVariableTarget.User) broadcasts WM_SETTINGCHANGE to all
-        // top-level windows synchronously, which can block the UI thread for 10+ seconds.
-        try
-        {
-            await Task.Run(() =>
-                Environment.SetEnvironmentVariable("SQUAD_SPEECH_KEY", apiKey, EnvironmentVariableTarget.User));
-        }
-        catch (Exception ex)
-        {
-            SquadDashTrace.Write("Preferences", $"SetEnvironmentVariable failed: {ex.Message}");
-        }
+    private void SaveCleanupPromptNow() {
+        var updated = _settingsStore.SaveCleanupPrompt(_cleanupPromptBox.Text.Trim());
+        _onSaved(updated);
+    }
+
+    private void SaveHintsNow() {
+        var updated = _settingsStore.SaveHintSettings(_hintsOptionsPage.GetCurrentSettings());
+        _onSaved(updated);
     }
 
     private string ReadCopilotDefaultModelInput() =>

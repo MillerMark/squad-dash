@@ -9,6 +9,9 @@ namespace SquadDash;
 /// </summary>
 internal partial class HintsOptionsPage : UserControl
 {
+    /// <summary>Raised whenever a hints setting changes (checkbox toggled or gap edited).</summary>
+    internal event EventHandler? SettingsChanged;
+
     public HintsOptionsPage()
     {
         InitializeComponent();
@@ -29,12 +32,14 @@ internal partial class HintsOptionsPage : UserControl
             MinGapMinutes = int.TryParse(MinGapBox.Text.Trim(), out int v) && v >= 0 ? v : 10,
         };
 
-    private void HintsEnabledCheckBox_Click(object sender, RoutedEventArgs e) { }
+    private void HintsEnabledCheckBox_Click(object sender, RoutedEventArgs e) =>
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
 
     private void MinGapBox_LostFocus(object sender, RoutedEventArgs e)
     {
         if (!int.TryParse(MinGapBox.Text.Trim(), out int v) || v < 0)
             MinGapBox.Text = (int.TryParse(MinGapBox.Text.Trim(), out _) ? v : 10).ToString();
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
