@@ -24,6 +24,7 @@ export type SquadDelegationRequest = {
     model?: string;
     selectedOption: string;
     targetAgent: string;
+    approvalGroupContext?: string;
 };
 
 export type SquadNamedAgentRequest = {
@@ -35,6 +36,7 @@ export type SquadNamedAgentRequest = {
     charterContent?: string;
     configDir?: string;
     model?: string;
+    approvalGroupContext?: string;
 };
 
 export type SessionReadyInfo = {
@@ -1353,7 +1355,7 @@ function rememberTaskToolLaunch(
         state.backgroundTaskIdsByToolCallId.set(toolCallId, taskName);
 }
 
-function buildNamedAgentHiddenContext(targetAgent: string, charterContent?: string): string {
+function buildNamedAgentHiddenContext(targetAgent: string, charterContent?: string, approvalGroupContext?: string): string {
     const normalizedHandle = normalizeAgentHandle(targetAgent);
     const lines = [
         `You are @${normalizedHandle}. SquadDash has launched you directly for a quick-reply task.`,
@@ -1365,6 +1367,9 @@ function buildNamedAgentHiddenContext(targetAgent: string, charterContent?: stri
 
     if (charterContent?.trim())
         lines.push("", "## Agent Charter", charterContent.trim());
+
+    if (approvalGroupContext?.trim())
+        lines.push("", "## Approval Group Context", approvalGroupContext.trim());
 
     return lines.join("\n");
 }
@@ -1397,13 +1402,13 @@ export function buildNamedAgentExecutionPrompt(
     return lines.join("\n");
 }
 
-export function buildNamedAgentPrompt(request: Pick<SquadNamedAgentRequest, "selectedOption" | "targetAgent" | "handoffContext" | "charterContent">): string {
+export function buildNamedAgentPrompt(request: Pick<SquadNamedAgentRequest, "selectedOption" | "targetAgent" | "handoffContext" | "charterContent" | "approvalGroupContext">): string {
     const selectedOption = request.selectedOption.trim();
     const sections = [
         selectedOption,
         "",
         "## Named Agent Launch Context",
-        buildNamedAgentHiddenContext(request.targetAgent, request.charterContent)
+        buildNamedAgentHiddenContext(request.targetAgent, request.charterContent, request.approvalGroupContext)
     ];
 
     const handoffContext = request.handoffContext?.trim();
@@ -1588,11 +1593,11 @@ function resolveJsonPointer(root: unknown, pointer: string): unknown {
         }, root);
 }
 
-function buildDelegationHiddenContext(selectedOption: string, targetAgent: string): string {
+export function buildDelegationHiddenContext(selectedOption: string, targetAgent: string, approvalGroupContext?: string): string {
     const normalizedTargetAgent = normalizeAgentHandle(targetAgent);
     const trimmedOption = selectedOption.trim();
 
-    return [
+    const lines = [
         "SquadDash bridge instruction: this turn is a named-agent delegation commit triggered by a quick reply.",
         `The user clicked the quick reply label: "${trimmedOption}".`,
         `The quick reply explicitly targets @${normalizedTargetAgent}.`,
@@ -1602,7 +1607,12 @@ function buildDelegationHiddenContext(selectedOption: string, targetAgent: strin
         `You must launch @${normalizedTargetAgent} using the native subagent/tool path instead of answering inline in the coordinator voice.`,
         "Do not narrate or promise a handoff unless the launch actually happens.",
         "If launching the target agent is impossible in this exact session, explain the concrete blocker instead of silently doing the work yourself."
-    ].join("\n");
+    ];
+
+    if (approvalGroupContext?.trim())
+        lines.push("", "## Approval Group Context", approvalGroupContext.trim());
+
+    return lines.join("\n");
 }
 
 export class SquadBridgeService {
@@ -1641,7 +1651,10 @@ export class SquadBridgeService {
                 model: request.model,
                 requireSameSession: true
             },
-            buildDelegationHiddenContext(request.selectedOption, request.targetAgent));
+            buildDelegationHiddenContext(
+                request.selectedOption,
+                request.targetAgent,
+                request.approvalGroupContext));
     }
 
     public async runNamedAgent(

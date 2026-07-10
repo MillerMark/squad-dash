@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
     approvePermissionRequest,
+    buildDelegationHiddenContext,
     buildNamedAgentExecutionPrompt,
+    buildNamedAgentPrompt,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
     normalizeAssistantResponseContent,
@@ -383,6 +385,39 @@ test("named-agent quick-reply prompt includes handoff in the submitted prompt", 
     assert.match(prompt, /OpenWorkspace - profile conversation load/);
     assert.match(prompt, /Mutex timeout on settings save during shutdown/);
     assert.match(prompt, /# Sorin Pyre/);
+});
+
+test("named-agent prompt includes injected approval group context", () => {
+    const prompt = buildNamedAgentPrompt({
+        selectedOption: "Run verification",
+        targetAgent: "vesper-knox",
+        approvalGroupContext: [
+            "SquadDash approval group context:",
+            "- Guided Tour",
+            "- Developer Experience"
+        ].join("\n")
+    });
+
+    assert.match(prompt, /## Approval Group Context/);
+    assert.match(prompt, /SquadDash approval group context/);
+    assert.match(prompt, /- Guided Tour/);
+    assert.match(prompt, /- Developer Experience/);
+});
+
+test("delegation hidden context includes injected approval group context", () => {
+    const context = buildDelegationHiddenContext(
+        "Ask Vesper to review this",
+        "vesper-knox",
+        [
+            "SquadDash approval group context:",
+            "- Guided Tour",
+            "- Developer Experience"
+        ].join("\n"));
+
+    assert.match(context, /must launch @vesper-knox/);
+    assert.match(context, /## Approval Group Context/);
+    assert.match(context, /- Guided Tour/);
+    assert.match(context, /- Developer Experience/);
 });
 
 test("background task cancellation retries paired tool call id when agent id is rejected", async () => {

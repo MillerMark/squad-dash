@@ -124,7 +124,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string targetAgentHandle,
         string workingDirectory,
         string? sessionId,
-        string? configDirectory = null) {
+        string? configDirectory = null,
+        string? approvalGroupContext = null) {
         if (string.IsNullOrWhiteSpace(selectedOption))
             throw new ArgumentException("Selected option cannot be empty.", nameof(selectedOption));
         if (string.IsNullOrWhiteSpace(targetAgentHandle))
@@ -149,7 +150,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 sessionId,
                 configDirectory,
                 requestId,
-                Model: CopilotDefaultModel);
+                Model: CopilotDefaultModel,
+                ApprovalGroupContext: approvalGroupContext);
             await RunBridgeRequestOnceAsync(
                 request,
                 requestId,
@@ -167,7 +169,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string? handoffContext,
         string workingDirectory,
         string? coordinatorSessionId,
-        string? configDirectory = null) {
+        string? configDirectory = null,
+        string? approvalGroupContext = null) {
         if (string.IsNullOrWhiteSpace(targetAgentHandle))
             throw new ArgumentException("Target agent handle cannot be empty.", nameof(targetAgentHandle));
         if (string.IsNullOrWhiteSpace(selectedOption))
@@ -208,7 +211,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 coordinatorSessionId,
                 configDirectory,
                 requestId,
-                Model: CopilotDefaultModel);
+                Model: CopilotDefaultModel,
+                ApprovalGroupContext: approvalGroupContext);
             await RunBridgeRequestOnceAsync(
                 request,
                 requestId,
@@ -1658,7 +1662,8 @@ internal sealed record SquadSdkDelegateRequest(
     [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "delegate",
-    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null);
+    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
+    [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null);
 
 internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("targetAgent")] string TargetAgent,
@@ -1669,7 +1674,8 @@ internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "named_agent",
-    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null);
+    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
+    [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null);
 
 internal sealed record SquadSdkAbortRequest(
     [property: JsonPropertyName("requestId")] string RequestId,

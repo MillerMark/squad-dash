@@ -33,6 +33,7 @@ type DelegateRequest = {
     sessionId: string;
     configDir?: string;
     model?: string;
+    approvalGroupContext?: string;
 };
 
 type NamedAgentRequest = {
@@ -45,6 +46,7 @@ type NamedAgentRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    approvalGroupContext?: string;
 };
 
 type AbortRequest = {
@@ -419,6 +421,7 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
     const requestId = extractRequiredOrUUID(parsed.requestId);
     const configDir = extractOptionalString(parsed.configDir);
     const model = extractOptionalString(parsed.model);
+    const approvalGroupContext = extractOptionalString(parsed.approvalGroupContext);
 
     return {
         type: "delegate",
@@ -428,7 +431,8 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
         cwd,
         sessionId,
         configDir,
-        model
+        model,
+        approvalGroupContext
     };
 }
 
@@ -448,7 +452,8 @@ function tryParseNamedAgentRequest(parsed: Partial<NamedAgentRequest>): NamedAge
         cwd,
         sessionId: extractOptionalString(parsed.sessionId),
         configDir: extractOptionalString(parsed.configDir),
-        model: extractOptionalString(parsed.model)
+        model: extractOptionalString(parsed.model),
+        approvalGroupContext: extractOptionalString(parsed.approvalGroupContext)
     };
 }
 
@@ -1073,7 +1078,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
             selectedOption: request.selectedOption,
             targetAgent: handle,
             handoffContext,
-            charterContent
+            charterContent,
+            approvalGroupContext: request.approvalGroupContext
         }).length;
         emit({
             type: "sdk_diagnostics",
@@ -1091,7 +1097,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
                 targetAgent: handle,
                 charterContent,
                 configDir: request.configDir,
-                model: request.model
+                model: request.model,
+                approvalGroupContext: request.approvalGroupContext
             },
             buildNamedAgentRunHandlers(request.requestId, toolCallId, handle, displayName, request.sessionId)
         );

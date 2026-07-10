@@ -69,6 +69,36 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void DelegateRequest_WithApprovalGroupContext_SerializesContext() {
+        var json = JsonSerializer.Serialize(new SquadSdkDelegateRequest(
+            "Hand off to Lyra",
+            "lyra-morn",
+            @"D:\Drive\Source\SquadUI",
+            "session-456",
+            ApprovalGroupContext: "Use canonical groups: Guided Tour"));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"approvalGroupContext\":\"Use canonical groups: Guided Tour\""));
+            Assert.That(json, Does.Not.Contain("\"ApprovalGroupContext\""));
+        });
+    }
+
+    [Test]
+    public void NamedAgentRequest_WithApprovalGroupContext_SerializesContext() {
+        var json = JsonSerializer.Serialize(new SquadSdkNamedAgentRequest(
+            "lyra-morn",
+            "Run verification",
+            null,
+            @"D:\Drive\Source\SquadUI",
+            ApprovalGroupContext: "Use canonical groups: Guided Tour"));
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"approvalGroupContext\":\"Use canonical groups: Guided Tour\""));
+            Assert.That(json, Does.Not.Contain("\"ApprovalGroupContext\""));
+        });
+    }
+
+    [Test]
     public void CancelBackgroundTaskRequest_UsesLowercaseJsonPropertyNames() {
         var json = JsonSerializer.Serialize(new SquadSdkCancelBackgroundTaskRequest(
             "task-123",

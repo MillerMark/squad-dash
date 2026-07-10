@@ -1237,9 +1237,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
-                _bridge.RunNamedAgentDelegationAsync(selectedOption, targetAgentHandle, cwd, sessionId, configDir),
+                _bridge.RunNamedAgentDelegationAsync(
+                    selectedOption,
+                    targetAgentHandle,
+                    cwd,
+                    sessionId,
+                    configDir,
+                    BuildApprovalGroupLaunchContext()),
             runNamedAgentDirectAsync: (targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir) =>
-                _bridge.RunNamedAgentDirectAsync(targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir),
+                _bridge.RunNamedAgentDirectAsync(
+                    targetAgentHandle,
+                    selectedOption,
+                    handoffContext,
+                    cwd,
+                    sessionId,
+                    configDir,
+                    BuildApprovalGroupLaunchContext()),
             workspaceContext: this,
             promptBoxState:   this,
             transcriptSink:   this,
@@ -36853,6 +36866,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             _notesPanel?.AddNote(note);
         }
+    }
+
+    private string? BuildApprovalGroupLaunchContext()
+    {
+        var groups = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
+        return ApprovalGroupPromptContextBuilder.Build(groups);
     }
 
     private void ApprovalPanelCloseButton_Click(object sender, RoutedEventArgs e)

@@ -243,6 +243,61 @@ internal sealed class SquadSdkProcessTests {
             Throws.TypeOf<ArgumentException>().With.Message.Contains("active Squad session"));
     }
 
+    [Test]
+    public async Task RunNamedAgentDelegationAsync_WithApprovalGroupContext_SendsContext() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+
+        await sut.RunNamedAgentDelegationAsync(
+            "Hand off to Lyra",
+            "lyra-morn",
+            _workspace.RootPath,
+            "session-123",
+            approvalGroupContext: "Use canonical groups: Guided Tour");
+
+        var requestLine = FindLoggedRequestLine(requestLogPath, "delegate");
+        using var request = JsonDocument.Parse(requestLine);
+
+        Assert.That(
+            request.RootElement.GetProperty("approvalGroupContext").GetString(),
+            Is.EqualTo("Use canonical groups: Guided Tour"));
+    }
+
+    [Test]
+    public async Task RunNamedAgentDirectAsync_WithApprovalGroupContext_SendsContext() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+
+        await sut.RunNamedAgentDirectAsync(
+            "lyra-morn",
+            "Run verification",
+            null,
+            _workspace.RootPath,
+            "session-123",
+            approvalGroupContext: "Use canonical groups: Guided Tour");
+
+        var requestLine = FindLoggedRequestLine(requestLogPath, "named_agent");
+        using var request = JsonDocument.Parse(requestLine);
+
+        Assert.That(
+            request.RootElement.GetProperty("approvalGroupContext").GetString(),
+            Is.EqualTo("Use canonical groups: Guided Tour"));
+    }
+
     // ------------------------------------------------------------------
     // Happy path
     // ------------------------------------------------------------------

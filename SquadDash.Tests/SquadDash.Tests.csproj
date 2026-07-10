@@ -227,6 +227,7 @@
     <Compile Include="..\SquadDash\CommitApprovalItem.cs" Link="Source\CommitApprovalItem.cs" />
     <Compile Include="..\SquadDash\CommitCategoryCache.cs" Link="Source\CommitCategoryCache.cs" />
     <Compile Include="..\SquadDash\SquadSdkCategorizationService.cs" Link="Source\SquadSdkCategorizationService.cs" />
+    <Compile Include="..\SquadDash\ApprovalGroupPromptContextBuilder.cs" Link="Source\ApprovalGroupPromptContextBuilder.cs" />
     <Compile Include="..\SquadDash\CommitStatResult.cs" Link="Source\CommitStatResult.cs" />
     <Compile Include="..\SquadDash\ICommitStatService.cs" Link="Source\ICommitStatService.cs" />
     <Compile Include="..\SquadDash\CommitStatService.cs" Link="Source\CommitStatService.cs" />
