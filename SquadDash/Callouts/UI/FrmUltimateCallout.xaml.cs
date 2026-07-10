@@ -331,8 +331,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     void InitializeColors() {
-        calloutFillBrush   = Application.Current.Resources["CalloutBackground"] as SolidColorBrush ?? new SolidColorBrush(Colors.White);
-        calloutStrokeBrush = Application.Current.Resources["CalloutBorder"]     as SolidColorBrush ?? new SolidColorBrush(Colors.Gray);
+        calloutFillBrush   = ((Application.Current.Resources["CalloutBackground"] as SolidColorBrush) ?? new SolidColorBrush(Colors.White)).Clone();
+        calloutStrokeBrush = ((Application.Current.Resources["CalloutBorder"]     as SolidColorBrush) ?? new SolidColorBrush(Colors.Gray)).Clone();
     }
 
     void LoadColorsForTheme() {
