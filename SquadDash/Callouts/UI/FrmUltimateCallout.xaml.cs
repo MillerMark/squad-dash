@@ -2069,6 +2069,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         if (_closeButton?.IsVisible == true && IsCursorOverElement(_closeButton, cursor))
             return false;
 
+        // Don't start a drag when the cursor is over the nav overlay buttons.
+        if (_tourOverlay?.IsVisible == true && IsCursorOverElement(_tourOverlay, cursor))
+            return false;
+
         var local = PointFromScreen(cursor);
         if (local.X < 0 || local.Y < 0 || local.X > ActualWidth || local.Y > ActualHeight)
             return false;
