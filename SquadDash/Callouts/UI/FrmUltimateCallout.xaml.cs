@@ -581,8 +581,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     /// <summary>
-    /// Returns the callout body rectangle in WPF logical-pixel screen coordinates,
-    /// using PointToScreen for accuracy on all DPI settings.
+    /// Returns the callout's full visual bounding box in WPF logical-pixel screen coordinates,
+    /// including the dangle (pointer triangle) tip so that <see cref="TourCalloutNavigationOverlay.PositionNear"/>
+    /// places navigation buttons clear of the pointer on all dangle sides.
     /// </summary>
     Rect GetCalloutScreenBounds()
     {
@@ -591,13 +592,28 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         {
             double dpiX = ct.TransformToDevice.M11;
             double dpiY = ct.TransformToDevice.M22;
+
             Point physTL = cvsCallout.PointToScreen(new Point(calloutLeft,               calloutTop));
             Point physBR = cvsCallout.PointToScreen(new Point(calloutLeft + calloutWidth, calloutTop + calloutHeight));
-            return new Rect(
-                physTL.X / dpiX,
-                physTL.Y / dpiY,
-                Math.Max(0, (physBR.X - physTL.X) / dpiX),
-                Math.Max(0, (physBR.Y - physTL.Y) / dpiY));
+
+            double left   = physTL.X / dpiX;
+            double top    = physTL.Y / dpiY;
+            double right  = physBR.X / dpiX;
+            double bottom = physBR.Y / dpiY;
+
+            // Expand to include the dangle tip so nav buttons are placed clear of the pointer.
+            if (!double.IsNaN(trianglePoint1.X) && !double.IsNaN(trianglePoint1.Y))
+            {
+                Point tipPhys = cvsCallout.PointToScreen(trianglePoint1);
+                double tipX = tipPhys.X / dpiX;
+                double tipY = tipPhys.Y / dpiY;
+                left   = Math.Min(left,   tipX);
+                top    = Math.Min(top,    tipY);
+                right  = Math.Max(right,  tipX);
+                bottom = Math.Max(bottom, tipY);
+            }
+
+            return new Rect(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
         }
         // Fallback when PresentationSource is unavailable (should be rare).
         return new Rect(Left + OutsideMargin, Top + OutsideMargin,
@@ -1562,9 +1578,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     string markDownText = string.Empty;
     FrameworkElement? frameworkElementTarget;
     Point targetCenter;
-    Point trianglePoint1;
-    Point trianglePoint2;
-    Point trianglePoint3;
+    Point trianglePoint1 = new Point(double.NaN, double.NaN);
+    Point trianglePoint2 = new Point(double.NaN, double.NaN);
+    Point trianglePoint3 = new Point(double.NaN, double.NaN);
     Point calloutScreenCenter;
     Point calloutCenter;
     double lastCalloutAngle;
