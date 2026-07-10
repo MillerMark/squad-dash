@@ -909,7 +909,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                                   _pec.ToolCompleteCount),
             agentActiveDisplayLinger: AgentActiveDisplayLinger,
             dynamicAgentHistoryRetention: DynamicAgentHistoryRetention,
-            appendAgentReport: (agentLabel, header, body) => AppendAgentReport(agentLabel, header, body));
+            appendAgentReport: (agentLabel, header, body) => AppendAgentReport(agentLabel, header, body),
+            hasVisibleOrPersistedAgentReport: thread => HasVisibleOrPersistedAgentReport(thread));
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
             getPromptText: () => PromptTextBox.Text,
@@ -24583,21 +24584,70 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     // ── Agent report button ───────────────────────────────────────────────────
 
-    private void AppendAgentReport(string agentLabel, string header, string body)
+    private bool AppendAgentReport(string agentLabel, string header, string body)
     {
         if (_currentWorkspace is null)
         {
             AppendLine(header + Environment.NewLine + Environment.NewLine + body, null);
-            return;
+            return true;
         }
 
-        var stateDir    = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
-        var reportsDir  = AgentReportStore.GetReportsDir(stateDir);
-        var reportPath  = AgentReportStore.Store(reportsDir, agentLabel, header, body, DateTimeOffset.UtcNow);
-        // Always persist immediately so the button survives a crash/shutdown before the turn completes.
-        // The UI button is appended separately below, so skipping the in-memory currentTurn add is safe.
-        _conversationManager.AppendAgentReportToLastTurn(agentLabel, reportPath);
+        string reportPath;
+        try
+        {
+            var stateDir    = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+            var reportsDir  = AgentReportStore.GetReportsDir(stateDir);
+            reportPath      = AgentReportStore.Store(reportsDir, agentLabel, header, body, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Agents", $"AppendAgentReport failed agent={agentLabel} error={ex.Message}");
+            return false;
+        }
+
+        var attached = _conversationManager.AppendAgentReportToCurrentOrLastTurn(agentLabel, reportPath);
+        SquadDashTrace.Write(
+            "Agents",
+            $"AppendAgentReport stored agent={agentLabel} path={reportPath} attached={attached}");
         AppendAgentReportButton(agentLabel, reportPath);
+        return true;
+    }
+
+    private bool HasVisibleOrPersistedAgentReport(TranscriptThreadState thread)
+    {
+        if (_currentWorkspace is null)
+            return false;
+
+        var labels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddReportLabelCandidate(labels, thread.Title);
+        AddReportLabelCandidate(labels, thread.AgentDisplayName);
+        AddReportLabelCandidate(labels, BackgroundTaskPresenter.BuildBackgroundAgentLabel(thread));
+
+        foreach (var turn in _conversationManager.ConversationState.Turns)
+            if (turn.AgentReports is { Count: > 0 })
+                foreach (var report in turn.AgentReports)
+                    if (labels.Contains(report.AgentLabel) && File.Exists(report.ReportPath))
+                        return true;
+
+        var stateDir   = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+        var reportsDir = AgentReportStore.GetReportsDir(stateDir);
+        if (!Directory.Exists(reportsDir))
+            return false;
+
+        foreach (var file in Directory.EnumerateFiles(reportsDir, "*.md"))
+        {
+            var agentLabel = TryReadAgentLabelFromReport(file) ?? Path.GetFileNameWithoutExtension(file);
+            if (labels.Contains(agentLabel))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void AddReportLabelCandidate(HashSet<string> labels, string? label)
+    {
+        if (!string.IsNullOrWhiteSpace(label))
+            labels.Add(label.Trim());
     }
 
     private void AppendAgentReportButton(string agentLabel, string reportPath, TranscriptTurnView? view = null)

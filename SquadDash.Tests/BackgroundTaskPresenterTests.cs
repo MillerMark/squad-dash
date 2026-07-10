@@ -686,6 +686,45 @@ internal sealed class BackgroundTaskPresenterTests {
 
     [Test]
     [Apartment(ApartmentState.STA)]
+    public void PromoteBackgroundAgentReportNow_DoesNotMarkAnnounced_WhenReportAppendFails() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 7, 10, 10, 25, 6, TimeSpan.FromHours(-4));
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-vesper",
+            agentId: "vesper-knox",
+            agentName: "vesper-knox",
+            agentDisplayName: "Vesper Knox",
+            agentDescription: "testing specialist",
+            status: "completed",
+            prompt: "Write tests",
+            startedAt: startedAt.ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.StatusText = "Completed";
+        thread.LatestResponse = "All tests pass.";
+
+        var appendAttempts = 0;
+        var persistedThreads = new List<TranscriptThreadState>();
+        var presenter = MakePresenter(
+            registry,
+            persistedThreads: persistedThreads,
+            appendAgentReport: (_, _, _) => {
+                appendAttempts++;
+                return false;
+            });
+
+        var promoted = presenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
+
+        Assert.Multiple(() => {
+            Assert.That(promoted, Is.False);
+            Assert.That(appendAttempts, Is.EqualTo(1));
+            Assert.That(thread.LastCoordinatorAnnouncedResponse, Is.Null);
+            Assert.That(persistedThreads, Is.Empty);
+            Assert.That(presenter.PendingBackgroundReportPromotionCount, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
     public void PromoteDeferredBackgroundAgentReports_FlushesOnce_WhenCoordinatorBecomesIdle() {
         var registry = MakeRegistry();
         var startedAt = new DateTimeOffset(2026, 5, 8, 17, 10, 42, TimeSpan.FromHours(-4));
@@ -801,6 +840,43 @@ internal sealed class BackgroundTaskPresenterTests {
 
     [Test]
     [Apartment(ApartmentState.STA)]
+    public void PromoteRestoredBackgroundAgentReports_ReplaysAnnouncedThread_WhenReportIsMissing() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 7, 10, 10, 30, 17, TimeSpan.FromHours(-4));
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-vesper",
+            agentId: "vesper-knox",
+            agentName: "vesper-knox",
+            agentDisplayName: "Vesper Knox",
+            agentDescription: "testing specialist",
+            status: "completed",
+            prompt: "Write tests",
+            startedAt: startedAt.ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.StatusText = "Completed";
+        thread.CompletedAt = startedAt.AddMinutes(5);
+        thread.LatestResponse = "All tests pass.";
+        thread.LastCoordinatorAnnouncedResponse = "All tests pass.";
+
+        var appendedLines = new List<string>();
+        var presenter = MakePresenter(
+            registry,
+            appendedLines: appendedLines,
+            hasVisibleOrPersistedAgentReport: _ => false);
+
+        var promoted = presenter.PromoteRestoredBackgroundAgentReports("workspace-load");
+
+        Assert.Multiple(() => {
+            Assert.That(promoted, Is.EqualTo(1));
+            Assert.That(appendedLines, Has.Count.EqualTo(1));
+            Assert.That(appendedLines[0], Does.StartWith("Vesper Knox (vesper-knox) reported back:"));
+            Assert.That(appendedLines[0], Does.Contain("All tests pass."));
+            Assert.That(thread.LastCoordinatorAnnouncedResponse, Is.EqualTo(thread.LatestResponse));
+        });
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
     public void PromoteRestoredBackgroundAgentReports_FiltersOutArgusWeldReports() {
         var registry = MakeRegistry();
         var startedAt = new DateTimeOffset(2026, 5, 20, 12, 56, 54, TimeSpan.FromHours(-4));
@@ -884,7 +960,9 @@ internal sealed class BackgroundTaskPresenterTests {
         Func<bool>? isPromptRunningAccessor = null,
         TranscriptTurnView? currentTurn = null,
         List<string>? appendedLines = null,
-        List<TranscriptThreadState>? persistedThreads = null) {
+        List<TranscriptThreadState>? persistedThreads = null,
+        Func<string, string, string, bool>? appendAgentReport = null,
+        Func<TranscriptThreadState, bool>? hasVisibleOrPersistedAgentReport = null) {
         registry ??= MakeRegistry();
 
         return new BackgroundTaskPresenter(
@@ -901,7 +979,9 @@ internal sealed class BackgroundTaskPresenterTests {
             persistAgentThreadSnapshot:   thread => persistedThreads?.Add(thread),
             currentTurnSnapshot:          () => new CurrentTurnStatusSnapshot(false, false, false),
             agentActiveDisplayLinger:     TimeSpan.FromSeconds(30),
-            dynamicAgentHistoryRetention: TimeSpan.FromDays(7));
+            dynamicAgentHistoryRetention: TimeSpan.FromDays(7),
+            appendAgentReport:            appendAgentReport,
+            hasVisibleOrPersistedAgentReport: hasVisibleOrPersistedAgentReport);
     }
 
     private static TranscriptThreadState MakeThread(string threadId, DateTimeOffset startedAt) =>

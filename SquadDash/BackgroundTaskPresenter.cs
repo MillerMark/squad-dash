@@ -39,7 +39,8 @@ internal sealed class BackgroundTaskPresenter {
     // Optional: if provided, stores the agent report to disk and renders a button
     // in the coordinator transcript instead of inlining the body text.
     // Params: (agentLabel, announcementHeader, reportBody)
-    private readonly Action<string, string, string>?       _appendAgentReport;
+    private readonly Func<string, string, string, bool>?   _appendAgentReport;
+    private readonly Func<TranscriptThreadState, bool>?    _hasVisibleOrPersistedAgentReport;
 
     // ── Owned mutable state ──────────────────────────────────────────────────
 
@@ -89,7 +90,8 @@ internal sealed class BackgroundTaskPresenter {
         Func<CurrentTurnStatusSnapshot> currentTurnSnapshot,
         TimeSpan                        agentActiveDisplayLinger,
         TimeSpan                        dynamicAgentHistoryRetention,
-        Action<string, string, string>? appendAgentReport = null) {
+        Func<string, string, string, bool>? appendAgentReport = null,
+        Func<TranscriptThreadState, bool>? hasVisibleOrPersistedAgentReport = null) {
         _agentThreadRegistry          = agentThreadRegistry;
         _appendLine                   = appendLine;
         _syncAgentCards               = syncAgentCards;
@@ -105,6 +107,7 @@ internal sealed class BackgroundTaskPresenter {
         _agentActiveDisplayLinger     = agentActiveDisplayLinger;
         _dynamicAgentHistoryRetention = dynamicAgentHistoryRetention;
         _appendAgentReport            = appendAgentReport;
+        _hasVisibleOrPersistedAgentReport = hasVisibleOrPersistedAgentReport;
     }
 
     // ── State management ─────────────────────────────────────────────────────
@@ -184,12 +187,13 @@ internal sealed class BackgroundTaskPresenter {
         return promotedCount;
     }
 
-    private static bool ShouldPromoteRestoredBackgroundReport(TranscriptThreadState thread) =>
+    private bool ShouldPromoteRestoredBackgroundReport(TranscriptThreadState thread) =>
         !thread.IsPlaceholderThread &&
         thread.WasObservedAsBackgroundTask &&
         AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText) &&
         !string.IsNullOrWhiteSpace(thread.LatestResponse) &&
-        string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse) &&
+        (string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse) ||
+         IsAnnouncedBackgroundReportMissing(thread)) &&
         !IsArgusWeldThread(thread);
 
     /// <summary>
@@ -863,14 +867,21 @@ internal sealed class BackgroundTaskPresenter {
             return false;
         }
 
-        var isLiveBackgroundTask = IsThreadBackedByLiveBackgroundTask(thread);
-        var isTerminal           = AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText);
+        var isLiveBackgroundTask  = IsThreadBackedByLiveBackgroundTask(thread);
+        var isTerminal            = AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText);
+        var announcedReportMissing = IsAnnouncedBackgroundReportMissing(thread);
+        if (announcedReportMissing) {
+            SquadDashTrace.Write(
+                "Agents",
+                $"BackgroundReport.RecoverMissingReport thread={thread.ThreadId} reason={reason} latestResponseChars={thread.LatestResponse?.Length ?? 0}");
+        }
+
         var announcement = BackgroundAgentReportAnnouncementBuilder.TryBuild(
             thread.Title,
             thread.AgentId,
             thread.Prompt,
             thread.LatestResponse,
-            thread.LastCoordinatorAnnouncedResponse,
+            announcedReportMissing ? null : thread.LastCoordinatorAnnouncedResponse,
             thread.WasObservedAsBackgroundTask,
             isLiveBackgroundTask,
             isTerminal);
@@ -881,22 +892,64 @@ internal sealed class BackgroundTaskPresenter {
             return false;
         }
 
-        thread.LastCoordinatorAnnouncedResponse = announcement.FullResponse;
-        _persistAgentThreadSnapshot(thread);
-
-        if (_appendAgentReport is not null)
-            _appendAgentReport(thread.Title, announcement.Header, announcement.Body);
-        else
+        var appendMode = _appendAgentReport is null ? "inline" : "report_file";
+        var appended = false;
+        if (_appendAgentReport is not null) {
+            try {
+                appended = _appendAgentReport(thread.Title, announcement.Header, announcement.Body);
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write(
+                    "Agents",
+                    $"BackgroundReport.AppendFailed thread={thread.ThreadId} reason={reason} mode={appendMode} error={ex.Message}");
+            }
+        }
+        else {
             _appendLine(
                 announcement.Header + Environment.NewLine + Environment.NewLine + announcement.Body,
                 null);
+            appended = true;
+        }
+
+        if (!appended) {
+            SquadDashTrace.Write(
+                "Agents",
+                $"BackgroundReport.AppendFailed thread={thread.ThreadId} reason={reason} mode={appendMode} bodyChars={announcement.Body.Length} fullResponseChars={announcement.FullResponse.Length}");
+            RememberDeferredBackgroundReportPromotion(thread, reason + ":append_failed", isPromptRunning, hasCurrentTurn);
+            return false;
+        }
+
+        thread.LastCoordinatorAnnouncedResponse = announcement.FullResponse;
+        _persistAgentThreadSnapshot(thread);
 
         SquadDashTrace.Write(
             "Agents",
-            $"BackgroundReport.Promoted thread={thread.ThreadId} reason={reason} bodyChars={announcement.Body.Length} fullResponseChars={announcement.FullResponse.Length} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} appendMode={(_appendAgentReport is null ? "inline" : "report_file")}");
+            $"BackgroundReport.Promoted thread={thread.ThreadId} reason={reason} bodyChars={announcement.Body.Length} fullResponseChars={announcement.FullResponse.Length} promptRunning={isPromptRunning} currentTurn={hasCurrentTurn} appendMode={appendMode}");
         _backgroundReportPromotionGenerations.Remove(thread.ThreadId);
         return true;
     }
+
+    private bool IsAnnouncedBackgroundReportMissing(TranscriptThreadState thread) {
+        if (_hasVisibleOrPersistedAgentReport is null ||
+            string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse) ||
+            string.IsNullOrWhiteSpace(thread.LatestResponse)) {
+            return false;
+        }
+
+        if (!string.Equals(
+                NormalizeAnnouncementResponse(thread.LatestResponse),
+                NormalizeAnnouncementResponse(thread.LastCoordinatorAnnouncedResponse),
+                StringComparison.Ordinal)) {
+            return false;
+        }
+
+        return !_hasVisibleOrPersistedAgentReport(thread);
+    }
+
+    private static string NormalizeAnnouncementResponse(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.TrimEnd();
 
     private void RememberDeferredBackgroundReportPromotion(
         TranscriptThreadState thread,

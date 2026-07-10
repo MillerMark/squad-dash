@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Documents;
 using System.Windows.Threading;
 
 namespace SquadDash.Tests;
@@ -312,6 +313,97 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void AppendAgentReportToCurrentOrLastTurn_AttachesActiveTurnAndPersistsFoldedTurn() {
+        using var workspace = new TestWorkspace();
+        var workspacePath = workspace.GetPath("workspace");
+        Directory.CreateDirectory(workspacePath);
+
+        var startedAt = new DateTimeOffset(2026, 7, 10, 14, 25, 11, TimeSpan.Zero);
+        var coordinatorThread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            startedAt);
+        var activeTurn = new TranscriptTurnView(
+            coordinatorThread,
+            "Have Vesper write tests",
+            startedAt,
+            new Section(),
+            []);
+        activeTurn.ResponseTextBuilder.Append("Vesper is writing test cases in the background.");
+
+        var manager = MakeManager(
+            workspace: SessionWorkspace.Create(workspacePath),
+            coordinatorThread: coordinatorThread,
+            currentTurn: activeTurn);
+
+        var attached = manager.AppendAgentReportToCurrentOrLastTurn(
+            "Vesper Knox",
+            @"C:\reports\vesper.md");
+
+        var savedTurn = manager.ConversationState.Turns.Single();
+        Assert.Multiple(() => {
+            Assert.That(attached, Is.True);
+            Assert.That(activeTurn.AgentReports, Has.Count.EqualTo(1));
+            Assert.That(activeTurn.AgentReports[0].AgentLabel, Is.EqualTo("Vesper Knox"));
+            Assert.That(savedTurn.AgentReports, Is.Not.Null);
+            Assert.That(savedTurn.AgentReports!.Single().ReportPath, Is.EqualTo(@"C:\reports\vesper.md"));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void SaveCurrentTurnToConversation_PreservesPersistedAgentReports_WhenActiveTurnLacksMetadata() {
+        using var workspace = new TestWorkspace();
+        var workspacePath = workspace.GetPath("workspace");
+        Directory.CreateDirectory(workspacePath);
+
+        var startedAt = new DateTimeOffset(2026, 7, 10, 14, 25, 11, TimeSpan.Zero);
+        var completedAt = startedAt.AddMinutes(5);
+        var prompt = "Have Vesper write tests";
+        var report = new AgentReportInfo("Vesper Knox", @"C:\reports\vesper.md");
+        var coordinatorThread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            startedAt);
+        var activeTurn = new TranscriptTurnView(
+            coordinatorThread,
+            prompt,
+            startedAt,
+            new Section(),
+            []);
+        activeTurn.ResponseTextBuilder.Append("Final coordinator response.");
+
+        var manager = MakeManager(
+            workspace: SessionWorkspace.Create(workspacePath),
+            coordinatorThread: coordinatorThread,
+            currentTurn: activeTurn);
+        manager.ConversationState = WorkspaceConversationState.Empty with {
+            Turns = [
+                new TranscriptTurnRecord(
+                    startedAt,
+                    null,
+                    prompt,
+                    string.Empty,
+                    "Partial coordinator response.",
+                    true,
+                    Array.Empty<TranscriptToolRecord>()) {
+                    AgentReports = [report]
+                }
+            ]
+        };
+
+        manager.SaveCurrentTurnToConversation(completedAt, "execute-coordinator-finally");
+
+        var savedTurn = manager.ConversationState.Turns.Single();
+        Assert.Multiple(() => {
+            Assert.That(savedTurn.ResponseText, Is.EqualTo("Final coordinator response."));
+            Assert.That(savedTurn.AgentReports, Is.Not.Null);
+            Assert.That(savedTurn.AgentReports!.Single(), Is.EqualTo(report));
+        });
+    }
+
     [Test]
     public void ShouldApplyPendingSessionBoundary_ExplicitClear_ReturnsFalse() {
         var state = WorkspaceConversationState.Empty with {
@@ -552,19 +644,27 @@ internal sealed class TranscriptConversationManagerTests {
 
     private static TranscriptConversationManager MakeManager(
         Func<string>? getPromptText = null,
-        Action<string, int, int, int>? setPromptText = null) {
+        Action<string, int, int, int>? setPromptText = null,
+        SessionWorkspace? workspace = null,
+        TranscriptThreadState? coordinatorThread = null,
+        TranscriptTurnView? currentTurn = null) {
         var promptText = string.Empty;
         getPromptText ??= () => promptText;
         setPromptText ??= (t, _, _, _) => promptText = t;
+        coordinatorThread ??= new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            DateTimeOffset.UtcNow);
 
         return new TranscriptConversationManager(
-            getWorkspace:             () => null,
+            getWorkspace:             () => workspace,
             getPromptText:            getPromptText,
             setPromptText:            setPromptText,
             getPromptCaretState:      () => (0, 0, 0),
             isClosing:                () => false,
             renderPersistedTurn:      (_, _, _) => { },
-            coordinatorThread:        () => throw new InvalidOperationException("not needed for this test"),
+            coordinatorThread:        () => coordinatorThread,
             selectedThread:           () => null,
             maybePublishRoutingIssue: _ => { },
             syncAgentCardsWithThreads: () => { },
@@ -572,7 +672,7 @@ internal sealed class TranscriptConversationManagerTests {
             scrollOutputToEnd:        _ => { },
             agentThreadRegistry:      MakeRegistry(),
             getToolEntries:           () => new Dictionary<string, ToolTranscriptEntry>(),
-            getCurrentTurn:           () => null,
+            getCurrentTurn:           () => currentTurn,
             setCurrentTurnNull:       () => { },
             beginBulkDocumentLoad:    _ => { },
             endBulkDocumentLoad:      _ => { },

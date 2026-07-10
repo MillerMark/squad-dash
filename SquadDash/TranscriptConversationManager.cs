@@ -724,7 +724,10 @@ internal sealed class TranscriptConversationManager {
         if (_getWorkspace() is null)
             return;
 
-        var turnRecord = BuildTranscriptTurnRecord(turn, completedAt);
+        var turnRecord = BuildTranscriptTurnRecordPreservingAgentReports(
+            turn,
+            completedAt,
+            _conversationState.Turns);
         var turns = _conversationState.Turns
             .Where(existing =>
                 existing.StartedAt != turnRecord.StartedAt ||
@@ -758,7 +761,10 @@ internal sealed class TranscriptConversationManager {
         if (_getWorkspace() is null || thread.CurrentTurn is null)
             return;
 
-        var turnRecord = BuildTranscriptTurnRecord(thread.CurrentTurn, completedAt);
+        var turnRecord = BuildTranscriptTurnRecordPreservingAgentReports(
+            thread.CurrentTurn,
+            completedAt,
+            thread.SavedTurns);
         thread.SavedTurns.RemoveAll(existing =>
             existing.StartedAt == turnRecord.StartedAt &&
             string.Equals(existing.Prompt, turnRecord.Prompt, StringComparison.Ordinal));
@@ -830,24 +836,35 @@ internal sealed class TranscriptConversationManager {
         }, "TagLastTurnAsNewProjectOnboarding");
     }
 
-    internal void AppendAgentReportToLastTurn(string agentLabel, string reportPath) {        if (_getWorkspace() is null)
-            return;
+    internal void AppendAgentReportToLastTurn(string agentLabel, string reportPath) =>
+        AppendAgentReportToCurrentOrLastTurn(agentLabel, reportPath);
+
+    internal bool AppendAgentReportToCurrentOrLastTurn(string agentLabel, string reportPath) {
+        if (_getWorkspace() is null)
+            return false;
+
+        var newReport = new AgentReportInfo(agentLabel, reportPath);
+        var currentTurn = _getCurrentTurn();
+        if (currentTurn is not null) {
+            AddAgentReportToTurnView(currentTurn, newReport);
+            PersistConversationState(_conversationState, "AppendAgentReportToCurrentTurn");
+            return true;
+        }
 
         var turns = _conversationState.Turns;
-        if (turns.Count == 0)
-            return;
+        var targetIndex = FindLastInteractiveTurnIndex(turns);
+        if (targetIndex < 0)
+            return false;
 
-        var lastTurn  = turns[^1];
-        var existing  = lastTurn.AgentReports ?? [];
-        var newReport = new AgentReportInfo(agentLabel, reportPath);
-        var updated   = existing.Concat([newReport]).ToArray();
+        var targetTurn = turns[targetIndex];
 
         var newTurns = turns.ToList();
-        newTurns[^1] = lastTurn with { AgentReports = updated };
+        newTurns[targetIndex] = AddAgentReportToTurnRecord(targetTurn, newReport);
 
         PersistConversationState(_conversationState with {
             Turns = newTurns
         }, "AppendAgentReportToLastTurn");
+        return true;
     }
 
     internal void SaveWorkspaceInputState() {
@@ -937,7 +954,10 @@ internal sealed class TranscriptConversationManager {
         if (currentTurn is null)
             return state;
 
-        var partialRecord = BuildTranscriptTurnRecord(currentTurn, DateTimeOffset.UtcNow);
+        var partialRecord = BuildTranscriptTurnRecordPreservingAgentReports(
+            currentTurn,
+            DateTimeOffset.UtcNow,
+            state.Turns);
         var turns = state.Turns
             .Where(existing =>
                 existing.StartedAt != partialRecord.StartedAt ||
@@ -1022,6 +1042,59 @@ internal sealed class TranscriptConversationManager {
     private static bool IsSameTranscriptTurn(TranscriptTurnRecord left, TranscriptTurnRecord right) =>
         left.StartedAt.ToUniversalTime() == right.StartedAt.ToUniversalTime() &&
         string.Equals(left.Prompt, right.Prompt, StringComparison.Ordinal);
+
+    private static void AddAgentReportToTurnView(TranscriptTurnView turn, AgentReportInfo report) {
+        if (!ContainsAgentReport(turn.AgentReports, report))
+            turn.AgentReports.Add(report);
+    }
+
+    private static TranscriptTurnRecord AddAgentReportToTurnRecord(
+        TranscriptTurnRecord record,
+        AgentReportInfo report) {
+        var merged = MergeAgentReportLists(record.AgentReports, [report]);
+        return record with {
+            AgentReports = merged.Length > 0 ? merged : null
+        };
+    }
+
+    private TranscriptTurnRecord BuildTranscriptTurnRecordPreservingAgentReports(
+        TranscriptTurnView turn,
+        DateTimeOffset completedAt,
+        IReadOnlyList<TranscriptTurnRecord> existingTurns) {
+        var record = BuildTranscriptTurnRecord(turn, completedAt);
+        var existingRecord = existingTurns.FirstOrDefault(existing => IsSameTranscriptTurn(existing, record));
+        if (existingRecord?.AgentReports is not { Count: > 0 })
+            return record;
+
+        var merged = MergeAgentReportLists(record.AgentReports, existingRecord.AgentReports);
+        return record with {
+            AgentReports = merged.Length > 0 ? merged : null
+        };
+    }
+
+    private static AgentReportInfo[] MergeAgentReportLists(
+        IReadOnlyList<AgentReportInfo>? primary,
+        IReadOnlyList<AgentReportInfo>? secondary) {
+        var merged = new List<AgentReportInfo>();
+        AddRange(primary);
+        AddRange(secondary);
+        return merged.ToArray();
+
+        void AddRange(IReadOnlyList<AgentReportInfo>? reports) {
+            if (reports is null)
+                return;
+
+            foreach (var report in reports)
+                if (!ContainsAgentReport(merged, report))
+                    merged.Add(report);
+        }
+    }
+
+    private static bool ContainsAgentReport(
+        IEnumerable<AgentReportInfo> reports,
+        AgentReportInfo report) =>
+        reports.Any(existing =>
+            string.Equals(existing.ReportPath, report.ReportPath, StringComparison.OrdinalIgnoreCase));
 
     // ── Record builders ─────────────────────────────────────────────────────────
 
