@@ -14952,6 +14952,75 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ScrollToEndIfAtBottom(thread);
         });
 
+        _tourCommandRegistry.RegisterParameterizedAsync("InjectDemoAgentTools", async arg =>
+        {
+            // Format: "agentName|toolName:description:output[;toolName:description:output...]"
+            // The agent name is the first pipe-delimited segment; the rest is the same
+            // semicolon-separated tool-spec format used by InjectTranscriptTools.
+            var pipeIdx = arg.IndexOf('|');
+            if (pipeIdx < 0) return;
+            var name     = arg[..pipeIdx].Trim();
+            var toolsArg = arg[(pipeIdx + 1)..];
+
+            if (!_tourNamedDemoAgents.TryGetValue(name, out var demoEntry)) return;
+            var (card, thread) = demoEntry;
+
+            var specs = toolsArg.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            if (specs.Length == 0) return;
+
+            var idleDeadline = Environment.TickCount64 + 10_000;
+            while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
+                await Task.Delay(100);
+
+            if (!_secondaryTranscripts.Any(e => e.Agent == card))
+                OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
+
+            BeginTranscriptTurn(thread, string.Empty);
+            var turn = thread.CurrentTurn!;
+            var rng  = new Random();
+
+            var thinkingBlock = CreateThinkingBlock(turn, isExpanded: true);
+            thinkingBlock.Expander.HorizontalAlignment = HorizontalAlignment.Left;
+            thinkingBlock.HeaderTextBlock.Inlines.Clear();
+            thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("Tooling... ") { FontWeight = FontWeights.SemiBold });
+            thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("(simulated)") { FontStyle = FontStyles.Italic, FontWeight = FontWeights.Normal });
+            _tourNamedElements[$"TourDemoAgentTools_{name}"] = thinkingBlock.Expander;
+
+            foreach (var spec in specs)
+            {
+                var parts       = spec.Split(':', 3);
+                var toolName    = parts.Length > 0 ? parts[0].Trim() : "tool";
+                var description = parts.Length > 1 ? parts[1].Trim() : string.Empty;
+                var outputRaw   = parts.Length > 2 ? parts[2] : string.Empty;
+                var output      = outputRaw.Replace(@"\n", "\n");
+
+                var toolCallId  = "tour-tool-" + Guid.NewGuid().ToString("N")[..8];
+                var descriptor  = new ToolTranscriptDescriptor(
+                    ToolName:    toolName,
+                    Description: description,
+                    DisplayText: description);
+
+                var entry = CreateToolEntry(thinkingBlock, toolCallId, descriptor, null, DateTimeOffset.UtcNow);
+                _agentThreadRegistry.SetToolEntry(toolCallId, entry);
+                RenderToolEntry(entry);
+
+                await Task.Delay(rng.Next(400, 900));
+
+                entry.IsCompleted   = true;
+                entry.Success       = true;
+                entry.FinishedAt    = DateTimeOffset.UtcNow;
+                entry.OutputText    = string.IsNullOrWhiteSpace(output) ? null : output;
+                entry.DetailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
+                    descriptor, null, output, entry.StartedAt, entry.FinishedAt, null, true, true));
+                RenderToolEntry(entry);
+
+                await Task.Delay(rng.Next(120, 300));
+            }
+
+            thread.CurrentTurn = null;
+            ScrollToEndIfAtBottom(thread);
+        });
+
         _tourCommandRegistry.RegisterParameterized("DeactivateDemoAgent", arg =>
         {
             var name = arg.Trim();
