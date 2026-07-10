@@ -311,11 +311,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         // Build candidate list: ONLY the opposite side from the dangle pointer.
         // No same-side fallbacks — if nothing fits, clamping (below) keeps it on screen.
         Point[] candidates = dangleSide switch {
-            // Pointer exits bottom → buttons go to the RIGHT side first, LEFT side second
+            // Pointer exits bottom → buttons go ABOVE first (right-aligned), right side as fallback
             CalloutSide.Bottom => new[] {
-                new Point(rightSideX,  bottomAlignY),  // right side, bottom-aligned
+                new Point(rightAlignX, aboveY),        // above, right-aligned  ← primary
+                new Point(leftAlignX,  aboveY),        // above, left-aligned
                 new Point(rightSideX,  topAlignY),     // right side, top-aligned
-                new Point(leftSideX,   bottomAlignY),  // left side, bottom-aligned
                 new Point(leftSideX,   topAlignY),     // left side, top-aligned
             },
             // Pointer exits top → buttons go below first (right-aligned), then right side
