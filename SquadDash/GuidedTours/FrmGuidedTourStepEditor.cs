@@ -356,9 +356,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _descriptionBox = new TextBox
         {
-            Text    = activeTour.Description,
-            Height  = 26,
-            Padding = new Thickness(4, 3, 4, 3),
+            Text                    = activeTour.Description,
+            Padding                 = new Thickness(4, 3, 4, 3),
+            VerticalContentAlignment = VerticalAlignment.Center,
         };
         _descriptionBox.SetResourceReference(TextBox.BackgroundProperty,  "TextBoxBackground");
         _descriptionBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
@@ -663,7 +663,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         var descLabel = new TextBlock
         {
-            Text              = "Description:",
+            Text              = "Lesson description:",
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(0, 0, 6, 0),
         };
@@ -2192,7 +2192,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Margin  = new Thickness(3, 0, 3, 0),
             Padding = new Thickness(10, 2, 10, 2),
         };
-        btn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        btn.SetResourceReference(Button.StyleProperty,   "ThemedButtonStyle");
+        btn.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
         return btn;
     }
 
@@ -2224,7 +2225,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private static ComboBox MakeCommandCombo(IEnumerable<string> items, string currentValue)
     {
         var cb = new ComboBox { IsEditable = true, Height = 26 };
-        cb.SetResourceReference(ComboBox.StyleProperty, "ThemedEditableComboBoxStyle");
+        cb.SetResourceReference(ComboBox.StyleProperty,    "ThemedEditableComboBoxStyle");
+        cb.SetResourceReference(ComboBox.FontSizeProperty, "FontSizeBody");
         foreach (var item in items)
             cb.Items.Add(item == "" ? "(none)" : item);
         var displayValue = string.IsNullOrEmpty(currentValue) ? "(none)" : currentValue;
