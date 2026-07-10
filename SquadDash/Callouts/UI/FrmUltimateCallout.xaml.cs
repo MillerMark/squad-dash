@@ -427,6 +427,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     Button? _closeButton;
     bool _dragInProgress;
     CalloutSide _lastDangleSide = CalloutSide.Bottom;
+    bool _isDangleActive;
     Func<int>? _tourNavAdvanceCountProvider;
     Action? _tourNavAdvanceRecorder;
 
@@ -624,7 +625,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     {
         if (_tourOverlay is null) return;
         _tourOverlay.EnsureLayout();
-        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _lastDangleSide);
+        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
         _tourOverlay.FadeIn();
         if (_isTourMode)
             StartTourEntryAnimation();
@@ -673,7 +674,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void RepositionTourOverlayNow()
     {
         if (_tourOverlay is null) return;
-        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _lastDangleSide);
+        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
     }
 
     void OnDragStarted_TourOverlay(object? sender, EventArgs e) => _tourOverlay?.HideImmediate();
@@ -2269,6 +2270,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             trianglePoint1 = calloutScreenCenter;
             trianglePoint2 = calloutScreenCenter;
             trianglePoint3 = calloutScreenCenter;
+            _isDangleActive = false;
             return;
         }
 
@@ -2303,6 +2305,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 break;
         }
 
+        _isDangleActive = true;
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GetTrianglePoints: DANGLE drawn — tp1=({trianglePoint1.X:F1},{trianglePoint1.Y:F1}) tp2=({trianglePoint2.X:F1},{trianglePoint2.Y:F1}) tp3=({trianglePoint3.X:F1},{trianglePoint3.Y:F1})");
     }
