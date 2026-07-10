@@ -13,7 +13,7 @@
     <SolidColorBrush x:Key="WorkspaceSurface" Color="#222018"/>
     <SolidColorBrush x:Key="CardSurface" Color="#2E2920"/>
     <SolidColorBrush x:Key="InboxBodySurface" Color="#0F0D0B"/>
-    <SolidColorBrush x:Key="HoverSurface" Color="#6B615C"/>
+    <SolidColorBrush x:Key="HoverSurface" Color="#524A47"/>
     <SolidColorBrush x:Key="TranscriptLinkHoverSurface" Color="#252220"/>
     <SolidColorBrush x:Key="ApprovalSelectedSurface" Color="#80252220"/>
     <SolidColorBrush x:Key="TranscriptSurface" Color="#1E1C17"/>
@@ -53,8 +53,8 @@
     <SolidColorBrush x:Key="DangerButtonFg"      Color="#FFFFFF"/>
     <SolidColorBrush x:Key="GripStripLine" Color="#3E3630"/>  <!-- same hue as surface, matches SubtleBorder for low-contrast hatching -->
     <!-- Border / Line Tokens -->
-    <SolidColorBrush x:Key="PanelBorder" Color="#827362"/>
-    <SolidColorBrush x:Key="MenuBorder" Color="#827362"/>
+    <SolidColorBrush x:Key="PanelBorder" Color="#4E453B"/>
+    <SolidColorBrush x:Key="MenuBorder" Color="#767472"/>
     <SolidColorBrush x:Key="ActivePanelBorder" Color="#2B4065"/>
     <SolidColorBrush x:Key="RosterPanelBorder" Color="#3E3630"/>
     <SolidColorBrush x:Key="WorkspaceBorder" Color="#38322A"/>

@@ -781,9 +781,14 @@ internal sealed class ThemeColorsWindow : Window
         ColorUtilities.RgbToHsl(original.R, original.G, original.B, out double h, out double s, out double l);
 
         l = Math.Clamp(l + brightness / 100.0 * 0.5, 0.0, 1.0);
-        s = Math.Clamp(s + saturation / 100.0 * 0.5, 0.0, 1.0);
+        double newS = Math.Clamp(s + saturation / 100.0 * 0.5, 0.0, 1.0);
+        // Preserve a tiny saturation floor so the hue is never permanently
+        // discarded when the slider drives a colored token toward gray.
+        // Pure grays (s == 0 originally) are left at 0 — they have no hue to preserve.
+        if (s > 0.0)
+            newS = Math.Max(newS, s * 0.01);
 
-        ColorUtilities.HslToRgb(h, s, l, out byte r, out byte g, out byte b);
+        ColorUtilities.HslToRgb(h, newS, l, out byte r, out byte g, out byte b);
         return Color.FromRgb(r, g, b);
     }
 
