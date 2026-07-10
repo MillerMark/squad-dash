@@ -12,9 +12,8 @@ internal static class CodeHealthMdParser {
 
     /// <summary>
     /// Returns null if the file is missing or unreadable.
-    /// When the frontmatter lacks <c>configured: true</c> the config is still returned
-    /// (with <see cref="CodeHealthMdConfig.Configured"/> == false) so the panel can
-    /// show tasks for browsing.
+    /// When the frontmatter lacks the legacy <c>configured: true</c> marker the config
+    /// is still returned so the panel can show tasks and manual runs can execute.
     /// </summary>
     /// <summary>
     /// Loads code health configuration and tasks from all three sources (system, custom, overrides)

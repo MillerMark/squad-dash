@@ -36248,11 +36248,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (isManual) _codeHealthPanel?.ShowTransientStatus("No code-health.md found in this workspace.");
             return;
         }
-        if (!config.Configured) {
-            if (isManual) _codeHealthPanel?.ShowTransientStatus("Code health is not configured. Set configured: true in code-health.md to activate.");
-            return;
-        }
-        if (!isManual && !config.EnabledOnIdle) return;
+        if (!CodeHealthRunPolicy.CanStart(config, isManual)) return;
         if (config.Tasks is not { Count: > 0 } tasks || !tasks.Any(task => task.Enabled))
         {
             if (isManual) _codeHealthPanel?.ShowTransientStatus("No enabled maintenance tasks to run.");
@@ -36319,8 +36315,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 Dispatcher.InvokeAsync(async () =>
                 {
-                    // Skip the report file when nothing actually ran (e.g. all tasks skipped
-                    // or code-health.md has configured: false). Empty reports add noise.
+                    // Skip the report file when nothing actually ran (e.g. all tasks skipped).
+                    // Empty reports add noise.
                     var hasActivity = report.TaskResults.Any(
                         t => t.Outcome != CodeHealthTaskOutcome.Skipped);
                     var reportPath = hasActivity

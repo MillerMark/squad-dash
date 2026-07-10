@@ -52,7 +52,7 @@ internal static class BuiltInPromptInjections {
             """
             For code health tasks that run during idle time:
             - The code health task file for this workspace is at `{workspaceFolder}\.squad\code-health.md`
-            - When the AI is idle for the configured threshold, it runs tasks defined in that file
+            - `enabled_on_idle: false` means manual-only; `enabled_on_idle: true` lets tasks run automatically after the idle threshold
             - Each task has a `safety:` level: `report-only` (no file changes), `branch` (new branch per task), or `direct` (current branch)
             - Task frequency is controlled by `frequency: daily`, `frequency: per-commit`, or `frequency: always`
             - The code health agent's transcript records all activity during a code health session

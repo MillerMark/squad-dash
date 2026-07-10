@@ -255,6 +255,7 @@
     <Compile Include="..\SquadDash\CodeHealthOptionChoice.cs" Link="Source\CodeHealthOptionChoice.cs" />
     <Compile Include="..\SquadDash\CodeHealthStateStore.cs" Link="Source\CodeHealthStateStore.cs" />
     <Compile Include="..\SquadDash\ITimeProvider.cs" Link="Source\ITimeProvider.cs" />
+    <Compile Include="..\SquadDash\CodeHealthRunPolicy.cs" Link="Source\CodeHealthRunPolicy.cs" />
     <Compile Include="..\SquadDash\CodeHealthRunner.cs" Link="Source\CodeHealthRunner.cs" />
     <Compile Include="..\SquadDash\CodeHealthReportWriter.cs" Link="Source\CodeHealthReportWriter.cs" />
     <Compile Include="..\SquadDash\CodeHealthStubStateStore.cs" Link="Source\CodeHealthStubStateStore.cs" />

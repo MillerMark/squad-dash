@@ -8,8 +8,9 @@
 #   after-commits — run once per new HEAD commit SHA
 #   per-commit    — backward-compat alias for after-commits
 #   every-N-commits — run once ≥N new commits since last run (e.g., every-5-commits)
-# Set configured: true to enable maintenance mode.
-# Set enabled: true on individual tasks to activate them.
+# Set enabled_on_idle: true to let Code Health run automatically while idle.
+# Leave enabled_on_idle: false for manual-only runs via the Code Health panel.
+# Set enabled: true on individual tasks to make them runnable.
 # Global safety floor: per-task safety cannot be less safe than this value.
 #   report-only < branch < direct
 #
@@ -33,7 +34,7 @@ idle_timeout: 15
 max_tasks_per_session: 5
 safety: branch
 enabled_on_idle: false
-configured: false  # ← change to true to activate
+configured: true  # Legacy marker; automatic runs are controlled by enabled_on_idle.
 # ─────────────────────────────────────────────
 # DECOMPOSE POLICY
 #

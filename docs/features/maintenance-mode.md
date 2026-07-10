@@ -6,35 +6,38 @@ parent: Features
 
 # Maintenance Mode
 
-Maintenance Mode lets SquadDash run autonomous housekeeping tasks — tests, refactors, reports, and more — during idle windows while you're away from the keyboard. Tasks are defined in `.squad/maintenance.md`, controlled by a global safety floor, and each run produces a timestamped report.
+Maintenance Mode lets SquadDash run autonomous housekeeping tasks — tests, refactors, reports, and more — during idle windows while you're away from the keyboard. Tasks are defined in `.squad/code-health.md`, controlled by a global safety floor, and each run produces a timestamped report.
 
 ---
 
 ## How it works
 
 1. SquadDash monitors keyboard/mouse activity via `IdleDetectionService`.
-2. After `idle_timeout` minutes of inactivity, it loads `.squad/maintenance.md`, evaluates which tasks are eligible (based on frequency and run history), and executes them in order via the normal agent prompt pipeline.
-3. Each completed session writes a report to `.squad/maintenance-reports/`.
+2. After `idle_timeout` minutes of inactivity, it loads `.squad/code-health.md`, evaluates which tasks are eligible (based on frequency and run history), and executes them in order via the normal agent prompt pipeline.
+3. Each completed session writes a report to `.squad/code-health-reports/`.
 4. Activity (a keypress, mouse movement) interrupts the session cleanly between tasks.
 
 ---
 
-## `maintenance.md` — structure
+## `code-health.md` — structure
 
-The file lives at `.squad/maintenance.md` and has two parts: a YAML frontmatter block followed by task blocks.
+The file lives at `.squad/code-health.md` and has two parts: a YAML frontmatter block followed by task blocks.
 
 ### Frontmatter
 
 ```yaml
 ---
-configured: true          # Required — SquadDash ignores the file without this
+configured: true          # Legacy marker for existing files
+enabled_on_idle: false    # Manual runs only; set true to run automatically while idle
 idle_timeout: 15          # Minutes of inactivity before a window triggers (default: 15)
 max_tasks_per_session: 5  # Max tasks to run per window; stops after this many (default: 5)
 safety: branch            # Global safety floor (see Safety Model below)
 ---
 ```
 
-`configured: true` is a deliberate opt-in gate. SquadDash will not load the file (and will not enter Maintenance Mode) if this key is absent or set to `false`.
+`enabled_on_idle: false` keeps Code Health in manual-only mode. **Run Now** still works from the Code Health panel; set `enabled_on_idle: true` only when you want automatic idle runs.
+
+`configured:` is retained as a legacy marker for existing files. It is not the automatic-run switch.
 
 ### Task blocks
 
@@ -53,7 +56,7 @@ instructions: |
   Report any failures.
 ```
 
-All tasks in the default `.squad/maintenance.md` ship with `enabled: false` — you opt in to exactly the tasks you want.
+All tasks in the default `.squad/code-health.md` ship with `enabled: false` — you opt in to exactly the tasks you want.
 
 | Field          | Required | Default  | Description                                            |
 |----------------|----------|----------|--------------------------------------------------------|
@@ -117,7 +120,7 @@ For the full syntax, all gotchas, and loop-file examples see [Loop File Template
 
 ### In the file
 
-Set `enabled: true` or `enabled: false` on the relevant task block in `.squad/maintenance.md`:
+Set `enabled: true` or `enabled: false` on the relevant task block in `.squad/code-health.md`:
 
 ```diff
 ## run-tests
@@ -132,7 +135,7 @@ Set `enabled: true` or `enabled: false` on the relevant task block in `.squad/ma
 
 The **Code Health panel** in SquadDash displays each task as a row with a checkbox. Checking or unchecking the box:
 
-1. Reads `.squad/maintenance.md` from disk.
+1. Reads `.squad/code-health.md` from disk.
 2. Flips `enabled: false ↔ true` for the target task ID in place, preserving all other content.
 3. Writes the file back atomically.
 4. Reloads the panel to reflect the new state.
@@ -155,14 +158,14 @@ Right-click any task row in the Code Health panel and choose **Run Now** to exec
 
 ### Simulate Idle — trigger a full cycle
 
-Right-click the **Maintenance Tasks:** picker button and choose **Simulate Idle** to trigger a full maintenance window immediately, exactly as the idle scheduler would.
+Right-click the **Code Health Tasks:** picker button and choose **Simulate Idle** to trigger a full maintenance window immediately, exactly as the idle scheduler would.
 
 **Frequency rules still apply** — only enabled tasks that are eligible based on their frequency setting and last run time will execute. This is the equivalent of the old "Run now" button (now removed).
 
 ### Testing without frequency limits
 
 To force a specific task to run regardless of when it last ran, use **Run Now** (right-click the task row). To reset all frequency history:
-1. Delete or edit `maintenance-state.json` to remove that task's `lastRunAt` entry, OR
+1. Delete or edit `code-health-state.json` to remove that task's `lastRunAt` entry, OR
 2. Temporarily change the task's frequency to `always`
 
 ---
@@ -252,7 +255,7 @@ Every task runs with an *effective safety level* determined by the stricter of t
 | Level         | What the AI may do                                                              |
 |---------------|---------------------------------------------------------------------------------|
 | `report-only` | No file changes. Findings are written to the session transcript only.           |
-| `branch`      | Creates branch `maintenance/YYYYMMDD-<task-slug>` before any edits. Commits go to that branch; the current branch is never touched. **Recommended default.**<br><br>⚠ **Multi-task sessions:** Each task receives a "create branch from the current HEAD" instruction. If a prior task in the same session committed to its branch, the next task branches from that branch — not from your main/default branch. A fix to inject an explicit base-branch checkout is tracked in the backlog. For now, verify multi-task `branch`-safety session outputs before merging. |
+| `branch`      | Creates branch `codehealth/<task-slug>/<timestamp>` before any edits. Commits go to that branch; the current branch is never touched. **Recommended default.**<br><br>⚠ **Multi-task sessions:** Each task receives a "create branch from the current HEAD" instruction. If a prior task in the same session committed to its branch, the next task branches from that branch — not from your main/default branch. A fix to inject an explicit base-branch checkout is tracked in the backlog. For now, verify multi-task `branch`-safety session outputs before merging. |
 | `direct`      | Commits directly to the current branch. Use only for tasks that are safe by design (e.g. writing only to `tasks.md`). |
 
 **Safety floor rule:** the global `safety:` value is a *floor*. A per-task setting cannot be less safe than the global value.
@@ -282,7 +285,7 @@ To allow `direct` on any task, you must set the **global** `safety: direct`.
 After every maintenance window SquadDash writes a Markdown report to:
 
 ```
-.squad/maintenance-reports/YYYYMMDD-HHmmss.md
+.squad/code-health-reports/YYYYMMDD-HHmmss.md
 ```
 
 The filename uses local time. Reports are automatically pruned to the **30 most recent** files.
@@ -303,7 +306,7 @@ The filename uses local time. Reports are automatically pruned to the **30 most 
 
 ## Branches Created
 
-- maintenance/20260520-code-smells
+- codehealth/code-smells/20260520-143000
 
 ## Files Changed
 
@@ -387,12 +390,12 @@ Line numbers may appear as a *secondary* hint (e.g. "near line 42") but must nev
 
 ---
 
-## State store — `maintenance-state.json`
+## State store — `code-health-state.json`
 
 SquadDash tracks per-task run history in:
 
 ```
-<workspace-root>/maintenance-state.json
+<workspace-root>/.squad/code-health-state.json
 ```
 
 This file is **automatically added to `.gitignore`** the first time a maintenance window runs (via `SquadInstallerService.EnsureMaintenanceStateInGitIgnore`). You will never accidentally commit it.
@@ -419,7 +422,7 @@ This file is **automatically added to `.gitignore`** the first time a maintenanc
 To force all tasks to be eligible on the next idle window, delete the file:
 
 ```powershell
-Remove-Item maintenance-state.json
+Remove-Item .squad\code-health-state.json
 ```
 
 To reset a single task, open the file and delete its entry from the `tasks` object, then save.
@@ -441,12 +444,12 @@ SquadDash will wait for any currently-running prompt or Loop iteration to finish
 ### Typical local test workflow
 
 ```text
-1. Set idle_timeout: 1 in maintenance.md  (optional — trigger_idle_cycle skips the wait anyway)
+1. Set idle_timeout: 1 in code-health.md  (optional — trigger_idle_cycle skips the wait anyway)
 2. Enable at least one task:  enabled: true
 3. Run:  trigger_idle_cycle
 4. Watch the Code Health panel — the banner changes to "Running: <task title>"
-5. Check .squad/maintenance-reports/ for the generated report
-6. Inspect maintenance-state.json to confirm lastRunAt was updated
+5. Check .squad/code-health-reports/ for the generated report
+6. Inspect code-health-state.json to confirm lastRunAt was updated
 ```
 
 ---
@@ -455,16 +458,16 @@ SquadDash will wait for any currently-running prompt or Loop iteration to finish
 
 | Topic                | Detail                                            |
 |----------------------|---------------------------------------------------|
-| Config file          | `.squad/maintenance.md`                           |
-| Opt-in gate          | `configured: true` in frontmatter                 |
+| Config file          | `.squad/code-health.md`                           |
+| Automatic idle runs  | `enabled_on_idle: true` in frontmatter, or **Run on idle** in the panel |
 | Enable a task        | `enabled: true` in task block, or panel checkbox  |
-| Default safety       | `branch` (creates `maintenance/YYYYMMDD-<slug>`)  |
-| Reports location     | `.squad/maintenance-reports/YYYYMMDD-HHmmss.md`   |
+| Default safety       | `branch` (creates `codehealth/<task-slug>/<timestamp>`) |
+| Reports location     | `.squad/code-health-reports/YYYYMMDD-HHmmss.md`   |
 | Report retention     | 30 most recent, auto-pruned                       |
-| State file           | `<workspace-root>/maintenance-state.json`         |
-| Reset state          | Delete `maintenance-state.json`                   |
+| State file           | `<workspace-root>/.squad/code-health-state.json`  |
+| Reset state          | Delete `code-health-state.json`                   |
 | Test trigger         | `trigger_idle_cycle` command in SquadDash         |
-| Create a task        | Right-click panel background → **New Task**, or edit `.squad/maintenance.md` directly |
+| Create a task        | Right-click panel background → **New Task**, or edit `.squad/code-health.md` directly |
 | Force a single task  | Right-click task row → **Run Now** (bypasses frequency) |
 | Simulate idle cycle  | Right-click picker → **Simulate Idle** (respects frequency) |
 | `after-commits` frequency | Runs once per new HEAD commit SHA; alias: `per-commit`  |
