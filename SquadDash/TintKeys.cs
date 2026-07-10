@@ -53,6 +53,7 @@ internal static class TintKeys
         "ApprovalSelectedSurface",   // light only — has alpha channel; engine must preserve alpha byte
         "TranscriptSurface",
         "InputSurface",
+        "TextBoxBackground",
         "FollowUpSurface",
         "QueueCardSurface",
         "AlertSurface",

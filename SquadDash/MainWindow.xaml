@@ -3092,6 +3092,18 @@
                 BorderBrush="{DynamicResource InputBorder}"
                 BorderThickness="1"
                 CornerRadius="18">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="BorderBrush" Value="{DynamicResource CheckBoxBorder}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter Property="BorderBrush" Value="{DynamicResource CheckBoxBorder}"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -3280,6 +3292,8 @@
                              TextOptions.TextFormattingMode="Display"
                              Foreground="{DynamicResource LabelText}"
                              Background="{DynamicResource TextBoxBackground}"
+                             BorderBrush="{DynamicResource InputBorder}"
+                             FocusVisualStyle="{x:Null}"
                              AllowDrop="True"
                              TextChanged="PromptTextBox_TextChanged"
                              PreviewKeyDown="PromptTextBox_KeyDown"
