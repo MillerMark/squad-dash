@@ -1512,6 +1512,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (_zoomLabel != null)
             _zoomLabel.Text = $"{_zoom * 100:F0}%";
         UpdateScrollExtentSurfaceSize();
+        PositionModeHint();
     }
 
     private void UpdateScrollExtentSurfaceSize() {
@@ -5398,7 +5399,9 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 Child = _modeHintText,
                 IsHitTestVisible = false,
                 Visibility = Visibility.Collapsed,
-                MinWidth = 180
+                MinWidth = 180,
+                // Counter-scale so the hint stays at screen-native size regardless of canvas zoom.
+                LayoutTransform = new ScaleTransform(1.0 / _zoom, 1.0 / _zoom),
             };
             Panel.SetZIndex(_modeHintBorder, 150);
             _canvas.Children.Add(_modeHintBorder);
@@ -5446,6 +5449,11 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private void PositionModeHint() {
         if (_modeHintBorder == null) return;
+        // Keep hint at screen-native size regardless of canvas zoom.
+        if (_modeHintBorder.LayoutTransform is ScaleTransform st) {
+            st.ScaleX = 1.0 / _zoom;
+            st.ScaleY = 1.0 / _zoom;
+        }
         _modeHintBorder.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var w = _modeHintBorder.DesiredSize.Width;
         if (_sel.IsEmpty) {
