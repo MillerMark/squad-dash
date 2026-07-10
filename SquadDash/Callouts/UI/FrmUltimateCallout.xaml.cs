@@ -603,7 +603,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             double bottom = physBR.Y / dpiY;
 
             // Expand to include the dangle tip so nav buttons are placed clear of the pointer.
-            if (!double.IsNaN(trianglePoint1.X) && !double.IsNaN(trianglePoint1.Y))
+            if (_isDangleActive && !double.IsNaN(trianglePoint1.X) && !double.IsNaN(trianglePoint1.Y))
             {
                 Point tipPhys = cvsCallout.PointToScreen(trianglePoint1);
                 double tipX = tipPhys.X / dpiX;
