@@ -2221,6 +2221,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             trianglePoint1 = calloutScreenCenter;
             trianglePoint2 = calloutScreenCenter;
             trianglePoint3 = calloutScreenCenter;
+            _isDangleActive = false;
             return;
         }
         SquadDashTrace.Write(TraceCategory.Callouts,
