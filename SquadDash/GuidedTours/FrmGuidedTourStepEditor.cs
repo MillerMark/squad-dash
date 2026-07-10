@@ -956,6 +956,42 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     }
 
     /// <summary>
+    /// Syncs the editor selection to the tour and step that are currently active in the running tour.
+    /// If the active tour is different from what the editor is showing, switches to it (rebuilding the step list).
+    /// If it's the same tour, just moves the step selection without rebuilding anything.
+    /// Called by GuidedTourController.ShowCurrentStep() as the user navigates.
+    /// </summary>
+    public void SyncToActiveTourStep(GuidedTour activeTour, int stepIndex)
+    {
+        if (!ReferenceEquals(_activeTour, activeTour))
+        {
+            // Tour changed — switch fully (also updates _tourListBox selection)
+            var tourIdx = _allTours.IndexOf(activeTour);
+            if (tourIdx >= 0)
+            {
+                _isLoadingStep = true;
+                try { _tourListBox.SelectedIndex = tourIdx; }
+                finally { _isLoadingStep = false; }
+            }
+            SwitchActiveTour(activeTour, stepIndex);
+            return;
+        }
+
+        // Same tour — just move the step selection and scroll into view.
+        // Guard against reentrancy: _isLoadingStep suppresses OnStepListSelectionChanged.
+        if (stepIndex < 0 || stepIndex >= _stepListBox.Items.Count) return;
+        _isLoadingStep = true;
+        try
+        {
+            _stepListBox.SelectedIndex = stepIndex;
+            _stepListBox.ScrollIntoView(_stepListBox.SelectedItem);
+        }
+        finally { _isLoadingStep = false; }
+        // Update the title bar to reflect the newly active step.
+        UpdateWindowTitle();
+    }
+
+    /// <summary>
     /// Rebuilds the step list, selects the given index, and loads that step's fields.
     /// Called by the controller after adding, deleting, or reordering steps from within the editor.
     /// </summary>
