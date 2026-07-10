@@ -977,18 +977,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             return;
         }
 
-        // Same tour — just move the step selection and scroll into view.
-        // Guard against reentrancy: _isLoadingStep suppresses OnStepListSelectionChanged.
+        // Same tour — move the step selection and load the step detail fields.
+        // We do NOT use OnStepListSelectionChanged here: that handler bails when
+        // _isLoadingStep is true, and setting SelectedIndex inside a guard would
+        // leave the right-side panel showing the previously-selected step's data.
         if (stepIndex < 0 || stepIndex >= _stepListBox.Items.Count) return;
-        _isLoadingStep = true;
-        try
-        {
-            _stepListBox.SelectedIndex = stepIndex;
-            _stepListBox.ScrollIntoView(_stepListBox.SelectedItem);
-        }
-        finally { _isLoadingStep = false; }
-        // Update the title bar to reflect the newly active step.
-        UpdateWindowTitle();
+        LoadStep(stepIndex);    // sets _stepListBox.SelectedIndex and scrolls into view internally
     }
 
     /// <summary>
