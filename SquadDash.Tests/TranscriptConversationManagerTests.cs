@@ -314,6 +314,65 @@ internal sealed class TranscriptConversationManagerTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void ShouldRecoverMissingAgentReportForLatestCoordinatorTurn_ReturnsTrue_WhenThreadCompletedDuringLatestTurn() {
+        var startedAt = new DateTimeOffset(2026, 7, 10, 14, 19, 36, TimeSpan.Zero);
+        var completedAt = startedAt.AddMinutes(11);
+        var manager = MakeManager();
+        manager.ConversationState = WorkspaceConversationState.Empty with {
+            Turns = [
+                new TranscriptTurnRecord(
+                    startedAt,
+                    completedAt.AddSeconds(15),
+                    "Fix the callout",
+                    string.Empty,
+                    "Vesper is writing test cases in the background.",
+                    true,
+                    Array.Empty<TranscriptToolRecord>()),
+                MakeBoundary(
+                    completedAt.AddMinutes(24),
+                    TimeSpan.FromSeconds(3),
+                    completedAt.AddMinutes(24).AddSeconds(3))
+            ]
+        };
+        var thread = new TranscriptThreadState(
+            "call-vesper",
+            TranscriptThreadKind.Agent,
+            "Vesper Knox",
+            startedAt.AddMinutes(5)) {
+            CompletedAt = completedAt
+        };
+
+        Assert.That(manager.ShouldRecoverMissingAgentReportForLatestCoordinatorTurn(thread), Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ShouldRecoverMissingAgentReportForLatestCoordinatorTurn_ReturnsFalse_ForOlderThread() {
+        var latestStartedAt = new DateTimeOffset(2026, 7, 10, 14, 19, 36, TimeSpan.Zero);
+        var manager = MakeManager();
+        manager.ConversationState = WorkspaceConversationState.Empty with {
+            Turns = [
+                new TranscriptTurnRecord(
+                    latestStartedAt,
+                    latestStartedAt.AddMinutes(11),
+                    "Fix the callout",
+                    string.Empty,
+                    "Vesper is writing test cases in the background.",
+                    true,
+                    Array.Empty<TranscriptToolRecord>())
+            ]
+        };
+        var thread = new TranscriptThreadState(
+            "call-lyra",
+            TranscriptThreadKind.Agent,
+            "Lyra Morn",
+            latestStartedAt.AddDays(-3)) {
+            CompletedAt = latestStartedAt.AddDays(-3).AddMinutes(2)
+        };
+
+        Assert.That(manager.ShouldRecoverMissingAgentReportForLatestCoordinatorTurn(thread), Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void AppendAgentReportToCurrentOrLastTurn_AttachesActiveTurnAndPersistsFoldedTurn() {
         using var workspace = new TestWorkspace();
         var workspacePath = workspace.GetPath("workspace");

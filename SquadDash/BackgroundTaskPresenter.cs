@@ -41,6 +41,7 @@ internal sealed class BackgroundTaskPresenter {
     // Params: (agentLabel, announcementHeader, reportBody)
     private readonly Func<string, string, string, bool>?   _appendAgentReport;
     private readonly Func<TranscriptThreadState, bool>?    _hasVisibleOrPersistedAgentReport;
+    private readonly Func<TranscriptThreadState, bool>?    _shouldRecoverMissingAgentReport;
 
     // ── Owned mutable state ──────────────────────────────────────────────────
 
@@ -91,7 +92,8 @@ internal sealed class BackgroundTaskPresenter {
         TimeSpan                        agentActiveDisplayLinger,
         TimeSpan                        dynamicAgentHistoryRetention,
         Func<string, string, string, bool>? appendAgentReport = null,
-        Func<TranscriptThreadState, bool>? hasVisibleOrPersistedAgentReport = null) {
+        Func<TranscriptThreadState, bool>? hasVisibleOrPersistedAgentReport = null,
+        Func<TranscriptThreadState, bool>? shouldRecoverMissingAgentReport = null) {
         _agentThreadRegistry          = agentThreadRegistry;
         _appendLine                   = appendLine;
         _syncAgentCards               = syncAgentCards;
@@ -108,6 +110,7 @@ internal sealed class BackgroundTaskPresenter {
         _dynamicAgentHistoryRetention = dynamicAgentHistoryRetention;
         _appendAgentReport            = appendAgentReport;
         _hasVisibleOrPersistedAgentReport = hasVisibleOrPersistedAgentReport;
+        _shouldRecoverMissingAgentReport = shouldRecoverMissingAgentReport;
     }
 
     // ── State management ─────────────────────────────────────────────────────
@@ -193,7 +196,7 @@ internal sealed class BackgroundTaskPresenter {
         AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText) &&
         !string.IsNullOrWhiteSpace(thread.LatestResponse) &&
         (string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse) ||
-         IsAnnouncedBackgroundReportMissing(thread)) &&
+         IsRecoverableMissingAnnouncedBackgroundReport(thread)) &&
         !IsArgusWeldThread(thread);
 
     /// <summary>
@@ -869,7 +872,7 @@ internal sealed class BackgroundTaskPresenter {
 
         var isLiveBackgroundTask  = IsThreadBackedByLiveBackgroundTask(thread);
         var isTerminal            = AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText);
-        var announcedReportMissing = IsAnnouncedBackgroundReportMissing(thread);
+        var announcedReportMissing = IsRecoverableMissingAnnouncedBackgroundReport(thread);
         if (announcedReportMissing) {
             SquadDashTrace.Write(
                 "Agents",
@@ -945,6 +948,10 @@ internal sealed class BackgroundTaskPresenter {
 
         return !_hasVisibleOrPersistedAgentReport(thread);
     }
+
+    private bool IsRecoverableMissingAnnouncedBackgroundReport(TranscriptThreadState thread) =>
+        IsAnnouncedBackgroundReportMissing(thread) &&
+        (_shouldRecoverMissingAgentReport?.Invoke(thread) == true);
 
     private static string NormalizeAnnouncementResponse(string? value) =>
         string.IsNullOrWhiteSpace(value)

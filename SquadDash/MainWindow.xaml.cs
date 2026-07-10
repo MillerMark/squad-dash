@@ -910,7 +910,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             agentActiveDisplayLinger: AgentActiveDisplayLinger,
             dynamicAgentHistoryRetention: DynamicAgentHistoryRetention,
             appendAgentReport: (agentLabel, header, body) => AppendAgentReport(agentLabel, header, body),
-            hasVisibleOrPersistedAgentReport: thread => HasVisibleOrPersistedAgentReport(thread));
+            hasVisibleOrPersistedAgentReport: thread => HasVisibleOrPersistedAgentReport(thread),
+            shouldRecoverMissingAgentReport: thread => _conversationManager.ShouldRecoverMissingAgentReportForLatestCoordinatorTurn(thread));
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
             getPromptText: () => PromptTextBox.Text,
@@ -1344,7 +1345,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             setInstallStatus: msg => SetInstallStatus(msg),
             canShowOwnedWindow: () => CanShowOwnedWindow(),
             showTextWindow: (title, content) => ShowTextWindow(title, content),
-            clearSessionView: () => ClearSessionView(),
+            clearSessionView: () => ClearSessionView(clearAgentReports: true),
             showTasksStatusWindow: () => ShowTasksStatusWindow(),
             hideTasksStatusWindow: () => HideTasksStatusWindow(),
             showApprovalWindow: () => ShowApprovalPanel(),
@@ -23718,8 +23719,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (turn.AgentReports is { Count: > 0 } && ReferenceEquals(thread, CoordinatorThread))
         {
-            foreach (var report in turn.AgentReports)
-                AppendAgentReportButton(report.AgentLabel, report.ReportPath, view);
+                foreach (var report in turn.AgentReports)
+                    AppendAgentReportButton(report.AgentLabel, report.ReportPath, view);
         }
     }
 
@@ -24650,8 +24651,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             labels.Add(label.Trim());
     }
 
-    private void AppendAgentReportButton(string agentLabel, string reportPath, TranscriptTurnView? view = null)
+    private bool AppendAgentReportButton(string agentLabel, string reportPath, TranscriptTurnView? view = null)
     {
+        if (!File.Exists(reportPath))
+        {
+            SquadDashTrace.Write(
+                "Agents",
+                $"AppendAgentReportButton skipped missing report agent={agentLabel} path={reportPath}");
+            return false;
+        }
+
         var capturedPath  = reportPath;
         var capturedLabel = agentLabel;
 
@@ -24688,6 +24697,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             targetView.NarrativeSection.Blocks.Add(para);
         else
             CoordinatorThread.Document.Blocks.Add(para);
+        return true;
     }
 
     /// <summary>
@@ -27281,7 +27291,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return existingOutput.TrimEnd() + Environment.NewLine + newOutput.TrimEnd();
     }
 
-    private void ClearSessionView()
+    private void ClearSessionView(bool clearAgentReports = false)
     {
         DisposeInboxWatcher();
         DisposeTeamFileWatcher();
@@ -27289,8 +27299,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _conversationManager.CurrentSessionId = null;
         SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn cleared reason=ClearSessionView currentTurnWasPresent={_currentTurn is not null}");
         _currentTurn = null;
-        // Clear all stored agent reports for this workspace when the conversation is cleared.
-        if (_currentWorkspace is not null)
+        if (clearAgentReports && _currentWorkspace is not null)
         {
             var stateDir   = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
             var reportsDir = AgentReportStore.GetReportsDir(stateDir);

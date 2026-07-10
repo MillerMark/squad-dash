@@ -22,10 +22,12 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private TextBlock? _nextLabel;
 
-    private const double PrevButtonWidth = 32;
-    private const double NextButtonWidth = 58;
-    private const double ButtonHeight = 36;
     private const double ButtonGap = 6;
+
+    // Computed from FontSizeLarge at construction time so they scale with system font size.
+    private double _prevButtonWidth;
+    private double _nextButtonWidth;
+    private double _buttonHeight;
 
     private Border? _prevButton;
     private Border? _nextButton;
@@ -93,13 +95,18 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     }
 
     private void BuildContent() {
+        double fontSize = Application.Current.TryFindResource("FontSizeLarge") is double fs ? fs : 15.0;
+        _buttonHeight    = Math.Round(fontSize * 2.4);
+        _prevButtonWidth = Math.Round(fontSize * 2.1);
+        _nextButtonWidth = Math.Round(fontSize * 3.9);
+
         var panel = new StackPanel {
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(6),
         };
 
-        _prevButton = BuildButton(isPrev: true);
-        _nextButton = BuildButton(isPrev: false);
+        _prevButton = BuildButton(isPrev: true, fontSize);
+        _nextButton = BuildButton(isPrev: false, fontSize);
 
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
@@ -122,10 +129,10 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     // visible button edge to the callout boundary instead of the window edge.
     private const double PanelMargin = 4;
 
-    private Border BuildButton(bool isPrev) {
+    private Border BuildButton(bool isPrev, double fontSize) {
         var border = new Border {
-            Width = isPrev ? PrevButtonWidth : NextButtonWidth,
-            Height = ButtonHeight,
+            Width = isPrev ? _prevButtonWidth : _nextButtonWidth,
+            Height = _buttonHeight,
             CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(1),
             IsHitTestVisible = true,
@@ -153,16 +160,16 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Margin = isPrev ? new Thickness(0) : new Thickness(3, 0, 3, 0),
         };
 
-        inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev));
+        inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev, fontSize));
 
         if (!isPrev) {
             var label = new TextBlock {
                 Text = "Next",
-                FontSize = 12,
                 Margin = new Thickness(4, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false,
             };
+            label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
             label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
             _nextLabel = label;
             UpdateNextLabelVisibility();
@@ -178,7 +185,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
         bool showLabel = _isFirstStep || (_getNextAdvanceCount?.Invoke() ?? 0) < 3;
         _nextLabel.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
-        _nextButton.Width = showLabel ? NextButtonWidth : PrevButtonWidth;
+        _nextButton.Width = showLabel ? _nextButtonWidth : _prevButtonWidth;
     }
 
     /// <summary>Fades a blue glow in on the Next button and holds it until <see cref="StopNextButtonGlow"/> is called or Next is clicked.</summary>
@@ -242,13 +249,13 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         _nextButton.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
     }
 
-    private static UIElement BuildArrowIcon(bool flipHorizontal) {
+    private static UIElement BuildArrowIcon(bool flipHorizontal, double fontSize) {
         var geometry = Geometry.Parse(NavRightPath);
         var path = new System.Windows.Shapes.Path {
             Data = geometry,
             Stretch = Stretch.Uniform,
-            Width = 12,
-            Height = 14,
+            Width  = Math.Round(fontSize * 0.8),
+            Height = Math.Round(fontSize * 0.93),
             IsHitTestVisible = false,
         };
         path.SetResourceReference(System.Windows.Shapes.Path.FillProperty, "CalloutText");
@@ -390,8 +397,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         return bounds ?? new Rect(
             PanelMargin,
             PanelMargin,
-            PrevButtonWidth + ButtonGap + NextButtonWidth,
-            ButtonHeight);
+            _prevButtonWidth + ButtonGap + _nextButtonWidth,
+            _buttonHeight);
     }
 
     private void AddButtonBounds(FrameworkElement? button, ref Rect? bounds) {

@@ -862,7 +862,8 @@ internal sealed class BackgroundTaskPresenterTests {
         var presenter = MakePresenter(
             registry,
             appendedLines: appendedLines,
-            hasVisibleOrPersistedAgentReport: _ => false);
+            hasVisibleOrPersistedAgentReport: _ => false,
+            shouldRecoverMissingAgentReport: _ => true);
 
         var promoted = presenter.PromoteRestoredBackgroundAgentReports("workspace-load");
 
@@ -872,6 +873,41 @@ internal sealed class BackgroundTaskPresenterTests {
             Assert.That(appendedLines[0], Does.StartWith("Vesper Knox (vesper-knox) reported back:"));
             Assert.That(appendedLines[0], Does.Contain("All tests pass."));
             Assert.That(thread.LastCoordinatorAnnouncedResponse, Is.EqualTo(thread.LatestResponse));
+        });
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void PromoteRestoredBackgroundAgentReports_SkipsAnnouncedMissingThread_WhenRecoveryScopeRejectsIt() {
+        var registry = MakeRegistry();
+        var startedAt = new DateTimeOffset(2026, 7, 7, 10, 15, 52, TimeSpan.FromHours(-4));
+        var thread = registry.GetOrCreateAgentThread(
+            toolCallId: "call-lyra",
+            agentId: "lyra-morn",
+            agentName: "lyra-morn",
+            agentDisplayName: "Lyra Morn",
+            agentDescription: "WPF specialist",
+            status: "completed",
+            prompt: "Old completed task",
+            startedAt: startedAt.ToString("O"));
+        thread.WasObservedAsBackgroundTask = true;
+        thread.StatusText = "Completed";
+        thread.CompletedAt = startedAt.AddMinutes(2);
+        thread.LatestResponse = "This was already announced days ago.";
+        thread.LastCoordinatorAnnouncedResponse = "This was already announced days ago.";
+
+        var appendedLines = new List<string>();
+        var presenter = MakePresenter(
+            registry,
+            appendedLines: appendedLines,
+            hasVisibleOrPersistedAgentReport: _ => false,
+            shouldRecoverMissingAgentReport: _ => false);
+
+        var promoted = presenter.PromoteRestoredBackgroundAgentReports("workspace-load");
+
+        Assert.Multiple(() => {
+            Assert.That(promoted, Is.Zero);
+            Assert.That(appendedLines, Is.Empty);
         });
     }
 
@@ -962,7 +998,8 @@ internal sealed class BackgroundTaskPresenterTests {
         List<string>? appendedLines = null,
         List<TranscriptThreadState>? persistedThreads = null,
         Func<string, string, string, bool>? appendAgentReport = null,
-        Func<TranscriptThreadState, bool>? hasVisibleOrPersistedAgentReport = null) {
+        Func<TranscriptThreadState, bool>? hasVisibleOrPersistedAgentReport = null,
+        Func<TranscriptThreadState, bool>? shouldRecoverMissingAgentReport = null) {
         registry ??= MakeRegistry();
 
         return new BackgroundTaskPresenter(
@@ -981,7 +1018,8 @@ internal sealed class BackgroundTaskPresenterTests {
             agentActiveDisplayLinger:     TimeSpan.FromSeconds(30),
             dynamicAgentHistoryRetention: TimeSpan.FromDays(7),
             appendAgentReport:            appendAgentReport,
-            hasVisibleOrPersistedAgentReport: hasVisibleOrPersistedAgentReport);
+            hasVisibleOrPersistedAgentReport: hasVisibleOrPersistedAgentReport,
+            shouldRecoverMissingAgentReport: shouldRecoverMissingAgentReport);
     }
 
     private static TranscriptThreadState MakeThread(string threadId, DateTimeOffset startedAt) =>

@@ -358,6 +358,27 @@ internal sealed class TranscriptConversationManager {
     internal static bool ShouldApplyPendingSessionBoundary(WorkspaceConversationState state) =>
         state.ClearedAt is null;
 
+    internal bool ShouldRecoverMissingAgentReportForLatestCoordinatorTurn(TranscriptThreadState thread) {
+        if (thread.CompletedAt is not { } completedAt)
+            return false;
+
+        var turnIndex = FindLastInteractiveTurnIndex(_conversationState.Turns);
+        if (turnIndex < 0)
+            return false;
+
+        var latestTurn = _conversationState.Turns[turnIndex];
+        var completedUtc = completedAt.ToUniversalTime();
+        if (completedUtc < latestTurn.StartedAt.ToUniversalTime())
+            return false;
+
+        if (latestTurn.CompletedAt is { } latestTurnCompletedAt &&
+            completedUtc > latestTurnCompletedAt.ToUniversalTime().AddMinutes(5)) {
+            return false;
+        }
+
+        return true;
+    }
+
     internal IReadOnlyList<string> GetKnownSessionIds() {
         return _conversationState.GetRecentSessionIds();
     }
