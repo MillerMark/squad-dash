@@ -2307,6 +2307,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
 
         _isDangleActive = true;
+        _lastDangleSide = data.CalloutDangleSide;
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GetTrianglePoints: DANGLE drawn — tp1=({trianglePoint1.X:F1},{trianglePoint1.Y:F1}) tp2=({trianglePoint2.X:F1},{trianglePoint2.Y:F1}) tp3=({trianglePoint3.X:F1},{trianglePoint3.Y:F1})");
     }
