@@ -281,7 +281,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     /// <summary>
     /// Positions the overlay near the callout's screen rectangle, choosing the first
     /// candidate that fits entirely on-screen. Falls back to screen-clamping.
-    /// Priority: opposite side, edge-aligned → same side → other edges.
+    /// Rule: buttons always go on the OPPOSITE side from the pointer (dangle).
     /// </summary>
     public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom) {
         Rect visibleBounds = GetVisibleButtonBounds();
@@ -302,51 +302,51 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
         var screenBounds = GetMonitorBoundsForLogicalPoint(calloutScreenRect.TopLeft);
 
-        // Build candidate list: opposite side of dangle first, then fallbacks.
-        // For top/bottom dangle: buttons go on the opposite horizontal edge, right- then left-aligned.
-        // For left/right dangle: buttons go on the opposite vertical side, bottom- then top-aligned.
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"[NavOverlay] PositionNear: dangleSide={dangleSide} " +
+            $"callout=({calloutScreenRect.Left:F0},{calloutScreenRect.Top:F0},{calloutScreenRect.Right:F0},{calloutScreenRect.Bottom:F0}) " +
+            $"aboveY={aboveY:F0} belowY={belowY:F0} rightSideX={rightSideX:F0} leftSideX={leftSideX:F0} " +
+            $"screen=({screenBounds.Left:F0},{screenBounds.Top:F0},{screenBounds.Right:F0},{screenBounds.Bottom:F0})");
+
+        // Build candidate list: ONLY the opposite side from the dangle pointer.
+        // No same-side fallbacks — if nothing fits, clamping (below) keeps it on screen.
         Point[] candidates = dangleSide switch {
-            // Pointer exits bottom → buttons go above, right- then left-aligned
+            // Pointer exits bottom → buttons go ABOVE only
             CalloutSide.Bottom => new[] {
-                new Point(rightAlignX,                                   aboveY),        // right-aligned, above
-                new Point(leftAlignX,                                    aboveY),        // left-aligned, above
-                new Point(rightAlignX,                                   belowY),        // right-aligned, below
-                new Point(leftAlignX,                                    belowY),        // left-aligned, below
-                new Point(rightSideX,                                    bottomAlignY),  // right side, bottom-aligned
-                new Point(leftSideX,                                     bottomAlignY),  // left side, bottom-aligned
+                new Point(rightAlignX, aboveY),        // right-aligned, above
+                new Point(leftAlignX,  aboveY),        // left-aligned, above
+                new Point(rightSideX,  topAlignY),     // right side, neutral fallback
+                new Point(leftSideX,   topAlignY),     // left side, neutral fallback
             },
-            // Pointer exits top → buttons go below, right- then left-aligned
+            // Pointer exits top → buttons go BELOW only
             CalloutSide.Top => new[] {
-                new Point(rightAlignX,                                   belowY),        // right-aligned, below
-                new Point(leftAlignX,                                    belowY),        // left-aligned, below
-                new Point(rightAlignX,                                   aboveY),        // right-aligned, above
-                new Point(leftAlignX,                                    aboveY),        // left-aligned, above
-                new Point(rightSideX,                                    bottomAlignY),  // right side, bottom-aligned
-                new Point(leftSideX,                                     bottomAlignY),  // left side, bottom-aligned
+                new Point(rightAlignX, belowY),        // right-aligned, below
+                new Point(leftAlignX,  belowY),        // left-aligned, below
+                new Point(rightSideX,  bottomAlignY),  // right side, neutral fallback
+                new Point(leftSideX,   bottomAlignY),  // left side, neutral fallback
             },
-            // Pointer exits right → buttons go to the left, bottom- then top-aligned
+            // Pointer exits right → buttons go LEFT only
             CalloutSide.Right => new[] {
-                new Point(leftSideX,                                     bottomAlignY),  // left side, bottom-aligned
-                new Point(leftSideX,                                     topAlignY),     // left side, top-aligned
-                new Point(rightSideX,                                    bottomAlignY),  // right side, bottom-aligned
-                new Point(rightSideX,                                    topAlignY),     // right side, top-aligned
-                new Point(rightAlignX,                                   belowY),        // right-aligned, below
-                new Point(leftAlignX,                                    belowY),        // left-aligned, below
+                new Point(leftSideX,   bottomAlignY),  // left side, bottom-aligned
+                new Point(leftSideX,   topAlignY),     // left side, top-aligned
+                new Point(rightAlignX, belowY),        // below, neutral fallback
+                new Point(leftAlignX,  belowY),
             },
-            // Pointer exits left → buttons go to the right, bottom- then top-aligned
+            // Pointer exits left → buttons go RIGHT only
             _ => new[] {
-                new Point(rightSideX,                                    bottomAlignY),  // right side, bottom-aligned
-                new Point(rightSideX,                                    topAlignY),     // right side, top-aligned
-                new Point(leftSideX,                                     bottomAlignY),  // left side, bottom-aligned
-                new Point(leftSideX,                                     topAlignY),     // left side, top-aligned
-                new Point(rightAlignX,                                   belowY),        // right-aligned, below
-                new Point(leftAlignX,                                    belowY),        // left-aligned, below
+                new Point(rightSideX,  bottomAlignY),  // right side, bottom-aligned
+                new Point(rightSideX,  topAlignY),     // right side, top-aligned
+                new Point(rightAlignX, belowY),        // below, neutral fallback
+                new Point(leftAlignX,  belowY),
             },
         };
 
         var chosen = candidates[candidates.Length - 1]; // fallback: last candidate
         foreach (var c in candidates) {
-            if (screenBounds.Contains(GetVisibleScreenRect(c, visibleBounds))) {
+            bool fits = screenBounds.Contains(GetVisibleScreenRect(c, visibleBounds));
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"[NavOverlay]   candidate ({c.X:F0},{c.Y:F0}) fits={fits}");
+            if (fits) {
                 chosen = c;
                 break;
             }
@@ -356,6 +356,9 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             chosen.X, visibleBounds.Left, visibleBounds.Right, screenBounds.Left, screenBounds.Right);
         Top = ClampOriginToKeepVisibleBoundsOnScreen(
             chosen.Y, visibleBounds.Top, visibleBounds.Bottom, screenBounds.Top, screenBounds.Bottom);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"[NavOverlay] Positioned: chosen=({chosen.X:F0},{chosen.Y:F0}) final Left={Left:F0} Top={Top:F0}");
     }
 
     private Rect GetVisibleButtonBounds() {
@@ -415,11 +418,10 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             }
         }
 
-        return new Rect(
-            SystemParameters.VirtualScreenLeft,
-            SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenWidth,
-            SystemParameters.VirtualScreenHeight);
+        // PresentationSource unavailable (overlay not yet shown/attached to visual tree).
+        // Return a permissive rect so ALL candidates pass the Contains check and the first
+        // (correct-side) candidate wins. Clamping in PositionNear keeps the final position on screen.
+        return new Rect(-10000, -10000, 30000, 30000);
     }
 
     private static double ClampOriginToKeepVisibleBoundsOnScreen(
