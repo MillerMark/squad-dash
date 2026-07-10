@@ -241,6 +241,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
     private event Action? _tourQuickReplySelected;
     private event Action? _tourSimulatedSendClicked;
+    private AgentStatusCard? _tourFirstInactiveAgentCard;  // the idle card selected for the tour
+    private AgentStatusCard? _tourSimulatedAgentCard;       // non-null only if we created a synthetic card
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
@@ -14046,6 +14048,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SelectTranscriptThread(CoordinatorThread);
 
         SyncAgentCardsWithThreads();
+        CleanUpTourSimulatedAgentCard();
+        _tourFirstInactiveAgentCard = null;
+    }
+
+    private void CleanUpTourSimulatedAgentCard()
+    {
+        if (_tourSimulatedAgentCard is null) return;
+        var card = _tourSimulatedAgentCard;
+        _tourSimulatedAgentCard = null;
+        _tourFirstInactiveAgentCard = null;
+
+        // Close any open secondary panel for this card
+        var entry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
+        if (entry is not null) CloseSecondaryPanel(entry);
+
+        // Remove from agent collections
+        _inactiveAgentCards.Remove(card);
+        _agents.Remove(card);
+        SyncAgentCardsWithThreads();
     }
 
     private void CleanUpTourInjectedCoordinatorBlocks()
@@ -14658,6 +14679,139 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Each spec uses ':' as delimiter (max 3 parts; output may itself contain ':').
             // '\n' in output is expanded to real newlines.
             await InjectTourTranscriptTools(arg);
+        });
+
+        // ── First-inactive-agent tour commands ─────────────────────────────
+
+        _tourCommandRegistry.RegisterAsync("PrepareFirstInactiveAgent", async () =>
+        {
+            // If we already have a card set, skip re-preparation
+            if (_tourFirstInactiveAgentCard is not null) return;
+
+            AgentStatusCard? card = _inactiveAgentCards.Count > 0 ? _inactiveAgentCards[0] : null;
+
+            if (card is null)
+            {
+                // No idle agents — create a synthetic one
+                const string demoName = "Demo Agent";
+                const string demoId   = "tour-demo-agent";
+                var thread = _agentThreadRegistry.GetOrCreateAgentThread(
+                    toolCallId:       null,
+                    agentId:          demoId,
+                    agentName:        demoId,
+                    agentDisplayName: demoName,
+                    agentDescription: "Simulated agent for guided tour.",
+                    status:           null,
+                    prompt:           null,
+                    startedAt:        null);
+                _guidedTourController?.TrackInjectedThread(thread.ThreadId);
+
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+                SyncAgentCardsWithThreads();
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+
+                card = _inactiveAgentCards.Count > 0 ? _inactiveAgentCards[0] : null;
+                _tourSimulatedAgentCard = card;
+            }
+
+            _tourFirstInactiveAgentCard = card;
+
+            // Register the card's AgentCardBorder for tour targeting
+            if (card is not null)
+            {
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+                var border = FindAgentCardBorderForCard(card);
+                if (border is not null)
+                    _tourNamedElements["TourFirstInactiveAgentCard"] = border;
+            }
+        });
+
+        _tourCommandRegistry.RegisterParameterizedAsync("InjectFirstInactiveAgentTurn", async arg =>
+        {
+            // Format: "userText|agentText" or "userText|agentText|main" or "userText|agentText|parallel" (default = parallel)
+            var parts     = arg.Split('|');
+            var userText  = (parts.Length > 0 ? parts[0] : string.Empty).Replace(@"\n", "\n");
+            var agentText = (parts.Length > 1 ? parts[1] : string.Empty).Replace(@"\n", "\n");
+            var mode      = parts.Length > 2 ? parts[2].Trim().ToLowerInvariant() : "parallel";
+
+            // Ensure card is prepared
+            if (_tourFirstInactiveAgentCard is null)
+                await _tourCommandRegistry.ExecuteAsync("PrepareFirstInactiveAgent");
+            var card = _tourFirstInactiveAgentCard;
+            if (card is null) return;
+
+            // Resolve thread for this card (match by display name stored in card.Name)
+            var thread = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+                string.Equals(t.AgentName, card.Name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(t.AgentDisplayName, card.Name, StringComparison.OrdinalIgnoreCase))
+                ?? CoordinatorThread;
+
+            // Wait for any running prompt
+            var idleDeadline = Environment.TickCount64 + 10_000;
+            while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
+                await Task.Delay(100);
+
+            BeginTranscriptTurn(thread, userText);
+
+            if (mode == "main")
+                SelectTranscriptThread(thread);
+            else
+                OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
+
+            var rng = new Random();
+            foreach (var chunk in SplitIntoWordChunks(agentText))
+            {
+                if (_isPromptRunning) break;
+                await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                AppendText(thread, chunk);
+                await Task.Delay(rng.Next(70, 111));
+            }
+            thread.CurrentTurn = null;
+            ScrollToEndIfAtBottom(thread);
+
+            // Register secondary panel border for tour targeting
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+            var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
+            if (secondaryEntry is not null)
+                _tourNamedElements["TourFirstInactiveAgentTranscript"] = secondaryEntry.PanelBorder;
+        });
+
+        _tourCommandRegistry.RegisterAsync("OpenFirstInactiveAgentPanel", async () =>
+        {
+            var card = _tourFirstInactiveAgentCard;
+            if (card is null) return;
+
+            var thread = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
+                string.Equals(t.AgentName, card.Name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.AgentDisplayName, card.Name, StringComparison.OrdinalIgnoreCase));
+            if (thread is null) return;
+
+            if (!_secondaryTranscripts.Any(e => e.Agent == card))
+                OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
+
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+            var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
+            if (secondaryEntry is not null)
+                _tourNamedElements["TourFirstInactiveAgentTranscript"] = secondaryEntry.PanelBorder;
+        });
+
+        _tourCommandRegistry.Register("CloseFirstInactiveAgentPanel", () =>
+        {
+            var card = _tourFirstInactiveAgentCard;
+            if (card is null) return;
+
+            var entry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
+            if (entry is not null)
+                CloseSecondaryPanel(entry);
+
+            _tourNamedElements.Remove("TourFirstInactiveAgentTranscript");
+        });
+
+        _tourCommandRegistry.Register("RemoveTourSimulatedAgent", () =>
+        {
+            CleanUpTourSimulatedAgentCard();
+            _tourNamedElements.Remove("TourFirstInactiveAgentCard");
+            _tourNamedElements.Remove("TourFirstInactiveAgentTranscript");
         });
     }
 
