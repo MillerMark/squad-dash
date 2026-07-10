@@ -3594,6 +3594,15 @@
                 Panel.ZIndex="50"
                 shell:WindowChrome.IsHitTestVisibleInChrome="True">
 
+        <!-- Font scale preview — shown while Ctrl-scrolling, hidden after commit -->
+        <TextBlock x:Name="FontScaleIndicator"
+                   VerticalAlignment="Center"
+                   Margin="0,0,16,0"
+                   FontSize="{DynamicResource FontSizeSmall}"
+                   Foreground="{DynamicResource SubtleText}"
+                   Visibility="Collapsed"
+                   IsHitTestVisible="False" />
+
         <!-- SquadDash version — left of Squad version -->
         <TextBlock x:Name="SquadDashVersionTextBlock"
                    VerticalAlignment="Center"

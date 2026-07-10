@@ -408,6 +408,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private double _docSourceFontSize = (double)Application.Current.Resources["FontSizeBody"];
     private double _inboxFontSize = 14;
     private int _fontScaleLevel = 2; // Normal (1.0×)
+    private DispatcherTimer? _fontScaleCommitTimer;
     private double _docPreviewScrollY;
     private readonly List<Image> _toolIconImages = [];
     private readonly HashSet<TranscriptResponseEntry> _pendingResponseEntryRenders = [];
@@ -8830,7 +8831,35 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void SetFontSizeScale(int levelIndex)
     {
-        _fontScaleLevel = Math.Clamp(levelIndex, 0, FontScaleFactors.Length - 1);
+        var clamped = Math.Clamp(levelIndex, 0, FontScaleFactors.Length - 1);
+        if (clamped == _fontScaleLevel && _fontScaleCommitTimer is null)
+            return;
+        _fontScaleLevel = clamped;
+
+        // Show a live indicator in the title bar so the user sees the selected level
+        // immediately without waiting for the full layout pass.
+        var pct = (int)Math.Round(FontScaleFactors[_fontScaleLevel] * 100);
+        FontScaleIndicator.Text       = $"Font {pct}%";
+        FontScaleIndicator.Visibility = Visibility.Visible;
+
+        // Debounce: defer the expensive apply + save until scrolling pauses
+        if (_fontScaleCommitTimer is null)
+        {
+            _fontScaleCommitTimer       = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            _fontScaleCommitTimer.Tick += (_, _) => CommitFontSizeScale();
+        }
+        _fontScaleCommitTimer.Stop();
+        _fontScaleCommitTimer.Start();
+    }
+
+    /// <summary>
+    /// Applies the current <see cref="_fontScaleLevel"/> to all resource tokens and saves it.
+    /// Called once scrolling has paused (debounce timer) or when Ctrl is released.
+    /// </summary>
+    private void CommitFontSizeScale()
+    {
+        _fontScaleCommitTimer?.Stop();
+        FontScaleIndicator.Visibility = Visibility.Collapsed;
         ApplyFontSizeScale();
         _settingsSnapshot = _settingsStore.SaveFontSizeScaleLevel(_fontScaleLevel);
     }
@@ -10589,6 +10618,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            // Commit any pending font-scale change immediately when Ctrl is released
+            // so the apply happens at the exact moment scrolling stops.
+            if (IsCtrlKey(e.Key) && _fontScaleCommitTimer is { IsEnabled: true })
+                CommitFontSizeScale();
+
             switch (_pttState)
             {
                 case PttState.TapDown:
