@@ -174,11 +174,13 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             IsEnabled = false,
             Margin    = new Thickness(0, 0, 8, 0),
         };
-        _startButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        _startButton.SetResourceReference(Button.StyleProperty,    "ThemedButtonStyle");
+        _startButton.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
         _startButton.Click += (_, _) => CommitSelection();
 
         var cancelButton = new Button { Content = "Cancel", Width = 70, Height = 28 };
-        cancelButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        cancelButton.SetResourceReference(Button.StyleProperty,    "ThemedButtonStyle");
+        cancelButton.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
         cancelButton.Click += (_, _) => { SelectedTour = null; Close(); };
 
         var buttonRow = new StackPanel
