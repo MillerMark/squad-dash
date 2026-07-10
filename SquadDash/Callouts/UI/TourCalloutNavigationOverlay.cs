@@ -285,28 +285,50 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     /// </summary>
     public void PositionNear(Rect calloutScreenRect, CalloutSide dangleSide = CalloutSide.Bottom) {
         Rect visibleBounds = GetVisibleButtonBounds();
-
-        const double gap = 10;
-
-        // Align the measured button faces, not the transparent top-level window bounds.
-        // Some layered WPF windows can report extra non-visible width; using that width
-        // here puts the Next button short of the callout edge by exactly that phantom space.
-        double rightAlignX = calloutScreenRect.Right - visibleBounds.Right;
-        double leftAlignX = calloutScreenRect.Left - visibleBounds.Left;
-        double aboveY = calloutScreenRect.Top - gap - visibleBounds.Bottom;
-        double belowY = calloutScreenRect.Bottom + gap - visibleBounds.Top;
-        double topAlignY = calloutScreenRect.Top - visibleBounds.Top;
-        double bottomAlignY = calloutScreenRect.Bottom - visibleBounds.Bottom;
-        double rightSideX = calloutScreenRect.Right + gap - visibleBounds.Left;
-        double leftSideX = calloutScreenRect.Left - gap - visibleBounds.Right;
-
         var screenBounds = GetMonitorBoundsForLogicalPoint(calloutScreenRect.TopLeft);
 
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"[NavOverlay] PositionNear: dangleSide={dangleSide} " +
             $"callout=({calloutScreenRect.Left:F0},{calloutScreenRect.Top:F0},{calloutScreenRect.Right:F0},{calloutScreenRect.Bottom:F0}) " +
-            $"aboveY={aboveY:F0} belowY={belowY:F0} rightSideX={rightSideX:F0} leftSideX={leftSideX:F0} " +
             $"screen=({screenBounds.Left:F0},{screenBounds.Top:F0},{screenBounds.Right:F0},{screenBounds.Bottom:F0})");
+
+        var position = ComputePosition(calloutScreenRect, dangleSide, visibleBounds, screenBounds);
+        Left = position.X;
+        Top  = position.Y;
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"[NavOverlay] Positioned: Left={Left:F0} Top={Top:F0}");
+    }
+
+    /// <summary>
+    /// Pure placement computation — the testable core of <see cref="PositionNear"/>.
+    /// Builds a candidate list (ordered: best side first) and returns the window (Left, Top)
+    /// origin for the first candidate whose visible button rect fits entirely within
+    /// <paramref name="screenBounds"/>, clamped to the screen as a final safety net.
+    /// </summary>
+    /// <param name="calloutScreenRect">Callout body rect in logical screen coordinates.</param>
+    /// <param name="dangleSide">The side of the callout from which the pointer exits (toward the target).</param>
+    /// <param name="visibleBounds">Bounding rect of the button faces relative to the window origin.</param>
+    /// <param name="screenBounds">Available screen area in logical coordinates.</param>
+    internal static Point ComputePosition(
+        Rect calloutScreenRect,
+        CalloutSide dangleSide,
+        Rect visibleBounds,
+        Rect screenBounds)
+    {
+        const double gap = 10;
+
+        // Align the measured button faces, not the transparent top-level window bounds.
+        // Some layered WPF windows can report extra non-visible width; using that width
+        // here puts the Next button short of the callout edge by exactly that phantom space.
+        double rightAlignX  = calloutScreenRect.Right  - visibleBounds.Right;
+        double leftAlignX   = calloutScreenRect.Left   - visibleBounds.Left;
+        double aboveY       = calloutScreenRect.Top    - gap - visibleBounds.Bottom;
+        double belowY       = calloutScreenRect.Bottom + gap - visibleBounds.Top;
+        double topAlignY    = calloutScreenRect.Top    - visibleBounds.Top;
+        double bottomAlignY = calloutScreenRect.Bottom - visibleBounds.Bottom;
+        double rightSideX   = calloutScreenRect.Right  + gap - visibleBounds.Left;
+        double leftSideX    = calloutScreenRect.Left   - gap - visibleBounds.Right;
 
         // Build candidate list: ONLY the opposite side from the dangle pointer.
         // No same-side fallbacks — if nothing fits, clamping (below) keeps it on screen.
@@ -353,13 +375,11 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             }
         }
 
-        Left = ClampOriginToKeepVisibleBoundsOnScreen(
-            chosen.X, visibleBounds.Left, visibleBounds.Right, screenBounds.Left, screenBounds.Right);
-        Top = ClampOriginToKeepVisibleBoundsOnScreen(
-            chosen.Y, visibleBounds.Top, visibleBounds.Bottom, screenBounds.Top, screenBounds.Bottom);
-
-        SquadDashTrace.Write(TraceCategory.Callouts,
-            $"[NavOverlay] Positioned: chosen=({chosen.X:F0},{chosen.Y:F0}) final Left={Left:F0} Top={Top:F0}");
+        return new Point(
+            ClampOriginToKeepVisibleBoundsOnScreen(
+                chosen.X, visibleBounds.Left, visibleBounds.Right, screenBounds.Left, screenBounds.Right),
+            ClampOriginToKeepVisibleBoundsOnScreen(
+                chosen.Y, visibleBounds.Top, visibleBounds.Bottom, screenBounds.Top, screenBounds.Bottom));
     }
 
     private Rect GetVisibleButtonBounds() {
