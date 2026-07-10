@@ -2380,6 +2380,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         animating = false;
         calloutAnimationTimer?.Stop();
+
+        // Force a final canvas re-render so that any transient NO-DANGLE state produced
+        // during the last animated frame (e.g. the callout briefly overlapping the target
+        // while settling) is corrected.  We invalidate the angle cache so that
+        // WindowPositionChanged always re-runs CreateCalloutFrame with the settled position.
+        // Guard against the drag case: StopAnimationTimer(fireSettled:false) is called from
+        // inside WindowPositionChanged when the user is dragging, and re-entering would loop.
+        if (!_isDragging && !GetMouseIsDown()) {
+            lastCalloutAngle = double.NaN;
+            WindowPositionChanged();
+        }
+
         if (fireSettled)
             Settled?.Invoke(this, EventArgs.Empty);
     }
