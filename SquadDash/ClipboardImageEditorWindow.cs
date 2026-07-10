@@ -5385,7 +5385,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private void ShowModeHint(string text) {
         if (_modeHintBorder == null) {
             _modeHintText = new TextBlock {
-                FontSize = (double)Application.Current.Resources["FontSizeSmall"],
+                FontSize = (double)Application.Current.Resources["FontSizeMedium"],
                 FontFamily = new FontFamily("Segoe UI"),
                 Foreground = new SolidColorBrush(Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF)),
                 TextAlignment = TextAlignment.Center,
