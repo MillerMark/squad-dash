@@ -602,18 +602,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             double right  = physBR.X / dpiX;
             double bottom = physBR.Y / dpiY;
 
-            // Expand to include the dangle tip so nav buttons are placed clear of the pointer.
-            if (_isDangleActive && !double.IsNaN(trianglePoint1.X) && !double.IsNaN(trianglePoint1.Y))
-            {
-                Point tipPhys = cvsCallout.PointToScreen(trianglePoint1);
-                double tipX = tipPhys.X / dpiX;
-                double tipY = tipPhys.Y / dpiY;
-                left   = Math.Min(left,   tipX);
-                top    = Math.Min(top,    tipY);
-                right  = Math.Max(right,  tipX);
-                bottom = Math.Max(bottom, tipY);
-            }
-
+            // Nav buttons always go on the opposite side from the dangle, so the body rect
+            // is all we need — aligning to the callout body edges, not the pointer tip.
             return new Rect(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
         }
         // Fallback when PresentationSource is unavailable (should be rare).
