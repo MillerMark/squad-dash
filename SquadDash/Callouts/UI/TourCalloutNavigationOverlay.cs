@@ -318,26 +318,27 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 new Point(leftSideX,   bottomAlignY),  // left side, bottom-aligned
                 new Point(leftSideX,   topAlignY),     // left side, top-aligned
             },
-            // Pointer exits top → buttons go BELOW only
+            // Pointer exits top → buttons go below first (right-aligned), then right side
             CalloutSide.Top => new[] {
-                new Point(rightAlignX, belowY),        // right-aligned, below
-                new Point(leftAlignX,  belowY),        // left-aligned, below
-                new Point(rightSideX,  bottomAlignY),  // right side, neutral fallback
-                new Point(leftSideX,   bottomAlignY),  // left side, neutral fallback
+                new Point(rightAlignX, belowY),        // below, right-aligned  ← primary
+                new Point(leftAlignX,  belowY),        // below, left-aligned
+                new Point(rightSideX,  bottomAlignY),  // right side, bottom-aligned
+                new Point(rightSideX,  topAlignY),     // right side, top-aligned
             },
             // Pointer exits right → buttons go LEFT only
             CalloutSide.Right => new[] {
                 new Point(leftSideX,   bottomAlignY),  // left side, bottom-aligned
                 new Point(leftSideX,   topAlignY),     // left side, top-aligned
-                new Point(rightAlignX, belowY),        // below, neutral fallback
-                new Point(leftAlignX,  belowY),
+                new Point(leftAlignX,  belowY),        // below, left-aligned fallback
+                new Point(leftAlignX,  aboveY),        // above, left-aligned fallback
             },
-            // Pointer exits left → buttons go RIGHT only
+            // Pointer exits left → buttons go below first, then right side, then above right
             _ => new[] {
+                new Point(rightAlignX, belowY),        // below, right-aligned  ← primary
+                new Point(leftAlignX,  belowY),        // below, left-aligned
                 new Point(rightSideX,  bottomAlignY),  // right side, bottom-aligned
                 new Point(rightSideX,  topAlignY),     // right side, top-aligned
-                new Point(rightAlignX, belowY),        // below, neutral fallback
-                new Point(leftAlignX,  belowY),
+                new Point(rightAlignX, aboveY),        // above, right-aligned (last resort)
             },
         };
 
