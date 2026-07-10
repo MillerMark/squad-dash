@@ -496,6 +496,19 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
+    private bool _isTourFirstStep;
+
+    public bool IsTourFirstStep
+    {
+        get => _isTourFirstStep;
+        set
+        {
+            _isTourFirstStep = value;
+            if (_tourOverlay is not null)
+                _tourOverlay.IsFirstStep = value;
+        }
+    }
+
     private bool _isTourEditModeVisible;
 
     public bool IsTourEditModeVisible
@@ -517,6 +530,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         _tourOverlay = new TourCalloutNavigationOverlay();
         ConfigureTourOverlayNextLabelState();
+        _tourOverlay.IsFirstStep = _isTourFirstStep;
         _tourOverlay.IsDevModeVisible = _isTourEditModeVisible;
         _tourOverlay.NextClicked           += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.PrevClicked           += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);

@@ -33,6 +33,20 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
 
+    private bool _isFirstStep;
+
+    public bool IsFirstStep
+    {
+        get => _isFirstStep;
+        set
+        {
+            _isFirstStep = value;
+            if (_prevButton is not null)
+                _prevButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            UpdateNextLabelVisibility();
+        }
+    }
+
     private bool _isDevModeVisible;
     public bool IsDevModeVisible {
         get => _isDevModeVisible;
@@ -162,7 +176,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private void UpdateNextLabelVisibility() {
         if (_nextLabel is null || _nextButton is null) return;
 
-        bool showLabel = (_getNextAdvanceCount?.Invoke() ?? 0) < 3;
+        bool showLabel = _isFirstStep || (_getNextAdvanceCount?.Invoke() ?? 0) < 3;
         _nextLabel.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
         _nextButton.Width = showLabel ? NextButtonWidth : PrevButtonWidth;
     }
