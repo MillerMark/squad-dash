@@ -106,12 +106,9 @@ internal sealed class ThemeColorsWindow : Window
         {
             Content = "×",
             Width = 36,
-            BorderThickness = new Thickness(0),
-            Background = Brushes.Transparent,
-            FontSize = 16,
             VerticalAlignment = VerticalAlignment.Stretch
         };
-        closeBtn.SetResourceReference(ForegroundProperty, "LabelText");
+        closeBtn.SetResourceReference(Button.StyleProperty, "CaptionCloseButtonStyle");
         closeBtn.Click += (_, _) => Close();
         DockPanel.SetDock(closeBtn, Dock.Right);
         titleBar.Children.Add(closeBtn);
