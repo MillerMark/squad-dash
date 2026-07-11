@@ -484,7 +484,6 @@ internal sealed class GuidedTourController
 
         _activeTour       = null;
         _currentStepIndex = 0;
-        _tourInjectedThreadIds.Clear();
 
         CloseActiveCallout();
 
@@ -503,6 +502,9 @@ internal sealed class GuidedTourController
             if (showHint)
                 ShowRestartHint();
         }
+
+        // Clear after restorePreTourLayout so CleanUpTourInjectedThreads can still read the list.
+        _tourInjectedThreadIds.Clear();
     }
 
     private void HandleNewStepAfter()
