@@ -35979,6 +35979,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return null;
         }
 
+        static string? DecodeFallbackJsonString(System.Text.RegularExpressions.Match match)
+        {
+            if (!match.Success)
+                return null;
+
+            var raw = match.Groups[1].Value;
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<string>($"\"{raw}\"");
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return raw.Replace("\\\"", "\"").Replace("\\\\", "\\");
+            }
+        }
+
         bool hasBlock = rawResponse.Contains("INBOX_MESSAGE_JSON", StringComparison.Ordinal);
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"INBOX_SAVE: rawResponse len={rawResponse.Length} hasBlock={hasBlock}");
@@ -36049,13 +36065,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     var rawJsonText = responseForParsing[jsonSnippetStart..];
                     var subjectMatch = System.Text.RegularExpressions.Regex.Match(
-                        rawJsonText, @"""subject""\s*:\s*""([^""\r\n\\]*)""");
+                        rawJsonText, @"""subject""\s*:\s*""((?:[^""\\\r\n]|\\.)*)""");
                     var fromMatch = System.Text.RegularExpressions.Regex.Match(
-                        rawJsonText, @"""from""\s*:\s*""([^""\r\n\\]*)""");
-                    if (subjectMatch.Success && !string.IsNullOrWhiteSpace(subjectMatch.Groups[1].Value))
-                        recoveredSubject = subjectMatch.Groups[1].Value.Trim();
-                    if (fromMatch.Success && !string.IsNullOrWhiteSpace(fromMatch.Groups[1].Value))
-                        recoveredFrom = fromMatch.Groups[1].Value.Trim();
+                        rawJsonText, @"""from""\s*:\s*""((?:[^""\\\r\n]|\\.)*)""");
+                    var decodedSubject = DecodeFallbackJsonString(subjectMatch);
+                    var decodedFrom = DecodeFallbackJsonString(fromMatch);
+                    if (!string.IsNullOrWhiteSpace(decodedSubject))
+                        recoveredSubject = decodedSubject.Trim();
+                    if (!string.IsNullOrWhiteSpace(decodedFrom))
+                        recoveredFrom = decodedFrom.Trim();
                 }
 
                 // Attempt a minimal JsonSerializer round-trip on just subject + from.

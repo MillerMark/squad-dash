@@ -37,6 +37,12 @@ internal static class InboxMessageParser
 {
     private const string Marker = "INBOX_MESSAGE_JSON:";
 
+    private enum JsonStringRole
+    {
+        PropertyName,
+        Value,
+    }
+
     private static readonly JsonSerializerOptions ParseOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -87,14 +93,11 @@ internal static class InboxMessageParser
         if (braceStart < 0)
             return false;
 
-        // Walk the JSON using brace depth so we stop at the true closing brace,
-        // regardless of whatever prose or markdown follows it. The model
-        // sometimes leaves prose quotes unescaped inside string values; treat
-        // those as content rather than letting them corrupt string state.
-        int depth    = 0;
         int braceEnd = -1;
+        var containers = new List<char>();
         bool inString = false;
         bool escaped  = false;
+        var stringRole = JsonStringRole.Value;
         for (int i = braceStart; i < normalized.Length; i++)
         {
             char c = normalized[i];
@@ -106,17 +109,32 @@ internal static class InboxMessageParser
             if (c == '\\' && inString) { escaped = true; continue; }
             if (c == '"')
             {
-                if (!inString || IsLikelyJsonStringTerminator(normalized, i))
-                    inString = !inString;
+                if (!inString)
+                {
+                    stringRole = DetermineStringRole(normalized, i, containers);
+                    inString = true;
+                }
+                else if (IsLikelyJsonStringTerminator(normalized, i, stringRole, containers))
+                {
+                    inString = false;
+                }
                 continue;
             }
             if (inString) continue;
 
-            if      (c == '{') depth++;
-            else if (c == '}')
+            if (c == '{' || c == '[')
             {
-                depth--;
-                if (depth == 0) { braceEnd = i; break; }
+                containers.Add(c);
+                continue;
+            }
+
+            if (c == '}' || c == ']')
+            {
+                if (containers.Count == 0 || !DoesCloseContainer(containers[^1], c))
+                    return false;
+
+                containers.RemoveAt(containers.Count - 1);
+                if (containers.Count == 0 && c == '}') { braceEnd = i; break; }
             }
         }
 
@@ -170,6 +188,8 @@ internal static class InboxMessageParser
     {
         var sb = new System.Text.StringBuilder(json.Length + 64);
         bool inString = false;
+        var containers = new List<char>();
+        var stringRole = JsonStringRole.Value;
         for (int i = 0; i < json.Length; i++)
         {
             char c = json[i];
@@ -207,9 +227,15 @@ internal static class InboxMessageParser
             }
             if (c == '"')
             {
-                if (!inString || IsLikelyJsonStringTerminator(json, i))
+                if (!inString)
                 {
-                    inString = !inString;
+                    stringRole = DetermineStringRole(json, i, containers);
+                    inString = true;
+                    sb.Append(c);
+                }
+                else if (IsLikelyJsonStringTerminator(json, i, stringRole, containers))
+                {
+                    inString = false;
                     sb.Append(c);
                 }
                 else
@@ -231,24 +257,135 @@ internal static class InboxMessageParser
                 if (c == '\t') { sb.Append("\\t"); continue; }
                 if (c < ' ')  { continue; }  // strip other C0 control chars (U+0001–U+001F)
             }
+            else
+            {
+                if (c == '{' || c == '[')
+                    containers.Add(c);
+                else if ((c == '}' || c == ']') &&
+                         containers.Count > 0 &&
+                         DoesCloseContainer(containers[^1], c))
+                    containers.RemoveAt(containers.Count - 1);
+            }
             sb.Append(c);
         }
         return sb.ToString();
     }
 
-    private static bool IsLikelyJsonStringTerminator(string json, int quoteIndex)
+    private static JsonStringRole DetermineStringRole(
+        string json,
+        int quoteIndex,
+        IReadOnlyList<char> containers)
     {
-        for (int i = quoteIndex + 1; i < json.Length; i++)
+        var previous = PreviousNonWhitespace(json, quoteIndex);
+        if (previous == ':')
+            return JsonStringRole.Value;
+
+        if (containers.Count > 0 &&
+            containers[containers.Count - 1] == '{' &&
+            (previous == '{' || previous == ','))
+            return JsonStringRole.PropertyName;
+
+        return JsonStringRole.Value;
+    }
+
+    private static char PreviousNonWhitespace(string json, int quoteIndex)
+    {
+        for (int i = quoteIndex - 1; i >= 0; i--)
+        {
+            var c = json[i];
+            if (!char.IsWhiteSpace(c))
+                return c;
+        }
+
+        return '\0';
+    }
+
+    private static bool IsLikelyJsonStringTerminator(
+        string json,
+        int quoteIndex,
+        JsonStringRole role,
+        IReadOnlyList<char> containers)
+    {
+        if (!TryGetNextNonWhitespace(json, quoteIndex, out var nextIndex, out var next))
+            return true;
+
+        if (role == JsonStringRole.PropertyName)
+            return next == ':';
+
+        return next switch
+        {
+            ':' => false,
+            ',' => IsLikelyCommaAfterValue(json, nextIndex, containers),
+            '}' or ']' => IsLikelyCloseAfterValue(json, nextIndex, containers),
+            _ => false,
+        };
+    }
+
+    private static bool TryGetNextNonWhitespace(string json, int index, out int nextIndex, out char next)
+    {
+        for (int i = index + 1; i < json.Length; i++)
         {
             var c = json[i];
             if (char.IsWhiteSpace(c))
                 continue;
 
-            return c is ':' or ',' or '}' or ']';
+            nextIndex = i;
+            next = c;
+            return true;
         }
 
-        return true;
+        nextIndex = -1;
+        next = '\0';
+        return false;
     }
+
+    private static bool IsLikelyCommaAfterValue(
+        string json,
+        int commaIndex,
+        IReadOnlyList<char> containers)
+    {
+        if (!TryGetNextNonWhitespace(json, commaIndex, out _, out var afterComma))
+            return false;
+
+        if (containers.Count == 0)
+            return false;
+
+        return containers[containers.Count - 1] switch
+        {
+            '{' => afterComma == '"',
+            '[' => IsLikelyJsonValueStart(afterComma),
+            _ => false,
+        };
+    }
+
+    private static bool IsLikelyCloseAfterValue(
+        string json,
+        int closeIndex,
+        IReadOnlyList<char> containers)
+    {
+        if (containers.Count == 0 || !DoesCloseContainer(containers[containers.Count - 1], json[closeIndex]))
+            return false;
+
+        if (!TryGetNextNonWhitespace(json, closeIndex, out _, out var afterClose))
+            return true;
+
+        return afterClose is ',' or '}' or ']' ||
+               containers.Count == 1;
+    }
+
+    private static bool IsLikelyJsonValueStart(char c) =>
+        c == '"' ||
+        c == '{' ||
+        c == '[' ||
+        c == '-' ||
+        c is >= '0' and <= '9' ||
+        c == 't' ||
+        c == 'f' ||
+        c == 'n';
+
+    private static bool DoesCloseContainer(char open, char close) =>
+        (open == '{' && close == '}') ||
+        (open == '[' && close == ']');
 
     /// <summary>
     /// Strips 'done' actions whose labels are purely acknowledgement-only (e.g. Dismiss, OK, Close).

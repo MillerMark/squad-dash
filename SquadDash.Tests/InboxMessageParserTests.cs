@@ -527,6 +527,49 @@ internal sealed class InboxMessageParserTests {
     }
 
     [Test]
+    public void TryExtract_BodyWithJsonLookingQuotedProperty_ParsesSuccessfully()
+    {
+        const string text = """
+            INBOX_MESSAGE_JSON:
+            {
+              "subject": "Fix: \"quoted\" term regression",
+              "from": "argus-weld",
+              "body": "The degraded fallback mentioned "subject": "Inbox message (parse error)" while analyzing { parser: true } evidence.",
+              "attachments": []
+            }
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Subject, Is.EqualTo("Fix: \"quoted\" term regression"));
+        Assert.That(dto.Body, Does.Contain("\"subject\": \"Inbox message (parse error)\""));
+        Assert.That(dto.Body, Does.Contain("{ parser: true }"));
+    }
+
+    [Test]
+    public void TryExtract_BodyWithUnescapedQuoteBeforeComma_ParsesSuccessfully()
+    {
+        const string text = """
+            INBOX_MESSAGE_JSON:
+            {
+              "subject": "Comma quote",
+              "from": "argus-weld",
+              "body": "The model wrote "done", then kept explaining with {braces} in the same field.",
+              "attachments": []
+            }
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+
+        Assert.That(result, Is.True);
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.Body, Does.Contain("\"done\", then"));
+        Assert.That(dto.Body, Does.Contain("{braces}"));
+    }
+
+    [Test]
     public void TryExtract_NoLiteralNewlines_StillParses()
     {
         // Regression: valid JSON with proper escape sequences must still work
