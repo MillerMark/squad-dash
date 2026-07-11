@@ -2276,19 +2276,22 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var helper = new TourIntelliSenseHelper(
             placementTarget:     tb,
             textSource:          tb,
-            suggestionsProvider: _ => GetCommandSuggestions(GetCurrentLine(tb)),
+            suggestionsProvider: _ =>
+            {
+                var prefix = GetCurrentLinePrefix(tb);
+                return prefix.Length == 0 ? Array.Empty<string>() : GetCommandSuggestions(prefix);
+            },
             acceptCallback:      accepted => AcceptCommandOnCurrentLine(tb, accepted));
         _intelliSenseHelpers.Add(helper);
     }
 
-    private static string GetCurrentLine(TextBox tb)
+    /// <summary>Returns the text from the start of the caret's line up to (but not including) the caret.</summary>
+    private static string GetCurrentLinePrefix(TextBox tb)
     {
         var text  = tb.Text;
         var caret = Math.Clamp(tb.CaretIndex, 0, text.Length);
         var start = text.LastIndexOf('\n', Math.Max(0, caret - 1)) + 1;
-        var end   = text.IndexOf('\n', caret);
-        if (end < 0) end = text.Length;
-        return text[start..end];
+        return text[start..caret];
     }
 
     private static void AcceptCommandOnCurrentLine(TextBox tb, string accepted)

@@ -32,6 +32,7 @@ internal sealed class TourIntelliSenseHelper : IDisposable
     private readonly ListBox                                 _listBox;
     private bool                                             _suppressUpdate;
     private bool                                             _disposed;
+    private bool                                             _triggeredByTyping;
     private Window?                                          _ownerWindow;
 
     /// <param name="placementTarget">
@@ -94,12 +95,17 @@ internal sealed class TourIntelliSenseHelper : IDisposable
             StaysOpen          = true,
             AllowsTransparency = true,
             IsOpen             = false,
+            Focusable          = false,
         };
+        // Return keyboard focus to the text source whenever the popup opens so the
+        // popup's Win32 HWND never activates and steals keystrokes from the editor.
+        _popup.Opened += (_, _) => Keyboard.Focus(_textSource);
         _popup.SetBinding(Popup.WidthProperty,
             new Binding("ActualWidth") { Source = _placementTarget });
 
         _textSource.TextChanged    += OnTextChanged;
         _textSource.PreviewKeyDown += OnPreviewKeyDown;
+        _textSource.PreviewTextInput += OnPreviewTextInput;
         _placementTarget.IsKeyboardFocusWithinChanged += OnFocusWithinChanged;
 
         // Close popup whenever the owner window moves or resizes so it doesn't
@@ -143,6 +149,11 @@ internal sealed class TourIntelliSenseHelper : IDisposable
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Backspace and Delete modify text but do not fire PreviewTextInput, so
+        // mark them as user-initiated so the popup can still update on deletion.
+        if (e.Key is Key.Back or Key.Delete)
+            _triggeredByTyping = true;
+
         if (!_popup.IsOpen) return;
 
         switch (e.Key)
@@ -185,6 +196,9 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         }
     }
 
+    private void OnPreviewTextInput(object sender, TextCompositionEventArgs e) =>
+        _triggeredByTyping = true;
+
     private void OnListBoxPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         // Walk up from the element under the pointer to find the ListBoxItem.
@@ -225,13 +239,23 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         // (e.g. "Command: ").  For complete values the popup should stay closed so the
         // next Tab press moves focus to the next control instead of re-accepting.
         if (_textSource.Text.EndsWith(": "))
+        {
+            // Treat post-acceptance parameter prompting as user-initiated so the
+            // popup opens to suggest parameter values.
+            _triggeredByTyping = true;
             _textSource.Dispatcher.InvokeAsync(UpdateSuggestions, DispatcherPriority.Background);
+        }
     }
 
     // ── Suggestion refresh ────────────────────────────────────────────────────
 
     private void UpdateSuggestions()
     {
+        // Capture and reset the typing flag before any early-return so it is
+        // never left stale from a previous keystroke.
+        bool wasTyping      = _triggeredByTyping;
+        _triggeredByTyping  = false;
+
         if (_suppressUpdate || _disposed) return;
         // Only show suggestions when the user is actively editing the field.
         if (!_textSource.IsKeyboardFocused) return;
@@ -253,15 +277,19 @@ internal sealed class TourIntelliSenseHelper : IDisposable
             _listBox.Items.Add(item);
         }
 
-        if (suggestions.Count > 0)
+        if (suggestions.Count > 0 && wasTyping)
         {
+            // Only open the popup when the update was triggered by actual typing
+            // (not by caret movement, selection change, or programmatic text load).
             _popup.IsOpen          = true;
             _listBox.SelectedIndex = -1; // Tab selects first item if none highlighted
         }
-        else
+        else if (suggestions.Count == 0)
         {
             _popup.IsOpen = false;
         }
+        // If suggestions exist but update was not triggered by typing,
+        // leave the popup in its current state (open → stays open, closed → stays closed).
     }
 
     // ── IDisposable ───────────────────────────────────────────────────────────
@@ -270,8 +298,9 @@ internal sealed class TourIntelliSenseHelper : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _textSource.TextChanged    -= OnTextChanged;
-        _textSource.PreviewKeyDown -= OnPreviewKeyDown;
+        _textSource.TextChanged      -= OnTextChanged;
+        _textSource.PreviewKeyDown   -= OnPreviewKeyDown;
+        _textSource.PreviewTextInput -= OnPreviewTextInput;
         _placementTarget.IsKeyboardFocusWithinChanged -= OnFocusWithinChanged;
         _placementTarget.Loaded -= OnPlacementTargetLoaded;
         _listBox.PreviewMouseLeftButtonDown -= OnListBoxPreviewMouseDown;
