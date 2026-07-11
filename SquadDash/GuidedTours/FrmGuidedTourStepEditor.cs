@@ -434,7 +434,6 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _nextButton.Click    += (_, _) => TryNavigate(_stepIndex + 1);
 
         var closeButton = MakeButton("Close");
-        closeButton.IsCancel = true;
         closeButton.Click += (_, _) => TryClose();
 
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -766,7 +765,6 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                     return;
                 }
                 e.Handled = true;
-                TryClose();
                 return;
             }
 
