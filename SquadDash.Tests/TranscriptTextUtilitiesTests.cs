@@ -4,6 +4,20 @@ namespace SquadDash.Tests;
 internal sealed class TranscriptTextUtilitiesTests {
 
     [Test]
+    public void FormatThinkingText_SuffixSplit_FusesSpaceSeparatedSuffixes() {
+        // The SuffixSplitRegex removes whitespace between a 4+-letter root and a recognised
+        // grammatical suffix, repairing thinking-text that arrives with spurious mid-word spaces.
+        Assert.Multiple(() => {
+            Assert.That(TranscriptTextUtilities.FormatThinkingText("comput ing"),    Is.EqualTo("computing"));
+            Assert.That(TranscriptTextUtilities.FormatThinkingText("organiz ation"), Is.EqualTo("organization"));
+            Assert.That(TranscriptTextUtilities.FormatThinkingText("nation ality"),  Is.EqualTo("nationality"));
+            Assert.That(TranscriptTextUtilities.FormatThinkingText("manage ment"),   Is.EqualTo("management"));
+            // Short roots (< 4 letters) must not be fused.
+            Assert.That(TranscriptTextUtilities.FormatThinkingText("go ing"),        Is.EqualTo("go ing"));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_InlineInboxSentinelMention_DoesNotStripText() {
         const string text = "The parser only accepts a bare `INBOX_MESSAGE_JSON:` line at the end.";
 

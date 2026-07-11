@@ -11,7 +11,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex WordApostropheRegex = new(
         @"(?<=\w)\s+'(?=\w)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex SuffixSplitRegex = new(
-        @"(?<=[A-Za-z]{4,})\s+(?=(?:ize|ized|ization|ise|ised|ises|ing|ed|er|ers|ly|ment|ments|tion|tions|able|ible|ality|ality|ities|ity)\b)",
+        @"(?<=[A-Za-z]{4,})\s+(?=(?:ize|ized|ization|ise|ised|ises|ing|ed|er|ers|ly|ment|ments|tion|tions|able|ible|ality|ities|ity)\b)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     private static readonly Regex SpaceBeforePunctRegex = new(
         @"\s+([,.;:!?%\)\]\}])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
