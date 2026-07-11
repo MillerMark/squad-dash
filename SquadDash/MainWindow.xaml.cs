@@ -14128,6 +14128,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_tourNamedDemoAgents.Count == 0) return;
 
+        var threadsToRemove = new List<TranscriptThreadState>();
+
         foreach (var (name, (card, thread)) in _tourNamedDemoAgents)
         {
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
@@ -14138,9 +14140,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             _tourNamedElements.Remove($"TourDemoAgent_{name}");
             _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
+
+            threadsToRemove.Add(thread);
         }
 
         _tourNamedDemoAgents.Clear();
+
+        if (threadsToRemove.Count > 0)
+        {
+            RemovePrimaryAgentTranscriptHosts(threadsToRemove);
+            _agentThreadRegistry.RemoveThreads(threadsToRemove);
+        }
+
         SyncAgentCardsWithThreads();
     }
 
@@ -14907,6 +14918,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 status:           null,
                 prompt:           null,
                 startedAt:        null);
+            thread.IsCurrentBackgroundRun    = true;
+            thread.WasObservedAsBackgroundTask = true;
+            thread.LastObservedActivityAt    = DateTimeOffset.UtcNow;
             _guidedTourController?.TrackInjectedThread(thread.ThreadId);
 
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
