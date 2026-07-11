@@ -271,7 +271,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         double fontSizeBody = Application.Current.Resources.Contains("FontSizeBody")
             ? Convert.ToDouble(Application.Current.Resources["FontSizeBody"])
             : 13.0;
-        double cmdBoxHeight = (fontSizeBody + 6) * 4 + 8;
+        double cmdBoxHeight = (fontSizeBody + 6) * 9 + 8;
 
         _commandBeforeBox = new TextBox
         {
