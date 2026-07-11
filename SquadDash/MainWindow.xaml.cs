@@ -30940,7 +30940,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 charterPath: member.CharterPath,
                 historyPath: member.HistoryPath,
                 folderPath: member.FolderPath,
-                isCompact: member.IsUtilityAgent && !AgentRosterVisibilityPolicy.IsScribeAgent(member.Name, member.FolderPath),
+                isCompact: member.IsUtilityAgent && !AgentRosterVisibilityPolicy.IsVisibleUtilityAgent(member.Name, member.FolderPath),
                 isUtilityAgent: member.IsUtilityAgent);
 
             ApplyAgentAccent(card, ResolveAgentAccentHex(card, isLeadAgent: false), persist: false);

@@ -1,13 +1,13 @@
 {
   "tasks": {
     "architectural-practices": {
-      "lastRunAt": "2026-06-01T13:30:21.5929118Z",
-      "lastCommitSha": "",
+      "lastRunAt": "2026-07-11T01:37:55.9996665Z",
+      "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
       "safetyOverride": "report-only"
     },
     "code-smells": {
-      "lastRunAt": "2026-06-01T13:34:13.6385115Z",
-      "lastCommitSha": "",
+      "lastRunAt": "2026-07-11T01:46:29.5661150Z",
+      "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
       "safetyOverride": ""
     },
     "docs-review": {
@@ -31,8 +31,8 @@
       "safetyOverride": ""
     },
     "commit-review": {
-      "lastRunAt": "2026-06-22T17:25:21.1872739Z",
-      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
+      "lastRunAt": "2026-07-11T01:50:42.8904172Z",
+      "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
       "safetyOverride": ""
     },
     "daily-issue-pr-tracker": {
@@ -51,14 +51,24 @@
       "safetyOverride": ""
     },
     "speed-improvements": {
-      "lastRunAt": "2026-06-18T00:39:32.1302700Z",
-      "lastCommitSha": "72a43f7e41d3bcc8501ab10aa00a41e93cc162be",
+      "lastRunAt": "2026-06-22T17:51:34.3292024Z",
+      "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
       "safetyOverride": ""
     },
     "prune-tasks": {
       "lastRunAt": "2026-06-22T17:29:46.8549235Z",
       "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
+      "safetyOverride": "report-only"
+    },
+    "categorize-approvals": {
+      "lastRunAt": "2026-07-11T01:38:11.9479386Z",
+      "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
       "safetyOverride": ""
+    },
+    "clean-inbox": {
+      "lastRunAt": "2026-07-11T01:42:56.1757465Z",
+      "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
+      "safetyOverride": "direct"
     }
   }
 }

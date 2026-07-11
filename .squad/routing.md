@@ -16,6 +16,8 @@ How to decide who handles what.
 | Performance & execution speed | Sorin Pyre | Hot-path profiling, throughput bottlenecks, rendering responsiveness, build speed, benchmark baselines |
 | Mac & cross-platform porting | Atlas Wren | macOS builds, Avalonia/MAUI evaluation, platform-conditional code, `.app` packaging, code signing, non-Windows API gaps |
 | Architectural code review | Orion Vale | Staff-level review for architectural governance across all layers |
+| Fact-checking & claim verification | Verity Cross | Validate claims, verify external facts, challenge assumptions, run counter-hypotheses, check hallucination risk |
+| RAI review | Rai | Content safety, bias checks, credential detection, privacy risk, ethical review |
 | Scope & priorities | Orion Vale | What to build next, trade-offs, decomposing epics into phases |
 | Session logging | Scribe | Automatic — never needs routing |
 | Maintenance orchestration (idle tasks) | Argus Weld | `.squad/maintenance*.md` files — idle-window scheduling, session reports. Source files with "maintenance" in the name belong to domain specialists, not Argus Weld. |

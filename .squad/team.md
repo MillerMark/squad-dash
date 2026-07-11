@@ -23,6 +23,8 @@
 | Atlas Wren | Mac & Cross-Platform Specialist | agents/atlas-wren/charter.md | active |
 | Scribe | Session Logger | agents/scribe/charter.md | 📋 Silent |
 | Ralph | Work Monitor | — | 🔄 Monitor |
+| Rai | RAI Reviewer | agents/Rai/charter.md | 📋 Silent |
+| Verity Cross | Fact Checker | agents/fact-checker/charter.md | active |
 | Argus Weld | Continuous Improvement | agents/argus-weld/charter.md | 🌙 Background |
 | Malik Graves | Markdown Specialist | agents/malik-graves/charter.md | active |
 

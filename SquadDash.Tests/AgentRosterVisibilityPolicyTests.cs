@@ -40,6 +40,25 @@ public class AgentRosterVisibilityPolicyTests {
     }
 
     [Test]
+    public void ShouldShow_ReturnsTrue_ForFactCheckerUtilityAgent() {
+        var agent = new AgentStatusCard(
+            "Verity Cross",
+            "V",
+            "Fact Checker",
+            "Ready",
+            string.Empty,
+            string.Empty,
+            "#FF4472C4",
+            "fact-checker",
+            charterPath: @"C:\Repo\.squad\agents\fact-checker\charter.md",
+            folderPath: @"C:\Repo\.squad\agents\fact-checker",
+            isCompact: true,
+            isUtilityAgent: true);
+
+        Assert.That(AgentRosterVisibilityPolicy.ShouldShow(agent), Is.True);
+    }
+
+    [Test]
     public void ShouldShow_ReturnsFalse_ForOtherUtilityAgents() {
         var agent = new AgentStatusCard(
             "Ralph",
