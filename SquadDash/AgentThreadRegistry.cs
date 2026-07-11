@@ -975,7 +975,8 @@ internal sealed class AgentThreadRegistry {
                thread.CurrentTurn is not null ||
                !string.IsNullOrWhiteSpace(thread.Prompt) ||
                !string.IsNullOrWhiteSpace(thread.DetailText) ||
-               !string.IsNullOrWhiteSpace(thread.LatestResponse);
+               !string.IsNullOrWhiteSpace(thread.LatestResponse) ||
+               !string.IsNullOrWhiteSpace(thread.AgentDescription);
     }
 
     internal static bool HasMeaningfulThreadTranscript(TranscriptThreadState thread) {
